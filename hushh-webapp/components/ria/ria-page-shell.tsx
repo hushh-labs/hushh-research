@@ -64,7 +64,7 @@ export function RiaPageShell({
   title: string;
   description?: string;
   actions?: ReactNode;
-  icon?: LucideIcon;
+  icon?: LucideIcon | null;
   statusPanel?: ReactNode;
   children: ReactNode;
   width?: AppPageShellWidth;
@@ -104,7 +104,7 @@ export function RiaPageShell({
           description={description}
           actions={actions}
           actionsInlineMobile={titleRole === "agent"}
-          icon={icon}
+          icon={icon ?? undefined}
           accent="ria"
           titleRole={titleRole}
           className={

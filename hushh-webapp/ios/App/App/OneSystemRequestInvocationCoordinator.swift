@@ -5,8 +5,9 @@ import OSLog
 //
 // Every type here was annotated iOS 16+, but this file imports only Foundation
 // and OSLog and uses no iOS 16 API -- the annotation came along from the App
-// Intents code that calls into it. The app deploys to iOS 15, so the marking
-// made each unguarded call site (AppDelegate, HushhAuthPlugin,
+// Intents code that calls into it. The app deploys to iOS 17, but keeping this
+// coordinator Foundation-only avoids unnecessarily coupling each unguarded
+// call site (AppDelegate, HushhAuthPlugin,
 // HushhVoiceInvocationPlugin) a compile error. Its sibling,
 // OneSystemActionInvocationCoordinator, does the same Keychain and
 // NotificationCenter work with no annotation at all.
@@ -33,6 +34,7 @@ struct OneSystemRequestRecord: Codable, Equatable, Sendable {
     static let bridgeKind = "interpret_one_request"
     static let bridgeSource = "siri_app_shortcut"
     static let protocolVersion = "one.request.v1"
+    static let handoffDeadline: TimeInterval = 25
 
     let id: String
     let text: String
@@ -40,11 +42,15 @@ struct OneSystemRequestRecord: Codable, Equatable, Sendable {
     let createdAt: Date
     let expiresAt: Date
 
-    /// The envelope handed to the webapp. `text` is deliberately absent: the
-    /// captured request never crosses the bridge, and this coordinator is the
-    /// only layer that ever holds it. The keys and their spelling are the
-    /// contract `isPendingRequestInvocation` validates in
-    /// lib/capacitor/one-system-request-invocation.ts.
+    var handoffDeadlineAt: Date {
+        min(expiresAt, createdAt.addingTimeInterval(Self.handoffDeadline))
+    }
+
+    /// The discovery envelope handed to the webapp is metadata-only. `text`
+    /// is returned only by a successful, owner-bound one-time claim; it never
+    /// appears in discovery, availability, or completion payloads. The keys
+    /// and their spelling are the contract `isPendingRequestInvocation`
+    /// validates in lib/capacitor/one-system-request-invocation.ts.
     var bridgePayload: [String: Any] {
         [
             "id": id,
@@ -52,6 +58,11 @@ struct OneSystemRequestRecord: Codable, Equatable, Sendable {
             "source": Self.bridgeSource,
             "createdAt": Int64(createdAt.timeIntervalSince1970 * 1_000),
             "expiresAt": Int64(expiresAt.timeIntervalSince1970 * 1_000),
+            "handoffDeadlineAt": Int64(handoffDeadlineAt.timeIntervalSince1970 * 1_000),
+            "claimedAt": NSNull(),
+            "appOwnedAt": NSNull(),
+            "detached": false,
+            "outcome": NSNull(),
             "protocolVersion": Self.protocolVersion,
             "ownerBinding": ownerID
         ]
@@ -133,6 +144,15 @@ final class OneSystemRequestInvocationCoordinator: @unchecked Sendable {
     private let now: () -> Date
     private let currentUserID: () -> String?
     private let lock = NSLock()
+    private struct ClaimedRecordState {
+        let record: OneSystemRequestRecord
+        let claimedAt: Date
+        var appOwnedAt: Date?
+        var detached: Bool
+        var outcome: String?
+    }
+
+    private var claimedRecords: [String: ClaimedRecordState] = [:]
 
     init(
         store: OneSystemRequestStoring = OneSystemRequestKeychainStore(),
@@ -162,7 +182,8 @@ final class OneSystemRequestInvocationCoordinator: @unchecked Sendable {
         }
 
         lock.lock()
-        if readPending() != nil {
+        purgeExpiredClaimedRecords(now: now())
+        if readValidatedPending() != nil || !claimedRecords.isEmpty {
             lock.unlock()
             return .alreadyPending
         }
@@ -184,7 +205,7 @@ final class OneSystemRequestInvocationCoordinator: @unchecked Sendable {
 
         lock.unlock()
         Self.logger.info(
-            "Captured request: id=\(record.id, privacy: .public) length=\(trimmed.utf8.count, privacy: .public) owner=\(currentOwner, privacy: .public)"
+            "Captured request: id=\(record.id, privacy: .public) length=\(trimmed.utf8.count, privacy: .public)"
         )
         publishAvailability(state: "request_captured")
         return .captured
@@ -196,14 +217,23 @@ final class OneSystemRequestInvocationCoordinator: @unchecked Sendable {
             lock.unlock()
             return nil
         }
-        guard record.expiresAt > now() else {
+        let currentTime = now()
+        guard record.expiresAt > currentTime,
+              record.handoffDeadlineAt > currentTime else {
             store.remove(pendingKey)
             lock.unlock()
-            Self.logger.info("Expired request claimed: id=\(record.id, privacy: .public)")
+            Self.logger.info("Request handoff expired: id=\(record.id, privacy: .public)")
             return nil
         }
 
         store.remove(pendingKey)
+        claimedRecords[record.id] = ClaimedRecordState(
+            record: record,
+            claimedAt: now(),
+            appOwnedAt: nil,
+            detached: false,
+            outcome: nil
+        )
         lock.unlock()
 
         OneSystemActionInvocationCoordinator.shared.bindRequestOwner(record.ownerID)
@@ -218,14 +248,25 @@ final class OneSystemRequestInvocationCoordinator: @unchecked Sendable {
         return record
     }
 
-    func cancelRequest() {
+    func cancelRequest(id: String? = nil) {
         lock.lock()
-        if let record = readPending() {
+        let pending = readPending()
+        let shouldCancelPending = id == nil || pending?.id == id
+        if shouldCancelPending, let record = pending {
             Self.logger.info("Cancelling request: id=\(record.id, privacy: .public)")
+            store.remove(pendingKey)
         }
-        store.remove(pendingKey)
+        let removedClaim: Bool
+        if let id {
+            removedClaim = claimedRecords.removeValue(forKey: id) != nil
+        } else {
+            removedClaim = !claimedRecords.isEmpty
+            claimedRecords.removeAll()
+        }
         lock.unlock()
-        publishAvailability(state: "request_cancelled")
+        if shouldCancelPending || removedClaim {
+            publishAvailability(state: "request_cancelled")
+        }
     }
 
     // MARK: - Bridge surface
@@ -245,23 +286,40 @@ final class OneSystemRequestInvocationCoordinator: @unchecked Sendable {
     /// call cannot consume a newer request.
     @discardableResult
     func claim(id: String) -> Bool {
+        claimRecord(id: id) != nil
+    }
+
+    /// Claims and returns the private request text exactly once. The text is
+    /// returned only across the already-authenticated in-process bridge after
+    /// the native owner/id/expiry checks pass. Discovery and availability
+    /// payloads remain metadata-only.
+    func claimRecord(id: String) -> OneSystemRequestRecord? {
         lock.lock()
         guard let record = readValidatedPending(), record.id == id else {
             lock.unlock()
-            return false
+            return nil
         }
-        guard record.expiresAt > now() else {
+        let currentTime = now()
+        guard record.expiresAt > currentTime,
+              record.handoffDeadlineAt > currentTime else {
             store.remove(pendingKey)
             lock.unlock()
-            Self.logger.info("Expired request claimed: id=\(record.id, privacy: .public)")
-            return false
+            Self.logger.info("Request handoff expired: id=\(record.id, privacy: .public)")
+            return nil
         }
         store.remove(pendingKey)
+        claimedRecords[record.id] = ClaimedRecordState(
+            record: record,
+            claimedAt: now(),
+            appOwnedAt: nil,
+            detached: false,
+            outcome: nil
+        )
         lock.unlock()
 
         OneSystemActionInvocationCoordinator.shared.bindRequestOwner(record.ownerID)
         Self.logger.info("Claimed request: id=\(record.id, privacy: .public)")
-        return true
+        return record
     }
 
     /// Acknowledge progress on a request. Returns whether the id is the one
@@ -269,6 +327,48 @@ final class OneSystemRequestInvocationCoordinator: @unchecked Sendable {
     @discardableResult
     func reportProgress(id: String, state: String) -> Bool {
         lock.lock()
+        if var claimed = claimedRecords[id] {
+            guard currentUserID() == claimed.record.ownerID else {
+                claimedRecords.removeValue(forKey: id)
+                lock.unlock()
+                Self.logger.warning("Request owner changed during progress")
+                return false
+            }
+            if state == "app_owned" && now() > claimed.record.handoffDeadlineAt {
+                claimedRecords.removeValue(forKey: id)
+                lock.unlock()
+                Self.logger.info(
+                    "Request app ownership deadline expired: id=\(id, privacy: .public)"
+                )
+                return false
+            }
+            switch state {
+            case "app_owned":
+                claimed.appOwnedAt = now()
+            case "detached":
+                claimed.detached = true
+                // A Siri detachment before app ownership is a cancelled
+                // handoff. Remove the claim so no later completion can make it
+                // look accepted or permit a stale request to run.
+                if claimed.appOwnedAt == nil {
+                    claimedRecords.removeValue(forKey: id)
+                    lock.unlock()
+                    Self.logger.info(
+                        "Detached before app ownership: id=\(id, privacy: .public)"
+                    )
+                    publishAvailability(state: "request_detached")
+                    return true
+                }
+            default:
+                break
+            }
+            claimedRecords[id] = claimed
+            lock.unlock()
+            Self.logger.info(
+                "Request progress: id=\(claimed.record.id, privacy: .public) state=\(state, privacy: .public)"
+            )
+            return true
+        }
         let record = readValidatedPending()
         lock.unlock()
         guard let record, record.id == id else { return false }
@@ -278,20 +378,23 @@ final class OneSystemRequestInvocationCoordinator: @unchecked Sendable {
         return true
     }
 
-    /// Finish a request. Clears the pending record only when the id matches, so
-    /// a late completion cannot discard a request captured after it.
+    /// Finish a request only after a successful claim. A late completion cannot
+    /// discard a newer pending request or complete an invocation after its
+    /// owner has signed out.
     func complete(id: String, outcome: String, summary: String) {
         lock.lock()
-        let matched = readPending()?.id == id
-        if matched {
-            store.remove(pendingKey)
+        guard let claimed = claimedRecords[id],
+              currentUserID() == claimed.record.ownerID else {
+            lock.unlock()
+            return
         }
+        claimedRecords.removeValue(forKey: id)
         lock.unlock()
-        guard matched else { return }
         // `summary` is user-facing copy that can quote the request, so it is
         // deliberately not logged.
+        let safeOutcome = Self.allowedOutcomes.contains(outcome) ? outcome : "failed"
         Self.logger.info(
-            "Completed request: id=\(id, privacy: .public) outcome=\(outcome, privacy: .public)"
+            "Completed request: id=\(id, privacy: .public) outcome=\(safeOutcome, privacy: .public)"
         )
         publishAvailability(state: "request_completed")
     }
@@ -308,6 +411,13 @@ final class OneSystemRequestInvocationCoordinator: @unchecked Sendable {
         }
     }
 
+    private static let allowedOutcomes: Set<String> = [
+        "completed", "accepted", "failed", "expired", "cancelled",
+        "clarification_required", "handoff_timeout", "owner_mismatch",
+        "runtime_unavailable", "provider_unavailable", "ambiguous",
+        "voice_disabled", "fallback_shown"
+    ]
+
     // MARK: - Private helpers
 
     private func readPending() -> OneSystemRequestRecord? {
@@ -320,8 +430,17 @@ final class OneSystemRequestInvocationCoordinator: @unchecked Sendable {
         guard let currentOwner = currentUserID(),
               record.ownerID == currentOwner else {
             Self.logger.warning("Request owner mismatch during validation")
+            // An owner change invalidates the pending handoff. Remove it here
+            // so the next signed-in owner cannot be blocked by stale state.
+            store.remove(pendingKey)
             return nil
         }
         return record
+    }
+
+    private func purgeExpiredClaimedRecords(now: Date) {
+        claimedRecords = claimedRecords.filter { _, state in
+            state.record.expiresAt > now
+        }
     }
 }

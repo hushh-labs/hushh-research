@@ -3,7 +3,8 @@
 Unit doubles protect most edge cases, but they cannot execute PostgreSQL's
 ``UNNEST``/``digest`` matcher or the set-based graph writes. Point
 ``CONTACT_SYNC_POSTGRES_TEST_URL`` at a disposable PostgreSQL database to run
-this test. Every fixture lives in a unique schema that is removed afterward.
+these tests. Directory/lock fixtures use unique schemas. The full resync
+fixture creates and removes a dedicated database to run real deletion guards.
 """
 
 from __future__ import annotations
@@ -11,18 +12,32 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import os
+import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from threading import Event
+from unittest.mock import patch
 
 import asyncpg
 import pytest
 from sqlalchemy import create_engine, text
+from sqlalchemy.engine import make_url
+from sqlalchemy.exc import IntegrityError
 
 from hushh_mcp.services.connection_graph_service import (
     activate_contact_sync_connections_bulk,
+    lock_connection_graph_users,
+    revoke_circle_origins,
 )
+from hushh_mcp.services.connections_service import ConnectionsService
 from hushh_mcp.services.contact_sync_contract import CONTACT_SYNC_MATCH_POLICY_VERSION
 from hushh_mcp.services.ria_iam_service import RIAIAMService
+from scripts.backfill_contact_disconnect_actors import (
+    APPLY_SQL,
+    BATCH_SQL,
+    verified_disconnect_actor,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 POSTGRES_URL = str(os.getenv("CONTACT_SYNC_POSTGRES_TEST_URL") or "").strip()
@@ -49,11 +64,14 @@ class _LiveMatcher(RIAIAMService):
         return None
 
 
-async def _prepare_schema(schema: str) -> None:
-    connection = await asyncpg.connect(POSTGRES_URL)
+async def _prepare_schema(
+    schema: str, *, postgres_url: str = POSTGRES_URL, full_deletion_guards: bool = False
+) -> None:
+    connection = await asyncpg.connect(postgres_url)
     try:
         await connection.execute("CREATE EXTENSION IF NOT EXISTS pgcrypto")
-        await connection.execute(f'CREATE SCHEMA "{schema}"')
+        if schema != "public":
+            await connection.execute(f'CREATE SCHEMA "{schema}"')
         await connection.execute(f'SET search_path TO "{schema}", public')
         await connection.execute(
             """
@@ -150,6 +168,22 @@ async def _prepare_schema(schema: str) -> None:
             encoding="utf-8"
         )
         await connection.execute(migration)
+        actor_migration = (ROOT / "db/migrations/205_contact_sync_disconnect_actor.sql").read_text()
+        if full_deletion_guards:
+            # Use the complete, unmodified migration in a fresh database's
+            # public schema, including its catalog installer and DDL trigger.
+            await connection.execute("CREATE TABLE vault_keys (user_id TEXT PRIMARY KEY)")
+            await connection.execute(
+                (ROOT / "db/migrations/201_account_deletion_tombstones.sql").read_text()
+            )
+        else:
+            # Directory-policy/lock tests deliberately isolate migration 200
+            # from account-deletion locking. The full resync test below applies
+            # both complete migrations in public, without this scoped exclusion.
+            actor_migration = actor_migration.replace(
+                "SELECT install_account_deletion_write_guards();", ""
+            )
+        await connection.execute(actor_migration)
         await connection.executemany(
             """
             INSERT INTO actor_profiles (
@@ -391,3 +425,432 @@ def test_exact_directory_match_and_graph_projection_execute_on_postgres() -> Non
             engine.dispose()
     finally:
         asyncio.run(_drop_schema(schema))
+
+
+@pytest.mark.db
+@pytest.mark.skipif(not POSTGRES_URL, reason="requires disposable PostgreSQL")
+def test_disconnect_waiting_on_graph_lock_wins_over_older_sync_cutoff() -> None:
+    schema = f"contact_race_{uuid.uuid4().hex}"
+    engine = create_engine(POSTGRES_URL.replace("postgresql://", "postgresql+psycopg2://", 1))
+    ready = Event()
+    worker = {}
+    try:
+        asyncio.run(_prepare_schema(schema))
+
+        def disconnect():
+            with engine.begin() as conn:
+                conn.execute(text(f'SET LOCAL search_path TO "{schema}", public'))
+                worker.update(
+                    conn.execute(text("SELECT pg_backend_pid() AS pid, NOW() AS started_at"))
+                    .mappings()
+                    .one()
+                )
+                service = ConnectionsService()
+                service._transaction_connection = conn
+                connection_id = conn.execute(
+                    text(
+                        "SELECT id FROM connections WHERE user_a_id=LEAST('owner','manish') AND user_b_id=GREATEST('owner','manish')"
+                    )
+                ).scalar_one()
+                ready.set()
+                with (
+                    patch.object(service, "_cancel_pending_pair_requests"),
+                    patch.object(service, "_revoke_pair_capabilities"),
+                    patch.object(service, "_end_one_location_circle_memberships"),
+                    patch.object(service, "_record_connection_feed_transition"),
+                ):
+                    assert service.remove_connection("owner", str(connection_id))["removed"] == 1
+                return conn.execute(
+                    text("SELECT revoked_at FROM connections WHERE id=:id"), {"id": connection_id}
+                ).scalar_one()
+
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            with engine.connect() as gate:
+                lock_connection_graph_users(gate, user_ids={"owner", "manish"})
+                future = pool.submit(disconnect)
+                try:
+                    assert ready.wait(5)
+                    deadline = time.monotonic() + 5
+                    while not gate.execute(
+                        text(
+                            "SELECT EXISTS(SELECT 1 FROM pg_locks WHERE pid=:pid AND locktype='advisory' AND NOT granted)"
+                        ),
+                        {"pid": worker["pid"]},
+                    ).scalar_one():
+                        assert time.monotonic() < deadline, (
+                            "disconnect did not wait for the graph gate"
+                        )
+                        time.sleep(0.02)
+                    cutoff = gate.execute(text("SELECT clock_timestamp()")).scalar_one()
+                finally:
+                    gate.commit()
+            removed_at = future.result(timeout=10)
+        assert worker["started_at"] < cutoff < removed_at
+        with engine.begin() as conn:
+            conn.execute(text(f'SET LOCAL search_path TO "{schema}", public'))
+            service = ConnectionsService()
+            service._transaction_connection = conn
+            args = {
+                "phone_lookups": [_lookup("manish", "+919876500001")],
+                "matches": [{"lookup_id": "manish", "user_id": "manish"}],
+            }
+            with patch.object(service, "_join_trusted_system_circles_bulk"):
+                assert (
+                    service.sync_contact_matches("owner", **args, sync_started_at=cutoff)[
+                        "suppressedCount"
+                    ]
+                    == 1
+                )
+                assert (
+                    service.sync_contact_matches(
+                        "owner", **args, sync_started_at=service.begin_contact_sync()
+                    )["autoConnectedCount"]
+                    == 1
+                )
+    finally:
+        engine.dispose()
+        asyncio.run(_drop_schema(schema))
+
+
+@pytest.mark.db
+@pytest.mark.skipif(
+    not POSTGRES_URL,
+    reason="set CONTACT_SYNC_POSTGRES_TEST_URL to a disposable PostgreSQL database",
+)
+def test_explicit_resync_disconnect_episodes_and_backfill_on_postgres() -> None:
+    schema = "public"
+    database = f"codex_contact_resync_{uuid.uuid4().hex}"
+    admin_engine = create_engine(
+        make_url(POSTGRES_URL).set(drivername="postgresql+psycopg2"),
+        isolation_level="AUTOCOMMIT",
+    )
+    url = make_url(POSTGRES_URL).set(database=database)
+    engine = create_engine(url.set(drivername="postgresql+psycopg2"))
+    try:
+        with admin_engine.connect() as admin:
+            admin.exec_driver_sql(f'CREATE DATABASE "{database}"')
+        asyncio.run(
+            _prepare_schema(
+                schema,
+                postgres_url=url.render_as_string(hide_password=False),
+                full_deletion_guards=True,
+            )
+        )
+        with engine.begin() as connection:
+            connection.execute(text(f'SET LOCAL search_path TO "{schema}", public'))
+            connection.execute(
+                text(
+                    "UPDATE actor_profiles SET contact_sync_consent_rule_version=0 WHERE user_id='parth'"
+                )
+            )
+            connection.execute(
+                text(
+                    "UPDATE marketplace_public_profiles SET is_discoverable=TRUE WHERE user_id='parth'"
+                )
+            )
+            connection.execute(
+                text("""CREATE TABLE feed_events (
+                id BIGSERIAL PRIMARY KEY, user_id TEXT, source_domain TEXT, event_type TEXT,
+                metadata JSONB, source_row_id TEXT, created_at TIMESTAMPTZ DEFAULT NOW(),
+                UNIQUE(user_id, source_domain, event_type, source_row_id))""")
+            )
+            service = ConnectionsService()
+            service._transaction_connection = connection
+            lookups = [
+                _lookup(name, phone)
+                for name, phone in (
+                    ("manish", "+919876500001"),
+                    ("parth", "+16502530000"),
+                    ("kushal", "+919876500003"),
+                )
+            ]
+
+            def sync(cutoff=None):
+                return service.sync_contact_matches(
+                    "owner",
+                    phone_lookups=lookups,
+                    matches=[
+                        {"lookup_id": item["lookup_id"], "user_id": item["lookup_id"]}
+                        for item in lookups
+                    ],
+                    sync_started_at=cutoff or service.begin_contact_sync(),
+                )
+
+            def edge(target):
+                return dict(
+                    connection.execute(
+                        text(
+                            "SELECT * FROM connections WHERE user_a_id=LEAST('owner',:target) AND user_b_id=GREATEST('owner',:target)"
+                        ),
+                        {"target": target},
+                    )
+                    .mappings()
+                    .one()
+                )
+
+            # These independent subsystems have their own regression fixtures;
+            # the canonical disconnect, SQL locks, proofs, provenance and mirror
+            # writes below execute the real production service on PostgreSQL.
+            with (
+                patch.object(service, "_join_trusted_system_circles_bulk"),
+                patch.object(service, "_cancel_pending_pair_requests"),
+                patch.object(service, "_revoke_pair_capabilities"),
+                patch.object(service, "_end_one_location_circle_memberships") as teardown,
+            ):
+                assert sync()["matchedCount"] == 3
+                guard_args = (
+                    connection.execute(
+                        text("""
+                    SELECT encode(tgargs, 'escape') FROM pg_trigger
+                    WHERE tgrelid='connections'::regclass AND NOT tgisinternal
+                      AND tgname LIKE 'trg_reject_deleted_account_%'
+                """)
+                    )
+                    .scalars()
+                    .all()
+                )
+                assert guard_args and all(
+                    "user_a_id" in args and "user_b_id" in args and "revoked_by" not in args
+                    for args in guard_args
+                )
+                with pytest.raises(IntegrityError, match="account identity reference is immutable"):
+                    with connection.begin_nested():
+                        connection.execute(
+                            text("UPDATE connections SET user_a_id='a_reparented' WHERE id=:id"),
+                            {"id": edge("manish")["id"]},
+                        )
+                removed_id = str(edge("manish")["id"])
+                circle_ids = [str(uuid.uuid4()), str(uuid.uuid4())]
+                connection.execute(
+                    text("CREATE TABLE one_location_circles (id UUID PRIMARY KEY, name TEXT)")
+                )
+                for circle_id in circle_ids:
+                    connection.execute(
+                        text("INSERT INTO one_location_circles VALUES (:id, 'Test Circle')"),
+                        {"id": circle_id},
+                    )
+                    connection.execute(
+                        text("""INSERT INTO connection_origins
+                        (connection_id, origin_kind, origin_key, source_circle_id)
+                        VALUES (:connection, 'named_circle', :key, :circle)"""),
+                        {
+                            "connection": removed_id,
+                            "key": f"named_circle:{circle_id}",
+                            "circle": circle_id,
+                        },
+                    )
+
+                def clean_named_origins(**_):
+                    revoke_circle_origins(connection, circle_id=circle_ids[0])
+                    assert edge("manish")["status"] == "active"
+                    revoke_circle_origins(connection, circle_id=circle_ids[1])
+                    assert edge("manish")["revoked_by_at"] != edge("manish")["revoked_at"]
+
+                teardown.side_effect = clean_named_origins
+                assert service.remove_connection("owner", removed_id)["removed"] == 1
+                teardown.side_effect = None
+                assert (
+                    connection.execute(
+                        text("SELECT COUNT(*) FROM connections WHERE status='active'")
+                    ).scalar_one()
+                    == 2
+                )
+                assert edge("manish")["revoked_by_side"] == "b"
+                assert edge("manish")["revoked_by_at"] == edge("manish")["revoked_at"]
+                restored = sync()
+                assert (
+                    restored["matchedCount"],
+                    restored["autoConnectedCount"],
+                    restored["alreadyConnectedCount"],
+                ) == (3, 1, 2)
+                for _ in range(3):
+                    assert sync()["alreadyConnectedCount"] == 3
+                assert (
+                    connection.execute(text("SELECT COUNT(*) FROM connections")).scalar_one() == 3
+                )
+                assert (
+                    connection.execute(
+                        text("SELECT COUNT(*) FROM connection_origins WHERE status='active'")
+                    ).scalar_one()
+                    == 3
+                )
+                assert (
+                    connection.execute(
+                        text("SELECT COUNT(*) FROM trusted_connections WHERE status='active'")
+                    ).scalar_one()
+                    == 6
+                )
+                assert edge("manish")["revoked_by_side"] is None
+                assert (
+                    connection.execute(
+                        text(
+                            "SELECT COUNT(*) FROM connection_origins WHERE origin_kind='named_circle' AND status='active'"
+                        )
+                    ).scalar_one()
+                    == 0
+                )
+
+                # Peer intent and idempotent removal preserve the original actor.
+                assert service.remove_connection("parth", str(edge("parth")["id"]))["removed"] == 1
+                assert service.remove_connection("owner", str(edge("parth")["id"]))["removed"] == 0
+                assert edge("parth")["revoked_by_side"] == "b"
+                assert sync()["suppressedCount"] == 1
+
+                # Each side may reverse its own removal. Alternating actors
+                # changes relationship metadata while participant IDs stay fixed.
+                owner_lookup = _lookup("owner", "+919000000001")
+                assert (
+                    service.sync_contact_matches(
+                        "parth",
+                        phone_lookups=[owner_lookup],
+                        matches=[{"lookup_id": "owner", "user_id": "owner"}],
+                        sync_started_at=service.begin_contact_sync(),
+                    )["autoConnectedCount"]
+                    == 1
+                )
+                assert edge("parth")["revoked_by_side"] is None
+                service.remove_connection("owner", str(edge("parth")["id"]))
+                assert edge("parth")["revoked_by_side"] == "a"
+                assert sync()["autoConnectedCount"] == 1
+                service.remove_connection("parth", str(edge("parth")["id"]))
+                assert edge("parth")["revoked_by_side"] == "b"
+                assert sync()["suppressedCount"] == 1
+
+                # The transaction began before this cutoff; clock_timestamp,
+                # unlike NOW, still proves that the disconnect happened later.
+                cutoff = service.begin_contact_sync()
+                service.remove_connection("owner", str(edge("kushal")["id"]))
+                episode = edge("kushal")["revoked_at"]
+                assert episode > cutoff
+                assert sync(cutoff)["suppressedCount"] == 2
+                assert sync()["autoConnectedCount"] == 1
+
+                # A stale caller cannot reuse a previous revocation episode.
+                service.remove_connection("owner", str(edge("kushal")["id"]))
+                assert (
+                    activate_contact_sync_connections_bulk(
+                        connection,
+                        requester_user_id="owner",
+                        sync_started_at=service.begin_contact_sync(),
+                        activations=[
+                            {
+                                "target_user_id": "kushal",
+                                "reconnect_revoked_at": episode,
+                                "origin_metadata": {
+                                    "authorization": "verified_phone_directory_match",
+                                    "matchPolicyVersion": CONTACT_SYNC_MATCH_POLICY_VERSION,
+                                    "targetPreferenceState": "default",
+                                },
+                            }
+                        ],
+                    )
+                    == []
+                )
+
+                # Mixed-version writers invalidate stale actor evidence.
+                connection.execute(
+                    text("UPDATE connections SET revoked_at=clock_timestamp() WHERE id=:id"),
+                    {"id": edge("kushal")["id"]},
+                )
+                assert sync()["suppressedCount"] == 2
+
+                # Historical actor backfill requires both exact-episode events.
+                connection.execute(
+                    text(
+                        "UPDATE connections SET revoked_by_side=NULL, revoked_by_at=NULL, revoked_at=NOW() WHERE id=:id"
+                    ),
+                    {"id": edge("manish")["id"]},
+                )
+                connection.execute(
+                    text("UPDATE connections SET status='revoked' WHERE id=:id"),
+                    {"id": edge("manish")["id"]},
+                )
+                historic = edge("manish")
+                source_id = f"{historic['id']}:{historic['revoked_at']}"
+                for owner in ("owner", "manish"):
+                    service._record_connection_feed_transition(
+                        owner_user_id=owner,
+                        counterpart_user_id="manish" if owner == "owner" else "owner",
+                        actor_user_id="owner",
+                        event_type="connection_revoked",
+                        source_row_id=source_id,
+                    )
+                candidates = (
+                    connection.execute(text(BATCH_SQL), {"after_id": None, "batch_size": 10})
+                    .mappings()
+                    .all()
+                )
+                candidate = next(dict(row) for row in candidates if row["id"] == historic["id"])
+                # This fixture runs several episodes in one transaction, so
+                # NOW timestamps collide: conflicting history must fail closed.
+                assert verified_disconnect_actor(candidate) is None
+                connection.execute(
+                    text(
+                        "DELETE FROM feed_events WHERE LEFT(source_row_id,37)=:prefix AND source_row_id<>:source"
+                    ),
+                    {"prefix": f"{historic['id']}:", "source": source_id},
+                )
+                candidates = (
+                    connection.execute(text(BATCH_SQL), {"after_id": None, "batch_size": 10})
+                    .mappings()
+                    .all()
+                )
+                candidate = next(dict(row) for row in candidates if row["id"] == historic["id"])
+                assert verified_disconnect_actor(candidate) == "owner"
+                assert verified_disconnect_actor({**candidate, "peer_count": 0}) is None
+                assert (
+                    verified_disconnect_actor(
+                        {**candidate, "source_row_id": f"{historic['id']}:bad"}
+                    )
+                    is None
+                )
+                assert (
+                    connection.execute(
+                        text(APPLY_SQL),
+                        {
+                            "id": str(historic["id"]),
+                            "actor": "owner",
+                            "observed_revoked_at": historic["revoked_at"],
+                        },
+                    ).rowcount
+                    == 1
+                )
+                assert sync()["autoConnectedCount"] == 1
+
+            # Rollback removes only the annotation; graph rows survive, and
+            # re-expansion safely returns old actor evidence to unknown.
+            count = connection.execute(text("SELECT COUNT(*) FROM connections")).scalar_one()
+            down = (
+                ROOT / "db/migrations/rollback/205_contact_sync_disconnect_actor.rollback.sql"
+            ).read_text()
+            connection.exec_driver_sql(down.replace("BEGIN;", "").replace("COMMIT;", ""))
+            assert (
+                connection.execute(text("SELECT COUNT(*) FROM connections")).scalar_one() == count
+            )
+            up = (ROOT / "db/migrations/205_contact_sync_disconnect_actor.sql").read_text()
+            connection.exec_driver_sql(up.replace("BEGIN;", "").replace("COMMIT;", ""))
+            connection.exec_driver_sql(up.replace("BEGIN;", "").replace("COMMIT;", ""))
+            assert (
+                connection.execute(
+                    text("SELECT COUNT(*) FROM connections WHERE revoked_by_side IS NOT NULL")
+                ).scalar_one()
+                == 0
+            )
+            # Real root deletion still forbids recreating a canonical pair.
+            connection.execute(text("DELETE FROM actor_profiles WHERE user_id='manish'"))
+            with pytest.raises(IntegrityError, match="account identity is deleted"):
+                with connection.begin_nested():
+                    connection.execute(
+                        text(
+                            "INSERT INTO connections(user_a_id,user_b_id) VALUES ('manish','zz_person')"
+                        )
+                    )
+    finally:
+        engine.dispose()
+        assert (
+            database.startswith("codex_contact_resync_")
+            and len(database) == len("codex_contact_resync_") + 32
+        )
+        with admin_engine.connect() as admin:
+            admin.exec_driver_sql(f'DROP DATABASE IF EXISTS "{database}" WITH (FORCE)')
+        admin_engine.dispose()

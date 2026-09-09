@@ -1,4 +1,10 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import type { ReactNode } from "react";
 import type { FeedRow as RealFeedRow } from "@/components/feed/feed-row";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -121,7 +127,9 @@ vi.mock("@/components/feed/feed-actionable-row", () => ({
 }));
 
 vi.mock("@/components/app-ui/app-page-shell", () => ({
-  AppPageShell: ({ children }: { children: ReactNode }) => <div>{children}</div>,
+  AppPageShell: ({ children }: { children: ReactNode }) => (
+    <div>{children}</div>
+  ),
   AppPageContentRegion: ({ children }: { children: ReactNode }) => (
     <main>{children}</main>
   ),
@@ -131,7 +139,8 @@ vi.mock("@/components/app-ui/native-test-beacon", () => ({
   NativeTestBeacon: () => null,
 }));
 
-vi.mock("@/components/app-ui/typography", () => ({
+vi.mock("@/components/app-ui/typography", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/components/app-ui/typography")>()),
   SectionLabel: ({ children }: { children: ReactNode }) => <h2>{children}</h2>,
 }));
 
@@ -233,10 +242,7 @@ describe("Feed history interactions", () => {
   });
 
   it("never renders cached history before hydrating a persisted clear watermark", async () => {
-    window.localStorage.setItem(
-      "hushh:feed-cleared-through-id:feed-user",
-      "5",
-    );
+    window.localStorage.setItem("hushh:feed-cleared-through-id:feed-user", "5");
 
     render(<FeedPage />);
 
@@ -276,7 +282,9 @@ describe("Feed history interactions", () => {
     expect(mocks.markRead.mock.invocationCallOrder[0]).toBeLessThan(
       mocks.clearSmsEmergencies.mock.invocationCallOrder[0],
     );
-    expect(window.localStorage.getItem("hushh:feed-cleared-through-id:feed-user")).toBe("5");
+    expect(
+      window.localStorage.getItem("hushh:feed-cleared-through-id:feed-user"),
+    ).toBe("5");
 
     mocks.data = {
       ...mocks.data,
@@ -311,7 +319,9 @@ describe("Feed history interactions", () => {
     );
 
     await waitFor(() =>
-      expect(mocks.toastError).toHaveBeenCalledWith("Couldn't clear your feed."),
+      expect(mocks.toastError).toHaveBeenCalledWith(
+        "Couldn't clear your feed.",
+      ),
     );
     expect(mocks.clearSmsEmergencies).not.toHaveBeenCalled();
     expect(mocks.readFailed).toHaveBeenCalledWith("feed-user");

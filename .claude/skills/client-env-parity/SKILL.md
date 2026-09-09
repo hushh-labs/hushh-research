@@ -44,7 +44,7 @@ shipped. A guard that cannot fail is not a guard — re-prove it this way after 
 | Lane | File | How it passes values |
 |---|---|---|
 | web | `deploy/frontend.cloudbuild.yaml` | `--build-arg NEXT_PUBLIC_X=…` + `availableSecrets` |
-| ios-testflight | `.github/workflows/ship-ios-testflight.yml` | `put NEXT_PUBLIC_X "$VAL"` → `.env.local` |
+| ios-testflight | `.github/workflows/ship-ios-testflight.yml` | `materialize-ios-uat-build-contract.sh` → `put_env NEXT_PUBLIC_X "$VAL"` → `.env.local` |
 | ios-appstore | `.github/workflows/release-ios-appstore.yml` | `put NEXT_PUBLIC_X "$VAL"` → `.env.local` |
 
 There is no shared list. Adding a value to the web lane does **not** add it to the iOS

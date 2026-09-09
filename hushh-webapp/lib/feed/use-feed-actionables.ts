@@ -737,7 +737,7 @@ export function useFeedActionables(): UseFeedActionablesResult {
           label !== "Someone"
             ? {
                 displayName: label,
-                photoUrl: null,
+                photoUrl: invite.inviterPhotoUrl ?? null,
               }
             : null,
         title: label,
@@ -804,7 +804,7 @@ export function useFeedActionables(): UseFeedActionablesResult {
           label !== "Someone"
             ? {
                 displayName: label,
-                photoUrl: null,
+                photoUrl: request.counterpartPhotoUrl ?? null,
               }
             : null,
         title: label,
@@ -888,7 +888,7 @@ export function useFeedActionables(): UseFeedActionablesResult {
           ? task.persistenceState === "pending"
             ? "Analysis ready. Saving to history…"
             : "Analysis ready to review."
-        : "Analysis is ready, but could not be saved. Retry to keep it in history.";
+          : "Analysis is ready, but could not be saved. Retry to keep it in history.";
       const actions: FeedActionButton[] = [];
       if (running) {
         actions.push({

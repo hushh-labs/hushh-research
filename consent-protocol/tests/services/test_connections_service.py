@@ -1529,6 +1529,7 @@ def test_remove_connection_feed_projection_uses_connection_id() -> None:
                 "status": "active",
             },
             {"id": "conn-1", "revoked_at": "2026-08-26T12:00:00+00:00"},
+            {"id": "conn-1"},  # final disconnect episode after Circle cleanup
         ]
     )
     calls: list[tuple[str, dict]] = []
@@ -1982,6 +1983,7 @@ def test_list_requests_stringifies_a_real_driver_datetime():
             "metadata": None,
             "counterpart_user_id": "user-b",
             "counterpart_display_name": "Bob",
+            "counterpart_photo_url": "https://example.test/bob.png",
         }
     ]
     proposal_rows = [
@@ -2000,6 +2002,7 @@ def test_list_requests_stringifies_a_real_driver_datetime():
     with patch("hushh_mcp.services.connections_service.get_db", lambda: db):
         out = svc.list_requests("user-a", direction="outgoing")
     assert out[0]["createdAt"] == "2026-07-09T00:00:00+00:00"
+    assert out[0]["counterpartPhotoUrl"] == "https://example.test/bob.png"
     assert out[0]["scopes"][0]["createdAt"] == "2026-07-09T00:00:00+00:00"
     assert out[0]["scopes"][0]["expiresAt"] == "2026-07-09T00:00:00+00:00"
     assert out[0]["scopes"][0]["resolvedAt"] is None
@@ -2025,7 +2028,7 @@ def test_remove_connection_revokes_connection_and_trusted_edges():
             [],  # RIA relation projection -> none
             [{"id": "tc-1"}],  # UPDATE trusted_connections
             [],  # UPDATE connection_origins
-            [{"id": "conn-1"}],  # UPDATE connections
+            [{"id": "conn-1", "revoked_at": "2026-08-26T12:00:00+00:00"}],  # UPDATE connections
         ]
     )
     with patch("hushh_mcp.services.connections_service.get_db", lambda: db):
@@ -2102,7 +2105,7 @@ def test_disconnecting_ends_the_pairs_one_location_circle_memberships():
             [],  # RIA relation projection -> none
             [{"id": "tc-1"}],  # UPDATE trusted_connections
             [],  # UPDATE connection_origins
-            [{"id": "conn-1"}],  # UPDATE connections
+            [{"id": "conn-1", "revoked_at": "2026-08-26T12:00:00+00:00"}],  # UPDATE connections
         ]
     )
     calls: list[dict] = []

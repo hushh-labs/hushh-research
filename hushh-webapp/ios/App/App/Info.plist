@@ -58,6 +58,16 @@
 	</dict>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Hussh One uses the microphone only when you start a voice command.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Hussh One uses speech recognition only to turn your voice command into text for your private agent.</string>
+	<key>OneVoiceFluidAudioBenchmarkEligible</key>
+	<false/>
+	<key>OneVoiceFluidAudioEnabled</key>
+	<false/>
+	<key>OneVoiceModelPackAllowedBuckets</key>
+	<array>
+		<string>$(ONE_VOICE_MODEL_PACK_BUCKET)</string>
+	</array>
 	<key>NSFaceIDUsageDescription</key>
 	<string>Hussh One uses Face ID only when you choose to unlock your Vault on this device.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
@@ -83,7 +93,7 @@
 	<string>Main</string>
 	<key>UIRequiredDeviceCapabilities</key>
 	<array>
-		<string>armv7</string>
+		<string>arm64</string>
 	</array>
 	<key>UISupportedInterfaceOrientations</key>
 	<array>

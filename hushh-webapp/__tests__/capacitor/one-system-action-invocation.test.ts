@@ -5,7 +5,7 @@ import {
   isOneSystemActionId,
   isPendingOneSystemActionInvocation,
 } from "@/lib/capacitor/one-system-action-invocation";
-import { getKaiActionById } from "@/lib/voice/kai-action-gateway";
+import { getKaiActionById, listKaiActions } from "@/lib/voice/kai-action-gateway";
 
 const valid = {
   id: "request-1",
@@ -44,7 +44,12 @@ describe("One system action invocation bridge contract", () => {
   });
 
   it("contains only generated Location action identifiers", () => {
-    expect(ONE_SYSTEM_ACTION_IDS).toHaveLength(17);
+    expect([...ONE_SYSTEM_ACTION_IDS].sort()).toEqual(
+      listKaiActions()
+        .filter((action) => action.siri_mode === "direct" || action.siri_mode === "review_ui")
+        .map((action) => action.action_id)
+        .sort(),
+    );
     expect(
       ONE_SYSTEM_ACTION_IDS.every((actionId) =>
         actionId.startsWith("location."),
@@ -55,7 +60,8 @@ describe("One system action invocation bridge contract", () => {
     ).toBe(true);
     expect(isOneSystemActionId("location.open_settings")).toBe(true);
     expect(isOneSystemActionId("location.pause_updates")).toBe(true);
-    expect(isOneSystemActionId("location.trigger_sos")).toBe(false);
+    expect(isOneSystemActionId("location.trigger_sos")).toBe(true);
+    expect(getKaiActionById("location.trigger_sos")?.siri_requires_vault).toBe(true);
     expect(isOneSystemActionId("location.delete_circle")).toBe(false);
   });
 });

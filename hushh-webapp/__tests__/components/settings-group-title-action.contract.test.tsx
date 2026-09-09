@@ -19,6 +19,27 @@ import { SettingsGroup } from "@/components/app-ui/settings-ui";
  */
 
 describe("SettingsGroup titleAction", () => {
+  it("lets a section selector replace its heading without absorbing the action", () => {
+    render(
+      <SettingsGroup
+        titleControl={<button type="button">People</button>}
+        titleAction={<button type="button">Sync contacts</button>}
+        description="Search by name."
+        toolbar={<input aria-label="Search people" />}
+      >
+        <div>rows</div>
+      </SettingsGroup>,
+    );
+    const selector = screen.getByRole("button", { name: "People" });
+    const sync = screen.getByRole("button", { name: "Sync contacts" });
+    expect(selector.closest('[role="heading"]')).toBeNull();
+    expect(selector.contains(sync)).toBe(false);
+    expect(screen.queryByRole("heading")).toBeNull();
+    expect(
+      selector.compareDocumentPosition(screen.getByLabelText("Search people")) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
   it("renders the control outside the heading, not within it", () => {
     render(
       <SettingsGroup

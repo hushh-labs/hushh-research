@@ -1,172 +1,160 @@
-# Ship iOS to TestFlight (one click)
+# Ship iOS to TestFlight
 
-Release authority, exact-SHA proof, branch restoration, and terminal monitoring follow the
-[canonical Admin release SOP](../../../.codex/skills/repo-operations/references/admin-release-sop.md).
-This guide adds TestFlight-specific build and verification detail only.
+Use this workflow to make one normal UAT-backed TestFlight build available to
+the configured internal and external tester groups. It does not create an App
+Store version or submit the app for public App Store review.
 
 ## Visual Context
 
-Canonical visual owner: [Mobile Guide](../mobile.md).
+Canonical visual owner: [Mobile Guide](../mobile.md). This guide owns the
+TestFlight release branch beneath that mobile build-and-release flow: one
+UAT-backed archive, automated safety gates, then internal and external beta
+distribution without a public App Store submission.
 
-## What this is
+## What testers receive
 
-One click cuts a Hussh One iOS build from an explicitly selected green `main` SHA, builds the Capacitor app against the
-**UAT backend + shared Firebase authority**, signs it with **Apple-managed signing via an App Store Connect
-API key**, and **uploads it to TestFlight**. No manual "Missing Compliance" click, no public App
-Store submission.
+The workflow uploads one exact build from a green `main` SHA.
 
-- **Workflow:** `.github/workflows/ship-ios-testflight.yml` (`workflow_dispatch`).
-- **Skill:** say `ship ios` (see `.claude/skills/ship-ios-testflight/SKILL.md`).
-- **Runner:** GitHub-hosted `macos-15` (GCP has no macOS instances; only the *dispatch* is local).
-- **Target:** bundle `com.hushh.app`, the repository's current `MARKETING_VERSION`, TestFlight
-  internal testers (no Beta App Review), UAT backend + Firebase `hushh-pda`.
+- Internal testers receive that build after Apple marks it `VALID`.
+- The same build is assigned to the external group and includes the required
+  beta-review contact and notes.
+- External availability is reported as `pending_apple_beta_review` until Apple
+  approves it, then as `active`.
 
-### Version Cadence & Closed Pre-Release Trains
+This is a TestFlight-only operation. Assigning a build to an external group is
+not a public App Store submission.
 
-1. **Closed Train Rule:** App Store Connect permanently closes a `MARKETING_VERSION` train (e.g. `1.3.6`) once that version is approved and released on the App Store. Apple's upload API rejects any new build targeting a closed train with `Invalid Pre-Release Train. The train version '1.3.6' is closed for new build submissions`.
-2. **Version Bump Cadence:** When an App Store release closes a train, bump `MARKETING_VERSION` (Patch increment, e.g., `1.3.6` → `1.3.7`) in `hushh-webapp/ios/App/App.xcodeproj/project.pbxproj` (Debug and Release targets) and land on `main`.
-3. **Monotonic Build Numbers:** For an open train (e.g., `1.3.7`), TestFlight iterations increment `CURRENT_PROJECT_VERSION` (`CFBundleVersion`) monotonically (`57`, `58`, `59`...). The build-number resolver (`scripts/ci/resolve-ios-build-number.py`) computes one above the repository value, imported App Store Connect builds, and retained upload records. This prevents a rejected or awaiting upload that disappeared from `/v1/builds` from causing a stale build-number reuse.
-4. **Automated Export Compliance Questionnaire:** `ITSAppUsesNonExemptEncryption = false` in `Info.plist` automatically fulfills App Store Connect's encryption questionnaire upon upload. When processing completes (`processingState = VALID`), the build immediately enters `IN_BETA_TESTING` for internal testers with zero manual forms or clicks.
+## What the workflow proves before upload
 
-## How it works (what the workflow runs)
+`Ship iOS to TestFlight` requires an exact green `main` SHA, an UAT backend
+revision with the same provenance, and a passing reusable physical-iPhone job.
+The normal archive job then runs:
 
-```
-npm ci --prefix hushh-webapp                    # MUST precede SPM (Package.swift → ../../node_modules)
-# materialize UAT NEXT_PUBLIC_* contract + native GoogleService-Info.plist from GCP Secret Manager
-NODE_OPTIONS=--max-old-space-size=8192 npm run ios:prepare:uat   # cap:build + cap:sync:ios + verify backend
-NEXT_BUILD = max(asc_latest_build, asc_latest_build_upload, pbxproj CURRENT_PROJECT_VERSION) + 1
-
-xcodebuild -resolvePackageDependencies -project ios/App/App.xcodeproj -scheme App -clonedSourcePackagesDirPath …
-xcodebuild test -project ios/App/App.xcodeproj -scheme App -only-testing:AppTests  # blocks upload on native unit failures
-xcodebuild archive        -allowProvisioningUpdates -authenticationKey{Path,ID,IssuerID} CURRENT_PROJECT_VERSION=$NEXT_BUILD
-xcodebuild -exportArchive -exportOptionsPlist ios/ExportOptions/AppStoreConnect.plist  # destination=upload → TestFlight
-python3 scripts/ci/wait_for_testflight_build.py ... # reject failed upload; require exact build=VALID
+```text
+UAT configuration and native Firebase materialization
+→ One Voice safety, generated-action, and Capacitor plugin checks
+→ privacy-manifest, App Intent, archive-asset, and symbol checks
+→ verified UAT browser-ASR and intent-ranker pack readiness
+→ iOS simulator AppTests
+→ signed archive and TestFlight upload
+→ Apple VALID processing check
+→ attach the same build to internal and external groups
 ```
 
-Signing needs no build-setting overrides — `CODE_SIGN_STYLE=Automatic`,
-`DEVELOPMENT_TEAM=WVDK9JW99C`, empty `PROVISIONING_PROFILE_SPECIFIER` are already in
-`project.pbxproj`. `CURRENT_PROJECT_VERSION` is the only override; `Info.plist` maps
-`CFBundleVersion=$(CURRENT_PROJECT_VERSION)`, so the resolved build number bakes in with no
-`agvtool`/pbxproj edit. `ITSAppUsesNonExemptEncryption=false` in `Info.plist` is what keeps the
-upload out of "Missing Compliance".
+The physical-device job runs on the dedicated self-hosted macOS runner with an
+attached iOS 17+ iPhone. It uses UI automation to bootstrap microphone
+permission, performs at least 30 repetitions through the production microphone
+owner, and accepts only a redacted aggregate result when all of these are true:
 
-The upload step is not the terminal release proof. The workflow polls Apple's
-exact `buildUploads` record and the corresponding TestFlight `build` independently:
-delivery failures (including `ITMS-*` import errors) fail the run, while a lagging
-`buildUploads` state cannot hide an already imported build. The exact build must
-reach `processingState=VALID`; missing uploads/builds, API failures, and timeouts
-fail closed.
+- p95 `time_to_capture_ms` is below 300 ms;
+- every repetition observes its first frame;
+- no initial frames are lost;
+- no microphone/session ownership is duplicated.
 
-## One-time setup (secret-touching — the operator does this)
+There is no manual-test bypass for this gate. A missing device, permission,
+metric, or result is a release failure.
 
-All signing + Firebase configuration material lives in **GCP Secret Manager**, project
-**`hushh-pda-uat`** (the store `deploy/README.md` already designates for native signing assets).
-The Firebase configuration itself targets the shared **`hushh-pda`** identity authority. Nothing
-App Store-related is a GitHub secret. The workflow reads these with the existing
-`GCP_SA_KEY_UAT` service account.
+## One-time release configuration
 
-### 1. App Store Connect API key
+GitHub Actions uses GitHub OIDC Workload Identity Federation. Do not create,
+upload, or restore a GCP service-account JSON key for this release path.
 
-App Store Connect → **Users and Access** → **Integrations** → **App Store Connect API** →
-generate a **Team key** with role **Admin** (needed: archive creates a dev asset, export a
-distribution asset, both via `-allowProvisioningUpdates`). Download the `.p8` **once**; note the
-**Key ID** and **Issuer ID**. Then store all three in Secret Manager:
+The `uat` GitHub environment needs these non-secret variables:
 
-```bash
-# .p8 (base64, single line)
-base64 -i AuthKey_XXXXXXXXXX.p8 \
-  | gcloud secrets create APPSTORE_CONNECT_API_KEY_P8_B64 --data-file=- --project=hushh-pda-uat
-printf '%s' 'XXXXXXXXXX' \
-  | gcloud secrets create APPSTORE_CONNECT_KEY_ID --data-file=- --project=hushh-pda-uat
-printf '%s' '00000000-0000-0000-0000-000000000000' \
-  | gcloud secrets create APPSTORE_CONNECT_ISSUER_ID --data-file=- --project=hushh-pda-uat
-```
-
-(Use `gcloud secrets versions add <name> --data-file=-` instead of `create` if the reserved
-secret already exists.)
-
-### 2. Apple Distribution Certificate (.p12)
-
-To prevent `xcodebuild -allowProvisioningUpdates` from hitting Apple's 30-development-certificate limit on ephemeral GitHub runners, export the team distribution certificate and private key as a base64 `.p12` into Secret Manager:
-
-```bash
-security export -k login.keychain-db -t identities -f pkcs12 -o /tmp/dist_cert.p12 -P ""
-base64 -i /tmp/dist_cert.p12 | gcloud secrets create APPSTORE_DISTRIBUTION_CERT_P12_B64 --data-file=- --project=hushh-pda-uat
-rm -f /tmp/dist_cert.p12
-```
-
-The workflow decodes and imports `APPSTORE_DISTRIBUTION_CERT_P12_B64` directly into the runner's isolated keychain before `xcodebuild archive`.
-
-### 3. Native iOS Firebase config
-
-The workflow decodes `IOS_GOOGLESERVICE_INFO_PLIST_B64` into the ignored repository-root
-`GoogleService-Info.plist`. The iOS-only native sync validates its bundle id and copies it into
-`ios/App/App/GoogleService-Info.plist`; it does not require the Android `google-services.json`.
-If the secret is not already present:
-
-```bash
-base64 -i GoogleService-Info.plist \
-  | gcloud secrets create IOS_GOOGLESERVICE_INFO_PLIST_B64 --data-file=- --project=hushh-pda-uat
-```
-
-### 3. IAM
-
-Ensure the `GCP_SA_KEY_UAT` service account has `roles/secretmanager.secretAccessor` on the
-secrets above **and** on the UAT frontend contract (`BACKEND_URL`, `APP_FRONTEND_ORIGIN`, the
-`NEXT_PUBLIC_FIREBASE_*` set). No new GitHub secret is required for any of this.
-
-### 4. Apple agreements
-
-Accept any pending Apple **Program License Agreement** in App Store Connect. An unsigned/expired
-agreement silently blocks uploads and processing — this is an operator action, not a CI step.
-
-## How to run
-
-### GitHub UI
-
-Actions → **Ship iOS to TestFlight** → **Run workflow** (from `main`). Inputs:
-
-| Input | Meaning |
+| Variable | Purpose |
 | --- | --- |
-| `sha` | Exact green `main` SHA to ship. Blank → latest `origin/main`. |
-| `dry_run` | `true` = archive + sign but **do not** upload (isolates signing). |
-| `notes` | Free text shown in the run summary. |
+| `GCP_WORKLOAD_IDENTITY_PROVIDER` | GitHub OIDC provider resource |
+| `GCP_DEPLOY_SERVICE_ACCOUNT` | Federated deployment identity |
+| `IOS_VOICE_DEVICE_TIER` | Redacted identifier for the attached iPhone tier |
 
-### Skill
+The federated identity needs read access to the UAT build contract, App Store
+Connect material, model-pack registry, and Firebase configuration in
+`hushh-pda-uat`. It must not use a long-lived key file.
 
-Say **`ship ios`** (or "ship to testflight", "cut an ios build"). The skill runs preflight, picks
-the green `main` SHA, **pauses for one explicit confirmation**, then dispatches and watches the run.
+Before upload, the workflow fails closed unless Secret Manager contains:
 
-Only operators in `config/ci-governance.json` → `uat.manual_dispatch_users` can dispatch;
-`assert-governed-actor.py --surface uat` enforces the current list. Never transcribe operator
-names into this runbook, and never infer production authority from UAT authorization.
-
-## Verify (don't stop at "workflow green")
-
-1. Confirm the native `AppTests` release gate passed, then read the run's job summary: SHA,
-   resolved marketing version and build number, upload vs dry run.
-2. For a real run, confirm the resolved version/build appears in **TestFlight** for internal
-   testers after Apple finishes processing (a few minutes), already compliant.
-3. On device: the TestFlight build boots against **UAT** backend — asserted by
-   `verify-ios-bundled-backend.sh` during prep.
-
-Recommended the first time after any signing/secret change: dispatch with `dry_run: true` to prove
-the web build, cap sync, SPM resolve, archive, and **signing** all succeed before a real upload.
-
-## Troubleshooting
-
-| Symptom | Cause / fix |
+| Secret | Purpose |
 | --- | --- |
-| `Missing GCP secret APPSTORE_CONNECT_*` / `IOS_GOOGLESERVICE_INFO_PLIST_B64` | Secret not created or SA lacks `secretAccessor`. See setup above. |
-| Export/upload fails with an agreement error | Accept the Apple Program License Agreement in ASC. |
-| Cloud-signing authorization error | API key role too low — regenerate as **Admin**. |
-| Duplicate build number rejected | `resolve-ios-build-number.py` should prevent it; check its stderr in the archive log artifact. |
-| `cap:build` OOM-killed | Bump `runs-on` to `macos-15-xlarge` and `NODE_OPTIONS` to `--max-old-space-size=12288`. |
-| Cold SPM graph slow (firebase/grpc/facebook) | Expected ~15–35 min; `timeout-minutes: 40`. The SPM cache warms subsequent runs. |
+| `APPSTORE_CONNECT_API_KEY_P8_B64` | Runner-local App Store Connect signing key |
+| `APPSTORE_CONNECT_KEY_ID` / `APPSTORE_CONNECT_ISSUER_ID` | App Store Connect identity metadata |
+| `APPSTORE_CONNECT_INTERNAL_TESTFLIGHT_GROUP_ID` | Internal beta group |
+| `APPSTORE_CONNECT_EXTERNAL_TESTFLIGHT_GROUP_ID` | External beta group |
+| `APPSTORE_CONNECT_BETA_REVIEW_CONTACT_JSON` | Required external beta-review contact |
+| `APPSTORE_CONNECT_BETA_REVIEW_NOTES` | Required external beta-review notes and What's New text |
+| `APPSTORE_CONNECT_PRIVACY_DECLARATION_CONTRACT_VERSION` | Must equal `one-voice-privacy-v1` |
+| `APPSTORE_CONNECT_EXPORT_COMPLIANCE_APPROVED` | Must be exactly `true` |
+| `APPSTORE_CONNECT_VOICE_PROVIDER_PRIVACY_APPROVED` | Must be exactly `true` |
 
-## Scope / deferred
+The `OneVoicePrivacyContract.v1.json`, `OneVoiceModelNotices.json`,
+`Info.plist`, `PrivacyInfo.xcprivacy`, and built archive are reconciled before
+upload. Model weights are forbidden in the base archive. FluidAudio remains
+disabled unless its model notice is legally approved, its verified on-demand
+pack is active, and its device benchmark is eligible.
 
-Public App Store submission is a separate, explicitly authorized milestone. Its durable safety
-checklist is the **Publish-safety blockers** section of
-[`release-ios-appstore.md`](./release-ios-appstore.md). None of those public-submission steps are
-implied by a TestFlight upload.
+## UAT local-model packs
+
+The TestFlight workflow refuses an unconfigured local voice runtime. Publish
+only the browser ASR and intent-ranker packs for the exact merged SHA first:
+
+```bash
+gh workflow run publish-one-voice-model-packs.yml --ref main \
+  -f environment=uat \
+  -f operation=publish
+```
+
+That workflow stores immutable artifacts under the SHA in the UAT model bucket
+and atomically updates the metadata-only
+`HUSHH_LOCAL_RUNTIME_PACK_REGISTRY` Secret Manager registry. Cloud Run reads
+the registry through its bounded adapter and issues fresh short-lived signed
+URLs per capability request. The registry never stores a bearer URL.
+
+The FluidAudio model is deliberately omitted from this default publication.
+After legal approval is recorded in `OneVoiceModelNotices.json`, stage the
+reviewed upstream ZIP below `one-voice/fluid-audio-source/` in the selected
+environment's model bucket, then dispatch the same workflow with
+`include_fluid_audio: true`, that normalized object path, and its reviewed
+version. Automation normalizes the upstream `160ms` layout, verifies the
+NVIDIA notice, archive checksum, required Core ML files, and provenance
+manifest before adding the pack to the registry. A pending notice, malformed
+archive, or missing hardware eligibility fails the release path; it cannot
+silently enable the provider.
+
+Production model promotion is a separate explicit `production` dispatch after
+the UAT gates are proven. It is not implied by this TestFlight upload.
+
+## Run the normal build
+
+Follow the [admin release SOP](../../../.codex/skills/repo-operations/references/admin-release-sop.md)
+for branch authority, required review, rollback, and deployment escalation. This
+guide adds the TestFlight-specific gates; it does not replace that release
+authority contract.
+
+1. Land the reviewed source on `main` and wait for the required post-merge
+   checks to pass.
+2. Deploy the matching backend to UAT.
+3. Publish and activate the matching UAT model packs.
+4. Verify the self-hosted iPhone runner is connected and registered with the
+   `ios-voice-device` label.
+5. In GitHub Actions, run **Ship iOS to TestFlight** from `main`. Leave `sha`
+   blank for the latest eligible SHA, or supply that exact SHA.
+6. Use `dry_run: true` only when you want a signed archive without uploading.
+   It still runs every safety and physical-device gate.
+
+The run summary reports the source SHA, physical capture p95, build number, and
+whether external access is active or awaiting Apple beta review. Artifacts are
+limited to redacted readiness, distribution, and timing evidence; keys,
+review-contact details, signed URLs, audio, transcripts, Vault material, and
+model bytes are removed or never uploaded.
+
+## Common failures
+
+| Failure | Meaning and safe response |
+| --- | --- |
+| No connected iPhone / missing timing result | Restore the dedicated runner or permission bootstrap; do not bypass the hardware gate. |
+| UAT backend provenance differs from source SHA | Deploy that exact reviewed SHA to UAT, then restart the release workflow. |
+| Local model readiness fails | Publish checksum-verified packs for the same SHA; do not hard-code signed URLs. |
+| Missing group, contact, notes, or privacy attestation | Configure the protected UAT release material; the workflow intentionally will not upload. |
+| External beta review pending | Internal testers can use the valid build; wait for Apple's beta-review decision for external testers. |
+| External beta review rejected | Correct the reviewer-facing issue and dispatch a new build; the workflow fails closed. |
+
+Public App Store submission remains a separate, explicitly authorized workflow.

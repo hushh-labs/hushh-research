@@ -151,6 +151,7 @@ import type { MarketplaceContactSource } from "@/lib/marketplace/contact-matchin
 import { isWeb } from "@/lib/capacitor/platform";
 import { apiErrorCode } from "@/lib/services/api-client";
 import { appInteractionCoordinator } from "@/lib/interaction/interaction-intent-coordinator";
+import { isLocationRequestPending } from "@/lib/one-location/request-expiry";
 import { LocationBus } from "@/lib/one-location/location-bus";
 import {
   isPublishableAge,
@@ -314,6 +315,7 @@ import {
   runSosPanic,
   selectSmsRecipients,
   selectShareReadyRecipients,
+  sosRecipientReadinessMessage,
   SosPanicError,
 } from "@/lib/one-location/sos-trigger";
 import {
@@ -413,6 +415,8 @@ import {
 } from "@/lib/one-location/eta-recompute";
 import { getApiBaseUrl } from "@/lib/services/api-service";
 import { buildInviteToOneShare } from "@/lib/connect/invite-to-one";
+import { useContactInvitations } from "@/lib/contacts/use-contact-invitations";
+import { createContactGraphReconciler } from "@/lib/contacts/reconcile-contact-graph";
 import { ReferralService } from "@/lib/services/referral-service";
 import { shareLink } from "@/lib/share/share-link";
 import { copyToClipboard } from "@/lib/utils/clipboard";
@@ -686,7 +690,8 @@ export const LOCATION_FLOW_LABELS: Readonly<Record<string, string>> = {
 // cap and lose ties to whichever SUBVIEW_ACTION_BOOST entry matches the
 // current subview) -- this only changes what becomes a CANDIDATE, not how
 // candidates are ranked once the list is bigger.
-export const LOCATION_VOICE_ACTIONS = deriveLocationVoiceActions("one_location");
+export const LOCATION_VOICE_ACTIONS =
+  deriveLocationVoiceActions("one_location");
 
 const LOCATION_VOICE_CONTROLS = [
   {
@@ -2750,7 +2755,13 @@ export function OneLocationAgentPageContent({
     useState<OneLocationContactSignalResult | null>(null);
   const [onboardingContactResult, setOnboardingContactResult] =
     useState<OnboardingContactSyncResult | null>(null);
-  const [contactSyncResultsOpen, setContactSyncResultsOpen] = useState(false);
+  const contactInvitations = useContactInvitations(contactSyncUserId);
+  const { clear: clearContactInvitations, beginSync: beginContactInvites, open: openContactInvitations, captureSession: captureContactInviteSession } = contactInvitations;
+  const [contactSyncResultsOpen, setContactSyncResultsOpenState] = useState(false);
+  const setContactSyncResultsOpen = useCallback((open: boolean) => {
+    if (!open) clearContactInvitations();
+    setContactSyncResultsOpenState(open);
+  }, [clearContactInvitations]);
   const contactResultOwnerUserIdRef = useRef(contactSyncUserId);
   useLayoutEffect(() => {
     if (contactResultOwnerUserIdRef.current === contactSyncUserId) return;
@@ -2761,7 +2772,7 @@ export function OneLocationAgentPageContent({
     setOnboardingContactResult(null);
     setContactSyncResultsOpen(false);
     setContactSignal(INITIAL_CONTACT_SIGNAL_STATE);
-  }, [contactSyncUserId]);
+  }, [contactSyncUserId, setContactSyncResultsOpen]);
   const [activityRange, setActivityRange] =
     useState<OneLocationActivityRange>("30d");
   const [activitySnapshot, setActivitySnapshot] =
@@ -2772,6 +2783,7 @@ export function OneLocationAgentPageContent({
     ONE_LOCATION_SHARE_DEFAULT_DURATION_HOURS,
   );
   const [shareMessage, setShareMessage] = useState("");
+  const [shareError, setShareError] = useState<string | null>(null);
   const [durationHours, setDurationHours] = useState("1");
   const [requestMessage, setRequestMessage] = useState("");
   const [referralTargets, setReferralTargets] = useState<
@@ -3035,7 +3047,7 @@ export function OneLocationAgentPageContent({
 
   const [focusedSection, setFocusedSection] =
     useState<OneLocationFocusTarget | null>(null);
-  const refreshInFlightRef = useRef<Promise<void> | null>(null);
+  const refreshInFlightRef = useRef<Promise<boolean | undefined> | null>(null);
   const workspaceBootstrapUserRef = useRef<string | null>(null);
   const peopleSectionRef = useRef<HTMLElement | null>(null);
   const approvalsSectionRef = useRef<HTMLElement | null>(null);
@@ -3106,10 +3118,12 @@ export function OneLocationAgentPageContent({
       page = 1,
       append = false,
       query = recipientSearch,
+      throwOnError = false,
     }: {
       page?: number;
       append?: boolean;
       query?: string;
+      throwOnError?: boolean;
     } = {}): Promise<void> => {
       if (!vaultOwnerToken) return;
       const requestId = ++recipientPageRequestRef.current;
@@ -3137,9 +3151,10 @@ export function OneLocationAgentPageContent({
         setRecipientPage(result.page);
         setRecipientPageHasMore(result.hasMore);
         setRecipientPageTotalCount(result.totalCount);
-      } catch {
+      } catch (error) {
         // Keep the last safe page (or the bounded local fallback). This display
         // read must never interrupt complete authority-bearing share state.
+        if (throwOnError && requestId === recipientPageRequestRef.current) throw error;
       } finally {
         if (requestId === recipientPageRequestRef.current) {
           setRecipientPageLoading(false);
@@ -3215,8 +3230,8 @@ export function OneLocationAgentPageContent({
   );
   const rankedRecipients = useMemo(() => {
     const ranked = rankRecipientsForRecommendation(
-        contactSignalRecipients,
-        contactMatchedUserIds,
+      contactSignalRecipients,
+      contactMatchedUserIds,
     );
     // Every paged row came through the same vault-authorized recipient route.
     // Retain it by user id so selecting page 2, then changing search, does not
@@ -3227,7 +3242,7 @@ export function OneLocationAgentPageContent({
         [...pagedRecipientsByUserId.values()],
         contactMatchedUserIds,
       ),
-  );
+    );
   }, [contactMatchedUserIds, contactSignalRecipients, pagedRecipientsByUserId]);
   const shareRecipientPool = useMemo(
     () =>
@@ -3286,9 +3301,9 @@ export function OneLocationAgentPageContent({
             contactMatchedUserIds,
           )
         : filterPeopleByQuery(
-        rankedRecipients,
-        shareRecipientSearch,
-        recipientLabel,
+            rankedRecipients,
+            shareRecipientSearch,
+            recipientLabel,
           ).slice(0, 50),
     [
       contactMatchedUserIds,
@@ -3392,9 +3407,9 @@ export function OneLocationAgentPageContent({
     () =>
       (state?.requests ?? []).filter(
         (request) =>
-          request.ownerUserId === auth.userId && request.status === "pending",
+          request.ownerUserId === auth.userId && isLocationRequestPending(request, nowMs),
       ),
-    [auth.userId, state?.requests],
+    [auth.userId, nowMs, state?.requests],
   );
   // Warm the shared position while the user is still reading the request.
   //
@@ -3947,7 +3962,12 @@ export function OneLocationAgentPageContent({
    * awaiting cannot stampede.
    */
   const refresh = useCallback(
-    async (options?: { background?: boolean }) => {
+    async (options?: { background?: boolean; throwOnError?: boolean }) => {
+      const waitForRefresh = async (task: Promise<boolean | undefined>) => {
+        if (await task === false && options?.throwOnError) {
+          throw new Error("Could not refresh connections.");
+        }
+      };
       if (!auth.userId) {
         setBusy(null);
         setLoadError("Sign in before loading location sharing.");
@@ -3962,7 +3982,7 @@ export function OneLocationAgentPageContent({
         return;
       }
       if (refreshInFlightRef.current) {
-        return refreshInFlightRef.current;
+        return waitForRefresh(refreshInFlightRef.current);
       }
       const activeUserId = auth.userId;
       const activeUser = auth.user;
@@ -4050,6 +4070,7 @@ export function OneLocationAgentPageContent({
             current.filter((recipientId) => nextRecipientIds.has(recipientId)),
           );
           suppressAutoRecipientSelectionRef.current = false;
+          return true;
         } catch (error) {
           suppressAutoRecipientSelectionRef.current = false;
           // ApiService handles rejected VAULT_OWNER tokens for web and native by
@@ -4063,13 +4084,14 @@ export function OneLocationAgentPageContent({
               ),
             );
           }
+          return false;
         } finally {
           refreshInFlightRef.current = null;
           if (showForegroundLoad) setBusy(null);
         }
       })();
       refreshInFlightRef.current = task;
-      return task;
+      return waitForRefresh(task);
     },
     [
       auth.user,
@@ -4743,6 +4765,7 @@ export function OneLocationAgentPageContent({
       setSelectedShareCircleSelection(null);
       setShareDurationHours(ONE_LOCATION_SHARE_DEFAULT_DURATION_HOURS);
       setShareMessage("");
+      setShareError(null);
     },
     [setSelectedRecipientIds],
   );
@@ -4848,6 +4871,7 @@ export function OneLocationAgentPageContent({
           summary: "Sharing needs device Location permission.",
         };
       }
+      setShareError(null);
       setBusy("share");
       let successCount = 0;
       let recipientFailureCount = 0;
@@ -4957,7 +4981,10 @@ export function OneLocationAgentPageContent({
         });
         const message =
           error instanceof Error ? error.message : "Could not share location.";
-        toast.error(message);
+        // Keep the failure beside the controls it belongs to. A top toast hid
+        // the page title and made the review screen look broken on narrow iOS
+        // and Android viewports; this alert remains visible through a retry.
+        setShareError(message);
         return { status: "failed", summary: message };
       } finally {
         setBusy(null);
@@ -5248,11 +5275,7 @@ export function OneLocationAgentPageContent({
           unreachableCount: 0,
           note,
         });
-        toast.error(
-          totalSelected
-            ? "Your SMS contacts are not ready to receive location yet."
-            : "Add at least one SMS contact before sending an alert.",
-        );
+        toast.error(sosRecipientReadinessMessage(smsActionRecipients));
         return;
       }
       setBusy("sos");
@@ -6624,7 +6647,8 @@ export function OneLocationAgentPageContent({
   );
 
   const handleSaveLiveShareDuration = useCallback(async () => {
-    const grantId = liveShareDurationGrantId ?? liveShareStatus?.stoppableGrantId;
+    const grantId =
+      liveShareDurationGrantId ?? liveShareStatus?.stoppableGrantId;
     if (!vaultOwnerToken || !grantId) return;
     const grant = activeOwnerGrants.find((row) => row.id === grantId);
     if (!grant || isSmsTriggeredGrant(grant)) return;
@@ -6682,7 +6706,8 @@ export function OneLocationAgentPageContent({
   // the wheel would otherwise still be pointing at a share that is gone.
   useEffect(() => {
     if (!liveShareDurationEditing) return;
-    const grantId = liveShareDurationGrantId ?? liveShareStatus?.stoppableGrantId;
+    const grantId =
+      liveShareDurationGrantId ?? liveShareStatus?.stoppableGrantId;
     if (!grantId || !activeOwnerGrants.some((grant) => grant.id === grantId)) {
       setLiveShareDurationEditing(false);
       setLiveShareDurationGrantId(null);
@@ -6852,6 +6877,40 @@ export function OneLocationAgentPageContent({
     };
   }, []);
 
+  const contactGraphAliveRef = useRef(true);
+  useEffect(() => {
+    contactGraphAliveRef.current = true;
+    return () => { contactGraphAliveRef.current = false; };
+  }, []);
+  const contactGraphReadRef = useRef(async () => {});
+  contactGraphReadRef.current = async () => {
+    await Promise.all([
+      refresh({ background: true, throwOnError: true }),
+      loadRecipientPage({ page: 1, query: recipientSearch, throwOnError: true }),
+    ]);
+  };
+  const contactGraphReconciler = useMemo(() => createContactGraphReconciler(), []);
+  const reconcileSyncedConnections = useCallback(async (owner: string, fresh = false): Promise<void> => {
+    const isCurrent = () => contactGraphAliveRef.current &&
+      contactSyncIdentityRef.current.userId === owner;
+    if (!isCurrent()) return;
+    try {
+      await contactGraphReconciler(owner, {
+        pendingRead: refreshInFlightRef.current,
+        isCurrent,
+        invalidate: () => CacheSyncService.onConnectionGraphMutated(owner),
+        // Read current search and callbacks after the old request settles.
+        read: () => contactGraphReadRef.current(),
+      }, fresh);
+    } catch {
+      if (isCurrent()) toast.info("Contacts synced. Could not refresh connections.", {
+        id: "contact-sync-refresh",
+        description: "Your matches are saved. Retry to update the list.",
+        action: { label: "Refresh connections", onClick: () => { void reconcileSyncedConnections(owner); } },
+      });
+    }
+  }, [contactGraphReconciler]);
+
   const handleSyncOnboardingContacts =
     useCallback(async (): Promise<OnboardingContactSyncResult> => {
       if (contactSyncInFlightRef.current) return { status: "cancelled" };
@@ -6884,6 +6943,7 @@ export function OneLocationAgentPageContent({
       // The inline action, named sheet, Settings return, and hub share one
       // mutation guard even when Finish unmounts the onboarding component.
       contactSyncInFlightRef.current = true;
+      const onInviteCandidates = beginContactInvites();
       setBusy("contactSync");
       try {
         let googleSource: MarketplaceContactSource | undefined;
@@ -6904,6 +6964,8 @@ export function OneLocationAgentPageContent({
         }
 
         const result = await syncOneLocationContactSignals({
+          accountEmail: auth.user?.email,
+          ...(onInviteCandidates ? { onInviteCandidates } : {}),
           // Read the picker/source before Firebase or backend identity can
           // consume the browser tap's transient activation.
           resolveIdToken: () => auth.user!.getIdToken(),
@@ -6930,11 +6992,7 @@ export function OneLocationAgentPageContent({
           (result.autoConnectedCount + result.alreadyConnectedCount > 0 ||
             result.mutationOutcomeUnknown)
         ) {
-          CacheSyncService.onConnectionGraphMutated(auth.userId);
-          await Promise.all([
-            refresh({ background: true }).catch(() => undefined),
-            loadRecipientPage({ page: 1, query: recipientSearch }),
-          ]);
+          await reconcileSyncedConnections(auth.userId, true);
         }
         trackEvent("one_location_contact_signal_synced", {
           route_id: "one_location",
@@ -7005,15 +7063,15 @@ export function OneLocationAgentPageContent({
       }
     }, [
       accountPhoneNumber,
+      beginContactInvites,
+      setContactSyncResultsOpen,
       auth.user,
       auth.userId,
       auth.resolveVerifiedPhoneNumber,
       contactSyncUserId,
       googleContactsFallback,
-      loadRecipientPage,
+      reconcileSyncedConnections,
       requestContactCheck,
-      recipientSearch,
-      refresh,
     ]);
 
   const handleAddOnboardingContact = useCallback(
@@ -7064,7 +7122,7 @@ export function OneLocationAgentPageContent({
    * and has never once been written, and first-touch wins inside it so this
    * cannot overwrite an earlier, truer source.
    */
-  const handleInviteContactCandidates = useCallback(async () => {
+  const prepareContactInvitation = useCallback(async () => {
     rememberLocationInviteSource("contact_sync");
 
     let referralLink = "";
@@ -7088,6 +7146,16 @@ export function OneLocationAgentPageContent({
         }
       : buildInviteToOneShare();
 
+    return share;
+  }, [auth.user]);
+
+  const handleInviteContactCandidates = useCallback(async () => {
+    if (contactInvitations.enabled && contactInvitations.candidates.length) {
+      setContactSyncResultsOpen(true);
+      await openContactInvitations(prepareContactInvitation);
+      return;
+    }
+    const share = await prepareContactInvitation();
     if (!share) {
       // No referral link AND no shareable origin — the same condition that
       // hides the Connect invite row entirely rather than offering a link that
@@ -7105,7 +7173,10 @@ export function OneLocationAgentPageContent({
       if (isShareCancellationError(error)) return;
       toast.error("Could not open the share sheet.");
     }
-  }, [auth.user]);
+  }, [contactInvitations.enabled, contactInvitations.candidates.length, setContactSyncResultsOpen, openContactInvitations, prepareContactInvitation]);
+
+  const contactInviteActionRef = useRef(handleInviteContactCandidates);
+  useLayoutEffect(() => { contactInviteActionRef.current = handleInviteContactCandidates; }, [handleInviteContactCandidates]);
 
   const handleSyncContactSignal = useCallback(async () => {
     if (!auth.user?.getIdToken) {
@@ -7121,6 +7192,8 @@ export function OneLocationAgentPageContent({
     if (!requestContactCheck()) return;
     if (contactSyncInFlightRef.current) return;
     contactSyncInFlightRef.current = true;
+    const onInviteCandidates = beginContactInvites();
+    const inviteSessionIsCurrent = captureContactInviteSession();
     const initiatingUserId = contactSyncUserId;
     const resolveLatestAccountPhoneNumber =
       createContactSyncAccountPhoneResolver({
@@ -7170,6 +7243,8 @@ export function OneLocationAgentPageContent({
       }));
 
       const result = await syncOneLocationContactSignals({
+        accountEmail: auth.user?.email,
+        ...(onInviteCandidates ? { onInviteCandidates } : {}),
         // Preserve transient activation for Chrome Android's Contact Picker;
         // token and phone hydration happen inside the pipeline after reading.
         resolveIdToken: () => auth.user!.getIdToken(),
@@ -7212,11 +7287,7 @@ export function OneLocationAgentPageContent({
         (result.autoConnectedCount + result.alreadyConnectedCount > 0 ||
           result.mutationOutcomeUnknown)
       ) {
-        CacheSyncService.onConnectionGraphMutated(auth.userId);
-        await Promise.all([
-          refresh({ background: true }).catch(() => undefined),
-          loadRecipientPage({ page: 1, query: recipientSearch }),
-        ]);
+        await reconcileSyncedConnections(auth.userId, true);
       }
       // A partial read must never be reported as a whole one. The web Contact
       // Picker and iOS limited access both return only a hand-picked subset,
@@ -7247,25 +7318,25 @@ export function OneLocationAgentPageContent({
                     onClick: () => void handleSyncContactSignalRef.current?.(),
                   },
                 }
-            : outcome.remedy === "invite"
-              ? {
-                  action: {
-                    label: "Invite them",
-                    // The other half of a contact scan. Until now the count of
-                    // people who are NOT on One was computed on every sync and
-                    // read by nothing but an analytics dimension — the product
-                    // learned who was missing, recorded it, and offered the
-                    // person no way to act on it.
-                    //
-                    // Reuses the existing invite share rather than minting a
-                    // second one, and deliberately carries no pre-authorized
-                    // connection: `buildInviteToOneShare` documents why, and
-                    // an invite that consents on the recipient's behalf is not
-                    // an invite.
-                    onClick: () => void handleInviteContactCandidates(),
-                  },
-                }
-              : {}),
+              : outcome.remedy === "invite"
+                ? {
+                    action: {
+                      label: "Invite them",
+                      // The other half of a contact scan. Until now the count of
+                      // people who are NOT on One was computed on every sync and
+                      // read by nothing but an analytics dimension — the product
+                      // learned who was missing, recorded it, and offered the
+                      // person no way to act on it.
+                      //
+                      // Reuses the existing invite share rather than minting a
+                      // second one, and deliberately carries no pre-authorized
+                      // connection: `buildInviteToOneShare` documents why, and
+                      // an invite that consents on the recipient's behalf is not
+                      // an invite.
+                      onClick: () => { if (inviteSessionIsCurrent()) void contactInviteActionRef.current(); },
+                    },
+                  }
+                : {}),
       };
       if (result.matchedUserIds.length > 0) {
         toast.success(outcome.title, outcomeOptions);
@@ -7314,18 +7385,18 @@ export function OneLocationAgentPageContent({
     }
   }, [
     accountPhoneNumber,
+    beginContactInvites,
+    captureContactInviteSession,
+    reconcileSyncedConnections,
+    setContactSyncResultsOpen,
     auth.user,
     auth.userId,
     auth.resolveVerifiedPhoneNumber,
     contactSyncUserId,
     contactSignal,
     googleContactsFallback,
-    handleInviteContactCandidates,
     openContactSettingsAndWatch,
-    loadRecipientPage,
     requestContactCheck,
-    recipientSearch,
-    refresh,
   ]);
 
   useEffect(() => {
@@ -7397,7 +7468,9 @@ export function OneLocationAgentPageContent({
             vaultOwnerToken: activeVaultOwnerToken,
             ownerUserId: owner.userId,
             message: buildOneLocationRequestMessage(reason, requestMessage),
-            requestedDurationHours: Number(durationHoursOverride ?? durationHours),
+            requestedDurationHours: Number(
+              durationHoursOverride ?? durationHours,
+            ),
             requestedDurationMode: "timed",
           });
           successCount += 1;
@@ -9842,6 +9915,18 @@ export function OneLocationAgentPageContent({
       ? (LOCATION_FLOW_LABELS[openFlow] ?? null)
       : null;
     const actions = LOCATION_VOICE_ACTIONS;
+    const currentLocationState =
+      permission?.state === "unavailable" ||
+      permission?.locationServicesEnabled === false
+        ? "unavailable"
+        : myLocationPoint
+          ? "available"
+          : "unknown";
+    const shareState = locationControl.paused
+      ? "paused"
+      : activeOwnerGrants.length > 0
+        ? "sharing"
+        : "unknown";
     // Location can only be shared with a connection or a circle member, so an
     // account with neither cannot finish either of these flows however long it
     // stays on them. The screen says "no connections" and stops; this is what
@@ -9949,6 +10034,8 @@ export function OneLocationAgentPageContent({
         location_flow: openFlow,
         data_state: dataState,
         permission_state: permission?.state ?? null,
+        current_location_state: currentLocationState,
+        share_state: shareState,
         pending_request_count: pendingOwnerRequests.length,
         connection_count: shareRecipientPool.length,
         circle_count: namedCircles.length,
@@ -9982,12 +10069,16 @@ export function OneLocationAgentPageContent({
     };
   }, [
     busy,
+    activeOwnerGrants.length,
     dataState,
     loadError,
+    locationControl.paused,
+    myLocationPoint,
     mode,
     namedCircles.length,
     pendingOwnerRequests.length,
     permission?.state,
+    permission?.locationServicesEnabled,
     searchParams,
     shareRecipientPool.length,
     // Picking someone clears the dead end, so the metadata has to be rebuilt
@@ -9997,8 +10088,6 @@ export function OneLocationAgentPageContent({
     // frozen number: a stale count is worse than an absent one, because the
     // model states it as fact.
     locationEnabled,
-    locationControl.paused,
-    activeOwnerGrants.length,
     liveShareStatus,
     visibleReceivedGrants.length,
     sosIncident,
@@ -10759,9 +10848,7 @@ export function OneLocationAgentPageContent({
 
   useLocalOnboardingActionHandler("location.stop_share", async (slots) => {
     const spoken = String(slots?.person ?? "").trim();
-    const resolvedRecipientId = String(
-      slots?.resolvedRecipientId ?? "",
-    ).trim();
+    const resolvedRecipientId = String(slots?.resolvedRecipientId ?? "").trim();
     if (!spoken && !resolvedRecipientId) {
       return {
         status: "blocked" as const,
@@ -10775,9 +10862,9 @@ export function OneLocationAgentPageContent({
       };
     }
     const exactGrant = resolvedRecipientId
-      ? activeOwnerGrants.find(
+      ? (activeOwnerGrants.find(
           (candidate) => candidate.recipientUserId === resolvedRecipientId,
-        ) ?? null
+        ) ?? null)
       : null;
     const resolved = exactGrant
       ? ({ kind: "one", match: exactGrant } as const)
@@ -11325,90 +11412,22 @@ export function OneLocationAgentPageContent({
   });
 
   const resolveTriggerSos = useCallback(
-    async (
-      slots: Record<string, unknown>,
-    ): Promise<LocalOnboardingActionResult> => {
-      if (!vaultOwnerToken) {
-        return {
-          status: "blocked" as const,
-          summary: "Unlock One before sending an SMS alert.",
-        };
-      }
-      // Same re-entry guard handleTriggerSos itself enforces -- checked here
-      // too so the person hears why nothing happened, instead of a silent
-      // no-op behind a "succeeded" that never actually sent a second alert.
-      if (sosIncident) {
-        return {
-          status: "blocked" as const,
-          summary:
-            "There is already an SMS running. Stop it before sending another.",
-        };
-      }
-      if (locationPermissionBlocksSharing(permission)) {
-        return {
-          status: "blocked" as const,
-          summary:
-            "Location access is off, so I cannot send an SMS alert with your position.",
-        };
-      }
-      const readyRecipients = smsActionRecipients.filter(
-        isSosShareReadyRecipient,
-      );
-      if (!readyRecipients.length) {
-        return {
-          status: "blocked" as const,
-          summary: smsActionRecipients.length
-            ? "Your emergency contacts are not ready to receive an alert yet."
-            : "Add at least one emergency contact before sending an SMS alert.",
-        };
-      }
-      const note = String(slots?.note ?? "").trim() || null;
-      if (slots?.confirmed !== true) {
-        // The highest-consequence action on this surface -- a misheard "yes"
-        // here dispatches a real emergency alert, including a fallback email,
-        // to real people. Every other destructive action on Location gets a
-        // spoken confirmation at most; this one gets the same explicit,
-        // tappable card as removing an emergency contact, but never skips it.
-        // Shared by location.sos_default's "trigger" branch too, so a bare
-        // emergency phrase gets this exact same unconditional confirm card,
-        // never a shortcut past it.
-        const names = formatNameList(
-          readyRecipients.map((r) => recipientLabel(r)),
-        );
-        return {
-          status: "blocked" as const,
-          summary: "Sending an SMS alert needs a confirmation.",
-          data: {
-            [VOICE_CONFIRM_DATA_KEY]: {
-              actionId: "location.trigger_sos",
-              slots: { note: note ?? "", confirmed: true },
-              prompt: `Send an SMS alert to ${names} right now?`,
-              subject: { name: "SMS alert", detail: names },
-              consequence:
-                getKaiActionById("location.trigger_sos")?.meaning ?? null,
-              confirmLabel: "Send SMS",
-            },
-          },
-        };
-      }
-      void handleTriggerSos(note);
+    async (): Promise<LocalOnboardingActionResult> => {
+      // Voice can never send SOS. It may only bring the owner to the governed
+      // review surface; the explicit native Action Button path remains separate
+      // and continues to use its system-confirmed adapter.
+      router.replace(`${ROUTES.ONE_LOCATION}?action=sos`, { scroll: false });
       return {
         status: "succeeded" as const,
-        summary: "Sending your SMS alert now.",
+        summary: "Opening the SOS review screen. Nothing has been sent.",
       };
     },
-    [
-      vaultOwnerToken,
-      sosIncident,
-      permission,
-      smsActionRecipients,
-      handleTriggerSos,
-    ],
+    [router],
   );
 
   useLocalOnboardingActionHandler("location.trigger_sos", resolveTriggerSos);
 
-  useLocalOnboardingActionHandler("location.sos_default", async (slots) => {
+  useLocalOnboardingActionHandler("location.sos_default", async (_slots) => {
     if (!vaultOwnerToken) {
       return {
         status: "blocked" as const,
@@ -11427,7 +11446,7 @@ export function OneLocationAgentPageContent({
       defaultAction = "open";
     }
     if (defaultAction === "trigger") {
-      return resolveTriggerSos(slots);
+      return resolveTriggerSos();
     }
     router.replace(`${ROUTES.ONE_LOCATION}?action=sos`, { scroll: false });
     return {
@@ -11508,7 +11527,7 @@ export function OneLocationAgentPageContent({
 
   useLocalOnboardingActionHandler(
     "location.remove_emergency_contact",
-    async (slots) => {
+    async (slots, context) => {
       const spoken = String(slots?.person ?? "")
         .trim()
         .toLowerCase();
@@ -11555,7 +11574,7 @@ export function OneLocationAgentPageContent({
           summary: "Nobody by that name is one of your emergency contacts.",
         };
       }
-      if (slots?.confirmed !== true) {
+      if (!context?.directiveId && !context?.humanConfirmationToken) {
         // Shown before it happens, not reported after. This list is the one
         // consulted in an emergency, so a name misheard once quietly removes the
         // person who would have been told.
@@ -11566,7 +11585,7 @@ export function OneLocationAgentPageContent({
           data: {
             [VOICE_CONFIRM_DATA_KEY]: {
               actionId: "location.remove_emergency_contact",
-              slots: { person: String(slots?.person ?? ""), confirmed: true },
+              slots: { person: String(slots?.person ?? "") },
               prompt: `Remove ${label} as an emergency contact?`,
               subject: {
                 name: label,
@@ -12028,7 +12047,7 @@ export function OneLocationAgentPageContent({
 
   useLocalOnboardingActionHandler(
     "location.remove_from_circle",
-    async (slots) => {
+    async (slots, context) => {
       const spokenPerson = String(slots?.person ?? "").trim();
       if (!spokenPerson) {
         return {
@@ -12117,7 +12136,7 @@ export function OneLocationAgentPageContent({
           summary: `${member.displayName} owns ${circle.name}, so they cannot be removed from it.`,
         };
       }
-      if (slots?.confirmed !== true) {
+      if (!context?.directiveId && !context?.humanConfirmationToken) {
         // Removing someone from a circle takes away what that circle shared
         // with them. It is not the person's own data to put back, so this is
         // shown before it happens rather than reported afterwards.
@@ -12130,7 +12149,6 @@ export function OneLocationAgentPageContent({
               slots: {
                 person: spokenPerson,
                 circle: String(slots?.circle ?? ""),
-                confirmed: true,
               },
               prompt: `Remove ${member.displayName} from ${circle.name}?`,
               subject: { name: member.displayName, detail: circle.name },
@@ -12177,8 +12195,8 @@ export function OneLocationAgentPageContent({
     }
     const resolvedCircleId = String(slots?.resolvedCircleId ?? "").trim();
     const exactCircle = resolvedCircleId
-      ? namedCircles.find((candidate) => candidate.id === resolvedCircleId) ??
-        null
+      ? (namedCircles.find((candidate) => candidate.id === resolvedCircleId) ??
+        null)
       : null;
     const resolved = exactCircle
       ? ({ circle: exactCircle } as const)
@@ -12226,7 +12244,7 @@ export function OneLocationAgentPageContent({
     }
   });
 
-  useLocalOnboardingActionHandler("location.leave_circle", async (slots) => {
+  useLocalOnboardingActionHandler("location.leave_circle", async (slots, context) => {
     if (!vaultOwnerToken) {
       return {
         status: "blocked" as const,
@@ -12245,7 +12263,7 @@ export function OneLocationAgentPageContent({
         summary: `You own ${circle.name}, so you cannot leave it. Delete it instead, or hand off ownership first.`,
       };
     }
-    if (slots?.confirmed !== true) {
+    if (!context?.directiveId && !context?.humanConfirmationToken) {
       // Leaving takes away what this circle was sharing with the person, and
       // is not always reversible if the owner does not re-invite them.
       return {
@@ -12254,7 +12272,7 @@ export function OneLocationAgentPageContent({
         data: {
           [VOICE_CONFIRM_DATA_KEY]: {
             actionId: "location.leave_circle",
-            slots: { circle: String(slots?.circle ?? ""), confirmed: true },
+            slots: { circle: String(slots?.circle ?? "") },
             prompt: `Leave ${circle.name}?`,
             subject: { name: circle.name, detail: null },
             consequence:
@@ -12278,7 +12296,7 @@ export function OneLocationAgentPageContent({
     };
   });
 
-  useLocalOnboardingActionHandler("location.delete_circle", async (slots) => {
+  useLocalOnboardingActionHandler("location.delete_circle", async (slots, context) => {
     if (!vaultOwnerToken) {
       return {
         status: "blocked" as const,
@@ -12297,14 +12315,14 @@ export function OneLocationAgentPageContent({
         summary: `You cannot delete ${circle.name}. Only its owner can -- leave it instead.`,
       };
     }
-    if (slots?.confirmed !== true) {
+    if (!context?.directiveId && !context?.humanConfirmationToken) {
       return {
         status: "blocked" as const,
         summary: `Deleting ${circle.name} needs a confirmation.`,
         data: {
           [VOICE_CONFIRM_DATA_KEY]: {
             actionId: "location.delete_circle",
-            slots: { circle: String(slots?.circle ?? ""), confirmed: true },
+            slots: { circle: String(slots?.circle ?? "") },
             prompt: `Delete ${circle.name}? Everyone in it loses access through it.`,
             subject: {
               name: circle.name,
@@ -12469,7 +12487,7 @@ export function OneLocationAgentPageContent({
 
   useLocalOnboardingActionHandler(
     "location.delete_saved_location",
-    async (slots) => {
+    async (slots, context) => {
       const spokenLabel = String(slots?.label ?? "").trim();
       if (!vaultKey || !vaultOwnerToken || !auth.userId) {
         return {
@@ -12537,14 +12555,14 @@ export function OneLocationAgentPageContent({
         };
       }
       const resolvedTarget = target;
-      if (slots?.confirmed !== true) {
+      if (!context?.directiveId && !context?.humanConfirmationToken) {
         return {
           status: "blocked" as const,
           summary: `Deleting ${resolvedTarget.label} needs a confirmation.`,
           data: {
             [VOICE_CONFIRM_DATA_KEY]: {
               actionId: "location.delete_saved_location",
-              slots: { label: spokenLabel, confirmed: true },
+              slots: { label: spokenLabel },
               prompt: `Delete the saved place called ${resolvedTarget.label}?`,
               subject: {
                 name: resolvedTarget.label,
@@ -12627,9 +12645,9 @@ export function OneLocationAgentPageContent({
       try {
         const preference = await OneLocationService.updateAutoApprovePreference(
           {
-          vaultOwnerToken,
-          enabled,
-          scope: enabled ? (input.scope ?? null) : null,
+            vaultOwnerToken,
+            enabled,
+            scope: enabled ? (input.scope ?? null) : null,
           },
         );
         // The PATCH result is the authority. Keep it visible even when the
@@ -12685,6 +12703,7 @@ export function OneLocationAgentPageContent({
   }, [auth.userId]);
 
   const dismissLocationOnboarding = useCallback(async () => {
+    clearContactInvitations();
     if (mode === "setup") {
       await onSetupComplete?.();
       markLocationOnboardingSeen();
@@ -12696,6 +12715,7 @@ export function OneLocationAgentPageContent({
     setLocationOnboardingGate("hidden");
     setLocationOnboardingBusy(false);
   }, [
+    clearContactInvitations,
     clearLocationOnboardingProgress,
     markLocationOnboardingSeen,
     mode,
@@ -12703,13 +12723,20 @@ export function OneLocationAgentPageContent({
   ]);
 
   const skipLocationOnboarding = useCallback(async () => {
+    clearContactInvitations();
     if (mode === "setup") {
       await onSetupSkip?.();
       clearLocationOnboardingProgress();
       return;
     }
     dismissLocationOnboarding();
-  }, [clearLocationOnboardingProgress, dismissLocationOnboarding, mode, onSetupSkip]);
+  }, [
+    clearContactInvitations,
+    clearLocationOnboardingProgress,
+    dismissLocationOnboarding,
+    mode,
+    onSetupSkip,
+  ]);
 
   const handleDismissFirstRunGuide = useCallback(() => {
     setFirstRunGuideDismissed(true);
@@ -13489,6 +13516,7 @@ export function OneLocationAgentPageContent({
         />
         <ContactSyncResultsSheet
           takeover
+          invitations={contactInvitations}
           open={contactSyncResultsOpen}
           onOpenChange={setContactSyncResultsOpen}
           result={contactSyncResult}
@@ -13642,6 +13670,7 @@ export function OneLocationAgentPageContent({
     selectedRequestOwnerIds,
     shareDurationHours,
     shareMessage,
+    shareError,
     durationHours,
     requestMessage,
     shareReviewOpen,
@@ -13885,6 +13914,7 @@ export function OneLocationAgentPageContent({
         </AppPageContentRegion>
         <ContactSyncResultsSheet
           open={contactSyncResultsOpen}
+          invitations={contactInvitations}
           onOpenChange={setContactSyncResultsOpen}
           result={contactSyncResult}
           syncing={busy === "contactSync"}

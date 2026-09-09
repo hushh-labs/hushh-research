@@ -27,7 +27,7 @@ describe("private-agent chat shell contract", () => {
     expect(workspace).toContain("ShellActionSurface");
     expect(workspace).toContain('"motion-step-enter flex w-full items-start gap-2"');
     expect(workspace).not.toContain("animate-in fade-in slide-in-from-bottom-1");
-    expect(workspace).toContain('className="flex min-h-16 items-end gap-2 rounded-[24px]');
+    expect(workspace).toContain('className="flex min-h-16 items-center gap-2 rounded-[24px]');
     expect(history).toContain("bg-[linear-gradient(180deg");
     expect(history).not.toContain('"border-r border-border/70');
   });
@@ -62,12 +62,12 @@ describe("private-agent chat shell contract", () => {
     expect(workspace).toContain("sm:px-8 sm:pr-14");
     expect(workspace).toContain("rounded-[24px] bg-foreground/[0.045]");
     expect(workspace).not.toContain("agent-chat-composer\"\n                      className=\"flex min-h-16 items-end gap-2 rounded-2xl border");
-    expect(workspace).toContain('className="flex shrink-0 self-end items-center gap-2"');
+    expect(workspace).toContain('className="flex shrink-0 items-center gap-2"');
     expect(workspace).toContain("max-h-28");
     expect(workspace).toContain("sm:max-h-36");
     expect(workspace).toContain("h-[min(38dvh,18rem)]");
     expect(workspace).toContain("sm:h-[min(48dvh,30rem)]");
-    expect(workspace).toContain("composerLong ?");
+    expect(workspace).toContain("composerExpanded ?");
     expect(workspace).not.toContain("Expanded message</span>");
     expect(workspace).not.toContain("Writing in expanded composer");
   });
@@ -90,7 +90,8 @@ describe("private-agent chat shell contract", () => {
     expect(workspace).toContain('data-testid="agent-chat-self-avatar"');
     expect(workspace).toContain("<AvatarBubble");
     expect(workspace).not.toContain('return "Ready";');
-    expect(workspace).toContain("{statusText ? (");
+    expect(workspace).toContain('role="status"');
+    expect(workspace).toContain("{statusText}");
   });
 
   it("minimizes the legacy full-page /agent route to One home, not Profile, when there is no referrer to retrace to", () => {

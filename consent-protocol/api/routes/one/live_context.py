@@ -41,6 +41,10 @@ LIVE_CONTEXT_STRING_CAP = 64
 # hushh-webapp/lib/voice/screen-context-builder.ts via the shared Python
 # constant of the same name in action_gateway.py; keep both in sync.
 LIVE_CONTEXT_ARRAY_CAP = AVAILABLE_ACTION_IDS_CAP
+# The model-facing inventory is capped for prompt size. Execution receives a
+# separate, still bounded surface inventory so a valid mounted control cannot
+# become unavailable merely because it ranked below that prompt cap.
+EXECUTABLE_ACTION_IDS_CAP = 64
 LIVE_MODULE_CAP = 10
 # Screen state is publisher-defined: unlike every other sanitized field there
 # is no key allowlist to bound it, so the key COUNT is the bound. Location
@@ -268,6 +272,11 @@ def sanitize_live_context(payload: dict[str, Any]) -> dict[str, Any]:
             "voice_state": payload.get("voice_state") or voice.get("state"),
             "available_action_ids": payload.get("available_action_ids")
             or snapshot_map.get("available_action_ids"),
+            "executable_action_ids": (
+                payload["executable_action_ids"]
+                if "executable_action_ids" in payload
+                else snapshot_map.get("executable_action_ids")
+            ),
             "visible_modules": payload.get("visible_modules") or ui.get("visible_modules"),
             "visible_control_ids": payload.get("visible_control_ids")
             or ui.get("visible_control_ids"),
@@ -315,9 +324,21 @@ def sanitize_live_context(payload: dict[str, Any]) -> dict[str, Any]:
     # Authority is unchanged: unknown or off-contract ids never pass, and
     # run_app_action re-validates screens/guards before parking a directive.
     submitted_raw = bounded_text_list(payload.get("available_action_ids"), LIVE_CONTEXT_ARRAY_CAP)
+    executable_raw_present = "executable_action_ids" in payload
+    submitted_executable_raw = bounded_text_list(
+        payload.get("executable_action_ids"), EXECUTABLE_ACTION_IDS_CAP
+    )
+    if not executable_raw_present:
+        submitted_executable_raw = submitted_raw
     submitted_action_ids = [
         action_id
         for action_id in submitted_raw
+        if action_id in route_action_ids
+        or is_navigation_action(get_action_gateway_action(action_id))
+    ]
+    executable_action_ids = [
+        action_id
+        for action_id in submitted_executable_raw
         if action_id in route_action_ids
         or is_navigation_action(get_action_gateway_action(action_id))
     ]
@@ -331,8 +352,14 @@ def sanitize_live_context(payload: dict[str, Any]) -> dict[str, Any]:
             len(submitted_raw),
             len(submitted_action_ids),
         )
+    # A ranked model-facing list and the execution inventory are deliberately
+    # separate. A control that ranked below the prompt cap must still be
+    # allowed to describe the active modal layer; otherwise the layer filter
+    # would silently erase a real dismiss/confirm control before the browser
+    # can execute it.
+    layer_inventory = list(dict.fromkeys([*submitted_action_ids, *executable_action_ids]))
     interaction_layer = sanitize_interaction_layer(
-        payload.get("interaction_layer"), submitted_action_ids
+        payload.get("interaction_layer"), layer_inventory
     )
     # What the model is TOLD about and what it is ALLOWED to run are different
     # questions, and conflating them made a ranking decision into a refusal.
@@ -387,7 +414,7 @@ def sanitize_live_context(payload: dict[str, Any]) -> dict[str, Any]:
         # Where the person is stuck, and the one action that unsticks them.
         # Admitted under the same rule as the action inventory, so a screen can
         # describe its own dead end but cannot mint a destination out of it.
-        "dead_end": sanitize_dead_end(payload.get("dead_end"), submitted_action_ids),
+        "dead_end": sanitize_dead_end(payload.get("dead_end"), layer_inventory),
         "context_revision": bounded_text(payload.get("context_revision"), 128) or None,
         "signed_in": payload.get("signed_in") is True,
         "persona": bounded_text(payload.get("persona")),

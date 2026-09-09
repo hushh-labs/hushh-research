@@ -29,12 +29,14 @@ import { TopShellRouteSwipe } from "@/components/app-ui/top-shell-route-swipe";
 import { AgentPopoverProvider } from "@/components/agent/agent-popover-provider";
 import { AgentRuntimeStateProvider } from "@/lib/agent/agent-runtime-context";
 import { SiriOneVoiceHandoff } from "@/components/agent/siri-one-voice-handoff";
+import { SiriOneRequestHandoff } from "@/components/agent/siri-one-request-handoff";
 import { SiriOneActionHandoff } from "@/components/agent/siri-one-action-handoff";
 import { SiriOneEntityIndexPublisher } from "@/components/agent/siri-one-entity-index-publisher";
 import { AgentVoiceEdgeGlow } from "@/components/agent/agent-voice-edge-glow";
 import { FoundationPublicAmbient } from "@/components/app-ui/foundation-public-ambient";
 import { AppBottomShell } from "@/components/app-ui/app-bottom-shell";
 import { AmbientChromeController } from "@/components/app-ui/ambient-chrome-mask";
+import { resolveRiaRouteTabSet } from "@/lib/navigation/top-shell-tabs";
 import { Toaster } from "@/components/ui/sonner";
 import { StatusBarManager } from "@/components/status-bar-manager";
 import { KeyboardInsetManager } from "@/components/keyboard-inset-manager";
@@ -172,7 +174,8 @@ function AppShellFrame({ children }: ProvidersProps) {
     isFocusedConnectCircleTask(
       searchParams?.get("tab") ?? null,
       searchParams?.get("action") ?? null,
-      searchParams?.get("circleId") ?? null,    );
+      searchParams?.get("circleId") ?? null,
+    );
   // Focused query-scoped Location flows clear the bottom command/navigation
   // stack while keeping the top shell route context.
   const bottomChromeHidden =
@@ -190,12 +193,20 @@ function AppShellFrame({ children }: ProvidersProps) {
     );
   }, [searchParams, shellPathname]);
   const topShellModel = topShellRouteProfile.model;
-  const routeSwipeTabSet =
-    topShellModel.mode === "bar-with-tabs" &&
-    (topShellModel.tabs.queryParam === null ||
-      topShellModel.tabs.id === "consent")
-      ? topShellModel.tabs
-      : null;
+  const routeSwipeTabSet = useMemo(() => {
+    if (
+      topShellModel.mode === "bar-with-tabs" &&
+      (topShellModel.tabs.queryParam === null ||
+        topShellModel.tabs.id === "consent")
+    ) {
+      return topShellModel.tabs;
+    }
+
+    const query = searchParams?.toString() ?? "";
+    return resolveRiaRouteTabSet(
+      query ? `${shellPathname}?${query}` : shellPathname,
+    );
+  }, [searchParams, shellPathname, topShellModel]);
   const topShellMetrics = useMemo(
     () => ({
       shellVisible: topShellModel.mode !== "hidden",
@@ -306,13 +317,11 @@ function AppShellFrame({ children }: ProvidersProps) {
   const foundationVoiceOnlyChrome = isFoundationRoute;
   // RIA and Foundation both use a persistent-but-pinned lower utility. Keep
   // the scroll-hide driver for ordinary signed-in navigation only.
-  const pinnedBottomChrome =
-    isRiaRoute(pathname) || foundationVoiceOnlyChrome;
+  const pinnedBottomChrome = isRiaRoute(pathname) || foundationVoiceOnlyChrome;
   const bottomShellModel = {
     ambientEnabled:
       ambientChromeEnabled && !isFullscreenTopFlow && !bottomChromeHidden,
-    navigationHidden:
-      effectiveHideCommandBar || foundationVoiceOnlyChrome,
+    navigationHidden: effectiveHideCommandBar || foundationVoiceOnlyChrome,
     hidden: bottomChromeHidden,
   };
   // Drive the bottom-chrome hide animation through a CSS variable instead of a
@@ -491,6 +500,7 @@ function AppShellFrame({ children }: ProvidersProps) {
           <AgentRuntimeStateProvider>
             <AgentPopoverProvider>
               <SiriOneVoiceHandoff />
+              <SiriOneRequestHandoff />
               <SiriOneActionHandoff />
               <SiriOneEntityIndexPublisher />
               <NativeTestRouter />

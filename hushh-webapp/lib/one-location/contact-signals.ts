@@ -5,6 +5,7 @@ import {
   type HushhContactsPermissionState,
 } from "@/lib/capacitor";
 import { isWeb } from "@/lib/capacitor/platform";
+import { contactInvitationsEnabled, type InviteCandidate, type LocalInviteContact } from "@/lib/contacts/invitation-candidates";
 import {
   buildMarketplaceContactLookups,
   CONTACT_SYNC_BATCH_SIZE,
@@ -171,10 +172,12 @@ export async function syncOneLocationContactSignals({
   idToken,
   resolveIdToken,
   accountPhoneNumber,
+  accountEmail,
   resolveAccountPhoneNumber,
   contactLimit = 10_000,
   signal,
   source,
+  onInviteCandidates,
 }: {
   /** Existing callers may provide an already-resolved Firebase token. */
   idToken?: string;
@@ -189,6 +192,7 @@ export async function syncOneLocationContactSignals({
     | undefined
     | Promise<string | null | undefined>;
   accountPhoneNumber?: string | null;
+  accountEmail?: string | null;
   resolveAccountPhoneNumber?: () =>
     | string
     | null
@@ -199,19 +203,25 @@ export async function syncOneLocationContactSignals({
   matchLimit?: number;
   signal?: AbortSignal;
   source?: MarketplaceContactSource;
+  /** Client-only, session-scoped recipients. Never part of the API/result object. */
+  onInviteCandidates?: (candidates: InviteCandidate[]) => void;
 }): Promise<OneLocationContactSignalResult> {
   // The web Contact Picker requires transient user activation. Its own read
   // reports availability, so avoid any async bridge/auth work before select().
   if (!source && !isWeb()) await assertContactsReadable();
 
+  let localInviteContacts: LocalInviteContact[] = [];
+  const captureInvites = contactInvitationsEnabled() && Boolean(onInviteCandidates);
   const lookupResult = await (async () => {
     try {
       return await buildMarketplaceContactLookups({
         limit: contactLimit,
         accountPhoneNumber,
+        accountEmail,
         resolveAccountPhoneNumber,
         signal,
         ...(source ? { source } : {}),
+        ...(captureInvites ? { onLocalInviteContacts: (contacts: LocalInviteContact[]) => { localInviteContacts = contacts; } } : {}),
       });
     } catch (error) {
       // The first permission prompt happens inside readContacts(). If the user
@@ -341,6 +351,7 @@ export async function syncOneLocationContactSignals({
   let unknownContactCount = 0;
   let uncheckedReadableContactCount = 0;
   let lookupLimitedUncheckedContactCount = 0;
+  const unmatchedContactKeys = new Set<string>();
   for (const contact of lookupResult.contacts) {
     const coverageComplete =
       contact.coverageComplete !== false &&
@@ -371,6 +382,7 @@ export async function syncOneLocationContactSignals({
       contact.lookupIds.every((lookupId) => completedLookupIds.has(lookupId))
     ) {
       unmatchedContactCount += 1;
+      unmatchedContactKeys.add(contact.contactKey);
     } else {
       uncheckedReadableContactCount += 1;
     }
@@ -396,6 +408,18 @@ export async function syncOneLocationContactSignals({
       unknownContactCount ||
       uncheckedContactCount,
   );
+
+  if (captureInvites) {
+    signal?.throwIfAborted();
+    if (resolveAccountPhoneNumber) await resolveAccountPhoneNumber();
+    const candidates: InviteCandidate[] = localInviteContacts.flatMap((contact) => {
+      const classification = unmatchedContactKeys.has(contact.id) ? "no_match" : contact.emailOnly ? "email_only" : null;
+      if (!classification || !contact.destinations.length) return [];
+      return [{ id: contact.id, displayName: contact.displayName, destinations: contact.destinations, classification }];
+    });
+    localInviteContacts = [];
+    onInviteCandidates?.(candidates);
+  }
 
   return {
     matches,
@@ -536,7 +560,7 @@ export function describeContactSyncOutcome(
       : "No eligible contacts matched";
   const details = [
     result.matchedUserIds.length === 0
-      ? "ONE users need an exact verified phone match and must remain visible in the Connect directory. Explicit opt-outs and previous disconnects stay protected."
+      ? "ONE users need an exact verified phone match and must remain visible in the Connect directory. Sync again to reconnect people you removed. Other people's disconnects and privacy choices stay protected."
       : null,
     result.requestRequiredCount
       ? result.requestRequiredCount === 1

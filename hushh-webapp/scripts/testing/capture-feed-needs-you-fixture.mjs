@@ -28,6 +28,8 @@ import path from "node:path";
 import { afterEach, it, vi } from "vitest";
 
 import { FeedActionableRow } from "@/components/feed/feed-actionable-row";
+import { FeedRow } from "@/components/feed/feed-row";
+import { SettingsGroup, SettingsPresentationProvider } from "@/components/app-ui/settings-ui";
 import type { FeedActionable } from "@/lib/feed/use-feed-actionables";
 
 /**
@@ -38,6 +40,7 @@ import type { FeedActionable } from "@/lib/feed/use-feed-actionables";
 const ROWS: FeedActionable[] = [
   {
     id: "extend",
+    person: { displayName: "JHUMMA KUMARI", photoUrl: null },
     title: "JHUMMA KUMARI",
     description: "Requesting 4 hours more of your live location.",
     displayTimestamp: Date.parse("2026-08-17T03:04:00Z"),
@@ -51,6 +54,7 @@ const ROWS: FeedActionable[] = [
   },
   {
     id: "request",
+    person: { displayName: "Smirthika Dharmalingam", photoUrl: "https://example.test/photo.png" },
     title: "Smirthika Dharmalingam",
     description: "Smirthika Dharmalingam wants to see your location through Location.",
     displayTimestamp: Date.parse("2026-08-17T02:34:00Z"),
@@ -63,6 +67,7 @@ const ROWS: FeedActionable[] = [
   },
   {
     id: "checkin",
+    onSelect: () => {},
     title: "Smirthika Dharmalingam",
     description: "Safety check-in",
     displayTimestamp: Date.parse("2026-08-17T02:34:00Z"),
@@ -81,29 +86,48 @@ afterEach(() => vi.useRealTimers());
 it("captures the Needs you rows", () => {
   vi.useFakeTimers();
   vi.setSystemTime(new Date("2026-08-17T12:00:00Z"));
-  const html = ROWS.map((item) =>
-    renderToStaticMarkup(<FeedActionableRow item={item} />),
-  ).join("\\n");
+  const html = renderToStaticMarkup(
+    <SettingsPresentationProvider density="compact">
+      <SettingsGroup title="Needs you" separatorInset>
+        {ROWS.map((item) => <FeedActionableRow key={item.id} item={item} />)}
+      </SettingsGroup>
+      <SettingsGroup title="Today" separatorInset>
+        {["Manish Malhotra", "Aparna", "Very Long Contact Name Without Truncating Identity"].map((name, index) => (
+          <FeedRow key={name} onOpen={() => {}} item={{
+            id: String(index + 10), source_domain: "location", event_type: "location_share_created",
+            actor_label: name, metadata: { counterpart_label: name, feed_audience: "recipient" },
+            read: index === 1, created_at: "2026-08-17T02:34:00Z",
+          }} />
+        ))}
+      </SettingsGroup>
+    </SettingsPresentationProvider>,
+  );
   writeFileSync(
     path.join(process.cwd(), "e2e/fixtures/feed-needs-you-rows.html"),
-    '<section aria-label="Needs you" class="bg-accent/[0.03]">\\n' +
-      '<div class="divide-y divide-[color:var(--foundation-hairline)]">\\n' +
-      html +
-      "\\n</div>\\n</section>\\n",
+    html,
   );
 });
 `;
 
-const dir = mkdtempSync(path.join(process.cwd(), "__tests__", ".feed-fixture-"));
+const dir = mkdtempSync(
+  path.join(process.cwd(), "__tests__", ".feed-fixture-"),
+);
 const testFile = path.join(dir, "capture-feed-fixture.test.tsx");
-const vitestCli = path.join(process.cwd(), "node_modules", "vitest", "vitest.mjs");
+const vitestCli = path.join(
+  process.cwd(),
+  "node_modules",
+  "vitest",
+  "vitest.mjs",
+);
 writeFileSync(testFile, TEST_SOURCE);
 try {
   execFileSync(process.execPath, [vitestCli, "run", testFile], {
     env: { ...process.env, TZ: "UTC" },
     stdio: "inherit",
   });
-  console.log("Wrote e2e/fixtures/feed-needs-you-rows.html from the real component.");
+  console.log(
+    "Wrote e2e/fixtures/feed-needs-you-rows.html from the real component.",
+  );
 } finally {
   rmSync(dir, { recursive: true, force: true });
 }

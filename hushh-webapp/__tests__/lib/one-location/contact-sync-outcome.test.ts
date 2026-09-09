@@ -47,7 +47,7 @@ describe("describeContactSyncOutcome", () => {
 
     expect(outcome.title).toBe("No eligible contacts matched");
     expect(outcome.description).toContain(
-      "ONE users need an exact verified phone match and must remain visible in the Connect directory. Explicit opt-outs and previous disconnects stay protected.",
+      "ONE users need an exact verified phone match and must remain visible in the Connect directory. Sync again to reconnect people you removed. Other people's disconnects and privacy choices stay protected.",
     );
     expect(outcome.description).toContain(
       "20 contacts were checked and can be invited.",

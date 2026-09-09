@@ -483,11 +483,16 @@ function resolveTopShellBreadcrumbInner(
       backHref: ROUTES.ONE_HOME,
       width: "content",
       align: "center",
-      items: [
-        { label: "One", href: ROUTES.ONE_HOME },
-        { label: "RIA" },
-        { label: "Profile" },
-      ],
+      items: [],
+    };
+  }
+
+  if (pathname === ROUTES.RIA_PICKS) {
+    return {
+      backHref: ROUTES.RIA_PROFILE,
+      width: "content",
+      align: "center",
+      items: [],
     };
   }
 
@@ -638,7 +643,7 @@ function resolveTopShellBreadcrumbInner(
       backHref: ROUTES.RIA_PROFILE,
       width: "profile",
       align: "center",
-      items: [{ label: "RIA", href: ROUTES.RIA_PROFILE }, { label: "Clients" }],
+      items: [],
     };
   }
 

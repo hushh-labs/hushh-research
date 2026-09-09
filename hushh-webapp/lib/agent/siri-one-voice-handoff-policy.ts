@@ -2,6 +2,7 @@ import type { AgentAccessTier } from "@/lib/agent/agent-runtime-context";
 
 export type SiriOneVoiceHandoffState =
   | "expired"
+  | "handoff_timeout"
   | "waiting_for_foreground"
   | "waiting_for_auth_restoration"
   | "waiting_for_auth"
@@ -30,6 +31,7 @@ export function buildSiriOneVoiceLoginRoute(input: {
 export function resolveSiriOneVoiceHandoffState(input: {
   now: number;
   expiresAt: number;
+  handoffDeadlineAt: number;
   visible: boolean;
   authLoading: boolean;
   signedIn: boolean;
@@ -41,6 +43,7 @@ export function resolveSiriOneVoiceHandoffState(input: {
   voiceEnabled: boolean;
 }): SiriOneVoiceHandoffState {
   if (input.expiresAt <= input.now) return "expired";
+  if (input.handoffDeadlineAt <= input.now) return "handoff_timeout";
   if (!input.visible) return "waiting_for_foreground";
   if (input.authLoading) return "waiting_for_auth_restoration";
   if (!input.signedIn) return "waiting_for_auth";

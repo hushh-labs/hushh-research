@@ -8,6 +8,7 @@ const { push } = vi.hoisted(() => ({
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push }),
+  usePathname: () => "/ria/clients",
 }));
 
 vi.mock("@/hooks/use-auth", () => ({
@@ -38,9 +39,15 @@ vi.mock("@/lib/voice/voice-surface-metadata", () => ({
 }));
 
 vi.mock("@/components/app-ui/app-page-shell", () => ({
-  AppPageShell: ({ children }: { children?: React.ReactNode }) => <main>{children}</main>,
-  AppPageHeaderRegion: ({ children }: { children?: React.ReactNode }) => <div>{children}</div>,
-  AppPageContentRegion: ({ children }: { children?: React.ReactNode }) => <div>{children}</div>,
+  AppPageShell: ({ children }: { children?: React.ReactNode }) => (
+    <main>{children}</main>
+  ),
+  AppPageHeaderRegion: ({ children }: { children?: React.ReactNode }) => (
+    <div>{children}</div>
+  ),
+  AppPageContentRegion: ({ children }: { children?: React.ReactNode }) => (
+    <div>{children}</div>
+  ),
 }));
 
 vi.mock("@/components/app-ui/page-sections", () => ({
@@ -59,7 +66,9 @@ vi.mock("@/components/app-ui/page-sections", () => ({
 }));
 
 vi.mock("@/components/app-ui/surfaces", () => ({
-  SurfaceStack: ({ children }: { children?: React.ReactNode }) => <div>{children}</div>,
+  SurfaceStack: ({ children }: { children?: React.ReactNode }) => (
+    <div>{children}</div>
+  ),
 }));
 
 vi.mock("@/components/profile/settings-ui", () => ({
@@ -104,7 +113,9 @@ vi.mock("@/components/profile/settings-ui", () => ({
 
 vi.mock("@/components/ria/ria-page-shell", () => ({
   RiaCompatibilityState: ({ title }: { title: string }) => <div>{title}</div>,
-  RiaVerificationGate: ({ children }: { children?: React.ReactNode }) => <>{children}</>,
+  RiaVerificationGate: ({ children }: { children?: React.ReactNode }) => (
+    <>{children}</>
+  ),
 }));
 
 vi.mock("@/components/ria/nearby/nearby-around-you", () => ({
@@ -117,15 +128,11 @@ describe("RIA Clients page", () => {
   it("keeps the workspace summary visible when switching to Around You", () => {
     render(<RiaClientsPage />);
 
-    expect(
-      screen.getByText(/One workspace per client/i),
-    ).toBeInTheDocument();
+    expect(screen.getByText(/One workspace per client/i)).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: /Around you/i }));
 
-    expect(
-      screen.getByText(/One workspace per client/i),
-    ).toBeInTheDocument();
+    expect(screen.getByText(/One workspace per client/i)).toBeInTheDocument();
     expect(screen.getByText("Nearby records pane")).toBeInTheDocument();
     expect(push).not.toHaveBeenCalled();
   });

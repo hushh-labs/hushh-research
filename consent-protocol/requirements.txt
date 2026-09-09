@@ -52,6 +52,7 @@ google-api-core==2.29.0
 google-auth==2.49.2
 google-cloud-core==2.5.1
 google-cloud-firestore==2.27.0 ; platform_python_implementation != 'PyPy'
+google-cloud-secret-manager==2.30.0
 google-cloud-storage==3.10.1
 google-cloud-trace==1.19.0
 google-crc32c==1.8.0
@@ -60,6 +61,7 @@ google-resumable-media==2.8.2
 googleapis-common-protos==1.74.0
 graphviz==0.21
 greenlet==3.4.0 ; platform_machine == 'AMD64' or platform_machine == 'WIN32' or platform_machine == 'aarch64' or platform_machine == 'amd64' or platform_machine == 'ppc64le' or platform_machine == 'win32' or platform_machine == 'x86_64'
+grpc-google-iam-v1==0.14.5
 grpcio==1.76.0
 grpcio-status==1.76.0
 gunicorn==25.3.0

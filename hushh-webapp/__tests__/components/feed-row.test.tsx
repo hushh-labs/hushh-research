@@ -12,7 +12,7 @@ vi.mock("@/lib/feed/feed-item-renderers", () => ({
     label: "Someone shared location",
     description: "A routine location share.",
     href: item.metadata.hrefEnabled ? "/one/location" : null,
-    person: null,
+    person: item.metadata.person ?? null,
   }),
 }));
 
@@ -39,12 +39,12 @@ describe("FeedRow", () => {
     vi.useRealTimers();
   });
 
-  it("shows the local time label next to the description", () => {
+  it("shows the local time label below the description", () => {
     render(<FeedRow item={feedItem()} onOpen={() => {}} />);
 
-    expect(screen.getAllByText(/^\d{2}:\d{2}\s?[AP]M$/i).length).toBeGreaterThan(
-      0,
-    );
+    expect(
+      screen.getAllByText(/^\d{2}:\d{2}\s?[AP]M$/i).length,
+    ).toBeGreaterThan(0);
     expect(screen.getByText("A routine location share.")).toBeInTheDocument();
   });
 
@@ -54,6 +54,29 @@ describe("FeedRow", () => {
     expect(screen.queryByText(/^\d+[mhd]$/)).toBeNull();
     expect(screen.queryByText(/^Today -/)).toBeNull();
     expect(screen.queryByText("now")).toBeNull();
+  });
+
+  it("uses Connect's same first-and-last initials and photo contract", () => {
+    const photo = "https://example.test/profile.png";
+    const { container } = render(
+      <FeedRow
+        item={feedItem({
+          metadata: {
+            person: { displayName: "Manish Kumar Gupta", photoUrl: photo },
+          },
+        })}
+        onOpen={() => {}}
+      />,
+    );
+    expect(container.querySelector('[data-slot="avatar"]')).toHaveAttribute(
+      "data-photo-url",
+      photo,
+    );
+    expect(container.querySelector('[data-slot="avatar"]')).toHaveAttribute(
+      "data-avatar-size",
+      "list",
+    );
+    expect(screen.getByText("MG")).toHaveAttribute("aria-hidden", "true");
   });
 
   it("shows the unread dot when the item is unread", () => {
@@ -77,10 +100,7 @@ describe("FeedRow", () => {
       />,
     );
 
-    screen
-      .getByText("Someone shared location")
-      .closest("button")
-      ?.click();
+    screen.getByText("Someone shared location").closest("button")?.click();
     expect(onOpen).toHaveBeenCalledOnce();
   });
 });

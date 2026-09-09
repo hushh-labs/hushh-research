@@ -653,8 +653,10 @@ class OneLocationCircleService:
             "circleKind": str(row.get("circle_kind") or "other"),
             "inviterUserId": str(row.get("inviter_user_id") or ""),
             "inviterDisplayName": inviter_name or "A Circle member",
+            "inviterPhotoUrl": str(row.get("inviter_photo_url") or "").strip() or None,
             "inviteeUserId": str(row.get("invitee_user_id") or ""),
             "inviteeDisplayName": invitee_name or "Connection",
+            "inviteePhotoUrl": str(row.get("invitee_photo_url") or "").strip() or None,
             "status": str(row.get("status") or "pending"),
             "expiresAt": _iso(row.get("expires_at")),
             "createdAt": _iso(row.get("created_at")),
@@ -3179,6 +3181,8 @@ class OneLocationCircleService:
                       invite.created_at, invite.responded_at,
                       circle.name AS circle_name, circle.kind AS circle_kind,
                       inviter.display_name AS inviter_display_name,
+                      COALESCE(NULLIF(BTRIM(inviter.custom_photo_url), ''), NULLIF(BTRIM(inviter.photo_url), '')) AS inviter_photo_url,
+                      COALESCE(NULLIF(BTRIM(invitee.custom_photo_url), ''), NULLIF(BTRIM(invitee.photo_url), '')) AS invitee_photo_url,
                       invitee.display_name AS invitee_display_name
                     FROM one_location_circle_member_invites invite
                     JOIN one_location_circles circle
@@ -3204,6 +3208,8 @@ class OneLocationCircleService:
                       invite.created_at, invite.responded_at,
                       circle.name AS circle_name, circle.kind AS circle_kind,
                       inviter.display_name AS inviter_display_name,
+                      COALESCE(NULLIF(BTRIM(inviter.custom_photo_url), ''), NULLIF(BTRIM(inviter.photo_url), '')) AS inviter_photo_url,
+                      COALESCE(NULLIF(BTRIM(invitee.custom_photo_url), ''), NULLIF(BTRIM(invitee.photo_url), '')) AS invitee_photo_url,
                       invitee.display_name AS invitee_display_name
                     FROM one_location_circle_member_invites invite
                     JOIN one_location_circles circle
@@ -3253,6 +3259,8 @@ class OneLocationCircleService:
                   invite.created_at, invite.responded_at,
                   circle.name AS circle_name, circle.kind AS circle_kind,
                   inviter.display_name AS inviter_display_name,
+                  COALESCE(NULLIF(BTRIM(inviter.custom_photo_url), ''), NULLIF(BTRIM(inviter.photo_url), '')) AS inviter_photo_url,
+                  COALESCE(NULLIF(BTRIM(invitee.custom_photo_url), ''), NULLIF(BTRIM(invitee.photo_url), '')) AS invitee_photo_url,
                   invitee.display_name AS invitee_display_name
                 FROM one_location_circle_member_invites invite
                 JOIN one_location_circles circle
@@ -3608,6 +3616,8 @@ class OneLocationCircleService:
                               circle.name AS circle_name,
                               circle.kind AS circle_kind,
                               inviter.display_name AS inviter_display_name,
+                              COALESCE(NULLIF(BTRIM(inviter.custom_photo_url), ''), NULLIF(BTRIM(inviter.photo_url), '')) AS inviter_photo_url,
+                              COALESCE(NULLIF(BTRIM(invitee.custom_photo_url), ''), NULLIF(BTRIM(invitee.photo_url), '')) AS invitee_photo_url,
                               invitee.display_name AS invitee_display_name
                             FROM one_location_circle_member_invites invite
                             JOIN one_location_circles circle
@@ -3974,6 +3984,8 @@ class OneLocationCircleService:
                               invite.inviter_user_id, invite.invitee_user_id,
                               invite.status, invite.expires_at,
                               inviter.display_name AS inviter_display_name,
+                              COALESCE(NULLIF(BTRIM(inviter.custom_photo_url), ''), NULLIF(BTRIM(inviter.photo_url), '')) AS inviter_photo_url,
+                              COALESCE(NULLIF(BTRIM(invitee.custom_photo_url), ''), NULLIF(BTRIM(invitee.photo_url), '')) AS invitee_photo_url,
                               invitee.display_name AS invitee_display_name,
                               invitee.email AS invitee_email,
                               invite.created_at, invite.responded_at

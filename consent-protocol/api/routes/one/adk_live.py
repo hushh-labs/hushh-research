@@ -18,8 +18,9 @@ runtime mode before the runner/session exists; it never becomes model context:
 
   browser -> server: {"type": "runtime_bootstrap", "runtime_credential_mode": ...}
                      {"realtimeInput": {"audio": {"data": b64, "mimeType"}}}
-                     {"type": "app_context", "appContext": {...}}   (context)
-                     {"type": "action_settled", "actionSettlement": {...}}
+                    {"type": "app_context", "appContext": {...}}   (context)
+                     {"type": "action_propose", "actionProposal": {...}} (local catalog proposal)
+                    {"type": "action_settled", "actionSettlement": {...}}
                      {"type": "app_speech", "text": ...}            (say this)
                      {"type": "interrupt"}                          (stop talking)
   server -> browser: {"setupComplete": {}}
@@ -72,7 +73,11 @@ from api.routes.one.relay_auth import (
     resolve_optional_uid,
     resolve_persona_tier,
 )
-from hushh_mcp.one_adk.action_tools import _slot_fingerprint
+from hushh_mcp.one_adk.action_tools import (
+    _directive_flags,
+    _missing_required_slot,
+    _slot_fingerprint,
+)
 from hushh_mcp.one_adk.agent_tree import (
     ONE_APP_NAME,
     ONE_LIVE_VOICE_NAME,
@@ -836,6 +841,175 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
             if gc_task is not None:
                 gc_task.cancel()
 
+    async def _issue_local_action_proposal(raw_proposal: Any) -> None:
+        """Issue a catalog-bound proposal without invoking the model.
+
+        Local intent resolution is not an execution authority. This path uses
+        the same authenticated session, context barrier, generated contract,
+        and directive ledger as a model-issued action.
+        """
+        proposal = raw_proposal if isinstance(raw_proposal, dict) else {}
+        proposal_id = _bounded_text(proposal.get("proposalId"), 128)
+        action_id = _bounded_text(proposal.get("actionId"), 128)
+        context_revision = _bounded_text(proposal.get("contextRevision"), 256)
+
+        async def reject(code: str) -> None:
+            await websocket.send_text(
+                _safe_json_dumps(
+                    {
+                        "localActionProposalRejected": {
+                            "proposalId": proposal_id,
+                            "code": code,
+                        }
+                    }
+                )
+            )
+
+        if not proposal_id or not action_id or not context_revision:
+            await reject("malformed_proposal")
+            return
+        if not initial_context_ready.is_set():
+            await reject("context_not_ready")
+            return
+        latest_revision = _bounded_text(latest_context.get("context_revision"), 256)
+        if not latest_revision or context_revision != latest_revision:
+            await reject("stale_context")
+            return
+        # Voice may open the SOS review surface, but it can never send an alert.
+        if action_id in {"location.trigger_sos", "location.sos_default"}:
+            await reject("sos_send_blocked")
+            return
+
+        action = get_action_gateway_action(action_id)
+        if not isinstance(action, dict):
+            await reject("unknown_action")
+            return
+        executable_ids = latest_context.get("executable_action_ids")
+        if not isinstance(executable_ids, list) or action_id not in {
+            str(value).strip() for value in executable_ids
+        }:
+            await reject("action_unavailable")
+            return
+        execution_target = action.get("execution_target")
+        if not isinstance(execution_target, dict) or execution_target.get("status") != "wired":
+            await reject("action_unavailable")
+            return
+
+        raw_slots = proposal.get("slots")
+        slots: dict[str, Any] = {}
+        if isinstance(raw_slots, dict):
+            for key, value in list(raw_slots.items())[:32]:
+                clean_key = _bounded_text(key, 64)
+                if not clean_key or not isinstance(value, (str, int, float, bool)):
+                    continue
+                slots[clean_key] = _bounded_text(value, 8000) if isinstance(value, str) else value
+        if _missing_required_slot(action, slots) is not None:
+            await reject("missing_slot")
+            return
+
+        voice_settings = latest_context.get("voice_settings")
+        require_tap = (
+            isinstance(voice_settings, dict)
+            and voice_settings.get("require_tap_confirmation") is True
+        )
+        flags = _directive_flags(action, require_tap_confirmation=require_tap)
+        new_fingerprint = _directive_dedup_fingerprint(action_id, slots)
+        if any(
+            aid == action_id and issued_action_fingerprints.get(did) == new_fingerprint
+            for did, aid in issued_action_directives.items()
+        ):
+            await reject("duplicate_proposal")
+            return
+        try:
+            issued = await get_action_directive_store().issue(
+                user_id=session_user,
+                channel="voice",
+                session_id=session_id,
+                action_id=action_id,
+                context_revision=context_revision,
+                action_contract=action,
+                slots=slots,
+                trusted_activation_required=flags["trustedActivationRequired"],
+            )
+        except Exception as error:  # fail closed on shared-store outage
+            logger.warning(
+                "one_adk_live_local_action_authority_unavailable action=%s error=%s",
+                action_id,
+                error.__class__.__name__,
+            )
+            await reject("authority_unavailable")
+            return
+
+        directive_id = issued.directive_id
+        issued_action_directives[directive_id] = action_id
+        issued_action_fingerprints[directive_id] = new_fingerprint
+        issued_action_slots[directive_id] = _slot_fingerprint(slots)
+        if not flags["needsConfirmation"]:
+            issued_direct_run_directives.add(directive_id)
+        action_goal = action.get("goal")
+        goal_id = _bounded_text(proposal.get("goalId"), 128)
+        if not isinstance(action_goal, dict) or goal_id != _bounded_text(
+            action_goal.get("goal_id"), 128
+        ):
+            goal_id = ""
+        if goal_id:
+            issued_goal_directives[directive_id] = goal_id
+
+        async def expire_local_directive(did: str, aid: str) -> None:
+            try:
+                await asyncio.sleep(300)
+                if did not in issued_action_directives:
+                    return
+                issued_action_directives.pop(did, None)
+                issued_action_fingerprints.pop(did, None)
+                issued_action_slots.pop(did, None)
+                issued_goal_directives.pop(did, None)
+                issued_direct_run_directives.discard(did)
+                await get_action_directive_store().cancel_voice(
+                    directive_id=did,
+                    user_id=session_user,
+                    session_id=session_id,
+                    action_id=aid,
+                )
+            except ActionDirectiveAuthorityError:
+                pass
+            except asyncio.CancelledError:
+                raise
+            except Exception as error:  # best-effort expiry cleanup
+                logger.info(
+                    "one_adk_live_local_action_expiry_cleanup_failed action=%s error=%s",
+                    aid,
+                    error.__class__.__name__,
+                )
+            finally:
+                issued_directive_gc_tasks.pop(did, None)
+
+        issued_directive_gc_tasks[directive_id] = asyncio.create_task(
+            expire_local_directive(directive_id, action_id)
+        )
+        await websocket.send_text(
+            _safe_json_dumps({"localActionProposalAccepted": {"proposalId": proposal_id}})
+        )
+        await websocket.send_text(
+            _safe_json_dumps(
+                {
+                    "clientDirective": {
+                        "kind": "action",
+                        "payload": {
+                            "actionId": action_id,
+                            "slots": slots,
+                            "needsConfirmation": flags["needsConfirmation"],
+                            "trustedActivationRequired": flags["trustedActivationRequired"],
+                            "directiveId": directive_id,
+                            "contextRevision": issued.context_revision,
+                            "expiresAt": issued.expires_at.isoformat(),
+                            **({"goalId": goal_id} if goal_id else {}),
+                        },
+                    }
+                }
+            )
+        )
+
     async def pump_browser_to_queue() -> None:
         nonlocal last_injected_route_key, last_injected_entry_key
         nonlocal first_app_context_seen, latest_context
@@ -928,7 +1102,19 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
                     # confirms this bounded context has been persisted on this
                     # authenticated socket; it never becomes model context.
                     await websocket.send_text(
-                        _safe_json_dumps({"appContextAccepted": {"contextId": context_id}})
+                        _safe_json_dumps(
+                            {
+                                "appContextAccepted": {
+                                    "contextId": context_id,
+                                    # Return the server-filtered inventory so
+                                    # browser execution uses the same generated
+                                    # route/action authority the relay used.
+                                    "executableActionIds": sanitized_context.get(
+                                        "executable_action_ids", []
+                                    ),
+                                }
+                            }
+                        )
                     )
                 initial_context_ready.set()
                 clean_screen = canonical_screen if isinstance(canonical_screen, str) else ""
@@ -1097,6 +1283,9 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
                 # This message is still load-bearing for everything above --
                 # disarming stale proposals, clearing the already-done guard,
                 # cancelling the idle greeting. Only the provider signal goes.
+                continue
+            if message.get("type") == "action_propose":
+                await _issue_local_action_proposal(message.get("actionProposal"))
                 continue
             if message.get("type") == "action_confirm":
                 confirmation_payload = message.get("actionConfirmation")

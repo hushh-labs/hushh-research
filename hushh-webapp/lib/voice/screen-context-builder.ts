@@ -301,6 +301,20 @@ export type OneVoiceContextSnapshot = {
     interaction_layer?: StructuredVoiceInteractionLayer | null;
   };
   available_action_ids: string[];
+  /**
+   * Full, redacted executable inventory for the relay's post-ack authority
+   * check. This is intentionally separate from the ranked model-facing list:
+   * the latter is capped for prompt size, while execution must not fail merely
+   * because a valid mounted control ranked below that cap.
+   */
+  executable_action_ids?: string[];
+  /** Bounded counts used for read answers; never includes member identities. */
+  redacted_state?: {
+    circle_count?: number | null;
+    permission_state?: "unknown" | "granted" | "denied" | "restricted";
+    current_location_state?: "unknown" | "available" | "unavailable";
+    share_state?: "unknown" | "sharing" | "paused";
+  };
   /** Redacted admission bit only; never an account identifier. */
   auth?: {
     signed_in: boolean;
@@ -526,6 +540,46 @@ function readStringArray(
   return Array.isArray(value)
     ? uniqueStrings(value, maximumDimensionCap)
     : [];
+}
+
+type RedactedVoiceState = NonNullable<OneVoiceContextSnapshot["redacted_state"]>;
+
+function readRedactedVoiceState(
+  metadata: Record<string, unknown>,
+): Omit<RedactedVoiceState, "circle_count"> {
+  const state: Omit<RedactedVoiceState, "circle_count"> = {};
+  const permission = metadata.permission_state;
+  if (
+    permission === "granted" ||
+    permission === "denied" ||
+    permission === "restricted"
+  ) {
+    state.permission_state = permission;
+  } else if (
+    permission === "prompt" ||
+    permission === "unavailable" ||
+    permission === "unknown"
+  ) {
+    // `prompt` and platform `unavailable` are deliberately not collapsed into
+    // a stronger permission claim. The app may expose the resulting coarse
+    // location state separately below.
+    state.permission_state = "unknown";
+  }
+
+  const currentLocation = metadata.current_location_state;
+  if (
+    currentLocation === "available" ||
+    currentLocation === "unavailable" ||
+    currentLocation === "unknown"
+  ) {
+    state.current_location_state = currentLocation;
+  }
+
+  const share = metadata.share_state;
+  if (share === "sharing" || share === "paused" || share === "unknown") {
+    state.share_state = share;
+  }
+  return state;
 }
 
 /**
@@ -1048,6 +1102,26 @@ export function buildStructuredScreenContext(args: {
       (action) => action.action_id,
     ),
   ]);
+  const executableCandidates = uniqueStrings(
+    [
+      ...(publishedActionIds.length ? [] : currentRouteActionIds),
+      ...derivedControlActionIds,
+      ...publishedActionIds,
+    ],
+    PUBLISHED_ACTION_IDS_CAP,
+  );
+  const executableActionIds =
+    activeInteractionLayer?.blocksUnderlyingActions
+      ? uniqueStrings(
+          [
+            ...(activeInteractionLayer.visibleActionIds || []),
+            ...(activeInteractionLayer.dismissActionId
+              ? [activeInteractionLayer.dismissActionId]
+              : []),
+          ],
+          PUBLISHED_ACTION_IDS_CAP,
+        ).filter((actionId) => executableCandidates.includes(actionId))
+      : executableCandidates;
   const availableActions = uniqueStrings([
     ...(underlyingActionsAvailable
       ? routeActions.map((action) => action.label)
@@ -1083,6 +1157,11 @@ export function buildStructuredScreenContext(args: {
     ...readObject(rawContext.screen_metadata),
     ...readObject(publishedSurface?.screenMetadata),
     available_action_ids: availableActionIds,
+    // Preserve the full redacted surface inventory separately from the
+    // ranked model-facing list. The relay validates this second list against
+    // its generated route/action index before returning it as execution
+    // authority.
+    executable_action_ids: executableActionIds,
     auth: {
       signed_in: args.appRuntimeState?.auth.signed_in === true,
     },
@@ -1224,6 +1303,10 @@ export function buildOneVoiceContextSnapshot(args: {
     structured.screen_metadata.available_action_ids,
     AVAILABLE_ACTION_IDS_CAP,
   );
+  const rawExecutableActionIds = structured.screen_metadata.executable_action_ids;
+  const publishedExecutableActionIds = Array.isArray(rawExecutableActionIds)
+    ? readStringArray(rawExecutableActionIds, PUBLISHED_ACTION_IDS_CAP)
+    : publishedAvailableActionIds;
   const vaultReady = Boolean(
     structured.vault.unlocked &&
       structured.vault.token_available &&
@@ -1263,18 +1346,37 @@ export function buildOneVoiceContextSnapshot(args: {
     interactionLayerAllowed && routeSurfaceCoherent
     ? publishedAvailableActionIds
     : [];
-      const availableActionIds = args.requireMountedLocalHandlers
+  const executableBeforeHandlerCheck =
+    interactionLayerAllowed && routeSurfaceCoherent
+      ? publishedExecutableActionIds
+      : [];
+  const isExecutableOnMountedSurface = (actionId: string): boolean => {
+    const action = getKaiActionById(actionId);
+    if (!action || action.execution_target.status !== "wired") return false;
+    return (
+      action.execution_target.path !== "local_handler" ||
+      hasMountedLocalOnboardingHandler(actionId)
+    );
+  };
+  const availableActionIds = args.requireMountedLocalHandlers
     ? availableBeforeHandlerCheck.filter((actionId) => {
-        const action = getKaiActionById(actionId);
-        if (!action || action.execution_target.status !== "wired") {
-          return false;
-        }
-        return (
-          action.execution_target.path !== "local_handler" ||
-          hasMountedLocalOnboardingHandler(actionId)
-        );
+        return isExecutableOnMountedSurface(actionId);
       })
     : availableBeforeHandlerCheck;
+  const executableActionIds = args.requireMountedLocalHandlers
+    ? executableBeforeHandlerCheck.filter(isExecutableOnMountedSurface)
+    : executableBeforeHandlerCheck;
+  const rawCircleCount = structured.screen_metadata.circle_count;
+  const circleCount =
+    typeof rawCircleCount === "number" &&
+    Number.isInteger(rawCircleCount) &&
+    rawCircleCount >= 0
+      ? Math.min(rawCircleCount, 10_000)
+      : null;
+  const redactedState: OneVoiceContextSnapshot["redacted_state"] = {
+    circle_count: circleCount,
+    ...readRedactedVoiceState(structured.screen_metadata),
+  };
   const visibleControlIds = interactionLayerAllowed && routeSurfaceCoherent
     ? uniqueStrings(
         structured.surface.controls.map((control) => control.id || ""),
@@ -1410,6 +1512,8 @@ export function buildOneVoiceContextSnapshot(args: {
       interaction_layer: activeInteractionLayer,
     },
     available_action_ids: availableActionIds,
+    executable_action_ids: executableActionIds,
+    redacted_state: redactedState,
     screen_state: screenState,
     pending_settlement:
       args.state === "acting" || args.state === "navigation_settling",

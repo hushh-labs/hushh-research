@@ -952,8 +952,10 @@ def test_member_invite_payload_is_metadata_only() -> None:
             "circle_kind": "family",
             "inviter_user_id": "inviter-member",
             "inviter_display_name": "Owner",
+            "inviter_photo_url": "https://example.test/owner.png",
             "invitee_user_id": "member-user",
             "invitee_display_name": "Member",
+            "invitee_photo_url": "https://example.test/member.png",
             "status": "pending",
             "expires_at": datetime.now(timezone.utc) + timedelta(hours=1),
             "created_at": datetime.now(timezone.utc),
@@ -961,6 +963,8 @@ def test_member_invite_payload_is_metadata_only() -> None:
     )
 
     assert payload["circleName"] == "Family"
+    assert payload["inviterPhotoUrl"] == "https://example.test/owner.png"
+    assert payload["inviteePhotoUrl"] == "https://example.test/member.png"
     assert payload["inviteeUserId"] == "member-user"
     for forbidden in ("grant", "ciphertext", "latitude", "longitude", "sms"):
         assert forbidden not in str(payload).lower()

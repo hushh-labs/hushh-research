@@ -4281,6 +4281,7 @@ def test_four_user_location_workflow_contract() -> None:
             duration_hours=1,
         )
     assert unverified_share.value.code == "LOCATION_RECIPIENT_UNAVAILABLE"
+    assert "verify their phone" in str(unverified_share.value)
 
     request_event_count = sum(
         event["event_type"] == "location_access_request" for event in service.events.values()

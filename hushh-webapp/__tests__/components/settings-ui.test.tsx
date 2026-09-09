@@ -92,7 +92,7 @@ describe("SettingsRow", () => {
     );
 
     const rowShell = container.querySelector('[data-testid="settings-row"]');
-    expect(rowShell?.className).toContain("[--settings-row-py:10px]");
+    expect(rowShell?.className).toContain("[--settings-row-py:8px]");
     expect(screen.queryByTestId("settings-row-description")).toBeNull();
   });
 
@@ -103,6 +103,7 @@ describe("SettingsRow", () => {
 
     const title = container.querySelector('[data-slot="settings-row-title"]');
     expect(title?.className).toContain("ui-text-row-label");
+    expect(title?.className).toContain("ui-text-row-label-compact");
     expect(title?.getAttribute("data-ui-role")).toBe("body");
     expect(title?.className).not.toContain("font-semibold");
   });
@@ -120,6 +121,21 @@ describe("SettingsRow", () => {
     expect(globalsCss).toContain(
       "font-weight: var(--type-row-label-weight) !important;",
     );
+  });
+
+  it("keeps compact workspace headings and rows below the global title ladder", () => {
+    const globalsCss = readFileSync(
+      join(process.cwd(), "app/globals.css"),
+      "utf8",
+    );
+
+    expect(globalsCss).toContain("--type-section-label-compact-size: 14px;");
+    expect(globalsCss).toContain("--type-row-label-compact-size: 16px;");
+    expect(globalsCss).toContain(
+      '.app-page-shell[data-app-density="compact"] .ui-text-section-label-compact',
+    );
+    expect(globalsCss).toContain('[data-settings-density="compact"]');
+    expect(globalsCss).toContain('[data-slot="settings-group-heading"] {');
   });
 
   it("keeps row descriptions visually subordinate to page subtitles and body text", () => {
@@ -242,10 +258,29 @@ describe("SettingsRow", () => {
     const rows = container.querySelectorAll('[data-testid="settings-row"]');
 
     expect(group?.getAttribute("data-inset-separators")).toBe("true");
-    expect(rows[0]?.className).toContain("[--settings-row-py:10px]");
+    expect(rows[0]?.className).toContain("[--settings-row-py:8px]");
     expect(
       rows[0]?.querySelector('[data-slot="settings-row-icon"]')?.className,
     ).not.toContain("sm:h-10");
+  });
+
+  it("defaults embedded groups to the compact mobile list recipe", () => {
+    const { container } = render(
+      <SettingsGroup embedded title="Access history">
+        <SettingsRow title="Active access" description="Until you stop" />
+      </SettingsGroup>,
+    );
+
+    const heading = container.querySelector(
+      '[data-slot="settings-group-heading"]',
+    );
+    const row = container.querySelector('[data-testid="settings-row"]');
+
+    expect(heading?.className).toContain("ui-text-section-label-compact");
+    expect(row?.className).toContain("[--settings-row-py:8px]");
+    expect(
+      row?.querySelector('[data-slot="settings-row-title"]')?.className,
+    ).toContain("ui-text-row-label-compact");
   });
 
   it("supports asChild rows without losing row content", () => {
@@ -379,6 +414,31 @@ describe("SegmentedTabs", () => {
     expect(brokerage).toBeDisabled();
     fireEvent.click(brokerage);
     expect(handleValueChange).not.toHaveBeenCalled();
+  });
+
+  it("supports the scoped Location-style agent navigation variant", () => {
+    const { container } = render(
+      <SegmentedTabs
+        value="overview"
+        onValueChange={() => {}}
+        variant="agent-top"
+        options={[
+          { value: "overview", label: "Overview" },
+          { value: "receipts", label: "Receipts" },
+        ]}
+      />,
+    );
+
+    const root = container.firstElementChild;
+    const active = screen.getByRole("tab", { name: "Overview" });
+    const label = active.querySelector('[data-ui-contract="required-title"]');
+
+    expect(root).toHaveAttribute("data-ui-variant", "agent-top");
+    expect(root?.className).toContain("h-9");
+    expect(root?.className).toContain("rounded-[10px]");
+    expect(active.className).toContain("rounded-[8px]");
+    expect(active.className).toContain("mx-0.5");
+    expect(label).toHaveClass("ui-text-agent-tab-label");
   });
 });
 

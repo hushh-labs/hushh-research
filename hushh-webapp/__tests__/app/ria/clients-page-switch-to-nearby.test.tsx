@@ -16,6 +16,7 @@ const handlerHarness = vi.hoisted(() => ({
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
+  usePathname: () => "/ria/clients",
 }));
 
 vi.mock("@/lib/agent/local-onboarding-actions", () => ({

@@ -16,6 +16,8 @@ import {
   CIRCLE_MEMBERS_CARD_SCROLL_CLASSNAME,
   CIRCLE_MEMBERS_CARD_SHELL_CLASSNAME,
   CIRCLE_MEMBER_ACTION_CLASSNAME,
+  CIRCLE_MEMBER_ACTION_COPY_CLASSNAME,
+  CIRCLE_MEMBER_STACKED_ACTION_CLASSNAME,
   CIRCLE_MEMBER_AVATAR_CLASSNAME,
   CIRCLE_MEMBER_NAME_CLASSNAME,
   CIRCLE_MEMBER_NAME_ROW_CLASSNAME,
@@ -99,7 +101,10 @@ async function buildStylesheet(candidates: string[]): Promise<string> {
         id === "tailwindcss"
           ? path.join(webappRoot, "node_modules/tailwindcss/index.css")
           : id === "tw-animate-css"
-            ? path.join(webappRoot, "node_modules/tw-animate-css/dist/tw-animate.css")
+            ? path.join(
+                webappRoot,
+                "node_modules/tw-animate-css/dist/tw-animate.css",
+              )
             : path.resolve(base, id);
       return {
         path: file,
@@ -221,7 +226,12 @@ type RosterRow = {
 
 const ROSTER: RosterRow[] = [
   // The owner: nothing to ask for, but shareable, so a kebab.
-  { name: "Divya Rajendran", secondary: "Circle owner", action: "none", menu: true },
+  {
+    name: "Divya Rajendran",
+    secondary: "Circle owner",
+    action: "none",
+    menu: true,
+  },
   // You: neither control applies.
   {
     name: "JHUMMA KUMARI (you)",
@@ -280,14 +290,14 @@ function rosterBody(rows: RosterRow[], legacy = false): string {
     CIRCLE_MEMBER_AVATAR_CLASSNAME,
     "inline-flex items-center justify-center rounded-full bg-muted",
   )}">DR</span>
-  <div class="min-w-0 flex-1">
+  <div data-testid="row-copy" class="${cn("min-w-0 flex-1", !legacy && row.action !== "none" && CIRCLE_MEMBER_ACTION_COPY_CLASSNAME)}">
     ${nameMarkup}
     <p class="ui-text-row-description ${legacy ? "truncate" : CIRCLE_MEMBER_SECONDARY_CLASSNAME}">${row.secondary}</p>
   </div>
   ${
     legacy
       ? `${action}${menu}`
-      : `<div class="${CIRCLE_MEMBER_TRAILING_CLASSNAME}">${action}${menu}</div>`
+      : `<div class="${cn(CIRCLE_MEMBER_TRAILING_CLASSNAME, row.action !== "none" && CIRCLE_MEMBER_STACKED_ACTION_CLASSNAME)}">${action}${menu}</div>`
   }
 </div>`;
     })
@@ -298,10 +308,18 @@ function rosterBody(rows: RosterRow[], legacy = false): string {
 
 const CANDIDATES = [
   ...connectClass.split(/\s+/),
-  ...cn(buttonVariants({ variant: "ghost", size: "icon" }), CIRCLE_MEMBER_MENU_CLASSNAME).split(/\s+/),
-  ...cn(buttonVariants({ variant: "secondary", size: "sm" }), "mt-0.5 h-9 shrink-0 rounded-full").split(/\s+/),
+  ...cn(
+    buttonVariants({ variant: "ghost", size: "icon" }),
+    CIRCLE_MEMBER_MENU_CLASSNAME,
+  ).split(/\s+/),
+  ...cn(
+    buttonVariants({ variant: "secondary", size: "sm" }),
+    "mt-0.5 h-9 shrink-0 rounded-full",
+  ).split(/\s+/),
   ...CIRCLE_MEMBER_ROW_CLASSNAME.split(/\s+/),
   ...CIRCLE_MEMBER_TRAILING_CLASSNAME.split(/\s+/),
+  ...CIRCLE_MEMBER_ACTION_COPY_CLASSNAME.split(/\s+/),
+  ...CIRCLE_MEMBER_STACKED_ACTION_CLASSNAME.split(/\s+/),
   ...CIRCLE_MEMBER_AVATAR_CLASSNAME.split(/\s+/),
   ...CIRCLE_MEMBER_NAME_ROW_CLASSNAME.split(/\s+/),
   ...CIRCLE_MEMBER_NAME_CLASSNAME.split(/\s+/),
@@ -351,6 +369,7 @@ test.describe("Circle roster row", () => {
       const menus = await boxesOf(page, '[data-testid="row-menu"]');
       const names = await boxesOf(page, '[data-testid="row-name"]');
       const avatars = await boxesOf(page, '[data-testid="row-avatar"]');
+      const copies = await boxesOf(page, '[data-testid="row-copy"]');
 
       expect(rows).toHaveLength(ROSTER.length);
       // The spacer is what makes this true: the column exists on all four rows,
@@ -359,20 +378,35 @@ test.describe("Circle roster row", () => {
 
       // The report, in one number. Before the spacer this spread was a full
       // 44px slot plus the gap beside it.
-      expect(spread(menus.map((m) => m.right)), "menu column right edge").toBeLessThanOrEqual(0.5);
-      expect(spread(menus.map((m) => m.left)), "menu column left edge").toBeLessThanOrEqual(0.5);
+      expect(
+        spread(menus.map((m) => m.right)),
+        "menu column right edge",
+      ).toBeLessThanOrEqual(0.5);
+      expect(
+        spread(menus.map((m) => m.left)),
+        "menu column left edge",
+      ).toBeLessThanOrEqual(0.5);
       for (const menu of menus) {
-        expect(Math.abs(menu.width - CIRCLE_MEMBER_MENU_SLOT_PX)).toBeLessThanOrEqual(0.5);
+        expect(
+          Math.abs(menu.width - CIRCLE_MEMBER_MENU_SLOT_PX),
+        ).toBeLessThanOrEqual(0.5);
       }
 
       // Names start on one column too, whatever each row happens to trail with.
-      expect(spread(names.map((n) => n.left)), "name left edge").toBeLessThanOrEqual(0.5);
-      expect(spread(avatars.map((a) => a.left)), "avatar left edge").toBeLessThanOrEqual(0.5);
+      expect(
+        spread(names.map((n) => n.left)),
+        "name left edge",
+      ).toBeLessThanOrEqual(0.5);
+      expect(
+        spread(avatars.map((a) => a.left)),
+        "avatar left edge",
+      ).toBeLessThanOrEqual(0.5);
 
       // Every row keeps the common minimum beat. Long identities may grow the
       // row instead of being replaced by an ellipsis.
       for (const row of rows) {
-        expect(contentHeight(row)).toBeGreaterThanOrEqual(
+        // CSS min-height is border-box; a separator consumes one pixel within it.
+        expect(row.height).toBeGreaterThanOrEqual(
           CIRCLE_MEMBER_ROW_MIN_HEIGHT_PX - 0.5,
         );
       }
@@ -391,7 +425,9 @@ test.describe("Circle roster row", () => {
       );
       for (const metric of nameMetrics) {
         expect(metric.scrollWidth).toBeLessThanOrEqual(metric.clientWidth + 1);
-        expect(metric.scrollHeight).toBeLessThanOrEqual(metric.clientHeight + 1);
+        expect(metric.scrollHeight).toBeLessThanOrEqual(
+          metric.clientHeight + 1,
+        );
         expect(metric.textOverflow).not.toBe("ellipsis");
         expect(metric.whiteSpace).not.toBe("nowrap");
       }
@@ -399,11 +435,34 @@ test.describe("Circle roster row", () => {
       // The avatar and the trailing control sit on the row's centre line, so
       // neither reads as floating above the name it belongs to.
       for (const [index, row] of rows.entries()) {
+        if (width < 640 && ROSTER[index].action !== "none") {
+          expect(
+            copies[index].width,
+            "readable phone identity column",
+          ).toBeGreaterThanOrEqual(190);
+          expect(
+            names[index].height,
+            "long name uses at most three lines",
+          ).toBeLessThanOrEqual(64);
+          expect(menus[index].top).toBeGreaterThanOrEqual(copies[index].bottom);
+          expect(
+            Math.abs(
+              contentCentre(avatars[index]) - contentCentre(copies[index]),
+            ),
+          ).toBeLessThanOrEqual(1);
+          continue;
+        }
         const rowCentre = contentCentre(row);
         const avatarCentre = contentCentre(avatars[index]);
         const menuCentre = contentCentre(menus[index]);
-        expect(Math.abs(avatarCentre - rowCentre), `row ${index}: avatar centre`).toBeLessThanOrEqual(1);
-        expect(Math.abs(menuCentre - rowCentre), `row ${index}: menu centre`).toBeLessThanOrEqual(1);
+        expect(
+          Math.abs(avatarCentre - rowCentre),
+          `row ${index}: avatar centre`,
+        ).toBeLessThanOrEqual(1);
+        expect(
+          Math.abs(menuCentre - rowCentre),
+          `row ${index}: menu centre`,
+        ).toBeLessThanOrEqual(1);
       }
 
       // Nothing may push the page sideways, at any supported width.
@@ -475,9 +534,13 @@ test.describe("Circle detail responsive layout", () => {
       await awaitProductFont(page);
 
       const result = await page.evaluate(() => {
-        const title = document.querySelector<HTMLElement>("[data-circle-title]")!;
+        const title = document.querySelector<HTMLElement>(
+          "[data-circle-title]",
+        )!;
         const edit = document.querySelector<HTMLElement>("[data-edit]")!;
-        const header = document.querySelector<HTMLElement>("[data-detail-header]")!;
+        const header = document.querySelector<HTMLElement>(
+          "[data-detail-header]",
+        )!;
         const style = getComputedStyle(title);
         return {
           titleClientWidth: title.clientWidth,
@@ -519,8 +582,12 @@ test.describe("Circle detail responsive layout", () => {
       await awaitProductFont(page);
 
       const result = await page.evaluate(() => {
-        const shell = document.querySelector<HTMLElement>("[data-roster-shell]")!;
-        const scroll = document.querySelector<HTMLElement>("[data-roster-scroll]")!;
+        const shell = document.querySelector<HTMLElement>(
+          "[data-roster-shell]",
+        )!;
+        const scroll = document.querySelector<HTMLElement>(
+          "[data-roster-scroll]",
+        )!;
         return {
           maxHeight: getComputedStyle(shell).maxHeight,
           overflowY: getComputedStyle(scroll).overflowY,

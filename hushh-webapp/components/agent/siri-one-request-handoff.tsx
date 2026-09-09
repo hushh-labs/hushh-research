@@ -1,14 +1,23 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import { oneSystemRequestRuntime, type RequestRuntimeState } from "@/lib/agent/one-system-request-runtime";
+import {
+  AGENT_CONVERSATION_OUTCOME_EVENT,
+  cancelAgentConversationRequest,
+  requestAgentConversation,
+  type AgentConversationOutcome,
+} from "@/lib/agent/agent-voice-settings";
+import { useAgentVoiceState } from "@/lib/agent/agent-voice-state";
+
+const REQUEST_HANDOFF_TIMEOUT_MS = 25_000;
 
 /**
  * Thin foreground component that:
  * 1. Subscribes to the stable request runtime
  * 2. Waits for auth/owner readiness
- * 3. Hands off claimed requests to the proposal executor
+ * 3. Hands off the claimed request text to the existing Agent One voice owner
  *
  * No microphone startup. No model execution inside cleanup.
  * The runtime owns the claim lifecycle; this component only orchestrates.
@@ -19,12 +28,24 @@ export function SiriOneRequestHandoff() {
   const isReady = isAuthenticated && Boolean(ownerId);
   const runtimeStartedRef = useRef(false);
   const lastHandoffRef = useRef<string | null>(null);
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const clearTimeoutIfNeeded = useCallback(() => {
+    if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    timeoutRef.current = null;
+  }, []);
+
+  // Keep native request ownership aligned with auth even while the handoff
+  // listener is being torn down. Sign-out must cancel claimed in-memory text
+  // and any pending native record; it must not leave the previous owner active.
+  useEffect(() => {
+    oneSystemRequestRuntime.setOwner(isReady ? ownerId : null);
+  }, [isReady, ownerId]);
 
   useEffect(() => {
     if (!isReady || runtimeStartedRef.current) return;
     runtimeStartedRef.current = true;
 
-    oneSystemRequestRuntime.setOwner(ownerId);
     const unsub = oneSystemRequestRuntime.startListening();
 
     return () => {
@@ -43,31 +64,85 @@ export function SiriOneRequestHandoff() {
       if (lastHandoffRef.current === state.invocation.id) return;
       lastHandoffRef.current = state.invocation.id;
 
-      handoffToExecutor(state.invocation);
+      const dispatchResult = requestAgentConversation({
+        source: "siri_app_shortcut",
+        requestId: state.invocation.id,
+        initialRequestText: state.invocation.requestText,
+      });
+
+      if (dispatchResult === "duplicate") {
+        void (async () => {
+          if (!(await oneSystemRequestRuntime.markAppOwned())) return;
+          await oneSystemRequestRuntime.complete(
+            "completed",
+            "Agent One is already handling your request.",
+          );
+        })();
+        return;
+      }
+
+      clearTimeoutIfNeeded();
+      timeoutRef.current = setTimeout(() => {
+        cancelAgentConversationRequest({
+          source: "siri_app_shortcut",
+          requestId: state.invocation.id,
+        });
+        useAgentVoiceState
+          .getState()
+          .setStatus(
+            "error",
+            "Agent One could not start this voice request. Open the app and try again.",
+          );
+        void oneSystemRequestRuntime.complete(
+          "handoff_timeout",
+          "Agent One could not start the voice session in time. Try again in the app.",
+        );
+      }, REQUEST_HANDOFF_TIMEOUT_MS);
     });
 
-    return unsub;
-  }, [isReady]);
+    const handleOutcome = (event: Event) => {
+      const outcome = (event as CustomEvent<AgentConversationOutcome>).detail;
+      if (
+        outcome?.source !== "siri_app_shortcut" ||
+        outcome.requestId !== lastHandoffRef.current
+      ) {
+        return;
+      }
+      clearTimeoutIfNeeded();
+      void (async () => {
+        if (outcome.outcome === "accepted") {
+          if (!(await oneSystemRequestRuntime.markAppOwned())) return;
+        }
+        await oneSystemRequestRuntime.complete(
+          outcome.outcome === "accepted" ? "completed" : "failed",
+          outcome.outcome === "accepted"
+            ? "Agent One is handling your request."
+            : "Agent One could not start the voice session. Try again in the app.",
+        );
+      })();
+    };
+    window.addEventListener(AGENT_CONVERSATION_OUTCOME_EVENT, handleOutcome);
+
+    return () => {
+      unsub();
+      window.removeEventListener(AGENT_CONVERSATION_OUTCOME_EVENT, handleOutcome);
+      clearTimeoutIfNeeded();
+      const current = oneSystemRequestRuntime.getCurrentState();
+      if (current.status === "awaiting_claim" || current.status === "claimed") {
+        if (current.status === "claimed") {
+          void oneSystemRequestRuntime.reportProgress("detached");
+        } else {
+          void oneSystemRequestRuntime.cancelCurrent("detached");
+        }
+        if (current.invocation.id === lastHandoffRef.current) {
+          cancelAgentConversationRequest({
+            source: "siri_app_shortcut",
+            requestId: current.invocation.id,
+          });
+        }
+      }
+    };
+  }, [clearTimeoutIfNeeded, isReady]);
 
   return null; // Invisible component
 }
-
-const handoffToExecutor = async (invocation: {
-  id: string;
-  kind: string;
-  source: string;
-  createdAt: number;
-  expiresAt: number;
-  protocolVersion: string;
-  ownerBinding: string;
-}): Promise<void> => {
-  // The proposal executor will handle the rest
-  // For now, complete with a placeholder result
-  console.log(`[RequestHandoff] Handing off claimed request: ${invocation.id}`);
-
-  // TODO: Wire to actual proposal executor
-  await oneSystemRequestRuntime.complete(
-    "clarification_required",
-    "Request captured. Proposal executor not yet wired.",
-  );
-};

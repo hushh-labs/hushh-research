@@ -18,6 +18,12 @@ const localEnvPath = path.join(repoRoot, ".env.local");
 const nativeRuntimeEnvPath = path.join(repoRoot, ".env.native.ios.local");
 const configPath = path.join(repoRoot, "ios", "App", "App", "capacitor.config.json");
 const verifyScript = path.join(repoRoot, "scripts", "native", "verify-ios-bundled-backend.sh");
+const verifyProductAssetsScript = path.join(
+  repoRoot,
+  "scripts",
+  "native",
+  "verify-ios-product-build-assets.mjs",
+);
 const DEFAULT_UAT_BACKEND_URL = "https://consent-protocol-f2gsa4kfsq-uc.a.run.app";
 const DEFAULT_UAT_APP_URL = "https://uat.one.hushh.ai";
 const DEFAULT_PASSKEY_RP_ID = "one.hushh.ai";
@@ -216,6 +222,11 @@ function main() {
   const backendUrl = ensureUatEnv();
   execSync("npm run cap:build", { cwd: repoRoot, stdio: "inherit", env: process.env });
   execSync("npm run cap:sync:ios", { cwd: repoRoot, stdio: "inherit", env: process.env });
+  execFileSync(process.execPath, [verifyProductAssetsScript], {
+    cwd: repoRoot,
+    stdio: "inherit",
+    env: process.env,
+  });
   execFileSync(verifyScript, [configPath, backendUrl], {
     cwd: repoRoot,
     stdio: "inherit",

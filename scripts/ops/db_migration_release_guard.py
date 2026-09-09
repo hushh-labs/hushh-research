@@ -388,7 +388,7 @@ def _run(args: argparse.Namespace) -> int:
             )
             violations.extend(db_violations)
         except Exception as exc:  # noqa: BLE001
-            violations.append(f"db_contract_check_failed:{exc}")
+            violations.append(f"db_contract_check_failed:{type(exc).__name__}")
 
     report = {
         "checked_at": _now_iso(),

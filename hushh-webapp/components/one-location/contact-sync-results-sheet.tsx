@@ -5,6 +5,8 @@ import { Check, Loader2, RefreshCw, Send, ShieldAlert } from "lucide-react";
 import { toast } from "sonner";
 
 import { ContactSourceBadge } from "@/components/connections/contact-source-badge";
+import { ContactInvitationSheet } from "@/components/connections/contact-invitation-sheet";
+import type { ContactInvitationController } from "@/lib/contacts/use-contact-invitations";
 import {
   TAKEOVER_OVERLAY_Z_CLASSNAME,
   TAKEOVER_SURFACE_Z_CLASSNAME,
@@ -52,6 +54,7 @@ export function ContactSyncResultsSheet({
   onInvite,
   onRequestConnection,
   takeover = false,
+  invitations,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -62,6 +65,7 @@ export function ContactSyncResultsSheet({
   onRequestConnection: (userId: string) => Promise<void>;
   /** Use the existing Location onboarding layer for its nested results. */
   takeover?: boolean;
+  invitations?: ContactInvitationController;
 }) {
   const [requestingUserId, setRequestingUserId] = useState<string | null>(null);
   const [requestedUserIds, setRequestedUserIds] = useState<Set<string>>(
@@ -74,6 +78,9 @@ export function ContactSyncResultsSheet({
     setVisibleMatchCount(MATCH_PAGE_SIZE);
   }, [result]);
   if (!result) return null;
+  if (open && invitations?.enabled && invitations.active) {
+    return <ContactInvitationSheet key={invitations.version} controller={invitations} takeover={takeover} onFinish={() => onOpenChange(false)} />;
+  }
 
   const connectedCount =
     result.autoConnectedCount + result.alreadyConnectedCount;
@@ -96,6 +103,9 @@ export function ContactSyncResultsSheet({
       <SheetContent
         side="bottom"
         dragDismiss={false}
+        // The launching menu may restore focus after an async sync opens us.
+        // Keep results visible; outside pointer presses, Escape and Close still dismiss.
+        onFocusOutside={(event) => event.preventDefault()}
         overlayClassName={takeover ? TAKEOVER_OVERLAY_Z_CLASSNAME : undefined}
         className={cn(
           "mx-auto flex max-h-[calc(88dvh-var(--kb-height,0px))] w-full max-w-2xl flex-col rounded-t-[24px] px-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:px-6",
@@ -105,9 +115,9 @@ export function ContactSyncResultsSheet({
         <SheetHeader className="text-left">
           <SheetTitle>Contact sync results</SheetTitle>
           <SheetDescription>
-            Only eligible Hushh accounts are listed. Names and raw phone numbers
-            are never sent to Hushh; contacts without a match are shown only as
-            counts.
+            {invitations?.enabled
+              ? "Names, numbers and invitation emails stay on your device. Choose contacts to invite from this session after reviewing your matches."
+              : "Only eligible Hushh accounts are listed. Names and raw phone numbers are never sent to Hushh; contacts without a match are shown only as counts."}
           </SheetDescription>
         </SheetHeader>
 
@@ -309,7 +319,7 @@ export function ContactSyncResultsSheet({
           )}
           <Button
             type="button"
-            disabled={!result.inviteCandidateCount}
+            disabled={syncing || !(invitations?.enabled ? invitations.candidates.length : result.inviteCandidateCount)}
             onClick={() => void onInvite()}
             className="h-11 rounded-full"
           >

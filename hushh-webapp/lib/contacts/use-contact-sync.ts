@@ -81,6 +81,7 @@ import { ConnectionsService } from "@/lib/services/connections-service";
 import { ReferralService } from "@/lib/services/referral-service";
 import { isShareCancellationError, shareLink } from "@/lib/share/share-link";
 import { useSettingsReturn } from "@/lib/permissions/use-settings-return";
+import { useContactInvitations, type ContactInvitationController } from "@/lib/contacts/use-contact-invitations";
 
 export type ContactSyncStatus =
   | "idle"
@@ -176,6 +177,7 @@ const DEFAULT_REFERRAL_SHARE: ContactSyncShareCopy = {
 };
 
 export type UseContactSyncOptions = {
+  accountEmail?: string | null;
   /** Which surface offered the sync. Reaches analytics and nothing else. */
   routeId: RouteId;
   /**
@@ -203,10 +205,8 @@ export type UseContactSyncOptions = {
    * is announced, so the toast never claims a connection the list behind it
    * has not caught up to.
    *
-   * Deliberately not wrapped in a `catch` here. A caller whose refresh failing
-   * should not spoil a successful sync catches it itself -- which is exactly
-   * what the Location hub does for its background refresh and pointedly does
-   * not do for its recipient page.
+   * Display-read failures preserve the completed sync and offer a separate
+   * refresh retry. They must not make a committed connection look failed.
    */
   onConnectionGraphChanged?: () => void | Promise<void>;
   /**
@@ -249,6 +249,7 @@ export type UseContactSyncOptions = {
 
 /** Exactly the props `ContactSyncResultsSheet` takes, ready to spread. */
 export type ContactSyncResultsSheetProps = {
+  invitations?: ContactInvitationController;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   result: OneLocationContactSignalResult | null;
@@ -321,7 +322,13 @@ export function useContactSync(options: UseContactSyncOptions): UseContactSync {
   const [result, setResult] = useState<OneLocationContactSignalResult | null>(
     null,
   );
-  const [resultsOpen, setResultsOpen] = useState(false);
+  const invitations = useContactInvitations(options.userId);
+  const { clear: clearInvitations, beginSync: beginInviteSync, open: openInvitations, captureSession: captureInviteSession } = invitations;
+  const [resultsOpen, setResultsOpenState] = useState(false);
+  const setResultsOpen = useCallback((open: boolean) => {
+    if (!open) clearInvitations();
+    setResultsOpenState(open);
+  }, [clearInvitations]);
   const resultOwnerUserIdRef = useRef(options.userId ?? null);
 
   /**
@@ -354,6 +361,8 @@ export function useContactSync(options: UseContactSyncOptions): UseContactSync {
    * ref is set in the same turn as the check that reads it.
    */
   const inFlightRef = useRef(false);
+  const syncGenerationRef = useRef(0);
+  useLayoutEffect(() => () => { syncGenerationRef.current += 1; }, []);
 
   /**
    * True from the moment we hand somebody to the OS settings app until they
@@ -382,6 +391,7 @@ export function useContactSync(options: UseContactSyncOptions): UseContactSync {
   useLayoutEffect(() => {
     const nextUserId = options.userId ?? null;
     if (resultOwnerUserIdRef.current === nextUserId) return;
+    syncGenerationRef.current += 1;
     resultOwnerUserIdRef.current = nextUserId;
     // Matched identities and local contact display names belong to the account
     // that ran the scan. Clear them before a replacement account can paint.
@@ -389,7 +399,7 @@ export function useContactSync(options: UseContactSyncOptions): UseContactSync {
     setResultsOpen(false);
     setSignal(INITIAL_CONTACT_SYNC_SIGNAL);
     markAwaitingContactSettings(false);
-  }, [markAwaitingContactSettings, options.userId]);
+  }, [markAwaitingContactSettings, options.userId, setResultsOpen]);
 
   /**
    * The sync callback, read at click time rather than captured.
@@ -495,7 +505,7 @@ export function useContactSync(options: UseContactSyncOptions): UseContactSync {
    * system cannot serve: no link yet, or the summary call fails. Better a share
    * that works and is not counted than a dead control.
    */
-  const invite = useCallback(async () => {
+  const prepareInvite = useCallback(async () => {
     const { getIdToken, onInviteShareStarted, referralShare } =
       optionsRef.current;
     onInviteShareStarted?.();
@@ -522,6 +532,16 @@ export function useContactSync(options: UseContactSyncOptions): UseContactSync {
         }
       : buildInviteToOneShare();
 
+    return share;
+  }, []);
+
+  const invite = useCallback(async () => {
+    if (invitations.enabled && invitations.candidates.length) {
+      setResultsOpen(true);
+      await openInvitations(prepareInvite);
+      return;
+    }
+    const share = await prepareInvite();
     if (!share) {
       // No referral link AND no shareable origin -- the same condition that
       // hides the Connect invite row entirely rather than offering a link that
@@ -539,7 +559,10 @@ export function useContactSync(options: UseContactSyncOptions): UseContactSync {
       if (isShareCancellationError(error)) return;
       toast.error("Could not open the share sheet.");
     }
-  }, []);
+  }, [invitations.enabled, invitations.candidates.length, setResultsOpen, openInvitations, prepareInvite]);
+
+  const inviteRef = useRef(invite);
+  useLayoutEffect(() => { inviteRef.current = invite; }, [invite]);
 
   const requestConnection = useCallback(async (addresseeUserId: string) => {
     const { getIdToken, userId } = optionsRef.current;
@@ -559,7 +582,7 @@ export function useContactSync(options: UseContactSyncOptions): UseContactSync {
     // Keep the transaction callbacks and initiating user stable. The account
     // phone is the exception: it is deliberately re-read below because verified
     // backend identity can finish hydrating while a picker is open.
-    const { getIdToken, onConnectionGraphChanged, routeId, userId } =
+    const { getIdToken, routeId, userId } =
       optionsRef.current;
     const initiatingUserId = userId ?? null;
     const resolveLatestAccountPhoneNumber =
@@ -590,6 +613,11 @@ export function useContactSync(options: UseContactSyncOptions): UseContactSync {
     if (!requestContactCheck()) return;
     if (inFlightRef.current) return;
     inFlightRef.current = true;
+    const syncGeneration = ++syncGenerationRef.current;
+    const syncIsCurrent = () => syncGenerationRef.current === syncGeneration &&
+      (optionsRef.current.userId ?? null) === initiatingUserId;
+    const onInviteCandidates = beginInviteSync();
+    const inviteSessionIsCurrent = captureInviteSession();
 
     try {
       // Google Contacts, only where there is no address book to read.
@@ -632,6 +660,8 @@ export function useContactSync(options: UseContactSyncOptions): UseContactSync {
       }));
 
       const syncResult = await syncOneLocationContactSignals({
+        ...(onInviteCandidates ? { onInviteCandidates } : {}),
+        accountEmail: optionsRef.current.accountEmail,
         // The source must run while the original tap still owns transient
         // browser activation. Token/identity network work is deliberately
         // deferred inside the sync pipeline until after the picker returns.
@@ -643,6 +673,7 @@ export function useContactSync(options: UseContactSyncOptions): UseContactSync {
         resolveAccountPhoneNumber: resolveLatestAccountPhoneNumber,
       });
       await resolveLatestAccountPhoneNumber();
+      if (!syncIsCurrent()) return;
       const nextStatus: ContactSyncStatus =
         syncResult.matchedUserIds.length > 0 ? "matched" : "empty";
       setResult(syncResult);
@@ -676,8 +707,24 @@ export function useContactSync(options: UseContactSyncOptions): UseContactSync {
           syncResult.mutationOutcomeUnknown)
       ) {
         CacheSyncService.onConnectionGraphMutated(userId);
-        await onConnectionGraphChanged?.();
+        const refreshConnections = async () => {
+          if (!syncIsCurrent()) return false;
+          try {
+            await optionsRef.current.onConnectionGraphChanged?.();
+            return syncIsCurrent();
+          } catch {
+            if (syncIsCurrent()) {
+              toast.info("Contacts synced. Could not refresh connections.", {
+                description: "Your matches are saved. Refresh the list to see the latest connections.",
+                action: { label: "Refresh connections", onClick: () => { void refreshConnections(); } },
+              });
+            }
+            return false;
+          }
+        };
+        if (!await refreshConnections()) return;
       }
+      if (!syncIsCurrent()) return;
       // A partial read must never be reported as a whole one. The web Contact
       // Picker and iOS limited access both return only a hand-picked subset,
       // so "3 people added" would claim the whole address book was searched.
@@ -715,7 +762,7 @@ export function useContactSync(options: UseContactSyncOptions): UseContactSync {
             // one, and deliberately carries no pre-authorized connection:
             // `buildInviteToOneShare` documents why, and an invite that
             // consents on the recipient's behalf is not an invite.
-            return { label: "Invite them", onClick: () => void invite() };
+            return { label: "Invite them", onClick: () => { if (inviteSessionIsCurrent()) void inviteRef.current(); } };
           default:
             return null;
         }
@@ -774,7 +821,9 @@ export function useContactSync(options: UseContactSyncOptions): UseContactSync {
     }
   }, [
     googleFallback,
-    invite,
+    beginInviteSync,
+    captureInviteSession,
+    setResultsOpen,
     markSyncing,
     requestContactCheck,
     signal,
@@ -857,6 +906,7 @@ export function useContactSync(options: UseContactSyncOptions): UseContactSync {
     requestConnection,
     discoverabilityConsentDialogProps,
     resultsSheetProps: {
+      invitations,
       open: resultsOpen,
       onOpenChange: setResultsOpen,
       result,

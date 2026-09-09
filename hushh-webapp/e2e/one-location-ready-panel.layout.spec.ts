@@ -67,6 +67,7 @@ async function buildFixture(): Promise<string> {
   fs.writeFileSync(
     path.join(dir, "fixture.html"),
     `<!doctype html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <style>${productFontStyle()}</style>
 <link rel="stylesheet" href="fixture.css">
 <!-- The component's own short-window rule, read from the module it renders

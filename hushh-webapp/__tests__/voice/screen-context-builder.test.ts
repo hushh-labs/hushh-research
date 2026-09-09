@@ -1260,6 +1260,73 @@ describe("buildStructuredScreenContext", () => {
     });
   });
 
+  it("publishes only a bounded Circle count for local read answers", () => {
+    const snapshot = buildOneVoiceContextSnapshot({
+      appRuntimeState: makeRuntimeState("/one/location", "one_location"),
+      surfaceMetadata: {
+        screenId: "one_location",
+        screenMetadata: { circle_count: 3 },
+      },
+    });
+
+    expect(snapshot.redacted_state).toEqual({ circle_count: 3 });
+  });
+
+  it("clamps unbounded Circle counts at the context boundary", () => {
+    const snapshot = buildOneVoiceContextSnapshot({
+      appRuntimeState: makeRuntimeState("/one/location", "one_location"),
+      surfaceMetadata: {
+        screenId: "one_location",
+        screenMetadata: { circle_count: 10_001 },
+      },
+    });
+
+    expect(snapshot.redacted_state).toEqual({ circle_count: 10_000 });
+  });
+
+  it("carries only coarse governed Location state into the voice snapshot", () => {
+    const snapshot = buildOneVoiceContextSnapshot({
+      appRuntimeState: makeRuntimeState("/one/location", "one_location"),
+      surfaceMetadata: {
+        screenId: "one_location",
+        screenMetadata: {
+          circle_count: 2,
+          permission_state: "granted",
+          current_location_state: "available",
+          share_state: "sharing",
+        },
+      },
+    });
+
+    expect(snapshot.redacted_state).toEqual({
+      circle_count: 2,
+      permission_state: "granted",
+      current_location_state: "available",
+      share_state: "sharing",
+    });
+  });
+
+  it("does not promote unknown Location metadata into a stronger state", () => {
+    const snapshot = buildOneVoiceContextSnapshot({
+      appRuntimeState: makeRuntimeState("/one/location", "one_location"),
+      surfaceMetadata: {
+        screenId: "one_location",
+        screenMetadata: {
+          permission_state: "unavailable",
+          current_location_state: "unknown",
+          share_state: "unknown",
+        },
+      },
+    });
+
+    expect(snapshot.redacted_state).toEqual({
+      circle_count: null,
+      permission_state: "unknown",
+      current_location_state: "unknown",
+      share_state: "unknown",
+    });
+  });
+
   it("carries the person's own voice restrictions into the live snapshot", () => {
     const snapshot = buildOneVoiceContextSnapshot({
       appRuntimeState: makeRuntimeState("/one/kai", "kai"),
@@ -1513,6 +1580,9 @@ describe("a surface that declares more controls than the context can carry", () 
     for (const actionId of localHandlers) {
       expect(snapshot.available_action_ids).toContain(actionId);
     }
+    expect(snapshot.executable_action_ids).toEqual(
+      expect.arrayContaining(localHandlers),
+    );
     expect(
       localOnlyIds(snapshot.available_action_ids).length,
     ).toBeLessThanOrEqual(ACTION_ID_SCREEN_SEGMENT_CAP);

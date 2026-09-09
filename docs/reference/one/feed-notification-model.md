@@ -135,6 +135,92 @@ Both zones are built on the canonical `SettingsGroup` + `SettingsRow` list
 primitives (`FeedRow` for history, `FeedActionableRow` for the actionable
 zone), so the feed shares the app's list vocabulary.
 
+## Person identity and responsive rows
+
+Connect, Location People/Circle rosters, and both Feed zones use
+`ConnectionPersonAvatar`. Person lists use a 40px circular leading visual and
+a 68px text/separator inset. Compact rows use a 16px name, 13px description,
+and a separate timestamp line. On narrow phones, relationship actions move
+below the name instead of compressing it; interactive targets remain at least
+44px even when the action looks like secondary text. These are shared React
+and CSS contracts for web and the iOS/Android Capacitor containers.
+
+Photo reads prefer a nonblank `actor_identity_cache.custom_photo_url`, then
+`photo_url`. Pending connection-request DTOs include optional
+`counterpartPhotoUrl`; Circle member-invite DTOs include optional
+`inviterPhotoUrl` and `inviteePhotoUrl`. Web proxies and native HTTP transport
+preserve these additive fields. Image failure, replacement, and removal reset
+the avatar loading state and reveal the same initials used by Connect.
+
+Feed photo sanitization preserves complete bounded PNG/JPEG/WebP data URLs
+(up to 300 KiB decoded, matching the upload contract). It never truncates
+base64 to the general metadata text limit. Invalid/oversized data, SVG, and
+unsupported schemes are omitted; HTTP(S) URLs remain bounded to 1024
+characters. A failed identity read must not resurrect a stored photo snapshot.
+
+Migration `202_feed_counterpart_identity.sql` adds a server-only companion
+table, `feed_event_counterparts`, linking a Feed event to its registered
+counterpart. An AFTER INSERT trigger resolves the source event with the
+viewer's audience checks. This link survives short-lived Location source
+cleanup and resolves the current photo at read time; it grants no location
+access and is not part of the public Feed DTO. Feed deletion or counterpart
+account deletion cascades the link; migration 201's tombstone/write guards
+apply. Historical event copy remains historical rather than being rewritten
+when a profile changes.
+
+Reads resolve at most the requested Feed page, materializing counterpart IDs
+before joining the indexed identity cache. Retained legacy sources can still
+be resolved during a rolling migration. Legacy sources already purged before
+the identity link existed cannot be reconstructed; their rows keep initials
+or a domain icon, never another person's guessed photo.
+
+Migrations 203–204 remove the Location audit-table scan from identity resolution.
+Grant keys use the existing grant index; numeric audit keys retain their primary-key
+lookup. Request, referral, and arbitrary legacy metadata keys inspect only the
+viewer's owner/recipient events through indexes, then apply the original exact
+source and audience checks. Legacy lookup cost can still grow with that viewer's
+own history. No source records or identities are backfilled inside these migrations.
+
+Apply through migration 204 before running the explicit resumable backfill outside
+the schema transaction:
+
+```bash
+cd consent-protocol
+python scripts/backfill_feed_counterpart_identity.py --apply --expected-database <exact-database-name> --batch-size 250 --max-batches 20
+```
+
+Without `--apply` it is a dry run. Output contains counts and cursors, not
+identities or photos. The down migration is
+`db/migrations/rollback/202_feed_counterpart_identity.rollback.sql`; it removes
+only this derived feature and preserves Feed history. New readers fall back
+to legacy source enrichment on an older schema.
+
+Migration 203 builds the recipient/event-type index concurrently, as a single
+statement outside a transaction. Migration 204 refuses to install the new resolver
+if that index is missing or invalid. If a concurrent build is interrupted, an
+`IF NOT EXISTS` retry can leave the invalid index in place. With migration runners
+stopped, run `rollback/203_feed_counterpart_recipient_index.rollback.sql`, then run
+the **203 SQL file itself** outside a transaction, and retry the release. Merely
+retrying ledger mode after dropping the index is insufficient: 203 may already be
+recorded as applied. Do not change an accepted migration checksum or delete ledger
+history to repair the index.
+
+To roll back this optimization, execute
+`rollback/204_feed_counterpart_indexed_lookup.rollback.sql` first, then
+`rollback/203_feed_counterpart_recipient_index.rollback.sql` outside a transaction.
+This restores the 202 resolver and preserves all Feed events and counterpart links.
+
+Automated proof includes the actual-component Feed fixture, Circle layout
+contracts, image lifecycle unit tests, and
+`tests/test_feed_counterpart_identity_postgres.py` and
+`tests/test_feed_counterpart_lookup_postgres.py` against unique disposable
+PostgreSQL databases. Set `FEED_IDENTITY_POSTGRES_TEST_URL` to a local disposable
+server's admin database and run those tests explicitly. The lookup regression
+checks buffer accesses with 250,000 unrelated audit rows in custom and generic plan
+modes, source compatibility, concurrent-index failure recovery, and rollback.
+Browser emulation and these fixtures do not replace
+authenticated user review or physical iOS/Android acceptance.
+
 ## Caching
 
 `FeedPage` (`hushh-webapp/components/feed/feed-page.tsx`) loads its first

@@ -78,12 +78,12 @@ describe("googleContactsAvailability", () => {
 });
 
 describe("googlePeopleContactSource", () => {
-  it("asks Google for the two fields the pipeline actually reads, and no more", async () => {
+  it("asks Google for matching and invitation fields, and no more", async () => {
     const { calls } = respondWith({ connections: [], totalPeople: 0 });
     await googlePeopleContactSource("tok")({ limit: 500 });
 
     const url = new URL(calls[0]);
-    expect(url.searchParams.get("personFields")).toBe("names,phoneNumbers");
+    expect(url.searchParams.get("personFields")).toBe("names,phoneNumbers,emailAddresses");
     // Photos, addresses and organisations belong to people who are not our
     // users. There is no reason to receive them.
     expect(url.searchParams.get("personFields")).not.toContain("photos");

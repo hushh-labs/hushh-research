@@ -243,8 +243,18 @@ export async function streamAgentChat(input: {
   const availableActionIds = (() => {
     const screen = input.screenContext || {};
     const nested = asRecord(screen.one_voice_context);
-    const raw = nested?.available_action_ids ?? screen.available_action_ids;
-    return Array.isArray(raw) ? raw.filter((value): value is string => typeof value === "string") : [];
+    const rawAvailable = nested?.available_action_ids ?? screen.available_action_ids;
+    const rawExecutable = nested?.executable_action_ids ?? screen.executable_action_ids;
+    return Array.from(
+      new Set([
+        ...(Array.isArray(rawAvailable)
+          ? rawAvailable.filter((value): value is string => typeof value === "string")
+          : []),
+        ...(Array.isArray(rawExecutable)
+          ? rawExecutable.filter((value): value is string => typeof value === "string")
+          : []),
+      ]),
+    );
   })();
   const tools: Tool[] = availableActionIds.flatMap((actionId) => {
     const action = getKaiActionById(actionId);

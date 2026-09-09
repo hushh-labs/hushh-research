@@ -1,0 +1,22 @@
+{
+  "protocol_version": "one.voice.privacy-contract.v1",
+  "app_store_declaration_contract_version": "one-voice-privacy-v1",
+  "voice_capture": {
+    "audio_storage": "memory_only",
+    "transcript_storage": "memory_only",
+    "provider_fallback": "explicit",
+    "on_device_label_required": true
+  },
+  "model_packs": {
+    "base_bundle_weights": "forbidden",
+    "download": "signed_and_checksum_verified",
+    "model_storage": "model_assets_only"
+  },
+  "required_info_plist_keys": [
+    "NSMicrophoneUsageDescription",
+    "NSSpeechRecognitionUsageDescription"
+  ],
+  "required_privacy_manifest": {
+    "tracking": false
+  }
+}

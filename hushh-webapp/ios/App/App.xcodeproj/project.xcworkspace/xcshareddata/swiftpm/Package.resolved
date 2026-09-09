@@ -1,5 +1,5 @@
 {
-  "originHash" : "312832be38a58a16b6b327a82e9c66e722425da6795b608a0636e91f5c8a6ad8",
+  "originHash" : "65e43238779e9ae37b390d367be8ff206f3d0377178add1046f69e42cffca254",
   "pins" : [
     {
       "identity" : "abseil-cpp-binary",
@@ -53,6 +53,15 @@
       "state" : {
         "revision" : "33a468adfdb75b53f05a37e7c886ca7c962b5c17",
         "version" : "12.17.0"
+      }
+    },
+    {
+      "identity" : "fluidaudio",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/FluidInference/FluidAudio.git",
+      "state" : {
+        "revision" : "4dbf4f9f9a5ff3a53ade848d7ba4e3df13db859b",
+        "version" : "0.15.6"
       }
     },
     {
@@ -197,6 +206,15 @@
       "state" : {
         "revision" : "f4a19a3c313dc2616c70bb49d29a799fb16be837",
         "version" : "2.4.1"
+      }
+    },
+    {
+      "identity" : "zipfoundation",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/weichsel/ZIPFoundation.git",
+      "state" : {
+        "revision" : "22787ffb59de99e5dc1fbfe80b19c97a904ad48d",
+        "version" : "0.9.20"
       }
     }
   ],

@@ -51,6 +51,7 @@ import {
   useAgentVoiceState,
 } from "@/lib/agent/agent-voice-state";
 import {
+  AGENT_CONVERSATION_CANCEL_EVENT,
   AGENT_CONVERSATION_REQUEST_EVENT,
   acknowledgeAgentConversation,
   markAgentConversationOwnerReady,
@@ -82,7 +83,17 @@ import {
 } from "@/lib/connections/gemini-runtime-configuration";
 import { getVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 import { deriveVoiceRouteScreen } from "@/lib/voice/route-screen-derivation";
-import { getKaiActionById } from "@/lib/voice/kai-action-gateway";
+import {
+  getKaiActionById,
+  KAI_ACTION_GATEWAY_SCHEMA_VERSION,
+} from "@/lib/voice/kai-action-gateway";
+import {
+  resolveLocalIntentAsync,
+  type IntentResolution,
+  type LocalIntentResolverInput,
+  type OneVoiceIntentResolver,
+} from "@/lib/voice/local-intent-resolver";
+import { prepareLocalIntentResolver } from "@/lib/voice/local-intent-runtime";
 import {
   parseToolTraceCard,
   parseVoiceSubject,
@@ -105,6 +116,8 @@ import {
   resolveThemePreference,
 } from "@/lib/theme/theme-preference";
 import { createRealtimeVoiceTransport } from "@/lib/voice/one-voice-transport-factory";
+import { createOneVoiceSpeechAdapter } from "@/lib/voice/speech-adapter-factory";
+import { getVoiceV2Flags } from "@/lib/voice/voice-feature-flags";
 import type { OneVoiceContextSnapshot } from "@/lib/voice/screen-context-builder";
 import type {
   OneVoiceSessionEvent,
@@ -142,6 +155,61 @@ type PendingVoiceConfirmation = {
    */
   plan?: JourneyPlan | null;
 };
+
+function isLocallyHandledIntent(
+  resolution: IntentResolution | null,
+): resolution is IntentResolution {
+  return Boolean(
+    resolution &&
+      (resolution.disposition === "action" ||
+        resolution.disposition === "read_answer" ||
+        resolution.disposition === "clarify" ||
+        resolution.reason === "sos_send_blocked"),
+  );
+}
+
+function localIntentResponse(resolution: IntentResolution): string {
+  const circleCount =
+    typeof resolution.slots.count === "number"
+      ? resolution.slots.count
+      : null;
+  if (resolution.disposition === "read_answer") {
+    if (circleCount !== null) {
+      return `You have ${circleCount} ${circleCount === 1 ? "Circle" : "Circles"}.`;
+    }
+    if (resolution.readCapability === "read_location_status") {
+      return resolution.slots.enabled === true
+        ? "Location sharing is on."
+        : "Location sharing is paused.";
+    }
+    if (resolution.readCapability === "read_location_permission") {
+      const permission = resolution.slots.permission;
+      return permission === "granted"
+        ? "Location permission is granted."
+        : permission === "denied"
+          ? "Location permission is denied."
+          : permission === "restricted"
+            ? "Location permission is restricted."
+            : "I need fresh Location permission state to answer that safely.";
+    }
+    if (resolution.readCapability === "read_current_location_status") {
+      return resolution.slots.available === true
+        ? "Your current location is available."
+        : "Your current location is not available right now.";
+    }
+    return "I need fresh Location data to answer that safely.";
+  }
+  if (resolution.reason === "sos_send_blocked") {
+    return "I cannot send an SOS by voice. I can open the SOS review screen instead.";
+  }
+  if (resolution.missingSlots?.includes("name")) {
+    return "What should I call the new circle?";
+  }
+  if (resolution.reason === "action_unavailable") {
+    return "That action is not available in the current Agent One context.";
+  }
+  return "What would you like me to do with your location?";
+}
 
 
 function readBrowserVoiceRoute() {
@@ -273,6 +341,17 @@ function directiveFingerprint(input: {
   });
 }
 
+function resolveVoiceExecutableActionIds(
+  transport: RealtimeVoiceTransport | null | undefined,
+  fallback: readonly string[] | null | undefined,
+): readonly string[] | null {
+  // Once the relay acknowledges app_context, its filtered inventory is the
+  // browser execution boundary. Before that barrier, retain the local
+  // redacted snapshot as a startup fallback; an acknowledged empty list is
+  // intentionally preserved as empty and must not fall back to local data.
+  return transport?.getExecutableActionIds?.() ?? fallback ?? null;
+}
+
 function resolveAgentBarHint(pathname: string | null): string {
   if (!pathname) return AGENT_BAR_DEFAULT_HINT;
   for (const { prefix, hint } of AGENT_BAR_HINTS) {
@@ -372,6 +451,23 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
   const setVoiceLevel = useAgentVoiceState((s) => s.setLevel);
   const resetVoice = useAgentVoiceState((s) => s.reset);
   const liveClientRef = useRef<RealtimeVoiceTransport | null>(null);
+  const localIntentResolverRef = useRef<OneVoiceIntentResolver | null>(null);
+  const localIntentResolverGenerationRef = useRef(0);
+  const disposeLocalIntentResolver = useCallback(() => {
+    localIntentResolverGenerationRef.current += 1;
+    const resolver = localIntentResolverRef.current;
+    localIntentResolverRef.current = null;
+    resolver?.dispose?.();
+  }, []);
+  const resolveActiveLocalIntent = useCallback(
+    (input: LocalIntentResolverInput): Promise<IntentResolution> => {
+      const resolver = localIntentResolverRef.current;
+      return resolver
+        ? resolver.resolve(input)
+        : resolveLocalIntentAsync(input);
+    },
+    [],
+  );
   const latestVoiceContextRef = useRef<OneVoiceContextSnapshot | null>(
     runtime?.oneVoiceContextSnapshot ?? null,
   );
@@ -388,6 +484,7 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
   // A system invocation can only request this existing owner. Correlation
   // metadata stays in memory until the Live transport either listens or fails.
   const externalStartRequestRef = useRef<AgentConversationRequest | null>(null);
+  const cancelledExternalRequestIdsRef = useRef(new Set<string>());
   const finishExternalStart = useCallback((outcome: "accepted" | "failed") => {
     const request = externalStartRequestRef.current;
     if (!request?.requestId || request.source !== "siri_app_shortcut") return;
@@ -433,8 +530,11 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
           router,
           appRuntimeState: runtimeState,
           surfaceMetadata: getVoiceSurfaceMetadata(),
-          allowedActionIds:
-            runtime?.oneVoiceContextSnapshot.available_action_ids ?? null,
+          allowedActionIds: resolveVoiceExecutableActionIds(
+            liveClientRef.current,
+            runtime?.oneVoiceContextSnapshot.executable_action_ids ??
+              runtime?.oneVoiceContextSnapshot.available_action_ids,
+          ),
           hasPortfolioData:
             runtimeState.portfolio.has_portfolio_data ||
             runtime?.oneVoiceContextSnapshot.cache.portfolio_ready === true,
@@ -490,8 +590,11 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
         router,
         appRuntimeState: runtimeState,
         surfaceMetadata: getVoiceSurfaceMetadata(),
-        allowedActionIds:
-          currentRuntime?.oneVoiceContextSnapshot.available_action_ids ?? null,
+        allowedActionIds: resolveVoiceExecutableActionIds(
+          liveClientRef.current,
+          currentRuntime?.oneVoiceContextSnapshot.executable_action_ids ??
+            currentRuntime?.oneVoiceContextSnapshot.available_action_ids,
+        ),
         hasPortfolioData:
           runtimeState.portfolio.has_portfolio_data ||
           currentRuntime?.oneVoiceContextSnapshot.cache.portfolio_ready === true,
@@ -787,9 +890,9 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
         // A fresh request supersedes the plan the person approved for the last
         // one. Approval was for a named list, not for whatever One does next.
         clearJourneyGrant("new_user_intent");
-        // Mirror the user's transcript into the conversation session. One's
-        // agent tree decides everything server-side; there is no client-side
-        // planner to feed here.
+        // Mirror the user's transcript into the conversation session. A
+        // platform speech adapter may route a known generated action locally;
+        // unresolved conversation is the only path that becomes provider text.
         const transcript = event.text.trim();
         const previous = lastTranscriptRef.current;
         if (
@@ -811,6 +914,88 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
           source: "gemini_live",
           turnId: event.turnId ?? null,
         });
+        if (event.source === "input") {
+          const context = latestVoiceContextRef.current;
+          const transport = liveClientRef.current;
+          if (context && transport) {
+            const resolverContext = {
+              contextRevision: `${context.revisions.route}:${context.revisions.ui}`,
+              catalogVersion: KAI_ACTION_GATEWAY_SCHEMA_VERSION,
+              route: {
+                pathname: context.route.route_family,
+                screen: context.route.screen,
+              },
+              availableActionIds: context.available_action_ids,
+              executableActionIds:
+                transport.getExecutableActionIds?.() ??
+                context.executable_action_ids,
+              redactedState: {
+                circleCount: context.redacted_state?.circle_count ?? null,
+                permissionState:
+                  context.redacted_state?.permission_state ?? "unknown",
+                currentLocationState:
+                  context.redacted_state?.current_location_state ?? "unknown",
+                shareState: context.redacted_state?.share_state ?? "unknown",
+              },
+            };
+            // Candidate generation and ranking are asynchronous. Do not send
+            // the same turn to Gemini while the local resolver is deciding;
+            // only its explicit unsupported/low-confidence result reaches the
+            // provider fallback.
+            setVoiceStatus("thinking", "Understanding", eventOptions);
+            void resolveActiveLocalIntent({
+              utterance: transcript,
+              context: resolverContext,
+              catalogVersion: resolverContext.catalogVersion,
+            }).then((localResolution) => {
+              if (liveClientRef.current !== transport) return;
+              if (isLocallyHandledIntent(localResolution)) {
+                if (localResolution.disposition === "action" && localResolution.actionId) {
+                  const action = getKaiActionById(localResolution.actionId);
+                  const proposal = transport.proposeLocalAction?.({
+                    actionId: localResolution.actionId,
+                    slots: localResolution.slots,
+                    contextRevision: localResolution.contextRevision,
+                    needsConfirmation: action?.execution_policy === "confirm_required",
+                    trustedActivationRequired:
+                      action?.activation_policy === "trusted_activation_required",
+                    goalId: action?.goal.goal_id,
+                  });
+                  void Promise.resolve(proposal).then((accepted) => {
+                    if (accepted === true) return;
+                    appendMirrorEvent({
+                      role: "assistant",
+                      text: "I could not safely stage that action from the current app state.",
+                      source: "one_voice_orchestrator",
+                      turnId: event.turnId ?? null,
+                    });
+                    setVoiceStatus("error", "The action could not be staged safely.");
+                  });
+                  setVoiceStatus("thinking", "Preparing that action", eventOptions);
+                  return;
+                }
+                const message = localIntentResponse(localResolution);
+                appendMirrorEvent({
+                  role: "assistant",
+                  text: message,
+                  source: "one_voice_orchestrator",
+                  turnId: event.turnId ?? null,
+                });
+                setVoiceStatus("thinking", message, eventOptions);
+                return;
+              }
+              transport.sendUserText?.(transcript);
+              setVoiceStatus("thinking", "Understanding", eventOptions);
+            }).catch(() => {
+              // Resolver failure is explicitly provider-backed; it is not an
+              // authorization failure and cannot broaden the action set.
+              transport.sendUserText?.(transcript);
+              setVoiceStatus("thinking", "Understanding", eventOptions);
+            });
+            return;
+          }
+          transport?.sendUserText?.(transcript);
+        }
         setVoiceStatus("thinking", "Understanding", eventOptions);
         return;
       }
@@ -1233,9 +1418,11 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
                   router,
                   appRuntimeState: runtimeState,
                   surfaceMetadata: getVoiceSurfaceMetadata(),
-                  allowedActionIds:
-                    runtime?.oneVoiceContextSnapshot.available_action_ids ??
-                    null,
+                  allowedActionIds: resolveVoiceExecutableActionIds(
+                    directiveTransport,
+                    runtime?.oneVoiceContextSnapshot.executable_action_ids ??
+                      runtime?.oneVoiceContextSnapshot.available_action_ids,
+                  ),
                   hasPortfolioData:
                     runtimeState.portfolio.has_portfolio_data ||
                     runtime?.oneVoiceContextSnapshot.cache.portfolio_ready ===
@@ -1391,6 +1578,7 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
           "The confirmation was cancelled when the voice session closed.",
         );
         liveClientRef.current = null;
+        disposeLocalIntentResolver();
         voiceLeaseRef.current?.release("transport_closed");
         voiceLeaseRef.current = null;
         activeRuntimeModeRef.current = null;
@@ -1426,6 +1614,8 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
       clearPendingConfirmationNudgeTimer,
       clearVoiceIdleTimer,
       createHandoff,
+      resolveActiveLocalIntent,
+      disposeLocalIntentResolver,
       pathname,
       router,
       runtime,
@@ -1469,13 +1659,19 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
     );
     liveClientRef.current?.stop();
     liveClientRef.current = null;
+    disposeLocalIntentResolver();
     voiceLeaseRef.current?.release("voice_session_stopped");
     voiceLeaseRef.current = null;
     activeRuntimeModeRef.current = null;
     prewarmedRelayRef.current = null;
     setConversationActive(false);
     resetVoice();
-  }, [abandonPendingConfirmation, clearVoiceIdleTimer, resetVoice]);
+  }, [
+    abandonPendingConfirmation,
+    clearVoiceIdleTimer,
+    disposeLocalIntentResolver,
+    resetVoice,
+  ]);
 
   const runDeadEndRemedy = useCallback(() => {
     if (!deadEndRemedyAction || deadEndRemedyBusy) return;
@@ -1497,8 +1693,11 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
       router,
       appRuntimeState: runtimeState,
       surfaceMetadata: getVoiceSurfaceMetadata(),
-      allowedActionIds:
-        runtime?.oneVoiceContextSnapshot.available_action_ids ?? null,
+      allowedActionIds: resolveVoiceExecutableActionIds(
+        liveClientRef.current,
+        runtime?.oneVoiceContextSnapshot.executable_action_ids ??
+          runtime?.oneVoiceContextSnapshot.available_action_ids,
+      ),
       hasPortfolioData:
         runtimeState.portfolio.has_portfolio_data ||
         runtime?.oneVoiceContextSnapshot.cache.portfolio_ready === true,
@@ -1655,8 +1854,11 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
         router,
         appRuntimeState: runtimeState,
         surfaceMetadata: getVoiceSurfaceMetadata(),
-        allowedActionIds:
-          runtime?.oneVoiceContextSnapshot.available_action_ids ?? null,
+        allowedActionIds: resolveVoiceExecutableActionIds(
+          pending.transport,
+          runtime?.oneVoiceContextSnapshot.executable_action_ids ??
+            runtime?.oneVoiceContextSnapshot.available_action_ids,
+        ),
         hasPortfolioData:
           runtimeState.portfolio.has_portfolio_data ||
           runtime?.oneVoiceContextSnapshot.cache.portfolio_ready === true,
@@ -1731,6 +1933,13 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
     const isSiriRequest =
       externalRequest?.source === "siri_app_shortcut" &&
       Boolean(externalRequest.requestId);
+    if (
+      isSiriRequest &&
+      externalRequest?.requestId &&
+      cancelledExternalRequestIdsRef.current.has(externalRequest.requestId)
+    ) {
+      return;
+    }
     // Toggle off when a session (live OR an error still on screen) exists.
     if (voiceLeaseRef.current && !liveClientRef.current && !conversationActive) {
       // A second native tap while credentials are resolving is the same start
@@ -1743,6 +1952,11 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
     if (liveClientRef.current || erroredRef.current || conversationActive) {
       if (isSiriRequest) {
         externalStartRequestRef.current = externalRequest ?? null;
+        if (externalRequest?.initialRequestText) {
+          liveClientRef.current?.sendUserText?.(
+            externalRequest.initialRequestText,
+          );
+        }
         finishExternalStart(
           liveClientRef.current || conversationActive ? "accepted" : "failed",
         );
@@ -1786,6 +2000,15 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
       finishExternalStart("failed");
       return;
     }
+    // A Siri request can arrive while an ordinary in-app start is still
+    // resolving credentials. In that race the earlier call returns through
+    // the lease guard above, so take the latest external request from the ref
+    // when this session is finally created.
+    const externalRequestForSession =
+      externalRequest ?? externalStartRequestRef.current;
+    if (externalRequestForSession?.source === "siri_app_shortcut") {
+      externalStartRequestRef.current = externalRequestForSession;
+    }
     erroredRef.current = false;
     setConversationActive(true);
     scheduleVoiceIdleTimer();
@@ -1800,6 +2023,9 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
         ? prewarmedRelay.relayUrl
         : null;
     prewarmedRelayRef.current = null;
+    const speechAdapter = createOneVoiceSpeechAdapter({
+      onEvent: () => undefined,
+    });
     const client = createRealtimeVoiceTransport({
       onEvent: (event) => {
         if (!lease.isCurrent() || voiceLeaseRef.current?.id !== lease.id) {
@@ -1809,6 +2035,20 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
       },
     });
     liveClientRef.current = client;
+    disposeLocalIntentResolver();
+    const resolverGeneration = localIntentResolverGenerationRef.current;
+    if (getVoiceV2Flags().localRuntimeMode !== "off") {
+      void prepareLocalIntentResolver().then((resolver) => {
+        if (
+          resolverGeneration !== localIntentResolverGenerationRef.current ||
+          liveClientRef.current !== client
+        ) {
+          resolver.dispose();
+          return;
+        }
+        localIntentResolverRef.current = resolver;
+      });
+    }
     activeRuntimeModeRef.current = runtimeConnection.mode;
     // The client pushes the starting snapshot as app_context on setupComplete.
     lastPushedContextRef.current = context
@@ -1820,12 +2060,13 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
     // start never accidentally inherits a stale one.
     const resumptionHandle = pendingResumptionHandleRef.current;
     pendingResumptionHandleRef.current = null;
-    void client.start({
+    await client.start({
       context,
       accessTier: runtime?.tier ?? null,
       relayUrl,
       sessionMirrorId: mirrorSessionId,
-      allowedActionIds: context?.available_action_ids ?? null,
+      allowedActionIds:
+        context?.executable_action_ids ?? context?.available_action_ids ?? null,
       consentToken: vaultOwnerToken ?? null,
       runtimeCredentialMode: runtimeConnection.mode,
       runtimeCredential: runtimeConnection.credential,
@@ -1834,10 +2075,104 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
       runtimeVertexLocation: runtimeConnection.vertexLocation,
       resumptionHandle,
       voiceName: readVoicePreferences(user?.uid).voiceName,
-    }).catch(() => finishExternalStart("failed"));
+      speechAdapter,
+    });
+    const initialRequestText = externalRequestForSession?.initialRequestText?.trim();
+    const initialContextReady = initialRequestText
+      ? Boolean(
+          context &&
+            (await client.waitForContextReady?.({ timeoutMs: 2_000 })),
+        )
+      : true;
+    if (initialRequestText && !initialContextReady) {
+      setVoiceStatus(
+        "error",
+        "Agent One could not verify the current screen before handling that request.",
+      );
+      client.stop();
+      finishExternalStart("failed");
+      return;
+    }
+    const localResolution =
+      initialRequestText && context && initialContextReady
+        ? await resolveActiveLocalIntent({
+            utterance: initialRequestText,
+            catalogVersion: KAI_ACTION_GATEWAY_SCHEMA_VERSION,
+            context: {
+              contextRevision: `${context.revisions.route}:${context.revisions.ui}`,
+              catalogVersion: KAI_ACTION_GATEWAY_SCHEMA_VERSION,
+              route: {
+                pathname: context.route.route_family,
+                screen: context.route.screen,
+              },
+              availableActionIds: context.available_action_ids,
+              executableActionIds:
+                client.getExecutableActionIds?.() ?? context.executable_action_ids,
+              redactedState: {
+                circleCount: context.redacted_state?.circle_count ?? null,
+                permissionState:
+                  context.redacted_state?.permission_state ?? "unknown",
+                currentLocationState:
+                  context.redacted_state?.current_location_state ?? "unknown",
+                shareState: context.redacted_state?.share_state ?? "unknown",
+              },
+            },
+          })
+        : null;
+    const localRequestHandled = Boolean(
+      localResolution &&
+        (localResolution.disposition === "action" ||
+          localResolution.disposition === "read_answer" ||
+          localResolution.disposition === "clarify" ||
+          localResolution.reason === "sos_send_blocked"),
+    );
+    if (localResolution && localRequestHandled) {
+      if (initialRequestText) {
+        appendMirrorEvent({
+          role: "user",
+          text: redactSensitiveVoiceTranscript(initialRequestText, runtime?.screen),
+          source: "one_voice_orchestrator",
+          turnId: null,
+        });
+      }
+      if (localResolution.disposition === "action" && localResolution.actionId) {
+        const action = getKaiActionById(localResolution.actionId);
+        const accepted = await client.proposeLocalAction?.({
+          actionId: localResolution.actionId,
+          slots: localResolution.slots,
+          contextRevision: localResolution.contextRevision,
+          needsConfirmation: action?.execution_policy === "confirm_required",
+          trustedActivationRequired:
+            action?.activation_policy === "trusted_activation_required",
+          goalId: action?.goal.goal_id,
+        });
+        if (accepted !== true) {
+          appendMirrorEvent({
+            role: "assistant",
+            text: "I could not safely stage that action from the current app state.",
+            source: "one_voice_orchestrator",
+            turnId: null,
+          });
+          setVoiceStatus("error", "The action could not be staged safely.");
+          finishExternalStart("failed");
+        }
+      } else {
+        const message = localIntentResponse(localResolution);
+        appendMirrorEvent({
+          role: "assistant",
+          text: message,
+          source: "one_voice_orchestrator",
+          turnId: null,
+        });
+        setVoiceStatus("thinking", message);
+      }
+    } else if (initialRequestText) {
+      client.sendUserText?.(initialRequestText);
+    }
   }, [
     conversationActive,
     runtime?.oneVoiceContextSnapshot,
+    runtime?.screen,
     runtime?.tier,
     mirrorSessionId,
     scheduleVoiceIdleTimer,
@@ -1847,6 +2182,9 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
     user?.uid,
     setVoiceStatus,
     finishExternalStart,
+    appendMirrorEvent,
+    resolveActiveLocalIntent,
+    disposeLocalIntentResolver,
   ]);
 
   // Retrying from an error is stop-then-start, but not in the same tick:
@@ -1932,9 +2270,32 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
         request?.source === "siri_app_shortcut" ? request : undefined,
       );
     };
+    const handleConversationCancel = (event: Event) => {
+      const cancellation = (event as CustomEvent<{
+        source?: string;
+        requestId?: string;
+      }>).detail;
+      if (
+        cancellation?.source !== "siri_app_shortcut" ||
+        typeof cancellation.requestId !== "string" ||
+        !cancellation.requestId
+      ) {
+        return;
+      }
+      cancelledExternalRequestIdsRef.current.add(cancellation.requestId);
+      if (externalStartRequestRef.current?.requestId !== cancellation.requestId) {
+        return;
+      }
+      externalStartRequestRef.current = null;
+      stopConversationRef.current();
+    };
     window.addEventListener(
       AGENT_CONVERSATION_REQUEST_EVENT,
       handleConversationRequest,
+    );
+    window.addEventListener(
+      AGENT_CONVERSATION_CANCEL_EVENT,
+      handleConversationCancel,
     );
     const markUnavailable = markAgentConversationOwnerReady();
     return () => {
@@ -1942,6 +2303,10 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
       window.removeEventListener(
         AGENT_CONVERSATION_REQUEST_EVENT,
         handleConversationRequest,
+      );
+      window.removeEventListener(
+        AGENT_CONVERSATION_CANCEL_EVENT,
+        handleConversationCancel,
       );
     };
   }, [startConversation]);
@@ -2071,10 +2436,11 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
       );
       liveClientRef.current?.stop();
       liveClientRef.current = null;
+      disposeLocalIntentResolver();
       prewarmedRelayRef.current = null;
       resetVoice();
     };
-  }, [abandonPendingConfirmation, resetVoice]);
+  }, [abandonPendingConfirmation, disposeLocalIntentResolver, resetVoice]);
 
   const chromeState = useMemo(() => getKaiChromeState(pathname), [pathname]);
   // The root intro screen ("/") has no bottom nav, exactly like the onboarding

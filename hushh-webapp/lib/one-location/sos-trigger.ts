@@ -43,23 +43,45 @@ export class SosPanicError extends Error {
 // ---------------------------------------------------------------------------
 
 /**
- * Narrowed recipient type — has all three fields required to receive an
- * encrypted location envelope: canReceiveLocation flag, a keyId, and a JWK.
+ * Narrowed recipient type — still has a verified SMS identity and all three
+ * fields required to receive an encrypted location envelope: the
+ * canReceiveLocation flag, a keyId, and a JWK.
  */
 export type SosShareReadyRecipient = OneLocationRecipient & {
+  phoneVerified: true;
   keyId: string;
   publicKeyJwk: JsonWebKey;
 };
 
 /**
  * Type predicate that narrows `OneLocationRecipient` to `SosShareReadyRecipient`.
- * Mirrors the `isShareReadyRecipient` guard in page.tsx — kept here so it can
- * be imported and used without the React component context.
+ * Ordinary Location sharing intentionally does not require a phone claim; SMS
+ * is the one lane where it does. Keeping that distinction in this guard stops
+ * the UI from offering an emergency recipient the backend must reject.
  */
 export function isSosShareReadyRecipient(
   r: OneLocationRecipient,
 ): r is SosShareReadyRecipient {
-  return Boolean(r.canReceiveLocation && r.keyId && r.publicKeyJwk);
+  return Boolean(
+    r.phoneVerified && r.canReceiveLocation && r.keyId && r.publicKeyJwk,
+  );
+}
+
+/**
+ * Explain why an SMS alert has no eligible recipient without leaking backend
+ * policy wording into the screen. A verified phone is an SMS-only safety rule,
+ * so ordinary Location sharing never calls this helper.
+ */
+export function sosRecipientReadinessMessage(
+  recipients: OneLocationRecipient[],
+): string {
+  if (!recipients.length) {
+    return "Add at least one SMS contact before sending an alert.";
+  }
+  if (recipients.some((recipient) => !recipient.phoneVerified)) {
+    return "Ask your SMS contact to verify their phone before sending an alert.";
+  }
+  return "Your SMS contacts are not ready to receive location yet.";
 }
 
 // ---------------------------------------------------------------------------

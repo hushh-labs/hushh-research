@@ -9,7 +9,11 @@ import {
   AppPageShell,
 } from "@/components/app-ui/app-page-shell";
 import { PageHeader } from "@/components/app-ui/page-sections";
-import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
+import {
+  SettingsGroup,
+  SettingsPresentationProvider,
+  SettingsRow,
+} from "@/components/app-ui/settings-ui";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -118,48 +122,50 @@ export default function TrustedDevicesPage() {
         />
       </AppPageHeaderRegion>
       <AppPageContentRegion>
-        {loading ? (
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Loader2 className="size-4 animate-spin" /> Loading devices…
-          </div>
-        ) : null}
-        {visibleError ? (
-          <p className="text-sm text-destructive">{visibleError}</p>
-        ) : null}
-        {devices.length > 0 ? (
-          <SettingsGroup separatorInset>
-            {devices.map((device) => {
-              const sync = deriveSyncDisplay(device, nowMs);
-              const isActive = device.status === "active";
-              return (
-                <SettingsRow
-                  key={device.device_id}
-                  icon={Laptop}
-                  title={device.device_name}
-                  description={sync.label}
-                  trailing={
-                    isActive ? (
-                      <Button
-                        aria-label={`Unlink ${device.device_name}`}
-                        onClick={() => setPendingRevocation(device)}
-                        size="icon"
-                        variant="ghost"
-                      >
-                        <Trash2 className="size-4" />
-                      </Button>
-                    ) : undefined
-                  }
-                  trailingInteractive={isActive}
-                />
-              );
-            })}
-          </SettingsGroup>
-        ) : null}
-        {!loading && devices.length === 0 ? (
-          <p className="rounded-2xl border border-dashed p-8 text-center text-sm text-muted-foreground">
-            No trusted devices are connected.
-          </p>
-        ) : null}
+        <SettingsPresentationProvider density="compact">
+          {loading ? (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Loader2 className="size-4 animate-spin" /> Loading devices…
+            </div>
+          ) : null}
+          {visibleError ? (
+            <p className="text-sm text-destructive">{visibleError}</p>
+          ) : null}
+          {devices.length > 0 ? (
+            <SettingsGroup separatorInset>
+              {devices.map((device) => {
+                const sync = deriveSyncDisplay(device, nowMs);
+                const isActive = device.status === "active";
+                return (
+                  <SettingsRow
+                    key={device.device_id}
+                    icon={Laptop}
+                    title={device.device_name}
+                    description={sync.label}
+                    trailing={
+                      isActive ? (
+                        <Button
+                          aria-label={`Unlink ${device.device_name}`}
+                          onClick={() => setPendingRevocation(device)}
+                          size="icon"
+                          variant="ghost"
+                        >
+                          <Trash2 className="size-4" />
+                        </Button>
+                      ) : undefined
+                    }
+                    trailingInteractive={isActive}
+                  />
+                );
+              })}
+            </SettingsGroup>
+          ) : null}
+          {!loading && devices.length === 0 ? (
+            <p className="rounded-2xl border border-dashed p-8 text-center text-sm text-muted-foreground">
+              No trusted devices are connected.
+            </p>
+          ) : null}
+        </SettingsPresentationProvider>
       </AppPageContentRegion>
       <AlertDialog
         open={pendingRevocation !== null}
