@@ -18,6 +18,58 @@ PKM behavior, surface applicability, privacy allowlist, telemetry namespace,
 evaluation threshold, performance budget, kill switch, rollout, and rollback.
 Invocation authority never implies private-data access or mutation authority.
 
+## One authored fleet, explicit runtime dependencies
+
+Use the same manifest, specialist wrapper, model/tool loop and result contract in
+shared execution and a private pod. A topology setting selects dependencies; it
+does not supply missing consent, information adapters or persistence. Registration
+alone therefore does not establish pod readiness.
+
+For a specialist that needs pod support:
+
+1. Keep its definition in `agent.yaml` and its dispatch entry in the existing
+   `hushh_mcp/adk_bridge` registry. Extend its existing service injection seam;
+   preserve the default shared handler and its behavior. Do not fork the agent,
+   prompt, tools or routing authority for the pod.
+2. Supply its dependencies through
+   `hushh_mcp/services/pod_specialist_runtime.py` and the existing
+   `SpecialistRuntime.service_for` contract. Authenticated text and private Live
+   ingress bind that runtime for the invocation; model arguments cannot choose
+   the owner or runtime. Reset context on completion, cancellation and failure.
+3. Verify the owner before dependency resolution, retrieval, hydration or provider
+   I/O, and recheck access before returning a result. Preserve separate invocation,
+   information and action authority. Use actual scoped grants, encrypted export
+   references and confirmation receipts where the specialist requires them;
+   neither `pkm.read` nor fabricated references substitute for these contracts.
+4. Inject the existing pod provider, scoped information ports and sealed history
+   as needed. PKM remains information authority; conversation history remains
+   agent experience. Preserve the caller's conversation ID and isolate history
+   by owner and specialist. A missing adapter or unavailable authority must refuse
+   execution, never select a shared service singleton as a fallback.
+5. Verify the shared default still works, foreign-owner calls stop before I/O,
+   missing/revoked authority refuses, and invocation context clears. For durable
+   specialists, exercise the real ingress-to-wrapper/tool path and history
+   recovery. A synthetic provider or fresh log object is local evidence, not a
+   live provider or genuine process-restart result. Reuse existing tests and
+   `config/pod-completion-ledger.yaml`; do not create a second readiness checklist.
+
+Location and Nav illustrate these seams, with qualified implementation limits in
+[the pod data-door reference](../../../docs/reference/architecture/pod-data-door.md#shared-fleet-integration-8-september-2026).
+That reference records remaining adapters and transitional broker reads; it does
+not declare the entire fleet complete. The
+[private-agent north star](../../../docs/reference/architecture/private-agent-north-star.md)
+owns the persistent-pod requirements.
+
+### Transferring common changes to shared execution
+
+Review portable dependency injection, owner checks and read-only service behavior
+as bounded changes in the existing ADK worktree, preserving its shared defaults.
+Keep pod ingress, grant couriering, remote verification, sealed recovery and pod
+information adapters on the private branch. Include dependent contracts and
+focused regressions in each transfer; do not cherry-pick a mixed pod integration
+commit or replace shared deployment configuration wholesale. Branch ancestry and
+source parity are separate from deployed acceptance.
+
 
 ## Visual Context
 
