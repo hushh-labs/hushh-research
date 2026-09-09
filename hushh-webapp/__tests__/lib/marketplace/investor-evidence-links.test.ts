@@ -10,7 +10,7 @@ function evidence(
 }
 
 describe("marketplaceInvestorEvidenceLinks", () => {
-  it("labels distinct SEC evidence surfaces without generic duplicate-looking text", () => {
+  it("renders only the SEC Form 13F filing link from distinct SEC evidence surfaces", () => {
     const links = marketplaceInvestorEvidenceLinks(
       evidence({
         source_urls: [
@@ -24,16 +24,6 @@ describe("marketplaceInvestorEvidenceLinks", () => {
 
     expect(links).toEqual([
       {
-        id: "url:https://data.sec.gov/submissions/CIK0000123456.json",
-        label: "SEC submissions - CIK 0000123456",
-        url: "https://data.sec.gov/submissions/CIK0000123456.json",
-      },
-      {
-        id: "url:https://www.sec.gov/edgar/browse/?CIK=0000123456",
-        label: "SEC company page - CIK 0000123456",
-        url: "https://www.sec.gov/edgar/browse/?CIK=0000123456",
-      },
-      {
         id: "sec-accession:0000123456-26-000001",
         label: "SEC Form 13F - 0000123456-26-000001",
         url: "https://www.sec.gov/Archives/edgar/data/123456/000012345626000001/xslForm13F_X02/primary_doc.xml",
@@ -41,18 +31,18 @@ describe("marketplaceInvestorEvidenceLinks", () => {
     ]);
   });
 
-  it("deduplicates exact repeated source URLs by stable URL identity", () => {
+  it("does not surface submissions or company-page URLs without a 13F filing", () => {
     const links = marketplaceInvestorEvidenceLinks(
       evidence({
         source_urls: [
           "https://data.sec.gov/submissions/CIK0000123456.json",
-          "https://data.sec.gov/submissions/CIK0000123456.json",
+          "https://www.sec.gov/edgar/browse/?CIK=0000123456",
         ],
+        forms: [{ form: "13F", last_filed_at: "2026-03-31" }],
       })
     );
 
-    expect(links).toHaveLength(1);
-    expect(links[0]?.label).toBe("SEC submissions - CIK 0000123456");
+    expect(links).toEqual([]);
   });
 
   it("deduplicates SEC filing URLs that point to the same accession", () => {
@@ -71,7 +61,7 @@ describe("marketplaceInvestorEvidenceLinks", () => {
     expect(links[0]?.label).toBe("SEC Form 13F - 0000123456-26-000001");
   });
 
-  it("keeps multiple distinct SEC filings visible with unique accession labels", () => {
+  it("keeps only the first distinct SEC Form 13F filing visible", () => {
     const links = marketplaceInvestorEvidenceLinks(
       evidence({
         source_urls: [
@@ -84,23 +74,20 @@ describe("marketplaceInvestorEvidenceLinks", () => {
 
     expect(links.map((link) => link.label)).toEqual([
       "SEC Form 13F - 0000123456-26-000001",
-      "SEC Form 13F - 0000123456-26-000002",
     ]);
   });
 
-  it("falls back to numbered filing labels only when no SEC metadata can identify the URL", () => {
+  it("honors an explicit zero-link limit", () => {
     const links = marketplaceInvestorEvidenceLinks(
       evidence({
         source_urls: [
-          "https://example.com/a",
-          "https://example.com/b",
+          "https://www.sec.gov/Archives/edgar/data/123456/000012345626000001/primary_doc.xml",
         ],
-      })
+        forms: [{ form: "13F", last_filed_at: "2026-03-31" }],
+      }),
+      0
     );
 
-    expect(links.map((link) => link.label)).toEqual([
-      "SEC filing 1",
-      "SEC filing 2",
-    ]);
+    expect(links).toEqual([]);
   });
 });
