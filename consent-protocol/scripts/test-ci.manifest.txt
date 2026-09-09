@@ -191,6 +191,8 @@ tests/test_one_location_nearby_check_in_preferences_migration.py
 tests/test_data_model_audit_script.py
 tests/test_data_model_audit_postgres.py
 
+# Exact-release license evidence rejects missing, modified and conflicting metadata.
+tests/test_third_party_license_evidence.py
 # The migration authority decides whether every deploy survives a busy
 # database, and none of its tests had ever run: this file was not in this
 # manifest, and this manifest is the only pytest invocation in any lane. R28's
