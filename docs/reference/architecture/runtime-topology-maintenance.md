@@ -82,3 +82,21 @@ change dispatch, A2A, tool admission, consent, or action authority. Runtime
 agent creation follows [One Agent Hierarchy](../one/one-agent-hierarchy.md) and
 the `product-agent-development` workflow; engineering maintenance follows
 `runtime-topology-maintenance`.
+
+## Wiki knowledge maintenance
+
+During authorized Wiki maintenance, reconcile affected claims against the owning
+source and dated evidence. Distinguish requirements, implementation, deployment
+and observed outcomes. Label older snapshots explicitly; do not refresh their
+dates or promote roadmap claims without verification.
+
+Keep durable architecture, decisions and operating guidance. Release timelines
+belong in the release history; preserve unique lessons in canonical articles
+before removing duplicate Wiki pages. Inspect incoming links and repair them
+without exposing private destinations to public readers. Read back corrections
+and verify deleted pages are absent from both direct reads and the index.
+
+A timed-out write or deletion has an uncertain outcome. Reconcile serving state
+before retrying: missing local files alone do not prove durable removal. Keep
+mutations sequential when the backend cannot atomically publish a batch. Record
+unresolved publication failures in the existing audit evidence, not as completion.

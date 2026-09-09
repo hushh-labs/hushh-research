@@ -111,6 +111,14 @@ ALTER TABLE one_location_events
       -- dies on it the first time a real row uses one.
       'location_circle_code_joined',
       'location_circle_member_invite_accepted',
+      -- Save My Soul contact list changes. Allowlisted downstream by 187
+      -- and 190, both unvalidated, which is enough for the live write but
+      -- not for this ADD: this one validates, so it re-scans every existing
+      -- row on each UAT replay. The first person to add or remove an
+      -- emergency contact writes a row that fails this constraint
+      -- forever. Same failure as 'location_share_shortened' above.
+      'location_sms_contact_added',
+      'location_sms_contact_removed',
       'circle_member_added'
     )
   );

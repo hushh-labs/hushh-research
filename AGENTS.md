@@ -1,6 +1,21 @@
-# Hussh Codex Operating Rules
+# Hussh Coding Agent Operating Rules
 
-These repo-level instructions supplement the active Codex system/developer instructions. Follow the more specific instruction when there is a conflict.
+These repo-level instructions apply to every coding agent and supplement the active host's system/developer instructions. Higher-priority host instructions and the user's current authorization take precedence; within repository guidance, follow the more specific applicable contract.
+
+## Repository ownership map
+
+This shared-runtime branch keeps governed skills and workflow routing in
+`.codex/skills/` and `.codex/workflows/`. Authored engineering agents live in
+`.codex/agents/*.toml`; `.claude/agents/*.md` are generated mirrors, checked by
+`.codex/skills/agent-orchestration-governance/scripts/sync_claude_agents.py`.
+Host discovery paths do not authorize duplicate behavior: extend the existing
+owner and preserve generated-mirror checks. Product agents live separately in
+`consent-protocol/hushh_mcp/agents`.
+
+Verify paths in the target branch before transferring governance changes. Private
+pod runtime changes are developed separately; their directory migrations and
+persistent-runtime assumptions must not be copied into this shared-runtime
+branch without their dependent contracts and compatibility evidence.
 
 ## Project-Wide Principal Craft Kernel
 
@@ -85,11 +100,11 @@ These are the durable architecture principles for every Hussh product agent (One
 
 1. Dumb agents by default. A Hussh agent is a system prompt plus declared hands and tools. It holds no ambient knowledge, no privileged information access, and no memory of its own. All context flows IN per turn through consented state (session state keys, A2A task payloads, scoped encrypted exports). If an agent needs protected information, it arrives through a consent-gated channel; the agent never reaches out around the trust boundary.
 2. Delegation is a wrapped function of current behavior. When One delegates to a specialist, the delegation wraps the existing dispatch contract without breaking it: same task in, same result out, with consent authority attached per hop. Delegation authority per hop is a scoped encrypted export whose domain is dynamic, identified by the structure agent, never a broad standing grant. Google ADK's Task API (available in ADK 2.x) is the preferred substrate for structured agent-to-agent delegation when this contract crosses process or network boundaries; do not hand-build a parallel delegation envelope.
-3. Founder Wiki freshness contract. The Founder Wiki (authenticated MCP at `https://mcp.hushh.ai/mcp`) is a north-star evidence lane, and it can lag the repo. Agents doing product or docs work must (a) refresh the wiki MCP tool before reading, (b) treat stale wiki articles as `current_state_vs_north_star_drift`, and (c) use the wiki WRITE operations to upgrade stale articles as part of shipping the change that made them stale. Keeping the wiki current is part of the definition of done, not a follow-up.
-4. Scale-plane doctrine: Postgres now, Redis later. Cross-instance shared state (rate limits, one-time nonces, revocation fan-out, durable agent sessions) is Postgres-backed today because Postgres is the platform's only shared tier. Every such mechanism must be written behind a seam that can swap to Redis/Memorystore Pub/Sub later without contract changes, and each new mechanism notes its Redis upgrade path in code comments or the owning doc.
-5. No second decision-maker. Each interaction surface has exactly one routing authority (the generated action manifest for voice/chat; the owning workflow for engineering lanes). New intelligence slots below One as a specialist; it never becomes a parallel top-level router.
+3. Founder Wiki freshness contract. The Founder Wiki (authenticated MCP at `https://mcp.hushh.ai/mcp`) is a north-star evidence lane, and it can lag the repo. Agents doing product or docs work must (a) refresh the wiki MCP tool before reading, (b) treat stale wiki articles as `current_state_vs_north_star_drift`, and (c) reconcile affected articles as part of the authorized change. Read-only audits do not grant publishing authority. When wiki maintenance is authorized in the current session, update the smallest verified section and read it back; otherwise record the exact drift and proposed correction. Never publish private evidence or promote a future proposal to current truth.
+4. Shared-state ownership follows the existing subsystem contract. Keep authoritative persistence in its declared store and shared mechanisms behind replaceable seams. Postgres-backed state coexists with configurable Redis rate limits and Places caching; an unset limiter URI uses process-local memory, not a cluster-wide budget. Verify the selected store and failure behavior per environment. Never infer distributed enforcement from a dependency or configuration example. See `consent-protocol/api/middlewares/rate_limit.py`, `consent-protocol/hushh_mcp/services/google_maps_service.py` and `docs/reference/operations/env-and-secrets.md`.
+5. No second decision-maker. Each interaction surface has exactly one routing authority. One owns product semantic decisions within the generated action contract; the owning workflow routes engineering work. New intelligence slots below One as a specialist; it never becomes a parallel top-level router.
 6. Product agents and engineering agents are separate namespaces. `.codex/agents` contains read-only engineering evidence lanes; `consent-protocol/hushh_mcp/agents` contains runtime product agents. Never make one impersonate or generate the other.
-7. `AgentManifestV2` YAML is the sole authored product-agent source. Generated registries, cards, action identifiers, surface metadata, and hierarchy projections must be reproducible from it; parallel Python manifests and prompt copies are prohibited.
+7. `AgentManifestV2` YAML owns authored product-agent definitions and their generated registries/cards. Route, voice/action and native contracts retain their own declared sources; the runtime topology index joins them without taking execution authority. Keep projections reproducible from their owning sources; parallel agent manifests and prompt copies are prohibited.
 8. Use ADK `chat`, `task`, and `single_turn` modes inside one runtime, official A2A Tasks across process or deployment boundaries, and MCP for consented tools and encrypted resources. Invocation authority, information authority, and action authority remain separate at every hop.
 9. Intelligence owns semantic assessment. The active route and top authored interaction layer bound that assessment; deterministic policy may validate, normalize, reject, and enforce authority, but it must not replace agent meaning with keyword or regex classification, infer DOM controls, or substitute a different action.
 
@@ -97,7 +112,7 @@ These are the durable architecture principles for every Hussh product agent (One
 
 Before accepting a premise, drafting a reply, proposing a plan, patching code, reviewing a PR, or merging work, run a quick repo-backed premise check.
 
-This applies to every non-trivial Codex task in this repo. The goal is to prevent drift where Codex agrees with a user or contributor claim that the repo already contradicts.
+This applies to every non-trivial coding-agent task in this repo. The goal is to prevent drift where an agent agrees with a user or contributor claim that the repo already contradicts.
 
 The canonical shared contract lives at `.codex/skills/codex-skill-authoring/references/truth-first-operating-kernel.md`. Use that file as the source of truth for claim labels, evidence order, domain probes, and agent handoff shape.
 
@@ -256,7 +271,7 @@ This is a hard, non-negotiable rule for every Codex/agent task in this repo. It 
 2. NEVER create a new branch for follow-up, continuation, "phase N", "it felt cleaner", or ship-convenience reasons without either (a) an explicit user request for a new branch, or (b) a genuine isolation need (an isolated `main` hotfix, or unrelated unsafe in-flight work). When in doubt, continue on the existing development branch and cherry-pick across named existing branches.
 3. NEVER end a task with the developer parked on a different branch than where they started, unless they explicitly asked for that final state. If branch switching happened during the task, switch back to the developer's branch before handoff and state that you did.
 4. ALWAYS delete temporary branches you created (local AND remote) once the work is safely preserved on the kept branches. Before deleting, verify every unique piece (commits/files) is represented on a branch you are keeping; only then delete. Close any throwaway PR opened from that temp branch.
-5. After cleanup, leave the tree clean: developer on their branch, no stray local temp branches, no stray remote temp branches, no dangling throwaway PRs. State the final branch and what was cleaned.
+5. After cleanup, leave agent-owned changes committed or explicitly handed off, and the developer on their original branch. Preserve all pre-existing edits and independently active worktrees. Retain temporary branches with unique unintegrated work or open reviews, record why, and remove them only after preservation is verified. State the final branch and cleanup.
 6. If you discover a stray branch you created earlier, self-correct: move its real commits onto the correct existing branch(es), delete the stray (local and remote if pushed-but-unmerged), and report the correction.
 
 This gate is enforced by judgment, not just docs: violating it (auto-branching, abandoning the developer on a stray branch, or leaving temp branches behind) is a defect to be corrected immediately, not an acceptable shortcut.

@@ -675,13 +675,10 @@ jobs:
           SUBSTITUTIONS="${SUBSTITUTIONS}##_ACCOUNT_DELETION_CLEANUP_AUDIENCE=${{ env.CONSENT_API_PUBLIC_ORIGIN }}##_ACCOUNT_DELETION_CLEANUP_SERVICE_ACCOUNT_EMAIL=${{ env.ACCOUNT_DELETION_SCHEDULER_SERVICE_ACCOUNT_ID }}@${{ env.GCP_PROJECT_ID }}.iam.gserviceaccount.com"
           SUBSTITUTIONS="${SUBSTITUTIONS}##_SKIP_IMAGE_BUILD=true##_IMAGE_REFERENCE=${{ steps.build-backend-image.outputs.image_reference }}##_CLOUD_RUN_TAG=account-deletion-${{ github.run_id }}"
           SUBSTITUTIONS="${SUBSTITUTIONS}##_VPC_CONNECTOR=${{ vars.UAT_VPC_CONNECTOR || '' }}"
-          # TEMP (revert once the hushh-pda-uat billing dunning is resolved):
-          # route ONLY the managed Vertex/Gemini client to a bridge project on
-          # a healthy billing account, per backend.cloudbuild.yaml's existing
-          # genai_project_id support. Cloud SQL, secrets, and everything else
-          # still target hushh-pda-uat via $PROJECT_ID. To revert, delete this
-          # line (genai_project_id then falls back to $PROJECT_ID).
-          SUBSTITUTIONS="${SUBSTITUTIONS}##_GENAI_PROJECT_ID=hushh-gemini-bridge"
+          # Route only managed Vertex/Gemini to the dedicated personal Vertex
+          # project. backend.cloudbuild.yaml keeps GOOGLE_CLOUD_PROJECT on
+          # hushh-pda-uat for Cloud Run, SQL, secrets and native ADC resources.
+          SUBSTITUTIONS="${SUBSTITUTIONS}##_GENAI_PROJECT_ID=hushh-vertex-personal54"
           # The canonical 3.1 Live preview uses a separate prepaid Developer
           # API pool. UAT must remain functional when that pool is depleted, so
           # pin the already-rehearsed GA Vertex rollback until credits recover.
@@ -1018,6 +1015,18 @@ jobs:
             --expected-sha "${{ steps.resolve-sha.outputs.sha }}" \
             --expected-run-id "${{ github.run_id }}" \
             --report-path /tmp/uat-frontend-provenance.json
+
+      - name: Verify protected list secrets were not wiped
+        shell: bash
+        run: |
+          # `gcloud secrets versions add` REPLACES the whole value. A script or
+          # person that writes without reading first deletes every other entry
+          # with no error. HUSHH_UAT_PHONE_TEST_NUMBERS went 59 -> 1 that way on
+          # 2026-09-03 and nobody noticed for five days; it surfaced as "phone
+          # verification is broken". Old versions are the only record, and until
+          # now nothing read them. See R36.
+          python3 scripts/ops/verify_secret_list_invariants.py \
+            --project "${{ env.GCP_PROJECT_ID }}"
 
       - name: Verify UAT runtime env parity
         id: verify-parity-1

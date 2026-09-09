@@ -1,5 +1,12 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import type { ReactNode } from "react";
+import type { FeedRow as RealFeedRow } from "@/components/feed/feed-row";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => {
@@ -36,6 +43,7 @@ const mocks = vi.hoisted(() => {
     toastSuccess: vi.fn(),
     toastError: vi.fn(),
     feedRowRender: vi.fn(),
+    useRealFeedRow: false,
   };
 });
 
@@ -99,19 +107,29 @@ vi.mock("@/lib/feed/use-feed-actionables", () => ({
   }),
 }));
 
-vi.mock("@/components/feed/feed-row", () => ({
-  FeedRow: ({ item }: { item: { id: string } }) => {
-    mocks.feedRowRender(item.id);
-    return <div>row-{item.id}</div>;
-  },
-}));
+vi.mock("@/components/feed/feed-row", async (importOriginal) => {
+  const { FeedRow } =
+    await importOriginal<typeof import("@/components/feed/feed-row")>();
+  return {
+    FeedRow: (props: Parameters<typeof RealFeedRow>[0]) => {
+      mocks.feedRowRender(props.item.id);
+      return mocks.useRealFeedRow ? (
+        <FeedRow {...props} />
+      ) : (
+        <div>row-{props.item.id}</div>
+      );
+    },
+  };
+});
 
 vi.mock("@/components/feed/feed-actionable-row", () => ({
   FeedActionableRow: () => null,
 }));
 
 vi.mock("@/components/app-ui/app-page-shell", () => ({
-  AppPageShell: ({ children }: { children: ReactNode }) => <div>{children}</div>,
+  AppPageShell: ({ children }: { children: ReactNode }) => (
+    <div>{children}</div>
+  ),
   AppPageContentRegion: ({ children }: { children: ReactNode }) => (
     <main>{children}</main>
   ),
@@ -121,7 +139,8 @@ vi.mock("@/components/app-ui/native-test-beacon", () => ({
   NativeTestBeacon: () => null,
 }));
 
-vi.mock("@/components/app-ui/typography", () => ({
+vi.mock("@/components/app-ui/typography", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/components/app-ui/typography")>()),
   SectionLabel: ({ children }: { children: ReactNode }) => <h2>{children}</h2>,
 }));
 
@@ -144,10 +163,11 @@ async function renderAfterAutomaticRead() {
   return view;
 }
 
-describe("Feed Clear transaction", () => {
+describe("Feed history interactions", () => {
   beforeEach(() => {
     window.localStorage.clear();
     vi.clearAllMocks();
+    mocks.useRealFeedRow = false;
     mocks.user.getIdToken.mockResolvedValue("firebase-token");
     mocks.markRead.mockResolvedValue(undefined);
     mocks.data = {
@@ -165,6 +185,34 @@ describe("Feed Clear transaction", () => {
       next_cursor: null,
       unread_count: 1,
     };
+  });
+
+  it("opens Shared with me when the actual incoming location Feed row is tapped", async () => {
+    mocks.useRealFeedRow = true;
+    mocks.data.items = [
+      {
+        ...mocks.data.items[0],
+        source_domain: "location",
+        event_type: "location_share_created",
+        actor_label: "Ankit",
+        metadata: {
+          feed_audience: "recipient",
+          counterpart_label: "Ankit",
+          duration_hours: 2,
+        },
+      },
+    ];
+    await renderAfterAutomaticRead();
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: /Ankit Shared location with you for 2 hours/,
+      }),
+    );
+
+    expect(mocks.routerPush).toHaveBeenCalledExactlyOnceWith(
+      "/one/location?section=shared",
+    );
   });
 
   it("retires an unsafe legacy timestamp watermark without hiding a later id", async () => {
@@ -194,10 +242,7 @@ describe("Feed Clear transaction", () => {
   });
 
   it("never renders cached history before hydrating a persisted clear watermark", async () => {
-    window.localStorage.setItem(
-      "hushh:feed-cleared-through-id:feed-user",
-      "5",
-    );
+    window.localStorage.setItem("hushh:feed-cleared-through-id:feed-user", "5");
 
     render(<FeedPage />);
 
@@ -237,7 +282,9 @@ describe("Feed Clear transaction", () => {
     expect(mocks.markRead.mock.invocationCallOrder[0]).toBeLessThan(
       mocks.clearSmsEmergencies.mock.invocationCallOrder[0],
     );
-    expect(window.localStorage.getItem("hushh:feed-cleared-through-id:feed-user")).toBe("5");
+    expect(
+      window.localStorage.getItem("hushh:feed-cleared-through-id:feed-user"),
+    ).toBe("5");
 
     mocks.data = {
       ...mocks.data,
@@ -272,7 +319,9 @@ describe("Feed Clear transaction", () => {
     );
 
     await waitFor(() =>
-      expect(mocks.toastError).toHaveBeenCalledWith("Couldn't clear your feed."),
+      expect(mocks.toastError).toHaveBeenCalledWith(
+        "Couldn't clear your feed.",
+      ),
     );
     expect(mocks.clearSmsEmergencies).not.toHaveBeenCalled();
     expect(mocks.readFailed).toHaveBeenCalledWith("feed-user");

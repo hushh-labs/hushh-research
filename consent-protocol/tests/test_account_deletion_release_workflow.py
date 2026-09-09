@@ -267,10 +267,23 @@ def test_uat_scheduler_service_account_id_is_valid_and_consistent() -> None:
     assert "roles/iam.serviceAccountTokenCreator" not in scheduler_setup
 
 
-def test_scheduler_setup_does_not_require_service_account_policy_admin(
-    tmp_path: Path,
+@pytest.mark.parametrize("job_exists", [False, True])
+@pytest.mark.parametrize("mutation_fails", [False, True])
+def test_scheduler_setup_is_repeatable_without_service_account_policy_admin(
+    tmp_path: Path, job_exists: bool, mutation_fails: bool
 ) -> None:
     environment = os.environ.copy()
+    for name in (
+        "BASH_ENV",
+        "SCHEDULER_SERVICE_ACCOUNT_EMAIL",
+        "SCHEDULER_LOCATION",
+        "JOB_NAME",
+        "CRON",
+        "TIMEZONE",
+        "BATCH_LIMIT",
+        "OIDC_AUDIENCE",
+    ):
+        environment.pop(name, None)
     environment.update(
         {
             "BACKEND_URL": "https://api.uat.example.com",
@@ -279,11 +292,15 @@ def test_scheduler_setup_does_not_require_service_account_policy_admin(
         }
     )
     calls = tmp_path / "gcloud-calls"
+    job_state = tmp_path / "scheduler-job-exists"
+    if job_exists:
+        job_state.touch()
     guards = f'''gcloud() {{
       printf '%s\\n' "$*" >> "{calls.as_posix()}"
       case "$1 $2 $3" in
         "iam service-accounts describe") return 0 ;;
         "scheduler jobs describe")
+          [[ -f "{job_state.as_posix()}" ]] || return 1
           printf '%s\\t%s\\t%s\\t%s\\t%s\\t%s\\n' \\
             'ENABLED' '*/2 * * * *' \\
             'https://api.uat.example.com/api/account/deletion-cleanup/drain?limit=10' \\
@@ -292,7 +309,33 @@ def test_scheduler_setup_does_not_require_service_account_policy_admin(
             'https://api.uat.example.com'
           return 0
           ;;
-        "scheduler jobs update") return 0 ;;
+        "scheduler jobs create"|"scheduler jobs update")
+          [[ "$4" == http && "$5" == account-deletion-cleanup-uat ]] || return 95
+          local expected_header forbidden_header argument header_found=false
+          if [[ "$3" == update ]]; then
+            [[ -f "{job_state.as_posix()}" ]] || return 95
+            expected_header='--update-headers=Content-Type=application/json'
+            forbidden_header='--headers='
+          else
+            [[ ! -f "{job_state.as_posix()}" ]] || return 95
+            expected_header='--headers=Content-Type=application/json'
+            forbidden_header='--update-headers='
+          fi
+          for argument in "$@"; do
+            if [[ "$argument" == "$forbidden_header"* ]]; then
+              echo "UNSUPPORTED_HEADER_FLAG: $argument" >&2
+              return 2
+            fi
+            if [[ "$argument" == "$expected_header" ]]; then header_found=true; fi
+          done
+          [[ "$header_found" == true ]] || return 95
+          if [[ "{str(mutation_fails).lower()}" == true ]]; then
+            echo SCHEDULER_MUTATION_FAILED >&2
+            return 42
+          fi
+          : > "{job_state.as_posix()}"
+          return 0
+          ;;
         *) echo "UNEXPECTED_GCLOUD_COMMAND: $*" >&2; return 96 ;;
       esac
     }}
@@ -300,21 +343,40 @@ def test_scheduler_setup_does_not_require_service_account_policy_admin(
     bash = shutil.which("bash")
     assert bash is not None, "Bash is required for the scheduler behavior test"
 
-    result = subprocess.run(  # noqa: S603 - trusted script with guarded cloud commands
-        [bash, "-c", guards + SCHEDULER_SETUP_SCRIPT.read_text(encoding="utf-8")],
-        cwd=ROOT,
-        env=environment,
-        capture_output=True,
-        text=True,
-        timeout=10,
-        check=False,
-    )
+    for _ in range(2):
+        result = subprocess.run(  # noqa: S603 - trusted script with guarded cloud commands
+            [bash, "-c", guards + SCHEDULER_SETUP_SCRIPT.read_text(encoding="utf-8")],
+            cwd=ROOT,
+            env=environment,
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
 
-    output = result.stdout + result.stderr
-    assert result.returncode == 0, output
-    assert "Configured and verified Cloud Scheduler job" in result.stdout
-    assert "UNEXPECTED_GCLOUD_COMMAND" not in output
-    assert "add-iam-policy-binding" not in calls.read_text(encoding="utf-8")
+        output = result.stdout + result.stderr
+        assert result.returncode == (42 if mutation_fails else 0), output
+        assert "UNSUPPORTED_HEADER_FLAG" not in output
+        assert "UNEXPECTED_GCLOUD_COMMAND" not in output
+        if mutation_fails:
+            assert "SCHEDULER_MUTATION_FAILED" in result.stderr
+            assert "Configured and verified" not in result.stdout
+        else:
+            assert "Configured and verified Cloud Scheduler job" in result.stdout
+
+    commands = calls.read_text(encoding="utf-8").splitlines()
+    mutations = [
+        line.split()[2]
+        for line in commands
+        if line.startswith(("scheduler jobs create ", "scheduler jobs update "))
+    ]
+    expected = ["update", "update"] if job_exists else ["create", "update"]
+    if mutation_fails and not job_exists:
+        expected = ["create", "create"]
+    assert mutations == expected
+    describes = [line for line in commands if line.startswith("scheduler jobs describe ")]
+    assert len(describes) == (2 if mutation_fails else 4)
+    assert not any("iam-policy" in line for line in commands)
 
 
 @pytest.mark.parametrize(

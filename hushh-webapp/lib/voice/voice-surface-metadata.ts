@@ -73,7 +73,27 @@ export type VoiceSurfaceMetadata = {
   selectedObjects?: string[];
   availableActions?: string[];
   busyOperations?: string[];
+  /**
+   * Browser-local. Anything a surface wants to keep about itself, including
+   * internal plumbing -- one surface publishes a raw cache key containing a
+   * user id here, and a test asserts that value never reaches the voice
+   * snapshot. This field does not cross the trust boundary and must not start.
+   */
   screenMetadata?: Record<string, unknown>;
+  /**
+   * State the surface is deliberately offering to the agent.
+   *
+   * Separate from screenMetadata because that map is a mixed bag: it carries
+   * plumbing alongside real state, and no automatic rule reliably tells
+   * `circle_count` (a fact a person asks about) from `raw_cache_key` (an
+   * internal handle that happens to contain a user id). Making the safe half
+   * explicit is the only version of this that cannot leak by accident -- a
+   * surface has to name what it is offering.
+   *
+   * Scalars only. Values reach the model's prompt, so publish counts, states
+   * and flags -- never names, addresses, tokens or identifiers.
+   */
+  screenState?: Record<string, string | number | boolean | null>;
   activeControlId?: string | null;
   lastInteractedControlId?: string | null;
   /** Authored description of the currently mounted interaction layer. */
@@ -528,6 +548,12 @@ function normalizeSurfaceMetadata(
       !Array.isArray(metadata.screenMetadata)
         ? metadata.screenMetadata
         : {},
+    screenState:
+      metadata.screenState &&
+      typeof metadata.screenState === "object" &&
+      !Array.isArray(metadata.screenState)
+        ? metadata.screenState
+        : {},
   };
 }
 
@@ -634,6 +660,10 @@ function mergeVoiceSurfaceMetadata(
     screenMetadata: {
       ...(base.screenMetadata || {}),
       ...(effectiveOverlay.screenMetadata || {}),
+    },
+    screenState: {
+      ...(base.screenState || {}),
+      ...(effectiveOverlay.screenState || {}),
     },
     interactionLayer: effectiveOverlay.interactionLayer || base.interactionLayer || null,
   });

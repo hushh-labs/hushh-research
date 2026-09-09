@@ -43,7 +43,10 @@ import {
   MAP_SURFACE_CLASSNAME,
 } from "@/components/one-location/map-consent-panel-layout";
 import { MapNameLabels } from "@/components/one-location/map-name-labels";
-import { MapSelfAvatarMarker } from "@/components/one-location/map-self-avatar-marker";
+import {
+  MapSelfAvatarLegend,
+  MapSelfAvatarMarker,
+} from "@/components/one-location/map-self-avatar-marker";
 import {
   NearbyCheckInSheet,
   type NearbyCheckInPlaceFocus,
@@ -144,8 +147,9 @@ const NEARBY_CHECK_IN_RADIUS_METERS = 500;
  *
  * It answers "roughly this far", which is a background fact about the screen,
  * not its subject — the map underneath is what the person is reading, and the
- * two pins on it are what they are choosing between. So the boundary is a
- * hairline and the fill is barely a tint. The radius itself is unchanged:
+ * owner avatar and place pin on it are what they are choosing between. The
+ * boundary is a hairline and the fill is barely a tint. The radius itself is
+ * unchanged:
  * `NEARBY_CHECK_IN_RADIUS_METERS` still drives the circle, and the server
  * still owns the 500 m the circle stands for.
  */
@@ -1543,22 +1547,19 @@ export function LocationImmersiveMap({
    * Three flags, none of which changes more than once per screen, so this does
    * not churn the marker bridge: `rendererReady` is the consent gate,
    * `cameraReported` is whether anything can be projected at all, and
-   * `isCheckInSurface` scopes this to Your Map.
+   * Both Your Map and Check-in use the same owner marker. Check-in still keeps
+   * its place pin, connector and place-color key; only the generic blue
+   * self-location pin is replaced by the owner's avatar.
    *
-   * **Check-in deliberately keeps the renderer's pin.** It is a different
-   * question — "how far am I from the place I am checking in to?" — and it
-   * answers it with two pins, a connector between them, and a colour legend in
-   * the header whose swatches are `SELF_TINT` and the place tint. Swapping one
-   * of those two pins for a photo breaks the comparison and leaves the legend's
-   * blue dot standing for nothing on the map. Extending the avatar there means
-   * redesigning that legend too, which is not this change.
+   * Check-in still answers "how far am I from the place I am checking in to?"
+   * with the place pin, connector and place-color key. Its owner key is now the
+   * avatar itself, so the legend and map agree about the owner's marker.
    *
    * Everything else about the self marker is unchanged — it stays in
    * `visibleMarkers`, so initial framing, the people tray and the search index
    * still count it.
    */
-  const selfPinDrawnAsAvatar =
-    rendererReady && cameraReported && !isCheckInSurface;
+  const selfPinDrawnAsAvatar = rendererReady && cameraReported;
 
   /** What the renderer is asked to draw: everything except the owner's own pin. */
   const rendererMarkers = useMemo(
@@ -2967,12 +2968,12 @@ export function LocationImmersiveMap({
         ) : null}
       </header>
       {/*
-        Two pins on one map need naming, or the owner cannot tell which is
+        Two markers on one map need naming, or the owner cannot tell which is
         "me" and which is "the place I'm checking in to" -- and those are
         routinely a street apart.
 
         This one STAYS when the sheet is open, and it is the only thing up
-        there that does. It is the sole explanation of what the blue dot is
+        there that does. It is the sole explanation of what the owner marker is
         and how far "nearby" reaches -- 500 m -- and the sheet below states
         neither. Cutting it with the other two would have tidied the screen by
         removing the only part of it that was answering a question.
@@ -2989,10 +2990,14 @@ export function LocationImmersiveMap({
         >
           {nearbySearchPoint ? (
             <span className="flex items-center gap-2">
-              <span
-                className="h-2.5 w-2.5 shrink-0 rounded-full"
-                style={{ backgroundColor: tintCss(SELF_TINT) }}
-                aria-hidden="true"
+              <MapSelfAvatarLegend
+                avatarUrl={selfAvatarUrl}
+                displayName={selfDisplayName}
+                stale={isStaleAt(
+                  nearbySearchPoint?.capturedAt,
+                  freshnessSeconds,
+                  staleClockMs,
+                )}
               />
               <span className="truncate text-foreground">You are here</span>
             </span>
@@ -3796,10 +3801,10 @@ export function LocationImmersiveMap({
               */}
                 {checkInActionAvailable || demoAvailable ? (
                   <div
-                    className={`mt-2 grid gap-2 ${
+                    className={`mt-3 flex items-center gap-3 ${
                       checkInActionAvailable && demoAvailable
-                        ? "grid-cols-2"
-                        : "grid-cols-1"
+                        ? "justify-between"
+                        : "justify-center"
                     }`}
                   >
                     {demoAvailable ? (
@@ -3820,8 +3825,8 @@ export function LocationImmersiveMap({
                     ) : null}
                     {checkInActionAvailable ? (
                       <Button
-                        className="h-11 min-w-0 rounded-2xl px-2"
-                        variant="secondary"
+                        className="h-auto min-h-11 min-w-0 px-1 py-1 text-sm font-semibold underline underline-offset-4"
+                        variant="link"
                         aria-label={
                           nearbyPresenceState.presence
                             ? `Checked in${
@@ -3829,16 +3834,15 @@ export function LocationImmersiveMap({
                                   ? `, ${nearbyPresenceState.attendees.length} nearby`
                                   : ""
                               }`
-                            : "Check in nearby"
+                            : "Want to check in?"
                         }
                         data-testid="one-location-map-nearby-check-in"
                         onClick={openNearbyCheckIn}
                       >
-                        <UsersRound className="h-4 w-4 shrink-0" />
                         <span className="truncate">
                           {nearbyPresenceState.presence
                             ? "Checked in"
-                            : "Check in"}
+                            : "Want to check in?"}
                         </span>
                       </Button>
                     ) : null}

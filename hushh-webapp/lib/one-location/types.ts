@@ -1,9 +1,5 @@
 export type LocationSourcePlatform =
-  | "web"
-  | "ios"
-  | "android"
-  | "native"
-  | "unknown";
+  "web" | "ios" | "android" | "native" | "unknown";
 
 export type OneLocationShareDurationMode = "timed" | "until_stopped";
 
@@ -226,13 +222,7 @@ export type OneLocationAccessRequest = {
   ownerPhotoUrl?: string | null;
   ownerMaskedPhone?: string | null;
   referredByUserId?: string | null;
-  status:
-    | "pending"
-    | "approved"
-    | "denied"
-    | "cancelled"
-    | "expired"
-    | string;
+  status: "pending" | "approved" | "denied" | "cancelled" | "expired" | string;
   message?: string | null;
   requestedAt?: string | null;
   /**
@@ -425,11 +415,7 @@ export type OneLocationCircleMember = {
 };
 
 export type OneLocationCircleMemberRelationship =
-  | "self"
-  | "none"
-  | "pending_outgoing"
-  | "pending_incoming"
-  | "connected";
+  "self" | "none" | "pending_outgoing" | "pending_incoming" | "connected";
 
 export type OneLocationCircleDetail = OneLocationCircleSummary & {
   members: OneLocationCircleMember[];
@@ -480,12 +466,7 @@ export type OneLocationCircleEligibleConnection = {
 };
 
 export type OneLocationCircleMemberInviteStatus =
-  | "pending"
-  | "accepted"
-  | "declined"
-  | "cancelled"
-  | "expired"
-  | string;
+  "pending" | "accepted" | "declined" | "cancelled" | "expired" | string;
 
 export type OneLocationCircleMemberInvite = {
   id: string;
@@ -494,6 +475,7 @@ export type OneLocationCircleMemberInvite = {
   circleKind: OneLocationCircleKind;
   inviterUserId: string;
   inviterDisplayName: string;
+  inviterPhotoUrl?: string | null;
   inviteeUserId: string;
   inviteeDisplayName?: string | null;
   inviteePhotoUrl?: string | null;
@@ -661,10 +643,7 @@ export type OneLocationNearbyPlaceSuggestion = {
 };
 
 export type OneLocationNearbyRelationship =
-  | "none"
-  | "pending_outgoing"
-  | "pending_incoming"
-  | "connected";
+  "none" | "pending_outgoing" | "pending_incoming" | "connected";
 
 export type OneLocationNearbyAttendee = {
   /** Rotating, presence-scoped alias. A stable user id is never returned. */
@@ -829,9 +808,7 @@ export type OneLocationEncryptedEnvelope = {
    * eligible for Your Map; direct/background shares are never promoted.
    */
   publicationContext?:
-    | "private_background"
-    | "private_foreground"
-    | "foreground_map_visible";
+    "private_background" | "private_foreground" | "foreground_map_visible";
   createdAt?: string | null;
   metadata?: Record<string, unknown>;
 };
@@ -885,7 +862,12 @@ export interface ShareTarget {
   label: string;
 }
 
-export type ClientActionType = "publish_share" | "view_envelope" | "create_public_link" | "sos_panic" | "check_in";
+export type ClientActionType =
+  | "publish_share"
+  | "view_envelope"
+  | "create_public_link"
+  | "sos_panic"
+  | "check_in";
 
 export interface ClientAction {
   id: string;

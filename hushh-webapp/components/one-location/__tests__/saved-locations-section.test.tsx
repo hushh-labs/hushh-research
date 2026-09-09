@@ -205,17 +205,10 @@ describe("SavedLocationsSection", () => {
       screen.queryByText("Encrypted in your vault."),
     ).not.toBeInTheDocument();
     const homeIcon = screen.getByTestId("saved-location-icon-home");
-    expect(homeIcon).toHaveAttribute("data-icon-tone", "neutral-graphite");
-    // Regression guard: this tile previously painted a white icon on a white
-    // background (both pointed at the "foreground" token), rendering
-    // invisible. The tile must use -background and the glyph -foreground,
-    // like every other icon tile in the app.
-    expect(homeIcon.className).toContain(
-      "bg-[color:var(--app-icon-tile-background)]",
-    );
-    expect(homeIcon.className).toContain(
-      "text-[color:var(--app-icon-tile-foreground)]",
-    );
+    // Home uses the authored category accent; keep its white glyph paired
+    // with a colored background rather than a white foreground surface.
+    expect(homeIcon.className).toContain("bg-[color:var(--app-accent)]");
+    expect(homeIcon.className).toContain("text-white");
     expect(screen.queryByText(/12\.9763|77\.5929/)).not.toBeInTheDocument();
     expect(mocks.loadSavedLocations).toHaveBeenCalledWith({
       userId: "user-123",

@@ -328,6 +328,7 @@ export default function PkmAgentLabPageClient() {
   const { user, loading } = useAuth();
   const { isVaultUnlocked, vaultKey, vaultOwnerToken } = useVault();
   const [hasVault, setHasVault] = useState<boolean | null>(null);
+  const [vaultCheckFailed, setVaultCheckFailed] = useState(false);
   const vaultCapability = useMemo(
     () =>
       resolveVaultCapabilityState({
@@ -344,8 +345,17 @@ export default function PkmAgentLabPageClient() {
         isVaultUnlocked,
         vaultKey,
         vaultOwnerToken,
+        authLoading: loading,
+        presenceFailed: vaultCheckFailed,
       }),
-    [hasVault, isVaultUnlocked, vaultKey, vaultOwnerToken]
+    [
+      hasVault,
+      isVaultUnlocked,
+      loading,
+      vaultCheckFailed,
+      vaultKey,
+      vaultOwnerToken,
+    ]
   );
   const environment = resolveAppEnvironment();
   const nonProdLabel = environment === "uat" ? "UAT" : "development";
@@ -403,11 +413,14 @@ export default function PkmAgentLabPageClient() {
         const nextHasVault = await VaultService.checkVault(user.uid);
         if (!cancelled) {
           setHasVault(nextHasVault);
+          setVaultCheckFailed(false);
         }
       } catch (nextError) {
         console.warn("[PkmAgentLab] Failed to check vault existence:", nextError);
         if (!cancelled) {
-          setHasVault(false);
+          // A failed read is not an absent vault. Never offer to create a
+          // second vault because the presence request temporarily failed.
+          setVaultCheckFailed(true);
         }
       }
     }

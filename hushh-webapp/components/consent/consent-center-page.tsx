@@ -31,6 +31,7 @@ import { PaginatedListFooter } from "@/components/app-ui/paginated-list-footer";
 import {
   SettingsDetailPanel,
   SettingsGroup,
+  SettingsPresentationProvider,
   SettingsRow,
 } from "@/components/app-ui/settings-ui";
 import { AccessibilityStatusAnnouncer } from "@/components/system/accessibility-status-announcer";
@@ -668,7 +669,8 @@ function ConsentCounterpartAvatar({ entry }: { entry: ConsentCenterEntry }) {
       : entry.counterpart_type === "developer"
         ? "developer"
         : "person";
-  const Icon = kind === "ria" ? Landmark : kind === "developer" ? Code2 : UserRound;
+  const Icon =
+    kind === "ria" ? Landmark : kind === "developer" ? Code2 : UserRound;
   const label = resolveCounterpartLabel(entry);
   const initials = label
     .split(/\s+/)
@@ -1022,7 +1024,9 @@ function ConsentEntryDetail({
       }
     : locationHref
       ? {
-          title: isCircleMemberInvite ? "Circle invitation" : "Location sharing",
+          title: isCircleMemberInvite
+            ? "Circle invitation"
+            : "Location sharing",
           description: isCircleMemberInvite
             ? "Open Location to review the Circle and choose Join or Decline. This invitation grants no location access."
             : "Review this request or access in Location.",
@@ -2825,284 +2829,283 @@ export function ConsentCenterPage() {
     setPreviousLocalPage,
   );
   return (
-    <AppPageShell as="main" width="reading" className="pb-24 sm:pb-28" fitContent>
-      <AppPageContentRegion>
-        <section
-          data-testid="consent-manager-primary"
-          className="min-h-0"
-        >
-          <section data-testid="consent-manager-list">
-            <SettingsGroup
-              embedded
-              separatorInset
-              shellClassName="flex min-h-0 flex-col"
-              contentClassName="flex min-h-0 flex-col"
-            >
-              <div className="flex items-center gap-2 border-b border-[color:var(--app-card-border-standard)]/45 px-3 py-3">
-                <div className="relative min-w-0 flex-1">
-                  <Search
-                    aria-hidden="true"
-                    className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
-                  />
-                  <Input
-                    value={searchValue}
-                    onChange={(event) => {
-                      setSearchValue(event.target.value);
-                    }}
-                    aria-label={searchPlaceholder}
-                    placeholder={searchPlaceholder}
-                    className="pl-9"
-                    data-voice-control-id="consent_search"
-                  />
-                </div>
-                {visibleSnapshot && activeListError && items.length > 0 ? (
-                  <div className="hidden sm:block">
-                    <StaleCacheTimestamp
-                      updatedAt={visibleSnapshot.timestamp}
-                      stale
+    <AppPageShell as="main" width="reading" fitContent>
+      <SettingsPresentationProvider density="compact">
+        <AppPageContentRegion>
+          <section data-testid="consent-manager-primary" className="min-h-0">
+            <section data-testid="consent-manager-list">
+              <SettingsGroup
+                embedded
+                separatorInset
+                shellClassName="flex min-h-0 flex-col"
+                contentClassName="flex min-h-0 flex-col"
+              >
+                <div className="flex min-h-14 items-center gap-2 border-b border-[color:var(--app-card-border-standard)]/45 px-3 py-2">
+                  <div className="relative min-w-0 flex-1">
+                    <Search
+                      aria-hidden="true"
+                      className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
+                    />
+                    <Input
+                      value={searchValue}
+                      onChange={(event) => {
+                        setSearchValue(event.target.value);
+                      }}
+                      aria-label={searchPlaceholder}
+                      placeholder={searchPlaceholder}
+                      className="pl-9"
+                      data-voice-control-id="consent_search"
                     />
                   </div>
-                ) : null}
-                <Button
-                  type="button"
-                  variant="none"
-                  effect="fade"
-                  size="sm"
-                  onClick={retryConsentCenter}
-                  aria-label="Refresh consent entries"
-                  disabled={isConsentActionRefreshing}
-                >
-                  <RefreshCcw
-                    className={cn(
-                      "h-4 w-4 sm:mr-2",
-                      isConsentActionRefreshing && "animate-spin",
-                    )}
-                  />
-                  <span className="hidden sm:inline">Refresh</span>
-                </Button>
-              </div>
-
-              <AccessibilityStatusAnnouncer
-                message={accessibilityStatusMessage}
-              />
-
-              {showSessionRecovery ? <SessionExpiryRecovery /> : null}
-
-              {showCompactRetryState ? (
-                <ApiRetryState
-                  variant="compact"
-                  title="Showing saved consent information"
-                  description="The latest refresh failed. You can keep reviewing cached data or refresh from the page header."
-                  onRetry={retryConsentCenter}
-                  showRetryAction={false}
-                />
-              ) : null}
-
-              {showFullRetryState && !showSessionRecovery ? (
-                <ApiRetryState
-                  title="Consent service is unavailable"
-                  description={
-                    consentLoadError
-                      ? `The consent service did not return the latest access state. ${consentLoadError}`
-                      : "The consent service did not return the latest access state. Refresh from the page header when the backend is available."
-                  }
-                  onRetry={retryConsentCenter}
-                  showRetryAction={false}
-                />
-              ) : null}
-
-              <div className="min-h-0">
-                <SwipeViews
-                  tabSetId={TOP_SHELL_TAB_REGISTRY.consent.id}
-                  activeValue={visibleTab}
-                  options={TOP_SHELL_TAB_REGISTRY.consent.tabs}
-                  onSelectionChange={(value) =>
-                    setVisibleTab(value as ConsentTab)
-                  }
-                  onSelectionCommit={(value) =>
-                    commitConsentTab(value as ConsentTab)
-                  }
-                  panelInset="none"
-                  viewportMinHeight="0px"
-                  heightMode="active"
-                >
-                  <ConsentSurfaceListSection
-                    loading={pendingResource.loading}
-                    emptyMessage={
-                      tab === "requests"
-                        ? emptyListMessage
-                        : "No requests need your review."
-                    }
-                    items={pendingItems}
-                    selectedEntry={selectedEntry}
-                    selectedId={selectedId}
-                    onSelectEntry={(entry) =>
-                      setParam({ requestId: entry.request_id || entry.id })
-                    }
-                    pagination={pendingPagination}
-                  />
-                  <ConsentSurfaceListSection
-                    loading={activeResource.loading}
-                    emptyMessage={
-                      tab === "active"
-                        ? emptyListMessage
-                        : "No one currently has active access."
-                    }
-                    items={activeSurfaceItems}
-                    selectedEntry={selectedEntry}
-                    selectedId={selectedId}
-                    onSelectEntry={(entry) =>
-                      setParam({ requestId: entry.request_id || entry.id })
-                    }
-                    pagination={activePagination}
-                  />
-                  <ConsentSurfaceListSection
-                    loading={previousResource.loading}
-                    emptyMessage={
-                      tab === "history"
-                        ? emptyListMessage
-                        : "No consent activity has been recorded yet."
-                    }
-                    items={previousItems}
-                    selectedEntry={selectedEntry}
-                    selectedId={selectedId}
-                    onSelectEntry={(entry) =>
-                      setParam({ requestId: entry.request_id || entry.id })
-                    }
-                    pagination={previousPagination}
-                  />
-                  <ConsentSurfaceListSection
-                    loading={centerResource.loading}
-                    emptyMessage={
-                      tab === "connections"
-                        ? emptyListMessage
-                        : "No connections are available yet."
-                    }
-                    items={connectionsSurfaceItems}
-                    selectedEntry={selectedEntry}
-                    selectedId={selectedId}
-                    onSelectEntry={(entry) =>
-                      setParam({ requestId: entry.request_id || entry.id })
-                    }
-                    pagination={null}
-                  />
-                </SwipeViews>
-              </div>
-            </SettingsGroup>
-          </section>
-        </section>
-      </AppPageContentRegion>
-
-      <SettingsDetailPanel
-        open={isPanelOpen}
-        onOpenChange={(open) => {
-          if (!open) {
-            closeDetailPanel();
-          }
-        }}
-        title={
-          selectedEntry
-            ? resolveCounterpartLabel(selectedEntry)
-            : "Consent details"
-        }
-        description={
-          selectedEntry
-            ? selectedEntry.kind === "active_grant"
-              ? "Active access"
-              : selectedEntry.kind === "history"
-                ? `${formatStatus(selectedEntry.status)} access`
-                : selectedEntry.status === "pending"
-                  ? "Request awaiting your decision"
-                  : `${formatStatus(selectedEntry.status)} request`
-            : selectedId
-              ? "Resolving the selected consent request."
-              : "Choose a consent entry from the list to review details and next actions."
-        }
-        mobilePresentation="sheet"
-        showCloseButton={false}
-      >
-        {notificationAction && selectedEntry?.status === "pending" ? (
-          <div
-            role="status"
-            className="mb-4 rounded-[var(--app-card-radius-compact)] border border-accent-border bg-accent-surface px-4 py-3 text-sm leading-5 text-foreground"
-          >
-            {notificationAction === "review"
-              ? "Opened from a notification. Review the request below."
-              : notificationAction === "approve"
-                ? "Allow was selected in the notification. Access changes only when you choose Allow below."
-                : "Don’t allow was selected in the notification. Nothing changes until you decide below."}
-          </div>
-        ) : null}
-        {selectedId && !selectedEntry ? (
-          <SettingsGroup
-            embedded
-            title="Request status"
-            description="We’re loading the consent request from this link."
-          >
-            {selectedRequestResolving ? (
-              <SettingsRow
-                title="Loading request"
-                description="Fetching the latest details."
-              />
-            ) : selectedRequestNeedsUnlock ? (
-              <SettingsRow
-                title="Unlock vault to review"
-                description="Unlock your vault to load this request securely."
-              />
-            ) : selectedPendingLookupResource.error ? (
-              <SettingsRow
-                title="Could not load request"
-                description="Refresh the list and try opening the request again."
-              />
-            ) : selectedRequestMissing ? (
-              <SettingsRow
-                title="Request not found"
-                description="This request may already be approved, denied, expired, or belong to a different consent lane. Use the tabs to check Active Access or History."
-                trailing={
+                  {visibleSnapshot && activeListError && items.length > 0 ? (
+                    <div className="hidden sm:block">
+                      <StaleCacheTimestamp
+                        updatedAt={visibleSnapshot.timestamp}
+                        stale
+                      />
+                    </div>
+                  ) : null}
                   <Button
                     type="button"
                     variant="none"
                     effect="fade"
                     size="sm"
-                    onClick={closeDetailPanel}
+                    onClick={retryConsentCenter}
+                    aria-label="Refresh consent entries"
+                    disabled={isConsentActionRefreshing}
                   >
-                    View list
+                    <RefreshCcw
+                      className={cn(
+                        "h-4 w-4 sm:mr-2",
+                        isConsentActionRefreshing && "animate-spin",
+                      )}
+                    />
+                    <span className="hidden sm:inline">Refresh</span>
                   </Button>
-                }
-                stackTrailingOnMobile
-              />
-            ) : (
-              <SettingsRow
-                title="Request not visible"
-                description="Refresh the list or check History if the request was already handled."
-              />
-            )}
-          </SettingsGroup>
-        ) : (
-          <ConsentEntryDetail
-            actor={actor}
-            entry={selectedEntry}
-            onApprove={(entry, durationHours, scopeSelection) => {
-              // Dismiss the panel immediately; the list already optimistically
-              // removes the row and any failure surfaces via toast.
-              closeDetailPanel();
-              approveEntry(entry, durationHours, scopeSelection);
-            }}
-            onDeny={(entry) => {
-              closeDetailPanel();
-              denyEntry(entry);
-            }}
-            onRevoke={(entry) => {
-              revokeEntry(entry);
-            }}
+                </div>
 
-            onRevokeScope={(scope) => void handleRevoke(scope)}
-            activeAction={activeAction}
-            isRequestBusy={isRequestBusy}
-            isScopeBusy={isScopeBusy}
-          />
-        )}
-      </SettingsDetailPanel>
+                <AccessibilityStatusAnnouncer
+                  message={accessibilityStatusMessage}
+                />
+
+                {showSessionRecovery ? <SessionExpiryRecovery /> : null}
+
+                {showCompactRetryState ? (
+                  <ApiRetryState
+                    variant="compact"
+                    title="Showing saved consent information"
+                    description="The latest refresh failed. You can keep reviewing cached data or refresh from the page header."
+                    onRetry={retryConsentCenter}
+                    showRetryAction={false}
+                  />
+                ) : null}
+
+                {showFullRetryState && !showSessionRecovery ? (
+                  <ApiRetryState
+                    title="Consent service is unavailable"
+                    description={
+                      consentLoadError
+                        ? `The consent service did not return the latest access state. ${consentLoadError}`
+                        : "The consent service did not return the latest access state. Refresh from the page header when the backend is available."
+                    }
+                    onRetry={retryConsentCenter}
+                    showRetryAction={false}
+                  />
+                ) : null}
+
+                <div className="min-h-0">
+                  <SwipeViews
+                    tabSetId={TOP_SHELL_TAB_REGISTRY.consent.id}
+                    activeValue={visibleTab}
+                    options={TOP_SHELL_TAB_REGISTRY.consent.tabs}
+                    onSelectionChange={(value) =>
+                      setVisibleTab(value as ConsentTab)
+                    }
+                    onSelectionCommit={(value) =>
+                      commitConsentTab(value as ConsentTab)
+                    }
+                    panelInset="none"
+                    viewportMinHeight="0px"
+                    heightMode="active"
+                  >
+                    <ConsentSurfaceListSection
+                      loading={pendingResource.loading}
+                      emptyMessage={
+                        tab === "requests"
+                          ? emptyListMessage
+                          : "No requests need your review."
+                      }
+                      items={pendingItems}
+                      selectedEntry={selectedEntry}
+                      selectedId={selectedId}
+                      onSelectEntry={(entry) =>
+                        setParam({ requestId: entry.request_id || entry.id })
+                      }
+                      pagination={pendingPagination}
+                    />
+                    <ConsentSurfaceListSection
+                      loading={activeResource.loading}
+                      emptyMessage={
+                        tab === "active"
+                          ? emptyListMessage
+                          : "No one currently has active access."
+                      }
+                      items={activeSurfaceItems}
+                      selectedEntry={selectedEntry}
+                      selectedId={selectedId}
+                      onSelectEntry={(entry) =>
+                        setParam({ requestId: entry.request_id || entry.id })
+                      }
+                      pagination={activePagination}
+                    />
+                    <ConsentSurfaceListSection
+                      loading={previousResource.loading}
+                      emptyMessage={
+                        tab === "history"
+                          ? emptyListMessage
+                          : "No consent activity has been recorded yet."
+                      }
+                      items={previousItems}
+                      selectedEntry={selectedEntry}
+                      selectedId={selectedId}
+                      onSelectEntry={(entry) =>
+                        setParam({ requestId: entry.request_id || entry.id })
+                      }
+                      pagination={previousPagination}
+                    />
+                    <ConsentSurfaceListSection
+                      loading={centerResource.loading}
+                      emptyMessage={
+                        tab === "connections"
+                          ? emptyListMessage
+                          : "No connections are available yet."
+                      }
+                      items={connectionsSurfaceItems}
+                      selectedEntry={selectedEntry}
+                      selectedId={selectedId}
+                      onSelectEntry={(entry) =>
+                        setParam({ requestId: entry.request_id || entry.id })
+                      }
+                      pagination={null}
+                    />
+                  </SwipeViews>
+                </div>
+              </SettingsGroup>
+            </section>
+          </section>
+        </AppPageContentRegion>
+
+        <SettingsDetailPanel
+          open={isPanelOpen}
+          onOpenChange={(open) => {
+            if (!open) {
+              closeDetailPanel();
+            }
+          }}
+          title={
+            selectedEntry
+              ? resolveCounterpartLabel(selectedEntry)
+              : "Consent details"
+          }
+          description={
+            selectedEntry
+              ? selectedEntry.kind === "active_grant"
+                ? "Active access"
+                : selectedEntry.kind === "history"
+                  ? `${formatStatus(selectedEntry.status)} access`
+                  : selectedEntry.status === "pending"
+                    ? "Request awaiting your decision"
+                    : `${formatStatus(selectedEntry.status)} request`
+              : selectedId
+                ? "Resolving the selected consent request."
+                : "Choose a consent entry from the list to review details and next actions."
+          }
+          mobilePresentation="sheet"
+          showCloseButton={false}
+        >
+          {notificationAction && selectedEntry?.status === "pending" ? (
+            <div
+              role="status"
+              className="mb-4 rounded-[var(--app-card-radius-compact)] border border-accent-border bg-accent-surface px-4 py-3 text-sm leading-5 text-foreground"
+            >
+              {notificationAction === "review"
+                ? "Opened from a notification. Review the request below."
+                : notificationAction === "approve"
+                  ? "Allow was selected in the notification. Access changes only when you choose Allow below."
+                  : "Don’t allow was selected in the notification. Nothing changes until you decide below."}
+            </div>
+          ) : null}
+          {selectedId && !selectedEntry ? (
+            <SettingsGroup
+              embedded
+              title="Request status"
+              description="We’re loading the consent request from this link."
+            >
+              {selectedRequestResolving ? (
+                <SettingsRow
+                  title="Loading request"
+                  description="Fetching the latest details."
+                />
+              ) : selectedRequestNeedsUnlock ? (
+                <SettingsRow
+                  title="Unlock vault to review"
+                  description="Unlock your vault to load this request securely."
+                />
+              ) : selectedPendingLookupResource.error ? (
+                <SettingsRow
+                  title="Could not load request"
+                  description="Refresh the list and try opening the request again."
+                />
+              ) : selectedRequestMissing ? (
+                <SettingsRow
+                  title="Request not found"
+                  description="This request may already be approved, denied, expired, or belong to a different consent lane. Use the tabs to check Active Access or History."
+                  trailing={
+                    <Button
+                      type="button"
+                      variant="none"
+                      effect="fade"
+                      size="sm"
+                      onClick={closeDetailPanel}
+                    >
+                      View list
+                    </Button>
+                  }
+                  stackTrailingOnMobile
+                />
+              ) : (
+                <SettingsRow
+                  title="Request not visible"
+                  description="Refresh the list or check History if the request was already handled."
+                />
+              )}
+            </SettingsGroup>
+          ) : (
+            <ConsentEntryDetail
+              actor={actor}
+              entry={selectedEntry}
+              onApprove={(entry, durationHours, scopeSelection) => {
+                // Dismiss the panel immediately; the list already optimistically
+                // removes the row and any failure surfaces via toast.
+                closeDetailPanel();
+                approveEntry(entry, durationHours, scopeSelection);
+              }}
+              onDeny={(entry) => {
+                closeDetailPanel();
+                denyEntry(entry);
+              }}
+              onRevoke={(entry) => {
+                revokeEntry(entry);
+              }}
+
+              onRevokeScope={(scope) => void handleRevoke(scope)}
+              activeAction={activeAction}
+              isRequestBusy={isRequestBusy}
+              isScopeBusy={isScopeBusy}
+            />
+          )}
+        </SettingsDetailPanel>
+      </SettingsPresentationProvider>
     </AppPageShell>
   );
 }

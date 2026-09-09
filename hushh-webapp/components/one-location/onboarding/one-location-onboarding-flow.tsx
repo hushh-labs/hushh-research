@@ -806,7 +806,7 @@ function SaveMySoulFeatureCard() {
           className="text-[14px] leading-[1.4] text-[#747b86] dark:text-[color:var(--app-secondary-label)]"
           data-one-feature-body
         >
-          Send an SMS with your location in seconds.
+          Alert your contacts with your live location.
         </p>
       </div>
       <div

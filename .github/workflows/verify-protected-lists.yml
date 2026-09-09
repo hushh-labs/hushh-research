@@ -1,0 +1,80 @@
+name: Protected list secrets
+
+# A list stored in a secret can be destroyed by one careless write, because
+# `gcloud secrets versions add` REPLACES the whole value. On 2026-09-03 the UAT
+# phone allowlist went from 59 entries to 1 and it took FIVE DAYS to notice --
+# it surfaced as "phone verification is broken", not as "configuration was
+# deleted".
+#
+# A flat team cannot solve this by taking write access away. So this does not
+# try to prevent the write. It shortens the time-to-notice from days to an hour,
+# names the exact secret, and prints the one command that restores it.
+#
+# Deploy-time checks are not enough on their own: production deploys are rare,
+# so a production wipe could sit undetected for weeks. This runs on a clock.
+
+on:
+  schedule:
+    # Hourly. The cost of a run is four secret reads; the cost of missing a wipe
+    # is an engineer losing a day to a symptom three layers away from the cause.
+    - cron: "17 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: verify-protected-lists
+  cancel-in-progress: true
+
+jobs:
+  uat:
+    name: "UAT lists"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: uat
+    env:
+      GCP_PROJECT_ID: hushh-pda-uat
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+          project_id: ${{ env.GCP_PROJECT_ID }}
+          create_credentials_file: true
+          export_environment_variables: true
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Verify UAT protected lists are intact
+        run: |
+          python3 scripts/ops/verify_secret_list_invariants.py \
+            --project "${{ env.GCP_PROJECT_ID }}"
+
+  production:
+    name: "Production lists"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: production
+    env:
+      GCP_PROJECT_ID: hushh-pda
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+          project_id: ${{ env.GCP_PROJECT_ID }}
+          create_credentials_file: true
+          export_environment_variables: true
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Verify production protected lists are intact
+        run: |
+          python3 scripts/ops/verify_secret_list_invariants.py \
+            --project "${{ env.GCP_PROJECT_ID }}"

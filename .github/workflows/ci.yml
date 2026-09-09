@@ -526,6 +526,60 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             2>&1 | tee "${RUNNER_TEMP}/xcodebuild-ios-tests.log"
 
+      - name: Assert the built app actually ships its App Shortcuts
+        shell: bash
+        run: |
+          set -euo pipefail
+          # A green xcodebuild is not a registered shortcut. appintentsmetadataprocessor
+          # can emit a HALTING error -- "No AppIntents metadata have been exported" --
+          # and the build still succeeds, shipping an app with zero App Shortcuts.
+          # That is exactly how build 99 went out with an empty Home Screen long-press
+          # menu while this job was green. See R27 in .claude/skills/safe-changes.
+          if grep -q "At least one halting error produced during export" \
+              "${RUNNER_TEMP}/xcodebuild-ios-tests.log"; then
+            echo "::error::appintentsmetadataprocessor halted; the app ships with NO App Shortcuts."
+            grep -E "OneVoiceAppIntent\.swift:[0-9]+: (error|warning):" \
+              "${RUNNER_TEMP}/xcodebuild-ios-tests.log" | sort -u || true
+            exit 1
+          fi
+
+          # Search the whole derived-data tree: `xcodebuild test` and `build` place
+          # the product differently, and the configuration directory name varies.
+          ACTIONS_DATA="$(find "${RUNNER_TEMP}/derived-data" \
+            -path '*/App.app/Metadata.appintents/extract.actionsdata' -print -quit 2>/dev/null || true)"
+          if [ -z "${ACTIONS_DATA}" ]; then
+            echo "::error::No Metadata.appintents in the built App.app -- the app has no App Shortcuts."
+            exit 1
+          fi
+          echo "Reading ${ACTIONS_DATA}"
+
+          python3 - "${ACTIONS_DATA}" <<'PY'
+          import json, sys
+
+          EXPECTED = 10  # Apple's cap, and every slot is deliberately spoken for.
+          data = json.load(open(sys.argv[1]))
+          shortcuts = data.get("autoShortcuts") or []
+
+          failures = []
+          if len(shortcuts) != EXPECTED:
+              failures.append(f"expected {EXPECTED} App Shortcuts, found {len(shortcuts)}")
+
+          for shortcut in shortcuts:
+              title = (shortcut.get("shortTitle") or {}).get("key", "<untitled>")
+              phrases = shortcut.get("phraseTemplates") or []
+              if not phrases:
+                  failures.append(f'"{title}" shipped with 0 phrases')
+              print(f"  {title:26s} {len(phrases):2d} phrases   {shortcut.get('actionIdentifier')}")
+
+          if failures:
+              for failure in failures:
+                  print(f"::error::{failure}")
+              raise SystemExit(1)
+
+          total = sum(len(s.get("phraseTemplates") or []) for s in shortcuts)
+          print(f"\nOK: {len(shortcuts)} App Shortcuts, {total} phrases, compiled into the binary.")
+          PY
+
       - name: Upload native iOS test diagnostics
         if: always()
         uses: actions/upload-artifact@v6

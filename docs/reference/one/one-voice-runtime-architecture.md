@@ -151,10 +151,35 @@ non-mutating Location destinations (including map, requests, settings,
 Check-In, SOS review, and emergency SMS contacts). Its `OpenIntent` tells Siri
 that “Location Agent” is content inside Agent One rather than a separate app.
 
-Apple limits an app to ten zero-setup App Shortcuts. The provider deliberately
-publishes nine focused shortcuts: share, request, stop/pause, location on/off,
-create Circle, rename Circle, Check-In, open a structured Location destination,
-and Talk to Agent One.
+Apple limits an app to ten zero-setup App Shortcuts, and all ten are now
+spoken for: the free-text handshake, Talk to Agent One, share, ask for
+location, location on/off, Check-In, create Circle, open a structured Location
+destination, and the two halves of Save My Soul. Stop Sharing and Rename Circle
+are the two that do not fit; both intents remain defined and usable in the
+Shortcuts app, and stopping is also reachable through location on/off.
+
+Every phrase list is written inline inside `AppShortcut(phrases: [...])`, and the
+app name is the literal `\(.applicationName)` token. Neither may be hoisted into
+a named constant. `appintentsmetadataprocessor` extracts App Shortcuts at
+compile time by reading those expressions literally and cannot follow a
+reference to a `static let`; a hoisted phrase array reads as a shortcut with no
+phrases, which is a halting error that exports **no** AppIntents metadata for
+the whole target. The app then ships with every App Shortcut missing, including
+ones whose code did not change. Build 99 hoisted both the arrays and the token,
+and the Home Screen long-press menu came back empty.
+
+A parameter interpolated into a phrase must additionally be an `AppEnum` or an
+`AppEntity`; a plain `String` has no value set for Siri to match against. Free
+text reaches the handshake through the parameter's own `requestValueDialog`
+prompt instead of a phrase slot.
+
+`verify-siri-action-contract.mjs` enforces both, and runs those two structural
+checks before the phrase-fragment assertions so an earlier throw cannot mask
+them. Neither is caught by a green CI job: the Xcode that built build 99 wrote
+`Metadata.appintents` without complaint, so the file existing is not evidence
+the shortcuts are in it. Only inspecting `extract.actionsdata` from a real build
+proves that.
+
 Mutation intents keep Apple's parameter follow-ups and native confirmation,
 then hand the exact generated action to the existing browser executor. The
 other App Intents remain discoverable in the Shortcuts app. Android and web

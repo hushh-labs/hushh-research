@@ -55,7 +55,7 @@ const STORY = `
         <article data-one-use-case-card data-one-feature-card="sms">
           <div data-one-feature-copy>
             <h2 data-one-feature-title>Need help but can’t talk?</h2>
-            <p data-one-feature-body>Send an SMS with your location in seconds.</p>
+            <p data-one-feature-body>Alert your contacts with your live location.</p>
           </div>
           <div data-one-feature-art-region>
             <span data-one-sms-radar><span data-one-sms-radar-ring></span><span data-one-sms-radar-ring></span><span data-one-sms-core>SMS</span></span>

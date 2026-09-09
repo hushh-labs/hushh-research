@@ -80,7 +80,11 @@ export function TopShellTabs({
   const tabSwipeState = useTopShellTabSwipeState(tabSet.id);
   const indicatorTransform = `translate3d(calc(var(${topShellTabSwipePositionVariable(tabSet.id)}, ${activeIndex}) * 100%), 0, 0)`;
   const usesModuleSegmentedTabs =
-    tabSet.id === "location" || tabSet.id === "connect" || tabSet.id === "ria";
+    tabSet.id === "location" ||
+    tabSet.id === "connect" ||
+    tabSet.id === "consent" ||
+    tabSet.id === "ria";
+  const usesCompactLabels = usesModuleSegmentedTabs && tabSet.tabs.length > 3;
   const shouldResetScrollOnSelection = tabSet.id === "finance";
 
   const textRefs = useRef<Array<HTMLSpanElement | null>>([]);
@@ -194,7 +198,7 @@ export function TopShellTabs({
               //
               // The cap is now the page column's own content width, so the two
               // cannot drift apart again. Both tokens already exist. Scoped to
-              // Location, Connect, and RIA by the module branch above — the
+              // Location, Connect, Consent, and RIA by the module branch above — the
               // other tab sets take the underline arm and do not move.
               //
               // RIA joined 2026-09 (#6289's follow-up): this wrapper carries
@@ -233,6 +237,7 @@ export function TopShellTabs({
               tabIndex={isActive ? 0 : -1}
               className={cn(
                 "relative z-10 flex h-full flex-1 items-center justify-center px-3 outline-none transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)] focus-visible:ring-inset",
+                usesCompactLabels && "min-w-0 px-0.5 sm:px-3",
               )}
               onClick={() => selectIndex(index, false)}
               onKeyDown={(event) => {
@@ -259,6 +264,8 @@ export function TopShellTabs({
                 data-ui-role="agent-tab-label"
                 className={cn(
                   "ui-text-agent-tab-label relative truncate transition-colors duration-150",
+                  usesCompactLabels &&
+                    "[--type-agent-tab-label-size:11px] min-[360px]:[--type-agent-tab-label-size:12px] min-[400px]:[--type-agent-tab-label-size:14px] sm:[--type-agent-tab-label-size:15px]",
                   usesModuleSegmentedTabs
                     ? isActive
                       ? "font-semibold text-[color:var(--app-accent)]"

@@ -71,7 +71,6 @@ COMMON_ARGS=(
   --time-zone="${TIMEZONE}"
   --uri="${URI}"
   --http-method=POST
-  --headers="Content-Type=application/json"
   --oidc-service-account-email="${SCHEDULER_SERVICE_ACCOUNT_EMAIL}"
   --oidc-token-audience="${OIDC_AUDIENCE}"
   --attempt-deadline=300s
@@ -84,9 +83,13 @@ COMMON_ARGS=(
 if gcloud scheduler jobs describe "${JOB_NAME}" \
   --project="${PROJECT_ID}" \
   --location="${SCHEDULER_LOCATION}" >/dev/null 2>&1; then
-  gcloud scheduler jobs update http "${JOB_NAME}" "${COMMON_ARGS[@]}" >/dev/null
+  # The update command preserves existing headers and uses a different flag
+  # from create. Keep command-specific flags out of the shared arguments.
+  gcloud scheduler jobs update http "${JOB_NAME}" "${COMMON_ARGS[@]}" \
+    --update-headers="Content-Type=application/json" >/dev/null
 else
-  gcloud scheduler jobs create http "${JOB_NAME}" "${COMMON_ARGS[@]}" >/dev/null
+  gcloud scheduler jobs create http "${JOB_NAME}" "${COMMON_ARGS[@]}" \
+    --headers="Content-Type=application/json" >/dev/null
 fi
 
 JOB_EVIDENCE="$(gcloud scheduler jobs describe "${JOB_NAME}" \

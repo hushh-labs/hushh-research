@@ -39,7 +39,11 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
-import { SettingsGroup, SettingsRow } from "@/components/profile/settings-ui";
+import {
+  SettingsGroup,
+  SettingsPresentationProvider,
+  SettingsRow,
+} from "@/components/profile/settings-ui";
 import {
   AppPageContentRegion,
   AppPageHeaderRegion,
@@ -63,6 +67,7 @@ import { VoicePreferencesPanel } from "@/components/profile/voice-preferences-pa
 import { VoiceChangelogPage } from "@/components/profile/voice-changelog-page";
 import { VoiceExamplesPage } from "@/components/profile/voice-examples-page";
 import { ConnectedSystemsPanel } from "@/components/profile/connected-systems-panel";
+import { isLocalCrmBuildEnabled } from "@/lib/connected-systems/crm-product-availability";
 import { ThemeToggleLean } from "@/components/theme-toggle";
 import {
   AlertDialog,
@@ -95,6 +100,9 @@ import {
 import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
 import { PhoneVerificationFlow } from "@/components/auth/phone-verification-flow";
 import { useAuth } from "@/hooks/use-auth";
+import { useLocalOnboardingActionHandler } from "@/lib/agent/local-onboarding-actions";
+import { VOICE_CONFIRM_DATA_KEY } from "@/lib/voice/voice-action-card";
+import { getKaiActionById } from "@/lib/voice/kai-action-gateway";
 import { useStepProgress } from "@/lib/progress/step-progress-context";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { currentPkmInvalidationEpoch } from "@/lib/cache/pkm-invalidation-epoch";
@@ -624,6 +632,7 @@ function ProfilePageContent() {
     mode: "push" | "replace";
   } | null>(null);
   const [hasVault, setHasVault] = useState<boolean | null>(null);
+  const [vaultCheckFailed, setVaultCheckFailed] = useState(false);
   const [showVaultCreation, setShowVaultCreation] = useState(false);
   const [pkmMetadata, setPkmMetadata] =
     useState<PersonalKnowledgeModelMetadata | null>(null);
@@ -738,8 +747,12 @@ function ProfilePageContent() {
     () => resolveProfileRouteState(pathname, searchParams),
     [pathname, searchParams],
   );
-  const activePanel = profileRouteState.panel;
-  const activeDetail = profileRouteState.detail;
+  const localCrmEnabled = isLocalCrmBuildEnabled();
+  const activePanel =
+    profileRouteState.panel === "connected-systems" && !localCrmEnabled
+      ? null
+      : profileRouteState.panel;
+  const activeDetail = activePanel ? profileRouteState.detail : null;
   const supportComposeKind =
     activePanel === "support" && activeDetail?.startsWith("support-compose:")
       ? normalizeSupportKind(activeDetail.slice("support-compose:".length))
@@ -853,8 +866,17 @@ function ProfilePageContent() {
         isVaultUnlocked,
         vaultKey,
         vaultOwnerToken,
+        authLoading,
+        presenceFailed: vaultCheckFailed,
       }),
-    [hasVault, isVaultUnlocked, vaultKey, vaultOwnerToken],
+    [
+      authLoading,
+      hasVault,
+      isVaultUnlocked,
+      vaultCheckFailed,
+      vaultKey,
+      vaultOwnerToken,
+    ],
   );
   const routeBlockedByVault =
     hasVault === true &&
@@ -1061,10 +1083,15 @@ function ProfilePageContent() {
       if (!user?.uid) return;
       try {
         const next = await VaultService.checkVault(user.uid);
-        if (!cancelled) setHasVault(next);
+        if (!cancelled) {
+          setHasVault(next);
+          setVaultCheckFailed(false);
+        }
       } catch (error) {
         console.warn("[ProfilePage] Failed to check vault existence:", error);
-        if (!cancelled) setHasVault(false);
+        // A failed read is not an absent vault. Treating it as false opens the
+        // creation flow for users who already have a vault.
+        if (!cancelled) setVaultCheckFailed(true);
       }
     }
 
@@ -1750,10 +1777,14 @@ function ProfilePageContent() {
     updateProfileView({ panel, detail: null }, "push");
   }
 
-  async function submitSupportMessage() {
+  async function submitSupportMessage(messageOverride?: string) {
     if (!user || sendingSupportMessage) return;
 
-    const trimmedMessage = supportMessage.trim();
+    // Voice dictates the message rather than typing it into the composer, and
+    // React state set in the same tick would not be readable here. Every
+    // validation below still runs on it -- a dictated message that is too
+    // short is refused exactly like a typed one.
+    const trimmedMessage = (messageOverride ?? supportMessage).trim();
     const trimmedReplyEmail = supportReplyEmail.trim();
     const presentation = SUPPORT_INTENT_PRESENTATION[supportKind];
 
@@ -2462,6 +2493,26 @@ function ProfilePageContent() {
         preference_voice_actions_available:
           activePanel === "preferences" ? false : null,
       },
+      // Deliberately offered to the agent; screenMetadata above stays
+      // browser-local. Curated rather than copied: screenMetadata carries
+      // google_email, and this map is rendered into the model's prompt, so the
+      // person's address would have travelled into every turn on this screen.
+      // Counts, states and flags only.
+      screenState: {
+        profile_panel: activePanel,
+        profile_detail: activeDetail ?? null,
+        total_attributes: profileSummary.totalAttributes,
+        domain_count: profileSummary.totalDomains,
+        pending_consents: pendingConsents ?? 0,
+        gmail_connected: gmailPresentation.isConnected,
+        gmail_state: gmailPresentation.state,
+        marketplace_opt_in: marketplaceOptIn,
+        security_summary: securitySummaryText,
+        phone_verified: Boolean(phoneNumber),
+        email_verified: emailVerified,
+        pkm_agent_lab_available: canShowPkmAgentLab,
+        vault_needs_creation: vaultAccess.needsVaultCreation === true,
+      },
     };
   }, [
     activeDetail,
@@ -2491,6 +2542,115 @@ function ProfilePageContent() {
     vaultAccess.needsVaultCreation,
   ]);
   usePublishVoiceSurfaceMetadata(profileVoiceSurfaceMetadata);
+
+  // Profile's three remaining unwired actions. Registered here rather than in
+  // the global registrar because each genuinely needs this page's state --
+  // the delete flow's vault resolution, the support composer's kind and reply
+  // email, the current marketplace value. profile.sign_out is the exception
+  // and lives in components/agent/global-voice-action-handlers.tsx.
+  useLocalOnboardingActionHandler(
+    "profile.delete_account",
+    async (slots) => {
+      if (slots?.confirmed !== true) {
+        // Deleting an account is the one thing in this app that cannot be
+        // undone, so it never runs on a first utterance -- the person has to
+        // hear what it does and say yes. handleDeleteAccount then resolves
+        // auth and routes to vault unlock on its own, which is a second,
+        // independent gate.
+        return {
+          status: "blocked" as const,
+          summary: "Deleting your account needs a confirmation.",
+          data: {
+            [VOICE_CONFIRM_DATA_KEY]: {
+              actionId: "profile.delete_account",
+              slots: { confirmed: true },
+              prompt:
+                "Delete your account permanently? This cannot be undone.",
+              subject: { name: "Your account", detail: user?.email ?? "" },
+              consequence:
+                getKaiActionById("profile.delete_account")?.meaning ?? null,
+              confirmLabel: "Delete account",
+            },
+          },
+        };
+      }
+      void handleDeleteAccount();
+      return {
+        status: "started" as const,
+        summary: "Starting account deletion. You may need to unlock your vault.",
+      };
+    },
+    { enabled: Boolean(user) },
+  );
+
+  useLocalOnboardingActionHandler(
+    "profile.marketplace_visibility.toggle",
+    async (slots) => {
+      // handleMarketplaceOptInToggle flips the current value; it is not a
+      // setter. Wired directly, "make me discoverable" would HIDE someone who
+      // already was. So a stated intent is honoured as a target state, and
+      // only a bare "toggle" actually flips.
+      const raw = slots?.enabled;
+      const desired =
+        typeof raw === "boolean"
+          ? raw
+          : typeof raw === "string"
+            ? ["true", "on", "yes", "enabled"].includes(raw.trim().toLowerCase())
+            : null;
+      if (desired !== null && desired === marketplaceOptIn) {
+        return {
+          status: "succeeded" as const,
+          summary: desired
+            ? "Your marketplace profile is already discoverable."
+            : "Your marketplace profile is already hidden.",
+        };
+      }
+      if (slots?.confirmed !== true) {
+        const next = desired ?? !marketplaceOptIn;
+        return {
+          status: "blocked" as const,
+          summary: "Changing who can find you needs a confirmation.",
+          data: {
+            [VOICE_CONFIRM_DATA_KEY]: {
+              actionId: "profile.marketplace_visibility.toggle",
+              slots: { enabled: next, confirmed: true },
+              prompt: next
+                ? "Make your investor profile discoverable in the marketplace?"
+                : "Hide your investor profile from the marketplace?",
+              subject: { name: "Marketplace visibility", detail: "" },
+              consequence:
+                getKaiActionById("profile.marketplace_visibility.toggle")
+                  ?.meaning ?? null,
+              confirmLabel: next ? "Make discoverable" : "Hide profile",
+            },
+          },
+        };
+      }
+      void handleMarketplaceOptInToggle();
+      return { status: "started" as const, summary: "Updating your visibility." };
+    },
+    { enabled: Boolean(user) },
+  );
+
+  useLocalOnboardingActionHandler(
+    "profile.support.submit_message",
+    async (slots) => {
+      const message = String(slots?.message ?? "").trim();
+      if (message.length < 10) {
+        // The same floor the typed composer enforces. Saying so is the point:
+        // a support message that silently failed validation would be reported
+        // as sent and never arrive.
+        return {
+          status: "blocked" as const,
+          summary:
+            "Tell me a bit more about the problem and I will send it to support.",
+        };
+      }
+      await submitSupportMessage(message);
+      return { status: "succeeded" as const, summary: "Sent that to support." };
+    },
+    { enabled: Boolean(user) },
+  );
 
   useEffect(() => {
     if (!shouldRequestVaultUnlock || authLoading || hasVault === null) {
@@ -4254,17 +4414,17 @@ function ProfilePageContent() {
     <div className="profile-home-screen">
       <AppPageHeaderRegion>
         <header
-          className="profile-home-hero flex w-full min-w-0 flex-col items-center gap-2 px-0 text-center sm:px-6"
+          className="profile-home-hero flex w-full min-w-0 items-center gap-3 px-0 text-left"
           data-slot="page-header"
           data-page-primary="true"
         >
           <ProfileAvatarEditor />
-          <div className="profile-home-copy flex w-full min-w-0 max-w-full flex-col items-center justify-center gap-1">
+          <div className="profile-home-copy flex min-w-0 flex-1 flex-col items-start justify-center gap-1">
             <h1 className="profile-home-name ui-text-identity-name [overflow-wrap:anywhere]">
               {user.displayName || "User"}
             </h1>
             <div
-              className="profile-home-meta flex w-full min-w-0 items-center justify-center gap-2 text-xs font-normal text-muted-foreground"
+              className="profile-home-meta flex w-full min-w-0 items-center justify-start gap-1.5 text-xs font-normal text-muted-foreground"
               title={provider.name}
             >
               <ProviderIcon providerId={provider.id} />
@@ -4318,7 +4478,7 @@ function ProfilePageContent() {
               />
               <SettingsRow
                 icon={Users}
-                iconTone="blue"
+                iconTone="gray"
                 title={PROFILE_LABELS.referrals}
                 chevron
                 density="compact"
@@ -4346,7 +4506,7 @@ function ProfilePageContent() {
               {canShowPkmAgentLab ? (
                 <SettingsRow
                   icon={CodeXml}
-                  iconTone="purple"
+                  iconTone="gray"
                   title={PROFILE_LABELS.developerTools}
                   trailing={<Badge variant="secondary">Local</Badge>}
                   chevron
@@ -4390,10 +4550,12 @@ function ProfilePageContent() {
         dataState: authLoading ? "loading" : "loaded",
       }}
     >
-      <ProfileStackNavigator
-        rootContent={profileRootContent}
-        entries={profileStackEntries}
-      />
+      <SettingsPresentationProvider density="compact">
+        <ProfileStackNavigator
+          rootContent={profileRootContent}
+          entries={profileStackEntries}
+        />
+      </SettingsPresentationProvider>
 
       {hasVault === true && (
         <VaultUnlockDialog

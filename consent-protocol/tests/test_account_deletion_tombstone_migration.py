@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import importlib.util
 import json
 import os
 import re
@@ -12,11 +13,18 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 REPO_ROOT = ROOT.parent
 
+_AUDIT_SPEC = importlib.util.spec_from_file_location(
+    "data_model_audit", REPO_ROOT / "scripts/ops/data_model_audit.py"
+)
+assert _AUDIT_SPEC is not None and _AUDIT_SPEC.loader is not None
+_DATA_MODEL_AUDIT = importlib.util.module_from_spec(_AUDIT_SPEC)
+_AUDIT_SPEC.loader.exec_module(_DATA_MODEL_AUDIT)
+
 IDENTITY_COLUMN_RE = re.compile(
     r"^(?:user_id|firebase_uid|user_[a-z0-9]+_id)$|(?:_user_id|_firebase_uid)$"
 )
 IDENTITY_DDL_RE = re.compile(
-    r'(?:^|[(,])\s*"?'
+    r'(?:^|[(,]|\bADD\s+(?:COLUMN\s+)?(?:IF\s+NOT\s+EXISTS\s+)?)\s*"?'
     r"(?:user_id|firebase_uid|user_[a-z0-9]+_id|[a-z0-9_]+_user_id|"
     r"[a-z0-9_]+_firebase_uid)"
     r'"?\s+(?:TEXT|UUID|VARCHAR|CHARACTER\s+VARYING)\b',
@@ -288,6 +296,68 @@ def test_identity_set_null_fk_inventory_is_explicitly_reviewed():
     assert "deletion-safe transfer protocol" in governance
 
 
+def _introduces_identity_shape(migration: str) -> bool:
+    # Function parameters and return columns are not persisted account columns.
+    # Use the migration inventory's tokenizer for comments and quoted bodies,
+    # then remove the remaining function declaration. Keep following table DDL
+    # visible, including columns added after a function replacement. This checks
+    # top-level DDL: persisted identity additions must not be hidden in DO bodies.
+    ddl_only = _DATA_MODEL_AUDIT._strip_sql_comments_and_literals(
+        migration, preserve_dynamic_sql=False
+    )
+    ddl_only = re.sub(
+        r"(?:^|(?<=;))\s*CREATE\s+(?:OR\s+REPLACE\s+)?FUNCTION\b[^;]*;",
+        "",
+        ddl_only,
+        flags=re.IGNORECASE | re.MULTILINE,
+    )
+    return bool(IDENTITY_DDL_RE.search(ddl_only) or IDENTITY_RENAME_RE.search(ddl_only))
+
+
+@pytest.mark.parametrize(
+    ("table_ddl", "expected"),
+    [
+        ("", False),
+        ("CREATE INDEX idx_actor ON events(owner_user_id);", False),
+        ("CREATE TABLE example (id BIGINT, owner_user_id TEXT);", True),
+        ('CREATE TABLE example ("firebase_uid" VARCHAR(128));', True),
+        ("ALTER TABLE example ADD COLUMN recipient_user_id TEXT;", True),
+        ("ALTER TABLE example ADD recipient_user_id UUID;", True),
+        ("ALTER TABLE example ADD COLUMN IF NOT EXISTS recipient_user_id TEXT;", True),
+        ("-- CREATE FUNCTION follows this table\nCREATE TABLE example (user_id TEXT);", True),
+        (
+            "-- Context; CREATE FUNCTION will come later\n"
+            "CREATE TABLE example (owner_user_id TEXT);",
+            True,
+        ),
+        (
+            "/*\nCREATE FUNCTION is handled elsewhere\n*/\n"
+            "CREATE TABLE example (owner_user_id TEXT);",
+            True,
+        ),
+        (
+            "/* outer /* nested */ CREATE FUNCTION */\nCREATE TABLE example (owner_user_id TEXT);",
+            True,
+        ),
+        ("CREATE TABLE example (label TEXT DEFAULT '--', owner_user_id TEXT);", True),
+        ('CREATE TABLE example ("label--" TEXT, owner_user_id TEXT);', True),
+        ('CREATE TABLE example ("label""/*" TEXT, owner_user_id TEXT);', True),
+        (r"CREATE TABLE example (path TEXT DEFAULT '\', owner_user_id TEXT);", True),
+        (r"CREATE TABLE example (path TEXT DEFAULT E'\\', owner_user_id TEXT);", True),
+        ("ALTER TABLE example RENAME COLUMN owner TO owner_user_id;", True),
+    ],
+)
+def test_identity_shape_scanner_distinguishes_function_arguments_from_table_ddl(
+    table_ddl, expected
+):
+    function = """CREATE OR REPLACE FUNCTION resolve_identity(p_user_id TEXT)
+      RETURNS TABLE(counterpart_user_id TEXT) LANGUAGE plpgsql AS $$
+      DECLARE owner_user_id TEXT; BEGIN RETURN; END; $$;
+    """
+    assert _introduces_identity_shape(function + table_ddl) is expected
+    assert _introduces_identity_shape(table_ddl + function) is expected
+
+
 def test_future_identity_ddl_reinvokes_catalog_guard_installer():
     migration_directory = ROOT / "db/migrations"
     for migration_path in migration_directory.glob("[0-9][0-9][0-9]_*.sql"):
@@ -296,14 +366,7 @@ def test_future_identity_ddl_reinvokes_catalog_guard_installer():
             continue
 
         migration = migration_path.read_text()
-        # Ignore PL/pgSQL bodies so a local variable named user_id is not
-        # mistaken for persisted table DDL. Migration DDL in this repository is
-        # outside untagged dollar-quoted bodies.
-        ddl_only = re.sub(r"\$\$.*?\$\$", "", migration, flags=re.DOTALL)
-        introduces_identity_shape = bool(
-            IDENTITY_DDL_RE.search(ddl_only) or IDENTITY_RENAME_RE.search(ddl_only)
-        )
-        if introduces_identity_shape:
+        if _introduces_identity_shape(migration):
             assert "install_account_deletion_write_guards()" in migration, (
                 f"{migration_path.name} adds an account identity column but does not "
                 "refresh migration 201 deletion guards"

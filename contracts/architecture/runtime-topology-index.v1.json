@@ -829,12 +829,13 @@
     {
       "data_class": "workflow_state",
       "exact_tables": [
-        "feed_events"
+        "feed_events",
+        "feed_event_counterparts"
       ],
       "id": "feed_events",
       "lifecycle_status": "current",
       "owner": "backend-runtime-governance",
-      "primary_access_path": "One Feed route: cross-domain activity list, unread badge, and read-state tracking"
+      "primary_access_path": "One Feed route: cross-domain activity list, unread badge, and read-state tracking. Counterpart identity uses audit primary keys, indexed grant IDs, or indexed owner/recipient event candidates with exact source and audience checks; current photos join the identity cache."
     },
     {
       "data_class": "audit_regulated",
@@ -3606,8 +3607,13 @@
       "voice": {
         "action_ids": [
           "help.open_examples",
+          "profile.delete_account",
+          "profile.marketplace_visibility.toggle",
+          "profile.sign_out",
+          "profile.support.submit_message",
           "route.back",
           "route.profile",
+          "route.profile_access_panel",
           "route.profile_connected_systems",
           "route.profile_pkm_agent_lab",
           "route.profile_referrals_panel",
@@ -3685,8 +3691,13 @@
       "voice": {
         "action_ids": [
           "help.open_examples",
+          "profile.delete_account",
+          "profile.marketplace_visibility.toggle",
+          "profile.sign_out",
+          "profile.support.submit_message",
           "route.back",
           "route.profile",
+          "route.profile_access_panel",
           "route.profile_connected_systems",
           "route.profile_pkm_agent_lab",
           "route.profile_referrals_panel",
@@ -3718,8 +3729,13 @@
       "voice": {
         "action_ids": [
           "help.open_examples",
+          "profile.delete_account",
+          "profile.marketplace_visibility.toggle",
+          "profile.sign_out",
+          "profile.support.submit_message",
           "route.back",
           "route.profile",
+          "route.profile_access_panel",
           "route.profile_connected_systems",
           "route.profile_pkm_agent_lab",
           "route.profile_referrals_panel",
@@ -5512,21 +5528,21 @@
   "schema_version": "hushh.runtime_topology_index.v1",
   "source_sha256": {
     "a2a_scope_map": "2bcecbbab3b901bfb1cdf76f64ff3a8478975febd5fb4be9ec95a753d3e99bf8",
-    "action_gateway": "7b411158545f57fe5160dca108311d50e9cb1b6fdadc8831d03fd1e07a27265d",
+    "action_gateway": "d166c8ccd2af62580cfc442bcdff0ae3012fbb7b34d7f7bed9b9c48591e686b1",
     "agent_registry": "bbb216914b5071e301b0a923fcd61695c9260691f56097a482510b1229ff6112",
     "cache_manifest": "c7a177decdb319d8a8b673ae16f6acdad5aedee5fc98329d2d58470e1726b4e8",
-    "data_plane": "cacaf54dcb2b0364e2bd24f5ad35fd7d338747abf139d46af62272f30353d587",
+    "data_plane": "e24f14cb2162791a1f025a620c8547cb565b5f2be2c73d6b4ea562ab09668920",
     "in_process_dispatch": "be849e9fc6ab347ebbbfd84bfaa7fb528f29c71bc76b11c38f1c40642c51883a",
-    "one_specialist_tools": "86efcd9ea24fa81138662169930b584b738c39e19d7f24e926d6cd45b506b31b",
-    "route_index": "e6408b8d2cc074a7ea1c5ae916ffee357ce41d8007d4631002bb46c87e460399",
+    "one_specialist_tools": "77658f3377b0850fc98f788eb03e70c226ac06f9dddb4b59870c0699556814d1",
+    "route_index": "9eed7fb3fb1cb3a5cc6197d846d9c08b45ab07d9bc0734fe24984e8341b00736",
     "route_layout": "b66933c7083fd755f1a8e4a16262996fc7ae6124a4c550725bfdc7144332355f",
-    "surface_map": "f5fffd96f19e2c2e949c47840a815f87c0fa0936eff7a50cc9c7a180590ba7b3",
+    "surface_map": "537f5dad312a0f23d0e0cea0054ea1adbe26537c78b53d69d08ef832d79678df",
     "topology_contract": "3515551e0cd42c3d17c767dd922111b1bf29f7ac1521d47e2d16ced39c6c1b6a",
     "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"
   },
   "summary": {
     "a2a_scope_gated_agents": 5,
-    "actions": 211,
+    "actions": 212,
     "agents": 20,
     "aliases": 3,
     "decision_required": 2,

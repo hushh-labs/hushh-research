@@ -1,0 +1,44 @@
+{
+  "_comment": [
+    "List-valued secrets that a single careless write can destroy.",
+    "`gcloud secrets versions add` REPLACES the whole value -- there is no append -- so",
+    "any script or person that writes without reading first deletes every other entry.",
+    "That is what happened to HUSHH_UAT_PHONE_TEST_NUMBERS on 2026-09-03: 59 entries",
+    "became 1, and nobody noticed for five days.",
+    "",
+    "min_entries : below this, the list has certainly been wiped.",
+    "max_shrink  : entries that may disappear between adjacent versions before it is",
+    "              flagged. Removing a departed tester is normal; losing 58 is not.",
+    "Edit these only with scripts/ops/secret_list_edit.py, which cannot shrink a list."
+  ],
+  "secrets": [
+    {
+      "name": "HUSHH_UAT_PHONE_TEST_NUMBERS",
+      "project": "hushh-pda-uat",
+      "min_entries": 25,
+      "max_shrink": 5,
+      "purpose": "UAT fixed-OTP phone allowlist. Wiped 59 -> 1 on 2026-09-03; restored as version 10."
+    },
+    {
+      "name": "HUSHH_PROD_PHONE_TEST_NUMBERS",
+      "project": "hushh-pda",
+      "min_entries": 20,
+      "max_shrink": 5,
+      "purpose": "Production fixed-OTP phone allowlist. Same shape, same exposure, in production."
+    },
+    {
+      "name": "RIA_CLAIM_TEST_NUMBERS",
+      "project": "hushh-pda-uat",
+      "min_entries": 5,
+      "max_shrink": 5,
+      "purpose": "UAT RIA claim test numbers."
+    },
+    {
+      "name": "RIA_CLAIM_TEST_EMAILS",
+      "project": "hushh-pda-uat",
+      "min_entries": 1,
+      "max_shrink": 2,
+      "purpose": "UAT RIA claim test emails."
+    }
+  ]
+}

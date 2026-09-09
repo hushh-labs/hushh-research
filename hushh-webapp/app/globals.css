@@ -300,17 +300,28 @@ textarea {
   --type-section-label-line: 20px;
   --type-section-label-weight: 500;
   --type-section-label-tracking: normal;
+  /* Grouped-list labels are a quieter rung than page/section titles.  The
+     compact variant is shared by Feed, Connect, Consent and embedded settings
+     surfaces so mobile lists do not inherit a display-sized heading. */
+  --type-section-label-compact-size: 14px;
+  --type-section-label-compact-line: 18px;
+  --type-section-label-compact-weight: 600;
   --type-row-label-size: 17px;
   --type-row-label-line: 22px;
   --type-row-label-weight: 400;
   --type-row-label-emphasis-weight: 600;
   --type-row-label-tracking: normal;
+  --type-row-label-compact-size: 16px;
+  --type-row-label-compact-line: 21px;
+  --type-row-label-compact-weight: 500;
   --type-page-subtitle-size: 15px;
   --type-page-subtitle-line: 20px;
   --type-row-description-size: 13px;
   --type-row-description-line: 18px;
   --type-row-description-weight: 400;
   --type-row-description-tracking: 0;
+  --type-row-description-compact-size: 13px;
+  --type-row-description-compact-line: 18px;
   --type-form-label-size: 15px;
   --type-form-label-line: 20px;
   --type-form-label-weight: 500;
@@ -820,12 +831,12 @@ textarea {
   --ios-account-title-tracking: normal;
   --ios-account-description-size: var(--type-row-description-size);
   --ios-account-description-line: var(--type-row-description-line);
-  --ios-account-section-header-size: 15px;
-  --ios-account-section-header-line: 20px;
+  --ios-account-section-header-size: 14px;
+  --ios-account-section-header-line: 18px;
   --ios-account-regular-weight: var(--foundation-body-weight);
   --ios-account-medium-weight: 500;
-  --ios-account-row-title-size: 17px;
-  --ios-account-row-title-line: 22px;
+  --ios-account-row-title-size: 16px;
+  --ios-account-row-title-line: 21px;
   --ios-account-row-title-tracking: -0.01em;
   --ios-account-row-value-size: var(--type-row-description-size);
   --ios-account-row-value-line: var(--type-row-description-line);
@@ -1066,11 +1077,8 @@ textarea {
      surface it had been borrowing. */
   --app-segmented-track-surface: var(--app-neutral-fill);
   --app-segmented-active-surface: var(--app-card-surface-default-solid);
-  /* Not the accent. A segmented control marks the selection with the PILL --
-     a second signal in accent tint is what tab bars use, and using both makes
-     a segmented strip read as a tab bar. See the scoped `[role="tab"]` rule
-     further down, which is where Location was getting blue from. */
-  --app-segmented-active-foreground: var(--app-label);
+  /* Selected tabs share the app accent across shell and in-page controls. */
+  --app-segmented-active-foreground: var(--app-accent);
   --app-segmented-active-border: transparent;
   --app-segmented-active-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
   --app-shell-surface-bg: var(--app-glass-surface);
@@ -1687,7 +1695,7 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
 }
 
 .profile-home-hero {
-  gap: 8px !important;
+  gap: 12px !important;
   padding-top: 0;
 }
 
@@ -1697,11 +1705,11 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
   background: var(--app-card-surface-muted, #d1d1d6) !important;
   box-shadow: none !important;
   display: inline-flex;
-  height: 88px !important;
+  height: 56px !important;
   justify-content: center;
   padding: 0 !important;
   position: relative;
-  width: 88px !important;
+  width: 56px !important;
 }
 
 .profile-home-screen [data-profile-avatar-display="true"] {
@@ -1710,7 +1718,7 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
   color: var(--ios-account-on-accent) !important;
   display: inline-flex;
   font-family: var(--font-app-display);
-  font-size: 34px !important;
+  font-size: 22px !important;
   font-weight: 600 !important;
   justify-content: center;
   letter-spacing: 0 !important;
@@ -1733,8 +1741,8 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
   background: var(--ios-account-accent) !important;
   box-shadow: none !important;
   color: var(--ios-account-on-accent) !important;
-  height: 24px !important;
-  width: 24px !important;
+  height: 20px !important;
+  width: 20px !important;
 }
 
 .profile-home-screen [data-profile-avatar-camera="true"]:active {
@@ -1757,7 +1765,7 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
   background: var(--ios-account-accent) !important;
   color: var(--ios-account-on-accent) !important;
   font-family: var(--font-app-display);
-  font-size: 34px !important;
+  font-size: 22px !important;
   font-weight: 600 !important;
   letter-spacing: 0 !important;
   line-height: 1 !important;
@@ -1772,10 +1780,10 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
 .profile-home-name {
   color: var(--ios-account-label) !important;
   font-family: var(--font-app-display);
-  font-size: 27px !important;
+  font-size: 22px !important;
   font-weight: 700 !important;
   letter-spacing: 0 !important;
-  line-height: 32px !important;
+  line-height: 27px !important;
 }
 
 .profile-home-meta {
@@ -1813,8 +1821,8 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
 }
 
 .profile-home-content [data-testid="settings-group"] > div:first-child {
-  margin-bottom: 7px;
-  margin-top: 18px;
+  margin-bottom: 6px;
+  margin-top: 14px;
 }
 
 .profile-home-content
@@ -2285,8 +2293,8 @@ body:has([data-one-launcher-root="true"]) .foundation-public-ambient {
   --section-header-row-gap: 6px;
   --section-header-copy-gap: 3px;
   --section-header-actions-gap: 6px;
-  --surface-stack-gap-standard: 24px;
-  --surface-stack-gap-compact: 18px;
+  --surface-stack-gap-standard: 20px;
+  --surface-stack-gap-compact: 14px;
   --surface-card-header-px: 14px;
   --surface-card-header-pt: 14px;
   --surface-card-header-pb: 8px;
@@ -2295,8 +2303,8 @@ body:has([data-one-launcher-root="true"]) .foundation-public-ambient {
   --surface-inset-p: 12px;
   --settings-group-stack-gap: 6px;
   --settings-row-px: 16px;
-  --settings-row-py: 10px;
-  --settings-row-gap: 12px;
+  --settings-row-py: 8px;
+  --settings-row-gap: 10px;
   --settings-row-stack-gap: 10px;
   --data-table-controls-gap: 12px;
   --data-table-cell-px: 10px;
@@ -2324,8 +2332,8 @@ body:has([data-one-launcher-root="true"]) .foundation-public-ambient {
     --surface-inset-p: 14px;
     --settings-group-stack-gap: 8px;
     --settings-row-px: 16px;
-    --settings-row-py: 10px;
-    --settings-row-gap: 12px;
+    --settings-row-py: 8px;
+    --settings-row-gap: 10px;
     --settings-row-stack-gap: 12px;
     --data-table-controls-gap: 14px;
     --data-table-cell-px: 12px;
@@ -3795,7 +3803,7 @@ body:has([data-testid="one-location-onboarding"])
      alone cannot do that in dark mode -- so here the lift comes from the
      surface being lighter than the track, not from the shadow. */
   --app-segmented-active-surface: var(--app-card-surface-default-solid);
-  --app-segmented-active-foreground: var(--app-label);
+  --app-segmented-active-foreground: var(--app-accent);
   --app-segmented-active-border: transparent;
   --app-segmented-active-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
   --app-shell-surface-bg: var(--app-glass-surface);
@@ -6200,6 +6208,41 @@ body[data-persona-surface="ria"] {
   text-transform: none !important;
 }
 
+:is(.ui-text-section-label-compact) {
+  font-size: var(--type-section-label-compact-size) !important;
+  font-weight: var(--type-section-label-compact-weight) !important;
+  line-height: var(--type-section-label-compact-line) !important;
+}
+
+@layer base {
+  /* Compact app workspaces use a fixed hierarchy instead of the fluid document
+ * heading ladder. The old `.app-page-shell [aria-level="2"]` rule had greater
+ * specificity than the semantic compact classes, so a SettingsGroup asked for
+ * a 14px list heading and still rendered at title-3 size (20-22px). Keep this
+ * after the semantic role rules and scope it to compact app/list surfaces. */
+  .app-page-shell[data-app-density="compact"]
+    :is(
+      .ui-text-large-page-title,
+      .ui-text-page-title,
+      .ui-text-agent-title,
+      .ui-text-identity-name
+    ) {
+    font-size: var(--type-page-title-size) !important;
+    line-height: var(--type-page-title-line) !important;
+  }
+
+  .app-page-shell[data-app-density="compact"] .ui-text-section-label-compact,
+  .app-page-shell[data-app-density="compact"]
+    [data-settings-density="compact"]
+    [data-slot="settings-group-heading"] {
+    font-family: var(--font-app-body) !important;
+    font-size: var(--type-section-label-compact-size) !important;
+    font-weight: var(--type-section-label-compact-weight) !important;
+    letter-spacing: normal !important;
+    line-height: var(--type-section-label-compact-line) !important;
+  }
+}
+
 :is(
   .ui-text-body,
   .ui-text-row-label,
@@ -6219,6 +6262,20 @@ body[data-persona-surface="ria"] {
   font-weight: var(--type-row-label-weight) !important;
 }
 
+/* Important declarations in the base layer outrank unlayered important rules.
+   Keep density overrides in that same layer so the compact contract can win. */
+@layer base {
+  .app-page-shell[data-app-density="compact"]
+    [data-settings-density="compact"]
+    .ui-text-row-label-compact,
+  [data-row-layout="person"][data-settings-density="compact"]
+    [data-slot="settings-row-title"].ui-text-row-label-compact {
+    font-size: var(--type-row-label-compact-size) !important;
+    font-weight: var(--type-row-label-compact-weight) !important;
+    line-height: var(--type-row-label-compact-line) !important;
+  }
+}
+
 :is(.ui-text-medium-row-label, .ui-text-row-label-emphasized) {
   font-weight: var(--type-row-label-emphasis-weight) !important;
 }
@@ -6232,6 +6289,17 @@ body[data-persona-surface="ria"] {
   line-height: var(--type-row-description-line) !important;
   opacity: 1 !important;
   text-transform: none !important;
+}
+
+@layer base {
+  .app-page-shell[data-app-density="compact"]
+    [data-settings-density="compact"]
+    .ui-text-row-description-compact,
+  [data-row-layout="person"][data-settings-density="compact"]
+    .ui-text-row-description-compact {
+    font-size: var(--type-row-description-compact-size) !important;
+    line-height: var(--type-row-description-compact-line) !important;
+  }
 }
 
 :is(.ui-text-trailing-action) {
@@ -6329,24 +6397,17 @@ body[data-persona-surface="ria"] {
   color: var(--app-label) !important;
 }
 
-/* Accent marks the selection on an UNDERLINE tab bar, where there is no other
-   signal -- Consent Center, RIA, Finance. A segmented strip already marks it
-   with the raised pill, and tinting the label too gave Location's `Now /
-   People / Links` a blue active label while Connect's identical control sat
-   dark, because Connect's label class forces `--app-label`. Two components,
-   two global rules, opposite results, and neither component's own colour ever
-   applied: both lost to these `!important` declarations.
-
-   Scoped by the strip's own `data-top-shell-tab-set`, which `TopShellTabs`
-   already writes, so the underline arm is untouched. */
+/* Selection owns tab-label colour. Typography sets label colours with
+   !important, so inherited component colours alone cannot express selection. */
 [role="tab"][aria-selected="true"] :is(.ui-text-agent-tab-label) {
   color: var(--app-accent) !important;
 }
 
-[data-top-shell-tab-set="location"]
+[data-ui-role="segmented-tabs"]
   [role="tab"][aria-selected="true"]
-  :is(.ui-text-agent-tab-label) {
-  color: var(--app-label) !important;
+  :is(.ui-text-form-label) {
+  color: var(--app-segmented-active-foreground) !important;
+  font-weight: 600 !important;
 }
 
 [role="tab"][aria-selected="false"] :is(.ui-text-agent-tab-label) {

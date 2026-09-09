@@ -1982,6 +1982,7 @@ def test_list_requests_stringifies_a_real_driver_datetime():
             "metadata": None,
             "counterpart_user_id": "user-b",
             "counterpart_display_name": "Bob",
+            "counterpart_photo_url": "https://example.test/bob.png",
         }
     ]
     proposal_rows = [
@@ -2000,6 +2001,7 @@ def test_list_requests_stringifies_a_real_driver_datetime():
     with patch("hushh_mcp.services.connections_service.get_db", lambda: db):
         out = svc.list_requests("user-a", direction="outgoing")
     assert out[0]["createdAt"] == "2026-07-09T00:00:00+00:00"
+    assert out[0]["counterpartPhotoUrl"] == "https://example.test/bob.png"
     assert out[0]["scopes"][0]["createdAt"] == "2026-07-09T00:00:00+00:00"
     assert out[0]["scopes"][0]["expiresAt"] == "2026-07-09T00:00:00+00:00"
     assert out[0]["scopes"][0]["resolvedAt"] is None

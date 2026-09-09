@@ -2651,7 +2651,8 @@ class ConnectionsService:
             SELECT cr.id, cr.requester_user_id, cr.addressee_user_id, cr.status,
                    cr.message, cr.created_at, cr.metadata,
                    {counterpart_col} AS counterpart_user_id,
-                   a.display_name AS counterpart_display_name
+                   a.display_name AS counterpart_display_name,
+                   COALESCE(NULLIF(BTRIM(a.custom_photo_url), ''), NULLIF(BTRIM(a.photo_url), '')) AS counterpart_photo_url
             FROM connection_requests cr
             LEFT JOIN actor_identity_cache a ON a.user_id = {counterpart_col}
             WHERE {where} {status_clause}
@@ -2669,6 +2670,7 @@ class ConnectionsService:
                 "createdAt": _iso(r.get("created_at")),
                 "counterpartUserId": str(r.get("counterpart_user_id") or ""),
                 "counterpartDisplayName": r.get("counterpart_display_name"),
+                "counterpartPhotoUrl": r.get("counterpart_photo_url"),
                 "scopes": self._proposal_items(str(r.get("id") or "")),
             }
             for r in rows
@@ -3077,7 +3079,7 @@ class ConnectionsService:
             """
             SELECT c.id AS connection_id,
                    CASE WHEN c.user_a_id = :user_id THEN c.user_b_id ELSE c.user_a_id END AS user_id,
-                   a.display_name, a.photo_url, a.email, c.created_at,
+                   a.display_name, COALESCE(NULLIF(BTRIM(a.custom_photo_url), ''), NULLIF(BTRIM(a.photo_url), '')) AS photo_url, a.email, c.created_at,
                    EXISTS (
                      SELECT 1
                      FROM connection_origins contact_origin
@@ -3148,7 +3150,7 @@ class ConnectionsService:
                   WHEN connection.user_a_id = :user_id THEN connection.user_b_id
                   ELSE connection.user_a_id
                 END AS user_id,
-                identity.display_name, identity.photo_url, identity.email, connection.created_at,
+                identity.display_name, COALESCE(NULLIF(BTRIM(identity.custom_photo_url), ''), NULLIF(BTRIM(identity.photo_url), '')) AS photo_url, identity.email, connection.created_at,
                 LOWER(BTRIM(COALESCE(
                   NULLIF(identity.display_name, ''),
                   CASE

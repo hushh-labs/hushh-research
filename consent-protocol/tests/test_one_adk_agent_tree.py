@@ -669,12 +669,17 @@ class TestSpecialistTurn:
         assert "start_app_goal" in result["message"]
 
     @pytest.mark.asyncio
-    async def test_the_redirect_cannot_reroute_between_specialists(self):
-        """Words decide the LANE, never which specialist gets the request.
+    async def test_request_words_never_choose_the_specialist(self):
+        """Words never choose which specialist gets the request.
 
+        One's typed `target` selects the specialist; the sentence never does.
         `consent` must keep reaching Nav even when the words look like
         connections work, or this becomes exactly the word-sniffing subagent
         selection the typed-target design exists to prevent.
+
+        This outlived the journey redirect it was written alongside: with the
+        redirect gone, this is the repo's only guard that a request is routed
+        by One's selection rather than by its wording.
         """
         context = _tool_context({STATE_USER_ID: "u1", STATE_CONSENT_TOKEN: "tok"})
         with patch(
@@ -687,8 +692,8 @@ class TestSpecialistTurn:
                 target="consent",
             )
 
-        # agent_nav declares no authored action surfaces, so it is never
-        # redirected and never swapped for agent_connections.
+        # The typed target chose agent_nav. Nothing may swap it for
+        # agent_connections on the strength of the words "connect me with".
         assert specialist_turn.await_args.args[0] == "agent_nav"
 
     @pytest.mark.asyncio
@@ -859,14 +864,17 @@ class TestOpenScreen:
     @pytest.mark.asyncio
     async def test_normalizes_screen_names(self):
         state: dict = {}
-        result = await open_screen("Connected Systems", _tool_context(state))
+        # Keep the normalization contract independent of optional products.
+        # Connected Systems is correctly absent when the CRM product flag is
+        # disabled, which made this generic test fail in a valid local runtime.
+        result = await open_screen("Personal Data", _tool_context(state))
         assert result["status"] == "ok"
-        assert result["route"] == APP_ROUTES["connected_systems"]
-        assert state[f"{STATE_PENDING_DIRECTIVE}:connected_systems"] == {
+        assert result["route"] == APP_ROUTES["personal_data"]
+        assert state[f"{STATE_PENDING_DIRECTIVE}:personal_data"] == {
             "kind": "navigate",
             "payload": {
-                "route": APP_ROUTES["connected_systems"],
-                "screen": "connected_systems",
+                "route": APP_ROUTES["personal_data"],
+                "screen": "personal_data",
             },
         }
 
@@ -1822,6 +1830,7 @@ class TestBackendDirectLocationShareSelected:
             "recipient_key_id": "k1",
             "duration_hours": 2.0,
             "duration_mode": "timed",
+            "require_recipient_phone_verified": False,
             "enforce_connection": True,
         }
         publish_key = f"{_STATE_PENDING_DIRECTIVE}:location.share_selected:publish"

@@ -32,6 +32,12 @@ ALTER TABLE one_location_events
       'location_one_network_joined',
       'location_circle_code_joined',
       'location_circle_member_invite_accepted',
+      -- Save My Soul contact list changes, allowlisted downstream by 187
+      -- and 190. Carried into every declaration in the chain because each
+      -- one REPLACES the constraint: a value present in 064 and absent
+      -- here is dropped again the moment this file runs.
+      'location_sms_contact_added',
+      'location_sms_contact_removed',
       'circle_member_added'
     )
   ) NOT VALID;

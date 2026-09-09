@@ -34,6 +34,10 @@ from hushh_mcp.operons.location.policy import (
     normalize_source_platform,
 )
 from hushh_mcp.runtime_settings import get_core_security_settings
+from hushh_mcp.services.one_location_public_invite_url import (
+    public_invite_bearer_token,
+    public_invite_url,
+)
 from hushh_mcp.services.people_search_sql import people_query_match_params
 from hushh_mcp.services.ria_status import RIA_VERIFIED_STATUS_SQL
 from hushh_mcp.types import AgentID, UserID
@@ -605,7 +609,7 @@ def _public_invite_token_if_derivable(row: dict[str, Any] | None) -> str | None:
     return token
 
 
-def _public_invite_url(token: str) -> str:
+def _public_invite_url(token: str, owner_label: str = "") -> str:
     """The app-relative page a public live-location link points at.
 
     `/view/`, not `/request/`. The path was named after the submission form the
@@ -619,7 +623,7 @@ def _public_invite_url(token: str) -> str:
     client-side forwarder for the native static export, which has no proxy.
     """
 
-    return f"/one/location/view/{token}"
+    return public_invite_url(token, owner_label)
 
 
 def _circle_invite_url(token: str) -> str:
@@ -784,6 +788,29 @@ def _classify_share_kind(reason: str | None) -> str:
     if not text or text in {"owner_approved", "request_approved"}:
         return "share"
     return "check_in"
+
+
+def requires_recipient_phone_verification(
+    *,
+    share_kind: str | None,
+    reason: str | None,
+) -> bool:
+    """Keep the verified-phone gate on the emergency SMS lane only.
+
+    Ordinary private shares are authorized by an active One relationship and
+    encrypted to the recipient's active Location key.  Requiring an unrelated
+    phone claim after the recipient picker has already proved both facts makes
+    a connected, cryptographically ready Google-only account impossible to
+    share with.  SOS is different: its recipient list is explicitly the SMS
+    contact list, so that lane keeps the verified-phone requirement.
+
+    Classify legacy callers from ``reason`` exactly as grant creation does, so
+    an older ``sos_panic`` request cannot bypass the SMS protection merely by
+    omitting ``shareKind``.
+    """
+
+    resolved_kind = share_kind or _classify_share_kind(reason)
+    return _is_sos_lane(resolved_kind)
 
 
 def _is_until_stopped_share(duration_mode: str | None) -> bool:
@@ -2821,7 +2848,7 @@ class OneLocationAgentService:
         if str(row.get("status") or "") == "active":
             token = _public_invite_token_if_derivable(row)
             if token:
-                payload["publicUrl"] = _public_invite_url(token)
+                payload["publicUrl"] = _public_invite_url(token, safe_label)
         return payload
 
     @staticmethod
@@ -4551,9 +4578,16 @@ class OneLocationAgentService:
             },
         )
         if not row:
+            resolved_unavailable_message = unavailable_message
+            if resolved_unavailable_message is None and require_phone_verified:
+                identity = self._identity_row(recipient_user_id)
+                if identity and not bool(identity.get("phone_verified")):
+                    resolved_unavailable_message = (
+                        "Ask this SMS contact to verify their phone before receiving alerts."
+                    )
             raise OneLocationAgentError(
                 "LOCATION_RECIPIENT_UNAVAILABLE",
-                unavailable_message
+                resolved_unavailable_message
                 or (
                     # Two lines in a toast. The old copy explained the whole
                     # mechanism and ran to four; what the reader needs is the
@@ -4959,10 +4993,6 @@ class OneLocationAgentService:
         self._recipient_key_row(
             recipient_user_id=contact_user_id,
             require_phone_verified=True,
-            unavailable_message=(
-                "This connection must finish Location setup before they can be "
-                "added as an SMS contact."
-            ),
         )
         self._add_sms_contact_with_locked_eligibility(
             owner_user_id=owner_user_id,
@@ -5289,8 +5319,10 @@ class OneLocationAgentService:
                         CAST(:require_owned_person_circle AS BOOLEAN) IS FALSE
                         OR (
                           owner_user_id = :owner_user_id
-                          AND system_kind IS NULL
-                          AND NOT is_system
+                          AND (
+                            (system_kind IS NULL AND NOT is_system)
+                            OR system_kind = 'sms'
+                          )
                         )
                       )
                     FOR SHARE
@@ -6668,8 +6700,10 @@ class OneLocationAgentService:
                             WHERE id = CAST(:circle_id AS UUID)
                               AND owner_user_id = :user_id
                               AND status = 'active'
-                              AND system_kind IS NULL
-                              AND NOT is_system
+                              AND (
+                                (system_kind IS NULL AND NOT is_system)
+                                OR system_kind = 'sms'
+                              )
                             FOR SHARE
                             """
                         ),
@@ -6694,8 +6728,10 @@ class OneLocationAgentService:
                             WHERE id = ANY(CAST(:circle_ids AS UUID[]))
                               AND owner_user_id = :user_id
                               AND status = 'active'
-                              AND system_kind IS NULL
-                              AND NOT is_system
+                              AND (
+                                (system_kind IS NULL AND NOT is_system)
+                                OR system_kind = 'sms'
+                              )
                             FOR SHARE
                             """
                         ),
@@ -7408,7 +7444,7 @@ class OneLocationAgentService:
                     return {
                         "invite": existing_payload,
                         "publicToken": existing_token,
-                        "publicUrl": _public_invite_url(existing_token),
+                        "publicUrl": existing_payload["publicUrl"],
                         # The caller asked for a link and got one; it is simply
                         # the one that was already live. Named so a client can
                         # tell "created" from "here is the one you have" without
@@ -7491,7 +7527,7 @@ class OneLocationAgentService:
         return {
             "invite": invite,
             "publicToken": raw_token,
-            "publicUrl": _public_invite_url(raw_token),
+            "publicUrl": invite["publicUrl"],
         }
 
     def refresh_public_invite_location(
@@ -7596,7 +7632,7 @@ class OneLocationAgentService:
         for a location rather than shows them one.
         """
 
-        normalized_token = str(public_token or "").strip()
+        normalized_token = public_invite_bearer_token(public_token)
         if len(normalized_token) < 16:
             raise OneLocationAgentError(
                 "LOCATION_PUBLIC_INVITE_INVALID",
