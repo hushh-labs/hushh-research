@@ -163,6 +163,39 @@ def _kms_key_creation_identity(value: Any, expected_name: str) -> dict[str, str]
     return {key: value[key] for key in ("name", "purpose", "createTime")}
 
 
+def _artifact_repository_creation_identity(value: Any, expected_name: str) -> dict[str, str] | None:
+    """Retain provider creation evidence; this does not authorize shared-repo deletion."""
+    import re
+    from datetime import datetime
+
+    if (
+        not isinstance(value, dict)
+        or value.get("name") != expected_name
+        or value.get("format") != "DOCKER"
+        or re.fullmatch(
+            r"projects/[a-z0-9-]+/locations/[a-z0-9-]+/repositories/[a-z0-9._-]+", expected_name
+        )
+        is None
+    ):
+        return None
+    created = value.get("createTime")
+    if (
+        not isinstance(created, str)
+        or re.fullmatch(
+            r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]{1,9})?(?:Z|[+-][0-9]{2}:[0-9]{2})",
+            created,
+        )
+        is None
+    ):
+        return None
+    try:
+        if datetime.fromisoformat(created.replace("Z", "+00:00")).utcoffset() is None:
+            return None
+    except ValueError:
+        return None
+    return {"name": expected_name, "format": "DOCKER", "createTime": created}
+
+
 def _secret_creation_identity(
     value: Any, expected_id: str, expected_project: str
 ) -> dict[str, str] | None:
@@ -305,6 +338,9 @@ class SubstrateReceipt:
         planned = {(item["type"], item["id"]) for item in self.planned_resources}
         project, _, region = self.tenant_ref.partition("/")
         validators = {
+            "artifact_repository": lambda value, rid: _artifact_repository_creation_identity(
+                value, f"projects/{project}/locations/{region}/repositories/{rid}"
+            ),
             "pubsub_topic": lambda value, rid: _mail_creation_identity(
                 value, "pubsub_topic", f"projects/{project}/topics/{rid}"
             ),

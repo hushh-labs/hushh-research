@@ -908,6 +908,7 @@ class UserGcpBootstrap:
             # which is why nothing exposed this until now. Gate the wait on a genuine
             # create; enable_services and generate_run_service_identity return 200 on
             # success and never rely on tolerating, so this is a no-op for them.
+            waited = {}
             if ok and code in (200, 201) and call.get("await_operation"):
                 waited = self._await_operation(call, headers, response)
                 ok = waited["ok"]
@@ -919,6 +920,8 @@ class UserGcpBootstrap:
                 "ok": ok,
                 "detail": detail,
             }
+            if ok and waited.get("resourceObservation"):
+                result["resourceObservation"] = waited["resourceObservation"]
             if ok and code in (200, 201) and call["step"] == "cmek_bucket":
                 from hushh_mcp.services.byoc_substrate import _bucket_creation_identity
 
@@ -1088,6 +1091,26 @@ class UserGcpBootstrap:
         """Require terminal provider evidence, polling only the acknowledged operation."""
         import re
 
+        def verdict(state: dict[str, Any], polls: int) -> dict[str, Any]:
+            result = _operation_verdict(state, polls=polls)
+            if result["ok"] and call["step"] == "artifact_repo":
+                from hushh_mcp.services.byoc_substrate import _artifact_repository_creation_identity
+
+                repository_id = (call.get("params") or {}).get("repositoryId")
+                name = f"projects/{self._project}/locations/{self._region}/repositories/{repository_id}"
+                response_body = state.get("response") or {}
+                if "name" in response_body and response_body["name"] != name:
+                    return {"ok": False, "detail": "repository creation identity mismatch"}
+                identity = _artifact_repository_creation_identity(response_body, name)
+                if identity:
+                    result["resourceObservation"] = {
+                        "type": "artifact_repository",
+                        "id": repository_id,
+                        "disposition": "created",
+                        "identity": identity,
+                    }
+            return result
+
         body = _json_or_empty(response)
         name = body.get("name", "")
         if call["step"] == "artifact_repo":
@@ -1109,7 +1132,7 @@ class UserGcpBootstrap:
         ):
             return {"ok": False, "detail": "operation identity invalid"}
         if body.get("done") is True:
-            return _operation_verdict(body, polls=0)
+            return verdict(body, polls=0)
         if (
             not name
             or ("done" in body and body["done"] is not False)
@@ -1145,7 +1168,7 @@ class UserGcpBootstrap:
             if state.get("name") != name:
                 return {"ok": False, "detail": "operation identity mismatch"}
             if state.get("done") is True:
-                return _operation_verdict(state, polls=polls)
+                return verdict(state, polls=polls)
             if (
                 ("done" in state and state["done"] is not False)
                 or "response" in state

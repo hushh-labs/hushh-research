@@ -1654,3 +1654,59 @@ def test_iam_write_failure_does_not_return_provider_details():
     assert result["status"] == 403
     assert result["detail"] == "IAM policy write failed"
     assert "synthetic-private-provider-detail" not in json.dumps(result)
+
+
+@pytest.mark.parametrize(
+    "case", ["created", "polled", "adopted", "foreign", "missing_time", "invalid_time"]
+)
+def test_repository_creation_receipt_uses_terminal_operation_identity(case):
+    from hushh_mcp.services.byoc_substrate import SubstrateReceipt
+
+    name = f"projects/{USER_PROJECT}/locations/us-central1/repositories/one-pod"
+    body = {
+        "name": name,
+        "format": "DOCKER",
+        "createTime": "2026-09-08T00:00:00Z",
+        "private": "must-not-retain",
+    }
+    if case == "foreign":
+        body["name"] = name.replace(USER_PROJECT, "foreign-project")
+    if case == "missing_time":
+        body.pop("createTime")
+    if case == "invalid_time":
+        body["createTime"] = "20260908T000000+0000"
+    session = _Session(
+        routes={
+            "repositories/one-pod": _Response(200, {}),
+            "/repositories": _Response(
+                409 if case == "adopted" else 200, {"done": True, "response": body}
+            ),
+        }
+    )
+    if case == "polled":
+        operation = f"projects/{USER_PROJECT}/locations/us-central1/operations/repo-create"
+        session = _Session(
+            routes={
+                "/operations/repo-create": _Response(
+                    200, {"name": operation, "done": True, "response": body}
+                ),
+                "repositories/one-pod": _Response(200, {}),
+                "/repositories": _Response(200, {"name": operation}),
+            }
+        )
+    result = _boot(session).apply(_plan(), dry_run=False)
+    step = next(item for item in result["steps"] if item["step"] == "artifact_repo")
+    assert step["ok"] is (case != "foreign")
+    if case in {"created", "polled"}:
+        record = SubstrateReceipt(
+            True,
+            f"{USER_PROJECT}/us-central1",
+            planned_resources=[{"type": "artifact_repository", "id": "one-pod"}],
+            resource_observations=[step["resourceObservation"]],
+        ).as_record()
+        assert record["resourceObservations"][0]["identity"] == {
+            k: body[k] for k in ("name", "format", "createTime")
+        }
+        assert "must-not-retain" not in json.dumps(record)
+    else:
+        assert "resourceObservation" not in step
