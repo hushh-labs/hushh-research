@@ -15,6 +15,7 @@ const inFlightByUser = new Map<
   { revision: number; request: Promise<OneLocationState> }
 >();
 const revisionByUser = new Map<string, number>();
+const presentationByUser = new Map<string, OneLocationState>();
 
 function revisionFor(userId: string): number {
   return revisionByUser.get(userId) ?? 0;
@@ -37,13 +38,32 @@ export const OneLocationStateResource = {
     return CacheService.getInstance().peek<OneLocationState>(this.key(userId));
   },
 
+  /**
+   * Last state that was safe to present during this unlocked app session.
+   *
+   * `invalidate()` is a freshness fence, not a request to blank the screen.
+   * Keeping this small second pointer lets a mutation reject an older request
+   * while the Location viewport continues to render the last confirmed state.
+   * Nothing is serialized: auth sign-out and vault-boundary changes call
+   * `discard()` and remove it synchronously.
+   */
+  readPresentation(userId: string): OneLocationState | null {
+    const cached = this.peek(userId)?.data;
+    if (cached) {
+      presentationByUser.set(userId, cached);
+      return cached;
+    }
+    return presentationByUser.get(userId) ?? null;
+  },
+
   write(userId: string, state: OneLocationState): void {
+    presentationByUser.set(userId, state);
     CacheService.getInstance().set(this.key(userId), state, CACHE_TTL.SHORT);
   },
 
   replaceSmsContactUserIds(userId: string, userIds: string[]): boolean {
-    const snapshot = this.peek(userId);
-    if (!snapshot) return false;
+    const current = this.readPresentation(userId);
+    if (!current) return false;
 
     const smsContactUserIds = Array.from(
       new Set(
@@ -54,7 +74,7 @@ export const OneLocationStateResource = {
     // the authoritative membership returned by the Add/Remove API.
     this.invalidate(userId);
     this.write(userId, {
-      ...snapshot.data,
+      ...current,
       smsContactUserIds,
     });
     return true;
@@ -73,7 +93,7 @@ export const OneLocationStateResource = {
     grant: Pick<OneLocationGrant, "id"> & Partial<OneLocationGrant>,
     fallbackState?: OneLocationState,
   ): boolean {
-    const current = this.peek(userId)?.data ?? fallbackState;
+    const current = this.readPresentation(userId) ?? fallbackState;
     if (!current) return false;
 
     let matched = false;
@@ -122,7 +142,7 @@ export const OneLocationStateResource = {
       Partial<OneLocationAccessRequest>,
     fallbackState?: OneLocationState,
   ): boolean {
-    const current = this.peek(userId)?.data ?? fallbackState;
+    const current = this.readPresentation(userId) ?? fallbackState;
     if (!current) return false;
 
     let matched = false;
@@ -164,5 +184,32 @@ export const OneLocationStateResource = {
     revisionByUser.set(userId, revisionFor(userId) + 1);
     inFlightByUser.delete(userId);
     CacheService.getInstance().invalidate(this.key(userId));
+  },
+
+  /**
+   * Cross a privacy boundary: cancel stale writes and remove presentation data.
+   * Ordinary mutations use `invalidate()` so stale-while-revalidate remains
+   * visible; vault lock/sign-out use this stronger operation.
+   */
+  discard(userId: string): void {
+    revisionByUser.set(userId, revisionFor(userId) + 1);
+    inFlightByUser.delete(userId);
+    presentationByUser.delete(userId);
+    CacheService.getInstance().invalidate(this.key(userId));
+  },
+
+  discardAll(): void {
+    const users = new Set([
+      ...revisionByUser.keys(),
+      ...inFlightByUser.keys(),
+      ...presentationByUser.keys(),
+    ]);
+    for (const userId of users) {
+      revisionByUser.set(userId, revisionFor(userId) + 1);
+    }
+    inFlightByUser.clear();
+    presentationByUser.clear();
+    const cache = CacheService.getInstance();
+    for (const userId of users) cache.invalidate(this.key(userId));
   },
 };

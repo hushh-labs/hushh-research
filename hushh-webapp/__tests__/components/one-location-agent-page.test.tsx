@@ -1131,12 +1131,12 @@ describe("OneLocationAgentPage", () => {
     // snapshot cannot leak into the next test's initial render.
     const { CacheService } = await import("@/lib/services/cache-service");
     CacheService.getInstance().clear();
-    // Clearing the cache does not clear the resource's in-flight map. A test
-    // that leaves a request pending would otherwise hand its dead promise to
-    // the next test, which then never calls getState at all.
+    // Clear both the presentation snapshot and in-flight resource state. A
+    // test that leaves a request pending must not hand its dead promise or
+    // visible stale snapshot to the next test.
     const { OneLocationStateResource } =
       await import("@/lib/one-location/one-location-state-resource");
-    OneLocationStateResource.invalidate("user_a");
+    OneLocationStateResource.discard("user_a");
     const { forgetOneLocationControlPreference } =
       await import("@/lib/one-location/location-control-state");
     forgetOneLocationControlPreference("user_a");
@@ -2752,6 +2752,8 @@ describe("OneLocationAgentPage", () => {
       screen.queryByText("Access ends automatically after expiry"),
     ).toBeNull();
 
+    const stateReadsBeforeShare = mockGetState.mock.calls.length;
+    const envelopeWritesBeforeShare = mockStoreEnvelope.mock.calls.length;
     fireEvent.click(startButton);
     await waitFor(() => expect(mockCreateGrant).toHaveBeenCalledTimes(1));
     expect(mockCreateGrant).toHaveBeenCalledWith(
@@ -2763,6 +2765,16 @@ describe("OneLocationAgentPage", () => {
         reason: "On my way",
         shareKind: "share",
       }),
+    );
+    await waitFor(() =>
+      expect(mockStoreEnvelope.mock.calls.length).toBeGreaterThan(
+        envelopeWritesBeforeShare,
+      ),
+    );
+    await waitFor(() =>
+      expect(mockGetState.mock.calls.length).toBeGreaterThan(
+        stateReadsBeforeShare,
+      ),
     );
   });
 
@@ -2806,7 +2818,59 @@ describe("OneLocationAgentPage", () => {
     );
   });
 
-  it("keeps a selected Circle count scoped to its members when extra people are added", async () => {
+  it("groups shareable Circles into Your circles and Joined circles", async () => {
+    mockGetState.mockResolvedValue({
+      ...locationState(),
+      circles: [
+        {
+          id: "circle-owned",
+          name: "Weekend crew",
+          kind: "friends" as const,
+          role: "owner" as const,
+          memberCount: 4,
+          memberLimit: 20,
+        },
+        {
+          id: "circle-joined",
+          name: "Riya's SMS Circle",
+          kind: "other" as const,
+          role: "member" as const,
+          systemKind: "sms" as const,
+          isSystem: true,
+          memberCount: 3,
+          memberLimit: 20,
+        },
+        {
+          id: "circle-trusted",
+          name: "Trusted Circle",
+          kind: "other" as const,
+          role: "owner" as const,
+          systemKind: "trusted" as const,
+          isSystem: true,
+          memberCount: 8,
+          memberLimit: 20,
+        },
+      ],
+    });
+
+    render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
+    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+    await openSharePersonStep();
+
+    const owned = await screen.findByTestId("one-location-share-circles-owned");
+    const joined = screen.getByTestId("one-location-share-circles-joined");
+
+    expect(within(owned).getByText("Your circles")).toBeTruthy();
+    expect(within(owned).getByText("Weekend crew")).toBeTruthy();
+    expect(within(owned).queryByText("Riya's SMS Circle")).toBeNull();
+    expect(within(joined).getByText("Joined circles")).toBeTruthy();
+    expect(within(joined).getByText("Riya's SMS Circle")).toBeTruthy();
+    expect(within(joined).queryByText("Weekend crew")).toBeNull();
+    expect(screen.queryByText("Trusted Circle")).toBeNull();
+  });
+
+  it("keeps multiple Circles atomic while contacts remain independent", async () => {
     const readyRecipient = locationState().recipients[0]!;
     const makeReadyRecipient = (userId: string, displayName: string) => ({
       ...readyRecipient,
@@ -2824,50 +2888,70 @@ describe("OneLocationAgentPage", () => {
     );
     const outsiderOne = makeReadyRecipient("outside_one", "Outside One");
     const outsiderTwo = makeReadyRecipient("outside_two", "Outside Two");
-    const circleSummary = {
+    const familySummary = {
       id: "circle_family",
       name: "Family",
       kind: "family" as const,
       role: "owner" as const,
-      // Circle summaries include the viewer; the UI count intentionally does
-      // not. Two shareable people plus the current owner therefore means 3.
       memberCount: 3,
       memberLimit: 20,
     };
+    const friendsSummary = {
+      ...familySummary,
+      id: "circle_friends",
+      name: "Friends",
+    };
+    const owner = {
+      userId: "user_a",
+      displayName: "Me",
+      role: "owner" as const,
+      phoneVerified: true,
+      secureLocationReady: true,
+      canReceiveLocation: true,
+      keyId: "owner-key",
+      publicKeyJwk: { kty: "EC" },
+    };
+    const member = (recipient: typeof circleMemberOne) => ({
+      userId: recipient.userId,
+      displayName: recipient.displayName,
+      role: "member" as const,
+      phoneVerified: true,
+      secureLocationReady: true,
+      canReceiveLocation: true,
+      keyId: recipient.keyId,
+      publicKeyJwk: recipient.publicKeyJwk,
+    });
 
     mockGetState.mockResolvedValue({
       ...locationState(),
       recipients: [circleMemberOne, circleMemberTwo, outsiderOne, outsiderTwo],
-      circles: [circleSummary],
+      circles: [familySummary, friendsSummary],
       ownerGrants: [],
     });
-    mockGetCircle.mockResolvedValue({
-      ...circleSummary,
-      members: [
-        {
-          userId: "user_a",
-          displayName: "Me",
-          role: "owner" as const,
-          phoneVerified: true,
-          secureLocationReady: true,
-          canReceiveLocation: true,
-          keyId: "owner-key",
-          publicKeyJwk: { kty: "EC" },
-        },
-        ...[circleMemberOne, circleMemberTwo].map((recipient) => ({
-          userId: recipient.userId,
-          displayName: recipient.displayName,
-          role: "member" as const,
-          phoneVerified: true,
-          secureLocationReady: true,
-          canReceiveLocation: true,
-          keyId: recipient.keyId,
-          publicKeyJwk: recipient.publicKeyJwk,
-        })),
-      ],
-    });
+    const familyDetail = {
+      ...familySummary,
+      members: [owner, member(circleMemberOne), member(circleMemberTwo)],
+    };
+    const friendsDetail = {
+      ...friendsSummary,
+      members: [owner, member(circleMemberTwo), member(outsiderOne)],
+    };
+    let resolveFirstFriendsRequest:
+      | ((value: typeof friendsDetail) => void)
+      | null = null;
+    let friendsRequestCount = 0;
+    mockGetCircle.mockImplementation(
+      ({ circleId }: { circleId: string }) => {
+        if (circleId === familySummary.id) return Promise.resolve(familyDetail);
+        friendsRequestCount += 1;
+        if (friendsRequestCount > 1) return Promise.resolve(friendsDetail);
+        return new Promise<typeof friendsDetail>((resolve) => {
+          resolveFirstFriendsRequest = resolve;
+        });
+      },
+    );
 
-    render(<OneLocationAgentPage />);
+    const { rerender } = render(<OneLocationAgentPage />);
     await skipLocationEntryFlow();
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
     await openSharePersonStep();
@@ -2882,45 +2966,346 @@ describe("OneLocationAgentPage", () => {
       }),
     );
 
-    const selectedCircleRow = await screen.findByRole("button", {
-      name: "Deselect the Family Circle, 2 selected",
+    const selectedFamilyRow = within(
+      screen.getByTestId("one-location-share-circles-owned"),
+    )
+      .getByText("Family")
+      .closest("button");
+    if (!selectedFamilyRow) throw new Error("Family Circle row was not found.");
+    await waitFor(() => {
+      expect(selectedFamilyRow).toHaveAttribute("aria-pressed", "true");
+      expect(selectedFamilyRow).not.toBeDisabled();
     });
-    expect(within(shareHeader).getByText("2 selected")).toBeTruthy();
-    expect(within(selectedCircleRow).getByText("2 selected")).toBeTruthy();
+    expect(within(shareHeader).getByText("1 Circle selected")).toBeTruthy();
+    expect(within(selectedFamilyRow).getByText("3 members")).toBeTruthy();
 
     fireEvent.click(
       screen.getByRole("button", {
-        name: "Select Outside One for private sharing",
+        name: "Select the Friends Circle, 3 members",
       }),
     );
+    expect(
+      screen.getByRole("button", { name: "Adding Circle…" }),
+    ).toBeDisabled();
+    expect(within(selectedFamilyRow).getByText("3 members")).toBeTruthy();
+    expect(
+      within(screen.getByTestId("one-location-share-circles-owned")).getByText(
+        "Adding…",
+      ),
+    ).toBeTruthy();
+
+    // Leave while Friends is still loading, then start a fresh composer. The
+    // old response must not leak either Circle into this new draft.
+    mockUseSearchParams.mockReturnValue(new URLSearchParams("action=share"));
+    rerender(<OneLocationAgentPage />);
+    mockUseSearchParams.mockReturnValue(new URLSearchParams());
+    rerender(<OneLocationAgentPage />);
+    expect(
+      await screen.findByRole("heading", { name: "Location" }),
+    ).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /^Share location$/i }));
+    expect(
+      await screen.findByRole("heading", { name: "Who can see you?" }),
+    ).toBeTruthy();
+    await act(async () => {
+      resolveFirstFriendsRequest?.(friendsDetail);
+    });
+    expect(
+      within(
+        screen.getByRole("heading", { name: "Who can see you?" }).closest(
+          "header",
+        )!,
+      ).getByText("Choose one or more Circles or contacts."),
+    ).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Continue" })).toBeDisabled();
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Select the Family Circle, 3 members",
+      }),
+    );
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", {
+          name: "Deselect the Family Circle, 3 members",
+        }),
+      ).toHaveAttribute("aria-pressed", "true"),
+    );
+    const reopenedFamilyRow = screen.getByRole("button", {
+      name: "Deselect the Family Circle, 3 members",
+    });
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Select the Friends Circle, 3 members",
+      }),
+    );
+    const selectedFriendsRow = within(
+      screen.getByTestId("one-location-share-circles-owned"),
+    )
+      .getByText("Friends")
+      .closest("button");
+    if (!selectedFriendsRow)
+      throw new Error("Friends Circle row was not found.");
+    await waitFor(() => {
+      expect(selectedFriendsRow).toHaveAttribute("aria-pressed", "true");
+      expect(selectedFriendsRow).not.toBeDisabled();
+    });
+    const reopenedShareHeader = screen
+      .getByRole("heading", { name: "Who can see you?" })
+      .closest("header");
+    if (!reopenedShareHeader)
+      throw new Error("Reopened share flow header was not rendered.");
+    expect(
+      within(reopenedShareHeader).getByText("2 Circles selected"),
+    ).toBeTruthy();
+    expect(within(selectedFriendsRow).getByText("3 members")).toBeTruthy();
+
+    const overlappingMember = screen.getByRole("button", {
+      name: "Also select Circle Member Two as an individual contact; already included through Family",
+    });
+    fireEvent.click(overlappingMember);
+    const overlappingDirectSelection = screen.getByRole("button", {
+      name: "Remove Circle Member Two as an individual contact; they will still be included through Family",
+    });
+    expect(
+      within(reopenedShareHeader).getByText(
+        "2 Circles + 1 contact selected",
+      ),
+    ).toBeTruthy();
+    fireEvent.click(overlappingDirectSelection);
+    expect(
+      within(reopenedShareHeader).getByText("2 Circles selected"),
+    ).toBeTruthy();
+
     fireEvent.click(
       screen.getByRole("button", {
         name: "Select Outside Two for private sharing",
       }),
     );
 
-    expect(within(shareHeader).getByText("4 selected")).toBeTruthy();
     expect(
-      within(
-        screen.getByRole("button", {
-          name: "Deselect the Family Circle, 2 selected",
-        }),
-      ).getByText("2 selected"),
+      within(reopenedShareHeader).getByText(
+        "2 Circles + 1 contact selected",
+      ),
     ).toBeTruthy();
+    expect(within(reopenedFamilyRow).getByText("3 members")).toBeTruthy();
+    expect(within(selectedFriendsRow).getByText("3 members")).toBeTruthy();
 
+    fireEvent.click(reopenedFamilyRow);
+    expect(
+      within(reopenedShareHeader).getByText(
+        "1 Circle + 1 contact selected",
+      ),
+    ).toBeTruthy();
+    expect(selectedFriendsRow).toHaveAttribute("aria-pressed", "true");
+
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    expect(
+      await screen.findByRole("heading", { name: "Ready to share?" }),
+    ).toBeTruthy();
+    expect(screen.getByText("Circle Member Two")).toBeTruthy();
+    expect(screen.getByText("Outside One")).toBeTruthy();
+    expect(screen.getByText("Outside Two")).toBeTruthy();
+    expect(screen.queryByText("Circle Member One")).toBeNull();
+
+    const capturedPoint = {
+      latitude: 28.6139,
+      longitude: 77.209,
+      accuracyM: 18,
+      capturedAt: "2026-05-20T07:30:00.000Z",
+      sourcePlatform: "web",
+    };
+    let resolveCapture: ((value: typeof capturedPoint) => void) | null = null;
+    mockCaptureCurrentPosition.mockImplementationOnce(
+      () =>
+        new Promise<typeof capturedPoint>((resolve) => {
+          resolveCapture = resolve;
+        }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Start sharing" }));
+    await waitFor(() => expect(mockCaptureCurrentPosition).toHaveBeenCalled());
+
+    // Editing the draft while capture is in flight must not rewrite the
+    // already-confirmed delivery provenance.
+    fireEvent.click(
+      screen.getByRole("button", { name: "Change who can see you" }),
+    );
     fireEvent.click(
       screen.getByRole("button", {
-        name: "Deselect Outside Two for private sharing",
+        name: "Deselect the Friends Circle, 3 members",
       }),
     );
-    expect(within(shareHeader).getByText("3 selected")).toBeTruthy();
-    expect(
-      within(
-        screen.getByRole("button", {
-          name: "Deselect the Family Circle, 2 selected",
+    await act(async () => {
+      resolveCapture?.(capturedPoint);
+    });
+    await waitFor(() => expect(mockCreateGrant).toHaveBeenCalledTimes(3));
+    const grantInputs = mockCreateGrant.mock.calls.map(([input]) => input);
+    expect(grantInputs).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          recipientUserId: "circle_member_two",
+          sourceCircleId: "circle_friends",
         }),
-      ).getByText("2 selected"),
+        expect.objectContaining({
+          recipientUserId: "outside_one",
+          sourceCircleId: "circle_friends",
+        }),
+        expect.objectContaining({
+          recipientUserId: "outside_two",
+          sourceCircleId: undefined,
+        }),
+      ]),
+    );
+  });
+
+  it("abandons a pending share capture when the Location page unmounts", async () => {
+    mockGetState.mockResolvedValue({
+      ...locationState(),
+      ownerGrants: [],
+    });
+    const capturedPoint = {
+      latitude: 28.6139,
+      longitude: 77.209,
+      accuracyM: 18,
+      capturedAt: "2026-05-20T07:30:00.000Z",
+      sourcePlatform: "web",
+    };
+    let resolveCapture: ((value: typeof capturedPoint) => void) | null = null;
+
+    const { unmount } = render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
+    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+    await openShareConfirmStep();
+    mockCreateGrant.mockClear();
+    mockStoreEnvelope.mockClear();
+    mockCaptureCurrentPosition.mockImplementationOnce(
+      () =>
+        new Promise<typeof capturedPoint>((resolve) => {
+          resolveCapture = resolve;
+        }),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Start sharing" }));
+    await waitFor(() => expect(mockCaptureCurrentPosition).toHaveBeenCalled());
+    unmount();
+    await act(async () => {
+      resolveCapture?.(capturedPoint);
+    });
+
+    expect(mockCreateGrant).not.toHaveBeenCalled();
+    expect(mockStoreEnvelope).not.toHaveBeenCalled();
+  });
+
+  it("retries revoking a grant that resolves after the composer is cancelled", async () => {
+    const circleSummary = {
+      id: "circle_during_delivery",
+      name: "Delivery Circle",
+      kind: "family" as const,
+      role: "owner" as const,
+      memberCount: 1,
+      memberLimit: 20,
+    };
+    mockGetState.mockResolvedValue({
+      ...locationState(),
+      ownerGrants: [],
+      circles: [circleSummary],
+    });
+    mockGetCircle.mockResolvedValue({
+      ...circleSummary,
+      members: [
+        {
+          userId: "user_a",
+          displayName: "Me",
+          role: "owner",
+          phoneVerified: true,
+          secureLocationReady: true,
+          canReceiveLocation: true,
+          keyId: "owner-key",
+          publicKeyJwk: { kty: "EC" },
+        },
+        {
+          userId: "user_b",
+          displayName: "Trusted B",
+          role: "member",
+          phoneVerified: true,
+          secureLocationReady: true,
+          canReceiveLocation: true,
+          keyId: "key_b",
+          publicKeyJwk: { kty: "EC", crv: "P-256", x: "x", y: "y" },
+        },
+      ],
+    });
+    const createdGrant = {
+      id: "grant_cancelled_during_create",
+      ownerUserId: "user_a",
+      recipientUserId: "user_b",
+      recipientDisplayName: "Trusted B",
+      recipientKeyId: "key_b",
+      status: "active",
+      consentScope: "cap.location.live.view",
+      capabilityScopes: ["cap.location.live.view"],
+      durationHours: 1,
+      expiresAt: "2026-05-20T08:30:00.000Z",
+    };
+    let resolveGrant: ((value: typeof createdGrant) => void) | null = null;
+    mockCreateGrant.mockImplementationOnce(
+      () =>
+        new Promise<typeof createdGrant>((resolve) => {
+          resolveGrant = resolve;
+        }),
+    );
+
+    const { rerender } = render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
+    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+    await openShareConfirmStep();
+    mockStoreEnvelope.mockClear();
+    mockRevokeGrant.mockClear();
+    mockRevokeGrant
+      .mockRejectedValueOnce(new Error("Temporary revoke failure"))
+      .mockResolvedValueOnce({});
+
+    fireEvent.click(screen.getByRole("button", { name: "Start sharing" }));
+    await waitFor(() => expect(mockCreateGrant).toHaveBeenCalledTimes(1));
+    const concurrentShare = resolveLocalOnboardingHandler(
+      "location.share_selected",
+    );
+    expect(concurrentShare).toBeTruthy();
+    await expect(concurrentShare!({ duration_hours: "1" })).resolves.toEqual(
+      expect.objectContaining({
+        status: "blocked",
+        summary: "Your current location share is still being sent.",
+      }),
+    );
+    expect(mockCreateGrant).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole("button", { name: "Change who can see you" }));
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Select the Delivery Circle Circle, 1 member",
+      }),
+    );
+    expect(
+      await screen.findByRole("button", { name: "Sharing…" }),
+    ).toBeDisabled();
+
+    // Simulate the app-chrome / OS back action that closes the focused flow.
+    mockUseSearchParams.mockReturnValue(new URLSearchParams("action=share"));
+    rerender(<OneLocationAgentPage />);
+    mockUseSearchParams.mockReturnValue(new URLSearchParams());
+    rerender(<OneLocationAgentPage />);
+    expect(
+      await screen.findByRole("heading", { name: "Location" }),
     ).toBeTruthy();
+    await act(async () => {
+      resolveGrant?.(createdGrant);
+    });
+
+    await waitFor(() => expect(mockRevokeGrant).toHaveBeenCalledTimes(2));
+    expect(mockRevokeGrant).toHaveBeenLastCalledWith({
+        vaultOwnerToken: "vault-token",
+        grantId: createdGrant.id,
+    });
+    expect(mockStoreEnvelope).not.toHaveBeenCalled();
   });
 
   it("resets every abandoned share field and ignores a late review preflight", async () => {
@@ -3155,7 +3540,16 @@ describe("OneLocationAgentPage", () => {
     ).toBeNull();
     await waitFor(() => expect(screen.getByText("Can see you")).toBeTruthy());
     expect(screen.getByText("Abdul Rashid")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Start sharing" })).toBeEnabled();
+    const startSharing = screen.getByRole("button", { name: "Start sharing" });
+    expect(startSharing).toBeEnabled();
+    fireEvent.click(startSharing);
+    await waitFor(() => expect(mockCreateGrant).toHaveBeenCalledTimes(1));
+    expect(mockCreateGrant).toHaveBeenCalledWith(
+      expect.objectContaining({
+        recipientUserId: "user_abdul",
+        sourceCircleId: "circle-1",
+      }),
+    );
   });
 
   it("renders the canonical Location Settings URL and owns Saved Locations there", async () => {
@@ -4387,6 +4781,27 @@ describe("OneLocationAgentPage", () => {
         screen.getByRole("button", { name: /^Share location$/i }),
       ).toBeTruthy(),
     );
+  });
+
+  it("keeps cached Location content mounted while an invalidated snapshot revalidates", async () => {
+    window.localStorage.setItem("one_location_onboarding_v2:user_a", "1");
+    const { OneLocationStateResource } =
+      await import("@/lib/one-location/one-location-state-resource");
+    OneLocationStateResource.write("user_a", locationState());
+    mockGetState.mockImplementationOnce(() => new Promise(() => undefined));
+
+    render(<OneLocationAgentPage />);
+
+    expect(
+      await screen.findByRole("heading", { name: "Location" }),
+    ).toBeTruthy();
+    expect(screen.queryByText("Loading location...")).toBeNull();
+
+    act(() => OneLocationStateResource.invalidate("user_a"));
+
+    expect(screen.getByRole("heading", { name: "Location" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /^Share location$/i })).toBeTruthy();
+    expect(screen.queryByText("Loading location...")).toBeNull();
   });
 
   it("renders public and private invite controls", async () => {

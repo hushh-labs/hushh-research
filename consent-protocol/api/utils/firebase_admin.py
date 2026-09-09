@@ -12,6 +12,7 @@ Credential sources (in priority order):
 from __future__ import annotations
 
 import json
+import threading
 from typing import Any, Optional, Tuple
 
 from hushh_mcp.runtime_settings import (
@@ -21,6 +22,7 @@ from hushh_mcp.runtime_settings import (
 
 DEFAULT_SERVICE_ACCOUNT_ENV = FIREBASE_ADMIN_CREDENTIALS_JSON_ENV
 FIREBASE_ADMIN_HTTP_TIMEOUT_SECONDS = 4
+_FIREBASE_ADMIN_INIT_LOCK = threading.Lock()
 
 
 def _load_service_account_from_env(var_name: str) -> Optional[dict[str, Any]]:
@@ -84,32 +86,45 @@ def ensure_firebase_admin() -> Tuple[bool, Optional[str]]:
     import firebase_admin
     from firebase_admin import credentials
 
-    # Already initialized
-    app = _get_existing_app()
-    if app is not None:
-        proj = app.project_id if hasattr(app, "project_id") else None
-        return True, proj
+    # Firebase keeps the default app in process-global state. Auth, messaging,
+    # and startup warmers may all reach this helper concurrently, so the
+    # check-and-initialize sequence must be atomic.
+    with _FIREBASE_ADMIN_INIT_LOCK:
+        app = _get_existing_app()
+        if app is not None:
+            return True, _project_id_from_app(app)
 
-    sa = _load_service_account_from_env(DEFAULT_SERVICE_ACCOUNT_ENV)
-    if sa:
-        cred = credentials.Certificate(sa)
-        app = firebase_admin.initialize_app(
-            cred,
-            options={"httpTimeout": FIREBASE_ADMIN_HTTP_TIMEOUT_SECONDS},
-        )
-        return True, _project_id_from_app(app, sa)
+        sa = _load_service_account_from_env(DEFAULT_SERVICE_ACCOUNT_ENV)
+        if sa:
+            cred = credentials.Certificate(sa)
+            try:
+                app = firebase_admin.initialize_app(
+                    cred,
+                    options={"httpTimeout": FIREBASE_ADMIN_HTTP_TIMEOUT_SECONDS},
+                )
+            except ValueError:
+                # A legacy caller may still initialize the SDK outside this
+                # helper between our read and write. Adopt that app instead of
+                # turning a valid signed-in session into a backend 500.
+                app = _get_existing_app()
+                if app is None:
+                    raise
+            return True, _project_id_from_app(app, sa)
 
-    # Fall back to ADC (Cloud Run / local gcloud)
-    try:
-        cred = credentials.ApplicationDefault()
-        app = firebase_admin.initialize_app(
-            cred,
-            options={"httpTimeout": FIREBASE_ADMIN_HTTP_TIMEOUT_SECONDS},
-        )
-        return True, _project_id_from_app(app)
-    except Exception:
-        # Not configured (caller decides whether to 500/401)
-        return False, None
+        # Fall back to ADC (Cloud Run / local gcloud).
+        try:
+            cred = credentials.ApplicationDefault()
+            app = firebase_admin.initialize_app(
+                cred,
+                options={"httpTimeout": FIREBASE_ADMIN_HTTP_TIMEOUT_SECONDS},
+            )
+            return True, _project_id_from_app(app)
+        except Exception:
+            app = _get_existing_app()
+            if app is not None:
+                return True, _project_id_from_app(app)
+            # Not configured (caller decides whether to 500/401)
+            return False, None
 
 
 def ensure_firebase_auth_admin() -> Tuple[bool, Optional[str]]:

@@ -96,6 +96,25 @@ describe("SettingsRow", () => {
     expect(screen.queryByTestId("settings-row-description")).toBeNull();
   });
 
+  it("can keep navigation-row labels and descriptions to one responsive line", () => {
+    const { container } = render(
+      <SettingsRow
+        title="A deliberately long navigation destination"
+        description="Supporting copy that must not make the row taller"
+        textOverflow="truncate"
+      />,
+    );
+
+    const title = container.querySelector('[data-slot="settings-row-title"]');
+    const description = container.querySelector(
+      '[data-slot="settings-row-description"]',
+    );
+    expect(title?.className).toContain("truncate");
+    expect(title?.className).toContain("whitespace-nowrap");
+    expect(description?.className).toContain("truncate");
+    expect(description?.className).toContain("whitespace-nowrap");
+  });
+
   it("uses the calm iPhone settings list label by default", () => {
     const { container } = render(
       <SettingsRow title="Security & privacy" density="compact" />,

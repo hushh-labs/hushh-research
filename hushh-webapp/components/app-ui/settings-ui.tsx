@@ -378,6 +378,7 @@ export function SettingsRow({
   iconTone = "gray",
   density,
   layout = "settings",
+  textOverflow = "wrap",
   stackTrailingOnMobile = false,
   className,
   voiceControlId,
@@ -407,6 +408,12 @@ export function SettingsRow({
   density?: "compact" | "comfortable";
   /** Person lists use a 40px face and a stable 68px text/separator start. */
   layout?: "settings" | "person";
+  /**
+   * Keeps compact navigation rows to one title and one supporting line while
+   * leaving the complete accessible text in the DOM. Content-heavy settings
+   * rows continue to wrap by default.
+   */
+  textOverflow?: "wrap" | "truncate";
   stackTrailingOnMobile?: boolean;
   className?: string;
   voiceControlId?: string;
@@ -515,7 +522,9 @@ export function SettingsRow({
           compact={resolvedDensity === "compact"}
           data-slot="settings-row-title"
           className={cn(
-            "[overflow-wrap:anywhere]",
+            textOverflow === "truncate"
+              ? "truncate whitespace-nowrap"
+              : "[overflow-wrap:anywhere]",
             tone === "destructive" && "text-destructive",
           )}
         >
@@ -526,7 +535,11 @@ export function SettingsRow({
             as="div"
             compact={resolvedDensity === "compact"}
             data-slot="settings-row-description"
-            className="[overflow-wrap:anywhere]"
+            className={
+              textOverflow === "truncate"
+                ? "truncate whitespace-nowrap"
+                : "[overflow-wrap:anywhere]"
+            }
           >
             {description}
           </RowDescription>
