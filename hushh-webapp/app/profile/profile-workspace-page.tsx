@@ -632,6 +632,7 @@ function ProfilePageContent() {
     mode: "push" | "replace";
   } | null>(null);
   const [hasVault, setHasVault] = useState<boolean | null>(null);
+  const [vaultCheckFailed, setVaultCheckFailed] = useState(false);
   const [showVaultCreation, setShowVaultCreation] = useState(false);
   const [pkmMetadata, setPkmMetadata] =
     useState<PersonalKnowledgeModelMetadata | null>(null);
@@ -865,8 +866,17 @@ function ProfilePageContent() {
         isVaultUnlocked,
         vaultKey,
         vaultOwnerToken,
+        authLoading,
+        presenceFailed: vaultCheckFailed,
       }),
-    [hasVault, isVaultUnlocked, vaultKey, vaultOwnerToken],
+    [
+      authLoading,
+      hasVault,
+      isVaultUnlocked,
+      vaultCheckFailed,
+      vaultKey,
+      vaultOwnerToken,
+    ],
   );
   const routeBlockedByVault =
     hasVault === true &&
@@ -1073,10 +1083,15 @@ function ProfilePageContent() {
       if (!user?.uid) return;
       try {
         const next = await VaultService.checkVault(user.uid);
-        if (!cancelled) setHasVault(next);
+        if (!cancelled) {
+          setHasVault(next);
+          setVaultCheckFailed(false);
+        }
       } catch (error) {
         console.warn("[ProfilePage] Failed to check vault existence:", error);
-        if (!cancelled) setHasVault(false);
+        // A failed read is not an absent vault. Treating it as false opens the
+        // creation flow for users who already have a vault.
+        if (!cancelled) setVaultCheckFailed(true);
       }
     }
 

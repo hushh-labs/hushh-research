@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useState } from "react";
 import type { User } from "firebase/auth";
 import { Dialog as DialogPrimitive } from "radix-ui";
 
@@ -80,7 +80,7 @@ export function VaultUnlockDialog({
   const effectiveDismissible =
     dismissible && !recoveryKeyDisclosureActive;
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!open) return;
 
     activeVaultUnlockSurfaces.set(surfaceId, surfaceVariant);
@@ -167,6 +167,7 @@ export function VaultUnlockDialog({
             onRecoveryKeyDisclosureChange={
               setRecoveryKeyDisclosureActive
             }
+            isHardGate={surfaceVariant === "hard_gate"}
             onSignOut={onSignOut}
           />
         </DialogPrimitive.Content>

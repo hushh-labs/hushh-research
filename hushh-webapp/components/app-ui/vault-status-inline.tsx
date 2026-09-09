@@ -34,20 +34,18 @@ export function VaultStatusInline({
   const { isVaultUnlocked, vaultKey, vaultOwnerToken } = useVault();
   const [hasVault, setHasVault] = useState<boolean | null>(null);
   const [checkFailed, setCheckFailed] = useState(false);
+  const userId = user?.uid;
 
   useEffect(() => {
-    // No user is not "no lock". Firebase restores a session from disk on every
-    // load, so `user` is null for the whole of that window — and answering
-    // `false` there rendered "Lock required" at somebody who is signed in and
-    // holds a lock. Unknown stays unknown until an identity exists.
-    if (!user) {
+    if (!userId) {
+      // Auth restoration is not proof that the account has no vault.
       setHasVault(null);
       setCheckFailed(false);
       return;
     }
     let isMounted = true;
     setCheckFailed(false);
-    VaultService.checkVault(user.uid)
+    VaultService.checkVault(userId)
       .then((exists) => {
         if (isMounted) setHasVault(exists);
       })
@@ -61,7 +59,7 @@ export function VaultStatusInline({
     return () => {
       isMounted = false;
     };
-  }, [user]);
+  }, [authLoading, userId]);
 
   const availability = resolveVaultAvailabilityState({
     hasVault,
@@ -130,6 +128,21 @@ export function VaultStatusInline({
       >
         <Lock className="h-3.5 w-3.5 shrink-0" />
         Couldn&apos;t check your lock
+      </p>
+    );
+  }
+
+  if (availability.vaultCheckFailed) {
+    return (
+      <p
+        className={cn(
+          "type-footnote flex items-center gap-1.5 text-muted-foreground",
+          mode === "blocking" && "text-amber-700 dark:text-amber-400",
+          className,
+        )}
+      >
+        <Lock className="h-3.5 w-3.5 shrink-0" />
+        Couldn&apos;t check vault status
       </p>
     );
   }
