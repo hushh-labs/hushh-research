@@ -80,7 +80,8 @@ def _deleter(session: _Session):
         "policy_denied",
     ],
 )
-async def test_bootstrap_grant_recovery_uses_recorded_identity_without_write_replay(case):
+@pytest.mark.parametrize("target", ["bootstrap", "repository"])
+async def test_bootstrap_grant_recovery_uses_recorded_identity_without_write_replay(case, target):
     identity = {
         "name": "projects/proj-x/serviceAccounts/one-bootstrap@proj-x.iam.gserviceaccount.com",
         "projectId": "proj-x",
@@ -109,6 +110,26 @@ async def test_bootstrap_grant_recovery_uses_recorded_identity_without_write_rep
         if case == "foreign"
         else member,
     }
+    if target == "repository":
+        identity = {
+            "name": "projects/proj-x/locations/us-central1/repositories/one-pod",
+            "format": "DOCKER",
+            "createTime": "2026-09-08T00:00:00Z",
+        }
+        evidence = {
+            "repositoryIdentity": identity,
+            "bindingObservation": {
+                **evidence["bindingObservation"],
+                "step": "artifact_repo_grant_copy_writer",
+                "policyResource": f"https://artifactregistry.googleapis.com/v1/{identity['name']}:getIamPolicy",
+                "role": "roles/artifactregistry.writer",
+            },
+        }
+        action.update(
+            type="artifact_repository_iam_binding",
+            resource="one-pod",
+            role="roles/artifactregistry.writer",
+        )
     conditional = {
         "role": action["role"],
         "members": [member],
@@ -138,7 +159,22 @@ async def test_bootstrap_grant_recovery_uses_recorded_identity_without_write_rep
             _Resp(200, present if case == "readback_present" else absent),
         ]
     )
-    session.rule("POST", ":getIamPolicy", lambda url, kwargs: next(reads))
+    session.rule(
+        "GET" if target == "repository" else "POST",
+        ":getIamPolicy",
+        lambda url, kwargs: next(reads),
+    )
+    if target == "repository":
+        session.rule(
+            "GET",
+            "/repositories/one-pod",
+            _Resp(
+                200,
+                {**identity, "createTime": "2026-09-09T00:00:00Z"}
+                if case == "replaced"
+                else identity,
+            ),
+        )
     session.rule("POST", ":setIamPolicy", _Resp(200, absent))
     state = {"admission": {**evidence, "status": "admitted"}} if case.startswith("pending_") else {}
     retained = []
@@ -175,7 +211,12 @@ async def test_bootstrap_grant_recovery_uses_recorded_identity_without_write_rep
     if case == "foreign":
         assert session.calls == []
     else:
-        assert all("/serviceAccounts/" + identity["uniqueId"] in call[1] for call in session.calls)
+        path = (
+            "/repositories/one-pod"
+            if target == "repository"
+            else "/serviceAccounts/" + identity["uniqueId"]
+        )
+        assert all(path in call[1] for call in session.calls)
     if case == "pending_absent":
         assert [stage for stage, _ in retained] == ["deletion"]
 

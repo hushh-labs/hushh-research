@@ -39,6 +39,7 @@ _TEARDOWN_PRIORITY = {
     "artifact_repository": 45,
     "gcs_object": 50,
     "gcs_bucket": 60,
+    "artifact_repository_iam_binding": 70,
     "iam_binding": 70,
     "service_account": 80,
     "kms_key": 100,
@@ -53,6 +54,7 @@ _TEARDOWN_PRIORITY = {
 _RECOVERY_AUTHORITY_TYPES = frozenset(
     {
         "secret",
+        "artifact_repository_iam_binding",
         "iam_binding",
         "service_account",
         "kms_key",
@@ -136,11 +138,14 @@ def plan_teardown(resources: Any) -> list[dict[str, Any]]:
         target = (
             (
                 rtype,
-                str(action.get("resource", "")) if rtype == "service_account_iam_binding" else "",
+                str(action.get("resource", ""))
+                if rtype in {"service_account_iam_binding", "artifact_repository_iam_binding"}
+                else "",
                 str(action.get("role", "")),
                 str(action.get("member", "")),
             )
-            if rtype in {"iam_binding", "service_account_iam_binding"}
+            if rtype
+            in {"iam_binding", "service_account_iam_binding", "artifact_repository_iam_binding"}
             else (rtype, rid)
         )
         if target in targets:
@@ -1088,13 +1093,33 @@ def build_gcp_deleter(
             raise SubstrateDeleteError("runtime grant identity transition unresolved")
         _retain_grant("deletion")
 
-    def _remove_service_account_iam_binding(resource: str, role: str, member: str) -> None:
+    def _remove_resource_iam_binding(
+        resource: str, role: str, member: str, *, repository: bool = False
+    ) -> None:
         # The same read-modify-write as the project version, on the service ACCOUNT's
         # own policy. Never a whole-policy replace: the person may hold bindings here
         # that hushh knows nothing about, and dropping them while claiming to revoke
         # one grant is the failure safe-changes R3 exists for.
         base = f"https://iam.googleapis.com/v1/projects/{project}/serviceAccounts/{resource}"
-        if retain_grant_receipt is not None:
+        if repository:
+            base = f"https://artifactregistry.googleapis.com/v1/projects/{project}/locations/{region}/repositories/{resource}"
+
+        def verify_repository() -> None:
+            if not repository:
+                return
+            from hushh_mcp.services.byoc_substrate import _artifact_repository_creation_identity
+
+            expected = grant_evidence["repositoryIdentity"]
+            response = session.get(base, headers=headers, timeout=30, allow_redirects=False)
+            if (
+                response.status_code != 200
+                or _artifact_repository_creation_identity(response.json(), expected["name"])
+                != expected
+            ):
+                raise SubstrateDeleteError("repository grant identity unverified")
+
+        verify_repository()
+        if retain_grant_receipt is not None and not repository:
             from hushh_mcp.services.byoc_substrate import _service_account_creation_identity
 
             observed_identity = session.get(
@@ -1109,7 +1134,8 @@ def build_gcp_deleter(
                 != expected_identity
             ):
                 raise SubstrateDeleteError("bootstrap grant account identity unverified")
-        got = session.post(
+        read_policy = session.get if repository else session.post
+        got = read_policy(
             f"{base}:getIamPolicy",
             headers=headers,
             params={"options.requestedPolicyVersion": 3},
@@ -1125,6 +1151,7 @@ def build_gcp_deleter(
         policy = _policy_without_binding(got.json(), role, member)
         if policy is None:
             _retain_grant("admission")
+            verify_repository()
             _retain_grant("deletion")
             return
         if retain_grant_receipt is not None and grant_state:
@@ -1132,6 +1159,7 @@ def build_gcp_deleter(
                 "bootstrap grant outcome unresolved; policy write not replayed"
             )
         _retain_grant("admission")
+        verify_repository()
         put = session.post(
             f"{base}:setIamPolicy",
             headers=headers,
@@ -1142,7 +1170,7 @@ def build_gcp_deleter(
         if put.status_code != 200:
             raise SubstrateDeleteError(f"sa iam setIamPolicy http={put.status_code}")
         _retain_grant("acknowledgement")
-        observed = session.post(
+        observed = read_policy(
             f"{base}:getIamPolicy",
             headers=headers,
             params={"options.requestedPolicyVersion": 3},
@@ -1154,6 +1182,7 @@ def build_gcp_deleter(
             or _policy_without_binding(observed.json(), role, member) is not None
         ):
             raise SubstrateDeleteError("sa iam grant removal unverified")
+        verify_repository()
         _retain_grant("deletion")
 
     async def _deleter(action: dict) -> None:
@@ -1164,25 +1193,34 @@ def build_gcp_deleter(
         kind = action["type"]
         rid = action["id"]
         observation = action.get("resourceObservation")
+        if kind == "artifact_repository_iam_binding" and retain_grant_receipt is None:
+            raise SubstrateDeleteError("repository grant cleanup requires durable admission")
         if retain_grant_receipt is not None:
             from hushh_mcp.services.byoc_substrate import (
+                _artifact_repository_creation_identity,
                 _binding_observation,
                 _service_account_creation_identity,
             )
 
             raw = grant_evidence if isinstance(grant_evidence, dict) else {}
             identity_key = "runtimeIdentity" if kind == "iam_binding" else "bootstrapIdentity"
+            if kind == "artifact_repository_iam_binding":
+                identity_key = "repositoryIdentity"
             raw_identity = raw.get(identity_key) or {}
             identity = (
                 _service_account_creation_identity(raw_identity, raw_identity.get("email", ""))
                 if isinstance(raw_identity, dict)
                 else None
             )
+            if kind == "artifact_repository_iam_binding":
+                identity = _artifact_repository_creation_identity(
+                    raw_identity, f"projects/{project}/locations/{region}/repositories/one-pod"
+                )
             binding = _binding_observation(raw.get("bindingObservation"))
             if (
                 not identity
                 or not binding
-                or identity["projectId"] != project
+                or (kind != "artifact_repository_iam_binding" and identity["projectId"] != project)
                 or binding["role"] != action.get("role")
                 or raw != {identity_key: identity, "bindingObservation": binding}
             ):
@@ -1199,6 +1237,17 @@ def build_gcp_deleter(
                     != f"https://cloudresourcemanager.googleapis.com/v1/projects/{project}:getIamPolicy"
                 ):
                     raise SubstrateDeleteError("runtime grant authorization evidence invalid")
+            elif kind == "artifact_repository_iam_binding":
+                if (
+                    action.get("resource") != "one-pod"
+                    or action.get("role") != "roles/artifactregistry.writer"
+                    or binding["step"] != "artifact_repo_grant_copy_writer"
+                    or binding["disposition"] != "added"
+                    or binding["member"] != action.get("member")
+                    or binding["policyResource"]
+                    != f"https://artifactregistry.googleapis.com/v1/{identity['name']}:getIamPolicy"
+                ):
+                    raise SubstrateDeleteError("repository grant authorization evidence invalid")
             elif kind == "service_account_iam_binding":
                 if (
                     action.get("resource") != identity["uniqueId"]
@@ -1441,8 +1490,15 @@ def build_gcp_deleter(
                 _remove_project_iam_binding(
                     str(action.get("role") or ""), str(action.get("member") or "")
                 )
+            elif kind == "artifact_repository_iam_binding":
+                _remove_resource_iam_binding(
+                    str(action["resource"]),
+                    str(action["role"]),
+                    str(action["member"]),
+                    repository=True,
+                )
             elif kind == "service_account_iam_binding":
-                _remove_service_account_iam_binding(
+                _remove_resource_iam_binding(
                     str(action.get("resource") or ""),
                     str(action.get("role") or ""),
                     str(action.get("member") or ""),
