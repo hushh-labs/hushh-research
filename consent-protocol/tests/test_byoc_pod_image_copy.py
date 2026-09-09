@@ -10,6 +10,9 @@ rather than re-resolving the mutable tag, and the copier is pure REST.
 
 from __future__ import annotations
 
+import hashlib
+import json
+
 import pytest
 
 from hushh_mcp.services import pod_image_copy
@@ -214,12 +217,17 @@ def test_attached_identity_raises_when_neither_source_resolves(monkeypatch) -> N
         pod_image_copy.attached_identity(_NoMetadata())
 
 
-def test_resolve_source_digest_reads_the_content_digest_header() -> None:
+def test_resolve_source_digest_verifies_the_content_digest_header() -> None:
+    content = b'{"schemaVersion":2}'
+    digest = "sha256:" + hashlib.sha256(content).hexdigest()
     session = _Session(
-        {("GET", "/manifests/v2.1.0"): _Resp(200, headers={"Docker-Content-Digest": DIGEST})}
+        {
+            ("GET", "/manifests/v2.1.0"): _Resp(
+                200, headers={"Docker-Content-Digest": digest}, content=content
+            )
+        }
     )
-    assert pod_image_copy.resolve_source_digest(SOURCE, "tok", session) == DIGEST
-    # A ref already pinned by digest is returned without a network call.
+    assert pod_image_copy.resolve_source_digest(SOURCE, "tok", session) == digest
     assert pod_image_copy.resolve_source_digest(f"{DEST}@{DIGEST}", "tok", _Session({})) == DIGEST
 
 
@@ -237,12 +245,14 @@ def test_copy_image_copies_config_and_layers_then_the_manifest_last() -> None:
         "config": {"digest": config_digest},
         "layers": [{"digest": layer_digest}],
     }
+    content = json.dumps(manifest).encode()
+    digest = "sha256:" + hashlib.sha256(content).hexdigest()
     session = _Session(
         {
-            ("GET", f"/manifests/{DIGEST}"): _Resp(
+            ("GET", f"/manifests/{digest}"): _Resp(
                 200,
                 headers={"Content-Type": "application/vnd.docker.distribution.manifest.v2+json"},
-                content=b"{}",
+                content=content,
                 json_body=None,
             ),
             ("HEAD", "/blobs/"): _Resp(404),  # dest lacks every blob
@@ -251,20 +261,15 @@ def test_copy_image_copies_config_and_layers_then_the_manifest_last() -> None:
                 202, headers={"Location": f"https://{REGION}-docker.pkg.dev/upload/xyz"}
             ),
             ("PUT", "/upload/xyz"): _Resp(201),
-            ("PUT", f"/manifests/{DIGEST}"): _Resp(201),
+            ("PUT", f"/manifests/{digest}"): _Resp(201),
         }
     )
-    # The GET manifest must return the real manifest json as content for parsing.
-    import json as _json
-
-    session._routes[("GET", f"/manifests/{DIGEST}")].content = _json.dumps(manifest).encode()
-
-    pod_image_copy.copy_image(SOURCE, f"{DEST}@{DIGEST}", "tok", session)
+    pod_image_copy.copy_image(SOURCE, f"{DEST}@{digest}", "tok", session)
 
     methods = [c for c in session.calls]
     # The manifest PUT is LAST -- proof the image is only advertised once its blobs exist.
     put_manifest = max(
-        i for i, (m, u) in enumerate(methods) if m == "PUT" and f"/manifests/{DIGEST}" in u
+        i for i, (m, u) in enumerate(methods) if m == "PUT" and f"/manifests/{digest}" in u
     )
     put_blobs = [i for i, (m, u) in enumerate(methods) if m == "PUT" and "/upload/" in u]
     assert put_blobs and put_manifest > max(put_blobs)
@@ -320,3 +325,51 @@ def test_blob_upload_keeps_credentials_at_destination(location):
             pod_image_copy._copy_blob(*args)
         session.put.assert_not_called()
     assert session.post.call_args.kwargs["allow_redirects"] is False
+
+
+@pytest.mark.parametrize("operation", ["resolve", "copy"])
+def test_manifest_digest_mismatch_refuses_before_destination_mutation(operation):
+    session = _Session(
+        {
+            ("GET", "/manifests/"): _Resp(
+                200, headers={"Docker-Content-Digest": DIGEST}, content=b"corrupted-manifest"
+            )
+        }
+    )
+    with pytest.raises(pod_image_copy.ImageCopyError, match="content digest unverified"):
+        if operation == "resolve":
+            pod_image_copy.resolve_source_digest(SOURCE, "tok", session)
+        else:
+            pod_image_copy.copy_image(SOURCE, f"{DEST}@{DIGEST}", "tok", session)
+    assert all(method == "GET" for method, _ in session.calls)
+
+
+@pytest.mark.parametrize("corrupt_child", [False, True])
+def test_multiarch_copy_verifies_child_before_publishing_index(corrupt_child):
+    child = b'{"schemaVersion":2,"layers":[]}'
+    child_digest = "sha256:" + hashlib.sha256(child).hexdigest()
+    index = json.dumps({"manifests": [{"digest": child_digest}]}).encode()
+    index_digest = "sha256:" + hashlib.sha256(index).hexdigest()
+    session = _Session(
+        {
+            ("GET", f"/manifests/{index_digest}"): _Resp(
+                200,
+                content=index,
+                headers={"Content-Type": "application/vnd.oci.image.index.v1+json"},
+            ),
+            ("GET", f"/manifests/{child_digest}"): _Resp(
+                200,
+                content=b"corrupted" if corrupt_child else child,
+                headers={"Content-Type": "application/vnd.oci.image.manifest.v1+json"},
+            ),
+            ("PUT", "/manifests/"): _Resp(201),
+        }
+    )
+    if corrupt_child:
+        with pytest.raises(pod_image_copy.ImageCopyError, match="content digest unverified"):
+            pod_image_copy.copy_image(SOURCE, f"{DEST}@{index_digest}", "tok", session)
+        assert all(method == "GET" for method, _ in session.calls)
+    else:
+        pod_image_copy.copy_image(SOURCE, f"{DEST}@{index_digest}", "tok", session)
+        writes = [url.rsplit("/", 1)[-1] for method, url in session.calls if method == "PUT"]
+        assert writes == [child_digest, index_digest]

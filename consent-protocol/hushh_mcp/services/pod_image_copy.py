@@ -21,7 +21,9 @@ not used, so it is fail-closed by design wherever it runs.
 
 from __future__ import annotations
 
+import hashlib
 import json
+import re
 from typing import Any, Optional
 from urllib.parse import urljoin, urlsplit, urlunsplit
 
@@ -190,12 +192,14 @@ def _blob_url(host: str, repository: str, digest: str) -> str:
 def resolve_source_digest(image_ref: str, token: str, session: Any = None) -> str:
     """The immutable ``sha256:...`` digest for a (possibly tag-pinned) source ref.
 
-    A HEAD on the manifest returns the content digest without transferring the body. A
-    ref that is already a digest is returned as-is.
+    Verify a tagged manifest against its content-digest header. An already pinned
+    reference is syntax-checked here; its bytes are verified when downloaded.
     """
     session = session or _requests()
     host, repository, reference = _parse_ref(image_ref)
     if reference.startswith("sha256:"):
+        if not re.fullmatch(r"sha256:[0-9a-f]{64}", reference):
+            raise ImageCopyError("invalid source manifest digest")
         return reference
     resp = session.get(
         _manifest_url(host, repository, reference),
@@ -208,8 +212,9 @@ def resolve_source_digest(image_ref: str, token: str, session: Any = None) -> st
             f"HTTP {getattr(resp, 'status_code', '?')}"
         )
     digest = (getattr(resp, "headers", {}) or {}).get("Docker-Content-Digest", "")
-    if not digest:
-        raise ImageCopyError(f"source manifest for {image_ref} carried no content digest")
+    content = getattr(resp, "content", b"") or b""
+    if not isinstance(content, bytes) or digest != "sha256:" + hashlib.sha256(content).hexdigest():
+        raise ImageCopyError("source manifest content digest unverified", side="source")
     return digest
 
 
@@ -322,6 +327,11 @@ def _get_manifest(
             side="source",
         )
     content = getattr(resp, "content", b"") or b""
+    if (
+        not isinstance(content, bytes)
+        or reference != "sha256:" + hashlib.sha256(content).hexdigest()
+    ):
+        raise ImageCopyError("source manifest content digest unverified", side="source")
     media_type = (getattr(resp, "headers", {}) or {}).get("Content-Type", "").split(";")[0].strip()
     return content, media_type
 
