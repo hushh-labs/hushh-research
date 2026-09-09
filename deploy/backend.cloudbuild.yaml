@@ -113,8 +113,8 @@ steps:
   # serviceUsageConsumer role checks belong to a preflight, not the deploy body.
   # A separate step gets its own arg budget; a failure here stops the build the
   # same way an inline check would. The allowlist is the only cross-project
-  # managed-Vertex target permitted: dev may ride hushh-pda-uat, and uat may ride
-  # the hushh-gemini-bridge; every other cross-project pairing is refused.
+  # managed-Vertex target permitted: dev may ride hushh-pda-uat, and uat/production may use
+  # hushh-vertex-personal54; every other cross-project pairing is refused.
   - name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
     entrypoint: "bash"
     env:
@@ -142,7 +142,7 @@ steps:
         fi
         if [[ "${genai_project_id}" != "$PROJECT_ID" ]]; then
           case "${_DEPLOY_ENV}:${genai_project_id}" in
-            dev:hushh-pda-uat|uat:hushh-vertex-personal54) ;;
+            dev:hushh-pda-uat|uat:hushh-vertex-personal54|production:hushh-vertex-personal54) ;;
             *)
               echo "Cross-project managed Vertex target is not allowlisted." >&2
               exit 1

@@ -277,19 +277,37 @@ It checks that:
 every text agent to one Gemini generation at once: agent manifests say
 `gemini-default`, which resolves to `constants.GEMINI_MODEL`. Blank keeps the last
 default generation (`FLEET_TEXT_MODEL_DEFAULT`, **3.8 Flash** since 2026-09-02).
-Production pins `gemini-3.7-flash` explicitly in `deploy-production.yml`, because its
-Vertex allowed-models policy still refuses 3.8 (verified live: 400 on `hushh-pda`,
-3.7 succeeds). Remove that pin once an org-policy admin admits 3.8 there. A
-lane may flip it only after its project's `constraints/vertexai.allowedModels`
-policy admits the id. `gemini-3.8-flash` was admitted for `hushh-pda-uat` on
-2026-09-02, so the dev lane (whose Gemini project is `hushh-pda-uat`) runs it. UAT's
-Gemini project is `hushh-gemini-bridge`, whose allowlist still rejects it (verified
-2026-09-02: a direct generateContent returns a policy violation), so UAT stays on the
-default until an org-policy admin admits the id there; production likewise. The
+Production's workflow retains its explicit `gemini-3.7-flash` pin. The previous
+2026-09-02 policy failures on `hushh-pda` and `hushh-gemini-bridge` describe the old
+routing, not the current target. Since the 2026-09-07 billing repair, production
+and UAT target `hushh-vertex-personal54`; a direct Gemini 3.8 Flash request there
+returned HTTP 200 with generated text. Dev continues to target `hushh-pda-uat`.
+Changing a lane's model still requires verifying its target project's policy. The
 deploy-time Vertex readiness probe resolves the alias through the same resolver and
 receives `HUSSH_GEMINI_TEXT_MODEL`, so it validates the lane's switched model, never
 the literal alias. Every text agent names the alias, the memory chain and reducer included; only the
 Live head keeps an explicit pin.
+
+### Managed Vertex billing isolation (2026-09-07)
+
+Production and UAT managed Vertex requests target `hushh-vertex-personal54`, funded
+by personal billing account `010AF8-16B789-3305B7`. This dedicated project has no
+application deployments, databases, storage buckets, or Developer API keys created
+by the repair. Only the Vertex API was explicitly enabled. Runtime authentication
+remains each environment's Cloud Run service-account ADC; never install personal
+OAuth credentials in a deployed service.
+
+The runtime projects `hushh-pda`, `hushh-pda-uat`, and `hushh-pda-dev` remain on
+native billing account `014D7F-FD970D-D2459E`. Keep SQL, Cloud Run, builds, secrets,
+and other infrastructure in their native projects. `_GENAI_PROJECT_ID` changes
+managed Vertex routing only. Do not move an application project's billing account
+to fund model calls. Developer API keys and local ADC are separate configurations.
+
+The backend workflow substitutions, fallback release script, and Cloud Build
+cross-project allowlist must agree on this target. The live repair used existing
+image digests; source changes must land before a regular deployment can preserve
+it. The old bridge remains on closed account `013848-8258FA-2D068F` and is not a
+fallback for production or UAT managed Vertex.
 
 ### Wallet subagent flags and the central One mailbox (2026-09-02)
 
