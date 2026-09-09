@@ -1051,8 +1051,23 @@ def build_gcp_deleter(
         if got.status_code != 200:
             raise SubstrateDeleteError(f"project iam getIamPolicy http={got.status_code}")
         policy = _policy_without_binding(got.json(), role, member)
+        if (
+            retain_grant_receipt is not None
+            and _policy_without_binding(
+                got.json(), role, grant_evidence["bindingObservation"]["member"]
+            )
+            is not None
+        ):
+            raise SubstrateDeleteError("runtime grant identity transition unresolved")
         if policy is None:
+            _retain_grant("admission")
+            _retain_grant("deletion")
             return
+        if retain_grant_receipt is not None and grant_state:
+            raise SubstrateDeleteError(
+                "runtime grant outcome unresolved; policy write not replayed"
+            )
+        _retain_grant("admission")
         put = session.post(
             f"{base}:setIamPolicy",
             headers=headers,
@@ -1062,6 +1077,7 @@ def build_gcp_deleter(
         )
         if put.status_code != 200:
             raise SubstrateDeleteError(f"project iam setIamPolicy http={put.status_code}")
+        _retain_grant("acknowledgement")
         observed = session.post(
             f"{base}:getIamPolicy",
             headers=headers,
@@ -1074,6 +1090,15 @@ def build_gcp_deleter(
             or _policy_without_binding(observed.json(), role, member) is not None
         ):
             raise SubstrateDeleteError("project iam grant removal unverified")
+        if (
+            retain_grant_receipt is not None
+            and _policy_without_binding(
+                observed.json(), role, grant_evidence["bindingObservation"]["member"]
+            )
+            is not None
+        ):
+            raise SubstrateDeleteError("runtime grant identity transition unresolved")
+        _retain_grant("deletion")
 
     def _remove_service_account_iam_binding(resource: str, role: str, member: str) -> None:
         # The same read-modify-write as the project version, on the service ACCOUNT's
@@ -1158,7 +1183,8 @@ def build_gcp_deleter(
             )
 
             raw = grant_evidence if isinstance(grant_evidence, dict) else {}
-            raw_identity = raw.get("bootstrapIdentity") or {}
+            identity_key = "runtimeIdentity" if kind == "iam_binding" else "bootstrapIdentity"
+            raw_identity = raw.get(identity_key) or {}
             identity = (
                 _service_account_creation_identity(raw_identity, raw_identity.get("email", ""))
                 if isinstance(raw_identity, dict)
@@ -1166,20 +1192,37 @@ def build_gcp_deleter(
             )
             binding = _binding_observation(raw.get("bindingObservation"))
             if (
-                kind != "service_account_iam_binding"
-                or not identity
+                not identity
                 or not binding
                 or identity["projectId"] != project
-                or action.get("resource") != identity["uniqueId"]
-                or action.get("role") != "roles/iam.serviceAccountTokenCreator"
                 or binding["role"] != action.get("role")
-                or binding["member"] != action.get("member")
-                or binding["step"] != "authorize_bootstrap_impersonation"
-                or binding["policyResource"]
-                != f"https://iam.googleapis.com/v1/{identity['name']}:getIamPolicy"
-                or raw != {"bootstrapIdentity": identity, "bindingObservation": binding}
+                or raw != {identity_key: identity, "bindingObservation": binding}
             ):
-                raise SubstrateDeleteError("bootstrap grant authorization evidence invalid")
+                raise SubstrateDeleteError("grant authorization evidence invalid")
+            if kind == "iam_binding":
+                if (
+                    action.get("role") != "roles/aiplatform.user"
+                    or binding["step"] != "iam_pod_sa_vertex"
+                    or binding["disposition"] != "added"
+                    or binding["member"] != f"serviceAccount:{identity['email']}"
+                    or action.get("member")
+                    != f"deleted:serviceAccount:{identity['email']}?uid={identity['uniqueId']}"
+                    or binding["policyResource"]
+                    != f"https://cloudresourcemanager.googleapis.com/v1/projects/{project}:getIamPolicy"
+                ):
+                    raise SubstrateDeleteError("runtime grant authorization evidence invalid")
+            elif kind == "service_account_iam_binding":
+                if (
+                    action.get("resource") != identity["uniqueId"]
+                    or action.get("role") != "roles/iam.serviceAccountTokenCreator"
+                    or binding["member"] != action.get("member")
+                    or binding["step"] != "authorize_bootstrap_impersonation"
+                    or binding["policyResource"]
+                    != f"https://iam.googleapis.com/v1/{identity['name']}:getIamPolicy"
+                ):
+                    raise SubstrateDeleteError("bootstrap grant authorization evidence invalid")
+            else:
+                raise SubstrateDeleteError("coordinated grant target unsupported")
             expected_status = {
                 "admission": "admitted",
                 "acknowledgement": "acknowledged",

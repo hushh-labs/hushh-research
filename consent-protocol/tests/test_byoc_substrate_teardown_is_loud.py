@@ -192,6 +192,82 @@ async def test_shared_artifact_repository_refuses_without_provider_access(monkey
     assert session.calls == []
 
 
+@pytest.mark.parametrize("case", ["deleted", "original", "foreign_uid", "pending"])
+async def test_runtime_project_grant_cleanup_targets_exact_deleted_identity(case):
+    email = "one-pod-owner@proj-x.iam.gserviceaccount.com"
+    uid = "123456789012345678901"
+    member = f"deleted:serviceAccount:{email}?uid={uid}"
+    role = "roles/aiplatform.user"
+    evidence = {
+        "runtimeIdentity": {
+            "name": f"projects/proj-x/serviceAccounts/{email}",
+            "projectId": "proj-x",
+            "email": email,
+            "uniqueId": uid,
+        },
+        "bindingObservation": {
+            "step": "iam_pod_sa_vertex",
+            "policyResource": "https://cloudresourcemanager.googleapis.com/v1/projects/proj-x:getIamPolicy",
+            "role": role,
+            "member": f"serviceAccount:{email}",
+            "disposition": "added",
+            "beforeEtag": "before",
+            "afterEtag": "after",
+        },
+    }
+    action = {
+        "type": "iam_binding",
+        "id": "runtime-grant",
+        "role": role,
+        "member": member.replace(uid, "999999999999999999999") if case == "foreign_uid" else member,
+    }
+    other = member.replace(uid, "888888888888888888888")
+    policy = {
+        "version": 3,
+        "etag": "current",
+        "bindings": [
+            {
+                "role": role,
+                "members": [member, other]
+                + ([f"serviceAccount:{email}"] if case == "original" else []),
+            }
+        ],
+    }
+    absent = {"version": 3, "etag": "after", "bindings": [{"role": role, "members": [other]}]}
+    session = _Session()
+    reads = iter([_Resp(200, policy), _Resp(200, absent)])
+    session.rule("POST", ":getIamPolicy", lambda url, kwargs: next(reads))
+    session.rule("POST", ":setIamPolicy", _Resp(200, absent))
+    retained = []
+
+    def retain(stage, receipt):
+        retained.append((stage, receipt))
+        return True
+
+    state = {"admission": {**evidence, "status": "admitted"}} if case == "pending" else {}
+    deleter = build_gcp_deleter(
+        token="synthetic",  # noqa: S106 -- scripted provider, no usable credential
+        project="proj-x",
+        region="us-central1",
+        session=session,
+        grant_authorization_receipt=evidence,
+        grant_erasure_state=state,
+        retain_grant_receipt=retain,
+    )
+    if case == "deleted":
+        await deleter(action)
+        assert retained[-1][1]["status"] == "observed_absent"
+        write = next(call for call in session.calls if ":setIamPolicy" in call[1])
+        assert write[2]["json"]["policy"]["bindings"] == [{"role": role, "members": [other]}]
+    else:
+        with pytest.raises(SubstrateDeleteError):
+            await deleter(action)
+        assert not any(":setIamPolicy" in call[1] for call in session.calls)
+        assert not retained
+    if case == "foreign_uid":
+        assert not session.calls
+
+
 _SA_ACTION = {
     "type": "service_account",
     "id": "one-pod-abc@proj-x.iam.gserviceaccount.com",
