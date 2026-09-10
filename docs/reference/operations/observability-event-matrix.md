@@ -69,7 +69,7 @@ Every emitted observability event carries centrally added shared params:
 | --- | --- | --- | --- | --- | --- |
 | `persona_switched` | App persona switch surface selected investor or RIA | `action`, `result` | `hushh-webapp/components/app-ui/top-app-bar.tsx` | RIA top-of-funnel continuity for authenticated users | GA DebugView, RIA funnel SQL |
 | `ria_onboarding_submitted` | RIA onboarding form submitted | `result` | `hushh-webapp/app/ria/onboarding/page.tsx` | RIA onboarding start/completion quality | GA DebugView |
-| `ria_verification_status_changed` | RIA verification status transition | `action`, `result` | `hushh-webapp/app/ria/onboarding/page.tsx` | RIA status progression | GA DebugView |
+| `ria_verification_status_changed` | Verification decision returned for an RIA onboarding submission | `action` (status reached), `result` (`expected_error` on rejection) | `hushh-webapp/lib/observability/ria-events.ts` via `hushh-webapp/app/ria/onboarding/page.tsx` | RIA verification outcome rate; distinguishes a submitted profile from an approved one | `npm run verify:analytics`, GA DebugView |
 | `marketplace_profile_viewed` | Marketplace RIA profile rendered usable public profile state | `action`, `result` | `hushh-webapp/app/marketplace/ria/page-client.tsx` | marketplace high-intent engagement | GA DebugView, feature engagement SQL |
 | `ria_request_created` | RIA request creation result | `result` | `hushh-webapp/lib/services/ria-service.ts` | RIA request creation KPI support | GA DebugView, RIA funnel SQL |
 | `ria_workspace_opened` | RIA client workspace opened | `result` | `hushh-webapp/components/ria/use-ria-client-workspace-state.ts` | workspace readiness and activation support | GA DebugView, RIA funnel SQL |
@@ -161,7 +161,7 @@ These events are declared in the schema, but there is no current live emitter in
 
 | Event | Current status | Next action before dashboard use |
 | --- | --- | --- |
-| `ria_request_blocked_policy` | declared only | add emitter or remove from contract |
-| `mcp_ria_read_tool_called` | declared only | add emitter or remove from contract |
+| `ria_request_blocked_policy` | declared only | add emitter or remove from contract. No policy-block path exists on the RIA request flow today, so emitting it would mean inventing the concept first. |
+| `mcp_ria_read_tool_called` | declared only | add emitter or remove from contract. This is a server-side MCP concern; the web client cannot emit it, and no emitter exists in `consent-protocol` either. |
 
 Do not build dashboard assumptions on declared-only events.
