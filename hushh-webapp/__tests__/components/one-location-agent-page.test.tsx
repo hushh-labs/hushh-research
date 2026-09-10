@@ -1859,8 +1859,10 @@ describe("OneLocationAgentPage", () => {
       name: "Location",
     });
     expect(headerActions.className).toContain("ml-auto");
-    expect(headerActions.className).toContain("items-end");
+    expect(headerActions.className).toContain("items-center");
     expect(headerActions.className).toContain("justify-center");
+    expect(headerActions.className).toContain("w-[104px]");
+    expect(headerActions.className).toContain("max-w-[45vw]");
     // The actions column owns the switch and its compact visible status.
     const status = screen.getByTestId("one-location-header-status");
     expect(headerActions.contains(status)).toBe(true);
@@ -1871,12 +1873,13 @@ describe("OneLocationAgentPage", () => {
     );
     expect(status).toHaveClass(
       "mt-1",
-      "w-full",
-      "whitespace-nowrap",
-      "text-right",
-      "text-[13px]",
-      "leading-[18px]",
+      "max-w-full",
+      "whitespace-normal",
+      "text-center",
+      "text-[12px]",
+      "leading-4",
       "font-normal",
+      "[overflow-wrap:anywhere]",
     );
     expect(status.textContent).toBe("Location off");
     // Still the switch's description wherever it renders.
@@ -2423,7 +2426,7 @@ describe("OneLocationAgentPage", () => {
     expect(mockStoreEnvelope).not.toHaveBeenCalled();
   });
 
-  it("shows a limited status when the captured point is too approximate for Nearby", async () => {
+  it("keeps the header on while the captured point is too approximate for Nearby", async () => {
     mockGetState.mockResolvedValue({
       ...locationState(),
       ownerGrants: [],
@@ -2440,9 +2443,8 @@ describe("OneLocationAgentPage", () => {
     await skipLocationEntryFlow();
 
     fireEvent.click(screen.getByRole("switch", { name: "Turn location on" }));
-    await waitFor(() =>
-      expect(screen.getByText("Location limited")).toBeTruthy(),
-    );
+    await waitFor(() => expect(screen.getByText("Location on")).toBeTruthy());
+    expect(screen.queryByText("Location limited")).toBeNull();
     expect(
       screen.getByRole("switch", { name: "Turn location off" }),
     ).toHaveAttribute("aria-checked", "true");

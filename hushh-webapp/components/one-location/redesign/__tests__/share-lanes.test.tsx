@@ -19,6 +19,12 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { SharedWithMeCard } from "@/components/one-location/redesign/cards";
+import {
+  ACTIVE_SHARE_CHANGE_TIME_CLASSNAME,
+  ACTIVE_SHARE_LANE_ACTIONS_CLASSNAME,
+  ACTIVE_SHARE_LANE_ROW_CLASSNAME,
+  ACTIVE_SHARE_STOP_CLASSNAME,
+} from "@/components/one-location/redesign/active-share-row-layout";
 import { PersonShareLanes } from "@/components/one-location/redesign/share-lanes";
 import {
   grantLaneLabel,
@@ -170,6 +176,38 @@ describe("per-share Stop inside a person's row", () => {
         name: "Stop the location share with Rohan Mehta",
       }),
     ).not.toBeDisabled();
+  });
+
+  it("keeps Change time immediately before Stop in one responsive action cluster", () => {
+    const [group] = groupGrantsByCounterpart([ordinary], "owner");
+    render(
+      <PersonShareLanes
+        group={group!}
+        counterpartName="Rohan Mehta"
+        onChangeEndTime={vi.fn()}
+        onStopGrant={vi.fn()}
+      />,
+    );
+
+    const row = screen.getByTestId("one-location-share-lane");
+    const change = screen.getByRole("button", {
+      name: "Change end time for Rohan Mehta",
+    });
+    const stop = screen.getByRole("button", {
+      name: "Stop the location share with Rohan Mehta",
+    });
+    const actions = change.parentElement;
+
+    expect(row).toHaveClass(...ACTIVE_SHARE_LANE_ROW_CLASSNAME.split(" "));
+    expect(actions).toHaveClass(
+      ...ACTIVE_SHARE_LANE_ACTIONS_CLASSNAME.split(" "),
+    );
+    expect(change).toHaveClass(
+      ...ACTIVE_SHARE_CHANGE_TIME_CLASSNAME.split(" "),
+    );
+    expect(stop).toHaveClass(...ACTIVE_SHARE_STOP_CLASSNAME.split(" "));
+    expect(actions?.children[0]).toBe(change);
+    expect(actions?.children[1]).toBe(stop);
   });
 
   it("says Stop viewing on the receiving side -- and still one per share", () => {
