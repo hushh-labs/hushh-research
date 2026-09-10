@@ -246,15 +246,80 @@ async def _validate_consent(consent_token: str, *, verifier: Any = None) -> dict
     return {"user_id": verdict.user_id, "scope": verdict.scope}
 
 
+# -- owner-local sessions ------------------------------------------------------
+#
+# A turn admitted by the pod's own session authority (api/routes/one/pod_session.py)
+# carries no hub token. The session's local verifier answers the consent question
+# the hub used to, from the pod's own trust and tombstone records; the hub-verified
+# path below is unchanged. Role comes from the signed binding the session was minted
+# from, and only the app role may run a turn.
+
+
+async def _puppy_link_available(hushh_id: str, device_id: str) -> bool:
+    """Whether the owner's Puppy device holds a live link on THIS pod's broker."""
+    try:
+        from hushh_mcp.services.puppy_broker import BROKER  # noqa: PLC0415
+    except Exception:  # noqa: BLE001 - no broker in this image means no link
+        return False
+    return await BROKER.available((hushh_id, device_id))
+
+
+async def _require_local_puppy_admission(session: dict, device_id: str) -> None:
+    """A local Puppy turn needs an enrolled, un-revoked, inference-scoped, linked device."""
+    from hushh_mcp.services.pod_authority_store import active_authority_store  # noqa: PLC0415
+    from hushh_mcp.services.pod_session_authority import (  # noqa: PLC0415
+        ROLE_DEVICE,
+        SCOPE_PUPPY_INFERENCE,
+    )
+
+    store = active_authority_store()
+    status = store.subject(device_id) if store is not None else None
+    trusted = (
+        status is not None
+        and status.state == "trusted"
+        and status.trust is not None
+        and status.trust.role == ROLE_DEVICE
+        and SCOPE_PUPPY_INFERENCE in (status.trust.binding.get("scopes") or [])
+    )
+    if not trusted:
+        logger.info("pod_turn.puppy_device_not_trusted")
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "PUPPY_OFFLINE", "reason": "device not enrolled for inference"},
+        )
+    if not await _puppy_link_available(str(session.get("hushh_id") or ""), device_id):
+        raise HTTPException(
+            status_code=409, detail={"code": "PUPPY_OFFLINE", "reason": "device not linked"}
+        )
+
+
+async def _memory_commit_allowed() -> bool:
+    """Only the incarnation that holds the fence publishes to memory."""
+    from hushh_mcp.services.pod_session_authority import (  # noqa: PLC0415
+        active_session_authority,
+    )
+
+    authority = active_session_authority()
+    if authority is None:
+        return True
+    return (await authority.lease.is_current()) is True
+
+
 async def run_pod_turn(
     *,
     payload: PodTurnRequest,
     consent_token: str,
     stream_fn: Any = None,
     verifier: Any = None,
+    session: dict | None = None,
 ) -> dict:
     """The testable core: validate, run one turn, collect. Injectable by keyword."""
     _require_enabled()
+    if session is not None and str(session.get("role") or "") != "app":
+        raise HTTPException(
+            status_code=403,
+            detail={"code": "role_mismatch", "message": "an app-role session is required"},
+        )
     if not (consent_token or "").strip():
         raise HTTPException(status_code=401, detail="consent token required")
 
@@ -272,6 +337,12 @@ async def run_pod_turn(
     # Keep the no-argument manifest resolver injectable for existing pod tests
     # and callers; an explicit Puppy target is the only payload-dependent path.
     provider, model = _resolve_model(payload) if payload.runtime_provider else _resolve_model()
+    if session is not None and provider == "puppy":
+        await _require_local_puppy_admission(session, str(payload.puppy_device_id or ""))
+        if not str(payload.runtime_credential or "").strip():
+            # The session IS the Puppy authority on the local path; the marker keeps
+            # every existing non-empty credential check honest without a hub grant.
+            payload = payload.model_copy(update={"runtime_credential": consent_token})
     runtime_mode = _resolve_runtime_mode(payload, provider)
     # Normalised once: an all-whitespace projection is not grounding, and letting it
     # count would report `grounded: true` for a turn that learned nothing.
@@ -334,6 +405,7 @@ async def run_pod_turn(
         vertex_location=payload.vertex_location,
         data_door_grants=payload.data_door_grants or {},
         puppy_device_id=payload.puppy_device_id,
+        verifier=verifier,
     )
 
     chunks: list[str] = []
@@ -391,6 +463,8 @@ async def run_pod_turn(
                 # a DB-backed specialist reads through the hub broker rather than
                 # failing on the missing DB credential. Empty {} keeps today's behaviour.
                 data_door_grants=payload.data_door_grants or {},
+                # A fenced incarnation answers but never publishes; see text_runtime.
+                memory_commit_allowed=_memory_commit_allowed,
             ):
                 kind = getattr(event, "kind", "")
                 if kind == "token":
@@ -662,8 +736,27 @@ def _resolve_model(payload: PodTurnRequest | None = None) -> tuple[str, str]:
 async def pod_turn_route(
     payload: PodTurnRequest = Body(...),
     x_consent_token: Optional[str] = Header(default=None, alias="X-Consent-Token"),
+    authorization: Optional[str] = Header(default=None),
 ) -> dict:
-    """Run one Agent One turn inside this pod."""
+    """Run one Agent One turn inside this pod.
+
+    Two doors, one core. A hub-relayed turn carries ``X-Consent-Token`` and the hub
+    verifies it. An owner-direct turn carries a pod session as the bearer and the
+    pod's own authority verifies it; a bearer that is not a pod session (a hub
+    consent token, an OIDC token) is refused by shape, never accepted as local.
+    """
+    if not str(x_consent_token or "").strip():
+        from api.routes.one.pod_session import bearer, verified_session  # noqa: PLC0415
+        from hushh_mcp.services.pod_session_authority import ROLE_APP  # noqa: PLC0415
+
+        if bearer(authorization):
+            authority, claims = verified_session(authorization, role=ROLE_APP)
+            return await run_pod_turn(
+                payload=payload,
+                consent_token=authority.local_token(claims),
+                verifier=authority.local_verifier(claims),
+                session=claims,
+            )
     return await run_pod_turn(payload=payload, consent_token=x_consent_token or "")
 
 

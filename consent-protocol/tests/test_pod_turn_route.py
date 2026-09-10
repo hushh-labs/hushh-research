@@ -854,3 +854,284 @@ async def test_a_pre_join_runner_returns_no_memory_key(enabled, monkeypatch):
     )
     assert "memory" not in result
     assert "specialists" in result
+
+
+# -- owner-local sessions (Lane A) ---------------------------------------------------
+#
+# A turn admitted by the pod's own authority never asks the hub. These build a real
+# authority over a real log so the refusals are the authority's, not a stub's.
+
+
+@pytest.fixture
+async def local_authority(tmp_path, monkeypatch):
+    import base64
+    import json
+    import time
+
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives.asymmetric import ec
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+    from hushh_mcp.consent import token_signing
+    from hushh_mcp.services import pod_authority_store as store_module
+    from hushh_mcp.services import pod_session_authority as psa
+    from hushh_mcp.services.pod_commit_log import LocalObjectStore, PodCommitLog
+
+    hub = Ed25519PrivateKey.generate()
+    seed = hub.private_bytes(
+        serialization.Encoding.Raw, serialization.PrivateFormat.Raw, serialization.NoEncryption()
+    )
+    public = hub.public_key().public_bytes(
+        serialization.Encoding.Raw, serialization.PublicFormat.Raw
+    )
+    monkeypatch.setenv("CONSENT_ED25519_PRIVATE_KEY", base64.b64encode(seed).decode())
+    monkeypatch.setenv("CONSENT_ED25519_KID", "kid-turn")
+    monkeypatch.setenv(
+        "CONSENT_ED25519_PUBLIC_KEYS", json.dumps({"kid-turn": base64.b64encode(public).decode()})
+    )
+    token_signing.reset_caches()
+    monkeypatch.setenv("HUSSH_ID", "ha1_turn_owner")
+    # The session door checks pod mode itself (api/routes/one/pod_session.py); set it
+    # explicitly so this fixture does not depend on pod_server having been imported
+    # earlier in the same process.
+    monkeypatch.setenv("HUSSH_POD_MODE", "1")
+
+    object_store = LocalObjectStore(str(tmp_path / "pod"))
+    log = PodCommitLog(object_store, b"T" * 32, owner_id="ha1_turn_owner")
+    incarnation = await store_module.claim_incarnation(object_store, b"T" * 32, instance_id="a")
+    store = store_module.PodAuthorityStore(log, hushh_id="ha1_turn_owner")
+    await store.load()
+    authority = psa.PodSessionAuthority(
+        store=store,
+        lease=store_module.IncarnationLease(object_store, incarnation),
+        dek=b"T" * 32,
+        pod_key_id="podk_turn",
+        pod_public_key=base64.b64encode(b"K" * 32).decode(),
+        environment="dev",
+    )
+    store_module.set_active_authority_store(store)
+    psa.set_active_session_authority(authority)
+
+    class Subject:
+        def __init__(self, subject_id, platform):
+            self.subject_id, self.platform = subject_id, platform
+            self._key = ec.generate_private_key(ec.SECP256R1())
+            self.public_key_b64 = base64.b64encode(
+                self._key.public_key().public_bytes(
+                    serialization.Encoding.DER, serialization.PublicFormat.SubjectPublicKeyInfo
+                )
+            ).decode()
+
+        def sign(self, payload):
+            return base64.b64encode(
+                self._key.sign(payload.encode(), ec.ECDSA(hashes.SHA256()))
+            ).decode()
+
+    async def admit(subject_id, platform, *, version=1, scopes=None):
+        subject = Subject(subject_id, platform)
+        role = psa.role_for_platform(platform)
+        now = int(time.time() * 1000)
+        binding = {
+            "kind": psa.BINDING_KIND,
+            "hushh_id": "ha1_turn_owner",
+            "user_id": "uid-turn",
+            "environment": "dev",
+            "pod_key_id": "podk_turn",
+            "pod_public_key": base64.b64encode(b"K" * 32).decode(),
+            "url": "https://pod.example",
+            "subject_id": subject_id,
+            "subject_kind": role,
+            "subject_public_key": subject.public_key_b64,
+            "platform": platform,
+            "role": role,
+            "scopes": list(
+                scopes
+                if scopes is not None
+                else (psa.APP_SCOPES if role == "app" else psa.DEVICE_INFERENCE_SCOPES)
+            ),
+            "version": version,
+            "issued_at_ms": now,
+            "expires_at_ms": now + 86_400_000,
+        }
+        signature = token_signing.sign_payload(
+            psa.canonical_json(binding), hmac_key="x", require_asymmetric=True
+        )
+        challenge = authority.create_challenge(subject_id)
+        return await authority.admit(
+            binding=binding,
+            signature=signature,
+            challenge_id=challenge["challenge_id"],
+            nonce=challenge["nonce"],
+            proof=subject.sign(challenge["signing_payload"]),
+            epoch=authority.epoch,
+        )
+
+    yield {"authority": authority, "admit": admit, "store": store}
+    psa.set_active_session_authority(None)
+    store_module.set_active_authority_store(None)
+    token_signing.reset_caches()
+
+
+def _local_turn_kwargs(authority, claims, **extra):
+    return {
+        "consent_token": authority.local_token(claims),
+        "verifier": authority.local_verifier(claims),
+        "session": claims,
+        **extra,
+    }
+
+
+async def test_a_local_session_runs_a_turn_without_asking_the_hub(
+    enabled, monkeypatch, local_authority
+):
+    from hushh_mcp.services import pod_consent_client
+
+    async def _never(*_a, **_k):
+        raise AssertionError("the hub was asked on an owner-local turn")
+
+    monkeypatch.setattr(pod_consent_client, "verify_consent", _never)
+    authority = local_authority["authority"]
+    _, claims = await local_authority["admit"]("tdv_app_1", "web")
+    seen = {}
+
+    async def _run(**kwargs):
+        seen.update(kwargs)
+        yield _Event("token", "local answer")
+
+    result = await pod_turn.run_pod_turn(
+        payload=_payload(), stream_fn=_run, **_local_turn_kwargs(authority, claims)
+    )
+
+    assert result["text"] == "local answer"
+    assert seen["user_id"] == "uid-turn"
+    assert seen["session_owner_id"] == "ha1_turn_owner"
+    assert seen["consent_token"].startswith("pod-session:")
+
+
+async def test_a_device_role_session_cannot_run_a_turn(enabled, local_authority):
+    authority = local_authority["authority"]
+    _, claims = await local_authority["admit"]("tdv_mac_1", "macos")
+    ran = {"yes": False}
+
+    async def _run(**_kwargs):
+        ran["yes"] = True
+        yield _Event("token", "never")
+
+    with pytest.raises(HTTPException) as exc:
+        await pod_turn.run_pod_turn(
+            payload=_payload(), stream_fn=_run, **_local_turn_kwargs(authority, claims)
+        )
+    assert exc.value.status_code == 403
+    assert exc.value.detail["code"] == "role_mismatch"
+    assert ran["yes"] is False
+
+
+async def test_a_revoked_subject_is_refused_before_the_runner(enabled, local_authority):
+    authority = local_authority["authority"]
+    _, claims = await local_authority["admit"]("tdv_app_1", "web")
+    kwargs = _local_turn_kwargs(authority, claims)
+    await authority.revoke_subject("tdv_app_1", reason="owner_revoked")
+    ran = {"yes": False}
+
+    async def _run(**_kwargs):
+        ran["yes"] = True
+        yield _Event("token", "never")
+
+    with pytest.raises(HTTPException) as exc:
+        await pod_turn.run_pod_turn(payload=_payload(), stream_fn=_run, **kwargs)
+    assert exc.value.status_code == 403
+    assert ran["yes"] is False
+
+
+async def test_a_hub_token_on_the_local_path_is_refused_by_shape(enabled, local_authority):
+    hct = "HCT:" + "eyJ1IjoxfQ" + ".deadbeef"
+    with pytest.raises(HTTPException) as exc:
+        await pod_turn.pod_turn_route(
+            payload=_payload(), x_consent_token=None, authorization=f"Bearer {hct}"
+        )
+    assert exc.value.status_code == 401
+    assert exc.value.detail["code"] == "not_local_authority"
+
+
+async def test_the_route_opens_the_local_door_on_a_pod_session_bearer(
+    enabled, monkeypatch, local_authority
+):
+    token, _claims = await local_authority["admit"]("tdv_app_1", "web")
+    seen = {}
+
+    async def _run_core(**kwargs):
+        seen.update(kwargs)
+        return {"text": "ok"}
+
+    monkeypatch.setattr(pod_turn, "run_pod_turn", _run_core)
+    result = await pod_turn.pod_turn_route(
+        payload=_payload(), x_consent_token=None, authorization=f"Bearer {token}"
+    )
+    assert result == {"text": "ok"}
+    assert seen["session"]["subject_id"] == "tdv_app_1"
+    assert seen["consent_token"].startswith("pod-session:")
+
+
+async def test_a_local_puppy_turn_needs_an_enrolled_and_linked_device(
+    enabled, monkeypatch, local_authority
+):
+    monkeypatch.setattr(pod_turn, "_resolve_model", lambda payload=None: ("puppy", "local"))
+    authority = local_authority["authority"]
+    _, claims = await local_authority["admit"]("tdv_app_1", "web")
+    kwargs = _local_turn_kwargs(authority, claims)
+    payload = PodTurnRequest(message="hi", runtime_provider="puppy", puppy_device_id="tdv_mac_1")
+    seen = {}
+
+    async def _run(**run_kwargs):
+        seen.update(run_kwargs)
+        yield _Event("token", "from puppy")
+
+    # Not enrolled at all.
+    with pytest.raises(HTTPException) as exc:
+        await pod_turn.run_pod_turn(payload=payload, stream_fn=_run, **kwargs)
+    assert exc.value.status_code == 409 and exc.value.detail["code"] == "PUPPY_OFFLINE"
+
+    # Enrolled without the inference scope.
+    await local_authority["admit"]("tdv_mac_1", "macos", scopes=[])
+    with pytest.raises(HTTPException) as exc:
+        await pod_turn.run_pod_turn(payload=payload, stream_fn=_run, **kwargs)
+    assert exc.value.status_code == 409
+
+    # Enrolled for inference, not linked.
+    await local_authority["admit"]("tdv_mac_1", "macos", version=2)
+
+    async def _offline(_owner, _device):
+        return False
+
+    monkeypatch.setattr(pod_turn, "_puppy_link_available", _offline)
+    with pytest.raises(HTTPException) as exc:
+        await pod_turn.run_pod_turn(payload=payload, stream_fn=_run, **kwargs)
+    assert exc.value.status_code == 409 and exc.value.detail["reason"] == "device not linked"
+
+    # Enrolled and linked: the turn runs on the session, with no hub grant anywhere.
+    async def _linked(_owner, _device):
+        return True
+
+    monkeypatch.setattr(pod_turn, "_puppy_link_available", _linked)
+    result = await pod_turn.run_pod_turn(payload=payload, stream_fn=_run, **kwargs)
+    assert result["runtimeMode"] == "puppy_relay" and result["provider"] == "puppy"
+    assert seen["runtime_credential"].startswith("pod-session:")
+    assert seen["puppy_device_id"] == "tdv_mac_1"
+
+    # Revoked at the pod: the very next turn is refused before the runner.
+    await authority.revoke_subject("tdv_mac_1")
+    seen.clear()
+    with pytest.raises(HTTPException) as exc:
+        await pod_turn.run_pod_turn(payload=payload, stream_fn=_run, **kwargs)
+    assert exc.value.status_code == 409
+    assert not seen
+
+
+async def test_hub_path_tests_are_unchanged_by_the_local_door(enabled, monkeypatch):
+    """The hub-relayed turn still works exactly as before: no session, hub verdict."""
+    _consent_ok(monkeypatch)
+    events = [_Event("token", "hub answer")]
+    result = await pod_turn.run_pod_turn(
+        payload=_payload(), consent_token="t", stream_fn=_stream(events)
+    )
+    assert result["text"] == "hub answer"

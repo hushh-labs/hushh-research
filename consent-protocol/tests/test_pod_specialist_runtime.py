@@ -9,6 +9,8 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from hushh_mcp.one_adk import text_runtime  # noqa: E402
@@ -36,6 +38,81 @@ def test_the_model_call_reads_its_budget_from_the_helper() -> None:
     assert "timeout=30," not in source
 
 
+# -- the second verifier (Lane A) ------------------------------------------------------
+#
+# `require_access` used to reach the hub unconditionally; the owner-local turn threads
+# its session verifier here so a specialist re-checks the owner against the pod's own
+# tombstones. Without the injection point every specialist on a local turn would ask
+# a hub the turn never touched.
+
+
+def _runtime(verifier=None):
+    return pod_specialist_runtime.build_pod_specialist_runtime(
+        user_id="uid-1",
+        hushh_id="ha1_owner",
+        consent_token="pod-session:sid",  # noqa: S106 - a session marker, not a credential
+        provider="gemini",
+        model="m",
+        runtime_mode="byok",
+        credential="k",
+        credential_transport="developer_api",
+        vertex_project=None,
+        vertex_location=None,
+        data_door_grants={},
+        verifier=verifier,
+    )
+
+
+async def test_an_injected_verifier_answers_require_access_and_the_hub_is_never_asked(
+    monkeypatch,
+) -> None:
+    from hushh_mcp.services import pod_consent_client
+    from hushh_mcp.services.pod_consent_client import ConsentVerdict
+
+    async def _never(*_a, **_k):
+        raise AssertionError("the hub was asked with a local verifier injected")
+
+    monkeypatch.setattr(pod_consent_client, "verify_consent", _never)
+    monkeypatch.setenv("HUSSH_ID", "ha1_owner")
+    calls = []
+
+    async def _local(token, *, expected_scope="", **_k):
+        calls.append((token, expected_scope))
+        return ConsentVerdict(
+            valid=True, available=True, user_id="uid-1", hushh_id="ha1_owner", scope=expected_scope
+        )
+
+    await _runtime(verifier=_local).require_access()
+    assert calls == [("pod-session:sid", "pkm.read")]
+
+
+async def test_a_verifier_that_revokes_refuses_and_a_missing_verifier_uses_the_hub(
+    monkeypatch,
+) -> None:
+    from hushh_mcp.services import pod_consent_client
+    from hushh_mcp.services.pod_consent_client import ConsentVerdict
+
+    monkeypatch.setenv("HUSSH_ID", "ha1_owner")
+
+    async def _revoked(_token, *, expected_scope="", **_k):
+        return ConsentVerdict(valid=False, available=True, reason="subject revoked")
+
+    with pytest.raises(PermissionError):
+        await _runtime(verifier=_revoked).require_access()
+
+    asked = []
+
+    async def _hub(token, *, expected_scope="", **_k):
+        asked.append(token)
+        return ConsentVerdict(
+            valid=True, available=True, user_id="uid-1", hushh_id="ha1_owner", scope=expected_scope
+        )
+
+    monkeypatch.setattr(pod_consent_client, "verify_consent", _hub)
+    await _runtime().require_access()
+    assert asked == ["pod-session:sid"]
+
+
 # --------------------------------------------------------------------------- #
 # Lane B4: the pod-side ports, access checks, adapter roster and dependency trace.
 # Every refusal here is exercised against the real functions with only the hub
@@ -43,8 +120,6 @@ def test_the_model_call_reads_its_budget_from_the_helper() -> None:
 # --------------------------------------------------------------------------- #
 
 from types import SimpleNamespace  # noqa: E402
-
-import pytest  # noqa: E402
 
 from hushh_mcp.adk_bridge import dispatch as dispatch_mod  # noqa: E402
 from hushh_mcp.services import pod_consent_client, pod_hub_client  # noqa: E402

@@ -546,6 +546,7 @@ async def _stream_one_text_turn_once(
     runtime_vertex_location: str | None = None,
     data_door_grants: dict[str, str] | None = None,
     managed_location: str | None = None,
+    memory_commit_allowed: Any = None,
 ) -> AsyncGenerator[OneTextStreamEvent, None]:
     """Run one typed turn in one endpoint and expose replay boundaries."""
     if str(runtime_provider or "").strip().lower() not in {"gemini", "puppy"}:
@@ -744,6 +745,16 @@ async def _stream_one_text_turn_once(
     # Failure here degrades to a memoryless turn, never a failed one. The person
     # already has their answer by this point -- raising now would take a delivered
     # answer away to report a bookkeeping problem.
+    # A fenced incarnation finishes the answer but publishes nothing: the pod that
+    # replaced it owns the log now. ``memory_commit_allowed`` is the owner pod's
+    # lease check; absent (the hub, tests) means allowed.
+    if memory_service is not None and memory_commit_allowed is not None:
+        allowed = memory_commit_allowed()
+        if asyncio.iscoroutine(allowed):
+            allowed = await allowed
+        if allowed is not True:
+            logger.warning("one_text_turn.memory_commit_skipped reason=fenced_or_uncertain")
+            memory_service = None
     if memory_service is not None:
         try:
             await memory_service.add_session_to_memory(
@@ -888,6 +899,7 @@ async def stream_one_text_turn(
     runtime_vertex_project: str | None = None,
     runtime_vertex_location: str | None = None,
     data_door_grants: dict[str, str] | None = None,
+    memory_commit_allowed: Any = None,
 ) -> AsyncGenerator[OneTextStreamEvent, None]:
     """Run One with same-model regional failover before any observable event."""
     locations: tuple[str | None, ...] = (None,)
@@ -920,6 +932,7 @@ async def stream_one_text_turn(
                 runtime_vertex_location=runtime_vertex_location,
                 data_door_grants=data_door_grants,
                 managed_location=location,
+                memory_commit_allowed=memory_commit_allowed,
             ):
                 if event.kind == "boundary":
                     replay_boundary_crossed = True

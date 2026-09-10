@@ -461,8 +461,13 @@ def build_pod_specialist_runtime(
     vertex_location: str | None,
     data_door_grants: dict[str, str],
     puppy_device_id: str | None = None,
+    verifier: Any = None,
 ) -> SpecialistRuntime:
     # Construction does no storage/provider I/O. Admission precedes resolution.
+    # ``verifier`` is the second consent seam: a turn admitted by the pod's own
+    # session authority threads its local verifier here, so a specialist re-checks
+    # the owner against the pod's tombstones rather than asking the hub. None keeps
+    # the hub-verified path exactly as it was.
     log: Any = None
     client: Any = None
 
@@ -471,7 +476,7 @@ def build_pod_specialist_runtime(
         if trace is not None:
             trace.record_consent_verify()
         verdict = await require_owner_scope(
-            consent_token, expected_scope="pkm.read", user_id=user_id
+            consent_token, expected_scope="pkm.read", user_id=user_id, verifier=verifier
         )
         if verdict.hushh_id != hushh_id:
             raise PermissionError("Pod invocation owner mismatch")
