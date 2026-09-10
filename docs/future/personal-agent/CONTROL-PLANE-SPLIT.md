@@ -1,5 +1,7 @@
 # The control-plane split — the hub is the only door to a pod, and it keeps nothing
 
+> **Historical snapshot — classified 2026-09-10.** Retained for design and evidence provenance, not current execution instructions. Claims below apply to their recorded revision/date. Start with the [active handoff](./OWNER-POD-DIRECT-RUNTIME-HANDOFF-2026-09-10.md) and [canonical north star](../../reference/architecture/private-agent-north-star.md) for current direction and qualified status.
+
 > **Status:** the private relay is **built and mounted hub-only**, behind
 > `PERSONAL_AGENT_ENABLED` (default off). The reset path is **live** — it runs on the
 > real account cascade today. Companions:

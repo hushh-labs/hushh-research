@@ -1,5 +1,7 @@
 # Personal Agent (Private Cloud Compute) — Phase 0 Security Review
 
+> **Historical snapshot — classified 2026-09-10.** Retained for design and evidence provenance, not current execution instructions. Claims below apply to their recorded revision/date. Start with the [active handoff](./OWNER-POD-DIRECT-RUNTIME-HANDOFF-2026-09-10.md) and [canonical north star](../../reference/architecture/private-agent-north-star.md) for current direction and qualified status.
+
 > **Status:** Phase 0, dev-branch only, feature-flagged **OFF**
 > (`PERSONAL_AGENT_ENABLED`). Everything reviewed here is inert and unwired.
 > **Method:** an independent adversarial code audit plus an author cross-check,

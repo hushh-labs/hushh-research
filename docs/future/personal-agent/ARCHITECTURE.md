@@ -1,5 +1,7 @@
 # Sovereign Agent One — one logical architecture, many compute backends
 
+> **Historical snapshot — classified 2026-09-10.** Retained for design and evidence provenance, not current execution instructions. Claims below apply to their recorded revision/date. Start with the [active handoff](./OWNER-POD-DIRECT-RUNTIME-HANDOFF-2026-09-10.md) and [canonical north star](../../reference/architecture/private-agent-north-star.md) for current direction and qualified status.
+
 > **Status:** design of record for the per-user sovereign agent. Dev-branch only,
 > behind `PERSONAL_AGENT_ENABLED` (default **off**). Nothing here is deployed.
 > Branch: `claude/hushh-infrastructure-analysis-7o991c`.

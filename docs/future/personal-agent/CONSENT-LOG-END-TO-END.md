@@ -1,5 +1,7 @@
 # The consent log, end to end — pod → hub → app → native
 
+> **Historical snapshot — classified 2026-09-10.** Retained for design and evidence provenance, not current execution instructions. Claims below apply to their recorded revision/date. Start with the [active handoff](./OWNER-POD-DIRECT-RUNTIME-HANDOFF-2026-09-10.md) and [canonical north star](../../reference/architecture/private-agent-north-star.md) for current direction and qualified status.
+
 > **Status:** proven at **50 concurrent pods** with dynamic PKM load and real
 > consent issuance. Every consent operation goes through the real protocol
 > (`issue_token` / `validate_token` / `revoke_token` / `ConsentScope.check_access`).

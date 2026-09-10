@@ -1,5 +1,7 @@
 # Firing a pod on phone verification — and how its key gets there
 
+> **Historical snapshot — classified 2026-09-10.** Retained for design and evidence provenance, not current execution instructions. Claims below apply to their recorded revision/date. Start with the [active handoff](./OWNER-POD-DIRECT-RUNTIME-HANDOFF-2026-09-10.md) and [canonical north star](../../reference/architecture/private-agent-north-star.md) for current direction and qualified status.
+
 > **Status:** built, flag-gated **OFF** (`PERSONAL_AGENT_AUTOPROVISION_ENABLED`).
 > Companions: [`POD-HUB-DATA-PATH.md`](./POD-HUB-DATA-PATH.md) (how a pod reads),
 > [`POD-FLEET-LIVE-2026-08-04.md`](./POD-FLEET-LIVE-2026-08-04.md) (the live fleet),

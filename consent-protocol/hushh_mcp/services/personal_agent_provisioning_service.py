@@ -574,7 +574,7 @@ class PersonalAgentProvisioningService:
         ``personal_agent_failed``); the projection never alters what this raises or
         returns.
 
-        Fleet ceiling (DEV-LIVE-EXECUTION-PLAN.md B3): if the fleet is already at
+        Fleet ceiling (docs/reference/architecture/private-agent-north-star.md): if the fleet is already at
         ``PERSONAL_AGENT_MAX_PODS`` this returns ``{"status": "pending",
         "capped": True}`` WITHOUT raising, without touching the registry, and
         without calling the backend -- so the row stays as phone-verify left it and

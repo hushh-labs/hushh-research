@@ -1,5 +1,7 @@
 # The multi-pod dev simulation — every test case and edge case
 
+> **Historical snapshot — classified 2026-09-10.** Retained for design and evidence provenance, not current execution instructions. Claims below apply to their recorded revision/date. Start with the [active handoff](./OWNER-POD-DIRECT-RUNTIME-HANDOFF-2026-09-10.md) and [canonical north star](../../reference/architecture/private-agent-north-star.md) for current direction and qualified status.
+
 > **Status:** harness built (`consent-protocol/scripts/sim_multi_pod.py`) and **run at 10
 > and 20 pods**. Ten of eleven probes pass across the fleet; one fails and it is a **real
 > defect**, reproduced independently by a security audit and by the simulation. This

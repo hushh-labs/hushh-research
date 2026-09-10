@@ -44,7 +44,7 @@ Use these in order:
 | --- | --- |
 | `current` | Applied everywhere through the release migration manifest. The default. |
 | `customer0` | Live, but scoped to the Customer Zero rollout rather than general availability. |
-| `dev_only` | Schema carried by the dev-only lane (`consent-protocol/db/dev_migration_manifest.json`, resolved in place from `consent-protocol/db/migrations/parked/`), deliberately absent from `release_migration_manifest.json` and therefore from UAT and production. Promotion is a manual, human-initiated step — see the promotion section of [the dev-live execution plan](../../future/personal-agent/DEV-LIVE-EXECUTION-PLAN.md). |
+| `dev_only` | Schema carried by the dev-only lane (`consent-protocol/db/dev_migration_manifest.json`, resolved in place from `consent-protocol/db/migrations/parked/`), deliberately absent from `release_migration_manifest.json` and therefore from UAT and production. Promotion requires separate authorization under [migration governance](../operations/migration-governance.md). |
 | `transitional` | Retained for a bounded compatibility window during an in-flight migration. |
 | `legacy_migration` | Read and cleanup only. A new write is a governance failure, and the audit scans runtime source for one. |
 

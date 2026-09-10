@@ -1,5 +1,7 @@
 # The pod's data path — pod → hub → Postgres, and never pod → Postgres
 
+> **Historical snapshot — classified 2026-09-10.** Retained for design and evidence provenance, not current execution instructions. Claims below apply to their recorded revision/date. Start with the [active handoff](./OWNER-POD-DIRECT-RUNTIME-HANDOFF-2026-09-10.md) and [canonical north star](../../reference/architecture/private-agent-north-star.md) for current direction and qualified status.
+
 > **Status:** seam built and wired; hub-side pod-identity auth is **flag-gated OFF**
 > (`POD_HUB_IDENTITY_AUTH_ENABLED`, default false) and must stay off wherever pods hold
 > real users' holdings, for the identity reason in *The limit* below. Companions:

@@ -1,5 +1,7 @@
 # BYOC — the pod in the user's own GCP (Workload Identity Federation)
 
+> **Historical snapshot — classified 2026-09-10.** Retained for design and evidence provenance, not current execution instructions. Claims below apply to their recorded revision/date. Start with the [active handoff](./OWNER-POD-DIRECT-RUNTIME-HANDOFF-2026-09-10.md) and [canonical north star](../../reference/architecture/private-agent-north-star.md) for current direction and qualified status.
+
 > **Status:** in pursuit, dev-branch only. The **adapter seam is built and inert**
 > (`user_gcp_backend.py`, `UserGcpBackend`, `PERSONAL_AGENT_BACKEND=user_gcp`);
 > plan-mode renders the pod + a bootstrap plan but makes **no call into any user

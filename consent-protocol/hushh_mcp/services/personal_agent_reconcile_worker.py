@@ -2,7 +2,7 @@
 Background worker that keeps the per-user personal-agent fleet honest: it retries
 provisions that stalled, and reaps pods nobody has used in a long time.
 
-Fleet hygiene, per docs/future/personal-agent/DEV-LIVE-EXECUTION-PLAN.md B6.
+Fleet hygiene, per docs/reference/architecture/private-agent-north-star.md.
 
 Why this worker exists
 ----------------------

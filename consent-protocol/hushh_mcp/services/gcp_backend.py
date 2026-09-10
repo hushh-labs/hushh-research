@@ -79,7 +79,7 @@ def _label_value(raw: Any, default: str = "") -> str:
     email, phone number, or raw user id must never become a label value. The
     opaque ``billing_space_id`` is the non-PII per-agent identifier; per-developer
     cost attribution is done by joining the Cloud Billing export against the
-    registry server-side (DEV-LIVE-EXECUTION-PLAN.md B5), not by labeling the
+    registry server-side (docs/reference/architecture/private-agent-north-star.md), not by labeling the
     resource. NOTE it is deliberately NOT the spaceID handle the owner chooses;
     a user-facing name must never land in a billing-readable label.
     """
@@ -502,7 +502,7 @@ class GcpBackend:
             "metadata": {
                 "name": name,
                 "namespace": self._project or "",
-                # Cost attribution (DEV-LIVE-EXECUTION-PLAN.md B5). Non-PII only:
+                # Cost attribution (docs/reference/architecture/private-agent-north-star.md). Non-PII only:
                 # the opaque billing-space id identifies the pod, the lane and purpose
                 # identify the spend. No email, phone, or user id ever appears here.
                 "labels": {

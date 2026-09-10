@@ -1,4 +1,4 @@
-"""The personal-agent fleet ceiling (DEV-LIVE-EXECUTION-PLAN.md B3).
+"""The personal-agent fleet ceiling (docs/reference/architecture/private-agent-north-star.md).
 
 Every signed-in user gets a pod and a pod is a billable host, so the ONLY thing
 standing between a test loop and a runaway bill is this cap. Hermetic: no DB, no

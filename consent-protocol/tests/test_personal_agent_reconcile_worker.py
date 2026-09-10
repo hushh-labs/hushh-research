@@ -1,4 +1,4 @@
-"""Fleet hygiene for the personal-agent pod fleet (DEV-LIVE-EXECUTION-PLAN.md B6).
+"""Fleet hygiene for the personal-agent pod fleet (docs/reference/architecture/private-agent-north-star.md).
 
 Hermetic: no DB, no cloud, no timers. Every database and backend interaction is an
 injected async callable, the same shape ``revocation_worker.py`` uses, so each

@@ -66,7 +66,7 @@ Promotion targets:
 
 ## Current Domains
 
-- **[personal-agent/README.md](./personal-agent/README.md): the sovereign per-user agent (Private Cloud Compute) — the largest active workstream.** One logical architecture, many compute backends (GCP primary runtime · Anypoint enterprise lane); the slim pod (`pod_server:app`) runs agent + storage with the consent control plane staying central; live-validated in `hushh-pda-dev`. Cross-links: [ARCHITECTURE](./personal-agent/ARCHITECTURE.md) (design of record) · [ROADMAP](./personal-agent/ROADMAP.md) (M1–M14) · [SECURITY-REVIEW](./personal-agent/SECURITY-REVIEW.md) · [M4-LIVE-VALIDATION](./personal-agent/M4-LIVE-VALIDATION.md) (live evidence) · [EXECUTION-LOG](./personal-agent/EXECUTION-LOG.md) (what shipped, when).
+- **[Private-agent plans and evidence](./personal-agent/README.md).** Start with the [owner-pod direct-runtime handoff](./personal-agent/OWNER-POD-DIRECT-RUNTIME-HANDOFF-2026-09-10.md) for the inspected baseline and next dev milestone. The [remaining roadmap](./personal-agent/ROADMAP.md) retains deferred requirements; earlier architecture and test reports are historical provenance, not current deployment or completion claims.
 - [identity-assurance/README.md](./identity-assurance/README.md): WebAuthn/FIDO2 passkey + hardware-key (Google Titan/YubiKey) login and NIST 800-63B AAL mapping (personal-agent M14 companion).
 - [apple-a-plus/PLAN.md](./apple-a-plus/PLAN.md): the Apple/Jobs "A+" grading loop for the "your sovereign agent is alive" throughline (shares the personal-agent status surface).
 - [kai/README.md](./kai/README.md): Kai future-state concepts and superseded planning history that has not yet moved

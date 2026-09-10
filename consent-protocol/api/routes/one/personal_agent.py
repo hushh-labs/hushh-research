@@ -96,12 +96,8 @@ def _service() -> PersonalAgentProvisioningService:
 #   provisioned    PersonalAgentProvisioningService.provision, after the standing mint
 #
 # ``connecting`` and ``provisioning_failed`` are declared here AHEAD of their
-# writer. Nothing emits them yet -- the live compute backend and the reconcile
-# sweep that will (DEV-LIVE-EXECUTION-PLAN.md, Workstreams B and C) are unbuilt, so
-# today those two rows are unreachable. They are declared anyway because this map
-# is the read-side contract: with them present the write side lands without a
-# second edit here and without any client change. Keeping the two halves of that
-# seam in one file is the point.
+# writer in the original implementation. This is the read-side compatibility
+# contract; inspect current lifecycle writers before changing its vocabulary.
 #
 # ``deprovision_requested`` is deliberately absent: it is written to
 # ``personal_agent_deletion_tombstones.status``, never to the registry.

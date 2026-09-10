@@ -1,5 +1,7 @@
 # Execution log — sovereign personal-agent workstream
 
+> **Historical snapshot — classified 2026-09-10.** Retained for design and evidence provenance, not current execution instructions. Claims below apply to their recorded revision/date. Start with the [active handoff](./OWNER-POD-DIRECT-RUNTIME-HANDOFF-2026-09-10.md) and [canonical north star](../../reference/architecture/private-agent-north-star.md) for current direction and qualified status.
+
 > A chronological "what shipped, when" ledger so the context is traceable end to
 > end. Pairs with [`ROADMAP.md`](./ROADMAP.md) (the plan), [`ARCHITECTURE.md`](./ARCHITECTURE.md)
 > (design of record), and [`M4-LIVE-VALIDATION.md`](./M4-LIVE-VALIDATION.md) (live

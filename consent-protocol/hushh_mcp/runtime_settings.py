@@ -496,7 +496,7 @@ def personal_agent_backend() -> str:
 
 # Dev-team-sized fleet ceiling. Deliberately small: every signed-in user gets a
 # pod (founder decision), so the ceiling -- not an eligibility allowlist -- is the
-# cost containment. See docs/future/personal-agent/DEV-LIVE-EXECUTION-PLAN.md B3.
+# cost containment. See docs/reference/architecture/private-agent-north-star.md.
 _PERSONAL_AGENT_MAX_PODS_DEFAULT = 50
 
 

@@ -1,5 +1,7 @@
 # M4 live validation — first single-user pod, deployed and torn down in dev
 
+> **Historical snapshot — classified 2026-09-10.** Retained for design and evidence provenance, not current execution instructions. Claims below apply to their recorded revision/date. Start with the [active handoff](./OWNER-POD-DIRECT-RUNTIME-HANDOFF-2026-09-10.md) and [canonical north star](../../reference/architecture/private-agent-north-star.md) for current direction and qualified status.
+
 > **Status:** ✅ **Executed live** on **2026-07-21** in **`hushh-pda-dev` only**
 > (hushh-research's dev GCP project). One throwaway per-user pod was created,
 > proven to run the hussh agents and enforce owner-scoped access, then deleted —

@@ -1,5 +1,7 @@
 # Pod fleet live in dev — the image, the identity, and two defects the run exposed
 
+> **Historical snapshot — classified 2026-09-10.** Retained for design and evidence provenance, not current execution instructions. Claims below apply to their recorded revision/date. Start with the [active handoff](./OWNER-POD-DIRECT-RUNTIME-HANDOFF-2026-09-10.md) and [canonical north star](../../reference/architecture/private-agent-north-star.md) for current direction and qualified status.
+
 > **Status:** ✅ **Executed live** on **2026-08-04** in **`hushh-pda-dev` only**.
 > The slim pod image was built for the first time, a zero-role pod identity was
 > created, and **two per-user pods were provisioned through the real
