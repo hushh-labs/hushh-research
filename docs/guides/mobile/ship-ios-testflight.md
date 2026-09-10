@@ -26,9 +26,8 @@ not a public App Store submission.
 
 ## What the workflow proves before upload
 
-`Ship iOS to TestFlight` requires an exact green `main` SHA, an UAT backend
-revision with the same provenance, and a passing reusable physical-iPhone job.
-The normal archive job then runs:
+`Ship iOS to TestFlight` requires an exact green `main` SHA and a UAT backend
+revision with the same provenance. The normal archive job then runs:
 
 ```text
 UAT configuration and native Firebase materialization
@@ -36,13 +35,16 @@ UAT configuration and native Firebase materialization
 → privacy-manifest, App Intent, archive-asset, and symbol checks
 → verified UAT browser-ASR and intent-ranker pack readiness
 → iOS simulator AppTests
+→ optional physical-iPhone capture evidence when requested
 → signed archive and TestFlight upload
 → Apple VALID processing check
 → attach the same build to internal and external groups
 ```
 
-The physical-device job runs on the dedicated self-hosted macOS runner with an
-attached iOS 17+ iPhone. It uses UI automation to bootstrap microphone
+The physical-device job is an optional evidence lane. Set the dispatch input
+`require_hardware: true` for voice or device-sensitive changes when you want the
+dedicated self-hosted macOS runner with an attached iOS 17+ iPhone to prove
+device capture behavior. It uses UI automation to bootstrap microphone
 permission, performs at least 30 repetitions through the production microphone
 owner, and accepts only a redacted aggregate result when all of these are true:
 
@@ -51,8 +53,12 @@ owner, and accepts only a redacted aggregate result when all of these are true:
 - no initial frames are lost;
 - no microphone/session ownership is duplicated.
 
-There is no manual-test bypass for this gate. A missing device, permission,
-metric, or result is a release failure.
+When `require_hardware` is `false` (the default), the physical job is skipped
+and the release summary records `not requested`; the workflow makes no
+physical-device claim. If the lane is requested, a missing device, permission,
+metric, or result remains a release failure. The simulator XCTest and all
+One Voice privacy, generated-action, and Capacitor checks remain required on
+every run.
 
 ## One-time release configuration
 
@@ -65,7 +71,7 @@ The `uat` GitHub environment needs these non-secret variables:
 | --- | --- |
 | `GCP_WORKLOAD_IDENTITY_PROVIDER` | GitHub OIDC provider resource |
 | `GCP_DEPLOY_SERVICE_ACCOUNT` | Federated deployment identity |
-| `IOS_VOICE_DEVICE_TIER` | Redacted identifier for the attached iPhone tier |
+| `IOS_VOICE_DEVICE_TIER` | Redacted identifier for the attached iPhone tier; required only when `require_hardware: true` |
 
 The federated identity needs read access to the UAT build contract, App Store
 Connect material, model-pack registry, and Firebase configuration in
@@ -133,16 +139,19 @@ authority contract.
    checks to pass.
 2. Deploy the matching backend to UAT.
 3. Publish and activate the matching UAT model packs.
-4. Verify the self-hosted iPhone runner is connected and registered with the
-   `ios-voice-device` label.
+4. If device evidence is desired, verify the self-hosted iPhone runner is
+   connected and registered with the `ios-voice-device` label.
 5. In GitHub Actions, run **Ship iOS to TestFlight** from `main`. Leave `sha`
-   blank for the latest eligible SHA, or supply that exact SHA.
+   blank for the latest eligible SHA, or supply that exact SHA. Set
+   `require_hardware: true` for the optional physical-device evidence lane;
+   leave it `false` for the normal simulator-backed release path.
 6. Use `dry_run: true` only when you want a signed archive without uploading.
-   It still runs every safety and physical-device gate.
+   It follows the same `require_hardware` choice.
 
-The run summary reports the source SHA, physical capture p95, build number, and
-whether external access is active or awaiting Apple beta review. Artifacts are
-limited to redacted readiness, distribution, and timing evidence; keys,
+The run summary reports the source SHA, the physical capture p95 when that lane
+was requested (otherwise `not requested`), build number, and whether external
+access is active or awaiting Apple beta review. Artifacts are limited to
+redacted readiness, distribution, and timing evidence; keys,
 review-contact details, signed URLs, audio, transcripts, Vault material, and
 model bytes are removed or never uploaded.
 
@@ -150,7 +159,7 @@ model bytes are removed or never uploaded.
 
 | Failure | Meaning and safe response |
 | --- | --- |
-| No connected iPhone / missing timing result | Restore the dedicated runner or permission bootstrap; do not bypass the hardware gate. |
+| No connected iPhone / missing timing result | If `require_hardware: true`, restore the dedicated runner or permission bootstrap and rerun. If physical evidence is not needed, rerun with `require_hardware: false` after the mandatory simulator and native gates pass. |
 | UAT backend provenance differs from source SHA | Deploy that exact reviewed SHA to UAT, then restart the release workflow. |
 | Local model readiness fails | Publish checksum-verified packs for the same SHA; do not hard-code signed URLs. |
 | Missing group, contact, notes, or privacy attestation | Configure the protected UAT release material; the workflow intentionally will not upload. |

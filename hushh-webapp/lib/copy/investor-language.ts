@@ -101,6 +101,7 @@ export function toInvestorVaultUnlockError(value: unknown): string {
 
   if (
     lowered.includes("timed out or was not allowed") ||
+    lowered.includes("passkey prompt timed out") ||
     lowered.includes("privacy-considerations-client") ||
     lowered.includes("notallowederror") ||
     lowered.includes("aborterror")

@@ -147,10 +147,6 @@ export function VaultProvider({ children }: VaultProviderProps) {
   useEffect(() => {
     storedVaultOwnerTokenRef.current = storedVaultOwnerToken;
   }, [storedVaultOwnerToken]);
-  useEffect(() => {
-    storedVaultKeyRef.current = storedVaultKey;
-  }, [storedVaultKey]);
-
   const lockVault = useCallback(() => {
     // Read from refs so event-listeners registered at mount time always see
     // the latest values — never stale closure captures.

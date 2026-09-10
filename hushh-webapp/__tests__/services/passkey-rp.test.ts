@@ -74,6 +74,15 @@ describe("passkey RP resolution", () => {
     ).toBe(true);
   });
 
+  it("rejects IP-address RP IDs even when localhost normalization is available", () => {
+    expect(
+      isPasskeyRpIdCompatibleWithHost("127.0.0.1", "127.0.0.1"),
+    ).toBe(false);
+    expect(
+      isPasskeyRpIdCompatibleWithHost("[::1]", "[::1]"),
+    ).toBe(false);
+  });
+
   it("does not accept a child RP from the canonical origin", () => {
     expect(
       isPasskeyRpIdCompatibleWithHost("one.hushh.ai", "uat.one.hushh.ai"),
