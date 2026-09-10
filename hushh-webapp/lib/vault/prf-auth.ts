@@ -49,13 +49,15 @@ async function runExclusiveWebAuthn<T>(
 
   const controller = new AbortController();
   webAuthnCeremonyPending = true;
-  const timeoutId = setTimeout(() => controller.abort(), WEBAUTHN_CEREMONY_TIMEOUT_MS);
+  let timedOut = false;
+  const timeoutId = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, WEBAUTHN_CEREMONY_TIMEOUT_MS);
   try {
     return await run(controller.signal);
   } catch (error) {
-    // Surface timeouts as a distinct error so the caller can distinguish
-    // "user cancelled" from "the prompt never returned."
-    if (controller.signal.aborted) {
+    if (timedOut) {
       throw new Error("Passkey prompt timed out. Try again.");
     }
     throw error;

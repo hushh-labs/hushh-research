@@ -135,8 +135,8 @@ export function VaultProvider({ children }: VaultProviderProps) {
   // Mirrors of the latest values so async event handlers and cleanup
   // callbacks never read stale closures. lockVault reads from these refs
   // instead of from the useCallback capture.
-  const vaultUserIdRef = useRef<string | null>(null);
-  const storedVaultOwnerTokenRef = useRef<string | null>(null);
+  const vaultUserIdRef = useRef<string | null>(vaultUserId);
+  const storedVaultOwnerTokenRef = useRef<string | null>(storedVaultOwnerToken);
 
   useEffect(() => {
     tokenExpiresAtRef.current = tokenExpiresAt;
@@ -150,7 +150,6 @@ export function VaultProvider({ children }: VaultProviderProps) {
   useEffect(() => {
     storedVaultKeyRef.current = storedVaultKey;
   }, [storedVaultKey]);
-
 
   const lockVault = useCallback(() => {
     // Read from refs so event-listeners registered at mount time always see

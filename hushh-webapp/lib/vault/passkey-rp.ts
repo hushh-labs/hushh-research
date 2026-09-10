@@ -43,6 +43,7 @@ export function isPasskeyRpIdCompatibleWithHost(
   hostname: string | null | undefined,
   rpId: string | null | undefined,
 ): boolean {
+  if (isLikelyIpAddress(hostname) || isLikelyIpAddress(rpId)) return false;
   const normalizedHost = normalizeRpHost(hostname);
   const normalizedRpId = normalizeRpHost(rpId);
   if (!normalizedHost || !normalizedRpId) return false;
@@ -55,20 +56,21 @@ export function isPasskeyRpIdCompatibleWithHost(
   );
 }
 
-/** True when the string looks like an IPv4 or IPv6 address. */
-function isLikelyIpAddress(host: string): boolean {
-  if (!host) return false;
-  // IPv4 pattern
-  if (/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(host)) return true;
-  // IPv6 bracketed or bare
-  if (host.startsWith("[") && host.endsWith("]")) {
-    const inner = host.slice(1, -1);
-    if (/^[0-9a-fA-F:]+$/.test(inner) && inner.includes(":")) return true;
+/** WebAuthn RPs are registrable domains; bare IP addresses are never valid. */
+function isLikelyIpAddress(value: string | null | undefined): boolean {
+  const raw = value?.trim() ?? "";
+  if (!raw) return false;
+  const host = raw.startsWith("[") ? raw : extractHost(raw) || raw;
+  const unbracketed = host.replace(/^\[|\]$/g, "");
+  const ipv4Parts = unbracketed.split(".");
+  if (
+    ipv4Parts.length === 4 &&
+    ipv4Parts.every((part) => /^\d{1,3}$/.test(part) && Number(part) <= 255)
+  ) {
+    return true;
   }
-  if (host.includes(":") && /^[0-9a-fA-F:]+$/.test(host)) return true;
-  return false;
+  return unbracketed.includes(":") && /^[0-9a-fA-F:]+$/.test(unbracketed);
 }
-
 export function resolvePasskeyRpId(options: ResolvePasskeyRpIdOptions): string {
   const explicitRp = normalizeRpHost(process.env.NEXT_PUBLIC_PASSKEY_RP_ID);
   if (explicitRp) {
