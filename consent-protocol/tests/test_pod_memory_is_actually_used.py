@@ -157,3 +157,72 @@ def test_the_pod_turn_passes_the_pods_own_identity() -> None:
     source = pod_turn.read_text()
     assert '(os.environ.get("HUSSH_ID") or "").strip() or None' in source
     assert "session_owner_id=pod_own_id," in source
+
+
+# -- the learning loop: the review is invoked by the runtime, and by nothing else ---
+
+_MEMORY_REVIEW = _ONE_ADK / "memory_review.py"
+_POD_MEMORY_ROUTE = Path(__file__).resolve().parents[1] / "api" / "routes" / "one" / "pod_memory.py"
+_POD_SERVER = Path(__file__).resolve().parents[1] / "pod_server.py"
+
+
+def _called_names(source: Path) -> set[str]:
+    names: set[str] = set()
+    for node in ast.walk(ast.parse(source.read_text())):
+        if isinstance(node, ast.Call):
+            func = node.func
+            name = getattr(func, "attr", None) or getattr(func, "id", None)
+            if name:
+                names.add(name)
+    return names
+
+
+def test_the_turn_catches_up_the_review_before_answering() -> None:
+    """Decision 3 (2026-09-10): review on close plus catch-up on the next message.
+    The catch-up is awaited inside the turn, before the runner starts, on the same
+    model object; a runtime that resolves the review module but never awaits it
+    is the "wired, never called" defect this file exists to catch."""
+    assert "_catch_up_memory_review" in _awaited_method_names(_TEXT_RUNTIME) or (
+        "_catch_up_memory_review" in _called_names(_TEXT_RUNTIME)
+    )
+    source = _TEXT_RUNTIME.read_text()
+    catch_up = source.find("catch_up_review = await _catch_up_memory_review(")
+    run_async = source.find("runner.run_async(")
+    assert catch_up != -1 and run_async != -1
+    assert catch_up < run_async, "the catch-up must land before the answer is generated"
+    # The SAME model object, not a second _runtime_model call inside the review.
+    assert "model=model_object," in source[catch_up : catch_up + 400]
+    assert "run_memory_review" in _awaited_method_names(_TEXT_RUNTIME) or (
+        "run_memory_review" in _called_names(_TEXT_RUNTIME)
+    )
+
+
+def test_the_review_agent_holds_only_its_four_typed_tools() -> None:
+    """One stays the only routing head. The reviewer has no product roster."""
+    source = _MEMORY_REVIEW.read_text()
+    assert 'include_contents="none"' in source
+    assert "memory_service=None" in source, "the review must not write raw transcript back"
+    tools = (_ONE_ADK / "memory_review_tools.py").read_text()
+    for name in ("def remember(", "def supersede(", "def forget(", "def propose_pkm_fact("):
+        assert name in tools
+    for forbidden in ("open_screen", "run_app_action", "ask_email_agent", "load_memory"):
+        assert forbidden not in tools and forbidden not in source
+
+
+def test_propose_pkm_fact_never_writes_pkm() -> None:
+    """A proposal is a prompt directive the owner confirms; no PKM engine is touched."""
+    tools = (_ONE_ADK / "memory_review_tools.py").read_text()
+    review = _MEMORY_REVIEW.read_text()
+    for name in ("commit_domain_mutation", "PodPkmStore", "pkm_sqlite_engine", "pod_pkm_resolver"):
+        assert name not in tools and name not in review
+    assert 'PKM_MEMORY_PROPOSAL_TYPE = "pkm_memory_proposal"' in tools
+
+
+def test_the_close_route_is_mounted_and_reviews_on_the_conversations_model() -> None:
+    route = _POD_MEMORY_ROUTE.read_text()
+    assert "/conversation/{conversation_id}/close" in route
+    assert "_validate_consent" in _called_names(_POD_MEMORY_ROUTE)
+    assert "run_memory_review" in _awaited_method_names(_POD_MEMORY_ROUTE) or ("review(" in route)
+    assert "_runtime_model" in route, "the close builds the model through the turn's own builder"
+    server = _POD_SERVER.read_text()
+    assert "pod_memory_router," in server

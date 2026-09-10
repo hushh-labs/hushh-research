@@ -4105,6 +4105,55 @@ export class ApiService {
     return response.json();
   }
 
+  /**
+   * Tell the person's pod that a conversation has closed, so the private agent
+   * can review what was said on the model that said it and keep what matters.
+   *
+   * Sent with `keepalive` because the natural moment is the person LEAVING the
+   * chat (route change, tab hidden), when an ordinary fetch is cancelled with the
+   * page. Never awaited by the caller for a result the UI needs: a review that
+   * did not run is caught up before the next answer by the pod itself.
+   */
+  static async closePodConversation(input: {
+    hushhId: string;
+    conversationId: string;
+    runtimeCredential?: string | null;
+    runtimeCredentialTransport?: "developer_api" | "vertex_api_key" | null;
+    runtimeProvider?: "puppy" | null;
+    puppyDeviceId?: string | null;
+    vertexProject?: string | null;
+    vertexLocation?: string | null;
+  }): Promise<{
+    hushhId: string;
+    memory?: { written?: number; review?: { outcome?: string } };
+  } | null> {
+    const firebaseIdToken = await this.getFirebaseToken();
+    const response = await ApiService.apiFetch(
+      `/api/one/u/${encodeURIComponent(input.hushhId)}/conversation/${encodeURIComponent(input.conversationId)}/close`,
+      {
+        method: "POST",
+        keepalive: true,
+        headers: {
+          "Content-Type": "application/json",
+          ...(firebaseIdToken
+            ? { Authorization: `Bearer ${firebaseIdToken}` }
+            : {}),
+        },
+        body: JSON.stringify({
+          runtimeCredential: input.runtimeCredential || undefined,
+          runtimeCredentialTransport:
+            input.runtimeCredentialTransport || undefined,
+          runtimeProvider: input.runtimeProvider || undefined,
+          puppyDeviceId: input.puppyDeviceId || undefined,
+          vertexProject: input.vertexProject || undefined,
+          vertexLocation: input.vertexLocation || undefined,
+        }),
+      },
+    );
+    if (!response.ok) return null;
+    return response.json().catch(() => null);
+  }
+
   static async issuePuppyInferenceGrant(deviceId: string): Promise<{
     device_id: string;
     scope: "cap.puppy.inference";

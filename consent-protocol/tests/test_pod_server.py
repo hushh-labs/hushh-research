@@ -73,6 +73,12 @@ def test_pod_surface_stays_within_reviewed_routes():
         "/api/one/agent-prompt",
         "/api/one/pod/live",
         "/api/one/pod/turn",
+        # The learning loop's doors (api/routes/one/pod_memory.py): same admission
+        # as the turn. Reviewed here because each carries owner authority.
+        "/api/one/pod/conversation/{conversation_id}/close",
+        "/api/one/pod/memory/revoke",
+        "/api/one/pod/memory/provider-consent",
+        "/api/one/pod/memory/status",
         "/docs",
         "/docs/oauth2-redirect",
         "/openapi.json",

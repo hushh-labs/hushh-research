@@ -151,6 +151,7 @@ import {
   requestAgentConversation,
 } from "@/lib/agent/agent-voice-settings";
 import {
+  closeAgentChatConversation,
   deleteAgentChatConversation,
   renameAgentChatConversation,
   runAgentChatTurn,
@@ -1416,6 +1417,27 @@ export function AgentChatWorkspace({
     };
   }, [podHushhId, podState, podResolved]);
   const readPodAddress = useCallback(() => podAddressRef.current, []);
+  // LEAVING A CONVERSATION CLOSES IT FOR THE PRIVATE AGENT. The pod reviews what
+  // was said on the model that said it and keeps what matters (decision 3, owner-pod
+  // plan 2026-09-10). Three exits, one call each: switching to another thread,
+  // this surface unmounting, and the page being hidden. The client sends it with
+  // keepalive and dedupes per conversation id; the pod's own catch-up covers a
+  // close that never arrived, so this is best-effort and never awaited for the UI.
+  useEffect(() => {
+    const closing = conversationId;
+    const onPageHide = () => {
+      void closeAgentChatConversation({ conversationId: closing });
+    };
+    if (typeof window !== "undefined") {
+      window.addEventListener("pagehide", onPageHide);
+    }
+    return () => {
+      if (typeof window !== "undefined") {
+        window.removeEventListener("pagehide", onPageHide);
+      }
+      void closeAgentChatConversation({ conversationId: closing });
+    };
+  }, [conversationId]);
   // Warm the person's own pod the moment they reach for it -- composer focus, surface
   // mount, app resume -- so the ~11s cold start runs while they type instead of eating
   // their first turn. `health` (not just `state`) is what tells asleep from serving, so

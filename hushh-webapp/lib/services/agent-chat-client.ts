@@ -748,6 +748,22 @@ export async function runAgentChatTurn(input: {
       signal: input.signal,
     });
 
+    // Remember which pod and which runtime served this conversation, so the close
+    // sent on leaving the chat can run the review on the SAME model without a
+    // second vault read at the one moment (pagehide) there is no time for one.
+    if (conversationId) {
+      lastPodConversation = {
+        hushhId: String(input.podHushhId),
+        conversationId,
+        runtimeCredential: input.runtimeCredential ?? null,
+        runtimeCredentialTransport: input.runtimeCredentialTransport ?? null,
+        runtimeProvider: input.runtimeProvider ?? null,
+        puppyDeviceId: input.puppyDeviceId ?? null,
+        vertexProject: input.runtimeVertexProject ?? null,
+        vertexLocation: input.runtimeVertexLocation ?? null,
+      };
+    }
+
     handlers.onStart?.({ conversationId, model: turn.model });
     if (turn.text) handlers.onToken?.(turn.text);
     handlers.onComplete?.({ conversationId, model: turn.model });
@@ -769,5 +785,72 @@ export async function runAgentChatTurn(input: {
     const message = error instanceof Error ? error.message : "AGENT_UNREACHABLE";
     handlers.onError?.(message);
     throw error;
+  }
+}
+
+type PodConversationRuntime = {
+  hushhId: string;
+  conversationId: string;
+  runtimeCredential: string | null;
+  runtimeCredentialTransport: "developer_api" | "vertex_api_key" | null;
+  runtimeProvider: "puppy" | null;
+  puppyDeviceId: string | null;
+  vertexProject: string | null;
+  vertexLocation: string | null;
+};
+
+// The last conversation a pod turn served in this page, with the runtime that
+// served it. Module-level on purpose: the close fires from a `pagehide` or a
+// route change, where no component state is guaranteed to still exist.
+let lastPodConversation: PodConversationRuntime | null = null;
+
+/** Test seam and page-lifecycle reset. */
+export function _resetLastPodConversation(): void {
+  lastPodConversation = null;
+}
+
+/**
+ * The person left a conversation: let their pod review it and learn.
+ *
+ * WHY HERE. Decision 3 of the owner-pod plan (2026-09-10): the private agent learns
+ * on conversation close, plus a catch-up before the next answer. Learning on every
+ * reply would slow each answer; learning never would leave the transcript
+ * un-curated. The close is the cheap moment, and the pod's own catch-up covers a
+ * close that never arrived (tab killed, network gone), so this call is best-effort
+ * by design and its result is never needed by the UI.
+ *
+ * Fires only for a conversation a POD turn actually served; a shared-hub
+ * conversation has no pod to review it. Idempotent per conversation id: a route
+ * change and a `pagehide` for the same chat send one close, not two.
+ */
+export async function closeAgentChatConversation(input: {
+  conversationId?: string | null;
+  /** When omitted, the conversation the last pod turn served is closed. */
+  hushhId?: string | null;
+}): Promise<boolean> {
+  const remembered = lastPodConversation;
+  const conversationId = input.conversationId || remembered?.conversationId || "";
+  const hushhId = input.hushhId || remembered?.hushhId || "";
+  if (!conversationId || !hushhId) return false;
+  if (!remembered || remembered.conversationId !== conversationId) {
+    // Not a conversation this page's pod turns served: nothing to review here.
+    return false;
+  }
+  lastPodConversation = null;
+  try {
+    await ApiService.closePodConversation({
+      hushhId,
+      conversationId,
+      runtimeCredential: remembered.runtimeCredential,
+      runtimeCredentialTransport: remembered.runtimeCredentialTransport,
+      runtimeProvider: remembered.runtimeProvider,
+      puppyDeviceId: remembered.puppyDeviceId,
+      vertexProject: remembered.vertexProject,
+      vertexLocation: remembered.vertexLocation,
+    });
+    return true;
+  } catch {
+    // Best-effort: the pod catches up before its next answer.
+    return false;
   }
 }

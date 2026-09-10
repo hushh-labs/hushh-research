@@ -489,21 +489,22 @@ async def _stream_one_text_turn_once(
 
     session_service = InMemorySessionService()
     memory_service = _resolve_pod_memory_service()
+    # Built once and shared: the memory review (catch-up below) runs on the SAME
+    # model object as the conversation, never on a credential path of its own.
+    model_object = _runtime_model(
+        runtime_model=runtime_model,
+        runtime_mode=runtime_mode,
+        runtime_credential=runtime_credential,
+        runtime_provider=runtime_provider,
+        puppy_device_id=puppy_device_id,
+        runtime_credential_transport=runtime_credential_transport,
+        runtime_vertex_project=runtime_vertex_project,
+        runtime_vertex_location=runtime_vertex_location,
+        managed_location=managed_location,
+    )
     runner = Runner(
         app_name=ONE_APP_NAME,
-        agent=build_one_text_agent(
-            model=_runtime_model(
-                runtime_model=runtime_model,
-                runtime_mode=runtime_mode,
-                runtime_credential=runtime_credential,
-                runtime_provider=runtime_provider,
-                puppy_device_id=puppy_device_id,
-                runtime_credential_transport=runtime_credential_transport,
-                runtime_vertex_project=runtime_vertex_project,
-                runtime_vertex_location=runtime_vertex_location,
-                managed_location=managed_location,
-            )
-        ),
+        agent=build_one_text_agent(model=model_object),
         session_service=session_service,
         # The pod's ONLY turn path runs through here, and this argument was absent --
         # so `resolve_pod_memory_service` had no caller inside a pod at all. Its only
@@ -519,6 +520,17 @@ async def _stream_one_text_turn_once(
         memory_service=memory_service,
     )
     sanitized_context = dict(screen_context or {})
+    # CATCH-UP REVIEW, before this answer. A conversation that never sent its
+    # close still gets reviewed: bounded by the pod's own configuration record
+    # (budget, record cap), on the same model object, and never able to fail
+    # the turn. Ordinary replies with nothing un-reviewed pay nothing (K14).
+    catch_up_review = await _catch_up_memory_review(
+        memory_service=memory_service,
+        model=model_object,
+        runtime_provider=runtime_provider,
+        runtime_model=runtime_model,
+        session_owner_id=session_key,
+    )
     session = await session_service.create_session(
         app_name=ONE_APP_NAME,
         user_id=session_key,
@@ -654,12 +666,57 @@ async def _stream_one_text_turn_once(
             logger.warning("one_text_turn.memory_write_failed error=%s", type(error).__name__)
 
     logger.info(
-        "one_text_turn_complete model=%s first_visible_ms=%s elapsed_ms=%s directives=%s",
+        "one_text_turn_complete model=%s first_visible_ms=%s elapsed_ms=%s directives=%s "
+        "catch_up=%s",
         runtime_model,
         (round((first_visible_at - started_at) * 1000) if first_visible_at is not None else None),
         round((time.perf_counter() - started_at) * 1000),
         len(emitted_directives),
+        catch_up_review.outcome if catch_up_review is not None else None,
     )
+
+
+async def _catch_up_memory_review(
+    *,
+    memory_service: Any,
+    model: Any,
+    runtime_provider: str,
+    runtime_model: str,
+    session_owner_id: str,
+) -> Any:
+    """Review what a closed-without-notice conversation left behind, before answering.
+
+    Runs only when the pod's configuration record says so, only when the memory
+    service holds un-reviewed records, and only inside the record's budget. It
+    returns a ``MemoryReviewResult`` or None, and it can never raise into a turn:
+    a review that fails degrades to an un-reviewed turn, never a failed one.
+    """
+    if memory_service is None:
+        return None
+    try:
+        from hushh_mcp.services.pod_config import active_pod_config  # noqa: PLC0415
+
+        config = active_pod_config()
+        if not config.memory_review_catch_up:
+            return None
+        pending = getattr(memory_service, "unreviewed_count", None)
+        if not callable(pending) or pending() <= 0:
+            return None
+        from hushh_mcp.one_adk.memory_review import run_memory_review  # noqa: PLC0415
+
+        return await run_memory_review(
+            memory_service=memory_service,
+            model=model,
+            runtime_provider=runtime_provider,
+            runtime_model=runtime_model,
+            reason="catch_up",
+            budget_seconds=config.memory_review_budget_seconds,
+            max_records=config.memory_review_max_records,
+            session_owner_id=session_owner_id,
+        )
+    except Exception as error:  # noqa: BLE001 - a review must never cost the answer
+        logger.warning("one_text_turn.catch_up_review_failed error=%s", type(error).__name__)
+        return None
 
 
 def _resolve_pod_memory_service():

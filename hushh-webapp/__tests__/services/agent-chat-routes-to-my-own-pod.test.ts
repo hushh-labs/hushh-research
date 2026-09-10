@@ -14,11 +14,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const runPodTurn = vi.fn();
+const closePodConversation = vi.fn();
 const getFirebaseToken = vi.fn();
 
 vi.mock("@/lib/services/api-service", () => ({
   ApiService: {
     runPodTurn,
+    closePodConversation,
     getFirebaseToken,
   },
 }));
@@ -35,9 +37,12 @@ const POD_ANSWER = {
 };
 
 describe("agent chat routes to the person's own pod", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     runPodTurn.mockReset().mockResolvedValue(POD_ANSWER);
+    closePodConversation.mockReset().mockResolvedValue({ hushhId: "ha1_theirs" });
     getFirebaseToken.mockReset();
+    const { _resetLastPodConversation } = await import("@/lib/services/agent-chat-client");
+    _resetLastPodConversation();
   });
   afterEach(() => {
     vi.useRealTimers();
@@ -128,5 +133,46 @@ describe("agent chat routes to the person's own pod", () => {
       history,
     } as never);
     expect(runPodTurn.mock.calls[0][0].history).toEqual(history);
+  });
+
+  it("closes the conversation on the pod with the runtime that served it, once", async () => {
+    // Decision 3 of the owner-pod plan: the private agent learns on conversation
+    // close. The close carries the SAME runtime triple as the turn so the review
+    // runs on the model that answered, and a route change plus a pagehide for the
+    // same chat send exactly one close.
+    const { runAgentChatTurn, closeAgentChatConversation } = await import(
+      "@/lib/services/agent-chat-client"
+    );
+    await runAgentChatTurn({
+      message: "remember that Pushkin is my dachshund",
+      conversationId: "conv-7",
+      podHushhId: "ha1_theirs",
+      podState: "active",
+      podResolved: true,
+      runtimeCredential: "owner-key",
+      runtimeCredentialTransport: "developer_api",
+      runtimeVertexProject: "proj-1",
+      runtimeVertexLocation: "us-central1",
+    } as never);
+
+    expect(await closeAgentChatConversation({ conversationId: "conv-7" })).toBe(true);
+    expect(closePodConversation).toHaveBeenCalledTimes(1);
+    expect(closePodConversation.mock.calls[0][0]).toMatchObject({
+      hushhId: "ha1_theirs",
+      conversationId: "conv-7",
+      runtimeCredential: "owner-key",
+      runtimeCredentialTransport: "developer_api",
+      vertexProject: "proj-1",
+      vertexLocation: "us-central1",
+    });
+    // The second exit for the same chat is a no-op.
+    expect(await closeAgentChatConversation({ conversationId: "conv-7" })).toBe(false);
+    expect(closePodConversation).toHaveBeenCalledTimes(1);
+  });
+
+  it("never closes a conversation a pod turn did not serve", async () => {
+    const { closeAgentChatConversation } = await import("@/lib/services/agent-chat-client");
+    expect(await closeAgentChatConversation({ conversationId: "never-served" })).toBe(false);
+    expect(closePodConversation).not.toHaveBeenCalled();
   });
 });

@@ -807,3 +807,145 @@ async def relay_pod_turn_route(
         # the testable core stays free of a framework object.
         correlation=_correlation_headers(request),
     )
+
+
+# -- the learning loop's doors, beside the turn ----------------------------------
+#
+# Same three guards as the turn, same server-minted pkm.read grant, same URL
+# from the registry row. A memory door is an OWNER door: nothing here is reachable
+# without the Firebase identity that owns the HusshID, and every attempt is on
+# the POD_ACCESS ledger through the audit service.
+
+
+async def _owner_pod_target(
+    *,
+    hushh_id: str,
+    user_id: str,
+    request_id: str,
+    registry: Optional[PersonalAgentRegistryRepo] = None,
+    audit: Optional[PodAccessAuditService] = None,
+    grants: Any = None,
+) -> tuple[str, str]:
+    """Authorize the owner, resolve their pod URL, mint the pkm.read grant."""
+    _require_enabled()
+    repo = registry or PersonalAgentRegistryRepo()
+    auditor = audit or PodAccessAuditService(registry=repo)
+    try:
+        await auditor.authorize_owner_read(
+            user_id=user_id,
+            agent_id=PERSONAL_AGENT_ID,
+            scope=ConsentScope.PKM_READ.value,
+            hushh_id=hushh_id,
+            request_id=request_id,
+        )
+    except PodAccessDenied as exc:
+        logger.info("pod_relay.memory_denied reason=%s", str(exc))
+        raise HTTPException(status_code=403, detail="not authorized for this pod") from exc
+    except PersonalAgentDisabledError as exc:
+        raise HTTPException(status_code=404, detail="personal agent is not available") from exc
+    row = await repo.get(user_id) or {}
+    if str(row.get("status") or "") == "migrating":
+        raise _not_ready("migrating")
+    url = _pod_url(row)
+    if url is None:
+        raise _not_ready(str(row.get("status") or ""))
+    issuer = grants
+    if issuer is None:
+        from hushh_mcp.services.personal_agent_grant_service import (  # noqa: PLC0415
+            PersonalAgentGrantService,
+        )
+
+        issuer = PersonalAgentGrantService().issue_or_reuse_standing_pkm_read
+    try:
+        grant = await issuer(user_id)
+    except PersonalAgentDisabledError as exc:
+        raise HTTPException(status_code=404, detail="personal agent is not available") from exc
+    except Exception as exc:  # noqa: BLE001 - no grant means no door, and say so plainly
+        logger.warning("pod_relay.grant_failed %s", type(exc).__name__)
+        raise HTTPException(
+            status_code=503, detail="could not authorize your agent to read for you"
+        ) from exc
+    return url, str(grant.get("token") or "")
+
+
+class PodConversationCloseRelayRequest(BaseModel):
+    """The runtime triple of the conversation being closed; excluded from dumps."""
+
+    runtime_credential: Optional[str] = Field(
+        default=None, alias="runtimeCredential", max_length=12000, exclude=True
+    )
+    runtime_credential_transport: str = Field(
+        default="developer_api", alias="runtimeCredentialTransport", max_length=32
+    )
+    runtime_provider: Optional[str] = Field(default=None, alias="runtimeProvider", max_length=32)
+    puppy_device_id: Optional[str] = Field(default=None, alias="puppyDeviceId", max_length=128)
+    vertex_project: Optional[str] = Field(default=None, alias="vertexProject", max_length=30)
+    vertex_location: Optional[str] = Field(default=None, alias="vertexLocation", max_length=64)
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+async def relay_pod_conversation_close(
+    *,
+    hushh_id: str,
+    user_id: str,
+    conversation_id: str,
+    payload: PodConversationCloseRelayRequest,
+    registry: Optional[PersonalAgentRegistryRepo] = None,
+    audit: Optional[PodAccessAuditService] = None,
+    grants: Any = None,
+    correlation: Optional[dict[str, str]] = None,
+    session: Any = None,
+) -> dict:
+    """Owner-authorized conversation close against their own pod."""
+    url, token = await _owner_pod_target(
+        hushh_id=hushh_id,
+        user_id=user_id,
+        request_id=f"relay-close:{hushh_id}",
+        registry=registry,
+        audit=audit,
+        grants=grants,
+    )
+    body: dict[str, Any] = {
+        "runtimeCredential": payload.runtime_credential,
+        "runtimeCredentialTransport": payload.runtime_credential_transport,
+        "runtimeProvider": payload.runtime_provider,
+        "puppyDeviceId": payload.puppy_device_id,
+        "vertexProject": payload.vertex_project,
+        "vertexLocation": payload.vertex_location,
+    }
+    status, answer = await _proxy_post(
+        url,
+        f"/api/one/pod/conversation/{conversation_id}/close",
+        body=body,
+        consent_token=token,
+        correlation=correlation,
+        session=session,
+    )
+    if status == 503:
+        raise HTTPException(status_code=503, detail="your agent is not answering right now")
+    if status >= 400:
+        raise HTTPException(status_code=status, detail=answer)
+    if isinstance(answer, dict):
+        # The pod PROPOSES; the relay never mints a frame from a close. Strip any
+        # frames unconditionally, exactly as the turn relay does.
+        answer = {k: v for k, v in answer.items() if k != "frames"}
+    return {"hushhId": hushh_id, **(answer if isinstance(answer, dict) else {"pod": answer})}
+
+
+@router.post("/{hushh_id}/conversation/{conversation_id}/close")
+async def relay_pod_conversation_close_route(
+    request: Request,
+    payload: PodConversationCloseRelayRequest = Body(default=PodConversationCloseRelayRequest()),
+    hushh_id: str = Path(..., min_length=1, max_length=128),
+    conversation_id: str = Path(..., min_length=1, max_length=128),
+    user_id: str = Depends(require_firebase_auth),
+) -> dict:
+    """The person left the chat: let their pod review it on the conversation's model."""
+    return await relay_pod_conversation_close(
+        hushh_id=hushh_id,
+        user_id=user_id,
+        conversation_id=conversation_id,
+        payload=payload,
+        correlation=_correlation_headers(request),
+    )
