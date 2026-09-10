@@ -120,7 +120,6 @@ const WEBAUTHN_CANCEL_CONTEXT = [
   "securitykey",
   "security key",
 ];
-
 function isWebAuthnCancellationError(value: unknown): boolean {
   const error = value as { name?: unknown; message?: unknown; code?: unknown } | null;
   const name = typeof error?.name === "string" ? error.name.toLowerCase() : "";
@@ -173,8 +172,6 @@ function isDuplicateWebAuthnError(value: unknown): boolean {
   );
 }
 
-const PASSKEY_UNLOCK_CANCELLED_MESSAGE =
-  "Passkey unlock was cancelled. Choose Passphrase or Recovery key below, or tap Passkey to try again.";
 const GENERATED_UNLOCK_CANCELLED_EVENT = "vault-generated-unlock-cancelled";
 
 type GeneratedUnlockClaim = {
@@ -440,7 +437,7 @@ export function VaultFlow({
 
       generatedUnlockCancelledRef.current = true;
       setUnlockWithPassphraseFallback(true);
-      setError(PASSKEY_UNLOCK_CANCELLED_MESSAGE);
+      setError(null);
     };
 
     window.addEventListener(
@@ -873,6 +870,10 @@ export function VaultFlow({
       }
     } catch (err: any) {
       console.error("Unlock error:", err);
+      if (isWebAuthnCancellationError(err)) {
+        setError(null);
+        return;
+      }
       const message = toInvestorVaultUnlockError(err);
       setError(message);
       toast.error(message);
@@ -969,7 +970,7 @@ export function VaultFlow({
       if (claim === "cancelled") {
         generatedUnlockCancelledRef.current = true;
         setUnlockWithPassphraseFallback(true);
-        setError(PASSKEY_UNLOCK_CANCELLED_MESSAGE);
+        setError(null);
         return;
       }
       if (claim === "busy") {
@@ -1029,7 +1030,7 @@ export function VaultFlow({
             generatedMode,
           );
           setUnlockWithPassphraseFallback(true);
-          setError(PASSKEY_UNLOCK_CANCELLED_MESSAGE);
+          setError(null);
           return;
         }
         console.error("Generated vault unlock failed:", err);
@@ -1273,7 +1274,7 @@ export function VaultFlow({
     ) {
       generatedUnlockCancelledRef.current = true;
       setUnlockWithPassphraseFallback(true);
-      setError(PASSKEY_UNLOCK_CANCELLED_MESSAGE);
+      setError(null);
       return;
     }
     void handleUnlockGeneratedDefault("automatic");
