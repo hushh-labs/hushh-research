@@ -53,7 +53,7 @@ def test_the_model_call_reads_its_budget_from_the_helper() -> None:
 # a hub the turn never touched.
 
 
-def _runtime(verifier=None):
+def _runtime_with_verifier(verifier=None):
     return pod_specialist_runtime.build_pod_specialist_runtime(
         user_id="uid-1",
         hushh_id="ha1_owner",
@@ -89,7 +89,7 @@ async def test_an_injected_verifier_answers_require_access_and_the_hub_is_never_
             valid=True, available=True, user_id="uid-1", hushh_id="ha1_owner", scope=expected_scope
         )
 
-    await _runtime(verifier=_local).require_access()
+    await _runtime_with_verifier(verifier=_local).require_access()
     assert calls == [("pod-session:sid", "pkm.read")]
 
 
@@ -105,7 +105,7 @@ async def test_a_verifier_that_revokes_refuses_and_a_missing_verifier_uses_the_h
         return ConsentVerdict(valid=False, available=True, reason="subject revoked")
 
     with pytest.raises(PermissionError):
-        await _runtime(verifier=_revoked).require_access()
+        await _runtime_with_verifier(verifier=_revoked).require_access()
 
     asked = []
 
@@ -116,7 +116,7 @@ async def test_a_verifier_that_revokes_refuses_and_a_missing_verifier_uses_the_h
         )
 
     monkeypatch.setattr(pod_consent_client, "verify_consent", _hub)
-    await _runtime().require_access()
+    await _runtime_with_verifier().require_access()
     assert asked == ["pod-session:sid"]
 
 
