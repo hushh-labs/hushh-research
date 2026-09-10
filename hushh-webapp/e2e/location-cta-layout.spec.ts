@@ -246,7 +246,14 @@ test.describe("One Location compact CTA layout", () => {
 
       expect(result.overflow).toBeLessThanOrEqual(1);
 
-      expect(result.publicControls.width).toBeLessThanOrEqual(280.5);
+      if (width < 640) {
+        expect(result.publicControls.width).toBeCloseTo(
+          result.publicCard.width - result.publicCardPaddingLeft * 2,
+          0,
+        );
+      } else {
+        expect(result.publicControls.width).toBeCloseTo(280, 0);
+      }
       expect(
         Math.abs(
           result.publicControls.left -
@@ -262,11 +269,16 @@ test.describe("One Location compact CTA layout", () => {
         Math.abs(result.publicCta.width - result.publicControls.width),
       ).toBeLessThanOrEqual(1);
 
-      expect(result.shareOptions.width).toBeLessThanOrEqual(240.5);
+      expect(result.shareOptions.width).toBeCloseTo(
+        width < 640
+          ? result.shareCard.width - result.shareCardPaddingRight * 2
+          : 280,
+        0,
+      );
       expect(
         Math.abs(
-          result.shareOptions.right -
-            (result.shareCard.right - result.shareCardPaddingRight),
+          result.shareOptions.left -
+            (result.shareCard.left + result.shareCardPaddingRight),
         ),
       ).toBeLessThanOrEqual(1);
       expect(

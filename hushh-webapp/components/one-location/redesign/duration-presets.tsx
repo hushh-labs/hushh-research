@@ -112,9 +112,9 @@ export const DURATION_CUSTOM_VISIBLE_ROWS = 3;
  */
 export const DURATION_GRID_CLASS =
   "grid grid-cols-2 gap-2 sm:flex sm:flex-wrap";
-/** A compact two-column block at the final share card's trailing edge. */
+/** Fill the phone card; keep a compact, left-aligned two-column group on desktop. */
 export const DURATION_COMPACT_GRID_CLASS =
-  "ml-auto grid w-full max-w-[240px] grid-cols-2 gap-2";
+  "grid w-full grid-cols-2 gap-2 sm:max-w-[280px]";
 export const DURATION_CELL_CLASS =
   "flex min-h-11 items-center justify-center whitespace-nowrap rounded-[14px] border px-2 text-center text-[15px] font-semibold leading-5 transition-colors touch-manipulation sm:px-4";
 export const DURATION_COMPACT_CELL_CLASS = "rounded-full px-3";

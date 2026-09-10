@@ -161,8 +161,8 @@ for (const width of [320, 393, 430, 1440]) {
           const grid = card.querySelector("[role=group] > div")!;
           const box = card.getBoundingClientRect();
           return Math.abs(
-            grid.getBoundingClientRect().right -
-              (box.right - parseFloat(getComputedStyle(card).paddingRight)),
+            grid.getBoundingClientRect().left -
+              (box.left + parseFloat(getComputedStyle(card).paddingLeft)),
           );
         });
       expect(alignment).toBeLessThanOrEqual(1);

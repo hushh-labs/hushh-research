@@ -76,8 +76,10 @@ the full result list in a bounded scroll area. Category changes filter the
 existing nearby results. The accuracy information box is omitted; permission,
 capture, and check-in rejection recovery still use their existing controls.
 
-The final sharing review keeps its duration choices in a compact two-column
-group aligned to the card's right edge on phones and desktop.
+The final sharing review keeps its duration choices in two equal columns,
+filling the card's inner width on phones and forming a compact 280px group
+aligned with the label and note on desktop. Temporary-link duration controls
+and the Create link button follow the same responsive width and left alignment.
 
 ## Saved location onboarding
 
