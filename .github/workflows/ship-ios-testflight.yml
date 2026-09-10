@@ -398,17 +398,20 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          marketing_version="$(grep -m1 -E 'MARKETING_VERSION[[:space:]]*=' "$PBXPROJ" | sed -E 's/.*= *([^;]+);.*/\1/' | tr -d ' ')"
+          test -n "$marketing_version"
           "$RUNNER_TEMP/asc-venv/bin/python" scripts/ci/distribute-testflight-build.py \
             --p8-path "$RUNNER_TEMP/asc.p8" \
             --key-id "$ASC_KEY_ID" \
             --issuer-id "$ASC_ISSUER_ID" \
             --bundle-id "$IOS_BUNDLE_ID" \
+            --marketing-version "$marketing_version" \
             --build-number "${{ steps.build_number.outputs.next_build }}" \
             --internal-group-id "$ASC_INTERNAL_GROUP_ID" \
             --external-group-id "$ASC_EXTERNAL_GROUP_ID" \
             --beta-review-contact-file "$ASC_BETA_REVIEW_CONTACT_PATH" \
             --beta-review-notes-file "$ASC_BETA_REVIEW_NOTES_PATH" \
-            --output "$RUNNER_TEMP/testflight-distribution.json"
+            --output-json "$RUNNER_TEMP/testflight-distribution.json"
 
       - name: Upload redacted release evidence
         if: always()
