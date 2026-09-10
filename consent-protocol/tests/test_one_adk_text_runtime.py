@@ -570,3 +570,173 @@ async def test_text_runtime_leaves_model_version_empty_when_unreported_negative_
         )
     ]
     assert [event.model_version for event in events if event.kind == "token"] == [""]
+
+
+async def test_text_runtime_reports_observed_recall_digest_and_catch_up(monkeypatch):
+    """The learning loop on ONE turn, read from the runner's own events.
+
+    * the curated digest is seeded into session state before the runner starts;
+    * a `load_memory` call and its response are paired into `memory.recalls`
+      ({queryChars, hits, backend}) off the function parts, never the answer;
+    * the catch-up review ran on the SAME model object before the answer; and
+    * the one `memory` event carries counts only.
+    """
+    from google.adk.agents.run_config import RunConfig
+
+    from hushh_mcp.one_adk.agent_tree import STATE_MEMORY_AVAILABLE, STATE_MEMORY_DIGEST
+
+    class _Memory:
+        last_recall_backend = None
+        last_written = 0
+        provider_report = {"consent": "absent", "generate": "no_bank", "recall": "no_bank"}
+
+        def __init__(self) -> None:
+            self.pending = 2
+            self.digest_calls: list[int] = []
+
+        async def digest(self, max_chars: int) -> str:
+            self.digest_calls.append(max_chars)
+            return "- the dachshund is named Pushkin"
+
+        def unreviewed_count(self) -> int:
+            return self.pending
+
+        async def add_session_to_memory(self, session) -> None:  # noqa: ANN001
+            self.last_written = 3
+
+    memory = _Memory()
+    reviewed: dict = {}
+
+    async def _review(**kwargs):
+        from hushh_mcp.one_adk.memory_review import MemoryReviewResult
+
+        reviewed.update(kwargs)
+        memory.pending = 0
+        return MemoryReviewResult(
+            outcome="applied", reason="catch_up", through_seq=4, records=2, ops={"remember": 1}
+        )
+
+    observed: dict = {}
+
+    class _FakeRunner:
+        def __init__(self, *, app_name, agent, session_service, memory_service=None):
+            self.session_service = session_service
+            observed["agent_model"] = agent[1]
+
+        async def run_async(self, *, user_id, session_id, new_message, run_config: RunConfig):
+            session = await self.session_service.get_session(
+                app_name=ONE_APP_NAME, user_id=user_id, session_id=session_id
+            )
+            observed["state"] = dict(session.state)
+            memory.last_recall_backend = "commit_log"
+            yield Event(
+                author="one",
+                content=genai_types.Content(
+                    role="model",
+                    parts=[
+                        genai_types.Part.from_function_call(
+                            name="load_memory", args={"query": "dog name"}
+                        )
+                    ],
+                ),
+            )
+            yield Event(
+                author="one",
+                content=genai_types.Content(
+                    role="user",
+                    parts=[
+                        genai_types.Part.from_function_response(
+                            name="load_memory",
+                            response={"result": {"memories": [{"content": "x"}]}},
+                        )
+                    ],
+                ),
+            )
+            yield Event(
+                author="one",
+                partial=False,
+                content=genai_types.Content(
+                    role="model", parts=[genai_types.Part.from_text(text="Pushkin.")]
+                ),
+            )
+
+    monkeypatch.setattr(text_runtime, "Runner", _FakeRunner)
+    monkeypatch.setattr(text_runtime, "build_one_text_agent", lambda *, model: ("one", model))
+    monkeypatch.setattr(text_runtime, "_runtime_model", lambda **_kw: "the-model-object")
+    monkeypatch.setattr(text_runtime, "_resolve_pod_memory_service", lambda: memory)
+    monkeypatch.setattr("hushh_mcp.one_adk.memory_review.run_memory_review", _review)
+
+    events = [
+        event
+        async for event in text_runtime.stream_one_text_turn(
+            user_id="u1",
+            consent_token="opaque-" + "token",
+            conversation_id="c1",
+            message="what is my dog called?",
+            history=[],
+            timezone="UTC",
+            screen_context=None,
+            pkm_context="",
+            runtime_provider="gemini",
+            runtime_model="gemini-test",
+            runtime_mode="hushh_managed_vertex",
+            runtime_credential=None,
+        )
+    ]
+
+    assert [e.text for e in events if e.kind == "token"] == ["Pushkin."]
+    report = [e for e in events if e.kind == "memory"]
+    assert len(report) == 1
+    memory_report = report[0].memory
+    assert memory_report["enabled"] is True
+    assert memory_report["recalls"] == [{"queryChars": 8, "hits": 1, "backend": "commit_log"}]
+    assert memory_report["written"] == 3
+    assert memory_report["review"]["outcome"] == "applied"
+    assert memory_report["provider"]["recall"] == "no_bank"
+    assert "dog" not in str(memory_report) and "Pushkin" not in str(memory_report)
+    # The digest was seeded before the runner started, bounded by the pod's record.
+    assert observed["state"][STATE_MEMORY_AVAILABLE] is True
+    assert observed["state"][STATE_MEMORY_DIGEST] == "- the dachshund is named Pushkin"
+    assert memory.digest_calls == [1200]
+    # The catch-up ran on the same model object the agent was built with.
+    assert reviewed["model"] == "the-model-object" == observed["agent_model"]
+    assert reviewed["reason"] == "catch_up"
+    assert reviewed["budget_seconds"] == 45.0 and reviewed["max_records"] == 12
+
+
+def test_event_memory_recalls_reads_only_load_memory_parts():
+    call = Event(
+        author="one",
+        content=genai_types.Content(
+            role="model",
+            parts=[
+                genai_types.Part.from_function_call(name="load_memory", args={"query": "abcd"}),
+                genai_types.Part.from_function_call(name="open_screen", args={"screen": "x"}),
+            ],
+        ),
+    )
+    reply = Event(
+        author="one",
+        content=genai_types.Content(
+            role="user",
+            parts=[
+                genai_types.Part.from_function_response(
+                    name="load_memory", response={"memories": [{"a": 1}, {"b": 2}]}
+                ),
+                genai_types.Part.from_function_response(name="open_screen", response={"ok": 1}),
+            ],
+        ),
+    )
+    foreign = Event(author="user", content=call.content)
+    observed = (
+        text_runtime._event_memory_recalls(call, backend="commit_log")
+        + text_runtime._event_memory_recalls(reply, backend="commit_log")
+        + text_runtime._event_memory_recalls(foreign)
+    )
+    assert text_runtime._pair_memory_recalls(observed) == [
+        {"queryChars": 4, "hits": 2, "backend": "commit_log"}
+    ]
+    # An unanswered call still counts as an observed call with zero hits.
+    assert text_runtime._pair_memory_recalls(text_runtime._event_memory_recalls(call)) == [
+        {"queryChars": 4, "hits": 0, "backend": None}
+    ]

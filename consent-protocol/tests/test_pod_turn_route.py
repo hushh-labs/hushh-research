@@ -799,3 +799,58 @@ def test_the_grant_bound_matches_the_live_routes_header_bound():
     src = Path(pod_turn.__file__).read_text(encoding="utf-8")
     assert "_MAX_GRANT_TOKEN_LENGTH = 4096" in src
     assert "len(token) > 4096" in src, "the Live header bound moved; keep the two aligned"
+
+
+# -- observed recall on the response ------------------------------------------------
+
+
+async def test_a_recall_turn_with_empty_history_reports_the_observed_load_memory_call(
+    enabled, monkeypatch
+):
+    """K9's evidence shape. The north star credits recall only as an OBSERVED
+    `load_memory` call; the turn response now carries it beside `specialists` as
+    `memory.recalls`, read off the runner's memory event, never off the answer text.
+    `history: []` is the point: a recall from an EMPTY browser history can only have
+    come from the pod's own memory."""
+    _consent_ok(monkeypatch)
+    seen: dict = {}
+
+    async def _run(**kwargs):
+        seen.update(kwargs)
+        yield _Event("token", "Pushkin, your dachshund.")
+        event = _Event("memory")
+        event.memory = {
+            "enabled": True,
+            "recalls": [{"queryChars": 9, "hits": 1, "backend": "commit_log"}],
+            "review": {"outcome": "nothing_to_review", "reason": "catch_up"},
+            "written": 2,
+            "provider": {"consent": "absent", "generate": "no_bank", "recall": "no_bank"},
+        }
+        yield event
+
+    result = await pod_turn.run_pod_turn(
+        payload=_payload("what is my dog called?", history=[]),
+        consent_token="t",
+        stream_fn=_run,
+    )
+    assert list(seen["history"]) == []
+    assert result["text"] == "Pushkin, your dachshund."
+    memory = result["memory"]
+    assert memory["recalls"] == [{"queryChars": 9, "hits": 1, "backend": "commit_log"}]
+    assert memory["written"] == 2
+    assert memory["provider"]["consent"] == "absent"
+    assert memory["review"]["outcome"] == "nothing_to_review"
+    # Shape only: no query text, no answer text, no record content anywhere in it.
+    assert "Pushkin" not in str(memory)
+    assert "dog" not in str(memory)
+
+
+async def test_a_pre_join_runner_returns_no_memory_key(enabled, monkeypatch):
+    """An older image emits no memory event; the response must not invent one, so
+    the drill's `memory_join_present_on_image` precondition reads its absence."""
+    _consent_ok(monkeypatch)
+    result = await pod_turn.run_pod_turn(
+        payload=_payload(), consent_token="t", stream_fn=_stream([_Event("token", "hi")])
+    )
+    assert "memory" not in result
+    assert "specialists" in result

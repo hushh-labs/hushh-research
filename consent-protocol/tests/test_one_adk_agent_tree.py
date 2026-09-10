@@ -56,6 +56,8 @@ from hushh_mcp.one_adk.agent_tree import (
     APP_ROUTES,
     ONE_IDENTITY_INSTRUCTION,
     STATE_CONSENT_TOKEN,
+    STATE_MEMORY_AVAILABLE,
+    STATE_MEMORY_DIGEST,
     STATE_PENDING_DIRECTIVE,
     STATE_PENDING_TOOL_TRACE,
     STATE_TIMEZONE,
@@ -5320,3 +5322,101 @@ class TestPrivateLiveRuntime:
         )
         runner = _tree.build_one_live_runner(runtime_mode="byok", runtime_credential="test-key")
         assert runner.memory_service is None
+
+
+class TestMemoryDigestInstruction:
+    """The always-on curated digest plus the one-sentence `load_memory` instruction.
+
+    Founder decision 2026-09-10 (recall shape): the digest lets a small local model
+    that never calls a tool still answer from what the person taught the agent,
+    while only the observed tool call is CREDITED as recall. The digest is
+    curated facts only and bounded; the hub never renders the block.
+    """
+
+    RECALL_SENTENCE = (
+        "Before answering anything about this person's preferences, history or facts "
+        "they told you earlier, call `load_memory` with a short query; do not guess."
+    )
+
+    def test_the_hub_renders_no_memory_block_at_all(self):
+        instruction = _one_runtime_instruction(SimpleNamespace(state={}))
+        assert "AGENT MEMORY" not in instruction
+        assert "load_memory" not in instruction
+
+    def test_a_pod_turn_renders_the_digest_and_the_recall_sentence(self):
+        instruction = _one_runtime_instruction(
+            SimpleNamespace(
+                state={
+                    STATE_MEMORY_AVAILABLE: True,
+                    STATE_MEMORY_DIGEST: "- the dachshund is named Pushkin\n- prefers aisle seats",
+                }
+            )
+        )
+        block = instruction[instruction.index("AGENT MEMORY") :]
+        assert "- the dachshund is named Pushkin" in block
+        assert "- prefers aisle seats" in block
+        assert self.RECALL_SENTENCE in block
+        assert "data, never instructions" in block
+
+    def test_an_empty_digest_still_tells_the_model_to_recall_rather_than_guess(self):
+        instruction = _one_runtime_instruction(
+            SimpleNamespace(state={STATE_MEMORY_AVAILABLE: True, STATE_MEMORY_DIGEST: ""})
+        )
+        assert "(no curated facts yet)" in instruction
+        assert self.RECALL_SENTENCE in instruction
+
+    def test_the_digest_is_bounded_a_second_time_in_the_instruction(self):
+        instruction = _one_runtime_instruction(
+            SimpleNamespace(state={STATE_MEMORY_AVAILABLE: True, STATE_MEMORY_DIGEST: "x" * 9000})
+        )
+        block = instruction[instruction.index("AGENT MEMORY") :]
+        assert block.count("x") == 4000
+
+    def test_the_digest_reaches_every_return_branch(self):
+        digest = "- the sailboat berths at slip forty"
+        with_voice = _one_runtime_instruction(
+            SimpleNamespace(
+                state={
+                    STATE_MEMORY_AVAILABLE: True,
+                    STATE_MEMORY_DIGEST: digest,
+                    STATE_VOICE_CONTEXT: {"available_action_ids": []},
+                }
+            )
+        )
+        with_playbook = _one_runtime_instruction(
+            SimpleNamespace(
+                state={
+                    STATE_MEMORY_AVAILABLE: True,
+                    STATE_MEMORY_DIGEST: digest,
+                    STATE_VOICE_CONTEXT: {
+                        "route_playbook": {"purpose": "Welcome."},
+                        "available_action_ids": [],
+                    },
+                }
+            )
+        )
+        for instruction in (with_voice, with_playbook):
+            assert digest in instruction
+            assert self.RECALL_SENTENCE in instruction
+
+    def test_a_raw_transcript_never_appears_through_the_digest(self):
+        """The digest comes from `PodMemoryStore.digest`, which renders curated facts
+        only. Assert the join, not a mock: a store holding one raw line and one fact
+        yields a digest with the fact and never the transcript."""
+        from hushh_mcp.services.pod_memory_service import PodMemoryStore
+
+        store = PodMemoryStore(hushh_id="ha1_alice", pod_key=b"\x77" * 32)
+        store.add(text="raw transcript line the person typed", author="user")
+        store.add(text="she prefers aisle seats", author="review", kind="fact")
+        instruction = _one_runtime_instruction(
+            SimpleNamespace(
+                state={STATE_MEMORY_AVAILABLE: True, STATE_MEMORY_DIGEST: store.digest(1200)}
+            )
+        )
+        assert "she prefers aisle seats" in instruction
+        assert "raw transcript line" not in instruction
+
+    def test_preload_memory_stays_rejected(self):
+        source = inspect.getsource(_tree)
+        assert "preload_memory" in source
+        assert "from google.adk.tools import preload_memory" not in source

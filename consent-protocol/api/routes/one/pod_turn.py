@@ -342,6 +342,9 @@ async def run_pod_turn(
     # The model the provider SAID answered, read off the token events. Empty when
     # nothing reported one; then the response names the resolved id and says so.
     observed_model = ""
+    # The runtime's one memory report per turn (observed recalls, review, written,
+    # provider). None when the runner never emitted it (a pre-join image).
+    memory_report: dict[str, Any] | None = None
     try:
         with bind_specialist_runtime(specialist_runtime):
             async for event in runner(
@@ -399,6 +402,8 @@ async def run_pod_turn(
                     directives.append(event.directive)
                 elif kind == "specialist" and getattr(event, "specialist", None) is not None:
                     specialists.append(event.specialist)
+                elif kind == "memory" and isinstance(getattr(event, "memory", None), dict):
+                    memory_report = dict(event.memory)
     except Exception as exc:  # noqa: BLE001 - a failed turn is a 502, never a 500 traceback
         # THE KEYLESS-POD DB WALL IS AN EXPECTED CONDITION, NOT A 502.
         # A pod holds no database credential by design. Some tools on One's roster
@@ -546,6 +551,13 @@ async def run_pod_turn(
         # Whose model answered. Stated, because "your AI" is a product promise and a
         # cost boundary, not an implementation detail.
         "runtimeMode": runtime_mode,
+        # WHAT THE AGENT REMEMBERED, LEARNED AND WROTE THIS TURN. Observed
+        # `load_memory` recalls ({queryChars, hits, backend}), the catch-up review
+        # (counts), records written, and the provider outcome vocabulary
+        # (consent / generate / recall). Shape only, never content. Absent on an
+        # image that predates the memory join, which is what the drill's
+        # `memory_join_present_on_image` precondition reads.
+        **({"memory": memory_report} if memory_report is not None else {}),
     }
 
 

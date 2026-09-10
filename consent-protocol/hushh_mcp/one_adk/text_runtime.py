@@ -33,6 +33,8 @@ from hushh_mcp.one_adk.agent_tree import (
     STATE_CONVERSATION_ID,
     STATE_DATA_DOOR_GRANTS,
     STATE_GROUNDING_REASON,
+    STATE_MEMORY_AVAILABLE,
+    STATE_MEMORY_DIGEST,
     STATE_PKM_CONTEXT,
     STATE_SCREEN,
     STATE_TIMEZONE,
@@ -51,7 +53,9 @@ from hushh_mcp.services.action_gateway import get_action_gateway_action
 
 logger = logging.getLogger(__name__)
 
-OneTextEventKind = Literal["token", "thought", "source", "directive", "specialist", "boundary"]
+OneTextEventKind = Literal[
+    "token", "thought", "source", "directive", "specialist", "boundary", "memory"
+]
 _FIRST_EVENT_TIMEOUT_SECONDS = 20.0
 _PUPPY_FIRST_EVENT_TIMEOUT_SECONDS = 60.0
 _BETWEEN_EVENT_TIMEOUT_SECONDS = 30.0
@@ -117,6 +121,10 @@ class OneTextStreamEvent:
     # The model the provider said produced this token, when it said. Empty means
     # unreported; the pod turn route turns that into ``modelReported: false``.
     model_version: str = ""
+    # ONE report per turn, emitted after the memory commit: observed `load_memory`
+    # recalls ({queryChars, hits, backend}), the catch-up review (counts), how many
+    # records the turn wrote, and the provider outcome vocabulary. Shape only.
+    memory: dict[str, Any] | None = None
 
 
 class OneTextEmptyResponseError(RuntimeError):
@@ -378,6 +386,76 @@ def _event_specialists(event: Any) -> list[OneTextSpecialistOutcome]:
     return outcomes
 
 
+_LOAD_MEMORY_TOOL = "load_memory"
+
+
+def _event_memory_recalls(event: Any, *, backend: str | None = None) -> list[dict[str, Any]]:
+    """Read observed ``load_memory`` calls and responses off One's events.
+
+    The north star credits recall only as an OBSERVED tool call, so the report
+    is built from the function-call and function-response parts ADK appends,
+    never from the answer text. Two shapes per event, both counted:
+
+    * a call: ``{"queryChars": n, "hits": None, "backend": ...}`` (the query is the
+      person's own words; only its length is kept);
+    * a response: ``{"queryChars": None, "hits": k, "backend": ...}`` where ``k`` is
+      the number of memories returned (ADK wraps a ``LoadMemoryResponse`` as
+      ``{"result": {"memories": [...]}}``; a bare ``{"memories": [...]}`` is read too).
+
+    The caller pairs a response with the call before it. Text never leaves here.
+    """
+    if str(getattr(event, "author", "") or "") != "one":
+        return []
+    out: list[dict[str, Any]] = []
+    get_calls = getattr(event, "get_function_calls", None)
+    for call in (get_calls() if callable(get_calls) else None) or []:
+        if str(getattr(call, "name", "") or "") != _LOAD_MEMORY_TOOL:
+            continue
+        args = getattr(call, "args", None)
+        query = args.get("query") if isinstance(args, dict) else None
+        out.append(
+            {
+                "queryChars": len(str(query)) if isinstance(query, str) else 0,
+                "hits": None,
+                "backend": backend,
+            }
+        )
+    get_responses = getattr(event, "get_function_responses", None)
+    for reply in (get_responses() if callable(get_responses) else None) or []:
+        if str(getattr(reply, "name", "") or "") != _LOAD_MEMORY_TOOL:
+            continue
+        response = getattr(reply, "response", None)
+        memories: Any = None
+        if isinstance(response, dict):
+            memories = response.get("memories")
+            if memories is None and isinstance(response.get("result"), dict):
+                memories = response["result"].get("memories")
+        out.append(
+            {
+                "queryChars": None,
+                "hits": len(memories) if isinstance(memories, list) else 0,
+                "backend": backend,
+            }
+        )
+    return out
+
+
+def _pair_memory_recalls(observed: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Fold call/response halves into one record per recall, in order."""
+    recalls: list[dict[str, Any]] = []
+    pending: list[dict[str, Any]] = []
+    for item in observed:
+        if item.get("hits") is None:
+            pending.append({"queryChars": item.get("queryChars") or 0, "hits": 0, "backend": None})
+            continue
+        target = pending.pop(0) if pending else {"queryChars": 0, "hits": 0, "backend": None}
+        target["hits"] = int(item.get("hits") or 0)
+        target["backend"] = item.get("backend")
+        recalls.append(target)
+    recalls.extend(pending)  # a call with no response yet is still an observed call
+    return recalls
+
+
 def _directive_from_value(value: Any) -> OneTextDirective | None:
     if not isinstance(value, dict):
         return None
@@ -531,11 +609,15 @@ async def _stream_one_text_turn_once(
         runtime_model=runtime_model,
         session_owner_id=session_key,
     )
+    # The always-on curated digest (pod only; empty string and False on the hub).
+    memory_digest = await _memory_digest(memory_service)
     session = await session_service.create_session(
         app_name=ONE_APP_NAME,
         user_id=session_key,
         session_id=f"chat_{uuid.uuid4().hex}",
         state={
+            STATE_MEMORY_AVAILABLE: memory_service is not None,
+            STATE_MEMORY_DIGEST: memory_digest,
             STATE_USER_ID: clean_user_id,
             STATE_CONSENT_TOKEN: str(consent_token or "").strip(),
             STATE_CONVERSATION_ID: clean_conversation_id,
@@ -572,6 +654,7 @@ async def _stream_one_text_turn_once(
         parts=[genai_types.Part.from_text(text=str(message or "").strip()[:8000])],
     )
     emitted_directives: set[str] = set()
+    observed_recalls: list[dict[str, Any]] = []
     saw_partial_text = False
     emitted_visible_output = False
     started_at = time.perf_counter()
@@ -610,6 +693,14 @@ async def _stream_one_text_turn_once(
 
         for outcome in _event_specialists(event):
             yield OneTextStreamEvent(kind="specialist", specialist=outcome)
+
+        # Observed recall, the only credited proof the agent remembered (north
+        # star). Read off the tool call and its response, never off the answer.
+        observed_recalls.extend(
+            _event_memory_recalls(
+                event, backend=getattr(memory_service, "last_recall_backend", None)
+            )
+        )
 
         text = _event_text(event)
         if not text:
@@ -665,6 +756,23 @@ async def _stream_one_text_turn_once(
         except Exception as error:  # noqa: BLE001 - answer is already delivered
             logger.warning("one_text_turn.memory_write_failed error=%s", type(error).__name__)
 
+    # THE MEMORY REPORT: one event, after the answer and the commit, so the pod
+    # turn can return `memory: {recalls, review, written, provider}` beside
+    # `specialists`. Only where a memory service exists: the hub's event stream
+    # is unchanged, and a pod whose memory is off reports nothing rather than an
+    # empty shape that could be mistaken for a working join.
+    if memory_service is not None:
+        yield OneTextStreamEvent(
+            kind="memory",
+            memory={
+                "enabled": True,
+                "recalls": _pair_memory_recalls(observed_recalls),
+                "review": catch_up_review.as_dict() if catch_up_review is not None else None,
+                "written": int(getattr(memory_service, "last_written", 0) or 0),
+                "provider": dict(getattr(memory_service, "provider_report", None) or {}),
+            },
+        )
+
     logger.info(
         "one_text_turn_complete model=%s first_visible_ms=%s elapsed_ms=%s directives=%s "
         "catch_up=%s",
@@ -674,6 +782,28 @@ async def _stream_one_text_turn_once(
         len(emitted_directives),
         catch_up_review.outcome if catch_up_review is not None else None,
     )
+
+
+async def _memory_digest(memory_service: Any) -> str:
+    """The curated digest for this turn's instruction, bounded by the pod's record.
+
+    Empty on the hub (no service) and empty on any failure: the digest is an
+    aid, never a dependency, so a store that cannot be read costs the turn its
+    digest and nothing else. Curated facts only; the raw transcript never
+    enters a prompt through this path (``PodMemoryStore.digest``).
+    """
+    if memory_service is None:
+        return ""
+    digest = getattr(memory_service, "digest", None)
+    if not callable(digest):
+        return ""
+    try:
+        from hushh_mcp.services.pod_config import active_pod_config  # noqa: PLC0415
+
+        return str(await digest(active_pod_config().memory_digest_max_chars) or "")
+    except Exception as error:  # noqa: BLE001 - a digest must never cost the answer
+        logger.warning("one_text_turn.memory_digest_failed error=%s", type(error).__name__)
+        return ""
 
 
 async def _catch_up_memory_review(
