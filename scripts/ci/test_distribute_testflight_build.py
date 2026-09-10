@@ -7,6 +7,7 @@ from __future__ import annotations
 import json
 import importlib.util
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from typing import Any
@@ -158,6 +159,48 @@ class DistributeTestFlightBuildTests(unittest.TestCase):
         self.assertEqual(apple.assignments[INTERNAL_GROUP_ID], {BUILD_ID})
         self.assertEqual(apple.assignments[EXTERNAL_GROUP_ID], {BUILD_ID})
         self.assertFalse(any("appStoreVersions" in url or "reviewSubmissions" in url for _, url, _ in apple.calls))
+
+    def test_exact_build_id_handoff_does_not_requery_transient_upload(self) -> None:
+        apple = FakeApple(external_review_state="APPROVED")
+        result = subject.distribute_valid_build(
+            client=subject.AppStoreConnectClient("test", request=apple.request),
+            app_id=APP_ID,
+            marketing_version="1.4.0",
+            build_number="69",
+            configuration=configuration(),
+            build_id=BUILD_ID,
+        )
+
+        self.assertEqual(result["build_id"], BUILD_ID)
+        self.assertFalse(any("buildUploads" in url for _, url, _ in apple.calls))
+
+    def test_build_id_file_requires_the_processing_gate_contract(self) -> None:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json") as handle:
+            json.dump(
+                {
+                    "type": "builds",
+                    "id": BUILD_ID,
+                    "attributes": {"processingState": "VALID"},
+                },
+                handle,
+            )
+            handle.flush()
+            self.assertEqual(
+                subject.read_build_id_file(handle.name, build_number="69"), BUILD_ID
+            )
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json") as handle:
+            json.dump(
+                {
+                    "type": "builds",
+                    "id": BUILD_ID,
+                    "attributes": {"processingState": "PROCESSING"},
+                },
+                handle,
+            )
+            handle.flush()
+            with self.assertRaisesRegex(subject.DistributionError, "not VALID"):
+                subject.read_build_id_file(handle.name, build_number="69")
 
     def test_existing_group_assignment_is_idempotent(self) -> None:
         apple = FakeApple(external_review_state="WAITING_FOR_REVIEW")
