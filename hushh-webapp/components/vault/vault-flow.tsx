@@ -99,9 +99,6 @@ interface VaultFlowProps {
 const VAULT_ALTERNATIVE_BUTTON_CLASS =
   "h-11 rounded-full border border-[color:var(--app-accent-border)] px-3 text-[13px] font-medium sm:text-[14px] !bg-[color:var(--app-accent-tint)] !text-[color:var(--app-accent-deep)] hover:!bg-[color:var(--app-accent-surface-strong)]";
 
-// A passkey cancellation is a normal user decision, not an application
-// failure. Keep it in the credential surface so the user can choose a
-// fallback without a disappearing toast or an automatic second ceremony.
 function isWebAuthnCancellationError(value: unknown): boolean {
   const error = value as { name?: unknown; message?: unknown } | null;
   const name = typeof error?.name === "string" ? error.name.toLowerCase() : "";
@@ -846,6 +843,10 @@ export function VaultFlow({
       }
     } catch (err: any) {
       console.error("Unlock error:", err);
+      if (isWebAuthnCancellation(err)) {
+        setError(null);
+        return;
+      }
       const message = toInvestorVaultUnlockError(err);
       setError(message);
       toast.error(message);
@@ -933,25 +934,6 @@ export function VaultFlow({
         return;
       }
       const generatedMode = vaultMode;
-      const claim = claimGeneratedUnlock(
-        flowInstanceRef.current,
-        user.uid,
-        generatedMode,
-        source,
-      );
-      if (claim === "cancelled") {
-        generatedUnlockCancelledRef.current = true;
-        setUnlockWithPassphraseFallback(true);
-        setError(PASSKEY_UNLOCK_CANCELLED_MESSAGE);
-        return;
-      }
-      if (claim === "busy") {
-        return;
-      }
-      generatedUnlockAttemptRef.current = true;
-      setIsUnlocking(true);
-      try {
-        setError(null);
         if (
           Capacitor.isNativePlatform() &&
           generatedMode === "generated_default_web_prf"
@@ -1001,8 +983,6 @@ export function VaultFlow({
             user.uid,
             generatedMode,
           );
-          setUnlockWithPassphraseFallback(true);
-          setError(PASSKEY_UNLOCK_CANCELLED_MESSAGE);
           return;
         }
         console.error("Generated vault unlock failed:", err);
