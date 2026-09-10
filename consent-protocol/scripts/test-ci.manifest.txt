@@ -144,6 +144,7 @@ tests/test_pkm_write_engine_seam.py
 tests/test_pod_access_audit.py
 tests/test_pod_cold_resume_state.py
 tests/test_pod_commit_log.py
+tests/test_pod_config.py
 tests/test_pod_connector_keypair_service.py
 tests/test_pod_consent_authority.py
 tests/test_pod_fleet_wiring.py

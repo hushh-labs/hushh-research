@@ -395,6 +395,16 @@ async def _pod_startup() -> None:
     # Generate the keypair now rather than on the first request, so the key exists
     # before the hub can ask for it and two concurrent requests cannot race to
     # create two different ones.
+    # One owner, one configuration record. Loaded once here and read on every
+    # request; a write from the app replaces the active copy in place. Defaults
+    # are the full experience, so an unreadable store never blocks the boot.
+    try:
+        from hushh_mcp.services.pod_config import load_active_pod_config  # noqa: PLC0415
+
+        await load_active_pod_config()
+    except Exception:  # noqa: BLE001 - configuration never blocks the boot
+        logger.warning("pod.config_unavailable", exc_info=True)
+
     keypair_is_durable = False
     pod_keypair()
     try:
