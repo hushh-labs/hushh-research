@@ -251,3 +251,63 @@ def test_plaintext_never_appears_in_the_sealed_blob():
     blob = _seal(_key(), "my bank balance is 12345", owner="hushh-1")
     assert "bank" not in blob
     assert "12345" not in blob
+
+
+# -- schema 2 vocabulary --------------------------------------------------------------
+
+
+def test_schema_two_names_its_kinds_and_bounds():
+    from hushh_mcp.services import pod_memory_service as mod
+
+    assert mod.MEMORY_SCHEMA_VERSION == 2
+    assert mod.MEMORY_KIND_RAW == "agent_memory"
+    assert {
+        "agent_memory_fact",
+        "agent_memory_supersede",
+        "agent_memory_revoke",
+        "agent_memory_review",
+        "agent_memory_provider_consent",
+    } <= mod.MEMORY_RECORD_KINDS
+    assert mod.MEMORY_FACT_MAX_CHARS == 300
+    assert mod.MEMORY_REVIEW_MAX_OPS == 5
+    assert mod.MEMORY_PROVIDER_CONSENT_SCOPE == "cap.memory.provider.process"
+
+
+def test_a_curated_fact_outranks_the_transcript_line_it_came_from():
+    """Same overlap, same words: the fact wins, so a correction written by the
+    review beats the transcript in which the person said the thing it corrects."""
+    s = PodMemoryStore(hushh_id="ha1_alice", pod_key=_key())
+    s.add(text="she prefers aisle seats on long flights", author="user")  # raw, older
+    s.add(text="she prefers aisle seats on long flights", author="review", kind="fact")
+    hits = s.search(hushh_id="ha1_alice", query="aisle seats flights")
+    assert [rec.kind for rec, _ in hits] == ["fact", "raw"]
+
+
+def test_the_digest_is_curated_facts_only_newest_first_and_bounded():
+    s = PodMemoryStore(hushh_id="ha1_alice", pod_key=_key())
+    s.add(text="raw transcript line that must never be in a prompt", author="user")
+    s.add(text="fact one", author="review", kind="fact")
+    older = s.add(text="fact zero", author="review", kind="fact")
+    assert older is not None
+    # Force ordering: make "fact zero" older than "fact one".
+    object.__setattr__(older, "created_at_ms", 1)
+    digest = s.digest(max_chars=4000)
+    assert digest.splitlines() == ["- fact one", "- fact zero"]
+    assert "transcript" not in digest
+    assert s.digest(max_chars=12) == "- fact one"
+    assert s.digest(max_chars=0) == ""
+    s.apply_revoke(owner="ha1_alice", memory_ids=[older.memory_id])
+    assert s.digest(max_chars=4000) == "- fact one"
+
+
+def test_the_persisted_record_carries_its_kind_outside_the_seal():
+    from hushh_mcp.services.pod_memory_service import SealedMemory
+
+    s = PodMemoryStore(hushh_id="ha1_alice", pod_key=_key())
+    rec = s.add(text="a curated fact", kind="fact")
+    assert rec is not None
+    payload = rec.as_payload(_key())
+    assert payload["kind"] == "fact"
+    assert SealedMemory.from_payload(_key(), payload).is_fact
+    legacy = {k: v for k, v in payload.items() if k != "kind"}
+    assert SealedMemory.from_payload(_key(), legacy).kind == "raw"

@@ -130,7 +130,7 @@ async def test_fence_during_provider_recall_blocks_result_and_local_fallback(
     from types import SimpleNamespace
 
     log = _log(tmp_path)
-    service = build_pod_memory_service(hushh_id=OWNER, pod_key=KEY, log=log)
+    service = build_pod_memory_service(hushh_id=OWNER, pod_key=KEY, log=log, provider_consent=True)
     await service.add_session_to_memory(_Session("the synthetic violet radiator"))
 
     class Bank:
@@ -163,7 +163,9 @@ async def test_memory_telemetry_keeps_counts_without_owner_or_private_text(
             return SimpleNamespace(memories=[SimpleNamespace(content="synthetic bank recall")])
 
     caplog.set_level("INFO")
-    service = build_pod_memory_service(hushh_id=OWNER, pod_key=KEY, log=_log(tmp_path), bank=Bank())
+    service = build_pod_memory_service(
+        hushh_id=OWNER, pod_key=KEY, log=_log(tmp_path), bank=Bank(), provider_consent=True
+    )
     await service.add_session_to_memory(_Session("private-memory-content-sentinel"))
     assert (
         await service.search_memory(
@@ -527,3 +529,189 @@ def test_concurrent_readers_wait_for_one_complete_replay(tmp_path: Path) -> None
         assert calls == 1
 
     asyncio.run(run())
+
+
+# -- schema 2: tombstones survive replay, corrections win, order is the law -------
+
+
+def _texts(response) -> list[str]:
+    return [m.content.parts[0].text for m in response.memories]
+
+
+async def test_a_revoked_fact_is_not_resurrected_by_replay(tmp_path: Path) -> None:
+    """K10, stated directly: replay used to return everything ever written, so a
+    fact the owner removed came back on the next cold start. The revocation is a
+    later log record, and hydration applies records in log order, so it lands
+    after the fact it kills every time."""
+    first = build_pod_memory_service(hushh_id=OWNER, pod_key=KEY, log=_log(tmp_path))
+    memory_id = await first.remember("the dachshund is named Pushkin")
+    assert memory_id
+    assert _texts(await first.search_memory(app_name="one", user_id=OWNER, query="dachshund"))
+    assert await first.revoke([memory_id], reason_code="owner_request") == 1
+    assert _texts(await first.search_memory(app_name="one", user_id=OWNER, query="dachshund")) == []
+    del first
+
+    reborn = build_pod_memory_service(hushh_id=OWNER, pod_key=KEY, log=_log(tmp_path))
+    assert (
+        _texts(await reborn.search_memory(app_name="one", user_id=OWNER, query="dachshund")) == []
+    )
+    status = await reborn.memory_status()
+    assert status["tombstones"] == 1
+    assert status["facts"] == 0
+    assert status["schema"] == 2
+
+
+async def test_a_correction_supersedes_across_a_restart(tmp_path: Path) -> None:
+    """The old value is gone, the new one answers, on a pod that was rebuilt from
+    nothing but the log."""
+    first = build_pod_memory_service(hushh_id=OWNER, pod_key=KEY, log=_log(tmp_path))
+    old_id = await first.remember("the sailboat berths at slip twelve")
+    new_id = await first.supersede(old_id, "the sailboat berths at slip forty")
+    assert new_id and new_id != old_id
+    del first
+
+    reborn = build_pod_memory_service(hushh_id=OWNER, pod_key=KEY, log=_log(tmp_path))
+    texts = _texts(await reborn.search_memory(app_name="one", user_id=OWNER, query="sailboat slip"))
+    assert texts == ["the sailboat berths at slip forty"]
+    assert "twelve" not in " ".join(texts)
+    with pytest.raises(PodMemoryError):
+        await reborn.supersede(old_id, "a dead fact cannot be corrected again")
+
+
+async def test_a_revoked_transcript_line_is_ranked_below_nothing(tmp_path: Path) -> None:
+    """Raw transcript records can be tombstoned too; a revoked line never matches."""
+    service = build_pod_memory_service(hushh_id=OWNER, pod_key=KEY, log=_log(tmp_path))
+    await service.add_session_to_memory(_Session("my kintsugi bowl sits on the third shelf"))
+    pending = await service.unreviewed(limit=5)
+    assert len(pending) == 1
+    raw_id = next(iter(service.store._by_id))
+    await service.revoke([raw_id], reason_code="owner_request")
+    assert (
+        _texts(await service.search_memory(app_name="one", user_id=OWNER, query="kintsugi")) == []
+    )
+    # A revoked raw line is also out of the review's reach.
+    assert await service.unreviewed(limit=5) == []
+
+
+def test_tombstones_survive_the_working_set_bound() -> None:
+    """The 5,000-record bound evicts the oldest RECORDS. It must never evict a
+    tombstone, or a replay that reloads the evicted fact would resurrect it."""
+    from hushh_mcp.services.pod_memory_service import _MAX_ENTRIES_PER_OWNER
+
+    store = PodMemoryStore(hushh_id=OWNER, pod_key=KEY)
+    victim = store.add(text="the very first fact", kind="fact")
+    assert victim is not None
+    assert store.apply_revoke(owner=OWNER, memory_ids=[victim.memory_id]) == 1
+    store.hydrate(
+        SealedMemory(
+            memory_id=f"id{i}",
+            hushh_id=OWNER,
+            created_at_ms=i,
+            ciphertext="v2.x",
+            token_digests=(),
+        )
+        for i in range(_MAX_ENTRIES_PER_OWNER + 5)
+    )
+    assert len(store) == _MAX_ENTRIES_PER_OWNER
+    assert store.is_dead(victim.memory_id), "the tombstone was evicted with its record"
+    # Reloading the evicted fact (a later replay window) keeps it dead.
+    store.hydrate([victim])
+    assert store.search(hushh_id=OWNER, query="first fact") == []
+    assert store.tombstones() == [{"memory_id": victim.memory_id, "kind": "revoke"}]
+
+
+def test_export_reflects_tombstones_and_carries_no_plaintext() -> None:
+    store = PodMemoryStore(hushh_id=OWNER, pod_key=KEY)
+    keep = store.add(text="almond allergy but other nuts are fine", kind="fact")
+    drop = store.add(text="the meridian account ends in 4269", kind="fact")
+    assert keep is not None and drop is not None
+    store.apply_revoke(owner=OWNER, memory_ids=[drop.memory_id])
+    exported = store.export()
+    assert keep.memory_id in exported
+    assert drop.memory_id not in exported
+    for private in ("almond", "meridian", "4269"):
+        assert private not in exported
+    assert '"kind": "fact"' in exported
+
+
+def test_a_foreign_tombstone_is_refused_like_a_foreign_record() -> None:
+    """Invariant 1 at the tombstone boundary: a revocation lifted from another
+    pod's log must raise, never quietly kill (or quietly skip) this owner's facts."""
+    store = PodMemoryStore(hushh_id=OWNER, pod_key=KEY)
+    mine = store.add(text="the guest room radiator leaks", kind="fact")
+    assert mine is not None
+    with pytest.raises(PodMemoryError):
+        store.apply_revoke(owner=OTHER, memory_ids=[mine.memory_id])
+    with pytest.raises(PodMemoryError):
+        store.apply_supersede(owner=OTHER, old_memory_id=mine.memory_id, new_record=mine)
+    assert not store.is_dead(mine.memory_id)
+
+
+async def test_records_are_applied_strictly_in_log_order(tmp_path: Path) -> None:
+    """A revoke that precedes a fact in the log (an impossible history unless the
+    chain was reordered) must not kill the later fact, and a fact followed by its
+    revoke must die. The order in the log is the only order there is."""
+    from hushh_mcp.services.pod_memory_service import (
+        MEMORY_KIND_FACT,
+        MEMORY_KIND_REVOKE,
+    )
+
+    log = _log(tmp_path)
+    store = PodMemoryStore(hushh_id=OWNER, pod_key=KEY)
+    early = store.prepare(text="zephyr berths at slip twelve", kind="fact")
+    late = store.prepare(text="pushkin is a dachshund", kind="fact")
+    assert early is not None and late is not None
+    # fact(early) -> revoke(early) -> revoke(late) -> fact(late)
+    await log.append(MEMORY_KIND_FACT, early.as_payload(KEY))
+    await log.append(
+        MEMORY_KIND_REVOKE,
+        {"hushh_id": OWNER, "memory_ids": [early.memory_id], "reason_code": "owner_request"},
+    )
+    await log.append(
+        MEMORY_KIND_REVOKE,
+        {"hushh_id": OWNER, "memory_ids": [late.memory_id], "reason_code": "owner_request"},
+    )
+    await log.append(MEMORY_KIND_FACT, late.as_payload(KEY))
+
+    service = build_pod_memory_service(hushh_id=OWNER, pod_key=KEY, log=_log(tmp_path))
+    assert _texts(await service.search_memory(app_name="one", user_id=OWNER, query="zephyr")) == []
+    # The late fact's tombstone came BEFORE the fact: in log order it is dead too,
+    # because a tombstone is final for its id regardless of when the id appears.
+    assert _texts(await service.search_memory(app_name="one", user_id=OWNER, query="pushkin")) == []
+    status = await service.memory_status()
+    assert status["tombstones"] == 2
+    assert status["lastSeq"] == 4
+
+
+async def test_review_checkpoints_bound_the_unreviewed_set(tmp_path: Path) -> None:
+    service = build_pod_memory_service(hushh_id=OWNER, pod_key=KEY, log=_log(tmp_path))
+    await service.add_session_to_memory(_Session("first thing said", "second thing said"))
+    assert service.unreviewed_count() == 2
+    pending = await service.unreviewed(limit=1)
+    assert [p["text"] for p in pending] == ["first thing said"]
+    await service.record_review_checkpoint(
+        through_seq=pending[-1]["seq"],
+        ops={"remember": 0},
+        provider="gemini",
+        model="test",
+        outcome="nothing_to_save",
+    )
+    assert service.unreviewed_count() == 1
+    del service
+    reborn = build_pod_memory_service(hushh_id=OWNER, pod_key=KEY, log=_log(tmp_path))
+    assert [p["text"] for p in await reborn.unreviewed(limit=5)] == ["second thing said"]
+
+
+async def test_provider_consent_is_durable_and_the_record_wins(tmp_path: Path) -> None:
+    """The log is the owner's durable answer; a constructor default is only a start."""
+    first = build_pod_memory_service(hushh_id=OWNER, pod_key=KEY, log=_log(tmp_path))
+    assert (await first.memory_status())["provider"]["consent"] == "absent"
+    await first.set_provider_consent(True)
+    del first
+    reborn = build_pod_memory_service(
+        hushh_id=OWNER, pod_key=KEY, log=_log(tmp_path), provider_consent=False
+    )
+    assert (await reborn.memory_status())["provider"]["consent"] == "granted"
+    assert reborn.provider_consent is True
+    await reborn.set_provider_consent(False)
+    assert (await reborn.memory_status())["provider"]["consent"] == "revoked"

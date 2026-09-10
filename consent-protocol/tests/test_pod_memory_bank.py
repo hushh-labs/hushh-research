@@ -279,7 +279,9 @@ async def test_every_turn_reaches_both_and_recall_prefers_the_bank() -> None:
     from hushh_mcp.services.pod_memory_service import build_pod_memory_service
 
     bank = _Bank(hits=[SimpleNamespace(content="banked memory")])
-    service = build_pod_memory_service(hushh_id="ha1_x", pod_key=b"k" * 32, bank=bank)
+    service = build_pod_memory_service(
+        hushh_id="ha1_x", pod_key=b"k" * 32, bank=bank, provider_consent=True
+    )
     await service.add_session_to_memory(_session("my dog is called Biscuit"))
     assert bank.added == 1
     found = await service.search_memory(app_name="one", user_id="ha1_x", query="dog")
@@ -292,7 +294,9 @@ async def test_a_failing_bank_never_fails_a_turn_and_the_log_still_answers() -> 
     from hushh_mcp.services.pod_memory_service import build_pod_memory_service
 
     bank = _Bank(fail=True)
-    service = build_pod_memory_service(hushh_id="ha1_x", pod_key=b"k" * 32, bank=bank)
+    service = build_pod_memory_service(
+        hushh_id="ha1_x", pod_key=b"k" * 32, bank=bank, provider_consent=True
+    )
     await service.add_session_to_memory(_session("my dog is called Biscuit"))
     found = await service.search_memory(app_name="one", user_id="ha1_x", query="dog Biscuit")
     assert found.memories, "the sealed store recalled what the bank could not"
@@ -303,7 +307,9 @@ async def test_an_empty_bank_answer_falls_through_to_the_log() -> None:
     from hushh_mcp.services.pod_memory_service import build_pod_memory_service
 
     bank = _Bank(hits=[])
-    service = build_pod_memory_service(hushh_id="ha1_x", pod_key=b"k" * 32, bank=bank)
+    service = build_pod_memory_service(
+        hushh_id="ha1_x", pod_key=b"k" * 32, bank=bank, provider_consent=True
+    )
     await service.add_session_to_memory(_session("my dog is called Biscuit"))
     found = await service.search_memory(app_name="one", user_id="ha1_x", query="dog Biscuit")
     assert found.memories
@@ -608,7 +614,9 @@ async def test_provider_error_content_is_not_logged(caplog) -> None:
         search_memory=AsyncMock(side_effect=RuntimeError(marker)),
         add_session_to_memory=AsyncMock(side_effect=RuntimeError(marker)),
     )
-    service = build_pod_memory_service(hushh_id="ha1_owner", pod_key=b"k" * 32, bank=bank)
+    service = build_pod_memory_service(
+        hushh_id="ha1_owner", pod_key=b"k" * 32, bank=bank, provider_consent=True
+    )
     await service.add_session_to_memory(_session("a remembered preference", user_id="ha1_owner"))
     found = await service.search_memory(app_name="one", user_id="ha1_owner", query="preference")
     assert found.memories
@@ -906,7 +914,10 @@ async def test_composite_retained_bank_cannot_bypass_record_admission(monkeypatc
     record_store = _Store()
     assert await mb.ensure_memory_bank(store=record_store) == "91"
     composite = build_pod_memory_service(
-        hushh_id="ha1_test", pod_key=b"k" * 32, bank=mb.resolve_memory_bank_service()
+        hushh_id="ha1_test",
+        pod_key=b"k" * 32,
+        bank=mb.resolve_memory_bank_service(),
+        provider_consent=True,
     )
     record_store.objects.clear()
     monkeypatch.setattr(mb._AdcToken, "get", lambda _self: pytest.fail("credentials reached"))
@@ -1437,7 +1448,11 @@ async def test_busy_provider_preserves_second_composite_turn_in_durable_log(tmp_
     store, http, key = _ready_store(), Pending(), b"k" * 32
     log = PodCommitLog(LocalObjectStore(str(tmp_path / "log")), key)
     service = build_pod_memory_service(
-        hushh_id="ha1_test", pod_key=key, log=log, bank=_tracked_service(store, http)
+        hushh_id="ha1_test",
+        pod_key=key,
+        log=log,
+        bank=_tracked_service(store, http),
+        provider_consent=True,
     )
     await service.add_session_to_memory(_rest_session("synthetic radiator fact"))
     await service.add_session_to_memory(_rest_session("synthetic sailboat fact"))

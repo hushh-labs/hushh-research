@@ -608,6 +608,26 @@ async def test_a_rebuild_materialises_only_its_own_owner(tmp_path: Path):
 
 
 @pytest.mark.asyncio
+async def test_a_pkm_rebuild_skips_every_agent_memory_kind(tmp_path: Path):
+    """Schema 2 added five memory kinds beside the raw record. None of them is a
+    PKM operation, so a PKM rebuild must step over all of them exactly as it
+    steps over ``agent_memory`` -- and the memory service's own vocabulary is the
+    list, so a kind added there without a matching decision here is caught."""
+    from hushh_mcp.services.pod_memory_service import MEMORY_RECORD_KINDS
+
+    log = PodCommitLog(LocalObjectStore(str(tmp_path / "shared-store")), KEY)
+    assert len(MEMORY_RECORD_KINDS) >= 6
+    for kind in sorted(MEMORY_RECORD_KINDS):
+        # Deliberately PKM-shaped owner field with no other PKM fields: if the
+        # rebuild dispatched on one of these kinds the engine would raise.
+        await log.append(kind, {"hushh_id": "owner-a", "p_user_id": "owner-a", "memory_ids": []})
+    assert len(await log.replay()) == len(MEMORY_RECORD_KINDS)
+
+    store = await PodPkmStore.rebuild(log, str(tmp_path / "a.sqlite3"), owner_user_id="owner-a")
+    assert store is not None
+
+
+@pytest.mark.asyncio
 async def test_a_rebuild_must_say_whose_index_it_is_building(tmp_path: Path):
     """`owner_user_id` is required, and required is the point.
 

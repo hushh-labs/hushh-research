@@ -71,6 +71,48 @@ _MAX_ENTRIES_PER_OWNER = 5000  # bound the working set; oldest evicted first.
 # record is memory.
 _MEMORY_RECORD_KIND = "agent_memory"
 
+# Schema 2: memory is a LEARNING LOOP, not a transcript dump. Beside the raw
+# per-turn records (schema 1, still written and still replayed) the log now
+# carries curated facts, corrections, revocations, review checkpoints and the
+# provider-processing consent. Every kind is applied strictly in log order on
+# hydration, which is what makes a tombstone final: a replay cannot resurrect a
+# fact whose revocation comes later in the same chain (mirrors
+# ``pod_pkm_store.rebuild``: dispatch on kind, filter on owner, in order).
+MEMORY_SCHEMA_VERSION = 2
+MEMORY_KIND_RAW = _MEMORY_RECORD_KIND
+MEMORY_KIND_FACT = "agent_memory_fact"
+MEMORY_KIND_SUPERSEDE = "agent_memory_supersede"
+MEMORY_KIND_REVOKE = "agent_memory_revoke"
+MEMORY_KIND_REVIEW = "agent_memory_review"
+MEMORY_KIND_PROVIDER_CONSENT = "agent_memory_provider_consent"
+# The provider-boundary rebuild marker: once the owner's Memory Bank engine has
+# been rebuilt, recall from it is no longer suppressed for tombstones at or
+# below ``through_seq``. Shape only (a sequence number), never content.
+MEMORY_KIND_PROVIDER_REBUILD = "agent_memory_provider_rebuild"
+MEMORY_RECORD_KINDS = frozenset(
+    {
+        MEMORY_KIND_RAW,
+        MEMORY_KIND_FACT,
+        MEMORY_KIND_SUPERSEDE,
+        MEMORY_KIND_REVOKE,
+        MEMORY_KIND_REVIEW,
+        MEMORY_KIND_PROVIDER_CONSENT,
+        MEMORY_KIND_PROVIDER_REBUILD,
+    }
+)
+# Bounds the review pass may not exceed, enforced here rather than trusted from
+# the model: a fact is one sentence, and one review writes a handful of them.
+MEMORY_FACT_MAX_CHARS = 300
+MEMORY_REVIEW_MAX_OPS = 5
+MEMORY_REVOKE_REASON_CODES = frozenset(
+    {"owner_request", "review_forget", "incorrect", "stale", "drill"}
+)
+# The consent scope that lets the owner's own provider (Vertex Memory Bank)
+# process memory. Spelled here as a string so this module stays importable
+# without the constants module's heavier imports; the enum member carries the
+# same value and a test pins the two together.
+MEMORY_PROVIDER_CONSENT_SCOPE = "cap.memory.provider.process"
+
 
 class PodMemoryError(RuntimeError):
     """Raised when a memory operation would cross an owner boundary."""
@@ -93,6 +135,15 @@ class SealedMemory:
     token_digests: tuple[str, ...]
     author: Optional[str] = None
     custom_metadata: dict[str, Any] = field(default_factory=dict)
+    # ``raw`` (one transcript event, schema 1) or ``fact`` (a curated statement the
+    # review pass wrote, schema 2). A shape word, never content: it lets search
+    # rank a curated fact above the transcript line it was distilled from, and it
+    # is what the digest reads so the transcript itself never enters a prompt.
+    kind: str = "raw"
+
+    @property
+    def is_fact(self) -> bool:
+        return self.kind == "fact"
 
     def as_payload(self, pod_key: bytes) -> dict[str, Any]:
         """The form written to the commit log. Nothing readable survives this call.
@@ -115,6 +166,7 @@ class SealedMemory:
             "created_at_ms": self.created_at_ms,
             "ciphertext": self.ciphertext,
             "token_digests": list(self.token_digests),
+            "kind": self.kind,
             "envelope": _seal(
                 pod_key,
                 json.dumps(
@@ -145,6 +197,7 @@ class SealedMemory:
             token_digests=tuple(payload.get("token_digests") or ()),
             author=meta.get("author"),
             custom_metadata=dict(meta.get("custom_metadata") or {}),
+            kind="fact" if str(payload.get("kind") or "raw") == "fact" else "raw",
         )
 
 
@@ -293,6 +346,15 @@ class PodMemoryStore:
         self._pod_key = pod_key
         self._role = role
         self._records: list[SealedMemory] = []
+        # Schema 2 bookkeeping. ``_by_id`` is the lookup the review pass and the
+        # owner's revoke route need to name a fact; ``_dead`` is the set of
+        # tombstoned ids. Both are separate from ``_records`` on purpose: the
+        # working set is BOUNDED (oldest evicted first), and a tombstone must
+        # outlive the record it kills. If eviction could drop a tombstone, a
+        # replay that reloaded the fact from the log would quietly resurrect it.
+        self._by_id: dict[str, SealedMemory] = {}
+        self._dead: set[str] = set()
+        self._tombstones: list[dict[str, Any]] = []
 
     @property
     def role(self) -> str:
@@ -304,8 +366,9 @@ class PodMemoryStore:
         text: str,
         author: Optional[str] = None,
         custom_metadata: Optional[dict[str, Any]] = None,
+        kind: str = "raw",
     ) -> Optional[SealedMemory]:
-        rec = self.prepare(text=text, author=author, custom_metadata=custom_metadata)
+        rec = self.prepare(text=text, author=author, custom_metadata=custom_metadata, kind=kind)
         if rec is not None:
             self.hydrate([rec])
         return rec
@@ -316,6 +379,7 @@ class PodMemoryStore:
         text: str,
         author: Optional[str] = None,
         custom_metadata: Optional[dict[str, Any]] = None,
+        kind: str = "raw",
     ) -> Optional[SealedMemory]:
         """Seal a record without making it searchable before its durable commit."""
         text = (text or "").strip()
@@ -332,8 +396,115 @@ class PodMemoryStore:
             token_digests=tuple(sorted(_digest(self._pod_key, t) for t in _tokens(text))),
             author=author,
             custom_metadata=dict(custom_metadata or {}),
+            kind="fact" if kind == "fact" else "raw",
         )
         return rec
+
+    # -- schema 2: corrections and tombstones ---------------------------------------
+
+    def _require_owner_payload(self, owner: str, what: str) -> None:
+        """A foreign tombstone is refused exactly like a foreign record (invariant 1)."""
+        if owner != self._hushh_id:
+            raise PodMemoryError(
+                f"pod memory is owner-scoped: this pod serves {self._hushh_id!r}, "
+                f"replayed a {what} for {owner!r}"
+            )
+
+    def apply_supersede(self, *, owner: str, old_memory_id: str, new_record: SealedMemory) -> bool:
+        """A correction: the old fact dies, the new one takes its place.
+
+        Returns whether the old id was known. Applied in log order the old record
+        always precedes its supersession, so an unknown id here means the log is
+        being read out of order or was truncated; it is still recorded as a
+        tombstone so a later replay of the old record cannot bring it back.
+        """
+        self._require_owner_payload(owner, "supersession")
+        known = old_memory_id in self._by_id
+        self._kill(old_memory_id, kind="supersede", successor=new_record.memory_id)
+        self.hydrate([new_record])
+        return known
+
+    def apply_revoke(self, *, owner: str, memory_ids: Iterable[str]) -> int:
+        """Revocation: every named fact dies. Returns how many were live."""
+        self._require_owner_payload(owner, "revocation")
+        revoked = 0
+        for memory_id in memory_ids:
+            memory_id = str(memory_id or "").strip()
+            if not memory_id:
+                continue
+            if memory_id in self._by_id and memory_id not in self._dead:
+                revoked += 1
+            self._kill(memory_id, kind="revoke")
+        return revoked
+
+    def _kill(self, memory_id: str, *, kind: str, successor: Optional[str] = None) -> None:
+        if memory_id in self._dead:
+            return
+        self._dead.add(memory_id)
+        entry: dict[str, Any] = {"memory_id": memory_id, "kind": kind}
+        if successor:
+            entry["successor"] = successor
+        self._tombstones.append(entry)
+
+    def tombstones(self) -> list[dict[str, Any]]:
+        """Every tombstone this store holds, in application order. Ids only."""
+        return [dict(t) for t in self._tombstones]
+
+    def is_dead(self, memory_id: str) -> bool:
+        return memory_id in self._dead
+
+    def live(self) -> list[SealedMemory]:
+        """The records recall may serve: everything not tombstoned, oldest first."""
+        return [r for r in self._records if r.memory_id not in self._dead]
+
+    def live_facts(self) -> list[SealedMemory]:
+        """Curated facts only, NEWEST first. What the digest and the review read."""
+        return sorted(
+            (r for r in self.live() if r.is_fact),
+            key=lambda r: r.created_at_ms,
+            reverse=True,
+        )
+
+    def open(self, record: SealedMemory) -> str:
+        """Plaintext of one of THIS owner's records. Never for a foreign record."""
+        if record.hushh_id != self._hushh_id:
+            raise PodMemoryError("pod memory is owner-scoped: refusing to open a foreign record")
+        return _unseal(self._pod_key, record.ciphertext, owner=self._hushh_id)
+
+    def digest(self, max_chars: int) -> str:
+        """Curated facts only, newest first, bounded. The raw transcript never appears.
+
+        This is the always-on half of recall (founder decision 2026-09-10): a small
+        local model that never calls ``load_memory`` still answers from what the
+        person taught the agent, while only the observed tool call is CREDITED as
+        proof of recall. ``max_chars <= 0`` disables the digest entirely.
+        """
+        if max_chars <= 0:
+            return ""
+        lines: list[str] = []
+        used = 0
+        for record in self.live_facts():
+            line = f"- {self.open(record)}"
+            if used + len(line) + 1 > max_chars:
+                break
+            lines.append(line)
+            used += len(line) + 1
+        return "\n".join(lines)
+
+    def dead_digest_sets(self) -> list[frozenset[str]]:
+        """Token digests of every tombstoned record still in the working set.
+
+        Used to filter provider recall: a Memory Bank hit that reproduces a revoked
+        fact's words is dropped before it reaches the model. Digests, not words.
+        """
+        return [
+            frozenset(r.token_digests)
+            for r in self._records
+            if r.memory_id in self._dead and r.token_digests
+        ]
+
+    def digests_for(self, text: str) -> frozenset[str]:
+        return frozenset(_digest(self._pod_key, t) for t in _tokens(text))
 
     def hydrate(self, records: "Iterable[SealedMemory]") -> int:
         """Load records replayed from durable storage. Pure -- the caller does the I/O.
@@ -357,9 +528,14 @@ class PodMemoryStore:
                     f"replayed a record for {rec.hushh_id!r}"
                 )
             self._records.append(rec)
+            self._by_id[rec.memory_id] = rec
             loaded += 1
         if len(self._records) > _MAX_ENTRIES_PER_OWNER:
+            evicted = self._records[:-_MAX_ENTRIES_PER_OWNER]
             self._records = self._records[-_MAX_ENTRIES_PER_OWNER:]
+            for old in evicted:
+                self._by_id.pop(old.memory_id, None)
+            # ``_dead`` is deliberately NOT pruned here: tombstones outlive eviction.
         return loaded
 
     def search(
@@ -379,17 +555,29 @@ class PodMemoryStore:
             return []
         scored = []
         for rec in self._records:
+            if rec.memory_id in self._dead:
+                continue  # a tombstoned fact is never served, whatever it matches
             overlap = len(wanted.intersection(rec.token_digests))
             if overlap:
                 scored.append((overlap, rec))
-        scored.sort(key=lambda pair: (pair[0], pair[1].created_at_ms), reverse=True)
+        # Overlap first, then a curated fact above the transcript line it came
+        # from, then recency. A correction therefore outranks the transcript in
+        # which the person said the thing it corrects.
+        scored.sort(
+            key=lambda pair: (pair[0], pair[1].is_fact, pair[1].created_at_ms), reverse=True
+        )
         return [
             (rec, _unseal(self._pod_key, rec.ciphertext, owner=self._hushh_id))
             for _, rec in scored[:limit]
         ]
 
     def export(self) -> str:
-        """Owner-facing export. Ciphertext only — proves the store holds no plaintext."""
+        """Owner-facing export. Ciphertext only, LIVE records only.
+
+        A revoked or superseded fact is absent from the export, not marked: the
+        export answers "what does my agent still hold", and a tombstoned record
+        is something it no longer holds for any purpose but refusing to reload it.
+        """
         return json.dumps(
             [
                 {
@@ -397,8 +585,9 @@ class PodMemoryStore:
                     "created_at_ms": r.created_at_ms,
                     "ciphertext": r.ciphertext,
                     "author": r.author,
+                    "kind": r.kind,
                 }
-                for r in self._records
+                for r in self.live()
             ],
             indent=2,
         )
@@ -406,7 +595,13 @@ class PodMemoryStore:
     def purge(self) -> int:
         n = len(self._records)
         self._records.clear()
+        self._by_id.clear()
+        self._dead.clear()
+        self._tombstones.clear()
         return n
+
+    def live_count(self) -> int:
+        return len(self.live())
 
     def __len__(self) -> int:
         return len(self._records)
@@ -494,7 +689,12 @@ def _resolve_log() -> Optional[Any]:
 
 
 def build_pod_memory_service(
-    *, hushh_id: str, pod_key: bytes, log: Any = None, bank: Any = None
+    *,
+    hushh_id: str,
+    pod_key: bytes,
+    log: Any = None,
+    bank: Any = None,
+    provider_consent: Optional[bool] = None,
 ) -> Any:
     """Construct the ADK-facing memory service for THIS pod.
 
@@ -521,6 +721,12 @@ def build_pod_memory_service(
     cannot be parallelised). Doing that at construction would put it on the boot path
     of every cold wake, where it is paid whether or not the turn touches memory. On
     first async use it is paid only when it is about to be worth something.
+
+    ``provider_consent`` is the INITIAL provider-processing consent when no durable
+    record has been read yet (tests, and pods without a log). A recorded
+    ``agent_memory_provider_consent`` record always wins over it: the log is the
+    owner's durable answer, this argument is only a starting point. Absent or
+    ``False`` means the bank is never asked to generate or recall (K12).
     """
     from google.adk.memory.base_memory_service import BaseMemoryService, SearchMemoryResponse
     from google.adk.memory.memory_entry import MemoryEntry
@@ -538,6 +744,77 @@ def build_pod_memory_service(
             self.bank = bank
             self._hydrated = log is None
             self._hydration_lock = asyncio.Lock()
+            self.schema_version = MEMORY_SCHEMA_VERSION
+            # Schema 2 bookkeeping: sequence numbers and counts, never content.
+            self._last_seq = 0
+            self._reviewed_through_seq = 0
+            self._last_rebuild_seq = 0
+            self._tombstone_seqs: list[int] = []
+            self._seq_by_id: dict[str, int] = {}
+            self._raw_seqs: list[tuple[int, str]] = []
+            self._provider_consent: Optional[bool] = provider_consent
+            # Observed on the last call, read by the turn response (shape only).
+            self.last_written = 0
+            self.last_recall_backend: Optional[str] = None
+            self.provider_report: dict[str, Any] = {
+                "consent": self._consent_word(),
+                "generate": "not_attempted",
+                "recall": "not_attempted",
+            }
+
+        # -- log-order application (the tombstone guarantee) ----------------------
+
+        def _apply_record(self, record: dict[str, Any]) -> bool:
+            """Apply ONE log record of a memory kind. Returns whether it was ours.
+
+            Strictly in log order, dispatching on kind, exactly as
+            ``PodPkmStore.rebuild`` replays PKM operations. Order is the whole
+            guarantee: a fact and its later revocation replay in that sequence, so
+            the revocation always lands after the fact it kills and replay can
+            never resurrect what the owner removed.
+            """
+            kind = str(record.get("kind") or "")
+            payload = record.get("payload") or {}
+            if not isinstance(payload, dict):
+                return False
+            if str(payload.get("hushh_id") or "") != hushh_id:
+                return False
+            seq = int(record.get("seq") or 0)
+            if seq > self._last_seq:
+                self._last_seq = seq
+            if kind in (MEMORY_KIND_RAW, MEMORY_KIND_FACT):
+                rec = SealedMemory.from_payload(pod_key, payload)
+                store.hydrate([rec])
+                self._seq_by_id[rec.memory_id] = seq
+                if kind == MEMORY_KIND_RAW:
+                    self._raw_seqs.append((seq, rec.memory_id))
+            elif kind == MEMORY_KIND_SUPERSEDE:
+                new_rec = SealedMemory.from_payload(pod_key, dict(payload.get("new") or {}))
+                store.apply_supersede(
+                    owner=str(payload.get("hushh_id") or ""),
+                    old_memory_id=str(payload.get("old_memory_id") or ""),
+                    new_record=new_rec,
+                )
+                self._seq_by_id[new_rec.memory_id] = seq
+                self._tombstone_seqs.append(seq)
+            elif kind == MEMORY_KIND_REVOKE:
+                store.apply_revoke(
+                    owner=str(payload.get("hushh_id") or ""),
+                    memory_ids=list(payload.get("memory_ids") or []),
+                )
+                self._tombstone_seqs.append(seq)
+            elif kind == MEMORY_KIND_REVIEW:
+                through = int(payload.get("through_seq") or 0)
+                self._reviewed_through_seq = max(self._reviewed_through_seq, through)
+            elif kind == MEMORY_KIND_PROVIDER_CONSENT:
+                self._provider_consent = bool(payload.get("granted"))
+                self.provider_report["consent"] = self._consent_word()
+            elif kind == MEMORY_KIND_PROVIDER_REBUILD:
+                through = int(payload.get("through_seq") or 0)
+                self._last_rebuild_seq = max(self._last_rebuild_seq, through)
+            else:
+                return False
+            return True
 
         async def _ensure_hydrated(self) -> None:
             """Replay this owner's memory once, on first use after a boot.
@@ -552,15 +829,303 @@ def build_pod_memory_service(
             async with self._hydration_lock:
                 if self._hydrated:
                     return
-                replayed = [
-                    SealedMemory.from_payload(pod_key, record["payload"])
-                    for record in await self.log.replay()
-                    if record.get("kind") == _MEMORY_RECORD_KIND
-                    and (record.get("payload") or {}).get("hushh_id") == hushh_id
-                ]
-                loaded = store.hydrate(replayed)
+                loaded = 0
+                skipped_foreign = 0
+                for record in await self.log.replay():
+                    if record.get("kind") not in MEMORY_RECORD_KINDS:
+                        continue  # other subsystems' records (PKM, config, pointers)
+                    if self._apply_record(record):
+                        loaded += 1
+                    else:
+                        skipped_foreign += 1
                 self._hydrated = True
-                logger.info("pod_memory.hydrated records=%d", loaded)
+                if skipped_foreign:
+                    # Counted, never silent: another owner's memory record in this
+                    # log means a shared store or a recycled pod, both worth seeing.
+                    logger.warning("pod_memory.skipped_foreign_records count=%d", skipped_foreign)
+                logger.info(
+                    "pod_memory.hydrated records=%d tombstones=%d reviewed_through=%d last_seq=%d",
+                    loaded,
+                    len(store.tombstones()),
+                    self._reviewed_through_seq,
+                    self._last_seq,
+                )
+
+        async def _append(self, kind: str, payload: dict[str, Any]) -> int:
+            """Append one record and return its sequence number (in-process when lossy)."""
+            if self.log is None:
+                self._last_seq += 1
+                return self._last_seq
+            record = await self.log.append(kind, payload)
+            seq = int((record or {}).get("seq") or 0) if isinstance(record, dict) else 0
+            if seq <= 0:
+                seq = self._last_seq + 1
+            self._last_seq = max(self._last_seq, seq)
+            return seq
+
+        # -- schema 2: curation, correction, revocation, review --------------------
+
+        def _consent_word(self) -> str:
+            if self._provider_consent is None:
+                return "absent"
+            return "granted" if self._provider_consent else "revoked"
+
+        @property
+        def provider_consent(self) -> bool:
+            return bool(self._provider_consent)
+
+        @property
+        def last_seq(self) -> int:
+            return self._last_seq
+
+        @property
+        def reviewed_through_seq(self) -> int:
+            return self._reviewed_through_seq
+
+        def _stale_for_provider(self) -> bool:
+            """A tombstone newer than the last provider rebuild means the bank may
+            still hold what the owner removed; its recall is suppressed until the
+            deterministic rebuild has run (``memory_bank_rebuild_on_tick``)."""
+            return any(seq > self._last_rebuild_seq for seq in self._tombstone_seqs)
+
+        async def remember(
+            self,
+            text: str,
+            *,
+            author: str = "one_memory_review",
+            review_seq: Optional[int] = None,
+            source_seqs: Iterable[int] = (),
+        ) -> Optional[str]:
+            """Write one curated fact. Returns its id, or None for an empty fact."""
+            await self._ensure_hydrated()
+            fact = str(text or "").strip()[:MEMORY_FACT_MAX_CHARS]
+            rec = store.prepare(
+                text=fact,
+                author=author,
+                custom_metadata={
+                    "kind": "fact",
+                    "review_seq": review_seq,
+                    "source_seqs": [int(s) for s in source_seqs],
+                },
+                kind="fact",
+            )
+            if rec is None:
+                return None
+            seq = await self._append(MEMORY_KIND_FACT, rec.as_payload(pod_key))
+            await self._require_open_log()
+            store.hydrate([rec])
+            self._seq_by_id[rec.memory_id] = seq
+            return rec.memory_id
+
+        async def supersede(
+            self,
+            old_memory_id: str,
+            text: str,
+            *,
+            author: str = "one_memory_review",
+            review_seq: Optional[int] = None,
+        ) -> Optional[str]:
+            """Correct a fact: the old id is tombstoned, the new fact replaces it."""
+            await self._ensure_hydrated()
+            old_memory_id = str(old_memory_id or "").strip()
+            if old_memory_id not in store._by_id or store.is_dead(old_memory_id):
+                raise PodMemoryError("cannot supersede a memory this pod does not hold")
+            fact = str(text or "").strip()[:MEMORY_FACT_MAX_CHARS]
+            rec = store.prepare(
+                text=fact,
+                author=author,
+                custom_metadata={
+                    "kind": "fact",
+                    "review_seq": review_seq,
+                    "supersedes": old_memory_id,
+                },
+                kind="fact",
+            )
+            if rec is None:
+                return None
+            seq = await self._append(
+                MEMORY_KIND_SUPERSEDE,
+                {
+                    "hushh_id": hushh_id,
+                    "old_memory_id": old_memory_id,
+                    "new": rec.as_payload(pod_key),
+                    "recorded_at_ms": int(time.time() * 1000),
+                },
+            )
+            await self._require_open_log()
+            store.apply_supersede(owner=hushh_id, old_memory_id=old_memory_id, new_record=rec)
+            self._seq_by_id[rec.memory_id] = seq
+            self._tombstone_seqs.append(seq)
+            return rec.memory_id
+
+        async def revoke(
+            self,
+            memory_ids: Iterable[str],
+            *,
+            reason_code: str = "owner_request",
+            requested_by: str = "owner",
+        ) -> int:
+            """Tombstone facts. Returns how many were live. Unknown ids are refused."""
+            await self._ensure_hydrated()
+            ids = [str(m or "").strip() for m in memory_ids if str(m or "").strip()]
+            if not ids:
+                return 0
+            if reason_code not in MEMORY_REVOKE_REASON_CODES:
+                raise PodMemoryError("unknown revocation reason")
+            unknown = [m for m in ids if m not in store._by_id]
+            if unknown:
+                raise PodMemoryError("cannot revoke a memory this pod does not hold")
+            seq = await self._append(
+                MEMORY_KIND_REVOKE,
+                {
+                    "hushh_id": hushh_id,
+                    "memory_ids": ids,
+                    "reason_code": reason_code,
+                    "requested_by": str(requested_by or "owner")[:64],
+                    "recorded_at_ms": int(time.time() * 1000),
+                },
+            )
+            await self._require_open_log()
+            revoked = store.apply_revoke(owner=hushh_id, memory_ids=ids)
+            self._tombstone_seqs.append(seq)
+            logger.info("pod_memory.revoked count=%d reason=%s", revoked, reason_code)
+            return revoked
+
+        async def record_review_checkpoint(
+            self,
+            *,
+            through_seq: int,
+            ops: dict[str, int],
+            provider: str,
+            model: str,
+            outcome: str,
+        ) -> int:
+            """Mark the raw records up to ``through_seq`` as reviewed. Counts only."""
+            await self._ensure_hydrated()
+            seq = await self._append(
+                MEMORY_KIND_REVIEW,
+                {
+                    "hushh_id": hushh_id,
+                    "through_seq": int(through_seq),
+                    "ops": {str(k): int(v) for k, v in dict(ops or {}).items()},
+                    "provider": str(provider or "")[:32],
+                    "model": str(model or "")[:96],
+                    "outcome": str(outcome or "")[:32],
+                    "recorded_at_ms": int(time.time() * 1000),
+                },
+            )
+            self._reviewed_through_seq = max(self._reviewed_through_seq, int(through_seq))
+            return seq
+
+        async def record_provider_rebuild(self, *, through_seq: Optional[int] = None) -> int:
+            """The owner's provider engine was rebuilt: tombstones up to here are honoured."""
+            await self._ensure_hydrated()
+            through = int(self._last_seq if through_seq is None else through_seq)
+            seq = await self._append(
+                MEMORY_KIND_PROVIDER_REBUILD,
+                {
+                    "hushh_id": hushh_id,
+                    "through_seq": through,
+                    "recorded_at_ms": int(time.time() * 1000),
+                },
+            )
+            self._last_rebuild_seq = max(self._last_rebuild_seq, through)
+            return seq
+
+        async def set_provider_consent(
+            self, granted: bool, *, requested_by: str = "owner", scope: str = ""
+        ) -> int:
+            """Record the owner's answer on provider processing. Durable when logged."""
+            await self._ensure_hydrated()
+            seq = await self._append(
+                MEMORY_KIND_PROVIDER_CONSENT,
+                {
+                    "hushh_id": hushh_id,
+                    "granted": bool(granted),
+                    "scope": str(scope or MEMORY_PROVIDER_CONSENT_SCOPE)[:64],
+                    "requested_by": str(requested_by or "owner")[:64],
+                    "recorded_at_ms": int(time.time() * 1000),
+                },
+            )
+            self._provider_consent = bool(granted)
+            self.provider_report["consent"] = self._consent_word()
+            logger.info("pod_memory.provider_consent granted=%s", bool(granted))
+            return seq
+
+        def unreviewed_count(self) -> int:
+            return sum(1 for seq, _ in self._raw_seqs if seq > self._reviewed_through_seq)
+
+        async def unreviewed(self, limit: int) -> list[dict[str, Any]]:
+            """The raw records no review has covered, oldest first, opened for the
+            review pass ONLY. ``seq``, ``author`` and ``text`` per record."""
+            await self._ensure_hydrated()
+            pending = sorted(
+                (pair for pair in self._raw_seqs if pair[0] > self._reviewed_through_seq),
+                key=lambda pair: pair[0],
+            )
+            out: list[dict[str, Any]] = []
+            for seq, memory_id in pending[: max(0, int(limit))]:
+                rec = store._by_id.get(memory_id)
+                if rec is None or store.is_dead(memory_id):
+                    continue
+                out.append({"seq": seq, "author": rec.author or "", "text": store.open(rec)})
+            return out
+
+        async def fact_index(self, *, limit: int = 40) -> list[dict[str, Any]]:
+            """Live curated facts with their ids, newest first, for the review pass."""
+            await self._ensure_hydrated()
+            return [
+                {"memory_id": rec.memory_id, "text": store.open(rec)}
+                for rec in store.live_facts()[: max(0, int(limit))]
+            ]
+
+        async def digest(self, max_chars: int) -> str:
+            await self._ensure_hydrated()
+            return store.digest(int(max_chars))
+
+        async def memory_status(self) -> dict[str, Any]:
+            """Owner-facing status. Counts, sequence numbers and words; no content."""
+            await self._ensure_hydrated()
+            return {
+                "schema": MEMORY_SCHEMA_VERSION,
+                "records": len(store),
+                "live": store.live_count(),
+                "facts": len(store.live_facts()),
+                "tombstones": len(store.tombstones()),
+                "lastSeq": self._last_seq,
+                "reviewedThroughSeq": self._reviewed_through_seq,
+                "unreviewed": self.unreviewed_count(),
+                "provider": {
+                    "consent": self._consent_word(),
+                    "bank": self.bank is not None,
+                    "lastRebuildSeq": self._last_rebuild_seq,
+                    "stale": self._stale_for_provider(),
+                },
+            }
+
+        def _filter_provider_hits(self, memories: list[Any]) -> tuple[list[Any], int]:
+            """Drop provider hits that reproduce a tombstoned record's words.
+
+            Keyed digests, not words: a hit whose token digests cover most of a dead
+            record's digests is the dead fact wearing the provider's paraphrase.
+            Returns the kept hits and how many were dropped.
+            """
+            dead_sets = store.dead_digest_sets()
+            if not dead_sets:
+                return memories, 0
+            kept: list[Any] = []
+            dropped = 0
+            for memory in memories:
+                digests = store.digests_for(_content_text(getattr(memory, "content", None)))
+                revoked = any(
+                    len(dead) >= 2 and len(dead & digests) >= max(2, -(-len(dead) * 3 // 5))
+                    for dead in dead_sets
+                )
+                if revoked:
+                    dropped += 1
+                    continue
+                kept.append(memory)
+            return kept, dropped
 
         async def _require_open_log(self) -> None:
             if self.log is not None:
@@ -573,6 +1138,8 @@ def build_pod_memory_service(
         async def add_session_to_memory(self, session: Any) -> None:
             self._require_owner(getattr(session, "user_id", None))
             await self._ensure_hydrated()
+            written = 0
+            self.last_written = 0
             for event in getattr(session, "events", None) or []:
                 # Browser-carried history turns are seeded into the session with an
                 # invocation_id of "history_<n>" (text_runtime seeds them for
@@ -587,16 +1154,28 @@ def build_pod_memory_service(
                 if not text:
                     continue
                 rec = store.prepare(text=text, author=getattr(event, "author", None))
-                if rec is not None and self.log is not None:
-                    await self.log.append(_MEMORY_RECORD_KIND, rec.as_payload(pod_key))
-                if rec is not None:
-                    await self._require_open_log()
-                    store.hydrate([rec])
-            if self.bank is not None:
+                if rec is None:
+                    continue
+                seq = await self._append(MEMORY_KIND_RAW, rec.as_payload(pod_key))
+                await self._require_open_log()
+                store.hydrate([rec])
+                self._seq_by_id[rec.memory_id] = seq
+                self._raw_seqs.append((seq, rec.memory_id))
+                written += 1
+            self.last_written = written
+            if self.bank is None:
+                self.provider_report["generate"] = "no_bank"
+            elif not self.provider_consent:
+                # K12: the owner's provider processes nothing without a recorded
+                # consent. Skipped, and SAID on the response, never a silent fallback.
+                self.provider_report["generate"] = "skipped_no_consent"
+            else:
                 await self._require_open_log()
                 try:
                     await self.bank.add_session_to_memory(session)
+                    self.provider_report["generate"] = "completed"
                 except Exception as exc:  # noqa: BLE001 - the sealed log already has it
+                    self.provider_report["generate"] = "failed"
                     logger.warning(
                         "pod_memory_bank.add_failed reason=%s",
                         type(exc).__name__,
@@ -605,21 +1184,39 @@ def build_pod_memory_service(
         async def search_memory(self, *, app_name: str, user_id: str, query: str) -> Any:
             self._require_owner(user_id)
             await self._ensure_hydrated()
-            if self.bank is not None:
+            if self.bank is None:
+                self.provider_report["recall"] = "no_bank"
+            elif not self.provider_consent:
+                self.provider_report["recall"] = "skipped_no_consent"
+            elif self._stale_for_provider():
+                # A tombstone newer than the last engine rebuild: the bank may still
+                # answer with what the owner removed, so it is not asked at all.
+                self.provider_report["recall"] = "suppressed_stale"
+            else:
                 try:
                     banked = await self.bank.search_memory(
                         app_name=app_name, user_id=user_id, query=query
                     )
                     memories = list(getattr(banked, "memories", None) or [])
-                    if memories:
+                    kept, dropped = self._filter_provider_hits(memories)
+                    if dropped:
+                        banked.memories = kept
+                    if kept:
                         await self._require_open_log()
+                        self.provider_report["recall"] = (
+                            "filtered_revoked" if dropped else "completed"
+                        )
+                        self.last_recall_backend = "memory_bank"
                         logger.info(
-                            "pod_memory.recall backend=memory_bank query_chars=%d hits=%d",
+                            "pod_memory.recall backend=memory_bank query_chars=%d hits=%d dropped=%d",
                             len(query or ""),
-                            len(memories),
+                            len(kept),
+                            dropped,
                         )
                         return banked
+                    self.provider_report["recall"] = "filtered_revoked" if dropped else "empty"
                 except Exception as exc:  # noqa: BLE001 - fall back to the sealed log
+                    self.provider_report["recall"] = "failed"
                     logger.warning(
                         "pod_memory_bank.search_failed reason=%s",
                         type(exc).__name__,
@@ -627,6 +1224,7 @@ def build_pod_memory_service(
             # user_id carries the pod owner; a mismatch is an isolation breach, not a miss.
             await self._require_open_log()
             hits = store.search(hushh_id=user_id, query=query)
+            self.last_recall_backend = "commit_log"
             # The observable recall signal. The north star accepts only an observed
             # recall TOOL CALL as proof the agent evolved; until this line, a live
             # `load_memory` call left no trace anywhere, so the proof was
