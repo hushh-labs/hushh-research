@@ -119,7 +119,7 @@ async function buildFixture(): Promise<string> {
             <div data-slot="page-header-actions" class="flex w-auto shrink-0 flex-wrap items-center justify-end self-start gap-2 sm:w-auto sm:shrink-0 sm:justify-end sm:self-center">
               <div data-header-actions class="${LOCATION_HEADER_ACTIONS_CLASSNAME}">
                 <button data-header-switch class="h-8 w-[51px] shrink-0 rounded-full"></button>
-                <span data-header-status class="${LOCATION_HEADER_STATUS_CLASSNAME}">${label}</span>
+                <button type="button" data-header-status class="${LOCATION_HEADER_STATUS_CLASSNAME}">${label}</button>
               </div>
             </div>
           </div>
