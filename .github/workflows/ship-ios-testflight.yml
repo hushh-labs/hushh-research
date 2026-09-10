@@ -23,6 +23,11 @@ on:
         required: false
         default: false
         type: boolean
+      run_core_tests:
+        description: Run the focused simulator App Intent/action smoke gate (full AppTests remain in change-aware CI).
+        required: false
+        default: false
+        type: boolean
       notes:
         description: Optional release note context for the workflow summary.
         required: false
@@ -291,6 +296,7 @@ jobs:
             -clonedSourcePackagesDirPath "${RUNNER_TEMP}/spm"
 
       - name: Run core iOS App Intent and action tests
+        if: ${{ inputs.run_core_tests == true }}
         shell: bash
         run: |
           set -euo pipefail
@@ -450,6 +456,7 @@ jobs:
             echo
             echo "| Release source | ${{ needs.preflight.outputs.release_sha }} |"
             echo "| Physical iPhone p95 (ms) | ${{ inputs.require_hardware == true && needs.hardware-capture.outputs.p95_time_to_capture_ms || 'not requested' }} |"
+            echo "| Focused App Intent/action gate | ${{ inputs.run_core_tests == true && 'passed' || 'skipped; full AppTests remain in change-aware CI' }} |"
             echo "| Build number | ${{ steps.build_number.outputs.next_build }} |"
             echo
             echo "The workflow uses TestFlight beta endpoints only. External tester availability is pending until Apple approves TestFlight Beta App Review when required; this workflow never submits an App Store version."

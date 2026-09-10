@@ -47,6 +47,16 @@ class DistributionError(RuntimeError):
     """A fail-closed TestFlight beta distribution error."""
 
 
+class AppStoreConnectHTTPError(DistributionError):
+    """An App Store Connect HTTP response with a status useful to callers."""
+
+    def __init__(self, method: str, path: str, status_code: int) -> None:
+        super().__init__(f"App Store Connect {method} {path} failed with HTTP {status_code}")
+        self.method = method
+        self.path = path
+        self.status_code = status_code
+
+
 @dataclass(frozen=True)
 class BetaReviewContact:
     first_name: str
@@ -161,7 +171,8 @@ class AppStoreConnectClient:
         except urllib.error.HTTPError as exc:
             # Apple responses can contain reviewer-facing information. Status is
             # enough for CI and avoids echoing request data or error payloads.
-            raise DistributionError(f"App Store Connect {method} failed with HTTP {exc.code}") from exc
+            path = urllib.parse.urlsplit(url).path
+            raise AppStoreConnectHTTPError(method, path, exc.code) from exc
         except urllib.error.URLError as exc:
             raise DistributionError(f"App Store Connect {method} request failed") from exc
         if not raw:
@@ -386,15 +397,19 @@ def upsert_beta_build_localization(
 
 
 def external_beta_status(client: AppStoreConnectClient, build_id: str) -> tuple[str, str]:
-    payload = client.get(f"/v1/builds/{build_id}/betaAppReviewSubmission")
+    try:
+        payload = client.get(f"/v1/builds/{build_id}/betaAppReviewSubmission")
+    except AppStoreConnectHTTPError as exc:
+        if exc.status_code == 404:
+            # A build can be attached to an external group before the operator
+            # submits it for beta review. That is a valid pending state; this
+            # workflow must not submit it implicitly or fail the upload.
+            return "pending_apple_beta_review", "NOT_SUBMITTED"
+        raise
     resource = payload.get("data")
     if resource is None:
-        created = client.post(
-            "/v1/betaAppReviewSubmissions",
-            {"data": {"type": "betaAppReviewSubmissions", "relationships": {"build": {"data": {"type": "builds", "id": build_id}}}}},
-        )
-        resource = require_resource(created, "betaAppReviewSubmissions", "beta review submission")
-    elif not isinstance(resource, dict) or resource.get("type") != "betaAppReviewSubmissions":
+        return "pending_apple_beta_review", "NOT_SUBMITTED"
+    if not isinstance(resource, dict) or resource.get("type") != "betaAppReviewSubmissions":
         raise DistributionError("App Store Connect returned invalid beta review submission")
 
     state = str((resource.get("attributes") or {}).get("betaReviewState") or "").upper()
@@ -423,12 +438,15 @@ def distribute_valid_build(
     )
     require_group_type(client, configuration.internal_group_id, is_internal=True)
     require_group_type(client, configuration.external_group_id, is_internal=False)
-    internal_assignment = attach_build_once(client, configuration.internal_group_id, build_id)
-    external_assignment = attach_build_once(client, configuration.external_group_id, build_id)
+    # Apple requires the beta-review metadata to be present before an external
+    # group can accept a build. Prepare it before the relationship writes, but
+    # leave the actual beta-review submission to an explicit operator action.
     upsert_beta_review_detail(
         client, app_id, configuration.review_contact, configuration.review_notes
     )
     upsert_beta_build_localization(client, build_id, configuration.review_notes)
+    internal_assignment = attach_build_once(client, configuration.internal_group_id, build_id)
+    external_assignment = attach_build_once(client, configuration.external_group_id, build_id)
     external, review_state = external_beta_status(client, build_id)
     return {
         "build_id": build_id,
