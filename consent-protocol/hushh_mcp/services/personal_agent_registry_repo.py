@@ -622,6 +622,38 @@ class PersonalAgentRegistryRepo:
         except Exception:
             raise RuntimeError("personal agent erasure admission unavailable") from None
 
+    async def restore_stale_erasure_reservation(
+        self, *, user_id: str, attempt_id: str, evidence: dict[str, Any]
+    ) -> bool:
+        """Restore one unstarted reservation after the live pod was rediscovered.
+
+        The database function rechecks the immutable reservation, tombstones and
+        account-deletion barrier under the owner locks. The hash is read inside the
+        database rather than reconstructed in Python because PostgreSQL's canonical
+        JSONB text representation is the authority for the snapshot digest.
+        """
+        digest = await asyncio.to_thread(
+            self._db().execute_raw,
+            "SELECT encode(sha256(convert_to((backend_metadata->'erasure'->'registrySnapshot')::text, 'UTF8')), 'hex') AS digest "
+            "FROM personal_agent_registry WHERE user_id = :owner",
+            {"owner": user_id},
+        )
+        rows = list(digest.data or [])
+        snapshot_sha256 = str(rows[0].get("digest") or "") if rows else ""
+        if not snapshot_sha256:
+            return False
+        response = await asyncio.to_thread(
+            self._db().execute_raw,
+            "SELECT public.restore_personal_agent_erasure_reservation(:owner,:attempt,:snapshot,CAST(:evidence AS jsonb)) AS restored",
+            {
+                "owner": user_id,
+                "attempt": attempt_id,
+                "snapshot": snapshot_sha256,
+                "evidence": json.dumps(evidence),
+            },
+        )
+        return bool(response.data and response.data[0].get("restored") is True)
+
     async def upsert(
         self,
         *,

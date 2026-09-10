@@ -50,6 +50,7 @@
     "932_personal_agent_repository_retention.sql",
     "933_personal_agent_bootstrap_grant_erasure.sql",
     "934_personal_agent_erasure_resource_coverage.sql",
-    "935_personal_agent_erasure_finalization.sql"
+    "935_personal_agent_erasure_finalization.sql",
+    "936_personal_agent_stale_erasure_recovery.sql"
   ]
 }

@@ -28,6 +28,7 @@ class _FakeRegistry:
     def __init__(self, row):
         self._row = dict(row) if row else None
         self.upserts: list[dict] = []
+        self.restores: list[dict] = []
 
     async def get(self, _user_id):
         return dict(self._row) if self._row is not None else None
@@ -36,6 +37,10 @@ class _FakeRegistry:
         self.upserts.append(kwargs)
         # Reflect the write so a subsequent get() sees the reconstructed row.
         self._row = {**(self._row or {}), **{k: v for k, v in kwargs.items() if v is not None}}
+
+    async def restore_stale_erasure_reservation(self, **kwargs):
+        self.restores.append(kwargs)
+        return True
 
 
 class _DiscoverBackend:
@@ -60,6 +65,7 @@ def _handle(hushh_id="ha1_abc", *, liveness_mode="economy"):
         backend_metadata={
             "url": "https://one-pod.run.app",
             "tenancy": "user-owned",
+            "project": "acme-user-proj",
             "livenessMode": liveness_mode,
         },
     )
@@ -227,3 +233,49 @@ async def test_adopt_records_where_the_pod_it_found_actually_lives(monkeypatch):
     written = registry.upserts[0]
     assert written["deployment_target"] == "user_gcp"
     assert written["model_credential_mode"] == "user_adc"
+
+
+@pytest.mark.asyncio
+async def test_adopt_restores_only_an_unstarted_erasure_reservation(monkeypatch):
+    snapshot = {
+        "user_id": "uid-1",
+        "hushh_id": "ha1_abc",
+        "status": "provisioned",
+        "external_agent_id": "one-pod-ha1_abc",
+        "user_cloud_project": "acme-user-proj",
+        "backend_metadata": {"url": "https://one-pod.run.app", "project": "acme-user-proj"},
+    }
+    row = {
+        "status": "suspended",
+        "hushh_id": "ha1_abc",
+        "phone_e164_hash": "x",
+        "backend_metadata": {
+            "erasure": {
+                "version": 1,
+                "ownerId": "uid-1",
+                "attemptId": "a" * 32,
+                "hushhId": "ha1_abc",
+                "phase": "reserved",
+                "registrySnapshot": snapshot,
+            }
+        },
+    }
+    svc, registry, _b, _f = _service(monkeypatch, row=row, handle=_handle())
+
+    out = await svc.adopt_orphan(user_id="uid-1")
+
+    assert out == {
+        "hushhId": "ha1_abc",
+        "status": "provisioned",
+        "adopted": True,
+        "recovered": True,
+    }
+    assert len(registry.restores) == 1
+    restore = registry.restores[0]
+    assert restore["user_id"] == "uid-1"
+    assert restore["attempt_id"] == "a" * 32
+    assert restore["evidence"]["project"] == "acme-user-proj"
+    assert restore["evidence"]["service"] == "one-pod-ha1_abc"
+    assert restore["evidence"]["url"] == "https://one-pod.run.app"
+    assert restore["evidence"]["observedAt"]
+    assert registry.upserts == []

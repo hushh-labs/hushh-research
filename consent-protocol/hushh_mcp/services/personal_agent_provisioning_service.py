@@ -1674,6 +1674,72 @@ class PersonalAgentProvisioningService:
         handle = await discover(hushh_id)
         if handle is None:
             return None  # no live pod to adopt -> caller reinits/rebuilds
+
+        # A prior failed deletion can leave an unstarted, immutable erasure
+        # reservation around a pod that was deliberately retained. Restore only
+        # that exact provisioned snapshot, after this same owner-scoped discovery
+        # proves the pod still exists in the recorded project. Any receipt, tombstone,
+        # changed service, or active erasure remains refused by the database.
+        erasure = (row.get("backend_metadata") or {}).get("erasure")
+        if erasure is not None:
+            snapshot = erasure.get("registrySnapshot") if isinstance(erasure, dict) else None
+            snapshot_meta = (snapshot or {}).get("backend_metadata") or {}
+            discovered_meta = handle.backend_metadata or {}
+            expected_project = (snapshot or {}).get("user_cloud_project") or snapshot_meta.get(
+                "project"
+            )
+            expected_service = (snapshot or {}).get("external_agent_id") or snapshot_meta.get(
+                "service"
+            )
+            if (
+                str(row.get("status") or "") != "suspended"
+                or not isinstance(erasure, dict)
+                or set(erasure)
+                != {"version", "ownerId", "attemptId", "hushhId", "phase", "registrySnapshot"}
+                or erasure.get("ownerId") != user_id
+                or erasure.get("hushhId") != hushh_id
+                or erasure.get("phase") != "reserved"
+                or (snapshot or {}).get("status") != "provisioned"
+                or snapshot_meta.get("erasure") is not None
+                or handle.external_agent_id != expected_service
+                or discovered_meta.get("project") not in (None, expected_project)
+                or (
+                    snapshot_meta.get("url")
+                    and discovered_meta.get("url")
+                    and snapshot_meta.get("url") != discovered_meta.get("url")
+                )
+            ):
+                return None
+            restore = getattr(self._registry, "restore_stale_erasure_reservation", None)
+            if restore is None:
+                return None
+            restored = await restore(
+                user_id=user_id,
+                attempt_id=str(erasure.get("attemptId") or ""),
+                evidence={
+                    "project": str(expected_project or ""),
+                    "service": str(expected_service or ""),
+                    "url": str(discovered_meta.get("url") or snapshot_meta.get("url") or ""),
+                    "observedAt": datetime.now(timezone.utc).isoformat(),
+                },
+            )
+            if not restored:
+                return None
+            await pod_lifecycle_append(
+                user_id,
+                stage="authority_live",
+                registry_status="provisioned",
+                event="stale_erasure_reservation_restored",
+                hushh_id=hushh_id,
+                reason="live owner pod matched an unstarted erasure reservation",
+            )
+            return {
+                "hushhId": hushh_id,
+                "status": "provisioned",
+                "adopted": True,
+                "recovered": True,
+            }
+
         # Reconstruct the connecting row BEFORE the key pull: attach_pod_public_key
         # requires an existing row, and the pull mints a standing read that a row must
         # own. The handle's url is what the collector pulls the pod public key from.
