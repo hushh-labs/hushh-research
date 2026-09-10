@@ -323,6 +323,68 @@ assertions:
       kind: pytest
       target: tests/test_pod_capability_wiring_is_closed_loop.py
 
+  - id: local-authority-refuses-foreign-and-stale
+    requirement: Authority
+    statement: "The pod admits its owner's app and devices from its own record and refuses every foreign, forged, replayed, expired, revoked or stale credential without appending a trust record."
+    falsifiable: true
+    owner_action: >-
+      Preserve the eleven negative controls in the session authority tests (foreign
+      owner, foreign environment, foreign deployment, forged role, unknown key id,
+      replayed proof, proof from another incarnation, expired, revoked, stale binding
+      version, hub consent token presented as local authority) and the assertion in
+      each that no trust record reached the log. A refusal that appends is not a refusal.
+    check:
+      # Each control asserts the exact refusal code AND that the log grew by nothing.
+      # A rename of a code or a leaked record fails this; a test that merely checks
+      # "an exception was raised" would not, which is why the codes are pinned.
+      kind: pytest
+      target: tests/test_pod_session_authority.py
+
+  - id: owner-direct-inference-without-hub
+    requirement: Authority
+    statement: "A plain chat on the owner's pod, admitted by the pod's own session and answered by the owner's Puppy device, completes with zero hub calls in the conversation and inference path, and a device revoked at the pod is refused on the next turn."
+    falsifiable: true
+    owner_action: >-
+      Run the owner-direct acceptance against a disposable revision of the owner pod
+      with hub egress blocked (HUSSH_HUB_BASE_URL empty on that revision), then retain
+      the sanitized receipt. Never widen IAM beyond the direct-ingress axis to make it
+      pass; if the org policy refuses allUsers on the owner project, record that as
+      the blocker rather than working around it.
+    check:
+      kind: receipt
+      required_target_mode: deployed
+      # Expected target and artifact digest are filled only from a fresh verified run.
+      source_paths:
+        - consent-protocol/scripts/ops/owner_direct_acceptance.py
+        - consent-protocol/api/routes/one/pod_session.py
+        - consent-protocol/api/routes/one/pod_turn.py
+        - consent-protocol/api/routes/one/pod_puppy_relay.py
+        - consent-protocol/api/middlewares/pod_ingress.py
+        - consent-protocol/hushh_mcp/services/pod_session_authority.py
+        - consent-protocol/hushh_mcp/services/pod_authority_store.py
+        - consent-protocol/hushh_mcp/services/puppy_broker.py
+        - consent-protocol/hushh_mcp/consent/puppy_envelope.py
+        - consent-protocol/hushh_mcp/runtime_providers/puppy_local_transport.py
+        - consent-protocol/hushh_mcp/services/pod_binding_service.py
+        - consent-protocol/hushh_mcp/services/gcp_backend.py
+        - consent-protocol/pod_server.py
+      observation_requirements:
+        hub_calls: {maximum: 0}
+        provider_puppy: {equals: true}
+        runtime_mode_puppy_relay: {equals: true}
+        revoked_device_refused: {equals: true}
+        old_incarnation_publications: {maximum: 0}
+        wall_refused_pod_info_without_identity: {equals: true}
+      reproduce: consent-protocol/scripts/ops/owner_direct_acceptance.py
+      expires_after_days: 14
+      pending: >-
+        NOT YET MEASURED. The pod-side authority, broker and sealed relay, the hub's
+        binding issuer and the direct-ingress renderer exist and pass their tests.
+        The dry run of the acceptance script proves the sequence against in-memory
+        fakes only. A deployed receipt needs the owner pod on a direct-ingress
+        revision, the app enrolled and bound, Puppy One dialling the pod, and hub
+        egress blocked for the measured turn; none of that has run.
+
   - id: economics-cost-is-measured-not-estimated
     requirement: Economics
     statement: "The per-person cost is a measured number from real billed time."

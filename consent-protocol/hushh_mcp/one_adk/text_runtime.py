@@ -57,9 +57,18 @@ OneTextEventKind = Literal[
     "token", "thought", "source", "directive", "specialist", "boundary", "memory"
 ]
 _FIRST_EVENT_TIMEOUT_SECONDS = 20.0
-_PUPPY_FIRST_EVENT_TIMEOUT_SECONDS = 60.0
 _BETWEEN_EVENT_TIMEOUT_SECONDS = 30.0
 _TOTAL_TURN_TIMEOUT_SECONDS = 90.0
+# The Puppy budgets, one rung of the timeout ladder (innermost first, each outer
+# bound above the inner one plus a margin): Hermes local model 110 s per request,
+# the pod broker 120 s per request, a specialist model call 60 s, then these three,
+# then the pod route at 155 s, the hub proxy at 160 s. A local model's cold first
+# token measured 32.9 s and a specialist call may take its full 60 s between two
+# events One sees, so the between-event budget is the one that had to grow.
+# Gemini keeps 20 / 30 / 90 untouched; `tests/test_timeout_ladder.py` pins the order.
+_PUPPY_FIRST_EVENT_TIMEOUT_SECONDS = 70.0
+_PUPPY_BETWEEN_EVENT_TIMEOUT_SECONDS = 70.0
+_PUPPY_TOTAL_TURN_TIMEOUT_SECONDS = 150.0
 
 
 @dataclass(frozen=True)
@@ -132,14 +141,22 @@ class OneTextEmptyResponseError(RuntimeError):
 
 
 async def _bounded_adk_events(
-    source: Any, *, first_event_timeout: float | None = None
+    source: Any,
+    *,
+    first_event_timeout: float | None = None,
+    between_event_timeout: float | None = None,
+    total_timeout: float | None = None,
 ) -> AsyncGenerator[Any, None]:
     """Bound ADK startup, idle gaps, and total turn time without changing events."""
     if first_event_timeout is None:
         first_event_timeout = _FIRST_EVENT_TIMEOUT_SECONDS
+    if between_event_timeout is None:
+        between_event_timeout = _BETWEEN_EVENT_TIMEOUT_SECONDS
+    if total_timeout is None:
+        total_timeout = _TOTAL_TURN_TIMEOUT_SECONDS
     iterator = source.__aiter__()
     loop = asyncio.get_running_loop()
-    deadline = loop.time() + _TOTAL_TURN_TIMEOUT_SECONDS
+    deadline = loop.time() + total_timeout
     saw_event = False
     try:
         while True:
@@ -147,7 +164,7 @@ async def _bounded_adk_events(
             if remaining <= 0:
                 raise asyncio.TimeoutError
             timeout = min(
-                _BETWEEN_EVENT_TIMEOUT_SECONDS if saw_event else first_event_timeout,
+                between_event_timeout if saw_event else first_event_timeout,
                 remaining,
             )
             try:
@@ -667,12 +684,23 @@ async def _stream_one_text_turn_once(
         run_config=RunConfig(streaming_mode=StreamingMode.SSE),
     )
     first_event_timeout = _FIRST_EVENT_TIMEOUT_SECONDS
+    between_event_timeout = _BETWEEN_EVENT_TIMEOUT_SECONDS
+    total_timeout = _TOTAL_TURN_TIMEOUT_SECONDS
     if str(runtime_provider or "").strip().lower() == "puppy":
         # A local Puppy model receives One's full instruction and tool schema.
         # Its measured cold first-token time is longer than the generic cloud
-        # provider budget, but remains inside the relay's 120-second bound.
+        # provider budget, and a specialist call in the middle of a turn may take
+        # its full 60 s between two events One sees; all three Puppy budgets sit
+        # inside the pod broker's 120 s request deadline and the route's 155 s.
         first_event_timeout = _PUPPY_FIRST_EVENT_TIMEOUT_SECONDS
-    async for event in _bounded_adk_events(source, first_event_timeout=first_event_timeout):
+        between_event_timeout = _PUPPY_BETWEEN_EVENT_TIMEOUT_SECONDS
+        total_timeout = _PUPPY_TOTAL_TURN_TIMEOUT_SECONDS
+    async for event in _bounded_adk_events(
+        source,
+        first_event_timeout=first_event_timeout,
+        between_event_timeout=between_event_timeout,
+        total_timeout=total_timeout,
+    ):
         if _event_crosses_replay_boundary(event):
             yield OneTextStreamEvent(kind="boundary")
         for directive in _event_directives(event):

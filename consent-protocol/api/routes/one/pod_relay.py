@@ -57,7 +57,11 @@ _INFO_TIMEOUT_SECONDS = 5.0
 # A turn waits on a model, not a status read. Real questions routinely take tens of
 # seconds, and a 5s bound would turn every genuine answer into "your agent is not
 # answering right now" -- a false fault report, in the person's own language.
-_TURN_TIMEOUT_SECONDS = 120.0
+#
+# One rung above the pod route's own 155 s bound (`pod_turn.POD_TURN_ROUTE_TIMEOUT_SECONDS`),
+# so the pod's typed 504 always reaches the person before this proxy gives up and
+# reports a vaguer failure. `tests/test_timeout_ladder.py` pins the order.
+_TURN_TIMEOUT_SECONDS = 160.0
 # The names are the single wire contract shared by text and Live pod relays.
 # Each value is a short-lived, owner-scoped consent grant; no caller may add a
 # header outside this allowlist.

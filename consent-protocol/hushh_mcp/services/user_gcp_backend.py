@@ -47,13 +47,16 @@ from hushh_mcp.services.compute_backend import (
 )
 from hushh_mcp.services.gcp_backend import (
     A2A_ADDRESS_BASE,
+    INGRESS_DIRECT,
     GcpBackend,
     _env,
     _flag,
+    _ingress_metadata,
     _liveness_mode,
     _min_instances_for,
     _rendered_min_scale,
     _service_name,
+    pod_ingress_mode,
 )
 
 logger = logging.getLogger(__name__)
@@ -954,6 +957,14 @@ class UserGcpBackend:
                 "unset, so the hub cannot reach this pod and key collection will fail",
                 name,
             )
+        if pod_ingress_mode(spec) == INGRESS_DIRECT:
+            # Inherited from the managed renderer's direct axis: the owner's app and
+            # device dial this pod themselves, so it is invokable by anyone and the
+            # pod's own ingress policy is the lock. Dev lane only, by `pod_ingress_mode`.
+            await asyncio.to_thread(
+                client.grant_public_invoker, name, direct_ingress_axis=INGRESS_DIRECT
+            )
+            spec.emit_stage("public_invoker_bound")
 
         url = client.service_url(svc)
         return BackendHandle(
@@ -967,7 +978,7 @@ class UserGcpBackend:
                 "region": spec.region or self._user_region,
                 "service": name,
                 "url": url or "",
-                "ingress": "internal",
+                "ingress": _ingress_metadata(spec, "internal"),
                 # The pod runs the user's OWN digest-pinned copy; record THAT, not hushh's
                 # source, so the registry row does not misreport the running image. The
                 # source and digest are kept alongside for provenance.

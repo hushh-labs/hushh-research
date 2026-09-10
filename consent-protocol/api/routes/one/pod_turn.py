@@ -52,6 +52,11 @@ POD_TURN_GRANT_KEYS: tuple[str, ...] = (
 )
 # Matches the Live route's per-grant header bound.
 _MAX_GRANT_TOKEN_LENGTH = 4096
+# The pod route's own bound, one rung above the ADK Puppy total (150 s) and one
+# below the hub proxy (160 s), so a turn that runs out of time answers with a typed
+# 504 from the pod rather than a vaguer failure from whoever gave up first.
+# `tests/test_timeout_ladder.py` pins the order.
+POD_TURN_ROUTE_TIMEOUT_SECONDS = 155.0
 
 
 class PodTurnRequest(BaseModel):
@@ -751,13 +756,33 @@ async def pod_turn_route(
 
         if bearer(authorization):
             authority, claims = verified_session(authorization, role=ROLE_APP)
-            return await run_pod_turn(
-                payload=payload,
-                consent_token=authority.local_token(claims),
-                verifier=authority.local_verifier(claims),
-                session=claims,
+            return await _bounded_turn(
+                run_pod_turn(
+                    payload=payload,
+                    consent_token=authority.local_token(claims),
+                    verifier=authority.local_verifier(claims),
+                    session=claims,
+                )
             )
-    return await run_pod_turn(payload=payload, consent_token=x_consent_token or "")
+    return await _bounded_turn(run_pod_turn(payload=payload, consent_token=x_consent_token or ""))
+
+
+async def _bounded_turn(turn: Any) -> dict:
+    """Run one turn under the route's bound; a timeout is a typed 504, never a hang."""
+    import asyncio  # noqa: PLC0415
+
+    try:
+        async with asyncio.timeout(POD_TURN_ROUTE_TIMEOUT_SECONDS):
+            return await turn
+    except TimeoutError:
+        logger.warning("pod_turn.route_timeout seconds=%s", POD_TURN_ROUTE_TIMEOUT_SECONDS)
+        raise HTTPException(
+            status_code=504,
+            detail={
+                "code": "POD_TURN_TIMEOUT",
+                "message": "the agent did not answer within the pod's time budget",
+            },
+        ) from None
 
 
 @router.websocket("/live")

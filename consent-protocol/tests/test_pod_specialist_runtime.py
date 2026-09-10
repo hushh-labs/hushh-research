@@ -18,10 +18,17 @@ from hushh_mcp.services import pod_specialist_runtime  # noqa: E402
 
 
 def test_puppy_specialist_call_budget_covers_the_measured_cold_first_token() -> None:
-    """A cold local model measured 32.9s to first token; a 30s cap fails by construction."""
+    """A cold local model measured 32.9s to first token; a 30s cap fails by construction.
+
+    The call sits INSIDE One's turn, between two events One sees, so it must fit
+    under the Puppy between-event budget and the Puppy total (the timeout ladder),
+    not above the first-event budget as the Phase 0 reading of this test assumed.
+    """
+    measured_cold_first_token_seconds = 32.9
     puppy = pod_specialist_runtime.specialist_model_timeout_seconds("puppy_relay")
-    assert puppy >= text_runtime._PUPPY_FIRST_EVENT_TIMEOUT_SECONDS
-    assert puppy < text_runtime._TOTAL_TURN_TIMEOUT_SECONDS
+    assert puppy > measured_cold_first_token_seconds
+    assert puppy < text_runtime._PUPPY_BETWEEN_EVENT_TIMEOUT_SECONDS
+    assert puppy < text_runtime._PUPPY_TOTAL_TURN_TIMEOUT_SECONDS
 
 
 def test_other_runtime_modes_keep_the_generic_specialist_budget() -> None:

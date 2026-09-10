@@ -201,6 +201,19 @@ class PodSpec:
     # gets and why this is additive.
     resource_tier: Optional[str] = None
 
+    # -- the fourth axis: who may dial THIS person's pod --------------------------
+    #
+    # `hub`: the pod is reachable by the hub alone (internal ingress, one invoker),
+    # which is every pod today. `direct`: the owner's app and device dial the pod
+    # themselves (public ingress, `allUsers` invoker, a request timeout long enough
+    # for a local model), and the pod's in-process ingress policy is the lock that
+    # keeps its machine routes hub-only. Deployment topology, so it lives here and
+    # on the registry row (`backend_metadata.ingress`), never in the pod's
+    # configuration record, which is about behaviour.
+    #
+    # `None` means `hub`. `direct` is refused by the renderer outside the dev lane.
+    ingress: Optional[str] = None
+
     # -- narrative callbacks: how a stage says it happened ------------------------
     #
     # OPAQUE callables, injected by the provisioning service, defaulting to None.

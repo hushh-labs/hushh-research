@@ -256,6 +256,46 @@ class GcpRunClient:
         logger.info("gcp_run.invoker_bound service=%s", name)
         return dict(r.json())
 
+    def grant_public_invoker(self, name: str, *, direct_ingress_axis: str) -> dict[str, Any]:
+        """Bind ``allUsers`` as ``run.invoker`` on ONE pod, for the direct-ingress axis only.
+
+        This is deliberately a different method from ``set_invoker_binding``, whose
+        refusal of ``allUsers`` stands untouched. A pod on ``PodSpec.ingress = direct``
+        is dialled by its owner's browser and device with no Google identity, so the
+        service must be invokable by anyone and the pod's own ``PodIngressPolicy`` is
+        the lock on its machine routes. The caller names the axis explicitly so a
+        stray call cannot reach this by accident, and ``pod_ingress_mode`` has already
+        refused the axis outside the dev lane before any renderer gets here.
+
+        Read-modify-write with the etag, exactly like the member binding.
+        """
+        import requests  # type: ignore[import-untyped]
+
+        if direct_ingress_axis != "direct":
+            raise RuntimeError("a public invoker is granted only on the direct ingress axis")
+        policy = self.get_iam_policy(name)
+        bindings = [dict(b) for b in (policy.get("bindings") or [])]
+        for binding in bindings:
+            if binding.get("role") == _INVOKER_ROLE:
+                members = list(binding.get("members") or [])
+                if "allUsers" in members:
+                    logger.info("gcp_run.public_invoker_already_bound service=%s", name)
+                    return policy
+                members.append("allUsers")
+                binding["members"] = members
+                break
+        else:
+            bindings.append({"role": _INVOKER_ROLE, "members": ["allUsers"]})
+        body: dict[str, Any] = {"policy": {"bindings": bindings}}
+        if policy.get("etag"):
+            body["policy"]["etag"] = policy["etag"]
+        r = requests.post(
+            self._iam_url(name, "setIamPolicy"), headers=self._headers(), json=body, timeout=30
+        )
+        r.raise_for_status()
+        logger.warning("gcp_run.public_invoker_bound service=%s axis=direct", name)
+        return dict(r.json())
+
     @staticmethod
     def merge_for_replace(
         current: dict[str, Any],

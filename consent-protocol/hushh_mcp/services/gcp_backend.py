@@ -87,6 +87,44 @@ def _label_value(raw: Any, default: str = "") -> str:
     return (cleaned or default)[:63].rstrip("-_")
 
 
+# -- the ingress axis ---------------------------------------------------------------------
+#
+# `PodSpec.ingress` names WHO may dial one person's pod. `hub` is every pod today:
+# internal ingress and exactly one invoker, the hub. `direct` opens the pod to its
+# owner's app and device: public ingress, an `allUsers` invoker binding and a request
+# timeout long enough for a local model. It is refused outside the dev lane, read from
+# the deploy env the cost labels already use (`HUSHH_DEPLOY_ENV`, then `ENVIRONMENT`),
+# because a public pod is a pilot decision, not a rendering default.
+
+INGRESS_HUB = "hub"
+INGRESS_DIRECT = "direct"
+DIRECT_INGRESS_REQUEST_TIMEOUT_SECONDS = 3600
+
+
+class PodIngressRefused(ValueError):
+    """`PodSpec.ingress = direct` was asked for outside the dev lane."""
+
+
+def pod_ingress_mode(spec: PodSpec) -> str:
+    """`hub` or `direct` for this spec; `direct` only on the dev lane, else refused."""
+    requested = str(getattr(spec, "ingress", None) or INGRESS_HUB).strip().lower()
+    if requested == INGRESS_HUB:
+        return INGRESS_HUB
+    if requested != INGRESS_DIRECT:
+        raise PodIngressRefused(f"unknown pod ingress axis: {requested!r}")
+    lane = _deploy_env_label()
+    if lane != "dev":
+        raise PodIngressRefused(
+            f"direct ingress is a dev-lane pilot; this deployment reports lane {lane!r}"
+        )
+    return INGRESS_DIRECT
+
+
+def _ingress_metadata(spec: PodSpec, rendered_ingress: str) -> str:
+    """What the registry row records: the axis when direct, else the Cloud Run value."""
+    return INGRESS_DIRECT if pod_ingress_mode(spec) == INGRESS_DIRECT else rendered_ingress
+
+
 def _deploy_env_label() -> str:
     """Which deploy lane owns this pod's spend: dev, uat, production.
 
@@ -458,7 +496,7 @@ class GcpBackend:
         # is rejected by the live API (and the project default is used otherwise).
         if self._service_account:
             inner_spec["serviceAccountName"] = self._service_account
-        return {
+        rendered: dict[str, Any] = {
             "apiVersion": "serving.knative.dev/v1",
             "kind": "Service",
             "metadata": {
@@ -475,9 +513,16 @@ class GcpBackend:
                     "hussh-purpose": _label_value(_env("HUSSH_POD_PURPOSE"), _POD_PURPOSE_DEFAULT),
                 },
                 # Ingress: "internal" everywhere unless a dev environment explicitly
-                # widens it to observe a running pod. Invoker authz is unaffected --
-                # see the _ingress comment in __init__.
-                "annotations": {"run.googleapis.com/ingress": self._ingress},
+                # widens it to observe a running pod, or THIS person's pod is on the
+                # direct axis (`PodSpec.ingress = direct`: public ingress, so the
+                # owner's app and device dial it themselves). Invoker authz is a
+                # separate decision -- see `_execute` and the _ingress comment in
+                # __init__.
+                "annotations": {
+                    "run.googleapis.com/ingress": (
+                        "all" if pod_ingress_mode(spec) == INGRESS_DIRECT else self._ingress
+                    )
+                },
             },
             "spec": {
                 "template": {
@@ -486,6 +531,13 @@ class GcpBackend:
                 }
             },
         }
+        if pod_ingress_mode(spec) == INGRESS_DIRECT:
+            # A local model answers in tens of seconds and a turn is bounded at 155 s
+            # inside the pod; Cloud Run's 300 s default would cut a long Live session
+            # or a slow cold model mid-answer. One hour is the platform ceiling the
+            # timeout ladder sits under, and it is rendered only on the direct axis.
+            inner_spec["timeoutSeconds"] = DIRECT_INGRESS_REQUEST_TIMEOUT_SECONDS
+        return rendered
 
     def provision_target_for(self, spec: PodSpec) -> dict[str, Any]:
         return {
@@ -508,7 +560,7 @@ class GcpBackend:
             "service": name,
             "image": self._image,
             "tier": spec.tier,
-            "ingress": self._ingress,
+            "ingress": _ingress_metadata(spec, self._ingress),
             # The rule by which this pod's silence must be read, captured at creation
             # from the minScale it is actually getting. Stored per row (migration 905)
             # because HUSSH_POD_MIN_INSTANCES can change later, and re-judging a
@@ -849,6 +901,13 @@ class GcpBackend:
                 client.set_invoker_binding(name, self._invoker_member)
                 invoker_bound = True
                 spec.emit_stage("invoker_bound")
+            if pod_ingress_mode(spec) == INGRESS_DIRECT:
+                # The direct axis: the owner's app and device dial the pod with no
+                # Google identity, so the service is invokable by anyone and the pod's
+                # own ingress policy is the lock. A deliberate, separately named grant
+                # (`set_invoker_binding` still refuses `allUsers`), only on the dev lane.
+                client.grant_public_invoker(name, direct_ingress_axis=INGRESS_DIRECT)
+                spec.emit_stage("public_invoker_bound")
             ready, svc = client.wait_ready(name, expected_uid=service_uid)
             if ready:
                 spec.emit_stage("host_serving")
@@ -878,7 +937,7 @@ class GcpBackend:
                 "serviceUid": service_uid,
                 "ready": ready,
                 "tier": spec.tier,
-                "ingress": self._ingress,
+                "ingress": _ingress_metadata(spec, self._ingress),
                 # Which image this pod is actually running. The plan path recorded
                 # it and the live path did not, so a real pod's registry row could
                 # not answer "is this pod stale?" -- which is the whole input to an
