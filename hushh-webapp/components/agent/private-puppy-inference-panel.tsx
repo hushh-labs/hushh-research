@@ -1,12 +1,17 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Laptop, Loader2 } from "lucide-react";
 
 import { useAuth } from "@/lib/firebase";
 import { useVault } from "@/lib/vault/vault-context";
 import { usePuppyLink } from "@/lib/hermes/use-puppy-link";
 import { ApiService } from "@/lib/services/api-service";
+import {
+  loadPinnedEndpoint,
+  pendingRevocations,
+  type PendingRevocation,
+} from "@/lib/services/owner-pod-endpoint";
 import { cn } from "@/lib/utils";
 
 type Turn = { id: string; role: "user" | "assistant"; text: string };
@@ -27,6 +32,34 @@ export function PrivatePuppyInferencePanel({ className }: { className?: string }
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [target, setTarget] = useState("Puppy One · private relay");
+  // Revocations the pod has not received yet ("pending delivery"). Read from the
+  // owner-pod store so the surface never claims a revocation landed when it was
+  // only couriered.
+  const [pending, setPending] = useState<PendingRevocation[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!user?.uid) {
+      setPending([]);
+      return () => {
+        cancelled = true;
+      };
+    }
+    void pendingRevocations(user.uid)
+      .then((items) => {
+        if (!cancelled) setPending(items);
+      })
+      .catch(() => {
+        if (!cancelled) setPending([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.uid, link?.state, link?.device?.id]);
+
+  const pendingForLinkedDevice = pending.filter(
+    (item) => !link?.device?.id || item.subjectId === link.device.id,
+  );
 
   async function send() {
     const message = draft.trim();
@@ -49,14 +82,20 @@ export function PrivatePuppyInferencePanel({ className }: { className?: string }
       }
       const status = await ApiService.getPersonalAgentStatus();
       if (status.state !== "active" || !status.hushhId) throw new Error("PRIVATE_AGENT_UNAVAILABLE");
-      const grant = await ApiService.issuePuppyInferenceGrant(link.device.id);
+      // Pinned to the owner's pod: the pod's own session admits the device, so no
+      // hub grant is minted and the hub stays out of the turn. Unpinned keeps the
+      // hub-couriered grant exactly as before.
+      const pinned = await loadPinnedEndpoint(user.uid).catch(() => null);
+      const runtimeCredential = pinned
+        ? undefined
+        : (await ApiService.issuePuppyInferenceGrant(link.device.id)).token;
       const response = await ApiService.runPodTurn({
         hushhId: status.hushhId,
         message,
         conversationId: "puppy-private-relay",
         runtimeProvider: "puppy",
         puppyDeviceId: link.device.id,
-        runtimeCredential: grant.token,
+        runtimeCredential,
         history: nextTurns.map(({ role, text }) => ({ role, content: text })),
       });
       // Only a model the device actually reported is shown as the model. An
@@ -64,7 +103,9 @@ export function PrivatePuppyInferencePanel({ className }: { className?: string }
       const modelLabel = response.modelReported
         ? response.model
         : "model not reported";
-      setTarget(`${response.provider}:${modelLabel} · ${response.runtimeMode}`);
+      setTarget(
+        `${response.provider}:${modelLabel} · ${response.runtimeMode}${pinned ? " · direct" : ""}`,
+      );
       setTurns((prior) => prior.map((turn) => (turn.id === assistantId ? { ...turn, text: response.text } : turn)));
     } catch (cause) {
       const reason = cause instanceof Error ? cause.message : "PRIVATE_AGENT_UNAVAILABLE";
@@ -107,6 +148,11 @@ export function PrivatePuppyInferencePanel({ className }: { className?: string }
           ))}
         </div>
         {error ? <p className="mt-3 text-sm text-destructive">{error}</p> : null}
+        {pendingForLinkedDevice.length > 0 ? (
+          <p className="mt-3 text-sm text-muted-foreground" data-testid="puppy-revocation-pending">
+            Revocation pending delivery: your pod will drop this device the next time it checks in.
+          </p>
+        ) : null}
       </div>
       <div className="flex items-end gap-2 border-t border-border/60 px-4 py-3">
         <textarea

@@ -14,8 +14,12 @@ const ONE_API_TIMEOUT_MS = resolveSlowRequestTimeoutMs(45_000, {
   developmentFloorMs: 45_000,
   overrideEnvKey: "HUSHH_ONE_API_TIMEOUT_MS",
 });
-const ONE_TURN_TIMEOUT_MS = resolveSlowRequestTimeoutMs(120_000, {
-  developmentFloorMs: 120_000,
+// One rung above the hub proxy's 160 s (`pod_relay._TURN_TIMEOUT_SECONDS`), which
+// sits above the pod route's 155 s typed 504. A Puppy turn on a cold local model can
+// legitimately run past two minutes; the ladder is pinned in
+// consent-protocol/tests/test_timeout_ladder.py.
+const ONE_TURN_TIMEOUT_MS = resolveSlowRequestTimeoutMs(165_000, {
+  developmentFloorMs: 165_000,
   overrideEnvKey: "HUSHH_ONE_TURN_TIMEOUT_MS",
 });
 const ONE_STREAM_TIMEOUT_MS = resolveSlowRequestTimeoutMs(285_000, {

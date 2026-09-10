@@ -489,6 +489,14 @@ async function classifyVaultOwnerAuthFailure(
 const WEB_FETCH_TIMEOUT_MS = 60_000;
 
 /**
+ * The pod turn's own ceiling, one rung above the Next proxy (165 s), the hub
+ * proxy (160 s) and the pod route's typed 504 (155 s), so the pod's answer or its
+ * named timeout always reaches the person before this client gives up. Pinned by
+ * consent-protocol/tests/test_timeout_ladder.py on the server side.
+ */
+export const POD_TURN_FETCH_TIMEOUT_MS = 170_000;
+
+/**
  * `fetch` has no default timeout. A request that never receives a response
  * leaves its promise pending for as long as the tab lives, and every caller
  * awaiting it spins with no error and no way back. The native branch of
@@ -502,6 +510,10 @@ const WEB_FETCH_TIMEOUT_MS = 60_000;
 export async function fetchWithWebTimeout(
   url: string,
   init: RequestInit,
+  // Per-call override for the one route that legitimately outlives the default:
+  // an owner-direct pod turn on a local model (170 s, one rung above the hub
+  // proxy's 160 s). Everything else keeps the 60 s ceiling.
+  timeoutMs: number = WEB_FETCH_TIMEOUT_MS,
 ): Promise<Response> {
   const controller = new AbortController();
   const callerSignal = init.signal ?? null;
@@ -516,11 +528,11 @@ export async function fetchWithWebTimeout(
   const timer = setTimeout(() => {
     controller.abort(
       new DOMException(
-        `Request timed out after ${WEB_FETCH_TIMEOUT_MS}ms`,
+        `Request timed out after ${timeoutMs}ms`,
         "TimeoutError",
       ),
     );
-  }, WEB_FETCH_TIMEOUT_MS);
+  }, timeoutMs);
 
   try {
     return await fetch(url, { ...init, signal: controller.signal });
@@ -530,10 +542,17 @@ export async function fetchWithWebTimeout(
   }
 }
 
+/**
+ * `RequestInit` plus the one knob a caller may turn: a per-call ceiling for the
+ * request. Web and native both honour it; the retry path carries it forward.
+ */
+export type ApiFetchOptions = RequestInit & { timeoutMs?: number };
+
 async function apiFetch(
   path: string,
-  options: RequestInit = {},
+  options: ApiFetchOptions = {},
 ): Promise<Response> {
+  const { timeoutMs: requestTimeoutMs, ...fetchInit } = options;
   const initiatingAuthUser = AuthService.getCurrentUser();
   // Native auth may intentionally live only in the Capacitor SDK. Bind its
   // refresh to the central validated owner generation, not an absent JS user.
@@ -845,8 +864,10 @@ async function apiFetch(
         path.includes("/ria/profile/refresh-license");
       // 90s ceiling for the RIA scrape routes; a generous 60s otherwise so we
       // only ever bound a genuinely hung request (native calls were previously
-      // unbounded — keep legitimately-slow uploads/downloads working).
-      const readTimeoutMs = isLongRunningRoute ? 90_000 : 60_000;
+      // unbounded — keep legitimately-slow uploads/downloads working). A caller
+      // that knows better (the owner-direct pod turn) names its own ceiling.
+      const readTimeoutMs =
+        requestTimeoutMs ?? (isLongRunningRoute ? 90_000 : 60_000);
       const request: {
         url: string;
         method: string;
@@ -870,7 +891,7 @@ async function apiFetch(
         if (options.body instanceof FormData) {
           // Multipart uploads route through native plugins; keep fetch fallback for safety.
           const formResponse = await fetch(url, {
-            ...options,
+            ...fetchInit,
             credentials: "include",
             headers: mergedHeaders,
           });
@@ -955,11 +976,15 @@ async function apiFetch(
       return await settleAuthenticatedResponse(response);
     }
 
-    const response = await fetchWithWebTimeout(url, {
-      ...options,
-      credentials: "include",
-      headers: mergedHeaders,
-    });
+    const response = await fetchWithWebTimeout(
+      url,
+      {
+        ...fetchInit,
+        credentials: "include",
+        headers: mergedHeaders,
+      },
+      requestTimeoutMs ?? WEB_FETCH_TIMEOUT_MS,
+    );
     return await settleAuthenticatedResponse(response);
   } catch (error) {
     recordApiRequestMetric(null);
@@ -1596,7 +1621,7 @@ export class ApiService {
    */
   static async apiFetch(
     path: string,
-    options: RequestInit = {},
+    options: ApiFetchOptions = {},
   ): Promise<Response> {
     return apiFetch(path, options);
   }
@@ -1842,6 +1867,39 @@ export class ApiService {
         headers: { Authorization: `Bearer ${authToken}` },
       },
     );
+  }
+
+  /**
+   * Revoke a device everywhere it is trusted: the pod FIRST (revocation is
+   * authoritative there once the owner dials the pod directly), then the hub.
+   *
+   * When the pod cannot be reached the revocation is not lost and not pretended:
+   * an owner-signed intent is couriered through the hub and `pod.pending` names
+   * it, so the surface can say "revocation pending delivery" and nothing else.
+   * Without a pin (no direct path yet) only the hub leg runs, as before.
+   */
+  static async revokeTrustedDeviceEverywhere(deviceId: string): Promise<{
+    hub: Response;
+    pod:
+      | { delivered: true; pending: null }
+      | { delivered: false; pending: import("./owner-pod-endpoint").PendingRevocation | null }
+      | { delivered: false; pending: null; unpinned: true };
+  }> {
+    const ownerPod = await import("./owner-pod-endpoint");
+    const uid = AuthService.getCurrentUser()?.uid;
+    let pod:
+      | { delivered: true; pending: null }
+      | { delivered: false; pending: import("./owner-pod-endpoint").PendingRevocation | null }
+      | { delivered: false; pending: null; unpinned: true } = {
+      delivered: false,
+      pending: null,
+      unpinned: true,
+    };
+    if (uid && (await ownerPod.loadPinnedEndpoint(uid).catch(() => null))) {
+      pod = await ownerPod.revokeAtPod(uid, deviceId, await this.ownerPodTransport());
+    }
+    const hub = await this.revokeTrustedDevice(deviceId);
+    return { hub, pod };
   }
 
   /**
@@ -4056,6 +4114,34 @@ export class ApiService {
     degraded?: string;
   }> {
     const firebaseIdToken = await this.getFirebaseToken();
+    const body = JSON.stringify({
+      message: input.message,
+      conversationId: input.conversationId || undefined,
+      timezone: input.timezone || undefined,
+      runtimeCredential: input.runtimeCredential || undefined,
+      runtimeCredentialTransport: input.runtimeCredentialTransport || undefined,
+      runtimeProvider: input.runtimeProvider || undefined,
+      puppyDeviceId: input.puppyDeviceId || undefined,
+      vertexProject: input.vertexProject || undefined,
+      vertexLocation: input.vertexLocation || undefined,
+      history: input.history?.length ? input.history : undefined,
+      // The owner's consented turn projection, decrypted here from their own
+      // unlocked vault — the same value this client already sends to the hub on
+      // every Agent Chat turn. Sending it is what makes a pod turn grounded
+      // WITHOUT the pod holding PKM or reaching a database, so Zero Knowledge is
+      // preserved: it is opened by the owner's key on the owner's device.
+      pkmContext: input.pkmContext || undefined,
+    });
+
+    // THE OWNER-DIRECT DOOR. When this installation has pinned its pod's address
+    // and holds a pod session, the turn goes straight to the pod with the session
+    // as its bearer: no hub in the conversation path, no hub grant needed for
+    // Puppy (the pod's own authority admits the device). There is deliberately no
+    // fallback to the hub from this branch: a direct failure is named, so a person
+    // who chose their own line is never quietly moved back onto the shared one.
+    const direct = await ApiService.ownerDirectPodTurn(input.hushhId, body, input.signal);
+    if (direct) return direct;
+
     const response = await ApiService.apiFetch(
       `/api/one/u/${encodeURIComponent(input.hushhId)}/turn`,
       {
@@ -4066,26 +4152,11 @@ export class ApiService {
             ? { Authorization: `Bearer ${firebaseIdToken}` }
             : {}),
         },
-        body: JSON.stringify({
-          message: input.message,
-          conversationId: input.conversationId || undefined,
-          timezone: input.timezone || undefined,
-          runtimeCredential: input.runtimeCredential || undefined,
-          runtimeCredentialTransport:
-            input.runtimeCredentialTransport || undefined,
-          runtimeProvider: input.runtimeProvider || undefined,
-          puppyDeviceId: input.puppyDeviceId || undefined,
-          vertexProject: input.vertexProject || undefined,
-          vertexLocation: input.vertexLocation || undefined,
-          history: input.history?.length ? input.history : undefined,
-          // The owner's consented turn projection, decrypted here from their own
-          // unlocked vault — the same value this client already sends to the hub on
-          // every Agent Chat turn. Sending it is what makes a pod turn grounded
-          // WITHOUT the pod holding PKM or reaching a database, so Zero Knowledge is
-          // preserved: it is opened by the owner's key on the owner's device.
-          pkmContext: input.pkmContext || undefined,
-        }),
+        body,
         signal: input.signal,
+        // The pod turn is the one call that legitimately outlives the 60 s ceiling:
+        // one rung above the Next proxy's 165 s, which sits above the hub's 160 s.
+        timeoutMs: POD_TURN_FETCH_TIMEOUT_MS,
       },
     );
     if (!response.ok) {
@@ -4154,6 +4225,95 @@ export class ApiService {
     return response.json().catch(() => null);
   }
 
+  /**
+   * The transports `owner-pod-endpoint` needs: the hub with the owner's Firebase
+   * bearer applied, and the pod by absolute URL. Both ride `apiFetch` so request
+   * ids, telemetry and the per-call timeout behave exactly as for every other call.
+   */
+  private static async ownerPodTransport(): Promise<
+    import("./owner-pod-endpoint").OwnerPodTransport
+  > {
+    const firebaseIdToken = await this.getFirebaseToken();
+    return {
+      hub: (path, init) =>
+        apiFetch(path, {
+          ...init,
+          headers: {
+            ...((init.headers as Record<string, string> | undefined) ?? {}),
+            ...(firebaseIdToken
+              ? { Authorization: `Bearer ${firebaseIdToken}` }
+              : {}),
+          },
+        }),
+      direct: (url, init) => apiFetch(url, init),
+    };
+  }
+
+  /**
+   * Run the turn directly against the pinned pod, or return null when this
+   * installation has no pin (the hub path then applies). Never falls back to the
+   * hub on a direct failure; it names the failure instead.
+   */
+  private static async ownerDirectPodTurn(
+    hushhId: string,
+    body: string,
+    signal?: AbortSignal,
+  ): Promise<{
+    hushhId: string;
+    text: string;
+    model: string;
+    modelReported: boolean;
+    provider: string;
+    grounded: boolean;
+    runtimeMode: string;
+  } | null> {
+    const ownerPod = await import("./owner-pod-endpoint");
+    const uid = AuthService.getCurrentUser()?.uid;
+    if (!uid) return null;
+    const pin = await ownerPod.loadPinnedEndpoint(uid).catch(() => null);
+    if (!pin || pin.hushhId !== hushhId) return null;
+    const transport = await this.ownerPodTransport();
+    let session: import("./owner-pod-endpoint").PodSessionRecord;
+    try {
+      session = await ownerPod.currentPodSession(uid, transport);
+    } catch (error) {
+      const code = error instanceof Error ? error.message : "unknown";
+      throw new Error(`POD_DIRECT_UNAVAILABLE:${code}`);
+    }
+    const response = await apiFetch(`${pin.url}/api/one/pod/turn`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${session.session}`,
+      },
+      body,
+      signal,
+      timeoutMs: POD_TURN_FETCH_TIMEOUT_MS,
+    });
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => null)) as {
+        detail?: { code?: string; reason?: string } | string;
+      } | null;
+      const detail = payload?.detail;
+      const code = typeof detail === "object" ? String(detail?.code ?? "") : "";
+      if (code === "PUPPY_OFFLINE") throw new Error("PUPPY_OFFLINE");
+      if (code === "POD_TURN_TIMEOUT") throw new Error("AGENT_UNREACHABLE");
+      if (response.status === 401 || response.status === 403) {
+        throw new Error(code ? `AGENT_NOT_YOURS:${code}` : "AGENT_NOT_YOURS");
+      }
+      throw new Error(code ? `POD_DIRECT_UNAVAILABLE:${code}` : "AGENT_UNREACHABLE");
+    }
+    const answer = (await response.json()) as {
+      text: string;
+      model: string;
+      modelReported: boolean;
+      provider: string;
+      grounded: boolean;
+      runtimeMode: string;
+    };
+    return { hushhId, ...answer };
+  }
+
   static async issuePuppyInferenceGrant(deviceId: string): Promise<{
     device_id: string;
     scope: "cap.puppy.inference";
@@ -4194,6 +4354,12 @@ export class ApiService {
       probe_mode?: string;
     };
   }> {
+    // Pinned: the pod's own broker is the truth about the device link, so read the
+    // pod's status and never the hub's. The hub broker knows nothing about a device
+    // that dials the pod directly, and would report it offline.
+    const pinnedStatus = await ApiService.ownerDirectPuppyStatus(deviceId);
+    if (pinnedStatus) return pinnedStatus;
+
     const firebaseIdToken = await this.getFirebaseToken();
     const response = await ApiService.apiFetch(
       `/api/one/puppy/status/${encodeURIComponent(deviceId)}`,
@@ -4207,6 +4373,51 @@ export class ApiService {
     );
     if (!response.ok) throw new Error(`PUPPY_STATUS_UNAVAILABLE:${response.status}`);
     return response.json();
+  }
+
+  private static async ownerDirectPuppyStatus(deviceId: string): Promise<{
+    device_id: string;
+    state: "revoked" | "ready" | "busy" | "offline" | "unavailable";
+    linked: boolean;
+    inference_ready: boolean;
+    execution_target: "puppy" | "unavailable";
+  } | null> {
+    const ownerPod = await import("./owner-pod-endpoint");
+    const uid = AuthService.getCurrentUser()?.uid;
+    if (!uid) return null;
+    const pin = await ownerPod.loadPinnedEndpoint(uid).catch(() => null);
+    if (!pin) return null;
+    const session = await ownerPod.currentPodSession(uid, await this.ownerPodTransport());
+    const response = await apiFetch(`${pin.url}/api/one/pod/status`, {
+      method: "GET",
+      headers: { Authorization: `Bearer ${session.session}` },
+      cache: "no-store",
+    });
+    if (!response.ok) throw new Error(`PUPPY_STATUS_UNAVAILABLE:${response.status}`);
+    const status = (await response.json()) as {
+      subjects?: Array<{ subjectId: string; role?: string; state: string; scopes?: string[] }>;
+      puppy?: { links?: Array<{ deviceId: string; state: string; busy: boolean }> };
+    };
+    const subject = (status.subjects ?? []).find((s) => s.subjectId === deviceId);
+    const link = (status.puppy?.links ?? []).find((l) => l.deviceId === deviceId);
+    const trusted = Boolean(subject && subject.state === "trusted");
+    const inferenceScoped = Boolean(subject?.scopes?.includes("puppy.inference"));
+    const state: "revoked" | "ready" | "busy" | "offline" | "unavailable" = subject
+      ? subject.state === "revoked"
+        ? "revoked"
+        : link
+          ? link.busy
+            ? "busy"
+            : "ready"
+          : "offline"
+      : "unavailable";
+    return {
+      device_id: deviceId,
+      state,
+      linked: trusted,
+      inference_ready: trusted && inferenceScoped && state === "ready",
+      execution_target: trusted && (state === "ready" || state === "busy") ? "puppy" : "unavailable",
+    };
   }
 
   /**
