@@ -5531,7 +5531,7 @@
     "action_gateway": "9e543119bdf158e4f12f0c3aa86e17a0fd3e38ae1dda4dc10e4c7ca55466dd36",
     "agent_registry": "25691bdbac37432b307f0cb1cd25da1d64d3217f59017bcbcf91bbe7595d4cb2",
     "cache_manifest": "c7a177decdb319d8a8b673ae16f6acdad5aedee5fc98329d2d58470e1726b4e8",
-    "data_plane": "061a8c30c76f3ae180d4e086471cc7cf25eb1e2b11e6e04258d3ccafdde04b50",
+    "data_plane": "e24f14cb2162791a1f025a620c8547cb565b5f2be2c73d6b4ea562ab09668920",
     "in_process_dispatch": "be849e9fc6ab347ebbbfd84bfaa7fb528f29c71bc76b11c38f1c40642c51883a",
     "one_specialist_tools": "2b08273e4fbd5c7967ebc028383c86c93d7eccf599a11013c146915b5f81c288",
     "route_index": "9eed7fb3fb1cb3a5cc6197d846d9c08b45ab07d9bc0734fe24984e8341b00736",

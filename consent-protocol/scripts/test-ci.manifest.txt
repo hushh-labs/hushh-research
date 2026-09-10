@@ -3,6 +3,10 @@
 
 tests/quality/test_byok_encryption.py
 tests/test_developer_api_routes.py
+tests/test_encrypted_blob_bounds.py
+tests/test_data_model_audit_script.py
+tests/test_data_model_audit_postgres.py
+tests/services/test_gmail_cache_retention.py
 tests/services/test_consent_request_lock.py
 tests/test_scoped_export_download.py
 tests/test_partner_developer_apps.py
@@ -184,6 +188,8 @@ tests/test_one_location_nearby_presence_routes.py
 tests/services/test_one_location_nearby_presence_service.py
 tests/test_one_location_nearby_point_contract_migration.py
 tests/test_one_location_nearby_check_in_preferences_migration.py
+tests/test_data_model_audit_script.py
+tests/test_data_model_audit_postgres.py
 
 # Exact-release license evidence rejects missing, modified and conflicting metadata.
 tests/test_third_party_license_evidence.py
