@@ -80,6 +80,9 @@ class PuppyRelayBroker:
         )
         return self._redis
 
+    def rendezvous_enabled(self) -> bool:
+        return self._client() is not None
+
     @staticmethod
     def _key(key: tuple[str, str]) -> str:
         digest = hashlib.sha256("\x00".join(key).encode("utf-8")).hexdigest()
@@ -218,10 +221,17 @@ class PuppyRelayBroker:
     async def status(self, key: tuple[str, str]) -> dict[str, Any]:
         link = await self.get(key)
         if link is not None:
+            busy = bool(link.busy_request_id)
+            client = self._client()
+            if client is not None:
+                try:
+                    busy = busy or bool(await client.exists(f"{self._key(key)}:busy"))
+                except Exception:  # noqa: BLE001
+                    busy = True
             return {
                 "connected": True,
-                "state": "busy" if link.busy_request_id else link.status,
-                "busy": bool(link.busy_request_id),
+                "state": "busy" if busy else link.status,
+                "busy": busy,
                 "generation": link.generation,
                 "last_seen_age_seconds": round(
                     max(0.0, time.monotonic() - link.last_seen_monotonic), 3
@@ -396,6 +406,7 @@ async def _device_loop(websocket: WebSocket, key: tuple[str, str], link: _Device
 async def _provider_loop(websocket: WebSocket, key: tuple[str, str], token: str) -> None:
     link = await BROKER.get(key)
     distributed = link is None and await BROKER.available(key)
+    rendezvous_enabled = BROKER.rendezvous_enabled()
     if link is None and not distributed:
         await websocket.send_json(
             {"type": "relay.error", "code": "PUPPY_OFFLINE", "message": "linked Puppy is offline"}
@@ -438,11 +449,11 @@ async def _provider_loop(websocket: WebSocket, key: tuple[str, str], token: str)
             device_id = str(frame.get("deviceId") or "")
             if not request_id or len(request_id) > _MAX_REQUEST_ID_LENGTH or device_id != key[1]:
                 raise ValueError("Puppy request binding mismatch")
-            busy = (
-                link.busy_request_id is not None
-                if link is not None
-                else not await BROKER.acquire_busy(key, request_id)
+            local_busy = link is not None and link.busy_request_id is not None
+            rendezvous_busy = (
+                not await BROKER.acquire_busy(key, request_id) if rendezvous_enabled else False
             )
+            busy = local_busy or rendezvous_busy or (link is None and not rendezvous_enabled)
             if busy:
                 await websocket.send_json(
                     {
@@ -538,7 +549,7 @@ async def _provider_loop(websocket: WebSocket, key: tuple[str, str], token: str)
                     link.pending.pop(request_id, None)
                     if link.busy_request_id == request_id:
                         link.busy_request_id = None
-                else:
+                if rendezvous_enabled:
                     await BROKER.release_busy(key, request_id)
     except (WebSocketDisconnect, ValueError, json.JSONDecodeError):
         return
