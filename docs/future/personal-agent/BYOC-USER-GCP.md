@@ -96,19 +96,22 @@ gcloud run services add-iam-policy-binding "one-pod-$SLUG" \
   --member "serviceAccount:$HUSHH_CONSENT_PLANE_SA" --role roles/run.invoker
 ```
 
-## Built vs external-gated
+## Built and owner-pilot evidence
 
-- **Built (inert):** `UserGcpBackend` (renders the pod against the user's project +
-  the bootstrap plan), resolver wiring (`user_gcp`), contract tests
-  (`tests/test_user_gcp_backend.py`). Reuses `GcpBackend`'s Cloud Run renderer, so the
-  slim image + warm-floor default carry over unchanged.
-- **External-gated (next):** a real user GCP project + the WIF bootstrap applied; the
-  Terraform module / device-agent MCP flow; then flip `HUSSH_USER_GCP_LIVE` for a
-  dev-only end-to-end in a throwaway "user" project. Until then live raises.
+- **Owner-pilot live (2026-09-10):** the authenticated owner account has a real
+  dev pod in the verified owner project. The
+  single-instance service `one-pod-ha1-7o6wt3s4mtydneyytqfswsxtafdlpjwz` is
+  healthy on revision `...-00002-nh4`, uses the owner registry digest
+  `sha256:ca2e53a6255cffd3870e6859e2f00192b02a3b966c452e92a0dc212f61844cf1`,
+  and is bound to the dev consent hub and Puppy relay. The sanitized receipt is
+  `tmp/coding-agent-audit/owner-pod-c03947d1-receipt.json`.
+- **Still external-gated:** the reusable WIF/bootstrap and device-agent flow for
+  arbitrary owners, plus an end-to-end real Puppy grant/inference receipt. The
+  live owner pilot does not promote those source-wiring claims to general
+  production readiness.
 
 ## Guardrails
 
-Dev-branch only, flag-off. The seam makes no call into any user project until the WIF
-bootstrap exists and live is explicitly enabled — and even then, only in a throwaway
-dev project, with founder sign-off, never against a real user's cloud without their
-authorized bootstrap.
+Dev-branch only. Owner-cloud changes require the owner-authenticated project and an
+  explicit bootstrap/rollout action. The pilot above used that owner path; it does not
+  authorize the control plane to discover or mutate another person's project.
