@@ -49,11 +49,11 @@ export function toInvestorMessage(
     case "ONBOARDING_STATE_UNAVAILABLE":
       return "We could not load your onboarding progress. Please try again.";
     case "VAULT_STATUS_UNAVAILABLE":
-      return "We could not reach it right now. Check your connection and try again.";
+      return "We could not reach Vault right now. Check your connection and try again.";
     case "LOCAL_BACKEND_UNAVAILABLE":
       return "Local backend information is unavailable right now. Start the local backend with the proxy-aware launcher, then try again.";
     case "VAULT_UNLOCK_FAILED":
-      return "We could not unlock it. Please confirm your details and try again.";
+      return "We could not unlock your Vault. Please confirm your details and try again.";
     case "VAULT_PASSKEY_ENROLL_REQUIRED":
       return "This passkey was enrolled under an older domain. Use your passphrase once, then enable passkey again for one.hushh.ai.";
     case "MARKET_DATA_UNAVAILABLE":
@@ -81,6 +81,13 @@ export function toInvestorVaultUnlockError(value: unknown): string {
   const lowered = raw.toLowerCase();
 
   if (
+    lowered.includes("relying party id is not a registrable domain suffix") ||
+    lowered.includes(".well-known/webauthn")
+  ) {
+    return "This passkey is registered for a different site. Open the site where you enrolled it, or use your Passphrase or Recovery key below.";
+  }
+
+  if (
     lowered.includes("vault_passkey_rp_mismatch") ||
     lowered.includes("rp id is not allowed") ||
     lowered.includes("different domain")
@@ -89,20 +96,34 @@ export function toInvestorVaultUnlockError(value: unknown): string {
   }
 
   if (lowered.includes("bluetooth")) {
-    return "Turn on Bluetooth to use a passkey from another device, or use your passphrase or recovery key below.";
+    return "Turn on Bluetooth to use a passkey from another device, or use your Vault Key or Recovery Key below.";
   }
 
   if (
     lowered.includes("timed out or was not allowed") ||
     lowered.includes("privacy-considerations-client") ||
     lowered.includes("notallowederror") ||
-    lowered.includes("aborterror") ||
+    lowered.includes("aborterror")
+  ) {
+    return "Passkey unlock did not finish. Try again, or use your Vault Key or Recovery Key below.";
+  }
+
+  // Cancellation-specific errors require WebAuthn context — a bare "cancelled"
+  // or "canceled" substring alone matches unrelated operations (aborted fetches,
+  // cancelled analytics, etc.). Match the structured cancel signals first.
+  if (
+    lowered.includes("passkey request cancelled") ||
+    lowered.includes("passkey request canceled") ||
+    lowered.includes("passkey authentication cancelled") ||
+    lowered.includes("passkey authentication canceled") ||
     lowered.includes("user cancelled") ||
     lowered.includes("user canceled") ||
-    lowered.includes("cancelled") ||
-    lowered.includes("canceled")
+    lowered.includes("cancelled by user") ||
+    lowered.includes("canceled by user") ||
+    (lowered.includes("cancel") &&
+      (lowered.includes("credential") || lowered.includes("operation")))
   ) {
-    return "Passkey unlock did not finish. Try again, or use your passphrase or recovery key below.";
+    return "Passkey unlock did not finish. Try again, or use your Vault Key or Recovery Key below.";
   }
 
   if (
@@ -110,7 +131,7 @@ export function toInvestorVaultUnlockError(value: unknown): string {
     lowered.includes("quick unlock is not enabled") ||
     lowered.includes("not enabled on this device")
   ) {
-    return "Passkey unlock is not ready on this device yet. Use your passphrase once, then try passkey again.";
+    return "Passkey unlock is not ready on this device yet. Use your Vault Key once, then try passkey again.";
   }
 
   if (
@@ -136,7 +157,7 @@ export function toInvestorLoading(stage: InvestorLoadingStage): string {
     case "ANALYSIS":
       return "Preparing your analysis...";
     case "VAULT":
-      return "Opening...";
+      return "Opening your Vault...";
     default:
       return "Loading...";
   }

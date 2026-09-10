@@ -20,37 +20,48 @@ import { base64ToBytes, bytesToBase64 } from "@/lib/vault/base64";
 import { resolvePasskeyRpId } from "@/lib/vault/passkey-rp";
 
 // WebAuthn only allows a single outstanding navigator.credentials.get() /
-// create() request per page at a time. If a second one starts while the first
-// is still pending, the browser rejects it with
-// "OperationError: A request is already pending." This happens when the vault
-// auto-prompt fires again (remount, route change, React re-render) before a
-// prior, still-open prompt has resolved or been cancelled. We serialize all
-// WebAuthn ceremonies through this guard: a new request first aborts the stale
-// pending one (so it cannot strand the new attempt) and then proceeds.
-let pendingWebAuthnAbort: AbortController | null = null;
+// create() request per page at a time. A second request must not abort the
+// first: the first may already be waiting for a user gesture, and replacing it
+// creates the exact UX failure this flow is designed to avoid (one accepted
+// prompt followed by a second prompt and a misleading error). Duplicate
+// callers fail locally while the original ceremony remains the sole owner.
+let webAuthnCeremonyPending = false;
+
+/** 5-minute ceiling. A healthy WebAuthn ceremony resolves in seconds; an
+ *  abandoned prompt (user walked away, browser lost focus, native sheet
+ *  orphaned by a route transition) should not hold the page-wide lease
+ *  indefinitely. */
+const WEBAUTHN_CEREMONY_TIMEOUT_MS = 5 * 60 * 1000;
+
+export class WebAuthnCeremonyInProgressError extends Error {
+  constructor() {
+    super("A passkey prompt is already open.");
+    this.name = "WebAuthnCeremonyInProgressError";
+  }
+}
 
 async function runExclusiveWebAuthn<T>(
   run: (signal: AbortSignal) => Promise<T>
 ): Promise<T> {
-  // Cancel any request that is still pending so the new one is not rejected
-  // with "A request is already pending."
-  if (pendingWebAuthnAbort) {
-    try {
-      pendingWebAuthnAbort.abort();
-    } catch {
-      // Ignore: aborting an already-settled controller is a no-op.
-    }
+  if (webAuthnCeremonyPending) {
+    throw new WebAuthnCeremonyInProgressError();
   }
+
   const controller = new AbortController();
-  pendingWebAuthnAbort = controller;
+  webAuthnCeremonyPending = true;
+  const timeoutId = setTimeout(() => controller.abort(), WEBAUTHN_CEREMONY_TIMEOUT_MS);
   try {
     return await run(controller.signal);
-  } finally {
-    // Only clear the shared reference if it still points at this request, so a
-    // newer request that replaced us is not accidentally cleared.
-    if (pendingWebAuthnAbort === controller) {
-      pendingWebAuthnAbort = null;
+  } catch (error) {
+    // Surface timeouts as a distinct error so the caller can distinguish
+    // "user cancelled" from "the prompt never returned."
+    if (controller.signal.aborted) {
+      throw new Error("Passkey prompt timed out. Try again.");
     }
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
+    webAuthnCeremonyPending = false;
   }
 }
 
