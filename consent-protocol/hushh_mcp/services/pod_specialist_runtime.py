@@ -163,6 +163,198 @@ def specialist_model_timeout_seconds(runtime_mode: str | None) -> float:
     return _SPECIALIST_MODEL_TIMEOUT_SECONDS
 
 
+def _declare(
+    *,
+    executes_in_pod: bool,
+    information_source: str,
+    write_scope: str,
+    confirmation_owner: str,
+    why: str,
+) -> dict[str, Any]:
+    return {
+        "executes_in_pod": executes_in_pod,
+        "information_source": information_source,
+        "write_scope": write_scope,
+        "confirmation_owner": confirmation_owner,
+        "why": why,
+    }
+
+
+_HUB_ONLY = "Registered on the hub with no owner adapter; service_for refuses it in the pod."
+
+#: What each authored product agent may do inside an owner's pod, DECLARED here
+#: and checked against the runtime source by
+#: ``scripts/generate_pod_specialist_capability_matrix.py``. One row per manifest
+#: in ``hushh_mcp/agents/*/agent.yaml``; the generator refuses a table that
+#: disagrees with ``service_for`` or with which ports read the hub. Vocabulary:
+#: ``information_source`` is ``pkm_projection`` (the head's couriered grounding),
+#: ``hub_door`` (a counted read through the hub information door), ``none`` (no
+#: information read in the pod) or ``hub`` (does not execute in the pod at all);
+#: ``write_scope`` is ``none``, ``proposal_only`` or ``confirmed_action``;
+#: ``confirmation_owner`` is who confirms a write: ``owner_browser``, ``owner``,
+#: ``none`` or ``hub``. Hub-owned capabilities stay hub-owned here; a manifest is
+#: not a claim of pod execution.
+POD_SPECIALIST_EXECUTION: dict[str, dict[str, Any]] = {
+    "agent_one": _declare(
+        executes_in_pod=True,
+        information_source="pkm_projection",
+        write_scope="proposal_only",
+        confirmation_owner="owner_browser",
+        why=(
+            "The routing head runs in the pod turn route, grounded on the couriered "
+            "PKM projection or the pod replica; it proposes directives the hub relay "
+            "re-validates before any card renders."
+        ),
+    ),
+    "agent_location": _declare(
+        executes_in_pod=True,
+        information_source="hub_door",
+        write_scope="proposal_only",
+        confirmation_owner="owner_browser",
+        why=(
+            "The shared LocationChatService runs in the pod with pod ports; sharing "
+            "state is read through the location door, and a public link is only "
+            "proposed for the browser's owner-confirmation card."
+        ),
+    ),
+    "agent_nav": _declare(
+        executes_in_pod=True,
+        information_source="hub_door",
+        write_scope="none",
+        confirmation_owner="none",
+        why="Consent Center pages are read through the nav door; no mutation in the pod.",
+    ),
+    "agent_personal_information": _declare(
+        executes_in_pod=True,
+        information_source="hub_door",
+        write_scope="none",
+        confirmation_owner="none",
+        why=(
+            "Publication metadata and earnings are read through the marketplace door; "
+            "the PKM replica has no production feed yet, so no owner-local read exists."
+        ),
+    ),
+    "agent_email": _declare(
+        executes_in_pod=True,
+        information_source="hub_door",
+        write_scope="none",
+        confirmation_owner="none",
+        why="Read-only nudges and inbox search through the email door; no send authority.",
+    ),
+    "agent_connected_systems": _declare(
+        executes_in_pod=True,
+        information_source="none",
+        write_scope="none",
+        confirmation_owner="hub",
+        why=(
+            "The A2A wrapper is constructed in the pod but refuses without task-specific "
+            "authority; CRM connections and records stay on the hub."
+        ),
+    ),
+    "agent_calendar": _declare(
+        executes_in_pod=False,
+        information_source="hub_door",
+        write_scope="none",
+        confirmation_owner="hub",
+        why=(
+            "Not dispatched in the pod: One's calendar tools render upcoming events "
+            "deterministically through the calendar door; proposals need the hub."
+        ),
+    ),
+    "agent_connections": _declare(
+        executes_in_pod=False,
+        information_source="hub",
+        write_scope="none",
+        confirmation_owner="hub",
+        why=_HUB_ONLY,
+    ),
+    "agent_kai": _declare(
+        executes_in_pod=False,
+        information_source="hub",
+        write_scope="none",
+        confirmation_owner="hub",
+        why="Financial analysis needs the consented projection service; hub only today.",
+    ),
+    "agent_kyc": _declare(
+        executes_in_pod=False,
+        information_source="hub",
+        write_scope="none",
+        confirmation_owner="hub",
+        why="Identity verification writes vault records through the hub; not in the pod.",
+    ),
+    "agent_gmail": _declare(
+        executes_in_pod=False,
+        information_source="hub",
+        write_scope="none",
+        confirmation_owner="hub",
+        why="Connected-account OAuth tokens live on the hub; the pod holds no credential.",
+    ),
+    "agent_wallet": _declare(
+        executes_in_pod=False,
+        information_source="hub",
+        write_scope="none",
+        confirmation_owner="hub",
+        why="Wallet vault records and reveals are hub-confirmed actions; not in the pod.",
+    ),
+    "agent_onboarding": _declare(
+        executes_in_pod=False,
+        information_source="hub",
+        write_scope="none",
+        confirmation_owner="hub",
+        why="First-run guidance runs on the hub before a pod exists.",
+    ),
+    "agent_financial_guard": _declare(
+        executes_in_pod=False,
+        information_source="hub",
+        write_scope="none",
+        confirmation_owner="hub",
+        why=_HUB_ONLY,
+    ),
+    "agent_memory_intent": _declare(
+        executes_in_pod=False,
+        information_source="hub",
+        write_scope="none",
+        confirmation_owner="hub",
+        why="PKM structuring sub-chain; hub-only and browser-gated today.",
+    ),
+    "agent_memory_merge": _declare(
+        executes_in_pod=False,
+        information_source="hub",
+        write_scope="none",
+        confirmation_owner="hub",
+        why="PKM structuring sub-chain; hub-only and browser-gated today.",
+    ),
+    "agent_memory_segmentation": _declare(
+        executes_in_pod=False,
+        information_source="hub",
+        write_scope="none",
+        confirmation_owner="hub",
+        why="PKM structuring sub-chain; hub-only and browser-gated today.",
+    ),
+    "agent_pkm_structure": _declare(
+        executes_in_pod=False,
+        information_source="hub",
+        write_scope="none",
+        confirmation_owner="hub",
+        why="PKM structuring sub-chain; hub-only and browser-gated today.",
+    ),
+    "agent_portfolio_import": _declare(
+        executes_in_pod=False,
+        information_source="hub",
+        write_scope="none",
+        confirmation_owner="hub",
+        why="Portfolio import writes holdings through the hub; not in the pod.",
+    ),
+    "agent_summary_reducer": _declare(
+        executes_in_pod=False,
+        information_source="hub",
+        write_scope="none",
+        confirmation_owner="hub",
+        why="PKM structuring sub-chain; hub-only and browser-gated today.",
+    ),
+}
+
+
 class PodLocationReadPort:
     def __init__(self, owner_user_id: str, scope_token: str) -> None:
         self._owner = owner_user_id

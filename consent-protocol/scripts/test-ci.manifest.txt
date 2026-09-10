@@ -178,6 +178,7 @@ tests/test_pod_data_door_calendar.py
 tests/test_pod_data_door_specialist.py
 tests/test_pod_specialist_broker.py
 tests/test_pod_specialist_runtime.py
+tests/test_pod_specialist_capability_matrix.py
 tests/test_pod_pkm_resolver.py
 tests/test_pod_identity_store.py
 tests/test_pod_migration_freeze.py
