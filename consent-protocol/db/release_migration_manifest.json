@@ -177,7 +177,8 @@
     "202_feed_counterpart_identity.sql",
     "203_feed_counterpart_recipient_index.sql",
     "204_feed_counterpart_indexed_lookup.sql",
-    "205_contact_sync_disconnect_actor.sql"
+    "205_contact_sync_disconnect_actor.sql",
+    "206_pkm_manifest_display_segment.sql"
   ],
   "environment_overlays": {
     "uat": [
@@ -351,6 +352,7 @@
   "rollback_migrations": {
     "203_feed_counterpart_recipient_index.sql": "rollback/203_feed_counterpart_recipient_index.rollback.sql",
     "204_feed_counterpart_indexed_lookup.sql": "rollback/204_feed_counterpart_indexed_lookup.rollback.sql",
-    "205_contact_sync_disconnect_actor.sql": "rollback/205_contact_sync_disconnect_actor.rollback.sql"
+    "205_contact_sync_disconnect_actor.sql": "rollback/205_contact_sync_disconnect_actor.rollback.sql",
+    "206_pkm_manifest_display_segment.sql": "rollback/206_pkm_manifest_display_segment.rollback.sql"
   }
 }

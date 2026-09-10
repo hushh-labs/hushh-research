@@ -1,0 +1,75 @@
+{
+  "$comment": "One shared truth table for turning a stored key into owner-facing words. Read by the TypeScript resolver test (hushh-webapp/__tests__/lib/humanize-segment.test.ts) and the Python one (consent-protocol/tests/test_pkm_manifest_scope_labels.py). Two implementations that must agree need one list of truths, or they drift the way the twelve humanizers this replaced did.",
+  "version": 1,
+  "segments": [
+    {
+      "input": "addressDetails",
+      "expected": "Address Details",
+      "why": "The camelCase boundary is what scope-path lowercasing destroys. This is the case that made a chat row read 'Saved Places Locations Items Addressdetails Buildingcolor'."
+    },
+    {
+      "input": "buildingColor",
+      "expected": "Building Color",
+      "why": "Same boundary, second segment of the same real path."
+    },
+    {
+      "input": "savedPlaces",
+      "expected": "Saved Places",
+      "why": "Top-level domain segment written by the live location writer."
+    },
+    {
+      "input": "last4",
+      "expected": "Last 4",
+      "why": "A letter run into digits reads as a machine name. Titled itself 'Last4' on the owner's Memory screen."
+    },
+    {
+      "input": "ssnLast4",
+      "expected": "Ssn Last 4",
+      "why": "Both boundaries in one key: camelCase and letter-to-digit."
+    },
+    {
+      "input": "w2",
+      "expected": "W2",
+      "why": "Short codes must survive intact. The digit split requires three or more letters precisely so w2 and k1 are not broken apart."
+    },
+    {
+      "input": "k1",
+      "expected": "K1",
+      "why": "Second short-code guard."
+    },
+    {
+      "input": "employment_status",
+      "expected": "Employment Status",
+      "why": "Underscore separators still work. Critically this must NEVER shorten to 'Status': a previous last-word heuristic (splitScopeLabel, reverted by merge d3336b95e) did exactly that and changed the meaning of the field. This fixture encodes that rationale so the heuristic cannot be re-proposed."
+    },
+    {
+      "input": "SSNNumber",
+      "expected": "SSN Number",
+      "why": "An acronym followed by a word. The ordinary camelCase boundary cannot see this one."
+    },
+    {
+      "input": "locations",
+      "expected": "Locations",
+      "why": "An already-plain segment must pass through unchanged."
+    }
+  ],
+  "opaque_ids": [
+    {
+      "input": "card_94d850a3-a02c-414c-9813-a48e64b0fa53",
+      "why": "A uuid is opaque whatever prefix precedes it. This one titled a saved card 'Card 94d850a3 A02c 414c 9813 A48e64b0fa53' on the owner's Memory screen."
+    },
+    {
+      "input": "mem_a1b2c3d4",
+      "why": "Prefixed opaque identifier."
+    },
+    {
+      "input": "94d850a3-a02c-414c-9813-a48e64b0fa53",
+      "why": "Bare uuid."
+    }
+  ],
+  "not_opaque_ids": [
+    { "input": "addressDetails", "why": "An ordinary readable key must not be suppressed." },
+    { "input": "last4", "why": "Letters and digits are not an identifier." },
+    { "input": "savedPlaces", "why": "An ordinary readable key must not be suppressed." }
+  ]
+}
