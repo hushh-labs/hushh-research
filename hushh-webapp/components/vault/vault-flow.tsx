@@ -143,8 +143,6 @@ function isDuplicateWebAuthnError(value: unknown): boolean {
   );
 }
 
-const PASSKEY_UNLOCK_CANCELLED_MESSAGE =
-  "Passkey unlock was cancelled. Choose Passphrase or Recovery key below, or tap Passkey to try again.";
 const GENERATED_UNLOCK_CANCELLED_EVENT = "vault-generated-unlock-cancelled";
 
 type GeneratedUnlockClaim = {
@@ -219,7 +217,7 @@ function clearGeneratedUnlockCancellation(
   }
 }
 
-function _claimGeneratedUnlock(
+function claimGeneratedUnlock(
   owner: symbol,
   userId: string,
   mode: GeneratedVaultKeyMode,
@@ -410,7 +408,7 @@ export function VaultFlow({
 
       generatedUnlockCancelledRef.current = true;
       setUnlockWithPassphraseFallback(true);
-      setError(PASSKEY_UNLOCK_CANCELLED_MESSAGE);
+      setError(null);
     };
 
     window.addEventListener(
@@ -926,7 +924,7 @@ export function VaultFlow({
   ]);
 
   const handleUnlockGeneratedDefault = useCallback(
-    async (_source: GeneratedUnlockAttemptSource = "user") => {
+    async (source: GeneratedUnlockAttemptSource = "user") => {
       if (
         generatedUnlockAttemptRef.current ||
         !isGeneratedVaultKeyMode(vaultMode)
@@ -934,7 +932,25 @@ export function VaultFlow({
         return;
       }
       const generatedMode = vaultMode;
+      const claim = claimGeneratedUnlock(
+        flowInstanceRef.current,
+        user.uid,
+        generatedMode,
+        source,
+      );
+      if (claim === "cancelled") {
+        generatedUnlockCancelledRef.current = true;
+        setUnlockWithPassphraseFallback(true);
+        setError(null);
+        return;
+      }
+      if (claim === "busy") {
+        return;
+      }
+      generatedUnlockAttemptRef.current = true;
+      setIsUnlocking(true);
       try {
+        setError(null);
         if (
           Capacitor.isNativePlatform() &&
           generatedMode === "generated_default_web_prf"
@@ -984,6 +1000,8 @@ export function VaultFlow({
             user.uid,
             generatedMode,
           );
+          setUnlockWithPassphraseFallback(true);
+          setError(null);
           return;
         }
         console.error("Generated vault unlock failed:", err);
@@ -1227,7 +1245,7 @@ export function VaultFlow({
     ) {
       generatedUnlockCancelledRef.current = true;
       setUnlockWithPassphraseFallback(true);
-      setError(PASSKEY_UNLOCK_CANCELLED_MESSAGE);
+      setError(null);
       return;
     }
     void handleUnlockGeneratedDefault("automatic");

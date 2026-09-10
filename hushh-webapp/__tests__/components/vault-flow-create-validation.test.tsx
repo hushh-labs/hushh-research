@@ -408,7 +408,9 @@ describe("VaultFlow create validation", () => {
       <VaultFlow user={user} onSuccess={onSuccess} />,
     );
 
-    await screen.findByText("Ready for passkey confirmation.");
+    await waitFor(() =>
+      expect(unlockGeneratedDefaultVaultMock).toHaveBeenCalledTimes(1),
+    );
     expect(
       screen.queryByText(
         "Passkey unlock was cancelled. Choose Passphrase or Recovery key below, or tap Passkey to try again.",
@@ -454,7 +456,9 @@ describe("VaultFlow create validation", () => {
       </>,
     );
 
-    expect(screen.getAllByText("Ready for passkey confirmation.")).toHaveLength(2);
+    await waitFor(() =>
+      expect(unlockGeneratedDefaultVaultMock).toHaveBeenCalledTimes(1),
+    );
     expect(
       screen.queryByText(
         "Passkey unlock was cancelled. Choose Passphrase or Recovery key below, or tap Passkey to try again.",
