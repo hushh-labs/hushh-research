@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import logging
 import os
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
@@ -68,6 +69,41 @@ class ConsentVerdict:
     def should_refuse(self) -> bool:
         """A clean denial: the authority answered, and the answer was no."""
         return self.available and not self.valid
+
+    @classmethod
+    def from_local_session(
+        cls, claims: "Mapping[str, Any]", *, expected_scope: str = ""
+    ) -> "ConsentVerdict":
+        """A verdict answered by the pod's own session authority, not the hub.
+
+        The session claims were minted from a hub-signed binding the pod verified
+        and recorded; the authority re-checks tombstones before calling this. What
+        remains is the scope question, answered from the binding's scopes. The
+        authority is always ``available`` here because it is this process.
+        """
+        scopes = {str(s) for s in (claims.get("scopes") or [])}
+        wanted = str(expected_scope or "").strip()
+        user_id = str(claims.get("user_id") or "").strip()
+        hushh_id = str(claims.get("hushh_id") or "").strip()
+        if wanted and wanted not in scopes:
+            return cls(
+                valid=False,
+                available=True,
+                user_id=user_id,
+                hushh_id=hushh_id,
+                scope=wanted,
+                reason="scope not granted by the pod binding",
+            )
+        if not user_id or not hushh_id:
+            return cls(valid=False, available=True, reason="session carries no owner")
+        return cls(
+            valid=True,
+            available=True,
+            user_id=user_id,
+            hushh_id=hushh_id,
+            scope=wanted,
+            reason="verified by the pod's local authority",
+        )
 
 
 async def verify_consent(

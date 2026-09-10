@@ -198,17 +198,38 @@ def hmac_signature(payload: str, key: str) -> str:
     return hmac.new(key.encode(), payload.encode(), hashlib.sha256).hexdigest()
 
 
+def known_kids(namespace: SigningNamespace = CONSENT_TOKENS) -> frozenset[str]:
+    """The key ids this process can verify for ``namespace``. Public material only."""
+    return frozenset(_public_keys(namespace))
+
+
 def sign_payload(
-    payload: str, *, hmac_key: str, namespace: SigningNamespace = CONSENT_TOKENS
+    payload: str,
+    *,
+    hmac_key: str,
+    namespace: SigningNamespace = CONSENT_TOKENS,
+    require_asymmetric: bool = False,
 ) -> str:
-    """Sign per the configured issuance algorithm for this namespace."""
-    if signing_alg(namespace) == ALG_ED25519:
+    """Sign per the configured issuance algorithm for this namespace.
+
+    ``require_asymmetric`` is for payloads a pod must verify with a public key and
+    nothing else (the owner-pod binding record). Such a payload is signed Ed25519
+    regardless of the namespace's issuance setting, and refused outright when no
+    private key is present: an HMAC signature on it would be unverifiable by every
+    pod and forgeable by anything holding the hub's symmetric key.
+    """
+    if require_asymmetric or signing_alg(namespace) == ALG_ED25519:
         private = _private_key(namespace)
         if private is None:
             # Issuance was explicitly configured asymmetric and the key is
             # absent: refuse rather than silently minting forgeable tokens.
+            reason = (
+                "an asymmetric signature was required"
+                if require_asymmetric
+                else f"{namespace.alg_env}=ed25519"
+            )
             raise RuntimeError(
-                f"{namespace.alg_env}=ed25519 but {namespace.private_key_env} is not set -- "
+                f"{reason} but {namespace.private_key_env} is not set -- "
                 f"a verifier-only process (a pod) can never issue"
             )
         signature = private.sign(payload.encode("utf-8"))
