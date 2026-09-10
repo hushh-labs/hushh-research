@@ -408,14 +408,15 @@ describe("VaultFlow create validation", () => {
       <VaultFlow user={user} onSuccess={onSuccess} />,
     );
 
+    await waitFor(() =>
+      expect(unlockGeneratedDefaultVaultMock).toHaveBeenCalledTimes(1),
+    );
     expect(
-      await screen.findByText(
+      screen.queryByText(
         "Passkey unlock was cancelled. Choose Passphrase or Recovery key below, or tap Passkey to try again.",
       ),
-    ).toBeTruthy();
-    expect(
-      screen.getByRole("button", { name: "Passkey" }),
-    ).toBeTruthy();
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Passkey" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Try passkey again" })).toBeNull();
     expect(screen.getByLabelText("Vault passphrase")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Unlock" })).toBeTruthy();
@@ -455,11 +456,14 @@ describe("VaultFlow create validation", () => {
       </>,
     );
 
+    await waitFor(() =>
+      expect(unlockGeneratedDefaultVaultMock).toHaveBeenCalledTimes(1),
+    );
     expect(
-      (await screen.findAllByText(
+      screen.queryByText(
         "Passkey unlock was cancelled. Choose Passphrase or Recovery key below, or tap Passkey to try again.",
-      )).length,
-    ).toBe(2);
+      ),
+    ).not.toBeInTheDocument();
     expect(unlockGeneratedDefaultVaultMock).toHaveBeenCalledTimes(1);
     expect(screen.getAllByLabelText("Vault passphrase")).toHaveLength(2);
   });
