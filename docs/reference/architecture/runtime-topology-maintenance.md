@@ -221,3 +221,28 @@ ownership and verified cleanup, including external erasure. Existing product
 client callers retain their create/adopt and delete compatibility behavior;
 only the retained drill selects the stricter options. The existing dry-run and
 its schedule continue to test the oracle only; no new schedule is added.
+
+### Memory learning drill (2026-09-10)
+
+`pod_lifecycle_drill.py --memory` extends the existing drill rather than adding a
+harness: teach six synthetic facts, close the conversation, recall by paraphrase,
+correct, recall (the stale value must be absent), restart with no browser history,
+revoke one fact, restart again (replay), recall the revoked fact (it must not return),
+run the negative control, and read status (tombstones increased, no PKM records
+appended, the review ran on the same provider as the turn). The oracle is a value
+match plus the turn response's observed `load_memory` call; verbatim recovery alone
+is not recall. `--dry-run` runs the whole orchestration on the in-memory fleet and
+must fail all seven leaky variants (ignores corrections, resurrects on replay,
+answers without the tool, hallucinates the absent fact, credits fallback as
+provider recall, reviews on another provider, never reviews on close); a drill that
+cannot fail proves nothing.
+
+Quality is judged separately. `--judge-queue-dir` writes a review queue with planted
+negative and positive controls, a salted manifest and a seal outside the run
+directory; grading happens in a different session under the puppy-one-harness
+contract and the judged number is reported beside the deterministic rate, never
+added to it. `--receipt-path` writes the revision-bound evidence record the ledger
+judge validates (source commit, source hashes, image digest, deployment identity,
+case ids, outcomes, measurements, limits; no prompts, tokens, keys or private
+records). The drill refuses to measure a pod whose `/pod/info` does not report the
+memory join (`memoryJoin`) and the expected image tag. No schedule is added.

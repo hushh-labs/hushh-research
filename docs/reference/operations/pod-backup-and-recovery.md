@@ -680,3 +680,27 @@ not establish provider retention, backup erasure, restoration safety or complete
 account deletion. Keep pod credentials and both fences until those obligations
 are proven. Use an erasure-aware recovery image; never remove the record or
 restore a pre-fence snapshot to regain access.
+
+## Memory schema 2: record kinds, tombstones and rollback (2026-09-10)
+
+Source-level; not yet deployed. The sealed commit log now carries these agent-memory
+kinds beside `agent_memory` (raw transcript): `agent_memory_fact` (a curated fact),
+`agent_memory_supersede` (a correction that retires one record and adds another),
+`agent_memory_revoke` (a tombstone for one or more records), `agent_memory_review`
+(a checkpoint recording how far the review has read), `agent_memory_provider_consent`
+(the owner's decision on provider-derived memory) and `agent_memory_provider_rebuild`
+(when the provider engine was last rebuilt from the live sealed set). Hydration
+applies them strictly in log order and drops dead records, so a replay, a restore or
+a rebuild cannot resurrect a revoked fact; export returns live records only; the
+tombstones survive the in-process bound. The pod's own configuration is the same
+shape: one `pod_config_v1` record, newest wins.
+
+Recovery consequence: an image that predates the tombstone-aware memory service
+would hydrate every record and serve revoked facts again. `consent-protocol/scripts/ops/pod_upgrade.py`
+reads `memoryTombstones` from the pod's `/pod/info` and refuses (exit 2) to roll a
+pod that holds tombstones onto an image older than `MEMORY_TOMBSTONE_MIN_IMAGE_COMMIT`;
+the reconcile sweep only moves forward. Provider memory (Vertex Memory Bank) supports
+whole-engine deletion only, so a revoked fact is suppressed and filtered until the
+deterministic `/pod/tick` rebuild recreates the engine from the live sealed set; the
+rebuild is a behaviour of the pod configuration record, not an environment flag, and
+per-fact provider erasure is never claimed.

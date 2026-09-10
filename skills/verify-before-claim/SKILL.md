@@ -337,6 +337,21 @@ git merge-base --is-ancestor <deployed-sha> HEAD   # is it even on my line?
 **The generalisation:** an environment variable that records provenance is worthless
 unless something reads it. Read it *first*, before the thing you actually came to test.
 
+## 2j. An all-partial stream is a silent failure
+
+A streaming model adapter yielded every chunk as a partial event and then a
+content-less terminal. Every visible token still arrived, so the chat looked fine.
+Underneath, the agent framework executes tools only from non-partial events and
+appends only non-partial events to the session, so on that provider no tool ever
+ran and memory recorded only the person's side of every conversation. Nothing
+logged an error; the "answer" was the evidence that hid the defect.
+
+The lesson: when a runtime distinguishes partial from final events, assert the
+final non-partial event and what was persisted from it, never the visible text.
+The proof that closed this was a real framework runner over the adapter with a fake
+model: the tool must actually run, the aggregate must be stored, the partials must
+not be, and the old shape must fail the same test as a negative control.
+
 ## 3. Read the real code before you design
 
 Design decisions made from assumption get thrown away.
@@ -432,6 +447,7 @@ Run before reporting any coding work complete:
 [ ] Any failure label I am repeating, I traced to the code that emits it
 [ ] The gate I might trip, I reproduced locally at the CI-pinned version
 [ ] Tests pass — and I know which ones actually exercise my change
+[ ] If the change streams partial events, I asserted the final non-partial event and what was persisted, not the visible text
 [ ] New tests/checks are registered wherever CI enumerates them, and the total count moved
 [ ] CI is green on the exact pushed SHA (not "should be")
 [ ] If I checked a deployed environment, I confirmed WHICH build it is running first

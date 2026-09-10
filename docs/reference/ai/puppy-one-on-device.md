@@ -354,3 +354,17 @@ directly, so Hermes tool execution is not reachable through this lane. A success
 live local-model turn, owner identity receipt, and installed dev image are required
 before marking the core path complete; source wiring and synthetic tests alone are
 not that evidence.
+
+### What changed on 2026-09-10 (source-level, not yet on the owner pod)
+
+A Puppy turn now completes inside ADK: the pod's provider adapter rides ADK's own
+stream aggregator, so every function call the local model emits executes and the
+whole answer reaches the session and memory. Before this, tool-bearing turns failed
+as empty answers and memory recorded only the person's side. The device now
+advertises its resident model and capability profile (`tool_calling`, `json_schema`,
+`streaming`, probe mode) on `relay.hello` and names the model that answered on
+`inference.result`; the pod carries response format, tool choice, sampling and stop
+settings on the wire and refuses an unsupported capability before dispatch instead
+of dropping it, and the turn response reports `modelReported` honestly instead of
+always saying `local`. The in-pod broker that lets Puppy dial the owner pod directly
+is the next step and is not deployed.

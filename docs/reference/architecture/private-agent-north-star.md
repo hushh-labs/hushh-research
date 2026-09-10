@@ -303,6 +303,33 @@ through `directContentsSource.events` to the provider's memory-generation API. P
 memory is derived experience, not another PKM authority. Owner-project placement and
 sealed logs do not make that provider blind to the content it processes.
 
+Memory schema 2 (source-level, 2026-09-10; not yet deployed). Agent-experience memory is
+no longer transcript-only. Beside the raw `agent_memory` records, the pod's sealed log
+carries curated facts, supersessions and revocations (`agent_memory_fact`,
+`agent_memory_supersede`, `agent_memory_revoke`), review checkpoints, the provider-consent
+record and a provider-rebuild marker, applied strictly in log order on hydration so a
+replay or rebuild cannot resurrect a revoked fact; export returns live records only, and
+`consent-protocol/scripts/ops/pod_upgrade.py` refuses to roll a pod that holds tombstones onto an image
+older than the tombstone-aware commit. The private agent learns when a conversation is
+closed (`POST /api/one/pod/conversation/{id}/close`) and catches up before the next
+answer, on the same model object the conversation used; a maintenance tick holds no Puppy
+or BYOK credential, so model-driven consolidation is never event-woken. Recall keeps the
+observed `load_memory` tool call as the only credited proof (north star Q1) and adds a
+deliberate, bounded deviation from explicit-only recall: a curated-facts digest, never raw
+transcript, is rendered into One's instruction, sized by the owner's pod configuration
+record. Provider-derived memory requires the owner's `cap.memory.provider.process` consent
+recorded in the pod before any generate or retrieve; the response names whether recall came
+from the provider or fell back to the sealed log, and a fallback is never credited as
+provider recall. Per-fact provider erasure is not claimed: a revoked fact is suppressed
+and filtered until the deterministic engine rebuild runs. The ledger entry
+`the-agent-learns-between-turns` and the extended lifecycle drill measure all of this;
+until a live receipt exists the entry is pending.
+
+Behaviour that used to be proposed as environment flags now lives in one owner-controlled,
+sealed `pod_config_v1` record in the pod's own log (defaults are the full experience;
+newest record for the owner wins). Deployment topology stays on `PodSpec` and the
+registry row.
+
 `consent-protocol/hushh_mcp/services/pod_connector_keypair_service.py` registers public
 keys only. This does not establish every deployment's runtime-key custody.
 `consent-protocol/hushh_mcp/services/byoc_key_custody.py` wraps the recovery key in the
