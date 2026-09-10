@@ -194,38 +194,12 @@ function isGeneratedVaultKeyMode(
 
 // A locked session can briefly have more than one mounted VaultFlow while a
 // route gate takes ownership. The browser and the native Credential Manager
-// must see one page-wide ceremony, and a user cancellation must follow that
-// session across the handoff instead of being treated as permission to prompt
-// again from the newly mounted flow.
+// must see one page-wide ceremony. A settled attempt must also outlive a UI
+// handoff: browser focus can briefly unmount the flow for session verification,
+// but that must not turn a cancellation or provider failure into permission to
+// show another passkey prompt.
 let activeGeneratedUnlockClaim: GeneratedUnlockClaim | null = null;
 let cancelledGeneratedUnlock: Omit<GeneratedUnlockClaim, "owner"> | null = null;
-const activeGeneratedUnlockSurfaces = new Map<string, number>();
-
-function registerGeneratedUnlockSurface(userId: string): () => void {
-  activeGeneratedUnlockSurfaces.set(
-    userId,
-    (activeGeneratedUnlockSurfaces.get(userId) ?? 0) + 1,
-  );
-
-  let released = false;
-  return () => {
-    if (released) return;
-    released = true;
-
-    const count = activeGeneratedUnlockSurfaces.get(userId) ?? 0;
-    if (count <= 1) {
-      activeGeneratedUnlockSurfaces.delete(userId);
-    } else {
-      activeGeneratedUnlockSurfaces.set(userId, count - 1);
-    }
-
-    // Once the last unlock surface is gone and no native/browser ceremony is
-    // still settling, the next deliberate unlock is a fresh session.
-    if (activeGeneratedUnlockClaim === null && activeGeneratedUnlockSurfaces.size === 0) {
-      cancelledGeneratedUnlock = null;
-    }
-  };
-}
 
 function isGeneratedUnlockCancelled(
   userId: string,
@@ -287,9 +261,6 @@ function markGeneratedUnlockCancelled(
 function releaseGeneratedUnlock(owner: symbol): void {
   if (activeGeneratedUnlockClaim?.owner !== owner) return;
   activeGeneratedUnlockClaim = null;
-  if (activeGeneratedUnlockSurfaces.size === 0) {
-    cancelledGeneratedUnlock = null;
-  }
 }
 
 function VaultFlowHeader({
@@ -421,11 +392,6 @@ export function VaultFlow({
   });
 
   const { isVaultUnlocked, unlockVault } = useVault();
-
-  useEffect(
-    () => registerGeneratedUnlockSurface(user.uid),
-    [user.uid],
-  );
 
   useEffect(() => {
     const handleGeneratedUnlockCancelled = (event: Event) => {
@@ -1015,7 +981,9 @@ export function VaultFlow({
         }
 
         await VaultService.assertVaultKeyMatchesState(vaultData, decryptedKey);
-        await finalizeUnlock(decryptedKey);
+        if (!(await finalizeUnlock(decryptedKey))) {
+          throw new Error("We could not complete Vault access. Please try again.");
+        }
       } catch (err: any) {
         // A duplicate caller is rejected before it can reach the browser. The
         // original ceremony remains active and owns the visible prompt.
@@ -1034,6 +1002,18 @@ export function VaultFlow({
           return;
         }
         console.error("Generated vault unlock failed:", err);
+        // Google Password Manager and the platform authenticator can fail
+        // after opening their UI. Keep that outcome session-scoped too: a
+        // focus-driven remount must not immediately reopen the same ceremony.
+        // The visible Passkey action explicitly clears this block and is the
+        // only way to begin another attempt.
+        generatedUnlockCancelledRef.current = true;
+        markGeneratedUnlockCancelled(
+          flowInstanceRef.current,
+          user.uid,
+          generatedMode,
+        );
+        setUnlockWithPassphraseFallback(true);
         const message = toInvestorVaultUnlockError(err);
         setError(message);
       } finally {
@@ -1701,6 +1681,10 @@ export function VaultFlow({
                           fullWidth
                           className={VAULT_ALTERNATIVE_BUTTON_CLASS}
                           onClick={() => {
+                            if (hasActiveGeneratedWrapper) {
+                              handleRetryGeneratedUnlock();
+                              return;
+                            }
                             generatedUnlockCancelledRef.current = false;
                             if (availableGeneratedMethod) {
                               clearGeneratedUnlockCancellation(
