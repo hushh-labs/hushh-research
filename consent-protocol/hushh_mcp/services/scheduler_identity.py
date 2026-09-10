@@ -116,7 +116,7 @@ def _verify_google_id_token(token: str, audience: str) -> dict[str, Any]:
 def verify_scheduler_request(
     *,
     authorization_header: str | None,
-    audience: str,
+    audience: str | tuple[str, ...] | list[str],
     allowed_emails: tuple[str, ...] | list[str],
     verifier=None,
 ) -> SchedulerIdentity:
@@ -127,6 +127,13 @@ def verify_scheduler_request(
     the module attribute later has no effect and a test that believes it substituted
     the verifier is in fact still calling Google -- which fails for reasons that look
     like the assertion under test.
+
+    `audience` may be a tuple. The pod's machine wall accepts the token the hub
+    already mints for the pod's own URL, and Google's `aud` is the exact string the
+    hub asked for, so the wall names every spelling it is willing to be called by
+    (url, url with a trailing slash, bare host) and the token must match one of
+    them. Each candidate is a full verification; the first that verifies wins and a
+    token matching none is refused exactly as a single mismatched audience is.
     """
     resolve = verifier if verifier is not None else _verify_google_id_token
     allowlist = tuple(sorted({_clean(email).lower() for email in allowed_emails if _clean(email)}))
@@ -139,7 +146,14 @@ def verify_scheduler_request(
             detail="no scheduler service account is allowlisted for this endpoint",
         )
 
-    if not _clean(audience):
+    audiences = tuple(
+        dict.fromkeys(
+            _clean(candidate)
+            for candidate in ([audience] if isinstance(audience, str) else audience)
+            if _clean(candidate)
+        )
+    )
+    if not audiences:
         raise SchedulerIdentityError(
             "scheduler_audience_not_configured",
             detail="no audience is configured, so the token could not be bound to this endpoint",
@@ -152,14 +166,21 @@ def verify_scheduler_request(
             detail="the request carried no OIDC bearer token",
         )
 
-    try:
-        claims = resolve(token, audience)
-    except Exception as exc:  # noqa: BLE001 - every verification failure is one answer: refused.
-        logger.warning("scheduler_identity.verification_failed: %s", type(exc).__name__)
+    claims: dict[str, Any] | None = None
+    failure: Exception | None = None
+    for candidate in audiences:
+        try:
+            claims = resolve(token, candidate)
+            audience = candidate
+            break
+        except Exception as exc:  # noqa: BLE001 - every verification failure is one answer: refused.
+            failure = exc
+    if claims is None:
+        logger.warning("scheduler_identity.verification_failed: %s", type(failure).__name__)
         raise SchedulerIdentityError(
             "scheduler_token_invalid",
             detail="the OIDC token did not verify against Google's signing keys",
-        ) from exc
+        ) from failure
 
     email = _clean(claims.get("email")).lower()
     if not email:

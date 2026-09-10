@@ -34,6 +34,7 @@ from typing import Any, Optional
 os.environ.setdefault("HUSSH_POD_MODE", "1")
 
 from fastapi import FastAPI, HTTPException, Request  # noqa: E402
+from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 from fastapi.responses import JSONResponse  # noqa: E402
 from slowapi import _rate_limit_exceeded_handler  # noqa: E402
 from slowapi.errors import RateLimitExceeded  # noqa: E402
@@ -42,6 +43,7 @@ from api.middlewares.observability import (  # noqa: E402
     configure_opentelemetry,
     observability_middleware,
 )
+from api.middlewares.pod_ingress import PodIngressPolicy  # noqa: E402
 from api.middlewares.rate_limit import limiter  # noqa: E402
 from api.routes import health  # noqa: E402
 from api.routes.one.a2a import router as a2a_router  # noqa: E402
@@ -50,6 +52,7 @@ from api.routes.one.agent_prompt import router as agent_prompt_router  # noqa: E
 from api.routes.one.pod_maintenance import router as pod_maintenance_router  # noqa: E402
 from api.routes.one.pod_memory import router as pod_memory_router  # noqa: E402
 from api.routes.one.pod_migration import router as pod_migration_router  # noqa: E402
+from api.routes.one.pod_session import router as pod_session_router  # noqa: E402
 from api.routes.one.pod_turn import router as pod_turn_router  # noqa: E402
 from db.connection import DatabaseUnavailableError  # noqa: E402
 from db.db_client import DatabaseExecutionError  # noqa: E402
@@ -121,6 +124,10 @@ _POD_ROUTERS = (
     # behind HUSSH_POD_MIGRATION_ENABLED and fail-closed on the same scheduler
     # identity the tick uses.
     pod_migration_router,
+    # The app surface: owner-local sessions, status and configuration. The pod
+    # admits its owner's app and devices itself from a hub-signed binding, so a
+    # turn no longer needs the hub in the path. See api/routes/one/pod_session.py.
+    pod_session_router,
 )
 
 app = FastAPI(
@@ -138,6 +145,38 @@ app = FastAPI(
 # rather than to the hub. That is what makes a pod-scoped alert policy possible;
 # the existing policies all filter `service_name="consent-protocol"` and therefore
 # match no pod at all.
+# THE FRONT DOOR, inside the process. A pod whose ingress is widened to admit its
+# owner directly (`PodSpec.ingress = direct`) loses the service-wide IAM lock that
+# kept its machine routes hub-only. `PodIngressPolicy` restores that per path: the
+# app surface carries its own authentication, and everything else requires the
+# Google ID token the hub already sends. Always on; it needs no configuration
+# because it reuses what every pod is already rendered with.
+#
+# Added BEFORE the observability middleware on purpose. Starlette wraps in reverse
+# order of registration, so observability stays outermost and a walled request still
+# emits its `request.summary` line; CORS sits between so a browser preflight is
+# answered before the wall sees it.
+app.add_middleware(PodIngressPolicy)
+
+
+def _pod_cors_origins() -> list[str]:
+    """The hub's explicit CORS allowlist, rendered into the pod; never a wildcard.
+
+    `allow_credentials` is False on the pod: the app authenticates with a bearer
+    session it holds itself, never a cookie, so there is nothing for a reflected
+    origin to steal and no reason to send the credentials header at all.
+    """
+    raw = str(os.getenv("CORS_ALLOWED_ORIGINS") or "").strip()
+    return [item.strip() for item in raw.split(",") if item.strip() and item.strip() != "*"]
+
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_pod_cors_origins(),
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 app.middleware("http")(observability_middleware)
 
 app.state.limiter = limiter
@@ -375,10 +414,10 @@ def _self_report() -> dict:
 def pod_public_key() -> dict:
     """This pod's PUBLIC key, for the hub to record against this agent's row.
 
-    Deliberately unauthenticated: a public key is public, and the hub reaches this
-    at a URL it recorded itself when it created the service, so there is no caller
-    identity to establish. Pods are ``internal`` ingress with no ``allUsers``
-    binding, so nothing outside the project can reach it in any case.
+    Behind the machine wall (`PodIngressPolicy`), like `/pod/info`. The key is
+    public, but the route is the hub's provisioning door and a pod with direct
+    ingress must not answer it to the world: the hub reaches it with the identity
+    it already mints for this pod's URL, and nothing else does.
 
     Serving the key is the pod's whole part in provisioning -- the hub decides
     whether to adopt it (see ``pod_key_collector``).
@@ -456,6 +495,20 @@ async def _pod_startup() -> None:
     # Stated at boot, because "is this pod's identity stable across restarts" is
     # a question the fleet has been answering wrongly and silently.
     logger.info("pod.identity durable=%s", keypair_is_durable)
+
+    # Owner-local authority: claim the incarnation fence, replay the trust and
+    # tombstone records, derive the session key. Strictly AFTER the keypair, because
+    # a binding names this pod by its key id. Any failure leaves the authority
+    # unset and the app surface answering 503 rather than admitting anyone on a
+    # half-built authority; the hub-relayed turn path is unaffected.
+    try:
+        from hushh_mcp.services.pod_session_authority import (  # noqa: PLC0415
+            build_pod_session_authority,
+        )
+
+        await build_pod_session_authority()
+    except Exception as exc:  # noqa: BLE001 - the hub path keeps serving
+        logger.warning("pod.local_authority_unavailable reason=%s", type(exc).__name__)
 
     _start_heartbeat_loop()
     # Memory Bank, off the boot path. Creating the engine is a slow LRO in the

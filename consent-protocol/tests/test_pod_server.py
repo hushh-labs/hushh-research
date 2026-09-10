@@ -79,6 +79,13 @@ def test_pod_surface_stays_within_reviewed_routes():
         "/api/one/pod/memory/revoke",
         "/api/one/pod/memory/provider-consent",
         "/api/one/pod/memory/status",
+        # The app surface: owner-local sessions, status, configuration (Lane A).
+        "/api/one/pod/session/challenge",
+        "/api/one/pod/session/admit",
+        "/api/one/pod/session/renew",
+        "/api/one/pod/session/revoke",
+        "/api/one/pod/status",
+        "/api/one/pod/config",
         "/docs",
         "/docs/oauth2-redirect",
         "/openapi.json",
@@ -175,3 +182,132 @@ def test_the_health_route_is_always_reported():
     import pod_server
 
     assert "/health" in pod_server.pod_info()["mounts"]
+
+
+# -- the machine wall ----------------------------------------------------------------
+#
+# Once a pod admits its owner directly its ingress is public and Cloud Run IAM no
+# longer keeps the machine routes hub-only. `PodIngressPolicy` does, per path, and it
+# is always on. These drive the real app over HTTP so a route that mounts but is not
+# walled fails here rather than in a public project.
+
+
+def _hub_identity(email="hub@example.iam.gserviceaccount.com", aud=None):
+    def _verify(token: str, audience: str) -> dict:
+        if aud is not None and audience != aud:
+            raise ValueError("audience mismatch")
+        return {"email": email, "email_verified": True, "aud": audience, "sub": "1"}
+
+    return _verify
+
+
+@pytest.fixture
+def walled(monkeypatch):
+    from api.middlewares import pod_ingress
+
+    monkeypatch.setenv("HUSSH_POD_HUB_CALLER_EMAILS", "hub@example.iam.gserviceaccount.com")
+    monkeypatch.delenv("HUSSH_POD_TICK_ALLOWED_EMAILS", raising=False)
+    monkeypatch.delenv("HUSSH_POD_TICK_AUDIENCE", raising=False)
+    monkeypatch.setattr(pod_ingress, "identity_verifier", None)
+    return pod_ingress
+
+
+def test_machine_routes_answer_404_without_a_hub_identity(walled):
+    from fastapi.testclient import TestClient
+
+    client = TestClient(pod_server.app, raise_server_exceptions=False)
+    for path in ("/pod/info", "/pod/public-key", "/docs", "/openapi.json", "/pod/tick"):
+        response = client.get(path)
+        assert response.status_code == 404, path
+        assert response.json() == {"detail": "not found"}
+    # ...and a wrong identity is the same 404, never an oracle.
+    walled.identity_verifier = _hub_identity(email="stranger@example.invalid")
+    assert client.get("/pod/info", headers={"Authorization": "Bearer t"}).status_code == 404
+
+
+def test_the_hub_identity_opens_the_wall_by_url_or_host_audience(walled, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    client = TestClient(pod_server.app, raise_server_exceptions=False)
+    for aud in ("http://testserver", "http://testserver/", "testserver", "https://testserver"):
+        monkeypatch.setattr(walled, "identity_verifier", _hub_identity(aud=aud))
+        response = client.get("/pod/info", headers={"Authorization": "Bearer hub-token"})
+        assert response.status_code == 200, aud
+        assert response.json()["role"] == "sovereign-pod"
+    monkeypatch.setattr(
+        walled, "identity_verifier", _hub_identity(aud="https://other-pod.a.run.app")
+    )
+    assert client.get("/pod/info", headers={"Authorization": "Bearer hub-token"}).status_code == 404
+
+
+def test_the_tick_audience_is_accepted_when_configured(walled, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    monkeypatch.setenv("HUSSH_POD_TICK_AUDIENCE", "hussh-pod-tick:HA1")
+    monkeypatch.setenv("HUSSH_POD_TICK_ALLOWED_EMAILS", "tick@example.iam.gserviceaccount.com")
+    monkeypatch.setattr(
+        walled,
+        "identity_verifier",
+        _hub_identity(email="tick@example.iam.gserviceaccount.com", aud="hussh-pod-tick:HA1"),
+    )
+    client = TestClient(pod_server.app, raise_server_exceptions=False)
+    assert client.get("/pod/info", headers={"Authorization": "Bearer t"}).status_code == 200
+
+
+def test_the_app_surface_is_reachable_without_a_hub_identity(walled):
+    from fastapi.testclient import TestClient
+
+    client = TestClient(pod_server.app, raise_server_exceptions=False)
+    assert client.get("/health").status_code == 200
+    # No session -> the route's own refusal, not the wall's 404.
+    assert client.get("/api/one/pod/status").status_code in {401, 403, 503}
+    assert client.post("/api/one/pod/session/challenge", json={"subjectId": "x"}).status_code != 404
+
+
+def test_pod_info_is_no_longer_unauthenticated(walled):
+    """The one that mattered: the build tag `dev-195de95d2` served this to the world."""
+    from fastapi.testclient import TestClient
+
+    from api.middlewares.pod_ingress import is_app_surface
+
+    assert is_app_surface("/pod/info") is False
+    assert is_app_surface("/pod/public-key") is False
+    client = TestClient(pod_server.app, raise_server_exceptions=False)
+    assert client.get("/pod/info").status_code == 404
+    assert client.get("/pod/public-key").status_code == 404
+
+
+def test_a_walled_websocket_is_closed_before_accept(walled):
+    from fastapi.testclient import TestClient
+    from starlette.websockets import WebSocketDisconnect
+
+    client = TestClient(pod_server.app, raise_server_exceptions=False)
+    with pytest.raises(WebSocketDisconnect):
+        with client.websocket_connect("/api/one/pod/live"):
+            pass
+
+
+def test_cors_allows_only_rendered_origins_without_credentials(monkeypatch):
+    from starlette.middleware.cors import CORSMiddleware
+
+    monkeypatch.setenv("CORS_ALLOWED_ORIGINS", "https://one.hushh.ai, *,https://dev.one.hushh.ai")
+    assert pod_server._pod_cors_origins() == ["https://one.hushh.ai", "https://dev.one.hushh.ai"]
+    cors = [m for m in pod_server.app.user_middleware if m.cls is CORSMiddleware]
+    assert len(cors) == 1
+    assert cors[0].kwargs["allow_credentials"] is False
+    assert "*" not in cors[0].kwargs["allow_origins"]
+
+
+def test_the_wall_sits_inside_observability_and_outside_the_routes():
+    """Order is load-bearing: observability outermost so walled requests still log."""
+    from starlette.middleware.base import BaseHTTPMiddleware
+    from starlette.middleware.cors import CORSMiddleware
+
+    from api.middlewares.pod_ingress import PodIngressPolicy
+
+    order = [m.cls for m in pod_server.app.user_middleware]
+    assert (
+        order.index(BaseHTTPMiddleware)
+        < order.index(CORSMiddleware)
+        < order.index(PodIngressPolicy)
+    )
