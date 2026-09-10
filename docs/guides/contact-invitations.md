@@ -67,8 +67,13 @@ does not restore revoked location/information grants or named Circle membership.
 
 Migration `205_contact_sync_disconnect_actor.sql` adds nullable actor-side and
 revocation-episode fields on the existing `connections` authority table.
-Apply it before deploying the updated backend. The timestamp pair also fails
-closed during a mixed-version rollout when an older writer removes a connection.
+Migration `206_contact_sync_disconnect_actor_upgrade.sql` is the append-only
+compatibility bridge for environments that applied the earlier user-ID form of
+205: it translates only a participant-matching actor on the exact current
+revocation episode, leaving unknown or stale history suppressed. Apply the
+release lane through 206 before deploying the updated backend. The timestamp
+pair also fails closed during a mixed-version rollout when an older writer
+removes a connection.
 The fields share the connection's retention and account-deletion lifecycle;
 the actor side refers to the existing immutable A/B account columns, never
 address-book information or a mutable account-ID copy. Migration 201 deletion
