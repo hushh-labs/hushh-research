@@ -271,13 +271,24 @@ jobs:
         shell: bash
         run: npm run --prefix hushh-webapp verify:capacitor:product-assets
 
+      - name: Cache Swift packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ runner.temp }}/spm
+            ~/Library/Caches/org.swift.swiftpm
+          key: spm-${{ runner.os }}-${{ hashFiles('hushh-webapp/ios/App/CapApp-SPM/Package.swift', 'hushh-webapp/ios/**/Package.resolved') }}
+          restore-keys: |
+            spm-${{ runner.os }}-
+
       - name: Resolve Swift package dependencies
         shell: bash
         run: |
           set -euo pipefail
           xcodebuild -resolvePackageDependencies \
             -project "$XCODE_PROJECT" \
-            -scheme "$XCODE_SCHEME"
+            -scheme "$XCODE_SCHEME" \
+            -clonedSourcePackagesDirPath "${RUNNER_TEMP}/spm"
 
       - name: Run iOS unit and App Intent tests
         shell: bash
@@ -289,6 +300,7 @@ jobs:
             -scheme "$XCODE_SCHEME" \
             -configuration Debug \
             -destination "platform=iOS Simulator,id=$simulator_id" \
+            -clonedSourcePackagesDirPath "${RUNNER_TEMP}/spm" \
             -derivedDataPath "$RUNNER_TEMP/one-voice-simulator-derived-data" \
             -only-testing:AppTests \
             CODE_SIGNING_ALLOWED=NO
@@ -325,6 +337,7 @@ jobs:
             -configuration Release \
             -destination 'generic/platform=iOS' \
             -archivePath "$RUNNER_TEMP/App.xcarchive" \
+            -clonedSourcePackagesDirPath "${RUNNER_TEMP}/spm" \
             -derivedDataPath "$RUNNER_TEMP/one-voice-archive-derived-data" \
             -allowProvisioningUpdates \
             -authenticationKeyPath "$RUNNER_TEMP/asc.p8" \
