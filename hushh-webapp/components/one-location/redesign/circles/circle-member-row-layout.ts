@@ -48,7 +48,7 @@ export const CIRCLE_MEMBER_ROW_CLASSNAME =
 /** A relationship action gets its own line on phones, leaving identity readable. */
 export const CIRCLE_MEMBER_ACTION_COPY_CLASSNAME = "col-span-2 sm:col-span-1";
 export const CIRCLE_MEMBER_STACKED_ACTION_CLASSNAME =
-  "col-start-2 col-span-2 row-start-2 justify-between sm:col-auto sm:col-span-1 sm:row-auto sm:justify-end";
+  "col-start-2 col-span-2 row-start-2 justify-end sm:col-auto sm:col-span-1 sm:row-auto";
 
 export const CIRCLE_MEMBER_AVATAR_CLASSNAME = "h-10 w-10 shrink-0";
 
@@ -72,7 +72,7 @@ export const CIRCLE_DETAIL_HEADER_CLASSNAME =
 export const CIRCLE_DETAIL_HEADER_COPY_CLASSNAME =
   "min-w-0 flex-1 [&_h1]:whitespace-normal [&_h1]:[overflow-wrap:anywhere]";
 
-/** The menu column stays fixed; relationship actions may stack under the name. */
+/** The menu column stays fixed; relationship actions form one trailing cluster. */
 export const CIRCLE_MEMBER_TRAILING_CLASSNAME =
   "flex shrink-0 items-center justify-end gap-1";
 

@@ -3660,10 +3660,10 @@ export function OneLocationAgentPageContent({
     (locationControl.selfPreviewEnabled ||
       locationControl.nearbyPresenceActive ||
       activeOwnerGrants.length > 0);
-  // "Location limited" is a signal-quality badge, not an admission gate, so it
-  // tracks the coarse threshold rather than the hard check-in ceiling. Those two
-  // are now far apart: a 1 km browser fix is genuinely limited but still
-  // perfectly usable for picking the venue you are standing in.
+  // Reduced accuracy remains an internal signal-quality hint, not a separate
+  // on/off state or admission gate. The visible switch status stays
+  // "Location on" while this tracks the coarse threshold rather than the hard
+  // check-in ceiling: a 1 km browser fix can still identify the venue.
   const locationAccuracyLimited =
     locationEnabled &&
     (permission?.precise === false ||

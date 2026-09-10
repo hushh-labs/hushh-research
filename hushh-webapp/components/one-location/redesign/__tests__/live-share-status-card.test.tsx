@@ -143,6 +143,34 @@ describe("LiveShareStatusCard", () => {
     expect(screen.getByText("Sharing with Rohan Mehta")).toBeTruthy();
   });
 
+  it("shows at most two faces and rolls everyone else into the count", () => {
+    render(
+      <LiveShareStatusCard
+        status={status({
+          count: 5,
+          grantCount: 5,
+          names: ["A", "B", "C", "D", "E"],
+          people: ["A", "B", "C", "D", "E"].map((displayName) => ({
+            displayName,
+            photoUrl: null,
+          })),
+          stoppableGrantId: null,
+        })}
+        onManage={vi.fn()}
+      />,
+    );
+
+    const identities = screen.getByTestId(
+      "one-location-live-share-identities",
+    );
+    expect(identities.querySelectorAll("[data-live-share-avatar]")).toHaveLength(
+      2,
+    );
+    expect(screen.getByTestId("one-location-live-share-remaining")).toHaveTextContent(
+      "+3",
+    );
+  });
+
   it("still reports the share on a cold start, before any name is known", () => {
     // Names are never persisted, so a first paint from the device record has
     // the count and nothing else. It must still say something true.
