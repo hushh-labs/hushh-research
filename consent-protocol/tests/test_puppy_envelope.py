@@ -81,19 +81,28 @@ def test_round_trip_in_both_directions_with_independent_counters():
 
 
 def test_nothing_from_the_inner_frame_is_visible_on_the_wire():
+    """Every marker here is long on purpose.
+
+    The ciphertext is base64, so a short marker turns this into a coin toss: a
+    two-character string appears somewhere in a few hundred base64 characters
+    roughly once in fifteen runs, and the failure reads as a leak rather than as
+    the collision it is. Markers below are long enough that an appearance can
+    only mean the plaintext rode the wire.
+    """
     pod_key, _ = _pair()
     sealed = _envelope(pod_key).seal(
         {
             "type": "inference.request",
-            "requestId": "r1",
-            "messages": [{"text": "the secret prompt"}],
-            "ticket": "tkt_9",
+            "requestId": "req_leak_canary_0001",
+            "messages": [{"text": "the secret prompt leak_canary"}],
+            "ticket": "tkt_leak_canary_0009",
         },
         direction=env.DIR_POD_TO_DEVICE,
         seq=1,
     )
     wire = json.dumps(sealed)
-    assert "secret prompt" not in wire and "tkt_9" not in wire and "r1" not in wire
+    for marker in ("secret prompt", "leak_canary", "tkt_leak_canary_0009", "req_leak_canary_0001"):
+        assert marker not in wire, f"{marker!r} rode the wire in clear"
     assert set(sealed) == {"type", "v", "dir", "seq", "innerType", "ciphertext"}
     assert sealed["innerType"] == "inference.request"
 
