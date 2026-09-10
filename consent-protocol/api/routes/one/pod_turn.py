@@ -510,13 +510,13 @@ def _resolve_model(payload: PodTurnRequest | None = None) -> tuple[str, str]:
 
     requested = str(getattr(payload, "runtime_provider", None) or "").strip().lower()
     if requested:
-        if requested != "puppy" or str(os.getenv("PUPPY_INFERENCE_ENABLED") or "").lower() not in {
-            "1",
-            "true",
-            "yes",
-            "on",
-        }:
+        # Puppy is an owner/device capability, not a deployment-wide feature flag.
+        # Admission is enforced by the pod consent token and device-bound grant
+        # before this resolver is reached.
+        if requested != "puppy":
             raise HTTPException(status_code=400, detail="requested inference target is unavailable")
+        if not str(payload.puppy_device_id or "").strip():
+            raise HTTPException(status_code=400, detail="Puppy device is required")
         model = str(os.getenv("PUPPY_INFERENCE_MODEL") or "local").strip()
         return "puppy", model
     manifest = load_one_agent_runtime_manifest()

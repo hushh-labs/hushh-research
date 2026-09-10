@@ -66,6 +66,19 @@ def _payload(message="hello", **kw):
     return PodTurnRequest(message=message, **kw)
 
 
+def test_puppy_target_uses_owner_device_admission_not_global_env(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("PUPPY_INFERENCE_ENABLED", raising=False)
+    payload = PodTurnRequest(
+        message="hello",
+        runtime_provider="puppy",
+        puppy_device_id="device-1",
+    )
+
+    assert pod_turn._resolve_model(payload) == ("puppy", "local")
+
+
 # -- the refusals --------------------------------------------------------------
 
 

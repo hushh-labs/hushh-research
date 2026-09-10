@@ -339,11 +339,12 @@ the local model is the only work Puppy performs. Provider errors, offline device
 expired grants, mismatched request ids, and unsupported frames fail closed without
 cloud fallback or replay.
 
-The WebSocket itself remains instance-local, while the existing Redis/Memorystore
-seam carries only short-lived presence, busy fencing, and bounded inference frames
-between Cloud Run instances. `PUPPY_RELAY_RENDEZVOUS_URL` may provide a dedicated
-URI; otherwise the relay reuses `RATE_LIMIT_STORAGE_URI`. If neither is configured,
-the relay fails closed when the device is not on the same instance. `GET
+The WebSocket itself remains instance-local. An owner pod is single-instance and
+leaves `PUPPY_RELAY_RENDEZVOUS_URL` unset, so it has no Redis/Memorystore cost.
+A deliberately shared hub topology may provide that dedicated URI for short-lived
+presence, busy fencing, and bounded cross-instance relay frames; it is never
+derived from `RATE_LIMIT_STORAGE_URI`. Without a dedicated rendezvous, the relay
+fails closed when the device is not on the same instance. `GET
 /api/one/puppy/status/{device_id}` reports `ready`, `busy`, `offline`, or `revoked`
 from the authenticated owner view; it never reports a shared or cloud fallback.
 Cloud Run session affinity remains best effort, and connected WebSockets retain

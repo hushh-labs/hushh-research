@@ -78,6 +78,13 @@ def test_rendezvous_key_is_not_identity_or_prompt_material(monkeypatch: pytest.M
     assert "device-123" not in key
 
 
+def test_rendezvous_never_reuses_rate_limit_store(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("PUPPY_RELAY_RENDEZVOUS_URL", raising=False)
+    monkeypatch.setenv("RATE_LIMIT_STORAGE_URI", "redis://rate-limit.example/0")
+
+    assert PuppyRelayBroker._rendezvous_url() == ""
+
+
 @pytest.mark.asyncio
 async def test_global_broker_status_is_offline_without_local_or_rendezvous(
     monkeypatch: pytest.MonkeyPatch,

@@ -4,10 +4,10 @@ Two authenticated sockets share one short-lived device-bound capability:
 Puppy opens an outbound device socket and a private pod opens a provider socket.
 The hub only forwards bounded inference frames between the matching owner and
 device. It never interprets prompts, executes tools, or exposes a local model
-endpoint. WebSocket ownership is local, while the existing Redis seam provides
-short-lived presence, busy fencing, and bounded pub/sub between Cloud Run
-instances; without that rendezvous the relay remains local-only and fails
-closed when no local device is present.
+endpoint. The owner-pod deployment is single-instance and does not require a
+shared broker. A dedicated rendezvous URL is an explicit compatibility option for
+a deliberately shared hub topology; the rate-limit store is never reused for
+relay traffic.
 """
 
 from __future__ import annotations
@@ -62,9 +62,10 @@ class PuppyRelayBroker:
 
     @staticmethod
     def _rendezvous_url() -> str:
-        return str(
-            os.getenv("PUPPY_RELAY_RENDEZVOUS_URL") or os.getenv("RATE_LIMIT_STORAGE_URI") or ""
-        ).strip()
+        # Do not couple inference transport to the rate limiter. An owner pod is
+        # single-instance and local fencing is sufficient; a shared hub must opt
+        # into a dedicated rendezvous store with its own cost and retention policy.
+        return str(os.getenv("PUPPY_RELAY_RENDEZVOUS_URL") or "").strip()
 
     def _client(self) -> redis_asyncio.Redis | None:
         if self._redis is not None:

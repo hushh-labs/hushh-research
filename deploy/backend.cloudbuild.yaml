@@ -289,7 +289,7 @@ steps:
       - "_ONE_EMAIL_KYC_DEFAULT_SCOPE=${_ONE_EMAIL_KYC_DEFAULT_SCOPE}"
       - "_ONE_EMAIL_KYC_STRICT_CLIENT_ZK_ENABLED=${_ONE_EMAIL_KYC_STRICT_CLIENT_ZK_ENABLED}"
       - "_ONE_EMAIL_PUBSUB_TOPIC=${_ONE_EMAIL_PUBSUB_TOPIC}"
-      - "_MODEL_SETTINGS=puppy_enabled=${_PUPPY_INFERENCE_ENABLED},puppy_relay_url=${_PUPPY_INFERENCE_RELAY_URL},puppy_model=${_PUPPY_INFERENCE_MODEL},puppy_timeout=${_PUPPY_INFERENCE_TIMEOUT_SECONDS},agent_adk=${_AGENT_ONE_ADK_MODEL},gemini_text=${_HUSSH_GEMINI_TEXT_MODEL}"
+      - "_MODEL_SETTINGS=puppy_relay_url=${_PUPPY_INFERENCE_RELAY_URL},puppy_model=${_PUPPY_INFERENCE_MODEL},puppy_timeout=${_PUPPY_INFERENCE_TIMEOUT_SECONDS},agent_adk=${_AGENT_ONE_ADK_MODEL},gemini_text=${_HUSSH_GEMINI_TEXT_MODEL}"
       - "_ONE_EMAIL_WATCH_RENEW_AUTH_ENABLED=${_ONE_EMAIL_WATCH_RENEW_AUTH_ENABLED}"
       - "_ONE_EMAIL_WATCH_RENEW_TOKEN_SECRET=${_ONE_EMAIL_WATCH_RENEW_TOKEN_SECRET}"
       - "_ONE_EMAIL_WEBHOOK_AUDIENCE=${_ONE_EMAIL_WEBHOOK_AUDIENCE}"
@@ -578,9 +578,8 @@ substitutions:
   # Wallet subagent (agent_wallet) roster flag. Empty/false keeps it out of the tree.
   _APP_REVIEW_MODE: ""
   _HUSHH_PROD_PHONE_TEST_ENABLED: ""
-  # Dev-only Puppy relay controls. Empty/false keeps the capability unavailable;
-  # enabling it requires a separately enrolled device and a dev relay URL.
-  _PUPPY_INFERENCE_ENABLED: "false"
+  # Dev-only Puppy relay transport. Owner/device consent and the active pod
+  # determine availability; these values only locate and bound the transport.
   _PUPPY_INFERENCE_RELAY_URL: ""
   _PUPPY_INFERENCE_MODEL: "local"
   _PUPPY_INFERENCE_TIMEOUT_SECONDS: "120"
