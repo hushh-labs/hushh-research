@@ -483,3 +483,90 @@ async def test_text_runtime_treats_an_all_partial_tool_call_turn_as_silent(monke
         ):
             pass
     assert committed == [], "a silent turn must never be committed to memory"
+
+
+async def test_text_runtime_stamps_the_reported_model_on_token_events(monkeypatch):
+    """The provider's `model_version` rides on every token event so the pod turn
+    route can report the model that answered rather than the one it asked for."""
+
+    class _FakeRunner:
+        def __init__(self, *, app_name, agent, session_service, memory_service=None):
+            self.session_service = session_service
+
+        async def run_async(self, *, user_id, session_id, new_message, run_config):
+            yield Event(
+                author="one",
+                partial=True,
+                model_version="qwen3-30b-a3b-mlx",
+                content=genai_types.Content(
+                    role="model", parts=[genai_types.Part.from_text(text="Hello")]
+                ),
+            )
+            yield Event(
+                author="one",
+                partial=False,
+                model_version="qwen3-30b-a3b-mlx",
+                content=genai_types.Content(
+                    role="model", parts=[genai_types.Part.from_text(text="Hello")]
+                ),
+            )
+
+    monkeypatch.setattr(text_runtime, "Runner", _FakeRunner)
+    monkeypatch.setattr(text_runtime, "build_one_text_agent", lambda *, model: ("one", model))
+    events = [
+        event
+        async for event in text_runtime.stream_one_text_turn(
+            user_id="u1",
+            consent_token="opaque-" + "token",
+            conversation_id="c1",
+            message="hi",
+            history=[],
+            timezone=None,
+            screen_context=None,
+            pkm_context=None,
+            runtime_provider="gemini",
+            runtime_model="gemini-test",
+            runtime_mode="byok",
+            runtime_credential="k",
+        )
+    ]
+    tokens = [event for event in events if event.kind == "token"]
+    assert tokens and all(event.model_version == "qwen3-30b-a3b-mlx" for event in tokens)
+
+
+async def test_text_runtime_leaves_model_version_empty_when_unreported_negative_control(
+    monkeypatch,
+):
+    class _FakeRunner:
+        def __init__(self, *, app_name, agent, session_service, memory_service=None):
+            self.session_service = session_service
+
+        async def run_async(self, *, user_id, session_id, new_message, run_config):
+            yield Event(
+                author="one",
+                partial=True,
+                content=genai_types.Content(
+                    role="model", parts=[genai_types.Part.from_text(text="Hello")]
+                ),
+            )
+
+    monkeypatch.setattr(text_runtime, "Runner", _FakeRunner)
+    monkeypatch.setattr(text_runtime, "build_one_text_agent", lambda *, model: ("one", model))
+    events = [
+        event
+        async for event in text_runtime.stream_one_text_turn(
+            user_id="u1",
+            consent_token="opaque-" + "token",
+            conversation_id="c1",
+            message="hi",
+            history=[],
+            timezone=None,
+            screen_context=None,
+            pkm_context=None,
+            runtime_provider="gemini",
+            runtime_model="gemini-test",
+            runtime_mode="byok",
+            runtime_credential="k",
+        )
+    ]
+    assert [event.model_version for event in events if event.kind == "token"] == [""]

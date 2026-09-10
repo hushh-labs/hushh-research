@@ -695,3 +695,47 @@ async def test_a_specialist_capability_refusal_is_named_unsupported(tmp_path, mo
     assert result["reason"] == "provider_capability_unsupported"
     assert result["capability"] == "json_schema"
     assert result["availability"]["specialist_id"] == "agent_location"
+
+
+# -- Lane B2: the model named in the response is the one that answered, or it says so
+
+
+class _ReportedEvent(_Event):
+    def __init__(self, text: str, model_version: str) -> None:
+        super().__init__("token", text)
+        self.model_version = model_version
+
+
+async def test_a_reported_model_is_named_and_flagged_reported(enabled, monkeypatch):
+    _consent_ok(monkeypatch)
+    result = await pod_turn.run_pod_turn(
+        payload=_payload(),
+        consent_token="t",
+        stream_fn=_stream([_ReportedEvent("hi", "qwen3-30b-a3b-mlx")]),
+    )
+    assert result["model"] == "qwen3-30b-a3b-mlx"
+    assert result["modelReported"] is True
+
+
+async def test_an_unreported_model_falls_back_to_the_resolved_id_and_says_so(enabled, monkeypatch):
+    """`local` was reported as THE model on every Puppy turn. Now it is only the
+    resolved id, and `modelReported: false` says nothing confirmed it."""
+    _consent_ok(monkeypatch)
+    result = await pod_turn.run_pod_turn(
+        payload=_payload(), consent_token="t", stream_fn=_stream([_Event("token", "hi")])
+    )
+    assert result["model"] == "gemini-test"
+    assert result["modelReported"] is False
+
+
+async def test_the_first_reported_model_wins_and_blank_reports_do_not_count(enabled, monkeypatch):
+    _consent_ok(monkeypatch)
+    result = await pod_turn.run_pod_turn(
+        payload=_payload(),
+        consent_token="t",
+        stream_fn=_stream(
+            [_ReportedEvent("a", ""), _ReportedEvent("b", "first"), _ReportedEvent("c", "second")]
+        ),
+    )
+    assert result["model"] == "first"
+    assert result["modelReported"] is True

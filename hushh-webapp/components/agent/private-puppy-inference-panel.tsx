@@ -59,7 +59,12 @@ export function PrivatePuppyInferencePanel({ className }: { className?: string }
         runtimeCredential: grant.token,
         history: nextTurns.map(({ role, text }) => ({ role, content: text })),
       });
-      setTarget(`${response.provider}:${response.model} · ${response.runtimeMode}`);
+      // Only a model the device actually reported is shown as the model. An
+      // unreported one is said to be unreported rather than shown as a fact.
+      const modelLabel = response.modelReported
+        ? response.model
+        : "model not reported";
+      setTarget(`${response.provider}:${modelLabel} · ${response.runtimeMode}`);
       setTurns((prior) => prior.map((turn) => (turn.id === assistantId ? { ...turn, text: response.text } : turn)));
     } catch (cause) {
       const reason = cause instanceof Error ? cause.message : "PRIVATE_AGENT_UNAVAILABLE";

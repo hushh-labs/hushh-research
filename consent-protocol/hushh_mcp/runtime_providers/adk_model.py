@@ -56,10 +56,15 @@ class ProviderAdkModel(BaseLlm):
         parts = cls._parts(text=text, function_calls=function_calls)
         return types.Content(role="model", parts=parts) if parts else None
 
-    def _model_version(self, value: Any) -> str:
-        """The model the provider reports for this answer, else the requested id."""
+    def _model_version(self, value: Any) -> str | None:
+        """The model the provider reports for this answer, or None when it did not.
+
+        Never the requested id: the turn route reports ``modelReported`` from
+        whether a version arrived, and a fabricated one would make every Puppy
+        turn look reported while the device had said nothing.
+        """
         reported = str(getattr(value, "model_version", "") or "").strip()
-        return reported or self.model
+        return reported or None
 
     def _genai_response(self, chunk: Any) -> types.GenerateContentResponse | None:
         """Wrap one normalized chunk as the genai response shape ADK aggregates."""

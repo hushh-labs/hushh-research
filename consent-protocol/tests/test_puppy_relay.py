@@ -129,3 +129,116 @@ def test_status_route_preserves_busy_and_revoked_states(monkeypatch: pytest.Monk
     response = TestClient(app).get("/api/one/puppy/status/device-a")
     assert response.json()["state"] == "revoked"
     assert response.json()["execution_target"] == "unavailable"
+
+
+# -- Lane B2: what the device declares about itself is validated, stored and shown --
+
+
+@pytest.mark.parametrize(
+    "raw,expected",
+    [
+        ("qwen3-30b-a3b-mlx", "qwen3-30b-a3b-mlx"),
+        ("  mlx-community/Qwen3-30B  ", "mlx-community/Qwen3-30B"),
+        ("http://127.0.0.1:1234/v1", ""),
+        ("/Users/someone/models/local", ""),
+        ("two words", ""),
+        ("x" * 129, ""),
+        ("", ""),
+        (None, ""),
+        (42, ""),
+    ],
+)
+def test_declared_model_admits_ids_and_refuses_endpoints_paths_and_prose(raw, expected) -> None:
+    assert relay._declared_model(raw) == expected
+
+
+def test_declared_capabilities_are_allowlisted_and_bool_only() -> None:
+    declared = relay._declared_capabilities(
+        {
+            "tool_calling": True,
+            "json_schema": False,
+            "streaming": True,
+            "shell": True,  # not a capability a device may claim here
+            "tool_calling_extra": "yes",  # not bool, not allowlisted
+        }
+    )
+    assert declared == {"tool_calling": True, "json_schema": False, "streaming": True}
+    assert relay._declared_capabilities({"tool_calling": "true"}) == {}
+    assert relay._declared_capabilities("tool_calling") == {}
+    assert relay._declared_capabilities(None) == {}
+
+
+@pytest.mark.asyncio
+async def test_the_broker_stores_the_declaration_and_exposes_it_on_status() -> None:
+    broker = PuppyRelayBroker()
+    link = await broker.register(
+        ("owner-a", "device-a"),
+        _RelaySocket(),  # type: ignore[arg-type]
+        model="qwen3-30b-a3b-mlx",
+        capabilities={"tool_calling": True, "json_schema": False, "bogus": True},
+        probe_mode="puppy-inference-relay/openai_chat_completions/effort=none/max_tokens=512",
+    )
+    assert link.model == "qwen3-30b-a3b-mlx"
+    assert link.capabilities == {"tool_calling": True, "json_schema": False}
+    status = await broker.status(("owner-a", "device-a"))
+    assert status["model"] == "qwen3-30b-a3b-mlx"
+    assert status["capabilities"] == {"tool_calling": True, "json_schema": False}
+    assert status["probe_mode"].startswith("puppy-inference-relay/")
+    assert link.declaration() == {
+        "model": "qwen3-30b-a3b-mlx",
+        "capabilities": {"tool_calling": True, "json_schema": False},
+        "probe_mode": "puppy-inference-relay/openai_chat_completions/effort=none/max_tokens=512",
+    }
+
+
+@pytest.mark.asyncio
+async def test_a_silent_device_declares_nothing_negative_control() -> None:
+    """Older devices send a bare hello. The pod's ready frame must stay bare too,
+    so the transport's legacy path (device is the only judge) is what runs."""
+    broker = PuppyRelayBroker()
+    link = await broker.register(("owner-a", "device-a"), _RelaySocket())  # type: ignore[arg-type]
+    assert link.model == "" and link.capabilities == {}
+    assert link.declaration() is None
+    status = await broker.status(("owner-a", "device-a"))
+    assert status["model"] == "" and status["capabilities"] == {}
+
+
+@pytest.mark.asyncio
+async def test_an_endpoint_offered_as_a_model_is_dropped_at_registration() -> None:
+    broker = PuppyRelayBroker()
+    link = await broker.register(
+        ("owner-a", "device-a"),
+        _RelaySocket(),  # type: ignore[arg-type]
+        model="http://127.0.0.1:1234/v1",
+        capabilities={"tool_calling": True},
+    )
+    assert link.model == ""
+    assert link.declaration() == {"model": "", "capabilities": {"tool_calling": True}}
+
+
+def test_status_route_passes_the_declared_model_through(monkeypatch: pytest.MonkeyPatch) -> None:
+    class _Devices:
+        def device_status(self, *, user_id: str, device_id: str) -> dict[str, str]:
+            return {"device_id": device_id, "status": "active"}
+
+    app = FastAPI()
+    app.include_router(relay.router)
+    app.dependency_overrides[require_firebase_auth] = lambda: "owner-a"
+    monkeypatch.setattr(relay, "TrustedDeviceService", _Devices)
+
+    async def _ready(_key: tuple[str, str]) -> dict[str, object]:
+        return {
+            "connected": True,
+            "state": "ready",
+            "busy": False,
+            "generation": 4,
+            "model": "qwen3-30b-a3b-mlx",
+            "capabilities": {"tool_calling": True},
+            "probe_mode": "",
+        }
+
+    monkeypatch.setattr(relay.BROKER, "status", _ready)
+    body = TestClient(app).get("/api/one/puppy/status/device-a").json()
+    assert body["inference_ready"] is True
+    assert body["relay"]["model"] == "qwen3-30b-a3b-mlx"
+    assert body["relay"]["capabilities"] == {"tool_calling": True}

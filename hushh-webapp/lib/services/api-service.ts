@@ -4040,13 +4040,20 @@ export class ApiService {
   }): Promise<{
     hushhId: string;
     text: string;
+    // OBSERVED from the provider when it reported one, otherwise the id the pod
+    // resolved; `modelReported` says which. Never render `model` as a fact
+    // without checking it.
     model: string;
+    modelReported: boolean;
     provider: string;
     // DERIVED by the pod from whether a projection actually reached its runtime,
     // never asserted. Render it rather than assuming — an ungrounded answer is a
     // real state and the person should be able to tell.
     grounded: boolean;
     runtimeMode: string;
+    // Present when the pod answered with a bounded explanation instead of the
+    // turn it was asked for (keyless_pod_db_wall, puppy_capability_unsupported).
+    degraded?: string;
   }> {
     const firebaseIdToken = await this.getFirebaseToken();
     const response = await ApiService.apiFetch(
@@ -4124,6 +4131,19 @@ export class ApiService {
     linked: boolean;
     inference_ready: boolean;
     execution_target: "puppy" | "unavailable";
+    // The broker's view of the linked device. `model` and `capabilities` are what
+    // the device declared at admission (validated by the hub), present only while
+    // the device is linked to this hub instance; absent means undeclared.
+    relay?: {
+      connected: boolean;
+      state: string;
+      busy: boolean;
+      generation: number | null;
+      last_seen_age_seconds?: number;
+      model?: string;
+      capabilities?: Record<string, boolean>;
+      probe_mode?: string;
+    };
   }> {
     const firebaseIdToken = await this.getFirebaseToken();
     const response = await ApiService.apiFetch(

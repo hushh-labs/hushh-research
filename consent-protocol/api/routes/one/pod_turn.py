@@ -288,6 +288,9 @@ async def run_pod_turn(
     chunks: list[str] = []
     directives: list[Any] = []
     specialists: list[Any] = []
+    # The model the provider SAID answered, read off the token events. Empty when
+    # nothing reported one; then the response names the resolved id and says so.
+    observed_model = ""
     try:
         with bind_specialist_runtime(specialist_runtime):
             async for event in runner(
@@ -338,6 +341,9 @@ async def run_pod_turn(
                 kind = getattr(event, "kind", "")
                 if kind == "token":
                     chunks.append(str(getattr(event, "text", "") or ""))
+                    observed_model = (
+                        observed_model or str(getattr(event, "model_version", "") or "").strip()
+                    )
                 elif kind == "directive" and getattr(event, "directive", None) is not None:
                     directives.append(event.directive)
                 elif kind == "specialist" and getattr(event, "specialist", None) is not None:
@@ -383,6 +389,7 @@ async def run_pod_turn(
             return {
                 "text": text,
                 "model": model,
+                "modelReported": False,
                 "provider": provider,
                 "grounded": bool(grounding),
                 "directiveCount": 0,
@@ -420,7 +427,13 @@ async def run_pod_turn(
     )
     return {
         "text": text,
-        "model": model,
+        # OBSERVED when the provider reported it, RESOLVED otherwise, and the next
+        # field says which. This was the requested id on every turn, so a Puppy turn
+        # always read `local` whatever model actually answered, and a turn that
+        # quietly served from a different resident model was indistinguishable
+        # from one that did not.
+        "model": observed_model or model,
+        "modelReported": bool(observed_model),
         "provider": provider,
         # DERIVED, never asserted. This was hardcoded False while the turn was
         # ungrounded by construction, which was honest then and would be a lie the

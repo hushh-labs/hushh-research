@@ -40,6 +40,39 @@ _RENDEZVOUS_TTL_SECONDS = 45
 _RENDEZVOUS_BUSY_TTL_SECONDS = 130
 _ROLE_HEADER = "x-hussh-relay-role"
 _ENV_HEADER = "x-hussh-deploy-env"
+_MAX_MODEL_ID_LENGTH = 128
+# The capability names a device may declare, in the Puppy One harness vocabulary
+# (Hermes ``hussh_one_routing/profile.py``). Bool values only; anything else is
+# dropped rather than forwarded to the pod as if the device had said it.
+_DEVICE_CAPABILITY_NAMES: frozenset[str] = frozenset({"tool_calling", "json_schema", "streaming"})
+
+
+def _declared_model(value: Any) -> str:
+    """A device-declared model id, or empty when it is not one we may repeat.
+
+    The id is forwarded to the pod and shown to the owner, so it must not be able
+    to carry an endpoint, a path or free text: no scheme, no leading slash, no
+    whitespace, bounded length. Anything else reads as "not declared".
+    """
+    if not isinstance(value, str):
+        return ""
+    text = value.strip()
+    if not text or len(text) > _MAX_MODEL_ID_LENGTH:
+        return ""
+    if "://" in text or text.startswith("/") or any(char.isspace() for char in text):
+        return ""
+    return text
+
+
+def _declared_capabilities(value: Any) -> dict[str, bool]:
+    """Allowlisted capability names with boolean values; everything else dropped."""
+    if not isinstance(value, dict):
+        return {}
+    return {
+        str(name): flag
+        for name, flag in value.items()
+        if name in _DEVICE_CAPABILITY_NAMES and isinstance(flag, bool)
+    }
 
 
 @dataclass
@@ -50,6 +83,20 @@ class _DeviceLink:
     busy_request_id: str | None = None
     last_seen_monotonic: float = field(default_factory=time.monotonic)
     status: str = "ready"
+    # What the device said about itself at admission, already validated. Empty
+    # means the device declared nothing, and the pod is told nothing.
+    model: str = ""
+    capabilities: dict[str, bool] = field(default_factory=dict)
+    probe_mode: str = ""
+
+    def declaration(self) -> dict[str, Any] | None:
+        """The ``device`` block for the pod's admission frame, or None if silent."""
+        if not self.model and not self.capabilities:
+            return None
+        block: dict[str, Any] = {"model": self.model, "capabilities": dict(self.capabilities)}
+        if self.probe_mode:
+            block["probe_mode"] = self.probe_mode
+        return block
 
 
 class PuppyRelayBroker:
@@ -180,7 +227,15 @@ class PuppyRelayBroker:
         except Exception:  # noqa: BLE001 - expiry remains the fallback
             logger.warning("puppy_relay.rendezvous_busy_release_failed")
 
-    async def register(self, key: tuple[str, str], websocket: WebSocket) -> _DeviceLink:
+    async def register(
+        self,
+        key: tuple[str, str],
+        websocket: WebSocket,
+        *,
+        model: str = "",
+        capabilities: dict[str, bool] | None = None,
+        probe_mode: str = "",
+    ) -> _DeviceLink:
         async with self._lock:
             prior = self._links.get(key)
             if prior is not None:
@@ -189,7 +244,13 @@ class PuppyRelayBroker:
                 except Exception:  # noqa: BLE001
                     pass
             self._generation += 1
-            link = _DeviceLink(websocket, generation=self._generation)
+            link = _DeviceLink(
+                websocket,
+                generation=self._generation,
+                model=_declared_model(model),
+                capabilities=_declared_capabilities(capabilities),
+                probe_mode=_declared_model(probe_mode),
+            )
             self._links[key] = link
         await self._redis_set_presence(key)
         return link
@@ -237,6 +298,10 @@ class PuppyRelayBroker:
                 "last_seen_age_seconds": round(
                     max(0.0, time.monotonic() - link.last_seen_monotonic), 3
                 ),
+                # Declared by the device at admission, validated, never inferred.
+                "model": link.model,
+                "capabilities": dict(link.capabilities),
+                "probe_mode": link.probe_mode,
             }
         client = self._client()
         busy = False
@@ -428,7 +493,13 @@ async def _provider_loop(websocket: WebSocket, key: tuple[str, str], token: str)
     remote_task = (
         asyncio.create_task(_redis_frames(remote_pubsub, remote_queue)) if remote_pubsub else None
     )
-    await websocket.send_json({"type": "relay.ready", "role": "pod"})
+    ready: dict[str, Any] = {"type": "relay.ready", "role": "pod"}
+    declaration = link.declaration() if link is not None else None
+    if declaration is not None:
+        # The pod refuses before dispatch on a declared gap; a silent device
+        # keeps the frame exactly as before and stays the only judge.
+        ready["device"] = declaration
+    await websocket.send_json(ready)
     try:
         while True:
             frame = await _frame(websocket)
@@ -579,7 +650,13 @@ async def puppy_relay(websocket: WebSocket) -> None:
             return
         key = (user_id, device_id)
         if role == "device":
-            link = await BROKER.register(key, websocket)
+            link = await BROKER.register(
+                key,
+                websocket,
+                model=hello.get("model"),
+                capabilities=hello.get("capabilities"),
+                probe_mode=hello.get("probe_mode"),
+            )
             await _device_loop(websocket, key, link)
         elif role == "pod":
             await _provider_loop(websocket, key, token)

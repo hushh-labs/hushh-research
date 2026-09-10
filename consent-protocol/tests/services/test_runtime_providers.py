@@ -315,7 +315,9 @@ async def test_provider_adk_model_maps_puppy_transport_for_text_and_stream(monke
     assert final.content is not None, "the terminal event must carry content"
     assert final.content.parts[0].text == "local "
     assert _call(final.content.parts[1]) == ("lookup", "call-1")
-    assert final.model_version == "meta/muse-glimmer"
+    # The transport reported no model, so none is claimed: the requested id is
+    # not a report, and the turn route says `modelReported: false` from this.
+    assert final.model_version is None
     assert bound[0] == ("puppy", "grant", "tdv_1")
     assert models.calls == ["generate", "stream"]
 
@@ -1454,10 +1456,10 @@ async def test_provider_adk_model_reports_the_device_model_on_every_event(monkey
     assert full[0].model_version == "qwen3"
 
 
-async def test_provider_adk_model_falls_back_to_the_requested_id_when_unreported(monkeypatch):
-    """No fabricated version: an unreported model reads as the id One asked for,
-    and the turn route is what turns that into `modelReported: false`."""
+async def test_provider_adk_model_never_fabricates_a_version_when_unreported(monkeypatch):
+    """The requested id is not a report. Returning it would make every Puppy turn
+    read `modelReported: true` while the device had said nothing at all."""
     models = _PuppyModels(scripts=[], full=NormalizedResponse(text="answer"))
     model, _ = _puppy_model(monkeypatch, models, model="local")
     full = [event async for event in model.generate_content_async(_llm_request(), stream=False)]
-    assert full[0].model_version == "local"
+    assert full[0].model_version is None

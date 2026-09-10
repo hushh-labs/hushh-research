@@ -102,6 +102,9 @@ class OneTextStreamEvent:
     directive: OneTextDirective | None = None
     source: OneTextSource | None = None
     specialist: OneTextSpecialistOutcome | None = None
+    # The model the provider said produced this token, when it said. Empty means
+    # unreported; the pod turn route turns that into ``modelReported: false``.
+    model_version: str = ""
 
 
 class OneTextEmptyResponseError(RuntimeError):
@@ -228,6 +231,10 @@ def _history_content(message: Any) -> genai_types.Content | None:
         role="user" if role == "user" else "model",
         parts=[genai_types.Part.from_text(text=text)],
     )
+
+
+def _event_model_version(event: Any) -> str:
+    return str(getattr(event, "model_version", "") or "").strip()
 
 
 def _event_text(event: Any) -> str:
@@ -575,14 +582,18 @@ async def _stream_one_text_turn_once(
             emitted_visible_output = True
             if first_visible_at is None:
                 first_visible_at = time.perf_counter()
-            yield OneTextStreamEvent(kind="token", text=text)
+            yield OneTextStreamEvent(
+                kind="token", text=text, model_version=_event_model_version(event)
+            )
             continue
         is_final_response = getattr(event, "is_final_response", None)
         if not saw_partial_text and callable(is_final_response) and is_final_response():
             emitted_visible_output = True
             if first_visible_at is None:
                 first_visible_at = time.perf_counter()
-            yield OneTextStreamEvent(kind="token", text=text)
+            yield OneTextStreamEvent(
+                kind="token", text=text, model_version=_event_model_version(event)
+            )
 
     if not emitted_visible_output:
         raise OneTextEmptyResponseError(
