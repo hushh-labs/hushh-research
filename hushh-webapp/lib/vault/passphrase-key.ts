@@ -21,7 +21,7 @@ function isHexLike(value: string): boolean {
   return trimmed.length > 0 && trimmed.length % 2 === 0 && /^[0-9a-fA-F]+$/.test(trimmed);
 }
 
-function hexToBytes(value: string): Uint8Array {
+export function hexToBytes(value: string): Uint8Array {
   const hex = value.trim();
   const out = new Uint8Array(hex.length / 2);
   for (let i = 0; i < hex.length; i += 2) {
