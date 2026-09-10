@@ -419,9 +419,10 @@ Two consequences, both good:
   #   _BUILD_POD_IMAGE == true -> the kill-switch, so the step can be turned off
   #                               without reverting the file
   #
-  # The image shares requirements.txt and the python:3.13-slim base with the hub
-  # image above; what differs is the runtime surface (pod_server:app mounts an
-  # allowlist of routers, no fleet workers) and HUSSH_POD_MODE=1. See Dockerfile.pod.
+  # The image shares the locked pyproject.toml + uv.lock inputs and the
+  # python:3.13-slim base with the hub image above; what differs is the runtime
+  # surface (pod_server:app mounts an allowlist of routers, no fleet workers) and
+  # HUSSH_POD_MODE=1. See Dockerfile.pod.
   - name: "gcr.io/cloud-builders/docker"
     entrypoint: "bash"
     args:

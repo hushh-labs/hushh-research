@@ -5,12 +5,12 @@ steps:
   # Step 1: Build + push with a registry LAYER CACHE (buildx, mode=max).
   #
   # Why: Cloud Build workers are ephemeral, so a plain `docker build` starts with an
-  # empty cache every run and reinstalls all ~159 pinned deps from scratch (20-35 min).
+  # empty cache every run and reinstalls the locked dependency graph from scratch.
   # buildx `--cache-to type=registry,mode=max` exports EVERY stage's layers (incl. the
-  # builder's `uv pip install` layer) to `:buildcache`; `--cache-from` restores them on
-  # the next run. Because the Dockerfile copies requirements.txt before the app source,
-  # an unchanged requirements.txt turns the dependency install into a cache HIT, so a
-  # code-only deploy drops to a couple of minutes.
+  # builder's `uv sync` layer) to `:buildcache`; `--cache-from` restores them on the
+  # next run. Because the Dockerfile copies pyproject.toml + uv.lock before app source,
+  # unchanged dependency inputs turn the install into a cache HIT, so a code-only
+  # deploy drops to a couple of minutes.
   #
   # NOTE: the FIRST build after this lands is still cold — it seeds `:buildcache`.
   # The payoff shows on the next backend deploy.
@@ -72,9 +72,10 @@ steps:
   #   _BUILD_POD_IMAGE == true -> the kill-switch, so the step can be turned off
   #                               without reverting the file
   #
-  # The image shares requirements.txt and the python:3.13-slim base with the hub
-  # image above; what differs is the runtime surface (pod_server:app mounts an
-  # allowlist of routers, no fleet workers) and HUSSH_POD_MODE=1. See Dockerfile.pod.
+  # The image shares the locked project dependency inputs and python:3.13-slim base
+  # with the hub image above; what differs is the runtime surface (pod_server:app
+  # mounts an allowlist of routers, no fleet workers) and HUSSH_POD_MODE=1. See
+  # Dockerfile.pod.
   - name: "gcr.io/cloud-builders/docker"
     entrypoint: "bash"
     args:

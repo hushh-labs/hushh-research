@@ -4,8 +4,10 @@
 #
 # It shares the base build with the hub image; what differs is the RUNTIME surface
 # (the entrypoint mounts an allowlist of routers) and pod-mode (no fleet workers).
-# Physically slimming the dependency set is a tracked follow-up — this image fixes
-# the security-relevant property (surface + workers) now.
+# The pod and hub intentionally share the locked application dependency graph, but
+# the graph is installed in build time project mode so its explicit CPU-only Torch
+# source is honored. The runtime stage receives only the built environment and app
+# source; it never installs dependencies or reaches a package registry.
 
 # Stage 1: build dependencies
 FROM python:3.13-slim as builder
@@ -15,9 +17,12 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 RUN apt-get update && apt-get install -y --no-install-recommends gcc \
     && rm -rf /var/lib/apt/lists/*
 RUN pip install uv
-COPY requirements.txt .
+COPY pyproject.toml uv.lock ./
+RUN uv venv /opt/venv
+ENV VIRTUAL_ENV=/opt/venv \
+    PATH=/opt/venv/bin:$PATH
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv pip install --system --compile-bytecode -r requirements.txt
+    uv sync --frozen --no-dev --no-install-project --active
 
 # Stage 2: production runtime
 FROM python:3.13-slim
@@ -28,10 +33,11 @@ ARG POD_IMAGE_TAG=""
 WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends postgresql-client \
     && rm -rf /var/lib/apt/lists/*
-COPY --from=builder /usr/local /usr/local
+COPY --from=builder /opt/venv /opt/venv
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PATH=/usr/local/bin:$PATH \
+    VIRTUAL_ENV=/opt/venv \
+    PATH=/opt/venv/bin:$PATH \
     HUSSH_POD_MODE=1 \
     HUSSH_POD_IMAGE_TAG=${POD_IMAGE_TAG}
 COPY . .

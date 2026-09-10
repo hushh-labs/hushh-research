@@ -90,8 +90,8 @@ dev = [
     # backend process (measured: ~12 CPU-hours accumulated over an ~19h
     # uptime). Installing watchfiles switches uvicorn to an OS-level
     # (kqueue/inotify) event watcher: near-zero idle CPU, no polling loop.
-    # Never used in prod (Dockerfile installs from requirements.txt without
-    # --reload), so this only belongs in the dev group.
+    # Never used in production images (Dockerfiles install only the runtime
+    # graph with --no-dev), so this only belongs in the dev group.
     "watchfiles>=0.24.0",
 ]
 
@@ -102,8 +102,17 @@ build-backend = "setuptools.build_meta"
 [tool.uv]
 package = false
 
-# Use the default Torch index after the CPU-only pin blocked the UAT build.
-# Linux dependency size and cold-start cost still need deployment measurements.
+# Cloud Run has no GPU. Keep the semantic-retrieval dependency available, but resolve
+# Torch from the CPU wheel index so the image does not carry the CUDA runtime (the
+# previous requirements-file install could not preserve this per-package source).
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cpu" }
+
 [tool.ruff]
 # Python 3.13 - aligned with CI and Dockerfile
 target-version = "py313"

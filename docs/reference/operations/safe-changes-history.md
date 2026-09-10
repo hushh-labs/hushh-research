@@ -991,6 +991,14 @@ grep -nE '\+[a-z]+( |$)|^--(extra-)?index-url' requirements.txt
 # A local version (+cpu, +cu121) with no index directive is the trap.
 ```
 
+**Current implementation (2026-09-10).** The hub and pod Dockerfiles now use
+project-mode `uv sync --frozen --no-dev --no-install-project --active` in their
+builder stages and copy only `/opt/venv` into the runtime stage. The CPU-only
+Torch source is therefore honored while semantic retrieval remains available;
+the runtime stage performs no dependency installation. The generated
+`requirements.txt` remains a packaging artifact and is not the Cloud Run image
+install path.
+
 ### Main R25 — In replay mode, every migration must be replay-safe against *today's* data
 
 **Incident (2026-09-07, unblocking UAT).** UAT runs
