@@ -1,7 +1,7 @@
 ---
 name: ship-ios-testflight
 description: Compatibility entry point for shipping an explicitly authorized green-main iOS build to TestFlight through the governed GitHub workflow.
-argument-hint: "[sha: <green-main-sha>] [dry_run: true|false] [notes: <what-to-test>]"
+argument-hint: "[sha: <green-main-sha>] [dry_run: true|false] [require_hardware: true|false] [notes: <what-to-test>]"
 allowed-tools: Read Grep Glob Bash(gh *) Bash(git fetch*) Bash(git status*) Bash(git rev-parse*) Bash(git log*) Bash(git branch*)
 ---
 
