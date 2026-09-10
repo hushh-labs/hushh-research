@@ -351,3 +351,135 @@ async def test_text_runtime_rejects_silent_model_completion(monkeypatch):
             runtime_credential=None,
         ):
             pass
+
+
+async def test_text_runtime_persists_the_aggregated_final_and_commits_it_to_memory(monkeypatch):
+    """The aggregate is what memory reads; streamed partials are not duplicated.
+
+    Mirrors what ADK's runner does with the provider adapter's output: partial
+    token events stream through, and only the single non-partial aggregate is
+    appended to the session. The turn must (a) emit each token once, never the
+    aggregate a second time, and (b) hand memory a session that holds One's
+    complete answer, which the old all-partial shape never did.
+    """
+    committed: list = []
+
+    class _Recorder:
+        async def add_session_to_memory(self, session):  # noqa: ANN001
+            committed.append(session)
+
+    class _FakeRunner:
+        def __init__(self, *, app_name, agent, session_service, memory_service=None):
+            self.session_service = session_service
+            self.memory_service = memory_service
+
+        async def run_async(self, *, user_id, session_id, new_message, run_config):
+            session = await self.session_service.get_session(
+                app_name=ONE_APP_NAME, user_id=user_id, session_id=session_id
+            )
+            for token in ("the answer ", "is 42"):
+                yield Event(
+                    author="one",
+                    partial=True,
+                    content=genai_types.Content(
+                        role="model", parts=[genai_types.Part.from_text(text=token)]
+                    ),
+                )
+            final = Event(
+                author="one",
+                partial=False,
+                content=genai_types.Content(
+                    role="model", parts=[genai_types.Part.from_text(text="the answer is 42")]
+                ),
+            )
+            await self.session_service.append_event(session=session, event=final)
+            yield final
+
+    monkeypatch.setattr(text_runtime, "Runner", _FakeRunner)
+    monkeypatch.setattr(text_runtime, "build_one_text_agent", lambda *, model: ("one", model))
+    monkeypatch.setattr(text_runtime, "_resolve_pod_memory_service", lambda: _Recorder())
+    opaque_token = "opaque-" + "token"
+
+    events = [
+        event
+        async for event in text_runtime.stream_one_text_turn(
+            user_id="u1",
+            consent_token=opaque_token,
+            conversation_id="c1",
+            message="what is x",
+            history=[],
+            timezone="America/Los_Angeles",
+            screen_context={"screen": "one_home"},
+            pkm_context="",
+            runtime_provider="puppy",
+            runtime_model="local",
+            runtime_mode="hushh_managed_vertex",
+            runtime_credential=None,
+        )
+    ]
+
+    assert [event.text for event in events if event.kind == "token"] == ["the answer ", "is 42"]
+    assert len(committed) == 1
+    stored_texts = [
+        "".join(part.text or "" for part in event.content.parts)
+        for event in committed[0].events
+        if getattr(event, "author", "") == "one" and event.content
+    ]
+    assert stored_texts == ["the answer is 42"], stored_texts
+
+
+async def test_text_runtime_treats_an_all_partial_tool_call_turn_as_silent(monkeypatch):
+    """Negative control for the adapter fix: the pre-fix shape is a silent turn.
+
+    Only partial events carrying a function call, then nothing non-partial:
+    no token, no directive, nothing for memory. The runtime must refuse it as
+    an empty answer rather than report success.
+    """
+    committed: list = []
+
+    class _Recorder:
+        async def add_session_to_memory(self, session):  # noqa: ANN001
+            committed.append(session)
+
+    class _FakeRunner:
+        def __init__(self, *, app_name, agent, session_service, memory_service=None):
+            self.session_service = session_service
+
+        async def run_async(self, **kwargs):  # noqa: ANN003
+            yield Event(
+                author="one",
+                partial=True,
+                content=genai_types.Content(
+                    role="model",
+                    parts=[
+                        genai_types.Part(
+                            function_call=genai_types.FunctionCall(
+                                id="call-1", name="lookup", args={"q": "x"}
+                            )
+                        )
+                    ],
+                ),
+            )
+
+    monkeypatch.setattr(text_runtime, "Runner", _FakeRunner)
+    monkeypatch.setattr(text_runtime, "build_one_text_agent", lambda *, model: ("one", model))
+    monkeypatch.setattr(text_runtime, "_resolve_pod_memory_service", lambda: _Recorder())
+    opaque_token = "opaque-" + "token"
+
+    with pytest.raises(text_runtime.OneTextEmptyResponseError):
+        async for _event in text_runtime.stream_one_text_turn(
+            user_id="u1",
+            consent_token=opaque_token,
+            conversation_id="c1",
+            message="what is x",
+            history=[],
+            timezone="America/Los_Angeles",
+            screen_context={"screen": "one_home"},
+            pkm_context="",
+            runtime_provider="puppy",
+            runtime_model="local",
+            runtime_mode="hushh_managed_vertex",
+            runtime_credential=None,
+        ):
+            pass
+    assert committed == [], "a silent turn must never be committed to memory"

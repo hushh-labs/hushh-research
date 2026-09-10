@@ -39,19 +39,45 @@ def _env_float(name: str, default: float) -> float:
 
 
 def _messages(request: NeutralRequest) -> list[dict[str, Any]]:
+    """Flatten the neutral messages, pairing every tool result with a call id.
+
+    ADK keeps client-minted ``adk-*`` function-call ids only for the model
+    classes it knows pair by id; for this adapter they are stripped before the
+    second model request, so a tool result can arrive here with an empty id.
+    An OpenAI-compatible server refuses an unpaired ``tool`` message, which
+    would fail every second step of a tool cycle. When the id is missing the
+    call receives a deterministic ``call_<n>`` and the next result for the same
+    tool name takes the oldest unmatched call id. Ids the runtime did preserve
+    pass through untouched.
+    """
     result: list[dict[str, Any]] = []
+    unmatched_calls: dict[str, list[str]] = {}
+    minted = 0
     for message in request.messages:
         item: dict[str, Any] = {"role": message.role}
         if message.text:
             item["text"] = message.text
         if message.tool_name or message.role == "tool":
             item["toolName"] = message.tool_name
-            if message.tool_call_id:
-                item["toolCallId"] = message.tool_call_id
+            call_id = str(message.tool_call_id or "")
             if message.role == "assistant":
+                if not call_id:
+                    minted += 1
+                    call_id = f"call_{minted}"
+                unmatched_calls.setdefault(message.tool_name, []).append(call_id)
+                item["toolCallId"] = call_id
                 item["toolArguments"] = message.tool_arguments or {}
             elif message.role == "tool":
+                pending = unmatched_calls.get(message.tool_name) or []
+                if not call_id and pending:
+                    call_id = pending.pop(0)
+                elif call_id in pending:
+                    pending.remove(call_id)
+                if call_id:
+                    item["toolCallId"] = call_id
                 item["toolResult"] = message.tool_result
+            elif call_id:
+                item["toolCallId"] = call_id
         if len(item) > 1:
             result.append(item)
     return result

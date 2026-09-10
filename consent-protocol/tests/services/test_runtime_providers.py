@@ -233,61 +233,269 @@ def test_normalized_chunk_preserves_function_calls():
     assert parts[0].function_call is call
 
 
-async def test_provider_adk_model_maps_puppy_transport_for_text_and_stream(monkeypatch):
-    from google.adk.models.llm_request import LlmRequest
-    from google.genai import types as genai_types
+class _PuppyModels:
+    """A fake provider client whose stream is scripted per call."""
 
+    def __init__(
+        self, scripts: list[list[NormalizedChunk]], full: NormalizedResponse | None = None
+    ):
+        self._scripts = list(scripts)
+        self._full = full
+        self.calls: list[str] = []
+
+    async def generate_content(self, *, model, contents, config):
+        self.calls.append("generate")
+        assert self._full is not None, "non-stream call was not scripted"
+        return self._full
+
+    async def generate_content_stream(self, *, model, contents, config):
+        self.calls.append("stream")
+        script = self._scripts.pop(0) if self._scripts else []
+
+        async def _chunks():
+            for chunk in script:
+                yield chunk
+
+        return _chunks()
+
+
+def _puppy_model(monkeypatch, models: _PuppyModels, *, model: str = "meta/muse-glimmer"):
     from hushh_mcp.runtime_providers.adk_model import ProviderAdkModel
 
-    calls: list[tuple[str, str, str | None]] = []
-
-    class _Models:
-        async def generate_content(self, *, model, contents, config):
-            calls.append(("generate", model, None))
-            return NormalizedResponse(
-                text="local answer",
-                function_calls=(
-                    NormalizedFunctionCall(name="lookup", args={"q": "x"}, id="call-1"),
-                ),
-            )
-
-        async def generate_content_stream(self, *, model, contents, config):
-            calls.append(("stream", model, None))
-
-            async def _chunks():
-                yield NormalizedChunk(text="local ")
-                yield NormalizedChunk(
-                    function_calls=(
-                        NormalizedFunctionCall(name="lookup", args={"q": "x"}, id="call-1"),
-                    )
-                )
-
-            return _chunks()
+    bound: list[tuple[str, str, str | None]] = []
 
     class _Client:
-        aio = types.SimpleNamespace(models=_Models())
+        aio = types.SimpleNamespace(models=models)
 
-    def _build(provider, credential, *, puppy_device_id=None):
-        calls.append((provider, credential, puppy_device_id))
+    def _build(provider, credential, *, puppy_device_id=None, **_kwargs):
+        bound.append((provider, credential, puppy_device_id))
         return _Client()
 
     monkeypatch.setattr("hushh_mcp.runtime_providers.adk_model.build_runtime_client", _build)
-    model = ProviderAdkModel(
-        model="meta/muse-glimmer", provider="puppy", credential="grant", device_id="tdv_1"
+    return (
+        ProviderAdkModel(model=model, provider="puppy", credential="grant", device_id="tdv_1"),
+        bound,
     )
-    request = LlmRequest(
-        contents=[
-            genai_types.Content(role="user", parts=[genai_types.Part.from_text(text="hello")])
-        ]
+
+
+def _llm_request(text: str = "hello"):
+    from google.adk.models.llm_request import LlmRequest
+    from google.genai import types as genai_types
+
+    return LlmRequest(
+        contents=[genai_types.Content(role="user", parts=[genai_types.Part.from_text(text=text)])]
     )
+
+
+def _call(part) -> tuple[str, str]:
+    call = getattr(part, "function_call", None)
+    return (str(getattr(call, "name", "") or ""), str(getattr(call, "id", "") or ""))
+
+
+async def test_provider_adk_model_maps_puppy_transport_for_text_and_stream(monkeypatch):
+    lookup = NormalizedFunctionCall(name="lookup", args={"q": "x"}, id="call-1")
+    models = _PuppyModels(
+        scripts=[[NormalizedChunk(text="local "), NormalizedChunk(function_calls=(lookup,))]],
+        full=NormalizedResponse(text="local answer", function_calls=(lookup,)),
+    )
+    model, bound = _puppy_model(monkeypatch, models)
+    request = _llm_request()
 
     full = [item async for item in model.generate_content_async(request)]
     assert full[-1].content is not None
     assert full[-1].content.parts[-1].function_call.id == "call-1"
+    assert full[-1].partial is False
+
     streamed = [item async for item in model.generate_content_async(request, stream=True)]
-    assert streamed[-1].turn_complete is True
-    assert streamed[1].content.parts[0].function_call.name == "lookup"
-    assert calls[:2] == [("puppy", "grant", "tdv_1"), ("generate", "meta/muse-glimmer", None)]
+    # Every intermediate event is partial; the LAST event is the single
+    # non-partial aggregate ADK appends to the session and executes tools from.
+    assert [item.partial for item in streamed[:-1]] == [True, True]
+    final = streamed[-1]
+    assert final.partial is False
+    assert final.content is not None, "the terminal event must carry content"
+    assert final.content.parts[0].text == "local "
+    assert _call(final.content.parts[1]) == ("lookup", "call-1")
+    assert final.model_version == "meta/muse-glimmer"
+    assert bound[0] == ("puppy", "grant", "tdv_1")
+    assert models.calls == ["generate", "stream"]
+
+
+async def test_provider_adk_model_tool_only_stream_yields_executable_non_partial_call(monkeypatch):
+    """A turn whose whole answer is a tool call must still end in a non-partial event."""
+    from google.adk.events import Event
+
+    lookup = NormalizedFunctionCall(name="lookup", args={"q": "x"}, id="call-1")
+    model, _ = _puppy_model(
+        monkeypatch, _PuppyModels(scripts=[[NormalizedChunk(function_calls=(lookup,))]])
+    )
+
+    streamed = [item async for item in model.generate_content_async(_llm_request(), stream=True)]
+    assert streamed[0].partial is True
+    final = streamed[-1]
+    assert final.partial is False
+    assert [_call(part) for part in final.content.parts] == [("lookup", "call-1")]
+    # ADK executes function calls only from non-partial events; the aggregate
+    # is that event, and an all-partial sequence never is.
+    assert Event(author="one", **final.model_dump(exclude_none=True)).get_function_calls()
+    partial_only = Event(author="one", **streamed[0].model_dump(exclude_none=True))
+    assert partial_only.partial is True and partial_only.is_final_response() is False
+
+
+async def test_provider_adk_model_multi_tool_stream_preserves_order_and_ids(monkeypatch):
+    first = NormalizedFunctionCall(name="lookup", args={"q": "x"}, id="call-1")
+    second = NormalizedFunctionCall(name="open_app_surface", args={"surface": "s"}, id="call-2")
+    model, _ = _puppy_model(
+        monkeypatch,
+        _PuppyModels(
+            scripts=[
+                [
+                    NormalizedChunk(text="one "),
+                    NormalizedChunk(function_calls=(first,)),
+                    NormalizedChunk(text="two"),
+                    NormalizedChunk(function_calls=(second,)),
+                ]
+            ]
+        ),
+    )
+    streamed = [item async for item in model.generate_content_async(_llm_request(), stream=True)]
+    final = streamed[-1]
+    assert final.partial is False
+    shape = [
+        (part.text or "") if getattr(part, "function_call", None) is None else _call(part)
+        for part in final.content.parts
+    ]
+    assert shape == ["one ", ("lookup", "call-1"), "two", ("open_app_surface", "call-2")]
+
+
+async def test_provider_adk_model_empty_stream_yields_nothing(monkeypatch):
+    """A silent provider produces no event at all, so the runtime's empty-answer guard fires."""
+    model, _ = _puppy_model(monkeypatch, _PuppyModels(scripts=[[NormalizedChunk(text="")]]))
+    assert [item async for item in model.generate_content_async(_llm_request(), stream=True)] == []
+
+
+async def test_puppy_stream_reaches_the_session_and_executes_a_tool_through_the_real_runner(
+    monkeypatch,
+):
+    """The join that was silently broken: ADK stores and acts on the aggregate.
+
+    Runs the real ADK ``Runner`` over an ``LlmAgent`` whose model is the Puppy
+    adapter. The first stream answers with a tool call, the second with text.
+    The tool must actually run, and the stored session must hold the model's
+    function call, the tool response and the final text as NON-partial events,
+    because ``add_session_to_memory`` reads exactly those.
+    """
+    from google.adk.agents import LlmAgent
+    from google.adk.agents.run_config import RunConfig, StreamingMode
+    from google.adk.runners import Runner
+    from google.adk.sessions import InMemorySessionService
+    from google.genai import types as genai_types
+
+    invoked: list[str] = []
+
+    def lookup(q: str) -> dict:
+        """Look something up."""
+        invoked.append(q)
+        return {"answer": "42"}
+
+    lookup_call = NormalizedFunctionCall(name="lookup", args={"q": "x"}, id="call-1")
+    models = _PuppyModels(
+        scripts=[
+            [NormalizedChunk(function_calls=(lookup_call,))],
+            [NormalizedChunk(text="the answer "), NormalizedChunk(text="is 42")],
+        ]
+    )
+    model, _ = _puppy_model(monkeypatch, models, model="local")
+    agent = LlmAgent(name="one", model=model, tools=[lookup])
+    session_service = InMemorySessionService()
+    runner = Runner(app_name="pod-test", agent=agent, session_service=session_service)
+    await session_service.create_session(app_name="pod-test", user_id="owner", session_id="s1")
+
+    yielded = [
+        event
+        async for event in runner.run_async(
+            user_id="owner",
+            session_id="s1",
+            new_message=genai_types.Content(
+                role="user", parts=[genai_types.Part.from_text(text="what is x")]
+            ),
+            run_config=RunConfig(streaming_mode=StreamingMode.SSE),
+        )
+    ]
+
+    assert invoked == ["x"], "the tool never ran: ADK saw no non-partial function call"
+    assert models.calls == ["stream", "stream"]
+    stored = await session_service.get_session(
+        app_name="pod-test", user_id="owner", session_id="s1"
+    )
+    stored_events = list(stored.events)
+    assert any(event.partial for event in yielded), "partials must still stream"
+    assert not any(event.partial for event in stored_events), "partials are never stored"
+    assert any(event.author == "one" and event.get_function_calls() for event in stored_events), (
+        "the model's function call must be stored as a non-partial event"
+    )
+    assert any(event.get_function_responses() for event in stored_events)
+    final_text = [
+        "".join(part.text or "" for part in event.content.parts)
+        for event in stored_events
+        if event.author == "one" and event.content and not event.get_function_calls()
+    ]
+    assert "the answer is 42" in final_text, final_text
+
+
+async def test_the_old_all_partial_shape_never_runs_the_tool_negative_control(monkeypatch):
+    """Documents the defect this adapter replaced, so a regression is loud."""
+    from google.adk.agents import LlmAgent
+    from google.adk.agents.run_config import RunConfig, StreamingMode
+    from google.adk.models.base_llm import BaseLlm
+    from google.adk.models.llm_response import LlmResponse
+    from google.adk.runners import Runner
+    from google.adk.sessions import InMemorySessionService
+    from google.genai import types as genai_types
+
+    invoked: list[str] = []
+
+    def lookup(q: str) -> dict:
+        """Look something up."""
+        invoked.append(q)
+        return {"answer": "42"}
+
+    class _OldShape(BaseLlm):
+        async def generate_content_async(self, llm_request, stream=False):
+            yield LlmResponse(
+                content=genai_types.Content(
+                    role="model",
+                    parts=[
+                        genai_types.Part(
+                            function_call=genai_types.FunctionCall(
+                                id="call-1", name="lookup", args={"q": "x"}
+                            )
+                        )
+                    ],
+                ),
+                partial=True,
+            )
+            yield LlmResponse(partial=False, turn_complete=True)
+
+    agent = LlmAgent(name="one", model=_OldShape(model="local"), tools=[lookup])
+    session_service = InMemorySessionService()
+    runner = Runner(app_name="pod-test", agent=agent, session_service=session_service)
+    await session_service.create_session(app_name="pod-test", user_id="owner", session_id="s1")
+    _ = [
+        event
+        async for event in runner.run_async(
+            user_id="owner",
+            session_id="s1",
+            new_message=genai_types.Content(
+                role="user", parts=[genai_types.Part.from_text(text="what is x")]
+            ),
+            run_config=RunConfig(streaming_mode=StreamingMode.SSE),
+        )
+    ]
+    stored = await session_service.get_session(
+        app_name="pod-test", user_id="owner", session_id="s1"
+    )
+    assert invoked == []
+    assert not any(event.author == "one" for event in stored.events)
 
 
 # --------------------------------------------------------------------------- #
@@ -895,3 +1103,55 @@ async def test_puppy_transport_preserves_request_binding_and_tool_calls(monkeypa
 
 async def _async_return(value: Any) -> Any:
     return value
+
+
+def test_puppy_messages_pair_tool_results_when_ids_are_empty():
+    """ADK strips client-minted ids for this adapter; the wire must still pair."""
+    from hushh_mcp.runtime_providers.puppy_transport import _messages
+    from hushh_mcp.runtime_providers.translate import NeutralMessage, NeutralRequest
+
+    request = NeutralRequest(
+        messages=(
+            NeutralMessage(role="user", text="hello"),
+            NeutralMessage(role="assistant", tool_name="lookup", tool_arguments={"q": "x"}),
+            NeutralMessage(role="tool", tool_name="lookup", tool_result={"ok": True}),
+            NeutralMessage(role="assistant", tool_name="lookup", tool_arguments={"q": "y"}),
+            NeutralMessage(role="tool", tool_name="lookup", tool_result={"ok": False}),
+        )
+    )
+    wire = _messages(request)
+    assert wire[1]["toolCallId"] == "call_1"
+    assert wire[2]["toolCallId"] == "call_1"
+    assert wire[3]["toolCallId"] == "call_2"
+    assert wire[4]["toolCallId"] == "call_2"
+
+
+def test_puppy_messages_keep_ids_the_runtime_preserved():
+    from hushh_mcp.runtime_providers.puppy_transport import _messages
+    from hushh_mcp.runtime_providers.translate import NeutralMessage, NeutralRequest
+
+    request = NeutralRequest(
+        messages=(
+            NeutralMessage(
+                role="assistant", tool_name="lookup", tool_call_id="adk-7", tool_arguments={}
+            ),
+            NeutralMessage(role="tool", tool_name="lookup", tool_call_id="adk-7", tool_result=1),
+        )
+    )
+    wire = _messages(request)
+    assert [item["toolCallId"] for item in wire] == ["adk-7", "adk-7"]
+
+
+def test_puppy_messages_never_pair_different_tools_negative_control():
+    from hushh_mcp.runtime_providers.puppy_transport import _messages
+    from hushh_mcp.runtime_providers.translate import NeutralMessage, NeutralRequest
+
+    request = NeutralRequest(
+        messages=(
+            NeutralMessage(role="assistant", tool_name="lookup", tool_arguments={}),
+            NeutralMessage(role="tool", tool_name="open_app_surface", tool_result={}),
+        )
+    )
+    wire = _messages(request)
+    assert wire[0]["toolCallId"] == "call_1"
+    assert "toolCallId" not in wire[1], "a result for another tool must not steal the id"

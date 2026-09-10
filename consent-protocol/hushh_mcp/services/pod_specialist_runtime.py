@@ -15,6 +15,20 @@ from hushh_mcp.adk_bridge.dispatch import SpecialistRuntime
 from hushh_mcp.services.pod_agent_chat_store import PodAgentChatStore
 from hushh_mcp.services.pod_consent_client import require_owner_scope
 
+# Specialist model calls run inside One's turn and share its budget. The generic
+# bound stays at 30 seconds; a local Puppy model has a measured cold first token
+# above that (32.9 seconds on the owner pilot), so the Puppy lane receives the
+# same first-event budget One's own turn already grants it.
+_SPECIALIST_MODEL_TIMEOUT_SECONDS = 30.0
+_PUPPY_SPECIALIST_MODEL_TIMEOUT_SECONDS = 60.0
+
+
+def specialist_model_timeout_seconds(runtime_mode: str | None) -> float:
+    """Model-call budget for one specialist turn, by runtime mode."""
+    if str(runtime_mode or "").strip().lower() == "puppy_relay":
+        return _PUPPY_SPECIALIST_MODEL_TIMEOUT_SECONDS
+    return _SPECIALIST_MODEL_TIMEOUT_SECONDS
+
 
 class PodLocationReadPort:
     def __init__(self, owner_user_id: str, scope_token: str) -> None:
@@ -169,7 +183,7 @@ def build_pod_specialist_runtime(
         try:
             result = await asyncio.wait_for(
                 client.aio.models.generate_content(model=model, contents=contents, config=config),
-                timeout=30,
+                timeout=specialist_model_timeout_seconds(runtime_mode),
             )
         except Exception:
             raise RuntimeError("Pod specialist provider unavailable") from None
