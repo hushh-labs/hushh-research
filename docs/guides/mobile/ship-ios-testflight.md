@@ -200,3 +200,9 @@ flag remains `false` by default.
 The localization relationship GET accepts `limit`, not `filter[locale]`. Locale
 selection follows all pages locally; localization PATCH sends only `whatsNew`.
 The test double rejects unsupported query parameters and checks update payloads.
+
+UAT TestFlight registers new passkeys under `uat.one.hushh.ai`, matching its app
+origin. The UAT preparation script pins this RP ID even if a developer's shell or
+local env file contains the production default. Existing passkey wrappers keep
+their recorded RP IDs and the parent-domain entitlement remains for compatible
+unlock; credentials are not renamed, deleted, or silently migrated.
