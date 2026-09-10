@@ -56,6 +56,28 @@ class FakeApple:
     def request(self, method: str, url: str, payload: dict[str, Any] | None) -> dict[str, Any]:
         self.calls.append((method, url, payload))
         path = url.split(".com", 1)[-1]
+        if method == "GET" and path.startswith(f"/v1/apps/{APP_ID}/buildUploads?"):
+            return {
+                "data": [
+                    {
+                        "type": "buildUploads",
+                        "attributes": {
+                            "cfBundleShortVersionString": "1.4.0",
+                            "cfBundleVersion": "69",
+                        },
+                        "relationships": {
+                            "build": {"data": {"type": "builds", "id": BUILD_ID}}
+                        },
+                    }
+                ],
+                "included": [
+                    {
+                        "type": "builds",
+                        "id": BUILD_ID,
+                        "attributes": {"version": "69", "processingState": "VALID"},
+                    }
+                ],
+            }
         if method == "GET" and path.startswith("/v1/builds?"):
             return {
                 "data": [
