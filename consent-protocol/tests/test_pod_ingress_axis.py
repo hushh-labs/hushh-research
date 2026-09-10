@@ -17,7 +17,6 @@ from hushh_mcp.services.gcp_backend import (
     INGRESS_DIRECT,
     INGRESS_HUB,
     GcpBackend,
-    PodIngressRefused,
     pod_ingress_mode,
 )
 from hushh_mcp.services.gcp_run_client import GcpRunClient
@@ -37,6 +36,12 @@ def _spec(**kw) -> PodSpec:
 
 def _backend() -> GcpBackend:
     return GcpBackend(project="proj-x", image="img:1", service_account="sa@proj-x.iam", live=False)
+
+
+# `tests/test_compute_backend_parity.py` reloads `gcp_backend`, which mints a new
+# `PodIngressRefused` class object in the same process. Matching the refusal by its
+# `ValueError` base and message keeps these assertions true regardless of test order.
+_REFUSAL = r"direct ingress is a dev-lane pilot|unknown pod ingress axis"
 
 
 @pytest.fixture
@@ -77,9 +82,9 @@ async def test_direct_is_recorded_on_the_handle_and_hub_stays_the_cloud_run_valu
 def test_direct_is_refused_outside_the_dev_lane_before_anything_renders(monkeypatch, lane):
     monkeypatch.setenv("HUSHH_DEPLOY_ENV", lane)
     monkeypatch.delenv("ENVIRONMENT", raising=False)
-    with pytest.raises(PodIngressRefused):
+    with pytest.raises(ValueError, match=_REFUSAL):
         pod_ingress_mode(_spec(ingress=INGRESS_DIRECT))
-    with pytest.raises(PodIngressRefused):
+    with pytest.raises(ValueError, match=_REFUSAL):
         _backend().render_deploy_config(_spec(ingress=INGRESS_DIRECT))
 
 
@@ -89,12 +94,12 @@ def test_the_lane_is_read_from_the_deploy_env_first_not_the_runtime_environment(
     monkeypatch.setenv("ENVIRONMENT", "uat")
     assert pod_ingress_mode(_spec(ingress=INGRESS_DIRECT)) == INGRESS_DIRECT
     monkeypatch.delenv("HUSHH_DEPLOY_ENV")
-    with pytest.raises(PodIngressRefused):
+    with pytest.raises(ValueError, match=_REFUSAL):
         pod_ingress_mode(_spec(ingress=INGRESS_DIRECT))
 
 
 def test_an_unknown_axis_value_is_refused(dev_lane):
-    with pytest.raises(PodIngressRefused):
+    with pytest.raises(ValueError, match=_REFUSAL):
         pod_ingress_mode(_spec(ingress="public"))
 
 
@@ -111,7 +116,7 @@ def test_byoc_inherits_the_direct_render_and_refusal(dev_lane, monkeypatch):
     assert cfg["spec"]["template"]["spec"]["timeoutSeconds"] == 3600
     assert cfg["metadata"]["labels"]["hussh-tenancy"] == "user-owned"
     monkeypatch.setenv("HUSHH_DEPLOY_ENV", "uat")
-    with pytest.raises(PodIngressRefused):
+    with pytest.raises(ValueError, match=_REFUSAL):
         backend.render_deploy_config(_spec(ingress=INGRESS_DIRECT))
 
 
