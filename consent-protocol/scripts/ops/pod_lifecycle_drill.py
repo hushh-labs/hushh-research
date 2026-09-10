@@ -37,9 +37,15 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import hashlib
 import json
+import re
+import secrets
+import subprocess
 import sys
+import time
 from dataclasses import asdict, dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -601,6 +607,1084 @@ class GcpFleet:
 
 
 # --------------------------------------------------------------------------- #
+# The memory LEARNING drill: teach, close, paraphrase, correct, restart without
+# history, revoke, replay, negative control. The north star's crown proof is
+# not that a fact survives; it is that the agent EVOLVES: a paraphrase is
+# answered from an observed `load_memory` call, a correction wins over the
+# old value, a revocation is final across a restart's replay, and a question
+# about nothing taught yields nothing. Every observation is deterministic; the
+# judged QUALITY of the answers is a separate number graded in a separate
+# session through the puppy-one-harness queue, never added to the rate.
+# --------------------------------------------------------------------------- #
+
+NO_RECORDED_FACT = "NO_RECORDED_FACT"
+MEMORY_DRILL_ASSERTION_ID = "the-agent-learns-between-turns"
+_RECALL_INSTRUCTION = (
+    " Answer only from what you remember about me, in one short sentence. "
+    f"If you have no recorded fact about this, reply exactly {NO_RECORDED_FACT}."
+)
+_TOKEN_RE = re.compile(r"[a-z0-9']+")
+
+
+@dataclass(frozen=True)
+class MemoryFact:
+    """One synthetic fact: what is taught, how it is asked back, what proves recall.
+
+    ``ask`` is a PARAPHRASE that never contains the value tokens, so an answer
+    that echoes the question cannot score. ``correction`` (when set) states a
+    new value later in the drill; ``stale_tokens`` are the old value that must
+    then never be served again.
+    """
+
+    key: str
+    teach: str
+    ask: str
+    value_tokens: tuple[str, ...]
+    correction: str = ""
+    new_value_tokens: tuple[str, ...] = ()
+    stale_tokens: tuple[str, ...] = ()
+
+
+MEMORY_HORIZON: list[MemoryFact] = [
+    MemoryFact(
+        "dachshund",
+        "my dachshund is named Pushkin",
+        "what is the name of my dachshund?",
+        ("pushkin",),
+    ),
+    MemoryFact(
+        "almond",
+        "I am allergic to almonds but fine with every other nut",
+        "which nut am I allergic to?",
+        ("almond",),
+    ),
+    MemoryFact(
+        "kintsugi",
+        "my kintsugi bowl sits on the third shelf of the study",
+        "which shelf holds my kintsugi bowl?",
+        ("third",),
+    ),
+    MemoryFact(
+        "radiator",
+        "the guest room radiator leaks whenever it rains",
+        "what happens to the guest room radiator when it rains?",
+        ("leak",),
+    ),
+    MemoryFact(
+        "meridian",
+        "my meridian brokerage account number ends in 4269",
+        "what are the last digits of my meridian account?",
+        ("4269",),
+    ),
+    MemoryFact(
+        "zephyr",
+        "my sailboat Zephyr berths at slip twelve",
+        "where does my sailboat Zephyr berth?",
+        ("twelve",),
+        correction="a correction: my sailboat Zephyr now berths at slip forty",
+        new_value_tokens=("forty",),
+        stale_tokens=("twelve",),
+    ),
+]
+# Taught late, then revoked, then asked again after a restart's replay.
+REVOCABLE_FACT = MemoryFact(
+    "opal", "my ring holds an opal stone", "what stone does my ring hold?", ("opal",)
+)
+# A question about something never taught. A pod that answers it is inventing.
+ABSENT_MEMORY_QUESTION = "what is the name of my parrot?"
+
+
+def _answer_tokens(answer: str) -> set[str]:
+    return set(_TOKEN_RE.findall(str(answer or "").casefold()))
+
+
+def _value_hit(
+    answer: str, value_tokens: tuple[str, ...], stale_tokens: tuple[str, ...] = ()
+) -> bool:
+    """Deterministic paraphrase oracle: every value token present, no stale token.
+
+    A value token matches a whole word or the start of one ("leak" matches
+    "leaks"). A stale token matches a whole word only. Verbatim `_hit` stays for
+    the older drill; this one measures whether the VALUE came back, whatever the
+    sentence around it, which is what a paraphrase question asks for.
+    """
+    tokens = _answer_tokens(answer)
+    if not tokens or not value_tokens:
+        return False
+    for value in value_tokens:
+        value = value.casefold()
+        if not any(tok == value or tok.startswith(value) for tok in tokens):
+            return False
+    return not any(stale.casefold() in tokens for stale in stale_tokens)
+
+
+def _no_fact_shaped(answer: str) -> bool:
+    return NO_RECORDED_FACT in str(answer or "").upper()
+
+
+def _observed_recall(turn: dict[str, Any]) -> tuple[int, int]:
+    """(observed load_memory calls, calls with at least one hit) off the turn's report."""
+    memory = turn.get("memory") if isinstance(turn, dict) else None
+    recalls = memory.get("recalls") if isinstance(memory, dict) else None
+    if not isinstance(recalls, list):
+        return 0, 0
+    calls = [r for r in recalls if isinstance(r, dict)]
+    return len(calls), sum(1 for r in calls if int(r.get("hits") or 0) >= 1)
+
+
+def _provider_consistent(turn: dict[str, Any]) -> bool:
+    """A provider recall may only be credited under a recorded consent.
+
+    ``credits_fallback_as_provider`` is the leak this catches: a report that says
+    the provider answered while consent is absent is a fallback wearing the
+    provider's name, and the ledger item this drill feeds must never accept it.
+    """
+    memory = turn.get("memory") if isinstance(turn, dict) else None
+    provider = memory.get("provider") if isinstance(memory, dict) else None
+    if not isinstance(provider, dict):
+        return True
+    recall = str(provider.get("recall") or "")
+    generate = str(provider.get("generate") or "")
+    consented = str(provider.get("consent") or "") == "granted"
+    return consented or (
+        recall not in {"completed", "filtered_revoked"} and generate != "completed"
+    )
+
+
+@dataclass
+class MemoryDrillResult:
+    horizon_size: int
+    memory_join_present_on_image: bool = False
+    taught: int = 0
+    review_ran_on_close: bool = False
+    review_provider_matches_turn_provider: bool = False
+    review_outputs_only_proposals: bool = True
+    paraphrase_recalled: int = 0
+    recall_via_observed_tool_call: int = 0
+    correction_supersedes: bool = False
+    stale_value_not_recalled: bool = False
+    restart_without_history: int = 0
+    restart_replaced_revision: bool = False
+    revoked_fact_not_recalled_after_replay: bool = False
+    negative_control_clean: bool = False
+    tombstones_increased: bool = False
+    catch_up_debt_zero: bool = False
+    provider_report_consistent: bool = True
+    every_recall_carried_empty_history: bool = True
+    stages: list[str] = field(default_factory=list)
+    timings_ms: dict[str, int] = field(default_factory=dict)
+    judge_rows: list[dict[str, str]] = field(default_factory=list)
+    turn_provider: str = ""
+
+    @property
+    def passed(self) -> bool:
+        return (
+            self.memory_join_present_on_image
+            and self.taught >= self.horizon_size
+            and self.review_ran_on_close
+            and self.review_provider_matches_turn_provider
+            and self.review_outputs_only_proposals
+            and self.paraphrase_recalled == self.horizon_size
+            and self.recall_via_observed_tool_call == self.horizon_size
+            and self.correction_supersedes
+            and self.stale_value_not_recalled
+            and self.restart_replaced_revision
+            and self.restart_without_history == self.horizon_size
+            and self.revoked_fact_not_recalled_after_replay
+            and self.negative_control_clean
+            and self.tombstones_increased
+            and self.catch_up_debt_zero
+            and self.provider_report_consistent
+            and self.every_recall_carried_empty_history
+        )
+
+    def observations(self) -> dict[str, Any]:
+        """The ledger's observation names for ``the-agent-learns-between-turns``."""
+        return {
+            "taught": self.taught,
+            "paraphrase_recalled": self.paraphrase_recalled == self.horizon_size,
+            "recall_via_observed_tool_call": self.recall_via_observed_tool_call
+            == self.horizon_size,
+            "correction_supersedes": self.correction_supersedes,
+            "stale_value_not_recalled": self.stale_value_not_recalled,
+            "restart_without_history": self.restart_without_history == self.horizon_size,
+            "revoked_fact_not_recalled_after_replay": self.revoked_fact_not_recalled_after_replay,
+            "negative_control_clean": self.negative_control_clean,
+            "review_ran_on_close": self.review_ran_on_close,
+            "review_provider_matches_turn_provider": self.review_provider_matches_turn_provider,
+            "memory_join_present_on_image": self.memory_join_present_on_image,
+            "catch_up_debt_zero": self.catch_up_debt_zero,
+            "provider_report_consistent": self.provider_report_consistent,
+            "tombstones_increased": self.tombstones_increased,
+            "quality_judged_independently": False,  # set by the judge run, never here
+        }
+
+    def to_dict(self) -> dict[str, Any]:
+        out = {k: v for k, v in asdict(self).items() if k != "judge_rows"}
+        out["passed"] = self.passed
+        out["observations"] = self.observations()
+        return out
+
+
+async def run_memory_learning_drill(
+    fleet: Any,
+    *,
+    hushh_id: str,
+    horizon: list[MemoryFact] = MEMORY_HORIZON,
+    revocable: MemoryFact = REVOCABLE_FACT,
+    absent_question: str = ABSENT_MEMORY_QUESTION,
+    expect_image_tag: str | None = None,
+) -> MemoryDrillResult:
+    """The learning loop, stage by stage, on whatever fleet. Deterministic oracle."""
+    if not horizon:
+        raise ValueError("the memory drill requires at least one synthetic fact")
+    corrected = [f for f in horizon if f.correction]
+    if len(corrected) != 1:
+        raise ValueError("the memory drill horizon must carry exactly one correctable fact")
+    correctable = corrected[0]
+    result = MemoryDrillResult(horizon_size=len(horizon))
+    stages = result.stages
+    clock = time.perf_counter
+
+    def stamp(name: str, started: float) -> None:
+        result.timings_ms[name] = round((clock() - started) * 1000)
+
+    async def ask(question: str) -> dict[str, Any]:
+        turn = await fleet.ask(url, question + _RECALL_INSTRUCTION, history=[])
+        carried = getattr(fleet, "last_history", [])
+        if carried:
+            result.every_recall_carried_empty_history = False
+        if not _provider_consistent(turn):
+            result.provider_report_consistent = False
+        return turn if isinstance(turn, dict) else {"text": str(turn)}
+
+    def answered(turn: dict[str, Any]) -> str:
+        return str(turn.get("text") or "")
+
+    def recalled(turn: dict[str, Any], fact: MemoryFact, *, after_correction: bool) -> bool:
+        tokens = (
+            fact.new_value_tokens if (after_correction and fact.correction) else fact.value_tokens
+        )
+        stale = fact.stale_tokens if (after_correction and fact.correction) else ()
+        return _value_hit(answered(turn), tokens, stale)
+
+    url = await fleet.provision(hushh_id)
+    stages.append(f"provisioned {url}")
+
+    # PRECONDITION: the installed image carries the join, or nothing below means anything.
+    started = clock()
+    info = await fleet.info(url)
+    join = info.get("memoryJoin") if isinstance(info, dict) else None
+    join = join if isinstance(join, dict) else {}
+    result.memory_join_present_on_image = (
+        info.get("memoryEnabled") is True
+        and join.get("write") is True
+        and join.get("review") is True
+        and join.get("tombstones") is True
+        and int(join.get("schema") or 0) == 2
+        and (expect_image_tag is None or str(info.get("imageTag") or "") == expect_image_tag)
+    )
+    revision_before = str(info.get("revision") or "")
+    image_before = str(info.get("imageTag") or "")
+    stamp("precondition", started)
+    stages.append(f"memory_join_present_on_image={result.memory_join_present_on_image}")
+
+    # STAGE 1: teach, then close. The first turn must return a memory object.
+    started = clock()
+    teach_conversation = "drill-teach-1"
+    first = True
+    for fact in horizon:
+        turn = await fleet.say(url, f"Please remember this: {fact.teach}", teach_conversation)
+        if first:
+            first = False
+            if not isinstance(turn.get("memory"), dict):
+                result.memory_join_present_on_image = False
+            result.turn_provider = str(turn.get("provider") or "")
+        result.taught += 1
+    close = await fleet.close_conversation(url, teach_conversation)
+    review = (close.get("memory") or {}).get("review") if isinstance(close, dict) else None
+    review = review if isinstance(review, dict) else {}
+    result.review_ran_on_close = review.get("outcome") in {"applied", "nothing_to_save"} and (
+        review.get("reason") == "close"
+    )
+    review_provider = str(close.get("provider") or review.get("provider") or "")
+    result.review_provider_matches_turn_provider = bool(result.turn_provider) and (
+        review_provider == result.turn_provider
+    )
+    for directive in close.get("directives") or []:
+        payload = directive.get("payload") if isinstance(directive, dict) else None
+        if (
+            not isinstance(directive, dict)
+            or directive.get("kind") != "prompt"
+            or not isinstance(payload, dict)
+            or payload.get("type") != "pkm_memory_proposal"
+        ):
+            result.review_outputs_only_proposals = False
+    stamp("teach_and_close", started)
+    stages.append(
+        f"taught {result.taught} facts; review_ran_on_close={result.review_ran_on_close} "
+        f"provider_match={result.review_provider_matches_turn_provider}"
+    )
+
+    # STAGE 2: paraphrase recall, each with history: [] and an observed tool call.
+    started = clock()
+    for fact in horizon:
+        turn = await ask(fact.ask)
+        calls, with_hits = _observed_recall(turn)
+        hit = recalled(turn, fact, after_correction=False)
+        result.paraphrase_recalled += int(hit)
+        result.recall_via_observed_tool_call += int(hit and calls >= 1 and with_hits >= 1)
+        result.judge_rows.append({"question": fact.ask, "answer": answered(turn), "case": fact.key})
+    stamp("paraphrase_recall", started)
+    stages.append(
+        f"paraphrase_recalled {result.paraphrase_recalled}/{len(horizon)} "
+        f"via_tool_call {result.recall_via_observed_tool_call}/{len(horizon)}"
+    )
+
+    # STAGE 3: correct one fact, close, and the old value must be gone.
+    started = clock()
+    correction_conversation = "drill-correct-1"
+    await fleet.say(url, correctable.correction, correction_conversation)
+    await fleet.close_conversation(url, correction_conversation)
+    turn = await ask(correctable.ask)
+    result.correction_supersedes = _value_hit(answered(turn), correctable.new_value_tokens)
+    result.stale_value_not_recalled = not any(
+        stale.casefold() in _answer_tokens(answered(turn)) for stale in correctable.stale_tokens
+    )
+    result.judge_rows.append(
+        {
+            "question": correctable.ask,
+            "answer": answered(turn),
+            "case": f"{correctable.key}-corrected",
+        }
+    )
+    stamp("correction", started)
+    stages.append(
+        f"correction_supersedes={result.correction_supersedes} "
+        f"stale_value_not_recalled={result.stale_value_not_recalled}"
+    )
+
+    # STAGE 4: restart the compute (a revision replace on the same image), then
+    # recall everything with an EMPTY history: only the pod's own memory can answer.
+    started = clock()
+    url = await fleet.restart(hushh_id, url)
+    info = await fleet.info(url)
+    revision_after = str(info.get("revision") or "")
+    image_after = str(info.get("imageTag") or "")
+    result.restart_replaced_revision = bool(revision_before) and (
+        revision_after != revision_before and image_after == image_before
+    )
+    for fact in horizon:
+        turn = await ask(fact.ask)
+        if recalled(turn, fact, after_correction=True):
+            result.restart_without_history += 1
+        result.judge_rows.append(
+            {"question": fact.ask, "answer": answered(turn), "case": f"{fact.key}-after-restart"}
+        )
+    stamp("restart_recall", started)
+    stages.append(
+        f"restart_replaced_revision={result.restart_replaced_revision} "
+        f"restart_without_history {result.restart_without_history}/{len(horizon)}"
+    )
+
+    # STAGE 5: teach one more, revoke it by id, restart (replay), and it must be gone.
+    started = clock()
+    before = set((await fleet.status(url)).get("factIds") or [])
+    tombstones_before = int((await fleet.status(url)).get("tombstones") or 0)
+    revoke_conversation = "drill-revoke-1"
+    await fleet.say(url, f"Please remember this: {revocable.teach}", revoke_conversation)
+    await fleet.close_conversation(url, revoke_conversation)
+    after = set((await fleet.status(url)).get("factIds") or [])
+    new_ids = sorted(after - before)
+    if new_ids:
+        await fleet.revoke(url, new_ids)
+    url = await fleet.restart(hushh_id, url)
+    turn = await ask(revocable.ask)
+    calls, with_hits = _observed_recall(turn)
+    result.revoked_fact_not_recalled_after_replay = bool(new_ids) and (
+        _no_fact_shaped(answered(turn))
+        and with_hits == 0
+        and not _value_hit(answered(turn), revocable.value_tokens)
+    )
+    result.judge_rows.append(
+        {"question": revocable.ask, "answer": answered(turn), "case": f"{revocable.key}-revoked"}
+    )
+    stamp("revoke_replay", started)
+    stages.append(
+        f"revoked {len(new_ids)} fact(s); "
+        f"revoked_fact_not_recalled_after_replay={result.revoked_fact_not_recalled_after_replay}"
+    )
+
+    # STAGE 6: the negative control, and the closing status.
+    started = clock()
+    turn = await ask(absent_question)
+    calls, with_hits = _observed_recall(turn)
+    result.negative_control_clean = _no_fact_shaped(answered(turn)) and with_hits == 0
+    result.judge_rows.append(
+        {"question": absent_question, "answer": answered(turn), "case": "absent"}
+    )
+    status = await fleet.status(url)
+    result.tombstones_increased = int(status.get("tombstones") or 0) > tombstones_before
+    result.catch_up_debt_zero = int(status.get("unreviewed") or 0) == 0
+    stamp("negative_and_status", started)
+    stages.append(
+        f"negative_control_clean={result.negative_control_clean} "
+        f"tombstones_increased={result.tombstones_increased} "
+        f"catch_up_debt_zero={result.catch_up_debt_zero}"
+    )
+    return result
+
+
+def render_memory_report(result: MemoryDrillResult) -> str:
+    lines = [
+        "=" * 64,
+        "MEMORY LEARNING DRILL  ::  teach -> close -> paraphrase -> correct -> restart -> revoke",
+        "=" * 64,
+        f"  verdict:               {'PASS' if result.passed else 'FAIL'}",
+    ]
+    for key, value in result.observations().items():
+        lines.append(f"  {key:44} {value}")
+    for name, ms in result.timings_ms.items():
+        lines.append(f"  elapsed {name:36} {ms} ms")
+    for stage in result.stages:
+        lines.append(f"    - {stage}")
+    lines.append("=" * 64)
+    return "\n".join(lines)
+
+
+# --------------------------------------------------------------------------- #
+# The in-memory memory fleet: a simulated pod whose ONLY job is to make the
+# learning orchestration testable, and to be breakable in each way the real
+# thing could leak. ``leak`` names one of seven defects; each must FAIL the drill.
+# --------------------------------------------------------------------------- #
+
+MEMORY_LEAKS: tuple[str, ...] = (
+    "ignores_corrections",
+    "resurrects_revoked_on_replay",
+    "answers_without_tool",
+    "hallucinates_absent",
+    "credits_fallback_as_provider",
+    "reviews_on_other_provider",
+    "never_reviews_on_close",
+)
+
+
+class _SimPod:
+    """One simulated owner's memory: curated facts, tombstones, review debt."""
+
+    def __init__(self) -> None:
+        self.facts: list[dict[str, Any]] = []  # {id, key, text, tokens, dead}
+        self.pending: dict[str, list[str]] = {}  # conversation -> raw sentences
+        self.tombstones = 0
+        self.revision = 1
+        self.counter = 0
+
+    def key_for(self, sentence: str) -> str:
+        words = _answer_tokens(sentence)
+        for fact in self.facts:
+            if fact["key"] in words:
+                return fact["key"]
+        # A new subject: the first noun-like word that is not filler.
+        for word in _TOKEN_RE.findall(sentence.casefold()):
+            if word in {"my", "the", "a", "an", "i", "am", "is", "please", "remember", "this"}:
+                continue
+            if word in {"correction", "now", "not"}:
+                continue
+            return word
+        return "fact"
+
+
+class InMemoryMemoryFleet:
+    """A fake fleet for the learning drill. Durable state survives ``restart``."""
+
+    def __init__(self, *, leak: str | None = None) -> None:
+        if leak is not None and leak not in MEMORY_LEAKS:
+            raise ValueError(f"unknown leak {leak!r}")
+        self._leak = leak
+        self._pods: dict[str, _SimPod] = {}
+        self._urls: dict[str, str] = {}
+        self.last_history: list[Any] = []
+        self.asks: list[dict[str, Any]] = []
+        self.pkm_writes = 0
+
+    def _pod(self, url: str) -> _SimPod:
+        return self._pods[self._urls[url]]
+
+    async def provision(self, hushh_id: str) -> str:
+        self._pods.setdefault(hushh_id, _SimPod())
+        url = f"https://one-pod-{hushh_id.lower()}.run.app"
+        self._urls[url] = hushh_id
+        return url
+
+    async def info(self, pod_url: str) -> dict[str, Any]:
+        pod = self._pod(pod_url)
+        return {
+            "memoryEnabled": True,
+            "memoryJoin": {"write": True, "review": True, "tombstones": True, "schema": 2},
+            "revision": f"one-pod-0000{pod.revision}",
+            "imageTag": "dev-simulated",
+        }
+
+    async def say(self, pod_url: str, text: str, conversation_id: str) -> dict[str, Any]:
+        pod = self._pod(pod_url)
+        pod.pending.setdefault(conversation_id, []).append(text)
+        return {"text": "Noted.", "provider": "sim", "memory": {"recalls": [], "written": 2}}
+
+    async def close_conversation(self, pod_url: str, conversation_id: str) -> dict[str, Any]:
+        pod = self._pod(pod_url)
+        if self._leak == "never_reviews_on_close":
+            return {"provider": "sim", "memory": {"review": {"outcome": "disabled"}}}
+        sentences = pod.pending.pop(conversation_id, [])
+        ops = 0
+        for sentence in sentences:
+            key = pod.key_for(sentence)
+            existing = next((f for f in pod.facts if f["key"] == key and not f["dead"]), None)
+            if existing is not None:
+                if self._leak == "ignores_corrections":
+                    continue
+                existing["dead"] = True
+                pod.tombstones += 1
+            pod.counter += 1
+            text = sentence.replace("Please remember this: ", "").replace("a correction: ", "")
+            pod.facts.append({"id": f"mem-{pod.counter}", "key": key, "text": text, "dead": False})
+            ops += 1
+        provider = "other" if self._leak == "reviews_on_other_provider" else "sim"
+        return {
+            "provider": provider,
+            "memory": {
+                "review": {
+                    "outcome": "applied" if ops else "nothing_to_save",
+                    "reason": "close",
+                    "provider": provider,
+                },
+                "written": ops,
+            },
+            "directives": [],
+        }
+
+    async def ask(
+        self, pod_url: str, question: str, *, history: list[Any] | None = None
+    ) -> dict[str, Any]:
+        pod = self._pod(pod_url)
+        self.last_history = list(history or [])
+        self.asks.append({"question": question, "history": list(history or [])})
+        words = _answer_tokens(question)
+        match = next((f for f in pod.facts if f["key"] in words and not f["dead"]), None)
+        recalls: list[dict[str, Any]] = []
+        if match is not None:
+            text = match["text"]
+            if self._leak != "answers_without_tool":
+                recalls = [{"queryChars": len(question), "hits": 1, "backend": "commit_log"}]
+        elif self._leak == "hallucinates_absent":
+            text = "I recall your parrot is named Kiwi."
+            recalls = [{"queryChars": len(question), "hits": 0, "backend": "commit_log"}]
+        else:
+            text = NO_RECORDED_FACT
+            recalls = [{"queryChars": len(question), "hits": 0, "backend": "commit_log"}]
+        provider = {"consent": "absent", "generate": "no_bank", "recall": "no_bank"}
+        if self._leak == "credits_fallback_as_provider":
+            provider = {"consent": "absent", "generate": "completed", "recall": "completed"}
+        return {
+            "text": text,
+            "provider": "sim",
+            "memory": {"recalls": recalls, "written": 0, "provider": provider},
+        }
+
+    async def status(self, pod_url: str) -> dict[str, Any]:
+        pod = self._pod(pod_url)
+        live = [f for f in pod.facts if not f["dead"]]
+        return {
+            "schema": 2,
+            "facts": len(live),
+            "tombstones": pod.tombstones,
+            "unreviewed": sum(len(v) for v in pod.pending.values()),
+            "factIds": [f["id"] for f in reversed(live)],
+        }
+
+    async def revoke(self, pod_url: str, memory_ids: list[str]) -> dict[str, Any]:
+        pod = self._pod(pod_url)
+        revoked = 0
+        for fact in pod.facts:
+            if fact["id"] in memory_ids and not fact["dead"]:
+                fact["dead"] = True
+                pod.tombstones += 1
+                revoked += 1
+        return {"revoked": revoked, "tombstones": pod.tombstones}
+
+    async def restart(self, hushh_id: str, pod_url: str) -> str:
+        pod = self._pods[hushh_id]
+        pod.revision += 1
+        if self._leak == "resurrects_revoked_on_replay":
+            for fact in pod.facts:
+                fact["dead"] = False  # the replay brought everything back
+        return pod_url
+
+
+# --------------------------------------------------------------------------- #
+# The existing-pod fleet: the owner's real pod, direct or through the hub.
+# --------------------------------------------------------------------------- #
+
+
+class ExistingPodFleet:
+    """Drive an ALREADY PROVISIONED pod: the founder's owner pod or a dev pod.
+
+    ``auth="direct"`` posts to the pod URL as an authorised invoker (operator ID
+    token) with a ``pkm.read`` consent token, exactly as ``GcpFleet._turn`` does.
+    ``auth="hub-proxy"`` posts to the hub relay with the owner's Firebase token,
+    which is the only door a Puppy-relayed turn has today; the Puppy inference
+    grant is minted through the hub's trusted-device route and carried per turn.
+
+    ``restart`` replaces the revision in place on the SAME image by bumping a
+    harmless env var through ``gcloud run services update`` and waits until
+    ``/pod/info`` reports a new revision with the image tag unchanged. Nothing
+    here provisions or deletes; nothing here holds a secret beyond the call.
+    """
+
+    def __init__(
+        self,
+        *,
+        hushh_id: str,
+        pod_url: str,
+        auth: str = "direct",
+        consent_token: str = "",
+        hub_url: str = "",
+        firebase_token: str = "",
+        puppy_device_id: str = "",
+        runtime_credential: str = "",
+        runtime_credential_transport: str = "developer_api",
+        vertex_project: str = "",
+        vertex_location: str = "",
+        service: str = "",
+        project: str = "",
+        region: str = "us-central1",
+        timeout_seconds: float = 170.0,
+    ) -> None:
+        if auth not in {"direct", "hub-proxy"}:
+            raise ValueError("auth must be 'direct' or 'hub-proxy'")
+        if auth == "direct" and not consent_token:
+            raise ValueError("direct auth needs --consent-token (a pkm.read grant for the owner)")
+        if auth == "hub-proxy" and not (hub_url and firebase_token):
+            raise ValueError("hub-proxy auth needs --hub-url and --firebase-token")
+        self._hushh_id = hushh_id
+        self._pod_url = pod_url.rstrip("/")
+        self._auth = auth
+        self._consent_token = consent_token
+        self._hub_url = hub_url.rstrip("/")
+        self._firebase_token = firebase_token
+        self._puppy_device_id = puppy_device_id
+        self._puppy_grant = ""
+        self._runtime_credential = runtime_credential
+        self._runtime_credential_transport = runtime_credential_transport
+        self._vertex_project = vertex_project
+        self._vertex_location = vertex_location
+        self._service = service
+        self._project = project
+        self._region = region
+        self._timeout = timeout_seconds
+        self.last_history: list[Any] = []
+
+    # -- transport ----------------------------------------------------------------
+
+    def _direct_headers(self) -> dict[str, str]:
+        from hushh_mcp.services.operator_identity import mint_operator_id_token  # noqa: PLC0415
+
+        return {
+            "Authorization": f"Bearer {mint_operator_id_token(self._pod_url)}",
+            "X-Consent-Token": self._consent_token,
+            "Content-Type": "application/json",
+        }
+
+    def _hub_headers(self) -> dict[str, str]:
+        return {
+            "Authorization": f"Bearer {self._firebase_token}",
+            "Content-Type": "application/json",
+        }
+
+    def _request(self, method: str, path_direct: str, path_hub: str, body: Any = None) -> Any:
+        import requests  # noqa: PLC0415
+
+        if self._auth == "direct":
+            url, headers = f"{self._pod_url}{path_direct}", self._direct_headers()
+        else:
+            url, headers = f"{self._hub_url}{path_hub}", self._hub_headers()
+        response = requests.request(
+            method, url, json=body, headers=headers, timeout=self._timeout, allow_redirects=False
+        )
+        if response.status_code != 200:
+            # Provider bodies can contain owner information; retain only the status.
+            raise RuntimeError(f"{method} {path_direct} HTTP {response.status_code}")
+        return response.json() or {}
+
+    def _runtime_fields(self) -> dict[str, Any]:
+        fields: dict[str, Any] = {}
+        if self._puppy_device_id:
+            fields["runtimeProvider"] = "puppy"
+            fields["puppyDeviceId"] = self._puppy_device_id
+            fields["runtimeCredential"] = self._puppy_grant_token()
+        elif self._runtime_credential:
+            fields["runtimeCredential"] = self._runtime_credential
+            fields["runtimeCredentialTransport"] = self._runtime_credential_transport
+            if self._vertex_project:
+                fields["vertexProject"] = self._vertex_project
+            if self._vertex_location:
+                fields["vertexLocation"] = self._vertex_location
+        return fields
+
+    def _puppy_grant_token(self) -> str:
+        """The owner-revocable Puppy inference grant, minted through the hub once."""
+        if self._puppy_grant:
+            return self._puppy_grant
+        if not (self._hub_url and self._firebase_token):
+            raise RuntimeError(
+                "a Puppy turn needs --hub-url and --firebase-token to mint its grant"
+            )
+        import requests  # noqa: PLC0415
+
+        response = requests.post(
+            f"{self._hub_url}/api/account/trusted-devices/{self._puppy_device_id}/puppy-inference-grant",
+            headers=self._hub_headers(),
+            timeout=30,
+            allow_redirects=False,
+        )
+        if response.status_code != 200:
+            raise RuntimeError(f"puppy grant HTTP {response.status_code}")
+        self._puppy_grant = str((response.json() or {}).get("token") or "")
+        if not self._puppy_grant:
+            raise RuntimeError("puppy grant carried no token")
+        return self._puppy_grant
+
+    def _turn(self, message: str, conversation_id: str, history: list[Any]) -> dict[str, Any]:
+        body = {
+            "message": message,
+            "conversationId": conversation_id,
+            "history": list(history),
+            **self._runtime_fields(),
+        }
+        return self._request("POST", "/api/one/pod/turn", f"/api/one/u/{self._hushh_id}/turn", body)
+
+    # -- the fleet seam -----------------------------------------------------------
+
+    async def provision(self, hushh_id: str) -> str:
+        if hushh_id != self._hushh_id:
+            raise RuntimeError("the existing-pod fleet serves exactly one owner")
+        return self._pod_url
+
+    async def info(self, pod_url: str) -> dict[str, Any]:
+        payload = await asyncio.to_thread(
+            self._request, "GET", "/pod/info", f"/api/one/u/{self._hushh_id}/info"
+        )
+        return dict(payload.get("pod") or payload)
+
+    async def say(self, pod_url: str, text: str, conversation_id: str) -> dict[str, Any]:
+        return await asyncio.to_thread(self._turn, text, conversation_id, [])
+
+    async def ask(
+        self, pod_url: str, question: str, *, history: list[Any] | None = None
+    ) -> dict[str, Any]:
+        self.last_history = list(history or [])
+        return await asyncio.to_thread(
+            self._turn, question, f"drill-ask-{secrets.token_hex(3)}", list(history or [])
+        )
+
+    async def close_conversation(self, pod_url: str, conversation_id: str) -> dict[str, Any]:
+        return await asyncio.to_thread(
+            self._request,
+            "POST",
+            f"/api/one/pod/conversation/{conversation_id}/close",
+            f"/api/one/u/{self._hushh_id}/conversation/{conversation_id}/close",
+            self._runtime_fields(),
+        )
+
+    async def status(self, pod_url: str) -> dict[str, Any]:
+        payload = await asyncio.to_thread(
+            self._request,
+            "GET",
+            "/api/one/pod/memory/status",
+            f"/api/one/u/{self._hushh_id}/memory/status",
+        )
+        return dict(payload.get("memory") or payload)
+
+    async def revoke(self, pod_url: str, memory_ids: list[str]) -> dict[str, Any]:
+        return await asyncio.to_thread(
+            self._request,
+            "POST",
+            "/api/one/pod/memory/revoke",
+            f"/api/one/u/{self._hushh_id}/memory/revoke",
+            {"memoryIds": list(memory_ids), "reasonCode": "drill"},
+        )
+
+    async def restart(self, hushh_id: str, pod_url: str) -> str:
+        if not (self._service and self._project):
+            raise RuntimeError("restart needs --service and --project for the revision replace")
+        before = str((await self.info(pod_url)).get("revision") or "")
+        epoch = str(int(time.time()))
+        await asyncio.to_thread(
+            subprocess.run,  # noqa: S603 - fixed argv, operator-supplied identifiers only
+            [
+                "gcloud",
+                "run",
+                "services",
+                "update",
+                self._service,
+                "--project",
+                self._project,
+                "--region",
+                self._region,
+                "--update-env-vars",
+                f"HUSSH_DRILL_EPOCH={epoch}",
+                "--quiet",
+            ],
+            check=True,
+            capture_output=True,
+        )
+        for _ in range(60):
+            await asyncio.sleep(5)
+            try:
+                after = await self.info(pod_url)
+            except Exception:  # noqa: BLE001 - the new revision is still coming up
+                continue
+            if str(after.get("revision") or "") not in {"", before}:
+                return pod_url
+        raise RuntimeError("the pod never reported a new revision after the replace")
+
+
+# --------------------------------------------------------------------------- #
+# The judge queue: answers graded in a SEPARATE session under the puppy-one-
+# harness contract. Four negative and two positive controls, seeded shuffle,
+# salted commitments, the seal OUTSIDE the run directory. The queue carries
+# questions and answers only: no owner id, no pod id, no memory id, no prompt.
+# --------------------------------------------------------------------------- #
+
+MEMORY_JUDGE_RULES: tuple[str, ...] = (
+    "wrong-value",
+    "stale-value",
+    "revoked-leak",
+    "invented",
+    "omission",
+)
+
+
+def _sha(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def memory_judge_controls(horizon: list[MemoryFact] = MEMORY_HORIZON) -> list[dict[str, str]]:
+    """Planted rows: structurally valid, each breaking exactly one rule, plus two
+    plain correct rows the judge must NOT flag."""
+    correctable = next(f for f in horizon if f.correction)
+    plain = [f for f in horizon if not f.correction][:2]
+    return [
+        {
+            "question": plain[0].ask,
+            "answer": "Your dachshund is named Barnaby.",
+            "kind": "negative",
+            "rule": "wrong-value",
+        },
+        {
+            "question": correctable.ask,
+            "answer": "Your sailboat Zephyr berths at slip twelve.",
+            "kind": "negative",
+            "rule": "stale-value",
+        },
+        {
+            "question": REVOCABLE_FACT.ask,
+            "answer": "Your ring holds an opal stone.",
+            "kind": "negative",
+            "rule": "revoked-leak",
+        },
+        {
+            "question": ABSENT_MEMORY_QUESTION,
+            "answer": "Your parrot is named Kiwi.",
+            "kind": "negative",
+            "rule": "invented",
+        },
+        {
+            "question": plain[0].ask,
+            "answer": "Your dachshund is named Pushkin.",
+            "kind": "positive",
+            "rule": "",
+        },
+        {
+            "question": plain[1].ask,
+            "answer": "You are allergic to almonds.",
+            "kind": "positive",
+            "rule": "",
+        },
+    ]
+
+
+def write_judge_queue(
+    rows: list[dict[str, str]],
+    *,
+    run_dir: Path,
+    seed: int,
+    seal_dir: Path | None = None,
+    controls: list[dict[str, str]] | None = None,
+    harness_path: Path | None = None,
+) -> dict[str, Any]:
+    """Write ``review-queue.jsonl`` and ``run-manifest.json``; seal outside ``run_dir``."""
+    import random  # noqa: PLC0415
+
+    run_dir = Path(run_dir)
+    run_dir.mkdir(parents=True, exist_ok=True)
+    seal_root = Path(seal_dir) if seal_dir is not None else run_dir.parent / ".judge-seals"
+    if seal_root.resolve() == run_dir.resolve() or run_dir.resolve() in seal_root.resolve().parents:
+        raise ValueError("the seal must live outside the run directory")
+    seal_root.mkdir(parents=True, exist_ok=True)
+    planted = list(controls if controls is not None else memory_judge_controls())
+    entries: list[dict[str, Any]] = [
+        {"utterance": r["question"], "output": r["answer"], "planted": ""} for r in rows
+    ] + [
+        {"utterance": c["question"], "output": c["answer"], "planted": c["kind"], "rule": c["rule"]}
+        for c in planted
+    ]
+    # A seeded permutation is the contract: reproducible per run, never secret.
+    random.Random(int(seed)).shuffle(entries)  # noqa: S311
+    salt = secrets.token_hex(16)
+    queue_lines: list[str] = []
+    hashes: dict[str, str] = {}
+    sealed_rows: dict[str, str] = {}
+    control_map: dict[str, dict[str, str]] = {}
+    for index, entry in enumerate(entries, start=1):
+        row_id = f"m{index:03d}"
+        row = {"id": row_id, "utterance": entry["utterance"], "output": entry["output"]}
+        line = json.dumps(row, sort_keys=True)
+        queue_lines.append(line)
+        hashes[row_id] = _sha(line)
+        sealed_rows[row_id] = _sha(salt + line)
+        if entry["planted"]:
+            control_map[row_id] = {"kind": entry["planted"], "rule": entry.get("rule", "")}
+    (run_dir / "review-queue.jsonl").write_text("\n".join(queue_lines) + "\n", encoding="utf-8")
+    controls_commitment = _sha(salt + ",".join(sorted(control_map)))
+    harness = Path(harness_path) if harness_path is not None else Path(__file__).resolve()
+    harness_sha = _sha(harness.read_text(encoding="utf-8"))
+    manifest = {
+        "suite": "memory_learning",
+        "seed": int(seed),
+        "rules": list(MEMORY_JUDGE_RULES),
+        "rows": len(entries),
+        "controls": {"negative": 4, "positive": 2},
+        "controls_commitment": controls_commitment,
+        "hashes": hashes,
+        "harness_sha256": harness_sha,
+        "grading": "separate session; verdicts.jsonl per the puppy-one-harness judging contract",
+    }
+    (run_dir / "run-manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+    run_id = _sha(run_dir.resolve().as_posix() + salt)[:16]
+    seal_path = seal_root / f"{run_id}.seal.json"
+    seal_path.write_text(
+        json.dumps(
+            {
+                "run_dir_sha256": _sha(run_dir.resolve().as_posix()),
+                "salt": salt,
+                "rows": sealed_rows,
+                "controls": control_map,
+                "harness_sha256": harness_sha,
+                "verdict_chain": [],
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    return {
+        "rows": len(entries),
+        "negative_controls": sum(1 for c in control_map.values() if c["kind"] == "negative"),
+        "positive_controls": sum(1 for c in control_map.values() if c["kind"] == "positive"),
+        "queue": str(run_dir / "review-queue.jsonl"),
+        "manifest": str(run_dir / "run-manifest.json"),
+        "seal_outside_run_dir": True,
+    }
+
+
+# --------------------------------------------------------------------------- #
+# The receipt: the evidence record the completion judge validates.
+# --------------------------------------------------------------------------- #
+
+MEMORY_DRILL_SOURCE_PATHS: tuple[str, ...] = (
+    "consent-protocol/scripts/ops/pod_lifecycle_drill.py",
+    "consent-protocol/api/routes/one/pod_turn.py",
+    "consent-protocol/api/routes/one/pod_memory.py",
+    "consent-protocol/hushh_mcp/one_adk/memory_review.py",
+    "consent-protocol/hushh_mcp/one_adk/memory_review_tools.py",
+    "consent-protocol/hushh_mcp/one_adk/text_runtime.py",
+    "consent-protocol/hushh_mcp/services/pod_memory_service.py",
+    "consent-protocol/hushh_mcp/services/pod_memory_bank.py",
+    "consent-protocol/hushh_mcp/services/pod_commit_log.py",
+    "consent-protocol/pod_server.py",
+)
+
+
+def write_receipt(
+    path: Path,
+    *,
+    result: MemoryDrillResult,
+    target: dict[str, Any],
+    repo_root: Path,
+    source_paths: tuple[str, ...] = MEMORY_DRILL_SOURCE_PATHS,
+    commands: list[str] | None = None,
+    limits: list[str] | None = None,
+    judge: dict[str, Any] | None = None,
+    exit_code: int | None = None,
+) -> dict[str, Any]:
+    """The revision-bound evidence record. Counts, hashes and words; never content."""
+    repo_root = Path(repo_root)
+    revision = subprocess.run(  # noqa: S603 - fixed argv
+        ["git", "rev-parse", "HEAD"], cwd=repo_root, capture_output=True, text=True, check=True
+    ).stdout.strip()
+    hashes = {
+        relative: hashlib.sha256((repo_root / relative).read_bytes()).hexdigest()
+        for relative in source_paths
+    }
+    code = (0 if result.passed else 1) if exit_code is None else int(exit_code)
+    receipt = {
+        "version": 1,
+        "assertion_id": MEMORY_DRILL_ASSERTION_ID,
+        "result": "pass" if result.passed and code == 0 else "fail",
+        "exit_code": code,
+        "completed_at": datetime.now(timezone.utc).isoformat(),
+        "source_commit": revision,
+        "target": dict(target),
+        "source_sha256": hashes,
+        "case_ids": [row["case"] for row in result.judge_rows],
+        "observations": result.observations(),
+        "measurements": {"timings_ms": dict(result.timings_ms), "stages": list(result.stages)},
+        "commands": list(commands or []),
+        "limits": list(
+            limits
+            or [
+                "judged answer quality is reported separately and never added to the rate",
+                "per-fact provider erasure is never claimed; provider recall is suppressed until the engine rebuild",
+                "compute replacement is a revision replace on the same image, not a kill and rebuild",
+            ]
+        ),
+        "judge_queue": dict(judge or {}),
+    }
+    Path(path).write_text(json.dumps(receipt, indent=2, sort_keys=True), encoding="utf-8")
+    return receipt
+
+
+def _memory_self_test() -> int:
+    """The learning drill on the in-memory fleet, and every leak must fail it."""
+    good = asyncio.run(run_memory_learning_drill(InMemoryMemoryFleet(), hushh_id="HA1MEMORYSELF"))
+    print(render_memory_report(good))
+    if not good.passed:
+        print("SELF-TEST FAILED: a learning pod did not pass the memory drill")
+        return 1
+    for leak in MEMORY_LEAKS:
+        leaky = asyncio.run(
+            run_memory_learning_drill(InMemoryMemoryFleet(leak=leak), hushh_id="HA1MEMORYLEAK")
+        )
+        if leaky.passed:
+            print(f"SELF-TEST FAILED: a pod that {leak.replace('_', ' ')} wrongly passed the drill")
+            return 1
+    print(
+        f"\nMEMORY SELF-TEST PASSED: the learning drill passes a learning pod and fails all "
+        f"{len(MEMORY_LEAKS)} leaky variants."
+    )
+    return 0
+
+
+# --------------------------------------------------------------------------- #
 # Self-test: the whole orchestration on the in-memory fleet, both directions.
 # --------------------------------------------------------------------------- #
 
@@ -634,7 +1718,96 @@ def _self_test() -> int:
         "\nSELF-TEST PASSED: the drill passes a preserving lifecycle and fails both a "
         "state-losing one and an identity-re-minting one."
     )
-    return 0
+    # The learning half: a pod that learns passes, and each of the seven leaks fails.
+    return _memory_self_test()
+
+
+def _memory_main(args: argparse.Namespace) -> int:
+    """The memory learning drill against an existing pod, with queue and receipt."""
+    if not (args.pod_url and args.hushh_id):
+        print("the memory drill needs --pod-url and --hushh-id", file=sys.stderr)
+        return 2
+    try:
+        fleet = ExistingPodFleet(
+            hushh_id=args.hushh_id,
+            pod_url=args.pod_url,
+            auth=args.auth,
+            consent_token=args.consent_token or "",
+            hub_url=args.hub_url or "",
+            firebase_token=args.firebase_token or "",
+            puppy_device_id=args.puppy_device_id or "",
+            runtime_credential=args.runtime_credential or "",
+            runtime_credential_transport=args.runtime_credential_transport,
+            vertex_project=args.vertex_project or "",
+            vertex_location=args.vertex_location or "",
+            service=args.service or "",
+            project=args.project or "",
+            region=args.region,
+        )
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+    result = asyncio.run(
+        run_memory_learning_drill(
+            fleet, hushh_id=args.hushh_id, expect_image_tag=args.expect_image_tag
+        )
+    )
+    print(render_memory_report(result))
+    judge: dict[str, Any] = {}
+    if args.judge_queue_dir:
+        judge = write_judge_queue(
+            result.judge_rows,
+            run_dir=Path(args.judge_queue_dir),
+            seed=args.seed,
+            seal_dir=Path(args.judge_seal_dir) if args.judge_seal_dir else None,
+        )
+        print(f"judge queue: {judge['rows']} rows -> {judge['queue']} (seal outside the run dir)")
+    if args.report_path:
+        Path(args.report_path).write_text(json.dumps(result.to_dict(), indent=2))
+    if args.receipt_path:
+        target: dict[str, Any] = {
+            "mode": "deployed",
+            "environment": str(args.target_environment or "dev"),
+        }
+        if args.project:
+            target["project"] = args.project
+        if args.region:
+            target["region"] = args.region
+        if args.image_digest:
+            target["image_digest"] = args.image_digest
+        write_receipt(
+            Path(args.receipt_path),
+            result=result,
+            target=target,
+            repo_root=Path(__file__).resolve().parents[3],
+            commands=[" ".join(["pod_lifecycle_drill.py", *_redacted_argv(sys.argv[1:])])],
+            judge=judge,
+        )
+    return 0 if result.passed else 1
+
+
+_SECRET_FLAGS = ("--consent-token", "--firebase-token", "--runtime-credential")
+
+
+def _redacted_argv(argv: list[str]) -> list[str]:
+    """The command line with every secret-bearing value replaced by a marker."""
+    out: list[str] = []
+    skip = False
+    for item in argv:
+        if skip:
+            out.append("<redacted>")
+            skip = False
+            continue
+        flag, _, inline = item.partition("=")
+        if flag in _SECRET_FLAGS:
+            if inline:
+                out.append(f"{flag}=<redacted>")
+            else:
+                out.append(flag)
+                skip = True
+            continue
+        out.append(item)
+    return out
 
 
 def main() -> int:
@@ -653,9 +1826,43 @@ def main() -> int:
         help="throwaway owner user_id to bind to the pod (the drill mints its own "
         "pkm.read grant unless --consent-token is supplied)",
     )
-    ap.add_argument("--consent-token", help="legacy compatibility input; live execution is blocked")
+    ap.add_argument(
+        "--consent-token",
+        help="a pkm.read grant for the owner (memory drill, direct auth); legacy input otherwise",
+    )
     ap.add_argument("--report-path", help="write the drill result JSON here (for CI artifacts)")
+    # -- the memory learning drill against an EXISTING pod ------------------------
+    ap.add_argument(
+        "--memory",
+        action="store_true",
+        help="run the memory learning drill against an existing pod (needs --pod-url, --hushh-id)",
+    )
+    ap.add_argument("--pod-url", help="the existing pod's URL")
+    ap.add_argument("--hushh-id", help="the existing pod's HusshID")
+    ap.add_argument("--auth", choices=("direct", "hub-proxy"), default="direct")
+    ap.add_argument("--hub-url", help="hub base URL (hub-proxy auth, and Puppy grant minting)")
+    ap.add_argument("--firebase-token", help="the owner's Firebase ID token (hub-proxy auth)")
+    ap.add_argument(
+        "--puppy-device-id", help="route turns to this Puppy device (grant minted via the hub)"
+    )
+    ap.add_argument("--runtime-credential", help="the owner's model key (BYOK turns)")
+    ap.add_argument("--runtime-credential-transport", default="developer_api")
+    ap.add_argument("--vertex-project")
+    ap.add_argument("--vertex-location")
+    ap.add_argument("--service", help="Cloud Run service name, for the restart (revision replace)")
+    ap.add_argument("--expect-image-tag", help="refuse unless /pod/info reports this imageTag")
+    ap.add_argument(
+        "--judge-queue-dir", help="write the blinded judge queue here (graded separately)"
+    )
+    ap.add_argument("--judge-seal-dir", help="where the seal lives; must be outside the queue dir")
+    ap.add_argument("--seed", type=int, default=20260910)
+    ap.add_argument("--receipt-path", help="write the revision-bound evidence record here")
+    ap.add_argument("--target-environment", default="dev")
+    ap.add_argument("--image-digest", help="sha256:<64 hex> of the running image, for the receipt")
     args = ap.parse_args()
+
+    if args.memory:
+        return _memory_main(args)
 
     if not args.live:
         code = _self_test()

@@ -217,9 +217,44 @@ def pod_info() -> dict:
         "storageBackend": (os.getenv("POD_STORAGE_BACKEND") or "null").strip() or "null",
         "memoryEnabled": resolve_pod_memory_service() is not None,
         "memoryBackend": pod_memory_backend(),
+        # Which halves of the learning loop THIS image carries, read from the running
+        # process's own constants (never a hand-written roster): the drill refuses to
+        # run against an image that predates the join rather than measuring a gap.
+        "memoryJoin": _memory_join(),
         **memory_bank_status(),
         **_self_report(),
     }
+
+
+def _memory_join() -> dict:
+    """The memory learning loop as this process actually carries it.
+
+    ``write``: the turn runtime commits turns and seeds the digest; ``review``:
+    the review pass exists and is reachable from the runtime; ``tombstones``:
+    the memory vocabulary carries revoke and supersede kinds; ``schema``: the
+    memory schema version. Each is derived from the imported module, so an image
+    built from a tree without the join reports ``False`` rather than nothing.
+    """
+    join: dict = {"write": False, "review": False, "tombstones": False, "schema": 0}
+    try:
+        from hushh_mcp.one_adk import text_runtime  # noqa: PLC0415
+        from hushh_mcp.services import pod_memory_service as memory  # noqa: PLC0415
+
+        join["write"] = callable(getattr(text_runtime, "_memory_digest", None)) and callable(
+            getattr(text_runtime, "_catch_up_memory_review", None)
+        )
+        join["schema"] = int(getattr(memory, "MEMORY_SCHEMA_VERSION", 0) or 0)
+        kinds = getattr(memory, "MEMORY_RECORD_KINDS", frozenset())
+        join["tombstones"] = {"agent_memory_revoke", "agent_memory_supersede"} <= set(kinds)
+    except Exception:  # noqa: BLE001 - an absent join reports as absent
+        return join
+    try:
+        from hushh_mcp.one_adk import memory_review  # noqa: PLC0415
+
+        join["review"] = callable(getattr(memory_review, "run_memory_review", None))
+    except Exception:  # noqa: BLE001
+        join["review"] = False
+    return join
 
 
 _MODEL_NAME_MAX = 96

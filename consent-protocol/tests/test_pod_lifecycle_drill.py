@@ -10,6 +10,9 @@ These pin the orchestration AND that a state-losing lifecycle fails it.
 
 from __future__ import annotations
 
+# ruff: noqa: S106 -- `consent_token="grant"` / `firebase_token="fb"` are test fixtures for
+# arguments genuinely named that way; no real credential appears in this file.
+import asyncio
 import importlib.util
 import json
 import sys
@@ -433,3 +436,275 @@ def test_dry_run_cli_still_executes_oracle_without_live_fleet(monkeypatch, tmp_p
     )
     assert drill.main() == 0
     assert json.loads(report_path.read_text()) == {"mode": "dry-run", "passed": True}
+
+
+# -- the memory LEARNING drill --------------------------------------------------------
+
+
+async def test_a_learning_pod_passes_the_memory_drill_and_every_observation_is_true():
+    fleet = drill.InMemoryMemoryFleet()
+    result = await drill.run_memory_learning_drill(fleet, hushh_id="HA1LEARNS")
+    assert result.passed, result.stages
+    observations = result.observations()
+    for name in (
+        "paraphrase_recalled",
+        "recall_via_observed_tool_call",
+        "correction_supersedes",
+        "stale_value_not_recalled",
+        "restart_without_history",
+        "revoked_fact_not_recalled_after_replay",
+        "negative_control_clean",
+        "review_ran_on_close",
+        "review_provider_matches_turn_provider",
+        "memory_join_present_on_image",
+        "catch_up_debt_zero",
+        "tombstones_increased",
+    ):
+        assert observations[name] is True, name
+    assert observations["taught"] == len(drill.MEMORY_HORIZON)
+    assert observations["quality_judged_independently"] is False, (
+        "the drill never grants itself the judged number"
+    )
+    assert set(result.timings_ms) >= {"paraphrase_recall", "restart_recall", "revoke_replay"}
+
+
+@pytest.mark.parametrize("leak", drill.MEMORY_LEAKS)
+async def test_each_leaky_variant_fails_the_memory_drill(leak):
+    """One test per leak, each the exact defect a real pod could carry."""
+    result = await drill.run_memory_learning_drill(
+        drill.InMemoryMemoryFleet(leak=leak), hushh_id="HA1LEAKS"
+    )
+    assert not result.passed, f"{leak} passed: {result.stages}"
+    observations = result.observations()
+    expected_false = {
+        "ignores_corrections": "correction_supersedes",
+        "resurrects_revoked_on_replay": "revoked_fact_not_recalled_after_replay",
+        "answers_without_tool": "recall_via_observed_tool_call",
+        "hallucinates_absent": "negative_control_clean",
+        "credits_fallback_as_provider": "provider_report_consistent",
+        "reviews_on_other_provider": "review_provider_matches_turn_provider",
+        "never_reviews_on_close": "review_ran_on_close",
+    }[leak]
+    assert observations[expected_false] is False, (leak, observations)
+
+
+def test_the_seven_leaks_are_exactly_the_seven_the_plan_names():
+    assert set(drill.MEMORY_LEAKS) == {
+        "ignores_corrections",
+        "resurrects_revoked_on_replay",
+        "answers_without_tool",
+        "hallucinates_absent",
+        "credits_fallback_as_provider",
+        "reviews_on_other_provider",
+        "never_reviews_on_close",
+    }
+
+
+async def test_every_recall_carries_an_empty_history():
+    """Only the pod's own memory may answer: the browser thread never rides along."""
+    fleet = drill.InMemoryMemoryFleet()
+    await drill.run_memory_learning_drill(fleet, hushh_id="HA1EMPTYHISTORY")
+    assert fleet.asks, "no recall was asked"
+    assert all(ask["history"] == [] for ask in fleet.asks)
+    assert all(drill.NO_RECORDED_FACT in ask["question"] for ask in fleet.asks)
+
+
+def test_the_value_oracle_scores_values_not_echoes():
+    hit = drill._value_hit
+    assert hit("Your dachshund is named Pushkin.", ("pushkin",))
+    assert hit("It leaks when it rains.", ("leak",))
+    assert not hit("What is the name of my dachshund?", ("pushkin",)), "an echo is not recall"
+    assert hit("Zephyr berths at slip forty.", ("forty",), ("twelve",))
+    assert not hit("Zephyr berths at slip forty, not twelve.", ("forty",), ("twelve",)), (
+        "a stale value beside the new one is still a stale value served"
+    )
+    assert not hit("", ("forty",))
+    assert not hit("NO_RECORDED_FACT", ("forty",))
+
+
+def test_paraphrase_questions_never_contain_their_own_answers():
+    for fact in [*drill.MEMORY_HORIZON, drill.REVOCABLE_FACT]:
+        words = drill._answer_tokens(fact.ask)
+        for token in fact.value_tokens + fact.new_value_tokens:
+            assert not any(w == token or w.startswith(token) for w in words), (fact.key, token)
+
+
+def test_the_judge_queue_is_blinded_sealed_outside_and_carries_no_ids_or_prompts(tmp_path):
+    result = drill.MemoryDrillResult(horizon_size=6)
+    result.judge_rows = [
+        {"question": f.ask, "answer": f"Answer about {f.key}.", "case": f.key}
+        for f in drill.MEMORY_HORIZON
+    ]
+    run_dir = tmp_path / "runs" / "memory-1"
+    summary = drill.write_judge_queue(
+        result.judge_rows, run_dir=run_dir, seed=7, harness_path=_DRILL
+    )
+    queue_text = (run_dir / "review-queue.jsonl").read_text()
+    manifest = json.loads((run_dir / "run-manifest.json").read_text())
+    rows = [json.loads(line) for line in queue_text.splitlines()]
+    assert summary["rows"] == len(rows) == 6 + 6
+    assert summary["negative_controls"] == 4 and summary["positive_controls"] == 2
+    assert manifest["controls"] == {"negative": 4, "positive": 2}
+    assert set(manifest["hashes"]) == {r["id"] for r in rows}
+    assert set(manifest["rules"]) == {
+        "wrong-value",
+        "stale-value",
+        "revoked-leak",
+        "invented",
+        "omission",
+    }
+    # Nothing in the queue or the manifest names the owner, a pod, a memory id or a prompt.
+    for forbidden in (
+        "HA1",
+        "hushh",
+        "mem-",
+        "Please remember",
+        "NO_RECORDED_FACT",
+        "planted",
+        "salt",
+    ):
+        assert forbidden not in queue_text and forbidden not in json.dumps(manifest), forbidden
+    assert all(set(r) == {"id", "utterance", "output"} for r in rows)
+    # Same seed, same order; a different seed, a different order.
+    again = tmp_path / "runs" / "memory-2"
+    drill.write_judge_queue(result.judge_rows, run_dir=again, seed=7, harness_path=_DRILL)
+    assert [
+        json.loads(line)["utterance"]
+        for line in (again / "review-queue.jsonl").read_text().splitlines()
+    ] == [r["utterance"] for r in rows]
+    other = tmp_path / "runs" / "memory-3"
+    drill.write_judge_queue(result.judge_rows, run_dir=other, seed=8, harness_path=_DRILL)
+    assert [
+        json.loads(line)["utterance"]
+        for line in (other / "review-queue.jsonl").read_text().splitlines()
+    ] != [r["utterance"] for r in rows]
+    # The seal lives OUTSIDE the run directory, and only it knows which rows are planted.
+    seals = list((tmp_path / "runs" / ".judge-seals").glob("*.seal.json"))
+    assert len(seals) == 3
+    assert not list(run_dir.glob("*seal*"))
+    seal = json.loads(seals[0].read_text())
+    assert len(seal["controls"]) == 6 and seal["salt"]
+    assert seal["harness_sha256"] == manifest["harness_sha256"]
+    with pytest.raises(ValueError):
+        drill.write_judge_queue(result.judge_rows, run_dir=run_dir, seed=1, seal_dir=run_dir)
+
+
+def test_the_receipt_passes_the_completion_judges_validator(tmp_path, monkeypatch):
+    import datetime as _dt
+    import hashlib
+    import importlib.util
+    import subprocess
+
+    judge_path = Path(__file__).resolve().parents[1] / "scripts" / "ops" / "pod_completion_judge.py"
+    spec = importlib.util.spec_from_file_location("pod_completion_judge_for_drill", judge_path)
+    judge = importlib.util.module_from_spec(spec)
+    # Registered before exec, as the drill itself is above: the judge's dataclasses
+    # resolve their string annotations through sys.modules[__module__].
+    sys.modules["pod_completion_judge_for_drill"] = judge
+    spec.loader.exec_module(judge)  # type: ignore[union-attr]
+
+    def git(*args):
+        return subprocess.check_output(["git", *args], cwd=tmp_path).decode().strip()  # noqa: S603 - synthetic fixture arguments
+
+    git("init", "-q")
+    git("config", "user.email", "synthetic@example.invalid")
+    git("config", "user.name", "Synthetic Fixture")
+    (tmp_path / "probe.py").write_text("print('synthetic')\n")
+    git("add", "probe.py")
+    git("commit", "-qm", "synthetic baseline")
+
+    result = asyncio.run(
+        drill.run_memory_learning_drill(drill.InMemoryMemoryFleet(), hushh_id="HA1RECEIPT")
+    )
+    assert result.passed
+    target = {"mode": "local", "environment": "synthetic"}
+    receipt = drill.write_receipt(
+        tmp_path / "receipt.json",
+        result=result,
+        target=target,
+        repo_root=tmp_path,
+        source_paths=("probe.py",),
+        commands=["pod_lifecycle_drill.py --memory --consent-token <redacted>"],
+    )
+    git("add", "receipt.json")
+    raw = (tmp_path / "receipt.json").read_bytes()
+    item = {
+        "id": drill.MEMORY_DRILL_ASSERTION_ID,
+        "assertion_id": drill.MEMORY_DRILL_ASSERTION_ID,
+        "check": {"kind": "receipt"},
+        "artifact": "receipt.json",
+        "artifact_sha256": hashlib.sha256(raw).hexdigest(),
+        "expected_target": target,
+        "source_paths": ["probe.py"],
+        "reproduce": "probe.py",
+        "observation_requirements": {
+            "taught": {"minimum": 6},
+            "paraphrase_recalled": {"equals": True},
+            "recall_via_observed_tool_call": {"equals": True},
+            "correction_supersedes": {"equals": True},
+            "stale_value_not_recalled": {"equals": True},
+            "restart_without_history": {"equals": True},
+            "revoked_fact_not_recalled_after_replay": {"equals": True},
+            "negative_control_clean": {"equals": True},
+            "review_ran_on_close": {"equals": True},
+            "review_provider_matches_turn_provider": {"equals": True},
+            "memory_join_present_on_image": {"equals": True},
+        },
+    }
+    monkeypatch.setattr(judge, "REPO_ROOT", tmp_path)
+    valid, detail = judge._validate_receipt_artifact(
+        item, _dt.datetime.now(_dt.timezone.utc).date()
+    )
+    assert valid, detail
+    assert receipt["result"] == "pass" and receipt["exit_code"] == 0
+    assert "<redacted>" in receipt["commands"][0]
+    text = json.dumps(receipt)
+    for private in ("Pushkin", "4269", "HA1RECEIPT"):
+        assert private not in text
+    # The judged number is never granted by the drill itself.
+    assert receipt["observations"]["quality_judged_independently"] is False
+
+
+def test_secret_flags_are_redacted_from_the_recorded_command():
+    argv = ["--memory", "--consent-token", "abc", "--firebase-token=xyz", "--seed", "3"]
+    assert drill._redacted_argv(argv) == [
+        "--memory",
+        "--consent-token",
+        "<redacted>",
+        "--firebase-token=<redacted>",
+        "--seed",
+        "3",
+    ]
+
+
+def test_the_memory_drill_refuses_an_image_without_the_join():
+    class _PreJoin(drill.InMemoryMemoryFleet):
+        async def info(self, pod_url):
+            info = await super().info(pod_url)
+            info["memoryJoin"] = {"write": True, "review": False, "tombstones": False, "schema": 1}
+            return info
+
+    result = asyncio.run(drill.run_memory_learning_drill(_PreJoin(), hushh_id="HA1PREJOIN"))
+    assert result.memory_join_present_on_image is False
+    assert not result.passed
+
+
+def test_the_existing_pod_fleet_refuses_incomplete_auth_before_any_network():
+    with pytest.raises(ValueError):
+        drill.ExistingPodFleet(hushh_id="ha1x", pod_url="https://pod", auth="direct")
+    with pytest.raises(ValueError):
+        drill.ExistingPodFleet(hushh_id="ha1x", pod_url="https://pod", auth="hub-proxy")
+    fleet = drill.ExistingPodFleet(
+        hushh_id="ha1x", pod_url="https://pod/", auth="direct", consent_token="grant"
+    )
+    assert fleet._runtime_fields() == {}
+    puppy = drill.ExistingPodFleet(
+        hushh_id="ha1x",
+        pod_url="https://pod",
+        auth="hub-proxy",
+        hub_url="https://hub",
+        firebase_token="fb",
+        puppy_device_id="device-1",
+    )
+    with pytest.raises(RuntimeError):
+        asyncio.run(puppy.restart("ha1x", "https://pod"))  # needs --service and --project

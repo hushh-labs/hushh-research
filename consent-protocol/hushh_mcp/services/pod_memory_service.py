@@ -1095,6 +1095,9 @@ def build_pod_memory_service(
                 "lastSeq": self._last_seq,
                 "reviewedThroughSeq": self._reviewed_through_seq,
                 "unreviewed": self.unreviewed_count(),
+                # Ids only, newest first: what an owner names when revoking, and
+                # what the drill diffs to find the fact it just taught. Never text.
+                "factIds": [rec.memory_id for rec in store.live_facts()[:200]],
                 "provider": {
                     "consent": self._consent_word(),
                     "bank": self.bank is not None,
