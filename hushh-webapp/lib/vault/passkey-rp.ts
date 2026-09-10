@@ -47,6 +47,9 @@ export function isPasskeyRpIdCompatibleWithHost(
   const normalizedHost = normalizeRpHost(hostname);
   const normalizedRpId = normalizeRpHost(rpId);
   if (!normalizedHost || !normalizedRpId) return false;
+  if (isLikelyIpAddress(normalizedHost) || isLikelyIpAddress(normalizedRpId)) {
+    return false;
+  }
   return (
     normalizedHost === normalizedRpId ||
     normalizedHost.endsWith(`.${normalizedRpId}`)

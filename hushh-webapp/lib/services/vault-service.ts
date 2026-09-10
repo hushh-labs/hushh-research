@@ -6,6 +6,7 @@ import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { PreVaultUserStateService } from "@/lib/services/pre-vault-user-state-service";
 import {
   createVaultWithPassphrase as webCreateVault,
+  hexToBytes,
   unlockVaultWithPassphrase as webUnlockVault,
   unlockVaultWithRecoveryKey as webUnlockRecall,
 } from "@/lib/vault/passphrase-key";
@@ -669,9 +670,11 @@ export class VaultService {
     if (!normalized) {
       throw new Error("Invalid vault key hex.");
     }
+    // Hash the raw bytes, not the hex-encoded string representation.
+    const rawBytes = hexToBytes(normalized);
     const digest = await crypto.subtle.digest(
       "SHA-256",
-      new TextEncoder().encode(normalized),
+      rawBytes.buffer as ArrayBuffer,
     );
     return Array.from(new Uint8Array(digest))
       .map((byte) => byte.toString(16).padStart(2, "0"))
