@@ -852,6 +852,74 @@ class TrustedDeviceService:
     def is_active_device(self, *, user_id: str, device_id: str) -> bool:
         return self._store.get_active_device(user_id=user_id, device_id=device_id) is not None
 
+    def active_device(self, *, user_id: str, device_id: str) -> dict[str, Any] | None:
+        """The active row's public facts for the pod-binding issuer: key and platform.
+
+        Public key material only. The binding the hub signs carries this key so the
+        pod can verify the subject's proof of possession without a database.
+        """
+        if not _DEVICE_ID_RE.fullmatch(device_id):
+            return None
+        row = self._store.get_active_device(user_id=user_id, device_id=device_id)
+        if not row:
+            return None
+        return {
+            "device_id": str(row.get("device_id") or device_id),
+            "platform": str(row.get("platform") or ""),
+            "device_public_key": str(row.get("device_public_key") or ""),
+            "status": str(row.get("status") or "active"),
+        }
+
+    def self_enroll(
+        self, *, user_id: str, device_public_key: str, device_name: str, platform: str
+    ) -> dict[str, Any]:
+        """Enrol the signed-in app installation itself (web, ios, android) as a subject.
+
+        No PKCE, no loopback redirect, no approval hop: the caller IS the owner's
+        session, and the key it registers is the one it will prove possession of at
+        the pod. The macOS Hermes path keeps its approval flow; this one is for the
+        app, and it never carries Puppy inference.
+        """
+        _validate_public_key(device_public_key)
+        clean_name = device_name.strip()
+        clean_platform = platform.strip().lower()
+        if not clean_name or len(clean_name) > 100:
+            raise TrustedDeviceError(
+                "TRUSTED_DEVICE_INVALID_NAME", "A valid device name is required."
+            )
+        if clean_platform not in {"web", "ios", "android"}:
+            raise TrustedDeviceError(
+                "TRUSTED_DEVICE_UNSUPPORTED_PLATFORM",
+                "Self-enrolment is for the app on web, iOS or Android.",
+            )
+        now_ms = _now_ms()
+        device_id = f"tdv_{secrets.token_urlsafe(24)}"
+        self._store.upsert_device(
+            {
+                "device_id": device_id,
+                "user_id": user_id,
+                "device_public_key": device_public_key,
+                "device_name": clean_name,
+                "platform": clean_platform,
+                "created_at": now_ms,
+                "last_used_at": now_ms,
+            }
+        )
+        self._store.audit(
+            user_id=user_id,
+            device_id=device_id,
+            event_type="device_self_enrolled",
+            created_at=now_ms,
+            metadata={"platform": clean_platform},
+        )
+        return {
+            "device_id": device_id,
+            "platform": clean_platform,
+            "device_name": clean_name,
+            "status": "active",
+            "created_at": now_ms,
+        }
+
     def audit_event(
         self,
         *,

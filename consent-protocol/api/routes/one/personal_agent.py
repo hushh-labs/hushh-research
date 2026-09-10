@@ -465,6 +465,29 @@ async def personal_agent_status_route(
     return await resolve_personal_agent_status(user_id=user_id)
 
 
+@router.get("/endpoint")
+async def personal_agent_endpoint_route(
+    user_id: str = Depends(require_firebase_auth),
+) -> dict:
+    """Where the owner's pod is, signed, with a version that only moves forward.
+
+    The app pins this record and dials the pod directly from then on. A lower
+    ``endpointVersion`` or a changed ``podKeyId`` without a bump is refused by the
+    app; the hub is the discovery authority and nothing else on this path.
+    """
+    from hushh_mcp.services.pod_binding_service import (  # noqa: PLC0415
+        PodBindingError,
+        PodBindingService,
+    )
+
+    try:
+        return await PodBindingService().endpoint(user_id=user_id)
+    except PodBindingError as exc:
+        raise HTTPException(
+            status_code=exc.status, detail={"code": exc.code, "message": exc.message}
+        ) from exc
+
+
 @router.post("/provision")
 async def provision_personal_agent(
     # Defaulted, not required: every field on ProvisionRequest is now optional, so an

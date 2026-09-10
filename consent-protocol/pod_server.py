@@ -547,15 +547,21 @@ async def _ensure_memory_bank_task() -> None:
         logger.warning("pod_memory_bank.ensure_failed")
 
 
+#: Intent ids this incarnation applied and has not yet told the hub about. Carried
+#: on the next beat so the hub stops offering them; cleared once a beat is recorded.
+_APPLIED_TOMBSTONES: list[str] = []
+
+
 async def _heartbeat_once(client: Any) -> bool:
     """Send one beat. Returns whether the hub recorded it. Never raises."""
+    body = _self_report()
+    if _APPLIED_TOMBSTONES:
+        body["appliedTombstones"] = list(_APPLIED_TOMBSTONES)
     try:
         # The beat carries the pod's self-report of WHICH build it runs. That is the
         # one self-report the hub accepts: unlike a health claim it is checkable
         # against the row, and it is what lets an update be detected honestly.
-        response = await asyncio.to_thread(
-            client.post, "/api/one/pod/heartbeat", json=_self_report()
-        )
+        response = await asyncio.to_thread(client.post, "/api/one/pod/heartbeat", json=body)
     except PodHubUnavailable as exc:
         logger.info("pod.heartbeat_unavailable %s", type(exc).__name__)
         return False
@@ -570,6 +576,20 @@ async def _heartbeat_once(client: Any) -> bool:
         # different people.
         logger.warning("pod.heartbeat_rejected status=%s", status)
         return False
+    _APPLIED_TOMBSTONES.clear()
+    # The courier leg: owner-signed revocations the hub held while this pod was
+    # unreachable. Verified here against this pod's own trust record, never taken
+    # on the hub's word; see pod_session_authority.apply_pending_tombstones.
+    try:
+        payload = response.json() if callable(getattr(response, "json", None)) else None
+        if isinstance(payload, dict) and payload.get("pendingTombstones"):
+            from hushh_mcp.services.pod_session_authority import (  # noqa: PLC0415
+                apply_pending_tombstones,
+            )
+
+            _APPLIED_TOMBSTONES.extend(await apply_pending_tombstones(payload))
+    except Exception as exc:  # noqa: BLE001 - the beat was recorded; courier work is best effort
+        logger.warning("pod.tombstone_courier_failed %s", type(exc).__name__)
     return True
 
 

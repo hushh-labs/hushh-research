@@ -200,6 +200,8 @@ tests/test_puppy_broker.py
 tests/test_puppy_envelope.py
 tests/test_puppy_local_transport.py
 tests/test_puppy_relay.py
+tests/test_pod_binding_service.py
+tests/test_pod_tombstone_courier.py
 tests/test_pod_service_account_id_fits_google.py
 tests/test_pod_spec_deployment_axes.py
 tests/test_pod_capability_wiring_is_closed_loop.py

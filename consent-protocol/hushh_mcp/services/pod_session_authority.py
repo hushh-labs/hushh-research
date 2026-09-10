@@ -632,6 +632,74 @@ class PodSessionAuthority:
         return report
 
 
+# -- the tombstone courier, pod side -----------------------------------------------------------
+
+TOMBSTONE_INTENT_KIND = "pod_tombstone_intent_v1"
+_TOMBSTONE_INTENT_KEYS = frozenset(
+    {"kind", "intentId", "hushhId", "subjectId", "atVersion", "issuedAtMs", "signerSubjectId"}
+)
+
+
+async def apply_pending_tombstones(
+    payload: Any, *, authority: Optional[PodSessionAuthority] = None
+) -> list[str]:
+    """Apply owner-signed revocations the hub couriered on a heartbeat. Returns applied ids.
+
+    The hub is a courier and nothing more: each intent is verified HERE against the
+    signer's key as recorded in this pod's own trust store, and only a trusted
+    app-role subject may sign one. A foreign owner, an unknown or device-role
+    signer, a bad signature or a malformed intent applies nothing and is not
+    reported as applied, so the hub keeps offering it and the log shows why.
+    """
+    authority = authority if authority is not None else active_session_authority()
+    if authority is None:
+        return []
+    entries = (payload or {}).get("pendingTombstones") if isinstance(payload, dict) else None
+    if not isinstance(entries, list):
+        return []
+    applied: list[str] = []
+    for entry in entries[:64]:
+        intent = entry.get("intent") if isinstance(entry, dict) else None
+        signature = entry.get("signature") if isinstance(entry, dict) else None
+        if not isinstance(intent, dict) or set(intent) != _TOMBSTONE_INTENT_KEYS:
+            logger.warning("pod_tombstone.malformed")
+            continue
+        intent_id = _clean(intent.get("intentId"))
+        if intent.get("kind") != TOMBSTONE_INTENT_KIND or not intent_id:
+            logger.warning("pod_tombstone.malformed")
+            continue
+        if _clean(intent.get("hushhId")) != authority.hushh_id:
+            logger.warning("pod_tombstone.foreign_owner")
+            continue
+        at_version = intent.get("atVersion")
+        if isinstance(at_version, bool) or not isinstance(at_version, int) or at_version < 1:
+            logger.warning("pod_tombstone.malformed")
+            continue
+        signer = authority.store.subject(_clean(intent.get("signerSubjectId")))
+        if signer.state != "trusted" or signer.trust is None or signer.trust.role != ROLE_APP:
+            logger.warning("pod_tombstone.signer_not_trusted")
+            continue
+        signer_key = _clean(signer.trust.binding.get("subject_public_key"))
+        if not verify_subject_proof(signer_key, canonical_json(intent), signature):
+            logger.warning("pod_tombstone.bad_signature")
+            continue
+        subject_id = _clean(intent.get("subjectId"))
+        try:
+            await authority.revoke_subject(subject_id, at_version=at_version, reason="owner_intent")
+        except PodSessionRefused as exc:
+            logger.warning("pod_tombstone.refused code=%s", exc.code)
+            continue
+        try:
+            from hushh_mcp.services.puppy_broker import BROKER  # noqa: PLC0415
+
+            await BROKER.close_subject(subject_id)
+        except Exception:  # noqa: BLE001 - the tombstone is the authority
+            pass
+        applied.append(intent_id)
+        logger.info("pod_tombstone.applied at_version=%s", at_version)
+    return applied
+
+
 # -- process-wide active copy ------------------------------------------------------------------
 
 _ACTIVE: Optional[PodSessionAuthority] = None

@@ -84,7 +84,6 @@ What is in `.env` / GCP Secret Manager must match exactly what the code reads --
 | `SYNC_REMOTE_ENABLED` | deploy/runtime env contract | No | Legacy deploy flag; keep false unless the runtime reintroduces an active reader. |
 | `HUSHH_DEVELOPER_TOKEN` | `api/routes/session.py`, `mcp_server.py` | Optional | Self-serve developer token used by stdio MCP and token-auth `/api/user/lookup`. It is not part of the normal hosted runtime contract. |
 | `HUSSH_TRUSTED_DEVICE_ENABLED` | `hushh_mcp/services/trusted_device_service.py` | Dev owner pilot / UAT rollout | Additive Hermes trusted-device kill switch. Defaults disabled; enabling it does not grant Puppy inference. |
-| `HUSHH_TRUSTED_DEVICE_UAT_ALLOWLIST` | `api/routes/account.py` | UAT rollout | Comma-separated Firebase UIDs or verified account emails allowed to enroll Hermes. |
 | `TRUSTED_DEVICE_PEPPER` | `hushh_mcp/services/trusted_device_service.py` | Optional secret | HMAC pepper for one-time authorization codes and nonces. Falls back to `APP_SIGNING_KEY`; a dedicated UAT secret is preferred. |
 | `PUPPY_INFERENCE_RELAY_URL` | `hushh_mcp/runtime_providers/puppy_transport.py` | Dev only | Hub WebSocket rendezvous URL. It carries inference frames only; it is not a Hermes API or shell endpoint. |
 | `PUPPY_RELAY_RENDEZVOUS_URL` | `api/routes/one/puppy_relay.py` | Optional shared-hub compatibility | Dedicated Redis/Memorystore URL for short-lived presence, busy fencing, and cross-instance relay frames. It is never inferred from `RATE_LIMIT_STORAGE_URI`; owner pods leave it unset. |

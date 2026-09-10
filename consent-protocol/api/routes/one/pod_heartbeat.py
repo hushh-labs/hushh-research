@@ -109,7 +109,60 @@ async def record_pod_heartbeat(
         logger.warning("pod_heartbeat.orphan hushh_id=%s", hushh_id)
         raise HTTPException(status_code=404, detail="no registry row for this pod")
 
-    return {"recorded": True, "status": await _finish_provisioning(row, collector=collector)}
+    result = {"recorded": True, "status": await _finish_provisioning(row, collector=collector)}
+    # THE TOMBSTONE COURIER. An owner who revoked a device while their pod was
+    # unreachable left a signed intent with the hub; the beat is the one moment the
+    # pod reliably reaches the hub, so it collects them here and reports back which
+    # it applied. The hub verifies nothing on this leg and the pod trusts nothing
+    # from this leg: the intent is owner-signed and the pod checks it against its
+    # own trust record. Absent when there is nothing pending, so a bodyless beat
+    # from an older image sees exactly the answer it always saw.
+    pending = await _collect_pending_tombstones(request, repo, row, hushh_id=hushh_id)
+    if pending:
+        result["pendingTombstones"] = pending
+    return result
+
+
+async def _collect_pending_tombstones(
+    request: Request, repo: Any, row: dict, *, hushh_id: str
+) -> list[dict]:
+    """Clear what the pod says it applied, then return what is still waiting."""
+    applied = await _read_applied_tombstones(request)
+    clear = getattr(repo, "clear_pending_tombstones", None)
+    if applied and callable(clear):
+        try:
+            await clear(hushh_id=hushh_id, intent_ids=applied)
+        except Exception as exc:  # noqa: BLE001 - a beat never fails on bookkeeping
+            logger.warning("pod_heartbeat.tombstone_clear_failed err=%s", type(exc).__name__)
+    metadata = row.get("backend_metadata") if isinstance(row, dict) else None
+    pending = metadata.get("pendingTombstones") if isinstance(metadata, dict) else None
+    if not isinstance(pending, list):
+        return []
+    applied_ids = set(applied)
+    return [
+        entry
+        for entry in pending
+        if isinstance(entry, dict)
+        and isinstance(entry.get("intent"), dict)
+        and str(entry["intent"].get("intentId") or "") not in applied_ids
+    ][:_MAX_PENDING_TOMBSTONES]
+
+
+_MAX_PENDING_TOMBSTONES = 32
+
+
+async def _read_applied_tombstones(request: Request) -> list[str]:
+    """Intent ids the pod reports applied. Bounded, strings only, never raises."""
+    try:
+        payload = await request.json()
+    except Exception:  # noqa: BLE001 - bodyless or non-JSON beats are ordinary
+        return []
+    if not isinstance(payload, dict):
+        return []
+    applied = payload.get("appliedTombstones")
+    if not isinstance(applied, list):
+        return []
+    return [str(item)[:128] for item in applied[:_MAX_PENDING_TOMBSTONES] if isinstance(item, str)]
 
 
 _SELF_REPORT_FIELDS = ("imageTag", "revision", "memoryBankEngine")

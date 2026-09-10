@@ -575,6 +575,119 @@ async def trusted_device_status(
     return {**status, "server_time_ms": int(time.time() * 1000)}
 
 
+# -- owner-direct admission: the hub enrols and signs, then leaves the path ----------
+
+
+class TrustedDeviceSelfEnrollRequest(BaseModel):
+    device_public_key: str = Field(..., alias="devicePublicKey", min_length=1, max_length=4096)
+    device_name: str = Field(..., alias="deviceName", min_length=1, max_length=100)
+    platform: str = Field(..., min_length=1, max_length=16)
+    model_config = {"populate_by_name": True}
+
+
+class PodBindingIssueRequest(BaseModel):
+    puppy_inference: bool = Field(default=False, alias="puppyInference")
+    model_config = {"populate_by_name": True}
+
+
+class PodTombstoneIntentRequest(BaseModel):
+    intent: dict[str, Any]
+    signature: str = Field(..., min_length=1, max_length=1024)
+
+
+def _raise_pod_binding_error(exc: Any) -> None:
+    raise HTTPException(
+        status_code=int(getattr(exc, "status", 400)),
+        detail={"code": str(getattr(exc, "code", "POD_BINDING_ERROR")), "message": str(exc)},
+    ) from exc
+
+
+@router.post("/trusted-devices/self-enroll")
+async def trusted_device_self_enroll(
+    payload: TrustedDeviceSelfEnrollRequest,
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    """Enrol the signed-in app installation (web, iOS, Android) as a pod subject.
+
+    The app generates a non-extractable P-256 key and registers its public half
+    here; it proves possession of it at the pod, never here. Enrolment carries no
+    Puppy inference and no vault authority.
+    """
+    await _trusted_device_guard(firebase_uid)
+    try:
+        return await run_in_threadpool(
+            TrustedDeviceService().self_enroll,
+            user_id=firebase_uid,
+            device_public_key=payload.device_public_key,
+            device_name=payload.device_name,
+            platform=payload.platform,
+        )
+    except TrustedDeviceError as exc:
+        _raise_trusted_device_error(exc)
+
+
+@router.post("/trusted-devices/{device_id}/pod-binding")
+async def issue_pod_binding(
+    device_id: str,
+    payload: PodBindingIssueRequest = Body(default=PodBindingIssueRequest()),
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    """Issue the next hub-signed binding for one subject of the owner's pod."""
+    from hushh_mcp.services.pod_binding_service import PodBindingError, PodBindingService
+
+    try:
+        return await PodBindingService().issue(
+            user_id=firebase_uid, device_id=device_id, puppy_inference=payload.puppy_inference
+        )
+    except PodBindingError as exc:
+        _raise_pod_binding_error(exc)
+
+
+@router.get("/trusted-devices/{device_id}/pod-binding")
+async def read_pod_binding(
+    device_id: str,
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    """The latest binding issued for this subject, or 404 when none was issued."""
+    from hushh_mcp.services.pod_binding_service import PodBindingError, PodBindingService
+
+    try:
+        latest = await PodBindingService().latest(user_id=firebase_uid, device_id=device_id)
+    except PodBindingError as exc:
+        _raise_pod_binding_error(exc)
+    if latest is None:
+        raise HTTPException(
+            status_code=404,
+            detail={"code": "POD_BINDING_NOT_ISSUED", "message": "No binding has been issued."},
+        )
+    return latest
+
+
+@router.post("/trusted-devices/{device_id}/pod-tombstone")
+async def courier_pod_tombstone(
+    device_id: str,
+    payload: PodTombstoneIntentRequest,
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    """Queue an owner-signed revocation for the pod to collect on its next heartbeat.
+
+    Used when the pod could not be reached directly ("revocation pending
+    delivery"). The hub is a courier: it checks the app's signature and stores the
+    intent; the pod verifies it again against its own trust record before applying.
+    """
+    from hushh_mcp.services.pod_binding_service import PodBindingError, PodBindingService
+
+    try:
+        return await PodBindingService().courier_tombstone(
+            user_id=firebase_uid,
+            device_id=device_id,
+            intent=payload.intent,
+            signature=payload.signature,
+        )
+    except PodBindingError as exc:
+        _raise_pod_binding_error(exc)
+
+
 @router.post("/trusted-devices/{device_id}/puppy-inference-grant")
 async def puppy_inference_grant(
     device_id: str,

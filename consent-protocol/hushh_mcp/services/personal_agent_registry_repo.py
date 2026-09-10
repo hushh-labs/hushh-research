@@ -913,6 +913,100 @@ class PersonalAgentRegistryRepo:
                 }
         return row
 
+    # -- owner-direct admission records (Lane A) --------------------------------------
+    #
+    # Three small JSONB merges under `backend_metadata`, the same shape
+    # `record_image_upgrade` and the heartbeat's `observed` use: touch one key, keep
+    # everything else, never rewrite the column wholesale.
+
+    async def record_binding(self, *, user_id: str, device_id: str, record: dict) -> None:
+        """`backend_metadata.bindings[device_id] = record` (merge; other subjects kept)."""
+        await asyncio.to_thread(
+            self._db().execute_raw,
+            """
+            UPDATE personal_agent_registry
+            SET backend_metadata = jsonb_set(
+                    coalesce(backend_metadata, '{}'::jsonb),
+                    '{bindings}',
+                    coalesce(backend_metadata->'bindings', '{}'::jsonb)
+                        || CAST(:record AS jsonb),
+                    true
+                )
+            WHERE user_id = :user_id
+            """,
+            {"user_id": user_id, "record": json.dumps({device_id: record})},
+        )
+
+    async def record_endpoint(self, *, user_id: str, endpoint: dict) -> None:
+        """`backend_metadata.endpoint = endpoint` (the discovery record, versioned)."""
+        await asyncio.to_thread(
+            self._db().execute_raw,
+            """
+            UPDATE personal_agent_registry
+            SET backend_metadata = jsonb_set(
+                    coalesce(backend_metadata, '{}'::jsonb),
+                    '{endpoint}',
+                    CAST(:endpoint AS jsonb),
+                    true
+                )
+            WHERE user_id = :user_id
+            """,
+            {"user_id": user_id, "endpoint": json.dumps(endpoint)},
+        )
+
+    async def append_pending_tombstone(self, *, user_id: str, entry: dict) -> None:
+        """Queue one owner-signed revocation for the pod's next heartbeat to collect."""
+        await asyncio.to_thread(
+            self._db().execute_raw,
+            """
+            UPDATE personal_agent_registry
+            SET backend_metadata = jsonb_set(
+                    coalesce(backend_metadata, '{}'::jsonb),
+                    '{pendingTombstones}',
+                    coalesce(backend_metadata->'pendingTombstones', '[]'::jsonb)
+                        || CAST(:entry AS jsonb),
+                    true
+                )
+            WHERE user_id = :user_id
+            """,
+            {"user_id": user_id, "entry": json.dumps([entry])},
+        )
+
+    async def clear_pending_tombstones(self, *, hushh_id: str, intent_ids: list[str]) -> None:
+        """Drop the intents a pod reported applied. Keyed by HusshID: the beat knows no user."""
+        row = await self.get_by_hushh_id(hushh_id)
+        if not row:
+            return
+        metadata = row.get("backend_metadata") or {}
+        pending = metadata.get("pendingTombstones") if isinstance(metadata, dict) else None
+        if not isinstance(pending, list) or not pending:
+            return
+        applied = {str(i) for i in intent_ids}
+        remaining = [
+            entry
+            for entry in pending
+            if not (
+                isinstance(entry, dict)
+                and str((entry.get("intent") or {}).get("intentId") or "") in applied
+            )
+        ]
+        if len(remaining) == len(pending):
+            return
+        await asyncio.to_thread(
+            self._db().execute_raw,
+            """
+            UPDATE personal_agent_registry
+            SET backend_metadata = jsonb_set(
+                    coalesce(backend_metadata, '{}'::jsonb),
+                    '{pendingTombstones}',
+                    CAST(:remaining AS jsonb),
+                    true
+                )
+            WHERE hushh_id = :hushh_id
+            """,
+            {"hushh_id": hushh_id, "remaining": json.dumps(remaining)},
+        )
+
     async def set_health_state(
         self,
         *,
