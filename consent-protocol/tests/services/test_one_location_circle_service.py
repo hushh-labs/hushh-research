@@ -2715,6 +2715,56 @@ class _RecordingDb:
         return SimpleNamespace(data=rows)
 
 
+def test_shared_circle_roster_keeps_all_members_and_marks_only_strangers_connectable() -> None:
+    """A shared Circle is a roster, not an intersection of two friend lists.
+
+    If the viewer joins somebody else's ten-person Circle, all ten active
+    memberships must remain visible. Their direct-connection relationship only
+    decides which row can offer Connect; it must never decide whether the row
+    exists or whether the Circle says it has ten people.
+    """
+
+    relationships = [
+        "self",
+        *("connected" for _ in range(5)),
+        *("none" for _ in range(4)),
+    ]
+    rows = [
+        {
+            "authorized": True,
+            "total_count": 10,
+            "user_id": f"member-{index}",
+            "display_name": f"Circle member {index}",
+            "role": "member",
+            "phone_verified": True,
+            "relationship": relationship,
+        }
+        for index, relationship in enumerate(relationships, start=1)
+    ]
+    db = _RecordingDb(rows)
+    service = OneLocationCircleService(db=db, hmac_key="a" * 32)  # type: ignore[arg-type]
+
+    roster = service.list_circle_members_page(
+        user_id="member-1",
+        circle_id="550e8400-e29b-41d4-a716-446655440000",
+    )
+
+    assert roster["totalCount"] == 10
+    assert len(roster["items"]) == 10
+    assert sum(member["canConnect"] for member in roster["items"]) == 4
+    assert [member["relationship"] for member in roster["items"] if member["canConnect"]] == [
+        "none"
+    ] * 4
+
+    # The candidate CTE is the roster boundary. Connections may annotate rows
+    # only after this point; putting a connection JOIN/WHERE here would hide the
+    # four strangers and make a ten-person Circle appear to have six members.
+    candidate_sql = db.sql[0].split("), matched AS", 1)[0].split("candidates AS (", 1)[1]
+    assert "one_location_circle_memberships membership" in candidate_sql
+    assert "connections" not in candidate_sql
+    assert "connection_requests" not in candidate_sql
+
+
 def test_invitable_connections_are_not_narrowed_to_directly_requested_ones() -> None:
     """A Circle co-member is a connection, so they can be invited elsewhere.
 

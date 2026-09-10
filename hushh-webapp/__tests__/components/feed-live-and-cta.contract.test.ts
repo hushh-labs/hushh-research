@@ -92,6 +92,22 @@ describe("Feed stays live", () => {
     expect(needsYouSection).not.toContain("bg-accent");
     expect(needsYouSection).not.toContain("bg-[color:var(--app-accent");
   });
+
+  it("contains the Live tint inside the same rounded grouped card as other lanes", () => {
+    const feedPage = read("components/feed/feed-page.tsx");
+    const liveSection =
+      feedPage.match(
+        /<section aria-label="Live">[\s\S]*?<\/SettingsGroup>[\s\S]*?<\/section>/,
+      )?.[0] ?? "";
+
+    expect(liveSection.length).toBeGreaterThan(0);
+    expect(liveSection).toContain("<SectionLabel>Live</SectionLabel>");
+    expect(liveSection).toContain('testId="feed-live-group"');
+    expect(liveSection).toContain('shellClassName="!bg-accent/[0.04]');
+    expect(liveSection).not.toContain(
+      '<section aria-label="Live" className="bg-accent',
+    );
+  });
 });
 
 describe("the ask flow's primary action keeps the action colour", () => {

@@ -112,8 +112,12 @@ export const DURATION_CUSTOM_VISIBLE_ROWS = 3;
  */
 export const DURATION_GRID_CLASS =
   "grid grid-cols-2 gap-2 sm:flex sm:flex-wrap";
+/** A compact two-column block for the final share confirmation card. */
+export const DURATION_COMPACT_GRID_CLASS =
+  "mx-auto grid w-full max-w-[240px] grid-cols-2 gap-2";
 export const DURATION_CELL_CLASS =
   "flex min-h-11 items-center justify-center whitespace-nowrap rounded-[14px] border px-2 text-center text-[15px] font-semibold leading-5 transition-colors touch-manipulation sm:px-4";
+export const DURATION_COMPACT_CELL_CLASS = "rounded-full px-3";
 export const DURATION_CELL_OFF_CLASS =
   "border-[color:var(--app-separator)] bg-[color:var(--app-secondary-surface)] text-[color:var(--app-label)] hover:border-[color:var(--app-accent-ring)] hover:bg-[color:var(--app-neutral-fill-strong)]";
 export const DURATION_CELL_ON_CLASS =
@@ -142,6 +146,7 @@ export function DurationPresetPicker({
   allowUntilStop = true,
   allowCustom = true,
   centered = false,
+  compact = false,
   labelledBy,
 }: {
   value: string;
@@ -171,6 +176,11 @@ export function DurationPresetPicker({
    * the "Change time" editor, whose container is much wider than the ladder.
    */
   centered?: boolean;
+  /**
+   * Keeps the four confirmation choices in a centred, bounded 2x2 group
+   * instead of stretching them across the full card width.
+   */
+  compact?: boolean;
   labelledBy?: string;
 }) {
   const isUntilStop = allowUntilStop && value === untilStopValue;
@@ -209,7 +219,12 @@ export function DurationPresetPicker({
 
   return (
     <div role="group" aria-labelledby={labelledBy} className="space-y-2">
-      <div className={cn(DURATION_GRID_CLASS, centered && "sm:justify-center")}>
+      <div
+        className={cn(
+          compact ? DURATION_COMPACT_GRID_CLASS : DURATION_GRID_CLASS,
+          centered && !compact && "sm:justify-center",
+        )}
+      >
         {rungs.map((rung) => {
           const active = !wheelOpen && value === rung.value;
           return (
@@ -220,6 +235,7 @@ export function DurationPresetPicker({
               onClick={() => pickRung(rung.value)}
               className={cn(
                 DURATION_CELL_CLASS,
+                compact && DURATION_COMPACT_CELL_CLASS,
                 active ? DURATION_CELL_ON_CLASS : DURATION_CELL_OFF_CLASS,
               )}
             >
@@ -235,6 +251,7 @@ export function DurationPresetPicker({
             onClick={() => (wheelOpen ? setWheelOpen(false) : openCustom())}
             className={cn(
               DURATION_CELL_CLASS,
+              compact && DURATION_COMPACT_CELL_CLASS,
               customPressed ? DURATION_CELL_ON_CLASS : DURATION_CELL_OFF_CLASS,
             )}
           >
@@ -260,6 +277,7 @@ export function DurationPresetPicker({
             onClick={() => pickRung(untilStopValue)}
             className={cn(
               DURATION_CELL_CLASS,
+              compact && DURATION_COMPACT_CELL_CLASS,
               centered && "col-span-2 sm:col-span-1",
               isUntilStop ? DURATION_CELL_ON_CLASS : DURATION_CELL_OFF_CLASS,
             )}

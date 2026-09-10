@@ -29,6 +29,10 @@ import { MUTED_TEXT, SUBCARD_SURFACE } from "./tokens";
 import { DurationWheelPicker } from "./duration-wheel-picker";
 import { DurationPresetPicker } from "./duration-presets";
 import type { DurationRung } from "./duration-presets";
+import {
+  DURATION_EQUAL_BUTTON_CLASSNAME,
+  DURATION_EQUAL_BUTTONS_GROUP_CLASSNAME,
+} from "./location-cta-layout";
 
 export const LOCATION_SEARCH_INPUT_CLASSNAME =
   "ui-text-input-value h-11 w-full rounded-[14px] border border-[color:var(--app-separator)] bg-[color:var(--app-primary-surface)] pl-10 pr-4 text-[color:var(--app-label)] outline-none transition-shadow placeholder:text-[color:var(--app-tertiary-label)] focus:ring-2 focus:ring-inset focus:ring-[color:var(--app-accent-ring)] [&::-webkit-search-cancel-button]:appearance-none";
@@ -58,6 +62,8 @@ export function DurationSelector({
   allowUntilStop = true,
   allowCustom = true,
   centered = false,
+  compact = false,
+  equalWidthButtons = false,
   maxWidthClassName = "max-w-[420px]",
   rungs,
 }: {
@@ -92,6 +98,10 @@ export function DurationSelector({
    * and intentional inside a container much wider than it.
    */
   centered?: boolean;
+  /** `ladder` only: render a centred, bounded 2x2 confirmation group. */
+  compact?: boolean;
+  /** `buttons` only: distribute a short option set evenly across the group. */
+  equalWidthButtons?: boolean;
   /**
    * Width cap for the whole group.
    *
@@ -146,6 +156,7 @@ export function DurationSelector({
           allowUntilStop={allowUntilStop}
           allowCustom={allowCustom}
           centered={centered}
+          compact={compact}
           labelledBy={label ? labelId : undefined}
           {...(untilStopValue ? { untilStopValue } : {})}
         />
@@ -181,7 +192,11 @@ export function DurationSelector({
         </Select>
       ) : (
         <div
-          className="flex flex-wrap gap-2"
+          className={cn(
+            equalWidthButtons
+              ? DURATION_EQUAL_BUTTONS_GROUP_CLASSNAME
+              : "flex flex-wrap gap-2",
+          )}
           role="radiogroup"
           aria-labelledby={label ? labelId : undefined}
           aria-label={label ? undefined : "Duration"}
@@ -197,6 +212,7 @@ export function DurationSelector({
                 onClick={() => onChange(option.value)}
                 className={cn(
                   "h-9 rounded-full border px-4 transition-colors touch-manipulation",
+                  equalWidthButtons && DURATION_EQUAL_BUTTON_CLASSNAME,
                   active
                     ? "border-[color:var(--app-accent)] bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)]"
                     : "border-[color:var(--app-separator)] bg-[color:var(--app-secondary-surface)] text-[color:var(--app-label)] hover:border-[color:var(--app-accent-ring)] hover:bg-[color:var(--app-neutral-fill-strong)]",

@@ -167,7 +167,7 @@ describe("status label", () => {
     ).toBe("Location off");
   });
 
-  it("reports limited accuracy only while the preview is actually on", () => {
+  it("keeps reduced accuracy internal while the location preview is on", () => {
     expect(
       locationStatusLabel({
         readiness: "ready",
@@ -175,7 +175,7 @@ describe("status label", () => {
         paused: false,
         accuracyLimited: true,
       }),
-    ).toBe("Location limited");
+    ).toBe("Location on");
     expect(
       locationStatusLabel({
         readiness: "ready",
@@ -196,7 +196,7 @@ describe("status label", () => {
       [{ readiness: "askable", previewOn: false, paused: false, accuracyLimited: false }, "Location off"],
       [{ readiness: "blocked", previewOn: false, paused: false, accuracyLimited: false }, "Location blocked"],
       [{ readiness: "blocked", previewOn: true, paused: true, accuracyLimited: true }, "Location off"],
-      [{ readiness: "ready", previewOn: true, paused: false, accuracyLimited: true }, "Location limited"],
+      [{ readiness: "ready", previewOn: true, paused: false, accuracyLimited: true }, "Location on"],
       [{ readiness: "ready", previewOn: true, paused: false, accuracyLimited: false }, "Location on"],
     ] as const;
 

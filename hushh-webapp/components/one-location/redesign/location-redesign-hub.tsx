@@ -141,6 +141,11 @@ import {
   useExpandedShareLanes,
 } from "./share-lanes";
 import {
+  ACTIVE_SHARE_ACTIONS_CLASSNAME,
+  ACTIVE_SHARE_CHANGE_TIME_CLASSNAME,
+  ACTIVE_SHARE_STOP_CLASSNAME,
+} from "./active-share-row-layout";
+import {
   ShareReplacementConfirmDialog,
   ShareReplacementNotice,
   type ShareReplacementRow,
@@ -153,6 +158,17 @@ import {
   ReasonChips,
   type ReasonValue,
 } from "./selectors";
+import {
+  PUBLIC_LINK_CONTROLS_CLASSNAME,
+  PUBLIC_LINK_PRIMARY_CTA_CLASSNAME,
+  SHARE_CONFIRM_ACTIONS_CLASSNAME,
+  SHARE_CONFIRM_PRIMARY_CTA_CLASSNAME,
+  SHARE_CONFIRM_SECONDARY_CTA_CLASSNAME,
+} from "./location-cta-layout";
+import {
+  LOCATION_HEADER_ACTIONS_CLASSNAME,
+  LOCATION_HEADER_STATUS_CLASSNAME,
+} from "./location-header-layout";
 import {
   CHANGE_TIME_DURATION_LADDER,
   REQUEST_DURATION_LADDER,
@@ -936,13 +952,13 @@ function locationHeaderStatusText(vm: LocationHubViewModel): string {
   });
 }
 
-/** The header switch status sits under the switch without becoming a page subtitle. */
+/** The status stays with the switch and may wrap rather than clip on a narrow phone. */
 function LocationHeaderStatus({ vm }: { vm: LocationHubViewModel }) {
   return (
     <span
       id={LOCATION_HEADER_STATUS_ID}
       data-testid="one-location-header-status"
-      className="mt-1 block w-full whitespace-nowrap text-right font-[family-name:var(--font-app-body)] text-[13px] font-normal leading-[18px] tracking-[-0.01em] text-[color:var(--app-secondary-label)]"
+      className={LOCATION_HEADER_STATUS_CLASSNAME}
     >
       {locationHeaderStatusText(vm)}
     </span>
@@ -966,7 +982,7 @@ function LocationHeaderActions({ vm }: { vm: LocationHubViewModel }) {
     <div
       role="group"
       aria-label="Location"
-      className="ml-auto flex min-h-[58px] w-[92px] shrink-0 flex-col items-end justify-center overflow-visible"
+      className={LOCATION_HEADER_ACTIONS_CLASSNAME}
       data-testid="one-location-header-actions"
     >
       <Switch
@@ -2266,6 +2282,7 @@ function LocationActionGrid({ items }: { items: LocationActionGridItem[] }) {
     >
       <div
         data-one-location-action-grid=""
+        data-settings-density="compact"
         className="grid w-full grid-cols-1 gap-3 min-[360px]:grid-cols-2 sm:gap-4"
       >
         {regularItems.map((item) => (
@@ -2292,12 +2309,13 @@ function LocationActionGrid({ items }: { items: LocationActionGridItem[] }) {
               {item.icon}
             </span>
             <span className="min-w-0">
-              <ButtonLabel
+              <RowLabel
                 as="span"
-                className="block min-w-0 !text-[15px] !leading-5"
+                compact
+                className="block min-w-0"
               >
                 {item.title}
-              </ButtonLabel>
+              </RowLabel>
             </span>
           </button>
         ))}
@@ -2688,27 +2706,7 @@ function LocationDetailFlow({
                   title={name}
                   description={
                     single ? (
-                      <div className="space-y-1.5">
-                        <div>
-                          <ActiveShareMetadata grant={single} />
-                        </div>
-                        {!isSmsTriggeredGrant(single) ? (
-                          <button
-                            type="button"
-                            className="inline-flex min-h-[32px] items-center justify-center rounded-full px-3 text-[15px] font-medium leading-[20px] text-[color:var(--app-accent)] transition-colors hover:bg-[color:var(--app-accent)]/10 active:bg-[color:var(--app-accent)]/20 disabled:cursor-wait disabled:opacity-60"
-                            onClick={(event) =>
-                              onEditLiveShareDurationStart(
-                                single.id,
-                                event.currentTarget,
-                              )
-                            }
-                          >
-                            {single.durationMode === "until_stopped"
-                              ? "Set end time"
-                              : "Change time"}
-                          </button>
-                        ) : null}
-                      </div>
+                      <ActiveShareMetadata grant={single} />
                     ) : (
                       <>
                         <span>{`${group.grants.length} active shares`}</span>
@@ -2726,13 +2724,35 @@ function LocationDetailFlow({
                   }
                   trailing={
                     single ? (
-                      <StopGrantTextButton
-                        grantId={single.id}
-                        revokingGrantId={vm.revokingGrantId}
-                        onStopGrant={vm.onStopGrant}
-                      />
+                      <div
+                        className={ACTIVE_SHARE_ACTIONS_CLASSNAME}
+                        data-testid="one-location-active-share-actions"
+                      >
+                        {!isSmsTriggeredGrant(single) ? (
+                          <button
+                            type="button"
+                            className={ACTIVE_SHARE_CHANGE_TIME_CLASSNAME}
+                            onClick={(event) =>
+                              onEditLiveShareDurationStart(
+                                single.id,
+                                event.currentTarget,
+                              )
+                            }
+                          >
+                            {single.durationMode === "until_stopped"
+                              ? "Set end time"
+                              : "Change time"}
+                          </button>
+                        ) : null}
+                        <StopGrantTextButton
+                          grantId={single.id}
+                          revokingGrantId={vm.revokingGrantId}
+                          onStopGrant={vm.onStopGrant}
+                        />
+                      </div>
                     ) : null
                   }
+                  stackTrailingOnMobile={Boolean(single)}
                 />
               );
             })}
@@ -3479,7 +3499,7 @@ function StopGrantTextButton({
   return (
     <button
       type="button"
-      className="inline-flex min-h-11 items-center justify-center rounded-full px-2 text-[15px] font-medium leading-[20px] text-[#FF3B30] transition-colors hover:text-[#D70015] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)] focus-visible:ring-offset-2 disabled:cursor-wait disabled:opacity-60"
+      className={ACTIVE_SHARE_STOP_CLASSNAME}
       onClick={() => onStopGrant(grantId)}
       disabled={stopping}
     >
@@ -4085,21 +4105,23 @@ function PersonActionsDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog modal open={open} onOpenChange={onOpenChange}>
       <DialogContent
         aria-label={`Location actions for ${name}`}
-        className="max-w-[420px] rounded-[24px] p-0"
+        data-testid="one-location-person-actions-dialog"
+        overlayClassName="bg-black/35 backdrop-blur-[12px] [-webkit-backdrop-filter:blur(12px)]"
+        className="w-[calc(100%-2rem)] max-w-[380px] gap-0 overflow-hidden rounded-[26px] border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] p-0 shadow-[0_24px_80px_-28px_rgba(15,23,42,0.55)]"
       >
-        <DialogHeader className="px-5 pb-3 pt-5 text-left">
+        <DialogHeader className="border-b border-[color:var(--app-separator)] px-5 pb-4 pr-14 pt-5 text-left">
           <div className="flex items-center gap-3">
             <ConnectionPersonAvatar
               label={name}
               photoUrl={photoUrl}
               verified={verified}
-              className="h-11 w-11 text-[14px]"
+              className="h-12 w-12 text-[14px]"
             />
             <div className="min-w-0">
-              <DialogTitle className="break-words text-[20px] font-semibold leading-[25px] tracking-[-0.3px]">
+              <DialogTitle className="break-words text-[19px] font-semibold leading-6 tracking-[-0.25px]">
                 {name}
               </DialogTitle>
               {status.label ? (
@@ -4110,10 +4132,11 @@ function PersonActionsDialog({
             </div>
           </div>
         </DialogHeader>
-        <div className="mx-4 mb-4">
+        <div className="p-3">
           <SettingsGroup
+            embedded
             separatorInset
-            shellClassName={LOCATION_GROUP_SHELL_CLASSNAME}
+            shellClassName="!rounded-[18px] !bg-[color:var(--app-primary-surface)] !shadow-none ring-1 ring-inset ring-[color:var(--app-separator)]"
           >
             {actionRows.slice(0, 3)}
           </SettingsGroup>
@@ -4811,29 +4834,36 @@ function LinksHub({ vm }: { vm: LocationHubViewModel }) {
               title="Create a temporary link"
               description="Anyone with this link can see your location until it expires."
             />
-            <div className="space-y-3 px-4 pb-4 pt-1.5">
-              <DurationSelector
-                value={vm.publicLinkDurationHours}
-                onChange={vm.setPublicLinkDurationHours}
-                options={PUBLIC_LINK_DURATION_OPTIONS.map((option) => option)}
-                label="Duration"
-                presentation="buttons"
-                maxWidthClassName={null}
-              />
-              {/* The label changes while it works. This press waits on a device fix
-                  before it can post anything, so on a cold start it can sit for
-                  several seconds -- and it used to sit as a bare spinner with the
-                  label hidden, which is why it read as "taking longer than
-                  expected" rather than as "still finding you". Naming the wait is
-                  the fix available here; the wait itself is a GPS acquisition. */}
-              <Button
-                onClick={vm.onCreatePublicInvite}
-                isLoading={vm.busy === "publicInvite"}
-                data-voice-control-id="one-location-action-temp-link"
-                className="h-11 min-h-11 w-full max-w-[200px] self-start rounded-[13px] bg-[color:var(--app-accent)] text-[16px] font-semibold leading-[21px] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90"
-              >
-                {vm.busy === "publicInvite" ? "Creating link…" : "Create link"}
-              </Button>
+            <div className="px-4 pb-4 pt-1.5">
+              <div className={PUBLIC_LINK_CONTROLS_CLASSNAME}>
+                <DurationSelector
+                  value={vm.publicLinkDurationHours}
+                  onChange={vm.setPublicLinkDurationHours}
+                  options={PUBLIC_LINK_DURATION_OPTIONS.map(
+                    (option) => option,
+                  )}
+                  label="Duration"
+                  presentation="buttons"
+                  equalWidthButtons
+                  maxWidthClassName={null}
+                />
+                {/* The label changes while it works. This press waits on a device fix
+                    before it can post anything, so on a cold start it can sit for
+                    several seconds -- and it used to sit as a bare spinner with the
+                    label hidden, which is why it read as "taking longer than
+                    expected" rather than as "still finding you". Naming the wait is
+                    the fix available here; the wait itself is a GPS acquisition. */}
+                <Button
+                  onClick={vm.onCreatePublicInvite}
+                  isLoading={vm.busy === "publicInvite"}
+                  data-voice-control-id="one-location-action-temp-link"
+                  className={PUBLIC_LINK_PRIMARY_CTA_CLASSNAME}
+                >
+                  {vm.busy === "publicInvite"
+                    ? "Creating link…"
+                    : "Create link"}
+                </Button>
+              </div>
             </div>
           </>
         )}
@@ -5291,6 +5321,7 @@ function ShareFlow({
               hint={shareEndsAtLabel(vm.shareDurationHours, nowMs)}
               presentation="ladder"
               untilStopValue="until_stopped"
+              compact
             />
             {/* space-y-2.5 matches DurationSelector's own label→control gap
                 above. The two label/field pairs sit in the same card, so an
@@ -5371,7 +5402,7 @@ function ShareFlow({
           newDurationLabel={shareReplacementDurationLabel}
         />
 
-        <div className="space-y-2.5">
+        <div className={SHARE_CONFIRM_ACTIONS_CLASSNAME}>
           <Button
             // Unchanged for every share that takes nothing away. When one
             // would, the tap opens the confirm dialog instead of posting, and
@@ -5386,14 +5417,14 @@ function ShareFlow({
             disabled={!vm.canShare || shareNoteLimitExceeded}
             isLoading={vm.busy === "share"}
             data-voice-control-id="one-location-confirm-share"
-            className="h-[52px] w-full rounded-2xl bg-[color:var(--app-accent)] text-[17px] font-semibold leading-[22px] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90 disabled:bg-black/10 disabled:text-black/35 disabled:opacity-100 dark:disabled:bg-white/10 dark:disabled:text-white/35"
+            className={SHARE_CONFIRM_PRIMARY_CTA_CLASSNAME}
           >
             Start sharing
           </Button>
           <Button
             variant="ghost"
             onClick={() => onClose()}
-            className="h-11 w-full rounded-2xl bg-transparent text-[17px] font-medium leading-[22px] text-[color:var(--app-accent)] hover:bg-transparent"
+            className={SHARE_CONFIRM_SECONDARY_CTA_CLASSNAME}
           >
             Cancel
           </Button>

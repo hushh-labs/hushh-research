@@ -232,9 +232,10 @@ describe("PeopleHub requests sent manage surface", () => {
       }),
     );
 
-    expect(
-      screen.getByRole("dialog", { name: "Roopmann V" }),
-    ).toBeTruthy();
+    const dialog = screen.getByRole("dialog", { name: "Roopmann V" });
+    expect(dialog).toHaveClass("max-w-[380px]", "rounded-[26px]", "gap-0");
+    const overlay = document.querySelector('[data-slot="dialog-overlay"]');
+    expect(overlay).toHaveClass("bg-black/35", "backdrop-blur-[12px]");
     fireEvent.click(screen.getByRole("button", { name: "View their location" }));
     expect(onOpenSharedWithMe).toHaveBeenCalled();
     expect(onStartShare).not.toHaveBeenCalled();
