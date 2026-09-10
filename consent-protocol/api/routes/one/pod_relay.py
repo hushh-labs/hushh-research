@@ -507,6 +507,28 @@ async def issue_pod_data_door_grants(user_id: str, *, door_grants: Any = None) -
                 data_door_grants["calendar"] = calendar_token
         except Exception as exc:  # noqa: BLE001 - a door mint failure degrades the read, never the turn
             logger.info("pod_relay.data_door_grant_skipped door=calendar %s", type(exc).__name__)
+        # The Location PROPOSAL path. A standing share scope lets the pod's own
+        # Location service propose a public link with zero hub information
+        # reads: the pod proposes, the browser shows the owner-confirmation card,
+        # and nothing is created here. It is the first specialist path that can
+        # earn `specialists-run-in-pod`. Keyed by scope name (not a door name)
+        # because it is an authority to propose, not a door to read through;
+        # the pod's Location service reads it under exactly that key. Same
+        # short-TTL, Nav-narrated, owner-revocable shape, same best-effort rule.
+        try:
+            share_grant = await PersonalAgentGrantService().issue_or_reuse_standing_scope(
+                user_id,
+                scope=ConsentScope.CAP_LOCATION_LIVE_SHARE,
+                grant_kind="location_live_share",
+                scope_description="Propose a public location link for your confirmation",
+            )
+            share_token = str((share_grant or {}).get("token") or "")
+            if share_token:
+                data_door_grants[ConsentScope.CAP_LOCATION_LIVE_SHARE.value] = share_token
+        except Exception as exc:  # noqa: BLE001 - a mint failure degrades the proposal, never the turn
+            logger.info(
+                "pod_relay.data_door_grant_skipped door=location_share %s", type(exc).__name__
+            )
 
     return data_door_grants
 

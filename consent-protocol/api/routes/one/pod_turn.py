@@ -28,7 +28,7 @@ from types import SimpleNamespace
 from typing import Any, Optional
 
 from fastapi import APIRouter, Body, Header, HTTPException, WebSocket
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from api.routes.one.pod_relay import POD_DATA_DOOR_NAMES
 from hushh_mcp.runtime_settings import pod_mode, pod_turn_enabled
@@ -38,6 +38,20 @@ from hushh_mcp.services.pod_pkm_resolver import PodPkmOwnerMismatch
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/one/pod", tags=["personal-agent"])
+
+# Every grant key a text turn may carry. The door names are the Live wire
+# contract; the two scope-named keys are proposal authorities the pod's Location
+# service reads under their scope name. The Live route enforced its allowlist
+# on headers from the start; the text path accepted any key until this list
+# existed, so an unknown key now refuses at validation instead of riding into
+# session state.
+POD_TURN_GRANT_KEYS: tuple[str, ...] = (
+    *POD_DATA_DOOR_NAMES,
+    "cap.location.live.share",
+    "cap.location.live.refer_request",
+)
+# Matches the Live route's per-grant header bound.
+_MAX_GRANT_TOKEN_LENGTH = 4096
 
 
 class PodTurnRequest(BaseModel):
@@ -82,6 +96,20 @@ class PodTurnRequest(BaseModel):
     data_door_grants: Optional[dict[str, str]] = Field(default=None, alias="dataDoorGrants")
 
     model_config = ConfigDict(populate_by_name=True)
+
+    @field_validator("data_door_grants")
+    @classmethod
+    def _only_known_bounded_grants(
+        cls, value: Optional[dict[str, str]]
+    ) -> Optional[dict[str, str]]:
+        if value is None:
+            return None
+        for key, token in value.items():
+            if key not in POD_TURN_GRANT_KEYS:
+                raise ValueError(f"unknown grant key: {key}")
+            if len(token) > _MAX_GRANT_TOKEN_LENGTH:
+                raise ValueError(f"grant value too long for {key}")
+        return value
 
 
 def _require_enabled() -> None:

@@ -366,6 +366,7 @@ async def test_the_door_grant_is_couriered_to_the_pod_when_enabled(monkeypatch):
         "invoke": "standing-cap.one.invoke",
         "nav": "standing-agent.nav.review",
         "marketplace": "standing-cap.pkm.marketplace.view",
+        "cap.location.live.share": "standing-cap.location.live.share",
     }
 
 
@@ -402,6 +403,7 @@ async def test_a_door_mint_failure_degrades_the_read_not_the_turn(monkeypatch):
         "invoke": "standing-cap.one.invoke",
         "nav": "standing-agent.nav.review",
         "marketplace": "standing-cap.pkm.marketplace.view",
+        "cap.location.live.share": "standing-cap.location.live.share",
     }
 
 
@@ -428,3 +430,58 @@ async def test_redirect_cannot_become_an_authorized_turn(monkeypatch, redirect_s
         await _turn(session=pod)
     assert exc.value.status_code == 502
     assert exc.value.detail == {"detail": "pod redirect refused"}
+
+
+# -- the Location proposal path (Lane B5) ------------------------------------------
+# A standing share scope lets the pod's own Location service PROPOSE a public
+# link with zero hub information reads. It is couriered under its scope name,
+# gated by the same door flag, and best-effort like every door.
+
+
+async def test_the_share_grant_is_couriered_for_the_location_proposal_path(
+    monkeypatch, _standing_door_issuers
+):
+    monkeypatch.setattr(pod_relay, "pod_data_door_enabled", lambda: True)
+    pod = _Pod()
+    await _turn(session=pod, door_grants=_door_grants)
+    grants = pod.calls[0]["json"]["dataDoorGrants"]
+    assert grants["cap.location.live.share"] == "standing-cap.location.live.share"
+    assert ("u1", "cap.location.live.share") in [
+        (user, getattr(scope, "value", scope)) for user, scope in _standing_door_issuers
+    ]
+    # Every key the relay couriers is one the pod's turn request admits.
+    from api.routes.one.pod_turn import POD_TURN_GRANT_KEYS
+
+    assert set(grants) <= set(POD_TURN_GRANT_KEYS)
+
+
+async def test_no_share_grant_is_minted_while_the_door_flag_is_off(
+    monkeypatch, _standing_door_issuers
+):
+    monkeypatch.setattr(pod_relay, "pod_data_door_enabled", lambda: False)
+    pod = _Pod()
+    await _turn(session=pod, door_grants=_door_grants)
+    assert "cap.location.live.share" not in pod.calls[0]["json"]["dataDoorGrants"]
+    assert "cap.location.live.share" not in [
+        getattr(scope, "value", scope) for _, scope in _standing_door_issuers
+    ]
+
+
+async def test_a_share_mint_failure_degrades_the_proposal_not_the_turn(monkeypatch):
+    from hushh_mcp.constants import ConsentScope
+    from hushh_mcp.services.personal_agent_grant_service import PersonalAgentGrantService
+
+    monkeypatch.setattr(pod_relay, "pod_data_door_enabled", lambda: True)
+
+    async def scoped(_self, user_id, *, scope, **_kwargs):
+        if scope == ConsentScope.CAP_LOCATION_LIVE_SHARE:
+            raise RuntimeError("consent DB down")
+        return {"token": f"standing-{scope.value}", "scope": scope, "reused": True}
+
+    monkeypatch.setattr(PersonalAgentGrantService, "issue_or_reuse_standing_scope", scoped)
+    pod = _Pod()
+    result = await _turn(session=pod, door_grants=_door_grants)
+    assert result["text"] == "hello"
+    grants = pod.calls[0]["json"]["dataDoorGrants"]
+    assert "cap.location.live.share" not in grants
+    assert grants["location"] == "standing-location-view"

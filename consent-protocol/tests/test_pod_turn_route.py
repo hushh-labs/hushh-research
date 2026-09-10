@@ -739,3 +739,63 @@ async def test_the_first_reported_model_wins_and_blank_reports_do_not_count(enab
     )
     assert result["model"] == "first"
     assert result["modelReported"] is True
+
+
+# -- Lane B5: the text path enforces the same grant allowlist the Live path does --
+
+
+def _turn_app():
+    from fastapi import FastAPI
+
+    app = FastAPI()
+    app.include_router(pod_turn.router)
+    return app
+
+
+def test_an_unknown_grant_key_is_422_before_the_turn_runs(monkeypatch):
+    from fastapi.testclient import TestClient
+
+    async def never(**_kwargs):
+        pytest.fail("the turn ran with an unknown grant key")
+
+    monkeypatch.setattr(pod_turn, "run_pod_turn", never)
+    response = TestClient(_turn_app()).post(
+        "/api/one/pod/turn",
+        json={"message": "hi", "dataDoorGrants": {"vault.owner": "master-grant"}},
+        headers={"X-Consent-Token": "t"},
+    )
+    assert response.status_code == 422
+    assert "unknown grant key" in response.text
+
+
+def test_an_oversized_grant_value_is_422(monkeypatch):
+    from fastapi.testclient import TestClient
+
+    response = TestClient(_turn_app()).post(
+        "/api/one/pod/turn",
+        json={"message": "hi", "dataDoorGrants": {"location": "x" * 4097}},
+        headers={"X-Consent-Token": "t"},
+    )
+    assert response.status_code == 422
+    assert "too long" in response.text
+
+
+def test_every_couriered_grant_key_is_admitted():
+    from api.routes.one.pod_relay import POD_DATA_DOOR_NAMES
+
+    grants = {key: "x" * 4096 for key in pod_turn.POD_TURN_GRANT_KEYS}
+    assert PodTurnRequest(message="hi", dataDoorGrants=grants).data_door_grants == grants
+    assert set(POD_DATA_DOOR_NAMES) < set(pod_turn.POD_TURN_GRANT_KEYS)
+    assert {"cap.location.live.share", "cap.location.live.refer_request"} < set(
+        pod_turn.POD_TURN_GRANT_KEYS
+    )
+
+
+def test_the_grant_bound_matches_the_live_routes_header_bound():
+    """The Live route refuses a door header over 4096 bytes; the text path must
+    not admit a longer one or the two transports disagree about what fits."""
+    from pathlib import Path
+
+    src = Path(pod_turn.__file__).read_text(encoding="utf-8")
+    assert "_MAX_GRANT_TOKEN_LENGTH = 4096" in src
+    assert "len(token) > 4096" in src, "the Live header bound moved; keep the two aligned"
