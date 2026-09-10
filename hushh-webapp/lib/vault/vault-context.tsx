@@ -131,21 +131,37 @@ export function VaultProvider({ children }: VaultProviderProps) {
   const vaultOwnerToken = vaultIdentityMatches ? storedVaultOwnerToken : null;
   const tokenExpiresAt = vaultIdentityMatches ? storedTokenExpiresAt : null;
   const lastUpgradeKickoffKeyRef = useRef<string | null>(null);
-  // Mirror of tokenExpiresAt so the app-resume listener can read the latest
-  // expiry without re-subscribing every time the token changes.
   const tokenExpiresAtRef = useRef<number | null>(null);
+  // Mirrors of the latest values so async event handlers and cleanup
+  // callbacks never read stale closures. lockVault reads from these refs
+  // instead of from the useCallback capture.
+  const vaultUserIdRef = useRef<string | null>(null);
+  const storedVaultOwnerTokenRef = useRef<string | null>(null);
+
   useEffect(() => {
     tokenExpiresAtRef.current = tokenExpiresAt;
   }, [tokenExpiresAt]);
+  useEffect(() => {
+    vaultUserIdRef.current = vaultUserId;
+  }, [vaultUserId]);
+  useEffect(() => {
+    storedVaultOwnerTokenRef.current = storedVaultOwnerToken;
+  }, [storedVaultOwnerToken]);
+  useEffect(() => {
+    storedVaultKeyRef.current = storedVaultKey;
+  }, [storedVaultKey]);
 
 
   const lockVault = useCallback(() => {
+    // Read from refs so event-listeners registered at mount time always see
+    // the latest values — never stale closure captures.
+    const lockedUserId = vaultUserIdRef.current;
+    const lockedOwnerToken = storedVaultOwnerTokenRef.current;
     console.log("🔒 Vault locked (key + token cleared from memory)");
-    const lockedUserId = vaultUserId;
-    if (lockedUserId && storedVaultOwnerToken) {
+    if (lockedUserId && lockedOwnerToken) {
       void PkmUpgradeOrchestrator.pauseForLocalAuthResume({
         userId: lockedUserId,
-        vaultOwnerToken: storedVaultOwnerToken,
+        vaultOwnerToken: lockedOwnerToken,
       }).catch((error) => {
         console.warn("[VaultProvider] Failed to pause PKM upgrade for local auth resume:", error);
       });
@@ -189,7 +205,7 @@ export function VaultProvider({ children }: VaultProviderProps) {
         .catch(() => undefined);
     }
     VaultService.invalidateVaultStateCache();
-  }, [storedVaultOwnerToken, vaultUserId]);
+  }, []);
 
   // Auto-lock on sign-out or account switch. The public context is already
   // fail-closed during the render where the UID changes; this effect erases the

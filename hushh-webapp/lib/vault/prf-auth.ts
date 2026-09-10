@@ -27,6 +27,12 @@ import { resolvePasskeyRpId } from "@/lib/vault/passkey-rp";
 // callers fail locally while the original ceremony remains the sole owner.
 let webAuthnCeremonyPending = false;
 
+/** 5-minute ceiling. A healthy WebAuthn ceremony resolves in seconds; an
+ *  abandoned prompt (user walked away, browser lost focus, native sheet
+ *  orphaned by a route transition) should not hold the page-wide lease
+ *  indefinitely. */
+const WEBAUTHN_CEREMONY_TIMEOUT_MS = 5 * 60 * 1000;
+
 export class WebAuthnCeremonyInProgressError extends Error {
   constructor() {
     super("A passkey prompt is already open.");
@@ -43,9 +49,18 @@ async function runExclusiveWebAuthn<T>(
 
   const controller = new AbortController();
   webAuthnCeremonyPending = true;
+  const timeoutId = setTimeout(() => controller.abort(), WEBAUTHN_CEREMONY_TIMEOUT_MS);
   try {
     return await run(controller.signal);
+  } catch (error) {
+    // Surface timeouts as a distinct error so the caller can distinguish
+    // "user cancelled" from "the prompt never returned."
+    if (controller.signal.aborted) {
+      throw new Error("Passkey prompt timed out. Try again.");
+    }
+    throw error;
   } finally {
+    clearTimeout(timeoutId);
     webAuthnCeremonyPending = false;
   }
 }

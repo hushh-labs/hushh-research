@@ -103,11 +103,25 @@ export function toInvestorVaultUnlockError(value: unknown): string {
     lowered.includes("timed out or was not allowed") ||
     lowered.includes("privacy-considerations-client") ||
     lowered.includes("notallowederror") ||
-    lowered.includes("aborterror") ||
+    lowered.includes("aborterror")
+  ) {
+    return "Passkey unlock did not finish. Try again, or use your Vault Key or Recovery Key below.";
+  }
+
+  // Cancellation-specific errors require WebAuthn context — a bare "cancelled"
+  // or "canceled" substring alone matches unrelated operations (aborted fetches,
+  // cancelled analytics, etc.). Match the structured cancel signals first.
+  if (
+    lowered.includes("passkey request cancelled") ||
+    lowered.includes("passkey request canceled") ||
+    lowered.includes("passkey authentication cancelled") ||
+    lowered.includes("passkey authentication canceled") ||
     lowered.includes("user cancelled") ||
     lowered.includes("user canceled") ||
-    lowered.includes("cancelled") ||
-    lowered.includes("canceled")
+    lowered.includes("cancelled by user") ||
+    lowered.includes("canceled by user") ||
+    (lowered.includes("cancel") &&
+      (lowered.includes("credential") || lowered.includes("operation")))
   ) {
     return "Passkey unlock did not finish. Try again, or use your Vault Key or Recovery Key below.";
   }
