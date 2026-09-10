@@ -197,10 +197,10 @@ export function ContactInvitationSheet({
                           selectedKeys.has(destinationKey(chosen)) &&
                           !selected[candidate.id];
                         return (
-                          <li key={candidate.id} className="py-1">
+                          <li key={candidate.id}>
                             <label
                               htmlFor={`${selectionId}-${candidate.id}`}
-                              className="flex min-h-14 w-full cursor-pointer items-center gap-3 rounded-md py-3"
+                              className="flex min-h-14 w-full cursor-pointer items-center gap-3 py-4"
                             >
                               <Checkbox
                                 id={`${selectionId}-${candidate.id}`}
