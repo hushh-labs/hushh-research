@@ -184,3 +184,151 @@ async def pod_conversation_close_route(
         payload=payload,
         consent_token=x_consent_token or "",
     )
+
+
+# -- owner revoke, provider consent, status ------------------------------------------
+#
+# The memory outcomes AGENTS.md doctrine 1 requires of a private pod: owner
+# inspection (status), revocation (revoke) and the provider processing boundary
+# (provider-consent). Same admission as the turn on every one of them.
+
+
+class PodMemoryRevokeRequest(BaseModel):
+    memory_ids: list[str] = Field(..., alias="memoryIds", min_length=1, max_length=50)
+    reason_code: str = Field(default="owner_request", alias="reasonCode", max_length=32)
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class PodMemoryProviderConsentRequest(BaseModel):
+    """``granted`` with the hub-minted ``cap.memory.provider.process`` token, or a withdrawal."""
+
+    granted: bool
+    provider_consent_token: Optional[str] = Field(
+        default=None, alias="providerConsentToken", max_length=4096
+    )
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+async def _admit_owner(consent_token: str, *, verifier: Any = None) -> dict:
+    _turn._require_enabled()
+    if not (consent_token or "").strip():
+        raise HTTPException(status_code=401, detail="consent token required")
+    claims = await _turn._validate_consent(consent_token, verifier=verifier)
+    if not claims.get("user_id"):
+        raise HTTPException(status_code=403, detail="consent token carries no owner")
+    return claims
+
+
+def _require_memory(memory_service: Any) -> Any:
+    service = memory_service if memory_service is not None else _memory_service()
+    if service is None:
+        raise HTTPException(status_code=404, detail="this pod holds no agent memory")
+    return service
+
+
+async def run_memory_revoke(
+    *,
+    payload: PodMemoryRevokeRequest,
+    consent_token: str,
+    verifier: Any = None,
+    memory_service: Any = None,
+) -> dict:
+    """Tombstone the named facts. Ids only in and out; never content."""
+    from hushh_mcp.services.pod_memory_service import (  # noqa: PLC0415
+        MEMORY_REVOKE_REASON_CODES,
+        PodMemoryError,
+    )
+
+    await _admit_owner(consent_token, verifier=verifier)
+    service = _require_memory(memory_service)
+    reason = str(payload.reason_code or "owner_request").strip()
+    if reason not in MEMORY_REVOKE_REASON_CODES:
+        raise HTTPException(status_code=400, detail="unknown revocation reason")
+    try:
+        revoked = await service.revoke(payload.memory_ids, reason_code=reason, requested_by="owner")
+    except PodMemoryError as exc:
+        # An id this pod does not hold is a refusal, not a silent no-op: the owner
+        # asked for something specific and must learn it did not happen.
+        raise HTTPException(status_code=404, detail=str(exc)) from None
+    status = await service.memory_status()
+    logger.info("pod_memory.revoke_route revoked=%s tombstones=%s", revoked, status["tombstones"])
+    return {"revoked": revoked, "tombstones": status["tombstones"], "provider": status["provider"]}
+
+
+async def run_memory_provider_consent(
+    *,
+    payload: PodMemoryProviderConsentRequest,
+    consent_token: str,
+    verifier: Any = None,
+    memory_service: Any = None,
+) -> dict:
+    """Record the owner's answer on provider processing, durably, in the pod's log.
+
+    Granting needs a SECOND token: the hub-minted, five-minute
+    ``cap.memory.provider.process`` grant, verified here against the same consent
+    authority and bound to this pod's owner. The standing ``pkm.read`` token that
+    admits every route says the caller may talk to their agent; it never says the
+    provider may process the agent's memory. Withdrawing needs only the owner.
+    """
+    from hushh_mcp.constants import ConsentScope  # noqa: PLC0415
+
+    await _admit_owner(consent_token, verifier=verifier)
+    service = _require_memory(memory_service)
+    if payload.granted:
+        token = str(payload.provider_consent_token or "").strip()
+        if not token:
+            raise HTTPException(status_code=403, detail="provider consent grant required")
+        check = verifier
+        if check is None:
+            from hushh_mcp.services.pod_consent_client import verify_consent  # noqa: PLC0415
+
+            check = verify_consent
+        verdict = await check(token, expected_scope=ConsentScope.CAP_MEMORY_PROVIDER_PROCESS.value)
+        if not verdict.available:
+            raise HTTPException(status_code=503, detail="consent authority is unavailable")
+        mine = _pod_own_id()
+        if not verdict.valid or not mine or verdict.hushh_id != mine:
+            raise HTTPException(status_code=403, detail="provider consent grant is not valid here")
+        if str(verdict.scope or "") != ConsentScope.CAP_MEMORY_PROVIDER_PROCESS.value:
+            raise HTTPException(status_code=403, detail="provider consent grant is not valid here")
+    seq = await service.set_provider_consent(
+        bool(payload.granted),
+        requested_by="owner",
+        scope=ConsentScope.CAP_MEMORY_PROVIDER_PROCESS.value,
+    )
+    status = await service.memory_status()
+    return {"granted": bool(payload.granted), "seq": seq, "provider": status["provider"]}
+
+
+async def run_memory_status(
+    *, consent_token: str, verifier: Any = None, memory_service: Any = None
+) -> dict:
+    """Owner inspection: counts, sequence numbers and provider words. No content."""
+    await _admit_owner(consent_token, verifier=verifier)
+    service = _require_memory(memory_service)
+    return await service.memory_status()
+
+
+@router.post("/memory/revoke")
+async def pod_memory_revoke_route(
+    payload: PodMemoryRevokeRequest = Body(...),
+    x_consent_token: Optional[str] = Header(default=None, alias="X-Consent-Token"),
+) -> dict:
+    return await run_memory_revoke(payload=payload, consent_token=x_consent_token or "")
+
+
+@router.post("/memory/provider-consent")
+async def pod_memory_provider_consent_route(
+    payload: PodMemoryProviderConsentRequest = Body(...),
+    x_consent_token: Optional[str] = Header(default=None, alias="X-Consent-Token"),
+) -> dict:
+    return await run_memory_provider_consent(payload=payload, consent_token=x_consent_token or "")
+
+
+@router.get("/memory/status")
+async def pod_memory_status_route(
+    x_consent_token: Optional[str] = Header(default=None, alias="X-Consent-Token"),
+) -> dict:
+    return await run_memory_status(consent_token=x_consent_token or "")

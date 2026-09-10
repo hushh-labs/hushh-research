@@ -121,6 +121,14 @@ class ConsentScope(str, Enum):
     # execution authority.
     CAP_PUPPY_INFERENCE = "cap.puppy.inference"
 
+    # Owner consent for the person's OWN provider (Vertex Memory Bank in their
+    # project) to process agent memory: generate from a turn, retrieve on recall.
+    # Provider-derived memory has its own processing boundary (AGENTS.md doctrine
+    # 1); a sealed log under pod custody does not imply the provider may read it.
+    # Without a recorded consent the pod never calls memories:generate or
+    # memories:retrieve. Never a vault, PKM or action authority.
+    CAP_MEMORY_PROVIDER_PROCESS = "cap.memory.provider.process"
+
     # ============ MARKETPLACE / PERSONAL INFORMATION AGENT CAPABILITIES ============
     # Capability scopes for the One Personal Information Agent — the marketplace
     # chatbot that lets an owner query, publish, and manage their own PKM data
@@ -315,6 +323,7 @@ class ConsentScope(str, Enum):
             cls.CAP_CALENDAR_EVENTS_VIEW,
             cls.CAP_FINANCE_CONNECTIONS_VIEW,
             cls.CAP_PUPPY_INFERENCE,
+            cls.CAP_MEMORY_PROVIDER_PROCESS,
         ]
 
     @classmethod

@@ -949,3 +949,229 @@ async def relay_pod_conversation_close_route(
         payload=payload,
         correlation=_correlation_headers(request),
     )
+
+
+_MEMORY_PROVIDER_CONSENT_TTL_MS = 5 * 60 * 1000
+
+
+class PodMemoryRevokeRelayRequest(BaseModel):
+    memory_ids: list[str] = Field(..., alias="memoryIds", min_length=1, max_length=50)
+    reason_code: str = Field(default="owner_request", alias="reasonCode", max_length=32)
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class PodMemoryProviderConsentRelayRequest(BaseModel):
+    granted: bool
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+async def _relay_memory_post(
+    *,
+    hushh_id: str,
+    user_id: str,
+    path: str,
+    body: dict[str, Any],
+    request_id: str,
+    registry: Optional[PersonalAgentRegistryRepo] = None,
+    audit: Optional[PodAccessAuditService] = None,
+    grants: Any = None,
+    correlation: Optional[dict[str, str]] = None,
+    session: Any = None,
+) -> dict:
+    url, token = await _owner_pod_target(
+        hushh_id=hushh_id,
+        user_id=user_id,
+        request_id=request_id,
+        registry=registry,
+        audit=audit,
+        grants=grants,
+    )
+    status, answer = await _proxy_post(
+        url, path, body=body, consent_token=token, correlation=correlation, session=session
+    )
+    if status == 503:
+        raise HTTPException(status_code=503, detail="your agent is not answering right now")
+    if status >= 400:
+        raise HTTPException(status_code=status, detail=answer)
+    if isinstance(answer, dict):
+        answer = {k: v for k, v in answer.items() if k != "frames"}
+    return {"hushhId": hushh_id, **(answer if isinstance(answer, dict) else {"pod": answer})}
+
+
+async def relay_pod_memory_revoke(
+    *,
+    hushh_id: str,
+    user_id: str,
+    payload: PodMemoryRevokeRelayRequest,
+    registry: Optional[PersonalAgentRegistryRepo] = None,
+    audit: Optional[PodAccessAuditService] = None,
+    grants: Any = None,
+    correlation: Optional[dict[str, str]] = None,
+    session: Any = None,
+) -> dict:
+    """Owner-authorized revocation of named memories on their own pod."""
+    return await _relay_memory_post(
+        hushh_id=hushh_id,
+        user_id=user_id,
+        path="/api/one/pod/memory/revoke",
+        body={"memoryIds": list(payload.memory_ids), "reasonCode": payload.reason_code},
+        request_id=f"relay-memory-revoke:{hushh_id}",
+        registry=registry,
+        audit=audit,
+        grants=grants,
+        correlation=correlation,
+        session=session,
+    )
+
+
+async def relay_pod_memory_provider_consent(
+    *,
+    hushh_id: str,
+    user_id: str,
+    payload: PodMemoryProviderConsentRelayRequest,
+    registry: Optional[PersonalAgentRegistryRepo] = None,
+    audit: Optional[PodAccessAuditService] = None,
+    grants: Any = None,
+    provider_grants: Any = None,
+    correlation: Optional[dict[str, str]] = None,
+    session: Any = None,
+) -> dict:
+    """Mint the five-minute ``cap.memory.provider.process`` grant and hand it to the pod.
+
+    Mirrors the Puppy inference grant: minted HERE, server-side, for the
+    authenticated owner, never accepted from the caller, and bound to the
+    personal-agent identity. The pod re-verifies it against the same authority
+    before recording the durable consent in its own log. A withdrawal mints nothing.
+    """
+    from hushh_mcp.services.personal_agent_grant_service import (  # noqa: PLC0415
+        PersonalAgentGrantService,
+    )
+
+    body: dict[str, Any] = {"granted": bool(payload.granted)}
+    if payload.granted:
+        issue = provider_grants
+        if issue is None:
+            issue = PersonalAgentGrantService().issue_or_reuse_standing_scope
+        try:
+            grant = await issue(
+                user_id,
+                scope=ConsentScope.CAP_MEMORY_PROVIDER_PROCESS,
+                grant_kind="memory_provider_process",
+                scope_description=(
+                    "Allow the memory service in your own cloud project to process what "
+                    "your private agent remembers"
+                ),
+                expires_in_ms=_MEMORY_PROVIDER_CONSENT_TTL_MS,
+            )
+        except Exception as exc:  # noqa: BLE001 - authority unavailable fails closed
+            logger.warning("pod_relay.provider_consent_grant_failed %s", type(exc).__name__)
+            raise HTTPException(
+                status_code=503, detail="memory provider consent grant unavailable"
+            ) from None
+        body["providerConsentToken"] = str(grant.get("token") or "")
+        if not body["providerConsentToken"]:
+            raise HTTPException(status_code=503, detail="memory provider consent grant unavailable")
+    return await _relay_memory_post(
+        hushh_id=hushh_id,
+        user_id=user_id,
+        path="/api/one/pod/memory/provider-consent",
+        body=body,
+        request_id=f"relay-memory-consent:{hushh_id}",
+        registry=registry,
+        audit=audit,
+        grants=grants,
+        correlation=correlation,
+        session=session,
+    )
+
+
+async def relay_pod_memory_status(
+    *,
+    hushh_id: str,
+    user_id: str,
+    registry: Optional[PersonalAgentRegistryRepo] = None,
+    audit: Optional[PodAccessAuditService] = None,
+    grants: Any = None,
+    session: Any = None,
+) -> dict:
+    """Owner inspection of their pod's memory: counts and words, never content."""
+    url, token = await _owner_pod_target(
+        hushh_id=hushh_id,
+        user_id=user_id,
+        request_id=f"relay-memory-status:{hushh_id}",
+        registry=registry,
+        audit=audit,
+        grants=grants,
+    )
+    client: Any = session
+    if client is None:
+        import requests  # type: ignore[import-untyped]  # noqa: PLC0415
+
+        client = requests
+    identity = await run_in_threadpool(_identity_token, url)
+    if not identity:
+        raise HTTPException(status_code=503, detail="pod identity unavailable")
+    try:
+        response = await run_in_threadpool(
+            lambda: client.get(
+                f"{url}/api/one/pod/memory/status",
+                headers={"Authorization": f"Bearer {identity}", "X-Consent-Token": token},
+                timeout=_INFO_TIMEOUT_SECONDS,
+                allow_redirects=False,
+            )
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.info("pod_relay.memory_status_unreachable %s", type(exc).__name__)
+        raise HTTPException(
+            status_code=503, detail="your agent is not answering right now"
+        ) from None
+    status = getattr(response, "status_code", 502)
+    if 300 <= status < 400:
+        raise HTTPException(status_code=502, detail="pod redirect refused")
+    try:
+        answer = response.json()
+    except Exception:  # noqa: BLE001
+        answer = {"detail": "pod returned a non-JSON body"}
+    if status >= 400:
+        raise HTTPException(status_code=status, detail=answer)
+    return {"hushhId": hushh_id, "memory": answer}
+
+
+@router.post("/{hushh_id}/memory/revoke")
+async def relay_pod_memory_revoke_route(
+    request: Request,
+    payload: PodMemoryRevokeRelayRequest = Body(...),
+    hushh_id: str = Path(..., min_length=1, max_length=128),
+    user_id: str = Depends(require_firebase_auth),
+) -> dict:
+    return await relay_pod_memory_revoke(
+        hushh_id=hushh_id,
+        user_id=user_id,
+        payload=payload,
+        correlation=_correlation_headers(request),
+    )
+
+
+@router.post("/{hushh_id}/memory/provider-consent")
+async def relay_pod_memory_provider_consent_route(
+    request: Request,
+    payload: PodMemoryProviderConsentRelayRequest = Body(...),
+    hushh_id: str = Path(..., min_length=1, max_length=128),
+    user_id: str = Depends(require_firebase_auth),
+) -> dict:
+    return await relay_pod_memory_provider_consent(
+        hushh_id=hushh_id,
+        user_id=user_id,
+        payload=payload,
+        correlation=_correlation_headers(request),
+    )
+
+
+@router.get("/{hushh_id}/memory/status")
+async def relay_pod_memory_status_route(
+    hushh_id: str = Path(..., min_length=1, max_length=128),
+    user_id: str = Depends(require_firebase_auth),
+) -> dict:
+    return await relay_pod_memory_status(hushh_id=hushh_id, user_id=user_id)

@@ -938,6 +938,82 @@ async def ensure_memory_bank(*, store: Any = None, log: Any = None) -> Optional[
         return None
 
 
+async def rebuild_memory_bank(*, store: Any, log: Any = None, service: Any = None) -> str:
+    """Replace this pod's engine with a fresh one, deterministically, on ADC alone.
+
+    The provider offers whole-engine deletion only, so honouring a revoked fact at
+    the provider means deleting the engine and creating another. This is the
+    ``/pod/tick`` job behind ``memory_bank_rebuild_on_tick``; it needs no model
+    and no owner credential, only the pod's own identity in the owner's project.
+
+    Sequence, each step refusing rather than guessing:
+    1. the durable record must be ready, unfenced, with no generation or recall
+       slot open (an open slot raises ``MemoryBankGenerationPending``: try later);
+    2. the engine is deleted through the resolved service's own ``_delete_engine``;
+    3. the record is rewritten as a creation reservation at the CURRENT generation
+       (CAS), so a concurrent boot cannot re-adopt the deleted engine;
+    4. ``find_or_create_engine`` creates the replacement; a provider that still
+       lists the deleted engine is refused rather than silently re-bound;
+    5. the record is written for the new engine with its creation provenance and
+       ``ensure_memory_bank`` re-binds the process to it.
+
+    The caller records the ``agent_memory_provider_rebuild`` marker in the pod's
+    log afterwards; nothing here writes to the memory log. Per-fact provider
+    erasure is never claimed: the new engine simply starts empty.
+    """
+    cfg = memory_bank_config()
+    if cfg is None or store is None:
+        raise MemoryBankUnavailable("memory bank is not configured for this pod")
+    bank = service if service is not None else resolve_memory_bank_service()
+    if bank is None or not hasattr(bank, "_delete_engine"):
+        raise MemoryBankUnavailable("memory bank service is not ready")
+    if log is not None:
+        await log.require_open()
+    raw, generation = await store.get_with_generation(MEMORY_BANK_RECORD_KEY)
+    if raw is None or type(generation) is not int or generation <= 0:
+        raise MemoryBankUnavailable("memory record unavailable for rebuild")
+    record = json.loads(raw)
+    if not isinstance(record, dict) or "erasure" in record:
+        raise MemoryBankUnavailable("memory record is fenced for erasure")
+    if _generation_slot(record) is not None:
+        raise MemoryBankGenerationPending("memory generation still pending")
+    if _recall_slot(record) is not None:
+        raise MemoryBankGenerationPending("memory recall completion unresolved")
+    old_engine = _decode_record(raw, cfg)
+    if not old_engine:
+        raise MemoryBankUnavailable("memory record names no engine")
+
+    await asyncio.to_thread(bank._delete_engine)
+    reservation = {
+        "status": "creating",
+        "project": cfg.project,
+        "location": cfg.location,
+        "displayName": cfg.display_name,
+        "createdAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "rebuiltFrom": old_engine,
+    }
+    generation = await _persist_record(store, reservation, generation)
+    created: list[dict[str, str]] = []
+    engine_id = await asyncio.to_thread(find_or_create_engine, cfg, on_created=created.append)
+    if not engine_id or engine_id == old_engine:
+        raise MemoryBankUnavailable("provider still lists the deleted engine")
+    await _write_record(
+        store,
+        cfg,
+        engine_id,
+        expected_generation=generation,
+        creation_incarnation=created[0] if len(created) == 1 else None,
+    )
+    _STATE["binding"] = None
+    _STATE["engine_id"] = None
+    _SERVICE.clear()
+    bound = await ensure_memory_bank(store=store, log=log)
+    if bound != engine_id:
+        raise MemoryBankUnavailable("memory rebuild admission changed")
+    logger.info("pod_memory_bank.rebuilt location=%s", cfg.location)
+    return engine_id
+
+
 class _AdcToken:
     """A cached ADC bearer for the pod's own identity, refreshed when it expires."""
 

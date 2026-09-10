@@ -2503,3 +2503,210 @@ async def test_pod_route_reconciles_fresh_binding_and_retries_without_second_del
     assert await pod_migration.reconcile_erasure_memory(body, "Bearer synthetic") == expected
     assert await pod_migration.reconcile_erasure_memory(body, "Bearer synthetic") == expected
     assert len(http.deletes) == 1
+
+
+# -- K12: the provider boundary is a recorded consent, visible on the response ------------
+
+
+@pytest.mark.asyncio
+async def test_without_recorded_consent_the_bank_is_never_asked_and_the_response_says_so():
+    """No memories:generate, no memories:retrieve, and no silent fallback: the
+    composite reports `skipped_no_consent` for both halves and answers from the
+    sealed log. The founder's own pod already holds a populated engine; it goes
+    dark exactly like this until consent is granted once."""
+    from hushh_mcp.services.pod_memory_service import build_pod_memory_service
+
+    bank = _Bank(hits=[SimpleNamespace(content="banked memory")])
+    service = build_pod_memory_service(hushh_id="ha1_x", pod_key=b"k" * 32, bank=bank)
+    await service.add_session_to_memory(_session("my dog is called Biscuit"))
+    assert bank.added == 0
+    assert service.provider_report["generate"] == "skipped_no_consent"
+    found = await service.search_memory(app_name="one", user_id="ha1_x", query="dog Biscuit")
+    assert bank.searched == []
+    assert service.provider_report == {
+        "consent": "absent",
+        "generate": "skipped_no_consent",
+        "recall": "skipped_no_consent",
+    }
+    assert [m.content.parts[0].text for m in found.memories] == ["my dog is called Biscuit"]
+    assert service.last_recall_backend == "commit_log"
+
+    await service.set_provider_consent(True)
+    await service.add_session_to_memory(_session("my cat is called Marlow"))
+    assert bank.added == 1
+    found = await service.search_memory(app_name="one", user_id="ha1_x", query="dog")
+    assert [m.content for m in found.memories] == ["banked memory"]
+    assert service.provider_report == {
+        "consent": "granted",
+        "generate": "completed",
+        "recall": "completed",
+    }
+    await service.set_provider_consent(False)
+    await service.search_memory(app_name="one", user_id="ha1_x", query="dog")
+    assert bank.searched == ["dog"], "a withdrawn consent stops the next recall"
+    assert service.provider_report["consent"] == "revoked"
+
+
+@pytest.mark.asyncio
+async def test_a_tombstone_newer_than_the_last_rebuild_suppresses_provider_recall():
+    from hushh_mcp.services.pod_memory_service import build_pod_memory_service
+
+    bank = _Bank(hits=[SimpleNamespace(content="banked memory")])
+    service = build_pod_memory_service(
+        hushh_id="ha1_x", pod_key=b"k" * 32, bank=bank, provider_consent=True
+    )
+    held = await service.remember("the meridian account ends in 4269")
+    await service.revoke([held], reason_code="owner_request")
+    found = await service.search_memory(app_name="one", user_id="ha1_x", query="meridian")
+    assert bank.searched == [], "the bank may still hold what the owner removed"
+    assert service.provider_report["recall"] == "suppressed_stale"
+    assert list(found.memories) == []
+    # The deterministic rebuild marker lifts the suppression for what it covers.
+    await service.record_provider_rebuild()
+    await service.search_memory(app_name="one", user_id="ha1_x", query="meridian")
+    assert bank.searched == ["meridian"]
+    assert service.provider_report["recall"] == "completed"
+
+
+@pytest.mark.asyncio
+async def test_a_provider_hit_that_reproduces_a_revoked_fact_is_dropped():
+    """Belt and braces under the suppression: even when the bank is asked, a hit
+    whose keyed token digests cover a tombstoned record's digests is filtered."""
+    from hushh_mcp.services.pod_memory_service import build_pod_memory_service
+
+    revoked_text = "the sailboat zephyr berths at slip twelve"
+    bank = _Bank(
+        hits=[
+            SimpleNamespace(content=revoked_text),
+            SimpleNamespace(content="the dachshund is named pushkin"),
+        ]
+    )
+    service = build_pod_memory_service(
+        hushh_id="ha1_x", pod_key=b"k" * 32, bank=bank, provider_consent=True
+    )
+    held = await service.remember(revoked_text)
+    await service.revoke([held], reason_code="owner_request")
+    await service.record_provider_rebuild()  # lift suppression; the filter must still hold
+    found = await service.search_memory(app_name="one", user_id="ha1_x", query="sailboat")
+    assert [m.content for m in found.memories] == ["the dachshund is named pushkin"]
+    assert service.provider_report["recall"] == "filtered_revoked"
+
+
+@pytest.mark.asyncio
+async def test_the_provider_report_and_logs_carry_words_never_content(caplog):
+    from hushh_mcp.services.pod_memory_service import build_pod_memory_service
+
+    caplog.set_level("INFO")
+    marker = "synthetic-private-fact-sentinel"
+    bank = _Bank(hits=[SimpleNamespace(content=marker)])
+    service = build_pod_memory_service(
+        hushh_id="ha1_owner", pod_key=b"k" * 32, bank=bank, provider_consent=True
+    )
+    held = await service.remember(marker)
+    await service.revoke([held], reason_code="owner_request")
+    await service.record_provider_rebuild()
+    await service.search_memory(app_name="one", user_id="ha1_owner", query=marker)
+    assert marker not in caplog.text and "ha1_owner" not in caplog.text
+    assert marker not in str(service.provider_report)
+    assert all(isinstance(v, str) for v in service.provider_report.values())
+    assert "pod_memory.revoked count=1" in caplog.text
+
+
+# -- the deterministic engine rebuild ----------------------------------------------------------
+
+
+def _rebuildable_store(cfg, engine_id="91"):
+    store = _ready_store(cfg, engine_id=engine_id)
+    record = json.loads(store.objects[mb.MEMORY_BANK_RECORD_KEY])
+    record.update({"status": "ready", "generationProtocol": 2})
+    record["generationOperation"] = None
+    record["recallOperation"] = None
+    store.objects[mb.MEMORY_BANK_RECORD_KEY] = json.dumps(record).encode()
+    store.generations[mb.MEMORY_BANK_RECORD_KEY] = 4
+    return store
+
+
+class _DeletableService:
+    def __init__(self):
+        self.deletes = 0
+
+    def _delete_engine(self):
+        self.deletes += 1
+        return {}
+
+
+@pytest.mark.asyncio
+async def test_rebuild_deletes_reserves_creates_and_rebinds_to_the_new_engine(monkeypatch):
+    _configure(monkeypatch)
+    cfg = mb.memory_bank_config()
+    store = _rebuildable_store(cfg)
+    service = _DeletableService()
+    seen: list[str] = []
+
+    def _create(config, *, allow_create=True, on_created=None):
+        seen.append("create")
+        assert json.loads(store.objects[mb.MEMORY_BANK_RECORD_KEY])["status"] == "creating", (
+            "the reservation must be durable BEFORE the provider is asked to create"
+        )
+        incarnation = {
+            "name": f"projects/123/locations/{config.location}/reasoningEngines/92",
+            "createTime": "2026-09-10T00:00:00Z",
+        }
+        if on_created is not None:
+            on_created(incarnation)
+        return "92"
+
+    monkeypatch.setattr(mb, "find_or_create_engine", _create)
+    monkeypatch.setattr(
+        mb,
+        "_observe_engine_incarnation",
+        lambda config, engine_id: {
+            "name": f"projects/123/locations/{config.location}/reasoningEngines/{engine_id}",
+            "createTime": "2026-09-10T00:00:00Z",
+        },
+    )
+
+    assert await mb.rebuild_memory_bank(store=store, service=service) == "92"
+    assert service.deletes == 1 and seen == ["create"]
+    record = json.loads(store.objects[mb.MEMORY_BANK_RECORD_KEY])
+    assert record["engineId"] == "92" and record["status"] == "ready"
+    assert record["creationProvenance"]["reservationGeneration"] == 5
+    assert mb.memory_bank_status()["memoryBankEngine"] == "92"
+    assert mb.resolve_memory_bank_service() is not None
+
+
+@pytest.mark.asyncio
+async def test_rebuild_defers_on_an_open_provider_slot_and_refuses_when_fenced(monkeypatch):
+    _configure(monkeypatch)
+    cfg = mb.memory_bank_config()
+    service = _DeletableService()
+
+    store = _rebuildable_store(cfg)
+    record = json.loads(store.objects[mb.MEMORY_BANK_RECORD_KEY])
+    record["generationOperation"] = {"attempt": "a" * 32, "phase": "submitting"}
+    store.objects[mb.MEMORY_BANK_RECORD_KEY] = json.dumps(record).encode()
+    with pytest.raises(mb.MemoryBankGenerationPending):
+        await mb.rebuild_memory_bank(store=store, service=service)
+
+    store = _rebuildable_store(cfg)
+    record = json.loads(store.objects[mb.MEMORY_BANK_RECORD_KEY])
+    record["erasure"] = {"phase": "waiting"}
+    store.objects[mb.MEMORY_BANK_RECORD_KEY] = json.dumps(record).encode()
+    with pytest.raises(mb.MemoryBankUnavailable):
+        await mb.rebuild_memory_bank(store=store, service=service)
+    assert service.deletes == 0, "nothing is deleted until the record admits a rebuild"
+
+
+@pytest.mark.asyncio
+async def test_rebuild_refuses_a_provider_that_still_lists_the_deleted_engine(monkeypatch):
+    _configure(monkeypatch)
+    cfg = mb.memory_bank_config()
+    store = _rebuildable_store(cfg)
+    service = _DeletableService()
+    monkeypatch.setattr(mb, "find_or_create_engine", lambda config, **kw: "91")
+    with pytest.raises(mb.MemoryBankUnavailable):
+        await mb.rebuild_memory_bank(store=store, service=service)
+    assert service.deletes == 1
+    assert json.loads(store.objects[mb.MEMORY_BANK_RECORD_KEY])["status"] == "creating", (
+        "the reservation stays so the next boot cannot silently re-adopt the old engine"
+    )

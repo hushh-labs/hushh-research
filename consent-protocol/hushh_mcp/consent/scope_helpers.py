@@ -87,6 +87,7 @@ def resolve_scope_to_enum(scope: str) -> ConsentScope:
         "cap.calendar.events.view": ConsentScope.CAP_CALENDAR_EVENTS_VIEW,
         "cap.finance.connections.view": ConsentScope.CAP_FINANCE_CONNECTIONS_VIEW,
         "cap.puppy.inference": ConsentScope.CAP_PUPPY_INFERENCE,
+        "cap.memory.provider.process": ConsentScope.CAP_MEMORY_PROVIDER_PROCESS,
     }
     if scope.startswith("agent."):
         resolved = _AGENT_SCOPE_MAP.get(scope)
@@ -379,6 +380,16 @@ def get_scope_display_metadata(scope: str) -> dict:
             ),
             "icon_name": "cpu",
             "color_hex": "#7C3AED",
+        },
+        "cap.memory.provider.process": {
+            "label": "Let Your Cloud Process Agent Memory",
+            "description": (
+                "Allow the memory service in your own cloud project to process what "
+                "your private agent remembers, so it can recall by meaning. Nothing "
+                "leaves your project; withdraw it here at any time"
+            ),
+            "icon_name": "brain",
+            "color_hex": "#0F766E",
         },
     }
 
