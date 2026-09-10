@@ -125,7 +125,7 @@ export class VaultMethodService {
     try {
       const canonicalVaultKey = ensureVaultKeyHex(params.currentVaultKey);
       const state = await VaultService.getVaultState(params.userId);
-      const vaultKeyHash = await VaultService.hashVaultKey(canonicalVaultKey);
+      const vaultKeyHash = await VaultService.hashVaultKey(canonicalVaultKey, state.vaultKeyHash);
 
       if (state.vaultKeyHash && state.vaultKeyHash !== vaultKeyHash) {
         throw new Error("Key mismatch detected. Unlock again.");
@@ -238,7 +238,7 @@ export class VaultMethodService {
     try {
       const canonicalVaultKey = ensureVaultKeyHex(params.currentVaultKey);
       const state = await VaultService.getVaultState(params.userId);
-      const vaultKeyHash = await VaultService.hashVaultKey(canonicalVaultKey);
+      const vaultKeyHash = await VaultService.hashVaultKey(canonicalVaultKey, state.vaultKeyHash);
 
       if (state.vaultKeyHash && state.vaultKeyHash !== vaultKeyHash) {
         throw new Error("Key mismatch detected. Unlock again.");
@@ -303,7 +303,7 @@ export class VaultMethodService {
 
       const canonicalVaultKey = ensureVaultKeyHex(params.currentVaultKey);
       const state = await VaultService.getVaultState(params.userId);
-      const vaultKeyHash = await VaultService.hashVaultKey(canonicalVaultKey);
+      const vaultKeyHash = await VaultService.hashVaultKey(canonicalVaultKey, state.vaultKeyHash);
 
       if (state.vaultKeyHash && state.vaultKeyHash !== vaultKeyHash) {
         throw new Error("Key mismatch detected. Unlock again.");
