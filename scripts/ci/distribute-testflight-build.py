@@ -205,11 +205,17 @@ def resolve_valid_build_id(
         for upload in uploads
         if isinstance(upload, dict)
         and upload.get("type") == "buildUploads"
-        and str((upload.get("attributes") or {}).get("cfBundleShortVersionString"))
-        == marketing_version
-        and str((upload.get("attributes") or {}).get("cfBundleVersion"))
-        == str(build_number)
     ]
+    if len(matches) > 1:
+        version_matches = [
+            upload
+            for upload in matches
+            if str((upload.get("attributes") or {}).get("cfBundleShortVersionString"))
+            == marketing_version
+            and str((upload.get("attributes") or {}).get("cfBundleVersion"))
+            == str(build_number)
+        ]
+        matches = version_matches
     if len(matches) != 1:
         raise DistributionError("exact TestFlight build upload was not found")
 
