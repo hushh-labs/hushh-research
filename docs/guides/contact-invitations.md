@@ -15,8 +15,9 @@ flowchart LR
   review --> compose["Compose for one recipient"]
   compose --> handoff["User confirms Send or Cancel in Messages/mail"]
   handoff --> next["Return to One"]
-  next -->|User chooses next or retry| compose
-  next --> finish["Skip or finish and clear"]
+  next -->|Completed handoff: preview next contact| compose
+  next -->|Cancelled: retry same contact| compose
+  next --> finish["Skip or close"]
 ```
 
 ## Build and rollback
@@ -44,8 +45,15 @@ migration. Older native binaries can still share/copy without the new composer.
   Email collection is flag-gated. Browser email capability is probed before
   the picker tap; the picker itself is never delayed by a capability await.
 - Session generations invalidate reads, referral preparation and old toast
-  actions on dismiss, Finish, resync, account change or unmount. Selection and
-  destinations survive search/pagination/review/back only within that session.
+  actions on dismissal, resync, account change, route change, flag disable or
+  session-provider unmount. Selection and destinations survive search,
+  pagination and review/back within that session. The account/route-scoped
+  provider also retains the current step and pending handoff while authentication
+  revalidation temporarily unmounts the page. Admission and vault gates continue
+  to hide the page until access is verified; invitation state grants no access.
+  No contact details enter browser storage or requests.
+  Contact names, numbers and row whitespace toggle the associated checkbox;
+  contacts with multiple destinations still require an explicit destination.
   The regular matching result still survives Location onboarding Finish.
 
 ## Explicit resync after disconnect
@@ -100,9 +108,16 @@ an exact preview with selectable text for each
 recipient. Missing names use the original invitation text. Names and personalized
 messages remain in session memory until the user hands them to another app.
 Link preparation has a bounded wait and a retry that preserves selection.
-If composer, share or clipboard access is unavailable, the preview supports
-manual copy; the person can explicitly mark a recipient handled elsewhere,
-skip, or finish and clear. None of these actions confirms delivery.
+Copy reports an "Invitation copied" toast and keeps the current recipient.
+Successful iOS Messages handoff or completed iOS/web sharing advances to the
+next contact preview, without opening another composer. Cancel or failure
+keeps the current contact for retry or Skip. Android SMS/share and web URL
+launches cannot establish whether the person sent or cancelled; these show
+"Done with this contact" for explicit advancement. Copy also exposes this
+action for invitations pasted manually. No advancement confirms delivery.
+If composer, share or clipboard access is unavailable, share/copy alternatives
+and selectable preview text remain accessible. Skip and the close button
+always provide an exit. External focus changes do not dismiss the sheet.
 Receiving an invitation does not grant a connection or location capability.
 
 ## Verification and release checklist
@@ -118,12 +133,43 @@ unavailable handler and older-binary fallback. Exercise Google import and
 email-only recipients on desktop, plus browser share/copy and missing mail/SMS
 handlers. Do not send live invitations from automated tests.
 
+Invitation-return regression checks:
+
+- Select/deselect via name, number, whitespace and checkbox; preserve explicit
+  multi-destination choice, deduplication, search and pagination.
+- Select two contacts; return from iOS Messages Send and completed sharing:
+  show the next personalized preview and open no composer automatically.
+- Return using Cancel, X or discard: retain the current recipient and selection.
+- Temporarily unmount the page during a pending handoff and settle its promise:
+  restore the correct step after validation; never show contacts behind a gate.
+- Copy through the clipboard focus fallback: keep the sheet and show feedback.
+- Android/web ambiguous handoffs use explicit completion; repeated taps cannot
+  start duplicate composers. Retry, Skip and queue completion remain usable.
+- Logout, account/route changes, explicit close, resync and flag disable clear
+  recipients and ignore late callbacks, including their toasts.
+
 Impact: existing Connect and Location routes and public request/response shapes
 are preserved. Migration 205 adds disconnect-actor metadata for the explicit
 resync policy above; it must precede deployment of the updated backend. No cache
 keys or PKM contracts change. Invitation interfaces are client-local recipient
 callbacks and the native composer plugin. Apple requires individualized
 contact invitations: [App Review 5.1.2(v)](https://developer.apple.com/app-store/review/guidelines/#data-use-and-sharing).
+
+## Invitation-return follow-up verification (2026-09-10)
+
+- 50 invitation tests, 344 Connect tests (large-list timeout under concurrent
+  suite load passed its isolated 17-test rerun), 893 Location tests, 273 account
+  session tests and 62 share-ladder tests passed. These suite counts overlap.
+- TypeScript, focused ESLint, production web build, service boundary, docs,
+  design-system, route orchestration and native plugin/static checks passed.
+- Synthetic Chromium rehearsal at 390px and 1440px passed full-row selection,
+  Google import and matching, real clipboard with toast, preview/back, share
+  cancellation/retry, automatic next preview, email launch and queue cleanup.
+  No raw recipients appeared in captured API requests, logs or browser storage.
+- Native export remains blocked on this Windows host by `spawnSync npx ENOENT`.
+  Physical iOS/Android Send, discard, Cancel and app-return checks on a rebuilt
+  native bundle are still required. Automated gate-remount tests cover pending
+  handoffs resolving while the page is absent; they do not replace device tests.
 
 ## Implementation verification (2026-09-09)
 

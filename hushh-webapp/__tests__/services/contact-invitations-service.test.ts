@@ -6,13 +6,17 @@ import {
 import { personalizeInvitation } from "@/lib/contacts/personalize-invitation";
 const mocks = vi.hoisted(() => ({
   native: true,
+  platform: "ios",
   composeSms: vi.fn(),
   getCapabilities: vi.fn(),
   share: vi.fn(),
   copy: vi.fn(),
 }));
 vi.mock("@capacitor/core", () => ({
-  Capacitor: { isNativePlatform: () => mocks.native },
+  Capacitor: {
+    isNativePlatform: () => mocks.native,
+    getPlatform: () => mocks.platform,
+  },
 }));
 vi.mock("@/lib/capacitor/invitations", () => ({ HushhInvitations: mocks }));
 vi.mock("@/lib/share/share-link", () => ({ shareLink: mocks.share }));
@@ -26,10 +30,35 @@ const share = {
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.native = true;
+  mocks.platform = "ios";
 });
 afterEach(() => vi.unstubAllGlobals());
 
 describe("invitation handoffs", () => {
+  it("only advances on supported completed handoffs; Android chooser/compose return is ambiguous", () => {
+    expect(ContactInvitationsService.completesRecipient("queued_or_sent")).toBe(
+      true,
+    );
+    expect(ContactInvitationsService.completesRecipient("native-share")).toBe(
+      true,
+    );
+    mocks.platform = "android";
+    for (const outcome of [
+      "native-share",
+      "opened",
+      "cancelled",
+      "failed",
+      "unavailable",
+      "copied",
+      "launch_requested",
+    ] as const) {
+      expect(ContactInvitationsService.completesRecipient(outcome)).toBe(false);
+    }
+    mocks.platform = "web";
+    expect(ContactInvitationsService.completesRecipient("web-share")).toBe(
+      true,
+    );
+  });
   it("preserves emoji at the greeting length boundary and handles ill-formed contact names", () => {
     const displayName = `${"a".repeat(79)}😀more`;
     const personalized = personalizeInvitation(share, displayName);
