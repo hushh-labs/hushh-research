@@ -256,6 +256,7 @@ jobs:
           uv run --project consent-protocol --locked pytest consent-protocol/tests/test_kai_local_runtime.py -q
           python3 scripts/ci/test_verify_one_voice_local_runtime_readiness.py
           python3 scripts/ci/test_distribute_testflight_build.py
+          python3 scripts/ci/test_ios_uat_passkey_config.py
 
       - name: Verify UAT local voice packs match this release
         shell: bash
