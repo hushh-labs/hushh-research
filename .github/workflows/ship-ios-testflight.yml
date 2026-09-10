@@ -296,6 +296,7 @@ jobs:
             -clonedSourcePackagesDirPath "${RUNNER_TEMP}/spm"
 
       - name: Run core iOS App Intent and action tests
+        id: core_tests
         if: ${{ inputs.run_core_tests == true }}
         shell: bash
         run: |
@@ -368,6 +369,7 @@ jobs:
             -- "$RUNNER_TEMP/App.xcarchive"
 
       - name: Export and upload TestFlight build
+        id: upload
         shell: bash
         run: |
           set -euo pipefail
@@ -386,7 +388,31 @@ jobs:
             -authenticationKeyID "$ASC_KEY_ID" \
             -authenticationKeyIssuerID "$ASC_ISSUER_ID"
 
+      - name: Preserve uploaded build identity for recovery
+        if: inputs.dry_run != true
+        shell: bash
+        env:
+          RELEASE_SHA: ${{ needs.preflight.outputs.release_sha }}
+          BUILD_NUMBER: ${{ steps.build_number.outputs.next_build }}
+        run: |
+          python3 - <<'PY'
+          import json, os, pathlib, re
+          version = re.search(r'MARKETING_VERSION\s*=\s*([^;]+)', pathlib.Path(os.environ['PBXPROJ']).read_text()).group(1).strip()
+          receipt = dict(source_sha=os.environ['RELEASE_SHA'], build_number=os.environ['BUILD_NUMBER'], marketing_version=version, bundle_id=os.environ['IOS_BUNDLE_ID'])
+          pathlib.Path(os.environ['RUNNER_TEMP'], 'testflight-upload-receipt.json').write_text(json.dumps(receipt))
+          PY
+
+      - name: Upload recovery receipt before Apple processing
+        if: inputs.dry_run != true
+        uses: actions/upload-artifact@v4
+        with:
+          name: testflight-upload-receipt
+          path: ${{ runner.temp }}/testflight-upload-receipt.json
+          retention-days: 90
+          if-no-files-found: error
+
       - name: Wait for valid TestFlight processing
+        id: processing
         if: inputs.dry_run != true
         shell: bash
         run: |
@@ -405,6 +431,7 @@ jobs:
             --output-json "$RUNNER_TEMP/testflight-build.json"
 
       - name: Attach the same valid build to both TestFlight groups
+        id: distribution
         if: inputs.dry_run != true
         shell: bash
         run: |
@@ -456,8 +483,11 @@ jobs:
             echo
             echo "| Release source | ${{ needs.preflight.outputs.release_sha }} |"
             echo "| Physical iPhone p95 (ms) | ${{ inputs.require_hardware == true && needs.hardware-capture.outputs.p95_time_to_capture_ms || 'not requested' }} |"
-            echo "| Focused App Intent/action gate | ${{ inputs.run_core_tests == true && 'passed' || 'skipped; full AppTests remain in change-aware CI' }} |"
+            echo "| Focused App Intent/action gate | ${{ steps.core_tests.outcome }} |"
             echo "| Build number | ${{ steps.build_number.outputs.next_build }} |"
+            echo "| Upload | ${{ steps.upload.outcome }} |"
+            echo "| Apple processing | ${{ steps.processing.outcome }} |"
+            echo "| TestFlight distribution | ${{ steps.distribution.outcome }} |"
             echo
             echo "The workflow uses TestFlight beta endpoints only. External tester availability is pending until Apple approves TestFlight Beta App Review when required; this workflow never submits an App Store version."
           } >> "$GITHUB_STEP_SUMMARY"

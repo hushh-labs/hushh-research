@@ -9,6 +9,7 @@ import importlib.util
 import sys
 import tempfile
 import unittest
+import urllib.parse
 from pathlib import Path
 from typing import Any
 
@@ -116,6 +117,8 @@ class FakeApple:
         if method == "POST" and path == "/v1/betaAppReviewDetails":
             return {"data": {"type": "betaAppReviewDetails", "id": "detail-1"}}
         if method == "GET" and path.startswith(f"/v1/builds/{BUILD_ID}/betaBuildLocalizations"):
+            params = urllib.parse.parse_qs(urllib.parse.urlsplit(url).query)
+            assert set(params) <= {"limit", "fields[betaBuildLocalizations]"}, params
             return {"data": []}
         if method == "POST" and path == "/v1/betaBuildLocalizations":
             return {"data": {"type": "betaBuildLocalizations", "id": "localization-1"}}
@@ -141,6 +144,20 @@ class FakeApple:
 
 
 class DistributeTestFlightBuildTests(unittest.TestCase):
+    def test_localization_update_finds_locale_on_later_page_and_only_patches_notes(self) -> None:
+        calls = []
+        def request(method, url, payload):
+            calls.append((method, url, payload))
+            if method == "PATCH":
+                self.assertEqual(payload["data"]["attributes"], {"whatsNew": "new notes"})
+                return {}
+            if "cursor=next" in url:
+                return {"data": [{"type": "betaBuildLocalizations", "id": "loc-en", "attributes": {"locale": "en-US"}}]}
+            self.assertNotIn("filter", url)
+            return {"data": [{"type": "betaBuildLocalizations", "id": "loc-fr", "attributes": {"locale": "fr-FR"}}], "links": {"next": f"{subject.ASC_API_ROOT}/v1/builds/{BUILD_ID}/betaBuildLocalizations?cursor=next"}}
+        subject.upsert_beta_build_localization(subject.AppStoreConnectClient("test", request=request), BUILD_ID, "new notes")
+        self.assertEqual([call[0] for call in calls], ["GET", "GET", "PATCH"])
+
     def run_distribution(self, apple: FakeApple) -> dict[str, str]:
         return subject.distribute_valid_build(
             client=subject.AppStoreConnectClient("test", request=apple.request),

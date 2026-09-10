@@ -354,11 +354,24 @@ def upsert_beta_review_detail(
 def upsert_beta_build_localization(
     client: AppStoreConnectClient, build_id: str, notes: str
 ) -> None:
-    query = urllib.parse.urlencode({"filter[locale]": "en-US", "limit": "2"})
-    payload = client.get(f"/v1/builds/{build_id}/betaBuildLocalizations?{query}")
-    records = payload.get("data")
-    if not isinstance(records, list):
-        raise DistributionError("App Store Connect returned invalid beta build localizations")
+    # The build relationship endpoint supports `limit` but not the collection
+    # `filter[locale]` parameter. Fetch the bounded relationship page and select
+    # the requested locale locally so Apple does not reject the request with 400.
+    query = urllib.parse.urlencode({"limit": "200"})
+    next_url = f"/v1/builds/{build_id}/betaBuildLocalizations?{query}"
+    records: list[Any] = []
+    visited: set[str] = set()
+    while next_url:
+        absolute = client.absolute_url(next_url)
+        if absolute in visited:
+            raise DistributionError("App Store Connect returned cyclic localization pages")
+        visited.add(absolute)
+        payload = client.get(next_url)
+        page = payload.get("data")
+        if not isinstance(page, list):
+            raise DistributionError("App Store Connect returned invalid beta build localizations")
+        records.extend(page)
+        next_url = (payload.get("links") or {}).get("next")
     matches = [
         record
         for record in records
@@ -379,7 +392,7 @@ def upsert_beta_build_localization(
                 "data": {
                     "type": "betaBuildLocalizations",
                     "id": localization_id,
-                    "attributes": attributes,
+                    "attributes": {"whatsNew": notes},
                 }
             },
         )
