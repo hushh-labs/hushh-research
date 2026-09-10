@@ -250,10 +250,14 @@ def test_hosted_backend_bounds_database_connection_fanout() -> None:
     # lowering the pools multiplies the ceiling silently, which is exactly how
     # this arithmetic drifted 2x out of date before 2026-08-23.
     dockerfile = _read("consent-protocol/Dockerfile")
-    worker_flag = re.search(r"gunicorn\s+server:app\s+-w\s+(\d+)", dockerfile)
-    assert worker_flag is not None, "could not read the gunicorn worker count from the Dockerfile"
+    worker_flag = re.search(
+        r"gunicorn\s+server:app\s+-w\s+\$\{WEB_CONCURRENCY:-([0-9]+)\}", dockerfile
+    )
+    assert worker_flag is not None, "could not read the gunicorn worker default from the Dockerfile"
     gunicorn_workers = int(worker_flag.group(1))
     assert gunicorn_workers == 2
+    assert 'env_vars+=("WEB_CONCURRENCY=${worker_count}")' in backend_build
+    assert 'worker_count="1"' in backend_build
 
     assert "_DB_POOL_MIN_SIZE=1" in uat_workflow
     assert "_DB_POOL_MAX_SIZE=4" in uat_workflow

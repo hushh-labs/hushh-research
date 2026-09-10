@@ -271,6 +271,15 @@ env_vars=(
   "RIA_INTELLIGENCE_CRD_SCRAPER_TIMEOUT_SECONDS=${_RIA_INTELLIGENCE_CRD_SCRAPER_TIMEOUT_SECONDS}"
   "RIA_ONBOARDING_PROVIDER_TIMEOUT_SECONDS=${_RIA_ONBOARDING_PROVIDER_TIMEOUT_SECONDS}"
 )
+worker_count="2"
+if [[ "${_DEPLOY_ENV}" == "dev" ]]; then
+  # The dev owner pilot deliberately keeps Puppy relay state process-local and
+  # runs one Cloud Run instance. UAT/production retain the existing two-worker
+  # default and must use an explicit rendezvous design before scaling out this
+  # relay lane.
+  worker_count="1"
+fi
+env_vars+=("WEB_CONCURRENCY=${worker_count}")
 append_optional_env() {
   local env_name="$1"
   local env_value="$2"
