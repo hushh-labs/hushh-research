@@ -142,6 +142,8 @@ def _runtime_model(
     runtime_model: str,
     runtime_mode: str,
     runtime_credential: str | None,
+    runtime_provider: str = "gemini",
+    puppy_device_id: str | None = None,
     runtime_credential_transport: Literal["developer_api", "vertex_api_key"] = "developer_api",
     runtime_vertex_project: str | None = None,
     runtime_vertex_location: str | None = None,
@@ -154,6 +156,17 @@ def _runtime_model(
     if not model:
         raise ValueError("One text runtime model is missing")
     credential = str(runtime_credential or "").strip()
+    if runtime_mode == "puppy_relay":
+        if not credential or not str(puppy_device_id or "").strip():
+            raise ValueError("Puppy relay authority is missing")
+        from hushh_mcp.runtime_providers.adk_model import ProviderAdkModel
+
+        return ProviderAdkModel(
+            model=model,
+            provider=runtime_provider,
+            credential=credential,
+            device_id=puppy_device_id,
+        )
     if runtime_mode == "byok" and not credential:
         raise ValueError("One text BYOK credential is missing")
     if runtime_mode == "byok":
@@ -412,6 +425,7 @@ async def _stream_one_text_turn_once(
     runtime_model: str,
     runtime_mode: str,
     runtime_credential: str | None,
+    puppy_device_id: str | None = None,
     runtime_credential_transport: Literal["developer_api", "vertex_api_key"] = "developer_api",
     runtime_vertex_project: str | None = None,
     runtime_vertex_location: str | None = None,
@@ -419,8 +433,8 @@ async def _stream_one_text_turn_once(
     managed_location: str | None = None,
 ) -> AsyncGenerator[OneTextStreamEvent, None]:
     """Run one typed turn in one endpoint and expose replay boundaries."""
-    if str(runtime_provider or "").strip().lower() != "gemini":
-        raise ValueError("One text ADK currently requires the Gemini provider")
+    if str(runtime_provider or "").strip().lower() not in {"gemini", "puppy"}:
+        raise ValueError("One text ADK provider is unavailable")
 
     clean_user_id = str(user_id or "").strip()
     clean_conversation_id = str(conversation_id or "").strip()
@@ -445,6 +459,8 @@ async def _stream_one_text_turn_once(
                 runtime_model=runtime_model,
                 runtime_mode=runtime_mode,
                 runtime_credential=runtime_credential,
+                runtime_provider=runtime_provider,
+                puppy_device_id=puppy_device_id,
                 runtime_credential_transport=runtime_credential_transport,
                 runtime_vertex_project=runtime_vertex_project,
                 runtime_vertex_location=runtime_vertex_location,
@@ -633,6 +649,7 @@ async def stream_one_text_turn(
     runtime_model: str,
     runtime_mode: str,
     runtime_credential: str | None,
+    puppy_device_id: str | None = None,
     runtime_credential_transport: Literal["developer_api", "vertex_api_key"] = "developer_api",
     runtime_vertex_project: str | None = None,
     runtime_vertex_location: str | None = None,
@@ -663,6 +680,7 @@ async def stream_one_text_turn(
                 runtime_model=runtime_model,
                 runtime_mode=runtime_mode,
                 runtime_credential=runtime_credential,
+                puppy_device_id=puppy_device_id,
                 runtime_credential_transport=runtime_credential_transport,
                 runtime_vertex_project=runtime_vertex_project,
                 runtime_vertex_location=runtime_vertex_location,

@@ -30,6 +30,7 @@ from hushh_mcp.runtime_providers import (
 )
 from hushh_mcp.runtime_providers.factory import _build
 from hushh_mcp.runtime_providers.normalized import (
+    NormalizedChunk,
     NormalizedFunctionCall,
     NormalizedResponse,
 )
@@ -222,10 +223,71 @@ def test_normalized_response_exposes_genai_shape():
 
 
 def test_normalized_chunk_candidates_empty_when_no_text():
-    from hushh_mcp.runtime_providers.normalized import NormalizedChunk
-
     assert NormalizedChunk(text="").candidates == ()
     assert NormalizedChunk(text="hi").candidates[0].content.parts[0].text == "hi"
+
+
+def test_normalized_chunk_preserves_function_calls():
+    call = NormalizedFunctionCall(name="lookup", args={"q": "x"}, id="call-1")
+    parts = NormalizedChunk(function_calls=(call,)).candidates[0].content.parts
+    assert parts[0].function_call is call
+
+
+async def test_provider_adk_model_maps_puppy_transport_for_text_and_stream(monkeypatch):
+    from google.adk.models.llm_request import LlmRequest
+    from google.genai import types as genai_types
+
+    from hushh_mcp.runtime_providers.adk_model import ProviderAdkModel
+
+    calls: list[tuple[str, str, str | None]] = []
+
+    class _Models:
+        async def generate_content(self, *, model, contents, config):
+            calls.append(("generate", model, None))
+            return NormalizedResponse(
+                text="local answer",
+                function_calls=(
+                    NormalizedFunctionCall(name="lookup", args={"q": "x"}, id="call-1"),
+                ),
+            )
+
+        async def generate_content_stream(self, *, model, contents, config):
+            calls.append(("stream", model, None))
+
+            async def _chunks():
+                yield NormalizedChunk(text="local ")
+                yield NormalizedChunk(
+                    function_calls=(
+                        NormalizedFunctionCall(name="lookup", args={"q": "x"}, id="call-1"),
+                    )
+                )
+
+            return _chunks()
+
+    class _Client:
+        aio = types.SimpleNamespace(models=_Models())
+
+    def _build(provider, credential, *, puppy_device_id=None):
+        calls.append((provider, credential, puppy_device_id))
+        return _Client()
+
+    monkeypatch.setattr("hushh_mcp.runtime_providers.adk_model.build_runtime_client", _build)
+    model = ProviderAdkModel(
+        model="meta/muse-glimmer", provider="puppy", credential="grant", device_id="tdv_1"
+    )
+    request = LlmRequest(
+        contents=[
+            genai_types.Content(role="user", parts=[genai_types.Part.from_text(text="hello")])
+        ]
+    )
+
+    full = [item async for item in model.generate_content_async(request)]
+    assert full[-1].content is not None
+    assert full[-1].content.parts[-1].function_call.id == "call-1"
+    streamed = [item async for item in model.generate_content_async(request, stream=True)]
+    assert streamed[-1].turn_complete is True
+    assert streamed[1].content.parts[0].function_call.name == "lookup"
+    assert calls[:2] == [("puppy", "grant", "tdv_1"), ("generate", "meta/muse-glimmer", None)]
 
 
 # --------------------------------------------------------------------------- #

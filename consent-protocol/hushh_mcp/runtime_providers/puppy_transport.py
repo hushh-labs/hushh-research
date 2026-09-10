@@ -224,7 +224,13 @@ class PuppyRelayTransport(ProviderTransport):
                 value = frame.get("text")
                 if isinstance(value, str) and value:
                     emitted_result = True
-                    yield NormalizedChunk(text=value)
+                    yield NormalizedChunk(
+                        text=value, function_calls=self._calls(frame.get("functionCalls"))
+                    )
+                else:
+                    calls = self._calls(frame.get("functionCalls"))
+                    if calls:
+                        yield NormalizedChunk(function_calls=calls)
             if kind == "inference.done" and not emitted_result:
                 value = frame.get("text")
                 if isinstance(value, str) and value:

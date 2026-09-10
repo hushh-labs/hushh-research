@@ -306,6 +306,7 @@ async def run_pod_turn(
                 runtime_mode=runtime_mode,
                 runtime_credential=payload.runtime_credential,
                 runtime_credential_transport=payload.runtime_credential_transport,  # type: ignore[arg-type]
+                puppy_device_id=payload.puppy_device_id,
                 runtime_vertex_project=payload.vertex_project,
                 runtime_vertex_location=payload.vertex_location,
                 # The couriered per-specialist read scopes. Seeded into the runtime so
