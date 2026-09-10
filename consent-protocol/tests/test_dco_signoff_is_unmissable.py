@@ -317,7 +317,15 @@ def test_this_checkout_has_the_hooks_activated() -> None:
             "accumulated 78 unsigned commits.",
             file=sys.stderr,
         )
-    assert configured in ("", ".githooks"), (
-        f"core.hooksPath points somewhere unexpected ({configured!r}); the tracked "
-        "hooks in .githooks are not the ones running"
-    )
+    # Git accepts the tracked directory spelled relative or absolute (a worktree
+    # tool may write the absolute form); either way it must resolve to the
+    # tracked hooks, or the hooks running are not the ones reviewed here.
+    tracked = (_REPO / ".githooks").resolve()
+    if configured:
+        configured_dir = Path(configured)
+        if not configured_dir.is_absolute():
+            configured_dir = _REPO / configured_dir
+        assert configured_dir.resolve() == tracked, (
+            f"core.hooksPath points somewhere unexpected ({configured!r}); the tracked "
+            "hooks in .githooks are not the ones running"
+        )
