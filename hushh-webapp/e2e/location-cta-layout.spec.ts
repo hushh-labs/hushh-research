@@ -24,6 +24,7 @@ import {
 } from "../components/one-location/redesign/location-cta-layout";
 import {
   LOCATION_HEADER_ACTIONS_CLASSNAME,
+  LOCATION_HUB_PAGE_HEADER_CLASSNAME,
   LOCATION_HEADER_STATUS_CLASSNAME,
 } from "../components/one-location/redesign/location-header-layout";
 import { cn } from "../lib/utils";
@@ -92,6 +93,7 @@ async function buildFixture(): Promise<string> {
     COMPACT_CELL_ON_CLASSNAME,
     COMPACT_CELL_OFF_CLASSNAME,
     LOCATION_HEADER_ACTIONS_CLASSNAME,
+    LOCATION_HUB_PAGE_HEADER_CLASSNAME,
     LOCATION_HEADER_STATUS_CLASSNAME,
     harnessClasses,
   ]
@@ -106,12 +108,22 @@ async function buildFixture(): Promise<string> {
     )
     .join("");
   const headers = STATUS_LABELS.map(
-    (label) => `<header data-header class="flex items-center gap-3">
-      <span class="h-11 w-11 shrink-0 rounded-[10px]"></span>
-      <h1 data-header-title class="min-w-0 flex-1 whitespace-nowrap text-[28px] font-semibold">Location</h1>
-      <div data-header-actions class="${LOCATION_HEADER_ACTIONS_CLASSNAME}">
-        <button data-header-switch class="h-8 w-[51px] shrink-0 rounded-full"></button>
-        <span data-header-status class="${LOCATION_HEADER_STATUS_CLASSNAME}">${label}</span>
+    (label) => `<header data-header class="${LOCATION_HUB_PAGE_HEADER_CLASSNAME}">
+      <div class="flex items-stretch gap-3 sm:gap-4">
+        <span class="h-11 w-11 shrink-0 self-center rounded-[10px]"></span>
+        <div class="min-w-0 flex-1">
+          <div data-slot="page-header-row" class="flex items-start justify-between gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div data-slot="page-header-copy" class="min-w-0 flex-1">
+              <h1 data-header-title class="whitespace-nowrap text-[28px] font-semibold">Location</h1>
+            </div>
+            <div data-slot="page-header-actions" class="flex w-auto shrink-0 flex-wrap items-center justify-end self-start gap-2 sm:w-auto sm:shrink-0 sm:justify-end sm:self-center">
+              <div data-header-actions class="${LOCATION_HEADER_ACTIONS_CLASSNAME}">
+                <button data-header-switch class="h-8 w-[51px] shrink-0 rounded-full"></button>
+                <span data-header-status class="${LOCATION_HEADER_STATUS_CLASSNAME}">${label}</span>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     </header>`,
   ).join("");
@@ -162,6 +174,11 @@ test.describe("One Location compact CTA layout", () => {
         const box = (selector: string) =>
           document.querySelector<HTMLElement>(selector)!.getBoundingClientRect();
         const publicCard = box("[data-public-card]");
+        const publicCardPaddingLeft = Number.parseFloat(
+          getComputedStyle(
+            document.querySelector<HTMLElement>("[data-public-card]")!,
+          ).paddingLeft,
+        );
         const publicControls = box("[data-public-controls]");
         const publicOptions = Array.from(
           document.querySelectorAll<HTMLElement>("[data-public-option]"),
@@ -200,10 +217,12 @@ test.describe("One Location compact CTA layout", () => {
             statusScrollHeight: status.scrollHeight,
             titleClientWidth: title.clientWidth,
             titleScrollWidth: title.scrollWidth,
+            title: title.getBoundingClientRect().toJSON(),
           };
         });
         return {
           publicCard: publicCard.toJSON(),
+          publicCardPaddingLeft,
           publicControls: publicControls.toJSON(),
           publicOptions: publicOptions.map((value) => value.toJSON()),
           publicCta: publicCta.toJSON(),
@@ -225,8 +244,7 @@ test.describe("One Location compact CTA layout", () => {
       expect(
         Math.abs(
           result.publicControls.left -
-            (result.publicCard.left +
-              (result.publicCard.width - result.publicControls.width) / 2),
+            (result.publicCard.left + result.publicCardPaddingLeft),
         ),
       ).toBeLessThanOrEqual(1);
       expect(
@@ -279,6 +297,27 @@ test.describe("One Location compact CTA layout", () => {
         expect(header.titleScrollWidth).toBeLessThanOrEqual(
           header.titleClientWidth + 1,
         );
+        if (width >= 640) {
+          expect(
+            header.actions.left - header.title.right,
+          ).toBeGreaterThanOrEqual(16);
+          expect(header.actions.left - header.title.right).toBeLessThanOrEqual(
+            32,
+          );
+        }
+        if (width >= 400) {
+          expect(
+            Math.abs(
+              header.toggle.top +
+                header.toggle.height / 2 -
+                (header.status.top + header.status.height / 2),
+            ),
+          ).toBeLessThanOrEqual(1);
+        } else {
+          expect(header.toggle.bottom).toBeLessThanOrEqual(
+            header.status.top + 1,
+          );
+        }
       }
     });
   }

@@ -1863,6 +1863,9 @@ describe("OneLocationAgentPage", () => {
     expect(headerActions.className).toContain("justify-center");
     expect(headerActions.className).toContain("w-[104px]");
     expect(headerActions.className).toContain("max-w-[45vw]");
+    expect(headerActions.className).toContain("min-[400px]:w-auto");
+    expect(headerActions.className).toContain("min-[400px]:flex-row-reverse");
+    expect(headerActions.className).toContain("sm:ml-0");
     // The actions column owns the switch and its compact visible status.
     const status = screen.getByTestId("one-location-header-status");
     expect(headerActions.contains(status)).toBe(true);
@@ -1873,13 +1876,14 @@ describe("OneLocationAgentPage", () => {
     );
     expect(status).toHaveClass(
       "mt-1",
+      "block",
       "max-w-full",
-      "whitespace-normal",
+      "whitespace-nowrap",
       "text-center",
       "text-[12px]",
       "leading-4",
       "font-normal",
-      "[overflow-wrap:anywhere]",
+      "min-[400px]:mt-0",
     );
     expect(status.textContent).toBe("Location off");
     // Still the switch's description wherever it renders.
@@ -1898,6 +1902,12 @@ describe("OneLocationAgentPage", () => {
     expect(headerRow).toHaveClass("flex", "justify-between");
     expect(screen.getByTestId("page-header").className).toContain(
       "[&_[data-slot=page-header-row]]:!items-center",
+    );
+    expect(screen.getByTestId("page-header").className).toContain(
+      "sm:[&_[data-slot=page-header-row]]:!justify-start",
+    );
+    expect(screen.getByTestId("page-header").className).toContain(
+      "sm:[&_[data-slot=page-header-actions]]:!ml-5",
     );
     expect(heading).toHaveClass("ui-text-agent-title");
     expect(screen.getByTestId("one-location-header-icon")).toBeTruthy();
