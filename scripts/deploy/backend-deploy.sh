@@ -434,7 +434,12 @@ pod_durable_identity=""
 pod_migration=""
 pod_data_door=""
 consent_audit_chain=""
+trusted_device_enabled=""
 if [[ "${_DEPLOY_ENV}" == "dev" ]]; then
+  # The owner-pilot enrollment screen is a dev-only capability. Keep the
+  # trusted-device gate explicit here; it is unrelated to Puppy inference
+  # eligibility, which remains owner/device-consent scoped at request time.
+  trusted_device_enabled="true"
   # The simulation opt-in. hussh-managed pods are the SIMULATION tier under
   # docs/reference/architecture/private-agent-north-star.md, so GcpBackend now
   # calls require_simulation_permitted() before any live create and REFUSES when
@@ -686,6 +691,7 @@ append_optional_env "POD_LOCAL_PKM_ENABLED" "${pod_local_pkm}"
 append_optional_env "POD_DURABLE_IDENTITY_ENABLED" "${pod_durable_identity}"
 append_optional_env "HUSSH_POD_MIGRATION_ENABLED" "${pod_migration}"
 append_optional_env "CONSENT_AUDIT_CHAIN_ENABLED" "${consent_audit_chain}"
+append_optional_env "HUSSH_TRUSTED_DEVICE_ENABLED" "${trusted_device_enabled}"
 # Ed25519 consent signing (dev only; every value is empty elsewhere). The PRIVATE
 # key rides Secret Manager only -- never an env literal -- and the PUBLIC map is
 # mounted as hub env, which is exactly what gcp_backend's pod render reads to hand

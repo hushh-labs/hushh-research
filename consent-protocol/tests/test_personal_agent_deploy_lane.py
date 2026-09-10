@@ -191,6 +191,9 @@ def prod(tmp_path):
         ("HUSSH_POD_SIGNING_KEY_SECRET", "HUSSH_POD_DEV_SIGNING_KEY"),
         # The pod actually runs Agent One.
         ("HUSSH_POD_TURN_ENABLED", "true"),
+        # Dev owner-pilot enrollment; this does not enable Puppy inference by
+        # itself, which still requires an owner-scoped grant at request time.
+        ("HUSSH_TRUSTED_DEVICE_ENABLED", "true"),
     ],
 )
 def test_dev_carries_the_personal_agent_block(dev, name, value):
@@ -223,6 +226,7 @@ def test_the_invoker_member_is_never_a_bare_prefix(tmp_path):
         "HUSSH_POD_SIGNING_KEY_SECRET",
         "HUSSH_POD_INVOKER_MEMBER",
         "HUSSH_POD_TURN_ENABLED",
+        "HUSSH_TRUSTED_DEVICE_ENABLED",
     ],
 )
 def test_production_carries_none_of_it(prod, name):
