@@ -189,7 +189,11 @@ def resolve_valid_build_id(
     app_id: str,
     marketing_version: str,
     build_number: str,
+    build_id: str | None = None,
 ) -> str:
+    if build_id is not None:
+        return validate_resource_id("TestFlight build", build_id)
+
     # Resolve through buildUploads, the same endpoint used by the processing
     # gate. App Store Connect rejects the preReleaseVersion.version filter on
     # the top-level /v1/builds endpoint for some apps, even though the upload
@@ -412,8 +416,11 @@ def distribute_valid_build(
     marketing_version: str,
     build_number: str,
     configuration: DistributionConfiguration,
+    build_id: str | None = None,
 ) -> dict[str, str]:
-    build_id = resolve_valid_build_id(client, app_id, marketing_version, build_number)
+    build_id = resolve_valid_build_id(
+        client, app_id, marketing_version, build_number, build_id=build_id
+    )
     require_group_type(client, configuration.internal_group_id, is_internal=True)
     require_group_type(client, configuration.external_group_id, is_internal=False)
     internal_assignment = attach_build_once(client, configuration.internal_group_id, build_id)
@@ -466,6 +473,14 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         "--beta-review-notes-file",
         help="Read beta-review notes from a protected runner-local file.",
     )
+    parser.add_argument(
+        "--build-id",
+        help="Use the exact VALID Apple build id returned by the processing gate.",
+    )
+    parser.add_argument(
+        "--build-id-file",
+        help="Read the exact VALID Apple build id from a runner-local JSON file.",
+    )
     parser.add_argument("--output-json")
     return parser.parse_args(argv)
 
@@ -479,6 +494,26 @@ def read_optional_file(path: str | None, label: str) -> str | None:
         raise DistributionError(f"cannot read {label} file") from exc
 
 
+def read_build_id_file(path: str, *, build_number: str) -> str:
+    try:
+        with open(path, "r", encoding="utf-8") as handle:
+            payload = json.load(handle)
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise DistributionError("validated TestFlight build file is invalid") from exc
+    if not isinstance(payload, dict) or payload.get("type") != "builds":
+        raise DistributionError("validated TestFlight build file has the wrong resource type")
+    build_id = payload.get("id")
+    if not isinstance(build_id, str):
+        raise DistributionError("validated TestFlight build file has no build id")
+    attrs = payload.get("attributes") or {}
+    if attrs.get("processingState") != "VALID":
+        raise DistributionError("validated TestFlight build file is not VALID")
+    version = attrs.get("version")
+    if version is not None and str(version) != str(build_number):
+        raise DistributionError("validated TestFlight build does not match the requested build number")
+    return validate_resource_id("TestFlight build", build_id)
+
+
 def main(argv: list[str]) -> int:
     args = parse_args(argv)
     try:
@@ -488,6 +523,13 @@ def main(argv: list[str]) -> int:
         review_notes = read_optional_file(
             args.beta_review_notes_file, "beta review notes"
         ) or args.beta_review_notes
+        if args.build_id and args.build_id_file:
+            raise DistributionError("use only one of --build-id and --build-id-file")
+        build_id = args.build_id
+        if args.build_id_file:
+            build_id = read_build_id_file(
+                args.build_id_file, build_number=str(args.build_number)
+            )
     except DistributionError as exc:
         die(str(exc))
     missing = [
@@ -521,6 +563,7 @@ def main(argv: list[str]) -> int:
             marketing_version=args.marketing_version,
             build_number=str(args.build_number),
             configuration=configuration,
+            build_id=build_id,
         )
     except DistributionError as exc:
         die(str(exc))

@@ -34,7 +34,7 @@ UAT configuration and native Firebase materialization
 → One Voice safety, generated-action, and Capacitor plugin checks
 → privacy-manifest, App Intent, archive-asset, and symbol checks
 → verified UAT browser-ASR and intent-ranker pack readiness
-→ iOS simulator AppTests
+→ focused iOS App Intent/action smoke tests (full AppTests remain in change-aware CI)
 → optional physical-iPhone capture evidence when requested
 → signed archive and TestFlight upload
 → Apple VALID processing check
@@ -59,6 +59,13 @@ physical-device claim. If the lane is requested, a missing device, permission,
 metric, or result remains a release failure. The simulator XCTest and all
 One Voice privacy, generated-action, and Capacitor checks remain required on
 every run.
+
+The release simulator step runs five tests that prove the shipped App Intent
+surface: the ten-shortcut registration contract, the generated action catalog,
+both direct intent-factory mappings, and the non-mutating destination adapters.
+The change-aware CI workflow continues to run the complete `AppTests` suite and
+the targeted UI recovery test. This keeps the release job focused on the
+release-specific contract while preserving broad regression coverage.
 
 ## One-time release configuration
 

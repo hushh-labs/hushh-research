@@ -290,7 +290,7 @@ jobs:
             -scheme "$XCODE_SCHEME" \
             -clonedSourcePackagesDirPath "${RUNNER_TEMP}/spm"
 
-      - name: Run iOS unit and App Intent tests
+      - name: Run core iOS App Intent and action tests
         shell: bash
         run: |
           set -euo pipefail
@@ -302,7 +302,11 @@ jobs:
             -destination "platform=iOS Simulator,id=$simulator_id" \
             -clonedSourcePackagesDirPath "${RUNNER_TEMP}/spm" \
             -derivedDataPath "$RUNNER_TEMP/one-voice-simulator-derived-data" \
-            -only-testing:AppTests \
+            -only-testing:AppTests/OneVoiceInvocationCoordinatorTests/testAppIntentAvailabilityContractsCompileFromTheIOS17DeploymentTarget \
+            -only-testing:AppTests/OneSystemActionInvocationCoordinatorTests/testActionCatalogMatchesGeneratedLocationContractIdentifiers \
+            -only-testing:AppTests/OneSystemActionInvocationCoordinatorTests/testDirectIntentFactoriesMapPeopleAndSlotsToCanonicalActions \
+            -only-testing:AppTests/OneSystemActionInvocationCoordinatorTests/testDirectIntentFactoriesMapLocationAndCircleMutations \
+            -only-testing:AppTests/OneSystemActionInvocationCoordinatorTests/testAllTenDestinationIntentsRemainNonMutatingAdapters \
             CODE_SIGNING_ALLOWED=NO
 
       - name: Resolve next TestFlight build number
@@ -391,7 +395,8 @@ jobs:
             --marketing-version "$marketing_version" \
             --build-number "${{ steps.build_number.outputs.next_build }}" \
             --timeout-seconds 1200 \
-            --poll-interval-seconds 15
+            --poll-interval-seconds 15 \
+            --output-json "$RUNNER_TEMP/testflight-build.json"
 
       - name: Attach the same valid build to both TestFlight groups
         if: inputs.dry_run != true
@@ -407,6 +412,7 @@ jobs:
             --bundle-id "$IOS_BUNDLE_ID" \
             --marketing-version "$marketing_version" \
             --build-number "${{ steps.build_number.outputs.next_build }}" \
+            --build-id-file "$RUNNER_TEMP/testflight-build.json" \
             --internal-group-id "$ASC_INTERNAL_GROUP_ID" \
             --external-group-id "$ASC_EXTERNAL_GROUP_ID" \
             --beta-review-contact-file "$ASC_BETA_REVIEW_CONTACT_PATH" \
