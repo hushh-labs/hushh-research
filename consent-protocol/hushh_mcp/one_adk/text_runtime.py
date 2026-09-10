@@ -89,10 +89,22 @@ class OneTextSpecialistOutcome:
 
     Shape, never content: an agent id and a state word. No text, no arguments,
     no payload.
+
+    The dependency fields say what the specialist leaned on: ``execution`` is
+    where it ran (``pod``, ``hub_door`` for a rendered door read, empty when the
+    payload predates the trace), ``information_source`` names where its facts came
+    from (``none``, ``hub_door``, ``unavailable``, ``unsupported``), ``hub_reads``
+    counts hub information reads, and ``reason`` names the refusal or gap. These
+    are what let a turn say "the Location tool could not reach the hub" while
+    owner-local chat continues, instead of a bare ``ok`` that hides the read.
     """
 
     agent_id: str
     status: str
+    execution: str = ""
+    information_source: str = ""
+    hub_reads: int = 0
+    reason: str = ""
 
 
 @dataclass(frozen=True)
@@ -349,7 +361,20 @@ def _event_specialists(event: Any) -> list[OneTextSpecialistOutcome]:
             agent_id = mapped[0] if mapped else ""
         if not agent_id:
             continue
-        outcomes.append(OneTextSpecialistOutcome(agent_id=agent_id, status=status))
+        dependency = response.get("dependency")
+        if not isinstance(dependency, dict):
+            dependency = {}
+        hub_reads = dependency.get("hub_reads")
+        outcomes.append(
+            OneTextSpecialistOutcome(
+                agent_id=agent_id,
+                status=status,
+                execution=str(dependency.get("execution") or ""),
+                information_source=str(dependency.get("information_source") or ""),
+                hub_reads=hub_reads if isinstance(hub_reads, int) and hub_reads >= 0 else 0,
+                reason=str(dependency.get("reason") or response.get("reason") or ""),
+            )
+        )
     return outcomes
 
 

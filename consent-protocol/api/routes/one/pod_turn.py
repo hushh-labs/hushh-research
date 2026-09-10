@@ -118,6 +118,29 @@ def _is_keyless_pod_db_wall(exc: BaseException) -> bool:
     return False
 
 
+def _turn_dependencies(specialists: list[Any]) -> dict[str, list[str]]:
+    """Which specialists leaned on the hub, and which could not get what they needed.
+
+    Derived from the per-specialist trace, never asserted. ``hub`` lists every
+    specialist whose facts came through a hub information door this turn; the
+    ledger item ``specialists-run-in-pod`` needs that list empty. ``unavailable``
+    lists specialists whose door was unreachable or whose model capability the
+    device refused, so a turn can say what did not work while the rest went on.
+    """
+    hub: set[str] = set()
+    unavailable: set[str] = set()
+    for outcome in specialists:
+        agent_id = str(getattr(outcome, "agent_id", "") or "")
+        if not agent_id:
+            continue
+        source = str(getattr(outcome, "information_source", "") or "")
+        if int(getattr(outcome, "hub_reads", 0) or 0) > 0 or source == "hub_door":
+            hub.add(agent_id)
+        if source in {"unavailable", "unsupported"}:
+            unavailable.add(agent_id)
+    return {"hub": sorted(hub), "unavailable": sorted(unavailable)}
+
+
 def _is_puppy_capability_unsupported(exc: BaseException) -> bool:
     """True when One's own model call was refused for a capability the device lacks.
 
@@ -376,6 +399,7 @@ async def run_pod_turn(
                 "directiveCount": 0,
                 "directives": [],
                 "specialists": [],
+                "dependencies": {"hub": [], "unavailable": []},
                 "runtimeMode": runtime_mode,
                 "degraded": "puppy_capability_unsupported",
             }
@@ -395,6 +419,7 @@ async def run_pod_turn(
                 "directiveCount": 0,
                 "directives": [],
                 "specialists": [],
+                "dependencies": {"hub": [], "unavailable": []},
                 "runtimeMode": runtime_mode,
                 "degraded": "keyless_pod_db_wall",
             }
@@ -477,9 +502,19 @@ async def run_pod_turn(
             {
                 "agentId": getattr(s, "agent_id", ""),
                 "status": getattr(s, "status", ""),
+                # The honest dependency report per specialist: where it ran, where
+                # its facts came from, how many hub reads that took, and why it
+                # could not when it could not. Empty strings mean the outcome
+                # predates the trace, never that nothing was read.
+                "execution": getattr(s, "execution", "") or "",
+                "informationSource": getattr(s, "information_source", "") or "",
+                "hubReads": int(getattr(s, "hub_reads", 0) or 0),
+                "reason": getattr(s, "reason", "") or "",
             }
             for s in specialists
         ],
+        # Turn-level roll-up of the same trace, for the ledger and the person.
+        "dependencies": _turn_dependencies(specialists),
         # Whose model answered. Stated, because "your AI" is a product promise and a
         # cost boundary, not an implementation detail.
         "runtimeMode": runtime_mode,

@@ -1165,6 +1165,46 @@ def _task_from_context(tool_context: ToolContext, request: str) -> Optional[A2AT
     )
 
 
+def _new_dependency_trace() -> Any:
+    """A pod turn traces what a specialist leaned on; the hub traces nothing."""
+    if not pod_mode():
+        return None
+    from hushh_mcp.services.pod_specialist_runtime import (  # noqa: PLC0415
+        SpecialistDependencyTrace,
+    )
+
+    return SpecialistDependencyTrace()
+
+
+def _dependency_scope(trace: Any) -> Any:
+    if trace is None:
+        from contextlib import nullcontext  # noqa: PLC0415
+
+        return nullcontext()
+    from hushh_mcp.services.pod_specialist_runtime import (  # noqa: PLC0415
+        trace_specialist_dependencies,
+    )
+
+    return trace_specialist_dependencies(trace)
+
+
+def _with_dependency(payload: dict[str, Any], trace: Any) -> dict[str, Any]:
+    """Attach the honest dependency report to a specialist outcome.
+
+    A hub-backed tool that could not be read leaves the specialist's own status
+    alone (owner-local chat continued and answered) and says so in ``dependency``;
+    a device that refused a capability turns an ``ok`` into ``unsupported``.
+    """
+    if trace is None:
+        return payload
+    payload["dependency"] = trace.payload()
+    if trace.unsupported_capability and payload.get("status") == "ok":
+        payload["status"] = "unsupported"
+        payload["reason"] = trace.reason
+        payload["capability"] = trace.unsupported_capability
+    return payload
+
+
 async def _specialist_turn(
     agent_id: str, request: str, tool_context: ToolContext
 ) -> dict[str, Any]:
@@ -1313,6 +1353,7 @@ async def _specialist_turn(
     if pod_mode():
         from hushh_mcp.adk_bridge.dispatch import specialist_runtime_bound
         from hushh_mcp.one_adk.pod_data_door_specialist import (  # noqa: PLC0415
+            _SPECIALIST_DOOR_NAMES,
             serve_specialist_via_data_door,
         )
 
@@ -1325,6 +1366,19 @@ async def _specialist_turn(
         )
         if door_payload is not None:
             door_payload.setdefault("availability", availability_payload)
+            # Rendered from a hub door read, not executed in the pod: say so.
+            door_payload.setdefault(
+                "dependency",
+                {
+                    "execution": "hub_door",
+                    "information_source": "hub_door",
+                    "hub_reads": 1,
+                    "consent_verifies": 0,
+                    "doors": [_SPECIALIST_DOOR_NAMES.get(agent_id, "")],
+                    "unavailable_doors": [],
+                    "reason": "",
+                },
+            )
             return door_payload
         if scoped_email_read and not specialist_runtime_bound():
             # A read scope never grants full email task/action authority. A
@@ -1335,46 +1389,62 @@ async def _specialist_turn(
                 "message": "Your email read is unavailable. Try again later.",
             }
 
+    trace = _new_dependency_trace()
     try:
-        result = await dispatch(agent_id, task)
+        with _dependency_scope(trace):
+            result = await dispatch(agent_id, task)
     except PuppyCapabilityUnsupported as exc:
         # The owner's device model lacks something this specialist's request needs
         # (a schema, tool calling). Named as its own outcome: it is not a transient
         # failure to retry and not a consent refusal, and only an honest word here
         # lets One say so instead of guessing.
-        return {
-            "status": "unsupported",
-            "reason": "provider_capability_unsupported",
-            "capability": getattr(exc, "capability", ""),
-            "availability": availability_payload,
-            "message": (
-                f"{specialist_label(agent_id)} needs a model capability your device's "
-                "model does not offer, so it cannot answer this here."
-            ),
-        }
+        return _with_dependency(
+            {
+                "status": "unsupported",
+                "reason": "provider_capability_unsupported",
+                "capability": getattr(exc, "capability", ""),
+                "availability": availability_payload,
+                "message": (
+                    f"{specialist_label(agent_id)} needs a model capability your device's "
+                    "model does not offer, so it cannot answer this here."
+                ),
+            },
+            trace,
+        )
     except PermissionError as exc:
-        return {
-            "status": "scope_required",
-            "reason": "consent_scope_required",
-            "availability": availability_payload,
-            "message": str(exc),
-        }
+        return _with_dependency(
+            {
+                "status": "scope_required",
+                "reason": "consent_scope_required",
+                "availability": availability_payload,
+                "message": str(exc),
+            },
+            trace,
+        )
     except Exception:  # noqa: BLE001 - specialist failures must not kill the session
         logger.exception("one_adk.specialist_turn_failed agent_id=%s", agent_id)
-        return {
-            "status": "runtime_unavailable",
-            "reason": "specialist_runtime_failed",
-            "availability": availability_payload,
-            "message": "The specialist runtime is unavailable for that request. Please try again.",
-        }
+        return _with_dependency(
+            {
+                "status": "runtime_unavailable",
+                "reason": "specialist_runtime_failed",
+                "availability": availability_payload,
+                "message": (
+                    "The specialist runtime is unavailable for that request. Please try again."
+                ),
+            },
+            trace,
+        )
     if result.conversation_id:
         tool_context.state[STATE_CONVERSATION_ID] = result.conversation_id
-    payload: dict[str, Any] = {
-        "status": "ok",
-        "availability": availability_payload,
-        "text": result.text,
-        "is_complete": result.is_complete,
-    }
+    payload: dict[str, Any] = _with_dependency(
+        {
+            "status": "ok",
+            "availability": availability_payload,
+            "text": result.text,
+            "is_complete": result.is_complete,
+        },
+        trace,
+    )
     if not result.is_complete:
         # Proactive next step: an incomplete turn means the specialist is
         # waiting on the user; tell One to relay exactly that.

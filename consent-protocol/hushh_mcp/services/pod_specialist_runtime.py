@@ -9,6 +9,10 @@ closed instead of constructing shared-runtime services.
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
+from dataclasses import dataclass, field
 from typing import Any
 
 from hushh_mcp.adk_bridge.dispatch import SpecialistRuntime
@@ -25,6 +29,123 @@ class PodSpecialistCapabilityUnsupported(PuppyCapabilityUnsupported):
     "specialist runtime failed" that would send the person to retry something
     that cannot succeed on this device.
     """
+
+
+class PodSpecialistInformationUnavailable(RuntimeError):
+    """A hub information door this specialist reads through could not be read.
+
+    Typed so the failure is attributable to the door (and recorded on the
+    dependency trace) rather than surfacing as an empty state the specialist would
+    then narrate as fact: "you share with nobody" for a person who shares with many.
+    """
+
+    def __init__(self, door: str) -> None:
+        super().__init__(f"Pod specialist information door unavailable: {door}")
+        self.door = door
+
+
+@dataclass
+class SpecialistDependencyTrace:
+    """What one specialist turn actually leaned on, counted as it happened.
+
+    The ledger item ``specialists-run-in-pod`` requires
+    ``hub_specialist_information_reads <= 0``, and until this existed nothing
+    produced that number: every hub-door read was invisible to the turn response,
+    so a receipt could only assert the count by hand. The trace is bound for the
+    duration of one dispatch and records reads, consent verifications, doors that
+    were unreachable and a capability the device refused. The turn response
+    carries the result per specialist, and the parity probe derives the ledger
+    observations from it rather than asserting them.
+    """
+
+    hub_reads: int = 0
+    consent_verifies: int = 0
+    doors_read: list[str] = field(default_factory=list)
+    unavailable_doors: list[str] = field(default_factory=list)
+    unsupported_capability: str = ""
+
+    def record_hub_read(self, door: str) -> None:
+        self.hub_reads += 1
+        self.doors_read.append(door)
+
+    def record_unavailable(self, door: str) -> None:
+        self.unavailable_doors.append(door)
+
+    def record_consent_verify(self) -> None:
+        self.consent_verifies += 1
+
+    def record_unsupported(self, capability: str) -> None:
+        self.unsupported_capability = capability or "requested capability"
+
+    @property
+    def information_source(self) -> str:
+        if self.unsupported_capability:
+            return "unsupported"
+        if self.unavailable_doors:
+            return "unavailable"
+        if self.hub_reads:
+            return "hub_door"
+        return "none"
+
+    @property
+    def reason(self) -> str:
+        if self.unsupported_capability:
+            return "provider_capability_unsupported"
+        if self.unavailable_doors:
+            return "hub_information_unavailable"
+        return ""
+
+    def payload(self) -> dict[str, Any]:
+        """Shape, never content: counts, door names and state words."""
+        return {
+            "execution": "pod",
+            "information_source": self.information_source,
+            "hub_reads": self.hub_reads,
+            "consent_verifies": self.consent_verifies,
+            "doors": sorted(set(self.doors_read)),
+            "unavailable_doors": sorted(set(self.unavailable_doors)),
+            "reason": self.reason,
+        }
+
+
+_TRACE: ContextVar[SpecialistDependencyTrace | None] = ContextVar(
+    "pod_specialist_dependency_trace", default=None
+)
+
+
+def current_dependency_trace() -> SpecialistDependencyTrace | None:
+    return _TRACE.get()
+
+
+@contextmanager
+def trace_specialist_dependencies(
+    trace: SpecialistDependencyTrace | None = None,
+) -> Iterator[SpecialistDependencyTrace]:
+    """Bind a trace for one dispatch. ``asyncio.to_thread`` copies the context, so
+    the ports record onto the same object from their worker threads."""
+    active = trace if trace is not None else SpecialistDependencyTrace()
+    token = _TRACE.set(active)
+    try:
+        yield active
+    finally:
+        _TRACE.reset(token)
+
+
+def _hub_read(door: str, scope_token: str, **options: Any) -> dict[str, Any]:
+    """The one place a port reads a hub information door, so every read is counted
+    and every failure is typed. Constructed here, after the owner check in the
+    calling port, so a foreign owner never reaches the hub at all."""
+    from hushh_mcp.services.pod_hub_client import PodHubClient, PodHubUnavailable
+
+    trace = _TRACE.get()
+    if trace is not None:
+        trace.record_hub_read(door)
+    try:
+        return PodHubClient().read_specialist(door, scope_token, **options)
+    except PodHubUnavailable as exc:
+        if trace is not None:
+            trace.record_unavailable(door)
+        raise PodSpecialistInformationUnavailable(door) from exc
 
 
 # Specialist model calls run inside One's turn and share its budget. The generic
@@ -50,11 +171,9 @@ class PodLocationReadPort:
     def list_state(self, *, user_id: str) -> dict:
         if user_id != self._owner:
             raise PermissionError("Location owner mismatch")
-        from hushh_mcp.services.pod_hub_client import PodHubClient
-
-        state = PodHubClient().read_specialist("location", self._scope_token)
+        state = _hub_read("location", self._scope_token)
         if not isinstance(state, dict):
-            raise RuntimeError("Location read unavailable")
+            raise PodSpecialistInformationUnavailable("location")
         return state
 
     def revoke_public_invite(self, **kwargs: Any) -> dict:
@@ -72,12 +191,10 @@ class PodConsentCenterReadPort:
     async def list_center(self, user_id: str, *, actor: str, surface: str, top: int) -> dict:
         if user_id != self._owner or actor != "investor" or surface not in {"active", "previous"}:
             raise PermissionError("Consent-center read scope denied")
-        from hushh_mcp.services.pod_hub_client import PodHubClient
-
-        state = await asyncio.to_thread(PodHubClient().read_specialist, "nav", self._scope_token)
+        state = await asyncio.to_thread(_hub_read, "nav", self._scope_token)
         page = state.get(surface)
         if not isinstance(page, dict) or not isinstance(page.get("items"), list):
-            raise RuntimeError("Consent-center read unavailable")
+            raise PodSpecialistInformationUnavailable("nav")
         return {**page, "items": page["items"][: max(1, min(top, 10))]}
 
 
@@ -91,12 +208,11 @@ class PodMarketplaceReadPort:
     async def _read(self, user_id: str, **options: Any) -> dict:
         if user_id != self._owner:
             raise PermissionError("Marketplace owner mismatch")
-        from hushh_mcp.services.pod_hub_client import PodHubClient
         from hushh_mcp.services.pod_marketplace_read import MarketplaceReadOptions
 
         validated = MarketplaceReadOptions.model_validate(options)
         return await asyncio.to_thread(
-            PodHubClient().read_specialist,
+            _hub_read,
             "marketplace",
             self._scope_token,
             marketplace_read=validated.model_dump(),
@@ -123,11 +239,10 @@ class PodEmailReadPort:
         if user_id != self._owner:
             raise PermissionError("Email owner mismatch")
         from hushh_mcp.services.pod_email_read import EmailReadOptions
-        from hushh_mcp.services.pod_hub_client import PodHubClient
 
         query = EmailReadOptions.model_validate(options)
         return await asyncio.to_thread(
-            PodHubClient().read_specialist,
+            _hub_read,
             "email",
             self._scope_token,
             email_read=query.model_dump(),
@@ -160,6 +275,9 @@ def build_pod_specialist_runtime(
     client: Any = None
 
     async def require_access() -> None:
+        trace = _TRACE.get()
+        if trace is not None:
+            trace.record_consent_verify()
         verdict = await require_owner_scope(
             consent_token, expected_scope="pkm.read", user_id=user_id
         )
@@ -199,6 +317,9 @@ def build_pod_specialist_runtime(
             )
         except PuppyCapabilityUnsupported as exc:
             # Not "unavailable": the device answered and said no to a capability.
+            trace = _TRACE.get()
+            if trace is not None:
+                trace.record_unsupported(exc.capability)
             raise PodSpecialistCapabilityUnsupported(exc.capability) from None
         except Exception:
             raise RuntimeError("Pod specialist provider unavailable") from None
