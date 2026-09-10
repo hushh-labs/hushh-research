@@ -27,12 +27,19 @@ suite means the only unproven thing in a live run is the network, not the logic.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
+import subprocess
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+REPO_ROOT = Path(__file__).resolve().parents[3]
+DEFAULT_LEDGER = REPO_ROOT / "config" / "pod-completion-ledger.yaml"
+LEDGER_ITEM_ID = "specialists-run-in-pod"
 
 from hushh_mcp.observability.parity_oracle import (  # noqa: E402
     EquivalenceMode,
@@ -81,6 +88,198 @@ def render_report(diff: ParityDiff, *, prompt: str) -> str:
         lines.append(f"  detail:      {list(diff.detail)}")
     lines.append("=" * 64)
     return "\n".join(lines)
+
+
+# --------------------------------------------------------------------------- #
+# Ledger observations, DERIVED from the delivered turn. Never asserted by hand.
+# --------------------------------------------------------------------------- #
+
+
+def derive_ledger_observations(turn: dict[str, Any]) -> dict[str, Any]:
+    """The four ``specialists-run-in-pod`` observations, read off one pod turn.
+
+    ``run_pod_turn`` now carries a per-specialist dependency report (``execution``,
+    ``informationSource``, ``hubReads``, ``reason``) and a turn-level
+    ``dependencies`` roll-up. This reads exactly those fields:
+
+    * ``specialist_execution_attributed_to_pod``: at least one specialist ran and
+      every one reports ``execution == "pod"``. An outcome that predates the
+      trace (empty execution) is NOT attributed; unknown is never counted as pod.
+    * ``consented_success``: the turn delivered text, was not degraded, and every
+      specialist outcome is ``ok``.
+    * ``native_specialist_executions``: specialists that ran in the pod and
+      completed ``ok``.
+    * ``hub_specialist_information_reads``: the sum of ``hubReads``; a specialist
+      whose facts came through a hub door counts at least one even when the
+      count is missing, so a door read can never be hidden by an absent number.
+    """
+    raw = turn.get("specialists")
+    specialists = [item for item in raw if isinstance(item, dict)] if isinstance(raw, list) else []
+    attributed = bool(specialists)
+    consented = bool(str(turn.get("text") or "").strip()) and not turn.get("degraded")
+    native = 0
+    hub_reads = 0
+    for item in specialists:
+        execution = str(item.get("execution") or "")
+        status = str(item.get("status") or "")
+        source = str(item.get("informationSource") or item.get("information_source") or "")
+        reads = item.get("hubReads", item.get("hub_reads", 0))
+        reads = reads if isinstance(reads, int) and not isinstance(reads, bool) and reads > 0 else 0
+        if source == "hub_door" and reads == 0:
+            reads = 1
+        hub_reads += reads
+        if execution != "pod":
+            attributed = False
+        if execution == "pod" and status == "ok":
+            native += 1
+        if status != "ok":
+            consented = False
+    dependencies = turn.get("dependencies")
+    if isinstance(dependencies, dict) and isinstance(dependencies.get("hub"), list):
+        hub_reads = max(hub_reads, len(dependencies["hub"]))
+    return {
+        "specialist_execution_attributed_to_pod": attributed,
+        "consented_success": consented,
+        "native_specialist_executions": native,
+        "hub_specialist_information_reads": hub_reads,
+    }
+
+
+def observation_failures(observations: dict[str, Any], requirements: dict[str, Any]) -> list[str]:
+    """Which ledger requirements the observations do not satisfy. Same operator
+    semantics as the judge (``equals`` is type-strict; ``minimum``/``maximum`` are
+    numeric), so the producer cannot call a receipt a pass the judge will fail."""
+    failures: list[str] = []
+    for key, rule in requirements.items():
+        if key not in observations:
+            failures.append(f"{key}: missing")
+            continue
+        if not isinstance(rule, dict) or len(rule) != 1:
+            failures.append(f"{key}: invalid requirement")
+            continue
+        operator, expected = next(iter(rule.items()))
+        value = observations[key]
+        if operator == "equals":
+            ok = type(value) is type(expected) and value == expected
+        elif operator in {"minimum", "maximum"}:
+            numeric = type(value) in {int, float} and type(expected) in {int, float}
+            ok = numeric and (value >= expected if operator == "minimum" else value <= expected)
+        else:
+            ok = False
+        if not ok:
+            failures.append(f"{key}: {value!r} does not satisfy {operator} {expected!r}")
+    return failures
+
+
+def load_ledger_item(path: Path, item_id: str = LEDGER_ITEM_ID) -> dict[str, Any]:
+    import yaml  # noqa: PLC0415
+
+    data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    for item in data.get("assertions") or []:
+        if isinstance(item, dict) and item.get("id") == item_id:
+            return item
+    raise ValueError(f"ledger item {item_id!r} not found in {path}")
+
+
+def build_receipt(
+    turn: dict[str, Any],
+    *,
+    item: dict[str, Any],
+    target: dict[str, Any],
+    repo_root: Path,
+    device: dict[str, Any] | None = None,
+    completed_at: datetime | None = None,
+) -> dict[str, Any]:
+    """A v1 receipt in the shape ``pod_completion_judge._validate_receipt_artifact``
+    checks: version, assertion id, result and exit code, completion time, source
+    commit, target, per-source digests and the derived observations.
+
+    ``result`` is derived from the observations against the item's own
+    requirements; the producer never writes ``pass`` because a run finished.
+    Shape only: no prompt, no answer text, no tokens, no owner information.
+    """
+    check = item.get("check") or {}
+    observations = derive_ledger_observations(turn)
+    failures = observation_failures(observations, check.get("observation_requirements") or {})
+    source_paths = list(check.get("source_paths") or [])
+    digests = {
+        relative: hashlib.sha256((repo_root / relative).read_bytes()).hexdigest()
+        for relative in source_paths
+    }
+    revision = subprocess.run(  # noqa: S603 - fixed argv, repository-owned working directory
+        ["git", "rev-parse", "HEAD"],
+        cwd=str(repo_root),
+        capture_output=True,
+        text=True,
+        check=True,
+        timeout=10,
+    ).stdout.strip()
+    when = completed_at or datetime.now(timezone.utc)
+    receipt: dict[str, Any] = {
+        "version": 1,
+        "assertion_id": str(item.get("id") or LEDGER_ITEM_ID),
+        "result": "pass" if not failures else "fail",
+        "exit_code": 0 if not failures else 1,
+        "completed_at": when.astimezone(timezone.utc).isoformat().replace("+00:00", "Z"),
+        "source_commit": revision,
+        "target": dict(target),
+        "source_sha256": digests,
+        "observations": observations,
+        "reproduce": str(check.get("reproduce") or ""),
+        "turn": {
+            "runtime_mode": str(turn.get("runtimeMode") or ""),
+            "model": str(turn.get("model") or ""),
+            "model_reported": bool(turn.get("modelReported")),
+            "grounded": bool(turn.get("grounded")),
+            "degraded": str(turn.get("degraded") or ""),
+            "specialists": [
+                {
+                    "agent_id": str(item_.get("agentId") or item_.get("agent_id") or ""),
+                    "status": str(item_.get("status") or ""),
+                    "execution": str(item_.get("execution") or ""),
+                    "information_source": str(item_.get("informationSource") or ""),
+                    "hub_reads": item_.get("hubReads", 0),
+                    "reason": str(item_.get("reason") or ""),
+                }
+                for item_ in (turn.get("specialists") or [])
+                if isinstance(item_, dict)
+            ],
+            "dependencies": turn.get("dependencies")
+            if isinstance(turn.get("dependencies"), dict)
+            else {"hub": [], "unavailable": []},
+        },
+        "limits": [
+            "observations are derived from one delivered pod turn, not from pod logs",
+            "a hub information read is counted from the turn's dependency report",
+            "no prompt, answer text, token or owner record is recorded",
+        ],
+    }
+    if failures:
+        receipt["failures"] = failures
+    if device:
+        # Puppy One harness vocabulary, as the hub reported it for the device.
+        receipt["device"] = {
+            "model": str(device.get("model") or ""),
+            "capabilities": {
+                name: bool(flag)
+                for name, flag in (device.get("capabilities") or {}).items()
+                if isinstance(flag, bool)
+            },
+            "probe_mode": str(device.get("probe_mode") or ""),
+        }
+    return receipt
+
+
+def _target_from_args(args: argparse.Namespace) -> dict[str, Any]:
+    target: dict[str, Any] = {
+        "mode": str(args.target_mode or ""),
+        "environment": str(args.target_environment or ""),
+    }
+    if target["mode"] == "deployed":
+        target["project"] = str(args.target_project or "")
+        target["region"] = str(args.target_region or "")
+        target["image_digest"] = str(args.image_digest or "")
+    return target
 
 
 # --------------------------------------------------------------------------- #
@@ -175,14 +374,36 @@ def main() -> int:
         choices=("true", "false"),
         help="whether the HUB's answer was grounded, when the frames file does not say",
     )
+    ap.add_argument(
+        "--receipt",
+        help="write a v1 ledger receipt for specialists-run-in-pod to this path, "
+        "derived from the delivered pod turn",
+    )
+    ap.add_argument(
+        "--turn-json",
+        help="an already captured pod turn (the run_pod_turn dict) to build the "
+        "receipt from instead of dialling the pod",
+    )
+    ap.add_argument("--device-status", help="captured GET /api/one/puppy/status/{id} JSON")
+    ap.add_argument("--ledger", default=str(DEFAULT_LEDGER))
+    ap.add_argument("--target-mode", choices=("local", "deployed"), default="deployed")
+    ap.add_argument("--target-environment", default="dev")
+    ap.add_argument("--target-project")
+    ap.add_argument("--target-region")
+    ap.add_argument("--image-digest")
     args = ap.parse_args()
 
     if args.self_test:
         return _self_test()
 
+    if args.receipt and args.turn_json:
+        turn = json.loads(Path(args.turn_json).read_text())
+        device = json.loads(Path(args.device_status).read_text()) if args.device_status else None
+        return _write_receipt(args, turn, device.get("relay") if device else None)
+
     if not args.pod_url or not args.consent_token or not args.hub_frames:
         print("live probe needs --pod-url, --consent-token, and --hub-frames")
-        print("(or run --self-test for the offline pipeline check)")
+        print("(or run --self-test for the offline pipeline check, or --receipt with --turn-json)")
         return 2
 
     captured = json.loads(Path(args.hub_frames).read_text())
@@ -209,7 +430,29 @@ def main() -> int:
     )
     diff = classify_pair(pod_turn=pod_turn, hub_frames=hub_frames, hub_grounded=bool(hub_grounded))
     print(render_report(diff, prompt=args.prompt))
+    if args.receipt:
+        device = json.loads(Path(args.device_status).read_text()) if args.device_status else None
+        receipt_code = _write_receipt(args, pod_turn, device.get("relay") if device else None)
+        return receipt_code if receipt_code else (0 if diff.at_parity else 1)
     return 0 if diff.at_parity else 1
+
+
+def _write_receipt(args: argparse.Namespace, turn: dict[str, Any], device: Any) -> int:
+    item = load_ledger_item(Path(args.ledger))
+    receipt = build_receipt(
+        turn,
+        item=item,
+        target=_target_from_args(args),
+        repo_root=REPO_ROOT,
+        device=device if isinstance(device, dict) else None,
+    )
+    out = Path(args.receipt)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    print(f"receipt {receipt['result']}: {out}")
+    for failure in receipt.get("failures") or []:
+        print(f"  {failure}")
+    return 0 if receipt["result"] == "pass" else 1
 
 
 if __name__ == "__main__":
