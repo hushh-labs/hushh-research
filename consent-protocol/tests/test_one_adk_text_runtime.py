@@ -289,6 +289,20 @@ async def test_bounded_adk_events_times_out_stalled_first_event(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_bounded_adk_events_accepts_provider_first_event_budget():
+    async def delayed():
+        await asyncio.sleep(0.01)
+        yield "ready"
+
+    observed = [
+        event
+        async for event in text_runtime._bounded_adk_events(delayed(), first_event_timeout=0.05)
+    ]
+
+    assert observed == ["ready"]
+
+
+@pytest.mark.asyncio
 async def test_bounded_adk_events_times_out_stalled_followup(monkeypatch):
     first = object()
 

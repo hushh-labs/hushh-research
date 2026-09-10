@@ -53,6 +53,7 @@ logger = logging.getLogger(__name__)
 
 OneTextEventKind = Literal["token", "thought", "source", "directive", "specialist", "boundary"]
 _FIRST_EVENT_TIMEOUT_SECONDS = 20.0
+_PUPPY_FIRST_EVENT_TIMEOUT_SECONDS = 60.0
 _BETWEEN_EVENT_TIMEOUT_SECONDS = 30.0
 _TOTAL_TURN_TIMEOUT_SECONDS = 90.0
 
@@ -107,8 +108,12 @@ class OneTextEmptyResponseError(RuntimeError):
     """Raised when the model turn produces neither user-visible text nor a directive."""
 
 
-async def _bounded_adk_events(source: Any) -> AsyncGenerator[Any, None]:
+async def _bounded_adk_events(
+    source: Any, *, first_event_timeout: float | None = None
+) -> AsyncGenerator[Any, None]:
     """Bound ADK startup, idle gaps, and total turn time without changing events."""
+    if first_event_timeout is None:
+        first_event_timeout = _FIRST_EVENT_TIMEOUT_SECONDS
     iterator = source.__aiter__()
     loop = asyncio.get_running_loop()
     deadline = loop.time() + _TOTAL_TURN_TIMEOUT_SECONDS
@@ -119,7 +124,7 @@ async def _bounded_adk_events(source: Any) -> AsyncGenerator[Any, None]:
             if remaining <= 0:
                 raise asyncio.TimeoutError
             timeout = min(
-                _BETWEEN_EVENT_TIMEOUT_SECONDS if saw_event else _FIRST_EVENT_TIMEOUT_SECONDS,
+                _BETWEEN_EVENT_TIMEOUT_SECONDS if saw_event else first_event_timeout,
                 remaining,
             )
             try:
@@ -533,7 +538,13 @@ async def _stream_one_text_turn_once(
         new_message=new_message,
         run_config=RunConfig(streaming_mode=StreamingMode.SSE),
     )
-    async for event in _bounded_adk_events(source):
+    first_event_timeout = _FIRST_EVENT_TIMEOUT_SECONDS
+    if str(runtime_provider or "").strip().lower() == "puppy":
+        # A local Puppy model receives One's full instruction and tool schema.
+        # Its measured cold first-token time is longer than the generic cloud
+        # provider budget, but remains inside the relay's 120-second bound.
+        first_event_timeout = _PUPPY_FIRST_EVENT_TIMEOUT_SECONDS
+    async for event in _bounded_adk_events(source, first_event_timeout=first_event_timeout):
         if _event_crosses_replay_boundary(event):
             yield OneTextStreamEvent(kind="boundary")
         for directive in _event_directives(event):
