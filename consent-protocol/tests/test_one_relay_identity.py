@@ -82,6 +82,9 @@ async def test_public_onboarding_still_mints_its_anonymous_ticket(monkeypatch):
     )
     assert result.tier == "intro"
     assert result.cell == "hub"
+    from hushh_mcp.one_adk.agent_tree import ONE_LIVE_MODEL
+
+    assert result.model == ONE_LIVE_MODEL
     mint.assert_called_once_with(None, "anon_onboarding")
 
 

@@ -75,6 +75,7 @@ from api.routes.one.relay_auth import (
 from hushh_mcp.one_adk.action_tools import _slot_fingerprint
 from hushh_mcp.one_adk.agent_tree import (
     ONE_APP_NAME,
+    ONE_LIVE_MODEL,
     ONE_LIVE_VOICE_NAME,
     ONE_LIVE_VOICE_OPTIONS,
     STATE_CONSENT_TOKEN,
@@ -454,7 +455,9 @@ _PRIVATE_VOICE_UNAVAILABLE = (
 class OneAdkRelaySessionResponse(BaseModel):
     relay_ticket: str = Field(..., max_length=4096)
     expires_at: int = Field(..., ge=0)
-    model: str = Field(default="adk", max_length=128)
+    # Keep direct model construction truthful as well as the route response.
+    # The Live runner and relay metadata share the same resolved model.
+    model: str = Field(default=ONE_LIVE_MODEL, max_length=128)
     tier: str = Field(..., max_length=16)
     cell: Literal["hub", "pod"] = Field(default="hub")
     cell_reason: Optional[str] = Field(default=None, max_length=200)
@@ -493,6 +496,7 @@ async def create_one_adk_relay_session(
     return OneAdkRelaySessionResponse(
         relay_ticket=ticket,
         expires_at=expires_at,
+        model=ONE_LIVE_MODEL,
         tier="full" if uid else "intro",
         cell="pod" if uid else "hub",
         cell_reason="Your private agent runs in your own pod." if uid else VOICE_CELL_HUB_REASON,

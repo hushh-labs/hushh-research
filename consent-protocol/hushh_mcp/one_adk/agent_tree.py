@@ -248,6 +248,9 @@ _ONE_MODEL = (
     or (_ONE_HEADS.get("live") if isinstance(_ONE_HEADS, dict) else None)
     or "gemini-3.1-flash-live-preview"
 ).strip()
+# Relay-session metadata must come from the same resolution used to construct
+# the Live runner; keeping this public avoids a second model label drifting.
+ONE_LIVE_MODEL = _ONE_MODEL
 _ONE_LIVE_LOCATION = (os.getenv("AGENT_ONE_ADK_LOCATION") or "us-central1").strip()
 # Neither live model pins a voice by default, so each one's own default voice
 # plays -- and the two differ audibly. Native audio models (both the 3.1
