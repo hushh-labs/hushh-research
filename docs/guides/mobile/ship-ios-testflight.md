@@ -179,3 +179,24 @@ model bytes are removed or never uploaded.
 | `App Store Connect ... failed with HTTP 400` after processing | The binary is already uploaded and `VALID`; inspect the endpoint in the step error. The workflow prepares review metadata before group attachment, treats an unsubmitted external review as pending, and never creates a beta-review submission implicitly. |
 
 Public App Store submission remains a separate, explicitly authorized workflow.
+
+### Recover a processed upload without rebuilding
+
+If Apple processing finishes after the wait expires, or metadata/distribution fails,
+use **Resume TestFlight Distribution** (`resume-ios-testflight.yml`) from `main`,
+with `upload_run_id` set to the original upload run. It reads the upload receipt,
+validates its source is on main, reconciles the same version/build with Apple,
+and repeats the idempotent group assignment. It does not archive, upload another
+binary, run App Intent tests, or submit beta review. A still-processing build can
+be reconciled again later with the same run ID. Original failed runs remain failed;
+the recovery run records the recovered distribution separately.
+
+Receipts are preserved immediately after successful uploads for 90 days. Runs
+before this receipt was introduced require an operator to verify the existing
+build's bundle ID, version, number and source before using the distribution CLI;
+do not rebuild merely to recover metadata. The normal release's `run_core_tests`
+flag remains `false` by default.
+
+The localization relationship GET accepts `limit`, not `filter[locale]`. Locale
+selection follows all pages locally; localization PATCH sends only `whatsNew`.
+The test double rejects unsupported query parameters and checks update payloads.
