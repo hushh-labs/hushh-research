@@ -89,6 +89,11 @@ describe("VaultMethodService.changePassphrase", () => {
       }),
     );
     expect(setPrimaryMock).not.toHaveBeenCalled();
+    expect(hashVaultKeyMock).toHaveBeenCalledWith(
+      "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      "vault-hash",
+    );
+    expect(upsertWrapperMock).toHaveBeenCalledWith(expect.objectContaining({ vaultKeyHash: "vault-hash" }));
     expect(result).toEqual({
       primaryMethod: "generated_default_native_passkey_prf",
       passphraseUpdated: true,
