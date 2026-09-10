@@ -4026,6 +4026,8 @@ export class ApiService {
     timezone?: string | null;
     runtimeCredential?: string | null;
     runtimeCredentialTransport?: "developer_api" | "vertex_api_key";
+    runtimeProvider?: "puppy";
+    puppyDeviceId?: string | null;
     vertexProject?: string | null;
     vertexLocation?: string | null;
     pkmContext?: string | null;
@@ -4064,6 +4066,8 @@ export class ApiService {
           runtimeCredential: input.runtimeCredential || undefined,
           runtimeCredentialTransport:
             input.runtimeCredentialTransport || undefined,
+          runtimeProvider: input.runtimeProvider || undefined,
+          puppyDeviceId: input.puppyDeviceId || undefined,
           vertexProject: input.vertexProject || undefined,
           vertexLocation: input.vertexLocation || undefined,
           history: input.history?.length ? input.history : undefined,
@@ -4091,6 +4095,26 @@ export class ApiService {
       }
       throw new Error("AGENT_UNREACHABLE");
     }
+    return response.json();
+  }
+
+  static async issuePuppyInferenceGrant(deviceId: string): Promise<{
+    device_id: string;
+    scope: "cap.puppy.inference";
+    token: string;
+    expires_at: number;
+  }> {
+    const firebaseIdToken = await this.getFirebaseToken();
+    const response = await ApiService.apiFetch(
+      `/api/account/trusted-devices/${encodeURIComponent(deviceId)}/puppy-inference-grant`,
+      {
+        method: "POST",
+        headers: {
+          ...(firebaseIdToken ? { Authorization: `Bearer ${firebaseIdToken}` } : {}),
+        },
+      },
+    );
+    if (!response.ok) throw new Error(`PUPPY_INFERENCE_GRANT_UNAVAILABLE:${response.status}`);
     return response.json();
   }
 

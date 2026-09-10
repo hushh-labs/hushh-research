@@ -127,6 +127,7 @@ def build_pod_specialist_runtime(
     vertex_project: str | None,
     vertex_location: str | None,
     data_door_grants: dict[str, str],
+    puppy_device_id: str | None = None,
 ) -> SpecialistRuntime:
     # Construction does no storage/provider I/O. Admission precedes resolution.
     log: Any = None
@@ -152,13 +153,14 @@ def build_pod_specialist_runtime(
                 build_runtime_client,
             )
 
-            if runtime_mode == "byok":
+            if runtime_mode in {"byok", "puppy_relay"}:
                 client = build_runtime_client(
                     provider,
                     credential or "",
                     gemini_byok_transport=credential_transport,
                     vertex_project=vertex_project,
                     vertex_location=vertex_location,
+                    puppy_device_id=puppy_device_id,
                 )
             elif runtime_mode in {"user_adc", "hushh_managed_vertex"} and not credential:
                 client = build_managed_runtime_client(provider)

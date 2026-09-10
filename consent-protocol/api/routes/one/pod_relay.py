@@ -343,6 +343,8 @@ class PodTurnRelayRequest(BaseModel):
     runtime_credential_transport: str = Field(
         default="developer_api", alias="runtimeCredentialTransport", max_length=32
     )
+    runtime_provider: Optional[str] = Field(default=None, alias="runtimeProvider", max_length=32)
+    puppy_device_id: Optional[str] = Field(default=None, alias="puppyDeviceId", max_length=128)
     vertex_project: Optional[str] = Field(default=None, alias="vertexProject", max_length=30)
     vertex_location: Optional[str] = Field(default=None, alias="vertexLocation", max_length=64)
     # The owner's consented turn projection, decrypted client-side from their own
@@ -579,6 +581,8 @@ async def relay_pod_turn(
         "timezone": payload.timezone,
         "runtimeCredential": payload.runtime_credential,
         "runtimeCredentialTransport": payload.runtime_credential_transport,
+        "runtimeProvider": payload.runtime_provider,
+        "puppyDeviceId": payload.puppy_device_id,
         "vertexProject": payload.vertex_project,
         "vertexLocation": payload.vertex_location,
         "pkmContext": payload.pkm_context,

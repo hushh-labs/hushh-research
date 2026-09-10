@@ -43,6 +43,7 @@ from api.middleware import (
 )
 from api.utils.firebase_admin import get_firebase_auth_app
 from api.utils.firebase_auth import verify_firebase_bearer
+from hushh_mcp.constants import ConsentScope
 from hushh_mcp.services.account_deletion_lifecycle_service import (
     AccountDeletionLifecycleService,
     CleanupIntentKind,
@@ -58,6 +59,7 @@ from hushh_mcp.services.actor_identity_service import (
     ActorIdentityAliasError,
     ActorIdentityService,
 )
+from hushh_mcp.services.personal_agent_grant_service import PersonalAgentGrantService
 from hushh_mcp.services.trusted_device_service import (
     TrustedDeviceError,
     TrustedDeviceService,
@@ -571,6 +573,50 @@ async def trusted_device_status(
             },
         )
     return {**status, "server_time_ms": int(time.time() * 1000)}
+
+
+@router.post("/trusted-devices/{device_id}/puppy-inference-grant")
+async def puppy_inference_grant(
+    device_id: str,
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    """Issue the narrow, owner-revocable grant for Puppy inference.
+
+    The device must be an active trusted device owned by the authenticated
+    Firebase identity. The returned token authorizes inference only and is
+    deliberately bound to ``device:{device_id}``; it cannot authorize vault
+    reads, tools, shell access, or a different device.
+    """
+    service = TrustedDeviceService()
+    try:
+        active = await run_in_threadpool(
+            service.is_active_device, user_id=firebase_uid, device_id=device_id
+        )
+    except Exception:
+        logger.exception("trusted_device.puppy_grant_status_failed")
+        raise HTTPException(status_code=503, detail="trusted-device status unavailable") from None
+    if not active:
+        raise HTTPException(status_code=403, detail="trusted device is not active")
+    try:
+        grant = await PersonalAgentGrantService().issue_or_reuse_standing_scope(
+            firebase_uid,
+            scope=ConsentScope.CAP_PUPPY_INFERENCE,
+            grant_kind="puppy_inference",
+            scope_description=(
+                "Allow the linked Puppy One device to answer private-agent inference requests"
+            ),
+            pod_agent_id=f"device:{device_id}",
+            expires_in_ms=60 * 60 * 1000,
+        )
+    except Exception as exc:  # noqa: BLE001 - authority unavailable must fail closed
+        logger.warning("trusted_device.puppy_grant_failed %s", type(exc).__name__)
+        raise HTTPException(status_code=503, detail="Puppy inference grant unavailable") from None
+    return {
+        "device_id": device_id,
+        "scope": ConsentScope.CAP_PUPPY_INFERENCE.value,
+        "token": str(grant.get("token") or ""),
+        "expires_at": grant.get("expiresAt"),
+    }
 
 
 @router.post("/trusted-devices/{device_id}/seal-ack")

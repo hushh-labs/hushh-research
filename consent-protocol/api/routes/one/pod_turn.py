@@ -54,6 +54,11 @@ class PodTurnRequest(BaseModel):
     runtime_credential_transport: str = Field(
         default="developer_api", alias="runtimeCredentialTransport", max_length=32
     )
+    # Only ``puppy`` is accepted as an explicit alternate target. The pod does
+    # not let a caller select arbitrary hosted providers or bypass the authored
+    # fleet manifest.
+    runtime_provider: Optional[str] = Field(default=None, alias="runtimeProvider", max_length=32)
+    puppy_device_id: Optional[str] = Field(default=None, alias="puppyDeviceId", max_length=128)
     vertex_project: Optional[str] = Field(default=None, alias="vertexProject", max_length=64)
     vertex_location: Optional[str] = Field(default=None, alias="vertexLocation", max_length=64)
     # The owner's consented turn projection, opened by their key on their own device
@@ -192,8 +197,10 @@ async def run_pod_turn(
 
         runner = stream_one_text_turn
 
-    provider, model = _resolve_model()
-    runtime_mode = _resolve_runtime_mode(payload)
+    # Keep the no-argument manifest resolver injectable for existing pod tests
+    # and callers; an explicit Puppy target is the only payload-dependent path.
+    provider, model = _resolve_model(payload) if payload.runtime_provider else _resolve_model()
+    runtime_mode = _resolve_runtime_mode(payload, provider)
     # Normalised once: an all-whitespace projection is not grounding, and letting it
     # count would report `grounded: true` for a turn that learned nothing.
     grounding = (payload.pkm_context or "").strip() or None
@@ -254,6 +261,7 @@ async def run_pod_turn(
         vertex_project=payload.vertex_project,
         vertex_location=payload.vertex_location,
         data_door_grants=payload.data_door_grants or {},
+        puppy_device_id=payload.puppy_device_id,
     )
 
     chunks: list[str] = []
@@ -422,7 +430,7 @@ async def run_pod_turn(
     }
 
 
-def _resolve_runtime_mode(payload: PodTurnRequest) -> str:
+def _resolve_runtime_mode(payload: PodTurnRequest, provider: str | None = None) -> str:
     """Whose model serves this turn -- and the answer should be the OWNER'S.
 
     A pod runs on the person's own AI key, supplied per turn, for three reasons
@@ -444,6 +452,10 @@ def _resolve_runtime_mode(payload: PodTurnRequest) -> str:
     explicitly, never by silent default -- a pod with no credential that quietly
     reached for a fleet identity would be spending money nobody authorised.
     """
+    if provider == "puppy":
+        if not str(payload.runtime_credential or "").strip():
+            raise HTTPException(status_code=403, detail="Puppy inference grant required")
+        return "puppy_relay"
     if str(payload.runtime_credential or "").strip():
         # `byok`, matching AgentRuntimeCredentialMode — NOT "gemini_byok".
         #
@@ -486,7 +498,7 @@ def _resolve_runtime_mode(payload: PodTurnRequest) -> str:
     )
 
 
-def _resolve_model() -> tuple[str, str]:
+def _resolve_model(payload: PodTurnRequest | None = None) -> tuple[str, str]:
     """Provider + model from the file-backed runtime manifest. No database.
 
     ``load_one_agent_runtime_manifest`` reads the checked-in agent YAML, so it works
@@ -496,6 +508,17 @@ def _resolve_model() -> tuple[str, str]:
         load_one_agent_runtime_manifest,
     )
 
+    requested = str(getattr(payload, "runtime_provider", None) or "").strip().lower()
+    if requested:
+        if requested != "puppy" or str(os.getenv("PUPPY_INFERENCE_ENABLED") or "").lower() not in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }:
+            raise HTTPException(status_code=400, detail="requested inference target is unavailable")
+        model = str(os.getenv("PUPPY_INFERENCE_MODEL") or "local").strip()
+        return "puppy", model
     manifest = load_one_agent_runtime_manifest()
     provider = str(manifest.model.provider or "gemini").strip().lower()
     model = str(manifest.model.name or "").strip()

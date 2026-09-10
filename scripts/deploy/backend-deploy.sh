@@ -79,6 +79,23 @@ if [[ -n "${_DB_POOL_SETTINGS:-}" ]]; then
   done
   export _DB_POOL_ACQUIRE_TIMEOUT_SECONDS _DB_POOL_MAX_SIZE _DB_POOL_MIN_SIZE _DB_SQLALCHEMY_MAX_OVERFLOW _DB_SQLALCHEMY_POOL_SIZE
 fi
+# The optional Puppy controls travel with the two model selectors so this lane
+# stays below Cloud Build's 100-entry step limit. An empty relay URL intentionally
+# leaves Puppy unusable even when the switch is on.
+IFS=',' read -r -a _model_pairs <<< "${_MODEL_SETTINGS:-puppy_enabled=false,puppy_relay_url=,puppy_model=local,puppy_timeout=45,agent_adk=,gemini_text=}"
+for _pair in "${_model_pairs[@]}"; do
+  _key="${_pair%%=*}"; _value="${_pair#*=}"
+  case "${_key}" in
+    puppy_enabled) _PUPPY_INFERENCE_ENABLED="${_value}" ;;
+    puppy_relay_url) _PUPPY_INFERENCE_RELAY_URL="${_value}" ;;
+    puppy_model) _PUPPY_INFERENCE_MODEL="${_value}" ;;
+    puppy_timeout) _PUPPY_INFERENCE_TIMEOUT_SECONDS="${_value}" ;;
+    agent_adk) _AGENT_ONE_ADK_MODEL="${_value}" ;;
+    gemini_text) _HUSSH_GEMINI_TEXT_MODEL="${_value}" ;;
+    *) echo "_MODEL_SETTINGS carries an unknown key: ${_key}" >&2; exit 1 ;;
+  esac
+done
+export _PUPPY_INFERENCE_ENABLED _PUPPY_INFERENCE_RELAY_URL _PUPPY_INFERENCE_MODEL _PUPPY_INFERENCE_TIMEOUT_SECONDS _AGENT_ONE_ADK_MODEL _HUSSH_GEMINI_TEXT_MODEL
 # The runtime-IAM preflight -- runtime service-account validity, the cross-project
 # managed Vertex allowlist, and the aiplatform.user / serviceUsageConsumer role
 # checks -- runs in the dedicated `verify-runtime-iam` build step BEFORE this one,
@@ -280,12 +297,14 @@ append_optional_env "ONE_EMAIL_KYC_STRICT_CLIENT_ZK_ENABLED" "${_ONE_EMAIL_KYC_S
 append_optional_env "ONE_WALLET_CARD_ENABLED" "${_ONE_WALLET_CARD_ENABLED}"
 append_optional_env "WALLET_PASS_PROVIDER" "${_WALLET_PASS_PROVIDER}"
 append_optional_env "APP_REVIEW_MODE" "${_APP_REVIEW_MODE}"
-_AGENT_ONE_ADK_MODEL="${_AGENT_ONE_ADK_MODEL:-}"
-_HUSSH_GEMINI_TEXT_MODEL="${_HUSSH_GEMINI_TEXT_MODEL:-}"
 append_optional_env "AGENT_ONE_ADK_MODEL" "${_AGENT_ONE_ADK_MODEL}"
 # One switch for every text agent (constants.GEMINI_MODEL). Empty keeps the proven
 # default. Ported from main 2026-09-02: the workflow passes it, this lane dropped it.
 append_optional_env "HUSSH_GEMINI_TEXT_MODEL" "${_HUSSH_GEMINI_TEXT_MODEL}"
+append_optional_env "PUPPY_INFERENCE_ENABLED" "${_PUPPY_INFERENCE_ENABLED}"
+append_optional_env "PUPPY_INFERENCE_RELAY_URL" "${_PUPPY_INFERENCE_RELAY_URL}"
+append_optional_env "PUPPY_INFERENCE_MODEL" "${_PUPPY_INFERENCE_MODEL}"
+append_optional_env "PUPPY_INFERENCE_TIMEOUT_SECONDS" "${_PUPPY_INFERENCE_TIMEOUT_SECONDS}"
 append_optional_env "HUSHH_PROD_PHONE_TEST_ENABLED" "${_HUSHH_PROD_PHONE_TEST_ENABLED}"
 append_optional_env "KAI_ANALYZE_DURABLE_RUN_STORE" "${_KAI_ANALYZE_DURABLE_RUN_STORE}"
 append_optional_env "CONSENT_WEB_FALLBACK_ENABLED" "${_CONSENT_WEB_FALLBACK_ENABLED}"

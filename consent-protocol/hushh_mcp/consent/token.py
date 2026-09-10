@@ -378,14 +378,7 @@ async def validate_token_with_db(
         return valid, reason, token_obj
 
     agent_id = str(token_obj.agent_id) if token_obj is not None else ""
-    is_device_bound_owner = (
-        token_obj is not None
-        and agent_id.startswith("device:")
-        and (
-            token_obj.scope_str == ConsentScope.VAULT_OWNER.value
-            or token_obj.scope == ConsentScope.VAULT_OWNER
-        )
-    )
+    is_device_bound_token = token_obj is not None and agent_id.startswith("device:")
 
     # Additional DB check for revocation status
     # This catches tokens revoked on other Cloud Run instances
@@ -410,7 +403,7 @@ async def validate_token_with_db(
                     _token_fingerprint(token_str),
                 )
                 return False, "Token has been revoked (DB check)", None
-            if is_device_bound_owner:
+            if is_device_bound_token:
                 device_id = agent_id.removeprefix("device:")
                 if not device_id or not await service.is_trusted_device_active(
                     str(token_obj.user_id), device_id
@@ -431,7 +424,7 @@ async def validate_token_with_db(
         is_vault_owner = token_obj is not None and (
             token_obj.scope_str == "vault.owner" or token_obj.scope == ConsentScope.VAULT_OWNER
         )
-        if is_device_bound_owner:
+        if is_device_bound_token:
             logger.error(
                 "Device-bound owner revocation status could not be confirmed; failing closed: %s",
                 e,

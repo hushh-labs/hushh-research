@@ -86,6 +86,7 @@ def resolve_scope_to_enum(scope: str) -> ConsentScope:
         "cap.email.inbox.view": ConsentScope.CAP_EMAIL_INBOX_VIEW,
         "cap.calendar.events.view": ConsentScope.CAP_CALENDAR_EVENTS_VIEW,
         "cap.finance.connections.view": ConsentScope.CAP_FINANCE_CONNECTIONS_VIEW,
+        "cap.puppy.inference": ConsentScope.CAP_PUPPY_INFERENCE,
     }
     if scope.startswith("agent."):
         resolved = _AGENT_SCOPE_MAP.get(scope)
@@ -370,6 +371,14 @@ def get_scope_display_metadata(scope: str) -> dict:
             ),
             "icon_name": "link",
             "color_hex": "#0F766E",
+        },
+        "cap.puppy.inference": {
+            "label": "Puppy One Inference",
+            "description": (
+                "Allow the linked Puppy One device to answer private-agent inference requests"
+            ),
+            "icon_name": "cpu",
+            "color_hex": "#7C3AED",
         },
     }
 

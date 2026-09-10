@@ -288,6 +288,7 @@ steps:
       - "_ONE_EMAIL_KYC_DEFAULT_SCOPE=${_ONE_EMAIL_KYC_DEFAULT_SCOPE}"
       - "_ONE_EMAIL_KYC_STRICT_CLIENT_ZK_ENABLED=${_ONE_EMAIL_KYC_STRICT_CLIENT_ZK_ENABLED}"
       - "_ONE_EMAIL_PUBSUB_TOPIC=${_ONE_EMAIL_PUBSUB_TOPIC}"
+      - "_MODEL_SETTINGS=puppy_enabled=${_PUPPY_INFERENCE_ENABLED},puppy_relay_url=${_PUPPY_INFERENCE_RELAY_URL},puppy_model=${_PUPPY_INFERENCE_MODEL},puppy_timeout=${_PUPPY_INFERENCE_TIMEOUT_SECONDS},agent_adk=${_AGENT_ONE_ADK_MODEL},gemini_text=${_HUSSH_GEMINI_TEXT_MODEL}"
       - "_ONE_EMAIL_WATCH_RENEW_AUTH_ENABLED=${_ONE_EMAIL_WATCH_RENEW_AUTH_ENABLED}"
       - "_ONE_EMAIL_WATCH_RENEW_TOKEN_SECRET=${_ONE_EMAIL_WATCH_RENEW_TOKEN_SECRET}"
       - "_ONE_EMAIL_WEBHOOK_AUDIENCE=${_ONE_EMAIL_WEBHOOK_AUDIENCE}"
@@ -329,8 +330,6 @@ steps:
       - "_GOOGLE_SERVICE_ACCOUNT_EMAIL_SECRET=${_GOOGLE_SERVICE_ACCOUNT_EMAIL_SECRET}"
       - "_GOOGLE_PRIVATE_KEY_SECRET=${_GOOGLE_PRIVATE_KEY_SECRET}"
       - "_RIA_CLAIM_TEST_EMAILS_SECRET=${_RIA_CLAIM_TEST_EMAILS_SECRET}"
-      - "_AGENT_ONE_ADK_MODEL=${_AGENT_ONE_ADK_MODEL}"
-      - "_HUSSH_GEMINI_TEXT_MODEL=${_HUSSH_GEMINI_TEXT_MODEL}"
     id: "deploy-backend"
 
   # Candidate-image GenAI probe under the exact runtime identity. This runs
@@ -578,6 +577,12 @@ substitutions:
   # Wallet subagent (agent_wallet) roster flag. Empty/false keeps it out of the tree.
   _APP_REVIEW_MODE: ""
   _HUSHH_PROD_PHONE_TEST_ENABLED: ""
+  # Dev-only Puppy relay controls. Empty/false keeps the capability unavailable;
+  # enabling it requires a separately enrolled device and a dev relay URL.
+  _PUPPY_INFERENCE_ENABLED: "false"
+  _PUPPY_INFERENCE_RELAY_URL: ""
+  _PUPPY_INFERENCE_MODEL: "local"
+  _PUPPY_INFERENCE_TIMEOUT_SECONDS: "45"
   # Durable Kai analyze-run terminal-checkpoint store (migration 125). Empty =>
   # off (add_env skips empty values; runtime_settings defaults
   # False), preserving in-memory-only behavior. Set per-env below.

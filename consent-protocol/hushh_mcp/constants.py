@@ -116,6 +116,11 @@ class ConsentScope(str, Enum):
     CAP_CALENDAR_EVENTS_VIEW = "cap.calendar.events.view"
     CAP_FINANCE_CONNECTIONS_VIEW = "cap.finance.connections.view"
 
+    # Owner-approved inference over the linked Puppy One device relay. This
+    # authorizes model inference only; it never grants vault, shell, or tool
+    # execution authority.
+    CAP_PUPPY_INFERENCE = "cap.puppy.inference"
+
     # ============ MARKETPLACE / PERSONAL INFORMATION AGENT CAPABILITIES ============
     # Capability scopes for the One Personal Information Agent — the marketplace
     # chatbot that lets an owner query, publish, and manage their own PKM data
@@ -309,6 +314,7 @@ class ConsentScope(str, Enum):
             cls.CAP_EMAIL_INBOX_VIEW,
             cls.CAP_CALENDAR_EVENTS_VIEW,
             cls.CAP_FINANCE_CONNECTIONS_VIEW,
+            cls.CAP_PUPPY_INFERENCE,
         ]
 
     @classmethod

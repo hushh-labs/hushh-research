@@ -271,9 +271,10 @@ backend heartbeat (`trusted_devices.last_heartbeat_at` and `heartbeat`, read
 through `fetchPuppyLink` in `lib/services/puppy-one-service.ts`) is the source
 of truth for **whether the person's machine is connected to their account**,
 for every viewer on every origin. The loopback bridge is the source of truth
-for **chat and controls only**: the composer, the model picker and the
-on-device pill stay gated on it, because those need a gateway the server can
-actually reach. The two never contradict each other on one surface, because
+for **legacy local controls only**: the model picker and on-device controls stay
+gated on it because those need a gateway the server can actually reach. The
+private-agent composer uses the owner-pod Puppy relay described below and never
+falls back to this loopback bridge. The two never contradict each other on one surface, because
 a connected bridge keeps the header pill and the machine sheet's live reading,
 and the heartbeat speaks only when the bridge has nothing to say.
 
@@ -320,3 +321,28 @@ record: model, sessions, busy, version, machine specs and power, and the seal
 state. Everything else on the device (gate, doctor, ledger, job audit, every
 `hussh_one.*` toggle) needs either a new heartbeat field or the outbound
 rendezvous the live-bridge design describes.
+
+## Private-agent inference rendezvous (dev implementation)
+
+The core private-agent path now has an explicit, narrow inference lane. An active
+trusted device can obtain `cap.puppy.inference` from
+`POST /api/account/trusted-devices/{device_id}/puppy-inference-grant`. The grant is
+bound to `device:{device_id}`, checked against the owner and active-device row,
+and revocation is checked through the database on every relay admission. It never
+authorizes vault reads, tool execution, shell access, or the Hermes agent loop.
+
+Puppy dials the hub WebSocket at `/api/one/puppy/relay` with that grant while its
+profile is enabled. The pod opens a second authenticated socket for the same
+owner/device pair. The hub forwards only bounded `inference.request`, `delta`,
+`result`, `done`, and `error` frames. One and its specialists remain in the pod;
+the local model is the only work Puppy performs. Provider errors, offline devices,
+expired grants, mismatched request ids, and unsupported frames fail closed without
+cloud fallback or replay.
+
+The broker is process-local and therefore suitable for the isolated dev lane only;
+Cloud Run session affinity is best effort and multi-instance operation requires an
+external rendezvous store before production use. The device-side adapter calls the
+configured local OpenAI-compatible model endpoint directly, so Hermes tool
+execution is not reachable through this lane. A successful live local-model turn,
+owner identity receipt, and installed dev image are required before marking the
+core path complete; source wiring and synthetic tests alone are not that evidence.

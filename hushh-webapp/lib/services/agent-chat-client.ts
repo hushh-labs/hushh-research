@@ -656,6 +656,8 @@ export type AgentTurnResult = {
   cell: TurnCell;
   /** Present only for a pod turn: DERIVED by the pod, never asserted by the client. */
   grounded?: boolean;
+  provider?: string | null;
+  runtimeMode?: string | null;
 };
 
 /**
@@ -689,6 +691,8 @@ export async function runAgentChatTurn(input: {
   runtimeCredential?: string | null;
   runtimeCredentialMode?: string | null;
   runtimeCredentialTransport?: "developer_api" | "vertex_api_key" | null;
+  runtimeProvider?: "puppy" | null;
+  puppyDeviceId?: string | null;
   runtimeVertexProject?: string | null;
   runtimeVertexLocation?: string | null;
   /** The visible transcript, oldest first, supplements durable pod memory. */
@@ -733,6 +737,8 @@ export async function runAgentChatTurn(input: {
       timezone: resolveBrowserTimeZone(),
       runtimeCredential: input.runtimeCredential,
       runtimeCredentialTransport: input.runtimeCredentialTransport || undefined,
+      runtimeProvider: input.runtimeProvider || undefined,
+      puppyDeviceId: input.puppyDeviceId,
       vertexProject: input.runtimeVertexProject,
       vertexLocation: input.runtimeVertexLocation,
       // The owner's own consented projection, decrypted on their device. This is what
@@ -751,6 +757,8 @@ export async function runAgentChatTurn(input: {
       text: turn.text,
       cell: "pod",
       grounded: turn.grounded,
+      provider: turn.provider,
+      runtimeMode: turn.runtimeMode,
     };
   } catch (error) {
     // The three typed failures `runPodTurn` raises are about THIS person's pod, and

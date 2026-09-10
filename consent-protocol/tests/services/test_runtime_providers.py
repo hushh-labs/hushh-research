@@ -109,11 +109,11 @@ def test_is_known_provider_and_supported_set():
     assert is_known_provider("grok") is True
     assert is_known_provider("cohere") is False
     providers = supported_providers()
-    assert set(providers) == {"gemini", "anthropic", "openai", "grok"}
+    assert set(providers) == {"gemini", "anthropic", "openai", "grok", "puppy"}
 
 
 def test_default_model_per_provider_is_stable():
-    for provider in ("gemini", "anthropic", "openai", "grok"):
+    for provider in ("gemini", "anthropic", "openai", "grok", "puppy"):
         assert default_model_for_provider(provider)
 
 
@@ -771,3 +771,65 @@ async def test_openai_stream_yields_text(monkeypatch):
     )
     chunks = [chunk.text async for chunk in stream]
     assert "".join(chunks) == "Streaming ok"
+
+
+class _PuppySocket:
+    def __init__(self):
+        self.sent: list[dict[str, Any]] = []
+        self._frames = [
+            {"type": "relay.ready", "role": "pod"},
+            {"type": "inference.delta", "requestId": "", "text": "local "},
+            {
+                "type": "inference.result",
+                "requestId": "",
+                "text": "answer",
+                "functionCalls": [{"id": "call-1", "name": "lookup", "args": {"q": "x"}}],
+            },
+        ]
+
+    async def send(self, raw: str) -> None:
+        payload = __import__("json").loads(raw)
+        self.sent.append(payload)
+        if payload.get("type") == "inference.request":
+            for frame in self._frames:
+                frame["requestId"] = payload["requestId"]
+
+    async def recv(self) -> str:
+        return __import__("json").dumps(self._frames.pop(0))
+
+    async def close(self) -> None:
+        return None
+
+
+async def test_puppy_transport_preserves_request_binding_and_tool_calls(monkeypatch):
+    from hushh_mcp.runtime_providers.puppy_transport import PuppyRelayTransport
+    from hushh_mcp.runtime_providers.translate import NeutralMessage, NeutralRequest, NeutralTool
+
+    socket = _PuppySocket()
+    transport = PuppyRelayTransport("grant", relay_url="ws://relay", device_id="tdv_1")
+    monkeypatch.setattr(transport, "_connect", lambda: _async_return(socket))
+    request = NeutralRequest(
+        messages=(
+            NeutralMessage(role="user", text="hello"),
+            NeutralMessage(
+                role="assistant",
+                tool_name="lookup",
+                tool_call_id="call-1",
+                tool_arguments={"q": "x"},
+            ),
+            NeutralMessage(role="tool", tool_call_id="call-1", tool_result={"ok": True}),
+        ),
+        tools=(NeutralTool(name="lookup", description="look up", parameters={"type": "object"}),),
+    )
+    result = await transport._generate(request, model="local")
+    assert result.text == "local answer"
+    assert result.function_calls[0].id == "call-1"
+    assert socket.sent[0]["type"] == "relay.hello"
+    sent = socket.sent[1]
+    assert sent["messages"][1]["toolArguments"] == {"q": "x"}
+    assert sent["messages"][2]["toolCallId"] == "call-1"
+    assert sent["messages"][2]["toolResult"] == {"ok": True}
+
+
+async def _async_return(value: Any) -> Any:
+    return value

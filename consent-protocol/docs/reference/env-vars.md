@@ -86,6 +86,10 @@ What is in `.env` / GCP Secret Manager must match exactly what the code reads --
 | `HUSSH_TRUSTED_DEVICE_ENABLED` | `hushh_mcp/services/trusted_device_service.py` | UAT only | Additive Hermes trusted-device kill switch. Defaults disabled. |
 | `HUSHH_TRUSTED_DEVICE_UAT_ALLOWLIST` | `api/routes/account.py` | UAT rollout | Comma-separated Firebase UIDs or verified account emails allowed to enroll Hermes. |
 | `TRUSTED_DEVICE_PEPPER` | `hushh_mcp/services/trusted_device_service.py` | Optional secret | HMAC pepper for one-time authorization codes and nonces. Falls back to `APP_SIGNING_KEY`; a dedicated UAT secret is preferred. |
+| `PUPPY_INFERENCE_ENABLED` | `api/routes/one/pod_turn.py`, `api/routes/one/puppy_relay.py` | Dev only | Explicitly enables the owner-scoped Puppy inference target. Keep false outside the isolated dev lane. |
+| `PUPPY_INFERENCE_RELAY_URL` | `hushh_mcp/runtime_providers/puppy_transport.py` | Dev only | Hub WebSocket rendezvous URL. It carries inference frames only; it is not a Hermes API or shell endpoint. |
+| `PUPPY_INFERENCE_MODEL` | `api/routes/one/pod_turn.py` | Dev only | Resident Puppy model label returned in execution metadata. The device remains the model authority. |
+| `PUPPY_INFERENCE_TIMEOUT_SECONDS` | `hushh_mcp/runtime_providers/puppy_transport.py` | Dev only | Bounded request timeout; interrupted requests are not replayed. |
 | `HUSSH_TECH_CLIENT_ENABLED` | `hushh_mcp/services/hushh_tech_client_service.py` | UAT only | Master kill switch. Production is hard-disabled in code even if this drifts true. |
 | `HUSSH_TECH_DEVELOPER_APP_ID` | `api/routes/hushh_tech.py` | UAT rollout | Exact dedicated developer-app id. The app must have only the `hushh_tech_client` tool group and no capabilities. |
 | `HUSSH_TECH_ALLOWED_AUDIENCE` | `hushh_mcp/services/hushh_tech_client_service.py` | UAT rollout | Exact launch audience (`hushh-tech-uat`). |

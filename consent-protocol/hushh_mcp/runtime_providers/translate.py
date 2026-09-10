@@ -15,8 +15,16 @@ from typing import Any
 
 @dataclass(frozen=True)
 class NeutralMessage:
-    role: str  # "user" | "assistant"
-    text: str
+    role: str  # "user" | "assistant" | "tool"
+    text: str = ""
+    # Tool metadata is deliberately optional so existing provider adapters and
+    # persisted conversation shapes remain source compatible.  The fields are
+    # populated from genai function_call/function_response parts and survive a
+    # relay hop without turning the provider into a second router.
+    tool_call_id: str = ""
+    tool_name: str = ""
+    tool_arguments: dict[str, Any] | None = None
+    tool_result: Any = None
 
 
 @dataclass(frozen=True)
@@ -79,7 +87,39 @@ def to_neutral_request(contents: Any, config: Any) -> NeutralRequest:
     messages: list[NeutralMessage] = []
     for content in contents or []:
         role = _neutral_role(getattr(content, "role", None))
-        text = _text_from_parts(getattr(content, "parts", None))
+        text_chunks: list[str] = []
+        for part in getattr(content, "parts", None) or []:
+            text = getattr(part, "text", None)
+            if isinstance(text, str) and text:
+                text_chunks.append(text)
+            call = getattr(part, "function_call", None)
+            if call is not None:
+                name = str(getattr(call, "name", "") or "").strip()
+                if name:
+                    args = getattr(call, "args", None)
+                    if not isinstance(args, dict):
+                        args = {}
+                    messages.append(
+                        NeutralMessage(
+                            role="assistant",
+                            tool_call_id=str(getattr(call, "id", "") or ""),
+                            tool_name=name,
+                            tool_arguments=args,
+                        )
+                    )
+            response = getattr(part, "function_response", None)
+            if response is not None:
+                name = str(getattr(response, "name", "") or "").strip()
+                result = getattr(response, "response", None)
+                messages.append(
+                    NeutralMessage(
+                        role="tool",
+                        tool_call_id=str(getattr(response, "id", "") or ""),
+                        tool_name=name,
+                        tool_result=result,
+                    )
+                )
+        text = "\n".join(text_chunks)
         if text:
             messages.append(NeutralMessage(role=role, text=text))
 
