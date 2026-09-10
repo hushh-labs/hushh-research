@@ -1965,6 +1965,17 @@ describe("OneLocationAgentPage", () => {
     );
     expect(screen.getByText("Location off")).toBeTruthy();
     expect(mockRevokeGrant).not.toHaveBeenCalled();
+
+    // The caption is a separate, explicit action target. It must call the
+    // same transition once, without relying on native label forwarding.
+    mockCaptureCurrentPosition.mockClear();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Location off" }),
+    );
+    await waitFor(() => expect(mockCaptureCurrentPosition).toHaveBeenCalled());
+    expect(
+      screen.getByRole("switch", { name: "Turn location off" }),
+    ).toHaveAttribute("aria-checked", "true");
   });
 
   it("keeps Settings focused on auto approval and Saved Locations", async () => {

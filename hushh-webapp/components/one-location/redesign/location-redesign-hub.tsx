@@ -954,15 +954,27 @@ function locationHeaderStatusText(vm: LocationHubViewModel): string {
 }
 
 /** The status stays with the switch and may wrap rather than clip on a narrow phone. */
-function LocationHeaderStatus({ vm }: { vm: LocationHubViewModel }) {
+function LocationHeaderStatus({
+  vm,
+  onToggle,
+}: {
+  vm: LocationHubViewModel;
+  onToggle: () => void;
+}) {
   return (
-    <span
+    <button
+      type="button"
       id={LOCATION_HEADER_STATUS_ID}
       data-testid="one-location-header-status"
-      className={LOCATION_HEADER_STATUS_CLASSNAME}
+      aria-label={locationHeaderStatusText(vm)}
+      onClick={onToggle}
+      className={cn(
+        LOCATION_HEADER_STATUS_CLASSNAME,
+        "cursor-pointer select-none appearance-none border-0 bg-transparent p-0 text-inherit touch-manipulation",
+      )}
     >
       {locationHeaderStatusText(vm)}
-    </span>
+    </button>
   );
 }
 
@@ -978,6 +990,8 @@ function LocationHeaderActions({ vm }: { vm: LocationHubViewModel }) {
     }
     vm.onHideMyLocation();
   };
+
+  const handleLocationToggle = () => handleLocationChange(!locationOn);
 
   return (
     <div
@@ -1008,7 +1022,7 @@ function LocationHeaderActions({ vm }: { vm: LocationHubViewModel }) {
         // system green, so this toggle reads the same as every other one.
         className={cn("shrink-0", acquiring && "animate-pulse")}
       />
-      <LocationHeaderStatus vm={vm} />
+      <LocationHeaderStatus vm={vm} onToggle={handleLocationToggle} />
     </div>
   );
 }
