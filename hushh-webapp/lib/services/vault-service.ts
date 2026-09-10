@@ -6,6 +6,7 @@ import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { PreVaultUserStateService } from "@/lib/services/pre-vault-user-state-service";
 import {
   createVaultWithPassphrase as webCreateVault,
+  hexToBytes,
   unlockVaultWithPassphrase as webUnlockVault,
   unlockVaultWithRecoveryKey as webUnlockRecall,
 } from "@/lib/vault/passphrase-key";
@@ -664,18 +665,40 @@ export class VaultService {
     return wrapper;
   }
 
-  static async hashVaultKey(vaultKeyHex: string): Promise<string> {
+  static async hashVaultKey(
+    vaultKeyHex: string,
+    existingVaultKeyHash?: string,
+  ): Promise<string> {
     const normalized = this.normalizeVaultKeyHex(vaultKeyHex);
     if (!normalized) {
       throw new Error("Invalid vault key hex.");
     }
+    // A deployed release briefly wrote raw-byte hashes. Retain compatibility
+    // with those records while preserving the original hex-text write format.
+    const rawBytes = hexToBytes(normalized);
     const digest = await crypto.subtle.digest(
+      "SHA-256",
+      rawBytes.buffer as ArrayBuffer,
+    );
+    const rawHash = Array.from(new Uint8Array(digest))
+      .map((byte) => byte.toString(16).padStart(2, "0"))
+      .join("");
+    if (existingVaultKeyHash === rawHash) return rawHash;
+
+    // Vaults created before the raw-byte hash change stored SHA-256 of the
+    // normalized hex text. Verify that exact historical encoding as well.
+    // Preserve a matching stored hash for wrapper mutations: the backend
+    // compares it verbatim, and changing it requires a coordinated migration.
+    const legacyDigest = await crypto.subtle.digest(
       "SHA-256",
       new TextEncoder().encode(normalized),
     );
-    return Array.from(new Uint8Array(digest))
+    const legacyHash = Array.from(new Uint8Array(legacyDigest))
       .map((byte) => byte.toString(16).padStart(2, "0"))
       .join("");
+    return !existingVaultKeyHash || legacyHash === existingVaultKeyHash
+      ? legacyHash
+      : rawHash;
   }
 
   static async unlockWithMethod(params: {
@@ -708,7 +731,7 @@ export class VaultService {
     }
     if (!state.vaultKeyHash) return;
 
-    const hashed = await this.hashVaultKey(normalizedKey);
+    const hashed = await this.hashVaultKey(normalizedKey, state.vaultKeyHash);
     if (hashed !== state.vaultKeyHash) {
       throw new Error("Vault key integrity check failed.");
     }

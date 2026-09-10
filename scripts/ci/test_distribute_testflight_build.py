@@ -7,7 +7,9 @@ from __future__ import annotations
 import json
 import importlib.util
 import sys
+import tempfile
 import unittest
+import urllib.parse
 from pathlib import Path
 from typing import Any
 
@@ -56,6 +58,28 @@ class FakeApple:
     def request(self, method: str, url: str, payload: dict[str, Any] | None) -> dict[str, Any]:
         self.calls.append((method, url, payload))
         path = url.split(".com", 1)[-1]
+        if method == "GET" and path.startswith(f"/v1/apps/{APP_ID}/buildUploads?"):
+            return {
+                "data": [
+                    {
+                        "type": "buildUploads",
+                        "attributes": {
+                            "cfBundleShortVersionString": "1.4.0",
+                            "cfBundleVersion": "69",
+                        },
+                        "relationships": {
+                            "build": {"data": {"type": "builds", "id": BUILD_ID}}
+                        },
+                    }
+                ],
+                "included": [
+                    {
+                        "type": "builds",
+                        "id": BUILD_ID,
+                        "attributes": {"version": "69", "processingState": "VALID"},
+                    }
+                ],
+            }
         if method == "GET" and path.startswith("/v1/builds?"):
             return {
                 "data": [
@@ -93,6 +117,8 @@ class FakeApple:
         if method == "POST" and path == "/v1/betaAppReviewDetails":
             return {"data": {"type": "betaAppReviewDetails", "id": "detail-1"}}
         if method == "GET" and path.startswith(f"/v1/builds/{BUILD_ID}/betaBuildLocalizations"):
+            params = urllib.parse.parse_qs(urllib.parse.urlsplit(url).query)
+            assert set(params) <= {"limit", "fields[betaBuildLocalizations]"}, params
             return {"data": []}
         if method == "POST" and path == "/v1/betaBuildLocalizations":
             return {"data": {"type": "betaBuildLocalizations", "id": "localization-1"}}
@@ -118,6 +144,20 @@ class FakeApple:
 
 
 class DistributeTestFlightBuildTests(unittest.TestCase):
+    def test_localization_update_finds_locale_on_later_page_and_only_patches_notes(self) -> None:
+        calls = []
+        def request(method, url, payload):
+            calls.append((method, url, payload))
+            if method == "PATCH":
+                self.assertEqual(payload["data"]["attributes"], {"whatsNew": "new notes"})
+                return {}
+            if "cursor=next" in url:
+                return {"data": [{"type": "betaBuildLocalizations", "id": "loc-en", "attributes": {"locale": "en-US"}}]}
+            self.assertNotIn("filter", url)
+            return {"data": [{"type": "betaBuildLocalizations", "id": "loc-fr", "attributes": {"locale": "fr-FR"}}], "links": {"next": f"{subject.ASC_API_ROOT}/v1/builds/{BUILD_ID}/betaBuildLocalizations?cursor=next"}}
+        subject.upsert_beta_build_localization(subject.AppStoreConnectClient("test", request=request), BUILD_ID, "new notes")
+        self.assertEqual([call[0] for call in calls], ["GET", "GET", "PATCH"])
+
     def run_distribution(self, apple: FakeApple) -> dict[str, str]:
         return subject.distribute_valid_build(
             client=subject.AppStoreConnectClient("test", request=apple.request),
@@ -136,6 +176,55 @@ class DistributeTestFlightBuildTests(unittest.TestCase):
         self.assertEqual(apple.assignments[INTERNAL_GROUP_ID], {BUILD_ID})
         self.assertEqual(apple.assignments[EXTERNAL_GROUP_ID], {BUILD_ID})
         self.assertFalse(any("appStoreVersions" in url or "reviewSubmissions" in url for _, url, _ in apple.calls))
+        self.assertFalse(any(method == "POST" and url.endswith("/betaAppReviewSubmissions") for method, url, _ in apple.calls))
+
+        detail_post = next(index for index, (method, url, _) in enumerate(apple.calls) if method == "POST" and url.endswith("/betaAppReviewDetails"))
+        localization_post = next(index for index, (method, url, _) in enumerate(apple.calls) if method == "POST" and url.endswith("/betaBuildLocalizations"))
+        relationship_posts = [index for index, (method, url, _) in enumerate(apple.calls) if method == "POST" and "relationships/builds" in url]
+        self.assertLess(detail_post, relationship_posts[0])
+        self.assertLess(localization_post, relationship_posts[0])
+
+    def test_exact_build_id_handoff_does_not_requery_transient_upload(self) -> None:
+        apple = FakeApple(external_review_state="APPROVED")
+        result = subject.distribute_valid_build(
+            client=subject.AppStoreConnectClient("test", request=apple.request),
+            app_id=APP_ID,
+            marketing_version="1.4.0",
+            build_number="69",
+            configuration=configuration(),
+            build_id=BUILD_ID,
+        )
+
+        self.assertEqual(result["build_id"], BUILD_ID)
+        self.assertFalse(any("buildUploads" in url for _, url, _ in apple.calls))
+
+    def test_build_id_file_requires_the_processing_gate_contract(self) -> None:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json") as handle:
+            json.dump(
+                {
+                    "type": "builds",
+                    "id": BUILD_ID,
+                    "attributes": {"processingState": "VALID"},
+                },
+                handle,
+            )
+            handle.flush()
+            self.assertEqual(
+                subject.read_build_id_file(handle.name, build_number="69"), BUILD_ID
+            )
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json") as handle:
+            json.dump(
+                {
+                    "type": "builds",
+                    "id": BUILD_ID,
+                    "attributes": {"processingState": "PROCESSING"},
+                },
+                handle,
+            )
+            handle.flush()
+            with self.assertRaisesRegex(subject.DistributionError, "not VALID"):
+                subject.read_build_id_file(handle.name, build_number="69")
 
     def test_existing_group_assignment_is_idempotent(self) -> None:
         apple = FakeApple(external_review_state="WAITING_FOR_REVIEW")
@@ -154,7 +243,8 @@ class DistributeTestFlightBuildTests(unittest.TestCase):
         result = self.run_distribution(apple)
 
         self.assertEqual(result["external"], "pending_apple_beta_review")
-        self.assertEqual(result["external_beta_review_state"], "WAITING_FOR_REVIEW")
+        self.assertEqual(result["external_beta_review_state"], "NOT_SUBMITTED")
+        self.assertFalse(any(method == "POST" and url.endswith("/betaAppReviewSubmissions") for method, url, _ in apple.calls))
 
     def test_external_review_rejection_fails_closed(self) -> None:
         with self.assertRaisesRegex(subject.DistributionError, "rejected"):

@@ -57,6 +57,33 @@ describe("Profile canonical page layout", () => {
     );
   });
 
+  it("uses the original Google mark and semantic icon tones", () => {
+    const source = readFileSync(
+      join(process.cwd(), "app/profile/profile-workspace-page.tsx"),
+      "utf8",
+    );
+    const socialIcons = readFileSync(
+      join(process.cwd(), "lib/morphy-ux/social-icons.tsx"),
+      "utf8",
+    );
+    const css = readFileSync(join(process.cwd(), "app/globals.css"), "utf8");
+
+    expect(source).toContain(
+      'import { AppleIcon, GoogleIcon } from "@/lib/morphy-ux/social-icons";',
+    );
+    expect(source).toContain(
+      'return <GoogleIcon className="shrink-0" size={17} />;',
+    );
+    for (const brandColor of ["#4285F4", "#34A853", "#FBBC05", "#EA4335"]) {
+      expect(socialIcons).toContain(brandColor);
+    }
+    expect(source).not.toMatch(/icon=\{Fingerprint\}\s+iconTone="gray"/);
+    expect(source).toContain('className="profile-account-inline-action"');
+    expect(css).toMatch(
+      /\.profile-home-content \[data-icon-tone="purple"\] \{\s+background: var\(--app-purple\) !important;/,
+    );
+  });
+
   it("keeps Profile and Account supporting metadata below body row size", () => {
     const css = readFileSync(join(process.cwd(), "app/globals.css"), "utf8");
 

@@ -296,6 +296,10 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--platform", default=DEFAULT_PLATFORM)
     parser.add_argument("--timeout-seconds", type=int, default=1200)
     parser.add_argument("--poll-interval-seconds", type=int, default=15)
+    parser.add_argument(
+        "--output-json",
+        help="Write the validated Apple builds resource to a runner-local JSON file.",
+    )
     return parser.parse_args(argv)
 
 
@@ -356,6 +360,13 @@ def main(argv: list[str]) -> int:
         f"for TestFlight testing (encryption exempt: "
         f"{attrs.get('usesNonExemptEncryption') is False})."
     )
+    if args.output_json:
+        try:
+            with open(args.output_json, "w", encoding="utf-8") as handle:
+                json.dump(build, handle, sort_keys=True)
+                handle.write("\n")
+        except OSError as exc:
+            die(f"cannot write validated build evidence: {exc}")
     return 0
 
 

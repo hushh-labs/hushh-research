@@ -102,12 +102,28 @@ const VAULT_ALTERNATIVE_BUTTON_CLASS =
 // A passkey cancellation is a normal user decision, not an application
 // failure. Keep it in the credential surface so the user can choose a
 // fallback without a disappearing toast or an automatic second ceremony.
+//
+// A bare "cancel" or "cancelled" substring is too broad — it matches
+// aborted fetches, cancelled analytics, and other non-WebAuthn noise.
+// Require at least one WebAuthn-specific context word alongside the
+// cancellation signal so we only silence real passkey dismissals.
+const WEBAUTHN_CANCEL_CONTEXT = [
+  "passkey",
+  "authentication",
+  "credential",
+  "webauthn",
+  "webauth",
+  "user",
+  "operation",
+  "request",
+  "prompt",
+  "securitykey",
+  "security key",
+];
 function isWebAuthnCancellationError(value: unknown): boolean {
-  const error = value as { name?: unknown; message?: unknown } | null;
+  const error = value as { name?: unknown; message?: unknown; code?: unknown } | null;
   const name = typeof error?.name === "string" ? error.name.toLowerCase() : "";
-  const code = typeof (error as { code?: unknown })?.code === "string"
-    ? (error as { code: string }).code.toLowerCase()
-    : "";
+  const code = typeof error?.code === "string" ? error.code.toLowerCase() : "";
   const message =
     typeof value === "string"
       ? value.toLowerCase()
@@ -115,25 +131,35 @@ function isWebAuthnCancellationError(value: unknown): boolean {
         ? error.message.toLowerCase()
         : "";
 
-  return (
-    name === "aborterror" ||
-    name === "notallowederror" ||
-    code.includes("cancel") ||
-    code.includes("abort") ||
-    message.includes("authentication cancelled") ||
-    message.includes("authentication canceled") ||
-    message.includes("passkey request cancelled") ||
-    message.includes("passkey request canceled") ||
-    message.includes("passkey authentication cancelled") ||
-    message.includes("passkey authentication canceled") ||
-    message.includes("user cancelled") ||
-    message.includes("user canceled") ||
-    message.includes("cancelled by user") ||
-    message.includes("canceled by user") ||
-    (message.includes("cancel") &&
-      (message.includes("operation") || message.includes("credential"))) ||
-    message.includes("timed out or was not allowed")
-  );
+  // AbortError / NotAllowedError from navigator.credentials.get are the
+  // two most reliable signals — they are DOMException names, not strings.
+  if (name === "aborterror" || name === "notallowederror") return true;
+
+  // Structured AbortSignal cancellation codes used by some frameworks.
+  if (code.includes("cancel") || code.includes("abort")) return true;
+
+  // For substring matches, require a WebAuthn context word near the cancel
+  // term so we don't misclassify unrelated cancellations. Match both
+  // British "cancelled" and American "canceled" spellings.
+  const hasCancel = (text: string): boolean =>
+    /cancell?ed?/i.test(text) || /timed out or was not allowed/i.test(text);
+
+  if (hasCancel(message)) {
+    return WEBAUTHN_CANCEL_CONTEXT.some((ctx) => message.includes(ctx));
+  }
+
+  // A few platform-specific cancellation strings that carry their own context.
+  const explicitCancelPhrases = [
+    "passkey request cancelled",
+    "passkey request canceled",
+    "passkey authentication cancelled",
+    "passkey authentication canceled",
+    "user cancelled",
+    "user canceled",
+    "cancelled by user",
+    "canceled by user",
+  ];
+  return explicitCancelPhrases.some((phrase) => message.includes(phrase));
 }
 
 function isDuplicateWebAuthnError(value: unknown): boolean {
@@ -146,8 +172,6 @@ function isDuplicateWebAuthnError(value: unknown): boolean {
   );
 }
 
-const PASSKEY_UNLOCK_CANCELLED_MESSAGE =
-  "Passkey unlock was cancelled. Choose Passphrase or Recovery key below, or tap Passkey to try again.";
 const GENERATED_UNLOCK_CANCELLED_EVENT = "vault-generated-unlock-cancelled";
 
 type GeneratedUnlockClaim = {
@@ -170,38 +194,12 @@ function isGeneratedVaultKeyMode(
 
 // A locked session can briefly have more than one mounted VaultFlow while a
 // route gate takes ownership. The browser and the native Credential Manager
-// must see one page-wide ceremony, and a user cancellation must follow that
-// session across the handoff instead of being treated as permission to prompt
-// again from the newly mounted flow.
+// must see one page-wide ceremony. A settled attempt must also outlive a UI
+// handoff: browser focus can briefly unmount the flow for session verification,
+// but that must not turn a cancellation or provider failure into permission to
+// show another passkey prompt.
 let activeGeneratedUnlockClaim: GeneratedUnlockClaim | null = null;
 let cancelledGeneratedUnlock: Omit<GeneratedUnlockClaim, "owner"> | null = null;
-const activeGeneratedUnlockSurfaces = new Map<string, number>();
-
-function registerGeneratedUnlockSurface(userId: string): () => void {
-  activeGeneratedUnlockSurfaces.set(
-    userId,
-    (activeGeneratedUnlockSurfaces.get(userId) ?? 0) + 1,
-  );
-
-  let released = false;
-  return () => {
-    if (released) return;
-    released = true;
-
-    const count = activeGeneratedUnlockSurfaces.get(userId) ?? 0;
-    if (count <= 1) {
-      activeGeneratedUnlockSurfaces.delete(userId);
-    } else {
-      activeGeneratedUnlockSurfaces.set(userId, count - 1);
-    }
-
-    // Once the last unlock surface is gone and no native/browser ceremony is
-    // still settling, the next deliberate unlock is a fresh session.
-    if (activeGeneratedUnlockClaim === null && activeGeneratedUnlockSurfaces.size === 0) {
-      cancelledGeneratedUnlock = null;
-    }
-  };
-}
 
 function isGeneratedUnlockCancelled(
   userId: string,
@@ -263,9 +261,6 @@ function markGeneratedUnlockCancelled(
 function releaseGeneratedUnlock(owner: symbol): void {
   if (activeGeneratedUnlockClaim?.owner !== owner) return;
   activeGeneratedUnlockClaim = null;
-  if (activeGeneratedUnlockSurfaces.size === 0) {
-    cancelledGeneratedUnlock = null;
-  }
 }
 
 function VaultFlowHeader({
@@ -398,11 +393,6 @@ export function VaultFlow({
 
   const { isVaultUnlocked, unlockVault } = useVault();
 
-  useEffect(
-    () => registerGeneratedUnlockSurface(user.uid),
-    [user.uid],
-  );
-
   useEffect(() => {
     const handleGeneratedUnlockCancelled = (event: Event) => {
       const detail = (event as CustomEvent<{
@@ -413,7 +403,7 @@ export function VaultFlow({
 
       generatedUnlockCancelledRef.current = true;
       setUnlockWithPassphraseFallback(true);
-      setError(PASSKEY_UNLOCK_CANCELLED_MESSAGE);
+      setError(null);
     };
 
     window.addEventListener(
@@ -846,6 +836,10 @@ export function VaultFlow({
       }
     } catch (err: any) {
       console.error("Unlock error:", err);
+      if (isWebAuthnCancellationError(err)) {
+        setError(null);
+        return;
+      }
       const message = toInvestorVaultUnlockError(err);
       setError(message);
       toast.error(message);
@@ -942,7 +936,7 @@ export function VaultFlow({
       if (claim === "cancelled") {
         generatedUnlockCancelledRef.current = true;
         setUnlockWithPassphraseFallback(true);
-        setError(PASSKEY_UNLOCK_CANCELLED_MESSAGE);
+        setError(null);
         return;
       }
       if (claim === "busy") {
@@ -987,7 +981,9 @@ export function VaultFlow({
         }
 
         await VaultService.assertVaultKeyMatchesState(vaultData, decryptedKey);
-        await finalizeUnlock(decryptedKey);
+        if (!(await finalizeUnlock(decryptedKey))) {
+          throw new Error("We could not complete Vault access. Please try again.");
+        }
       } catch (err: any) {
         // A duplicate caller is rejected before it can reach the browser. The
         // original ceremony remains active and owns the visible prompt.
@@ -1002,10 +998,22 @@ export function VaultFlow({
             generatedMode,
           );
           setUnlockWithPassphraseFallback(true);
-          setError(PASSKEY_UNLOCK_CANCELLED_MESSAGE);
+          setError(null);
           return;
         }
         console.error("Generated vault unlock failed:", err);
+        // Google Password Manager and the platform authenticator can fail
+        // after opening their UI. Keep that outcome session-scoped too: a
+        // focus-driven remount must not immediately reopen the same ceremony.
+        // The visible Passkey action explicitly clears this block and is the
+        // only way to begin another attempt.
+        generatedUnlockCancelledRef.current = true;
+        markGeneratedUnlockCancelled(
+          flowInstanceRef.current,
+          user.uid,
+          generatedMode,
+        );
+        setUnlockWithPassphraseFallback(true);
         const message = toInvestorVaultUnlockError(err);
         setError(message);
       } finally {
@@ -1246,7 +1254,7 @@ export function VaultFlow({
     ) {
       generatedUnlockCancelledRef.current = true;
       setUnlockWithPassphraseFallback(true);
-      setError(PASSKEY_UNLOCK_CANCELLED_MESSAGE);
+      setError(null);
       return;
     }
     void handleUnlockGeneratedDefault("automatic");
@@ -1673,6 +1681,10 @@ export function VaultFlow({
                           fullWidth
                           className={VAULT_ALTERNATIVE_BUTTON_CLASS}
                           onClick={() => {
+                            if (hasActiveGeneratedWrapper) {
+                              handleRetryGeneratedUnlock();
+                              return;
+                            }
                             generatedUnlockCancelledRef.current = false;
                             if (availableGeneratedMethod) {
                               clearGeneratedUnlockCancellation(

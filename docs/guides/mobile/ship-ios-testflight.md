@@ -34,7 +34,7 @@ UAT configuration and native Firebase materialization
 → One Voice safety, generated-action, and Capacitor plugin checks
 → privacy-manifest, App Intent, archive-asset, and symbol checks
 → verified UAT browser-ASR and intent-ranker pack readiness
-→ iOS simulator AppTests
+→ optional focused iOS App Intent/action smoke tests (full AppTests remain in change-aware CI)
 → optional physical-iPhone capture evidence when requested
 → signed archive and TestFlight upload
 → Apple VALID processing check
@@ -56,9 +56,17 @@ owner, and accepts only a redacted aggregate result when all of these are true:
 When `require_hardware` is `false` (the default), the physical job is skipped
 and the release summary records `not requested`; the workflow makes no
 physical-device claim. If the lane is requested, a missing device, permission,
-metric, or result remains a release failure. The simulator XCTest and all
-One Voice privacy, generated-action, and Capacitor checks remain required on
-every run.
+metric, or result remains a release failure. The One Voice privacy,
+generated-action, and Capacitor checks remain required on every run; the
+compile-heavy simulator XCTest gate is opt-in through `run_core_tests`.
+
+When the `run_core_tests` dispatch input is `true`, the release simulator step
+runs five tests that prove the shipped App Intent surface: the ten-shortcut
+registration contract, the generated action catalog, both direct intent-factory
+mappings, and the non-mutating destination adapters. The default skips this
+compile-heavy duplicate; the change-aware CI workflow continues to run the
+complete `AppTests` suite and the targeted UI recovery test.
+This keeps the release job focused while preserving broad regression coverage.
 
 ## One-time release configuration
 
@@ -144,7 +152,10 @@ authority contract.
 5. In GitHub Actions, run **Ship iOS to TestFlight** from `main`. Leave `sha`
    blank for the latest eligible SHA, or supply that exact SHA. Set
    `require_hardware: true` for the optional physical-device evidence lane;
-   leave it `false` for the normal simulator-backed release path.
+   leave it `false` for the normal release path. Set `run_core_tests: true`
+   only when you want the focused simulator App Intent/action gate in this
+   release; the default is `false` because the full suite already runs in
+   change-aware CI.
 6. Use `dry_run: true` only when you want a signed archive without uploading.
    It follows the same `require_hardware` choice.
 
@@ -165,5 +176,27 @@ model bytes are removed or never uploaded.
 | Missing group, contact, notes, or privacy attestation | Configure the protected UAT release material; the workflow intentionally will not upload. |
 | External beta review pending | Internal testers can use the valid build; wait for Apple's beta-review decision for external testers. |
 | External beta review rejected | Correct the reviewer-facing issue and dispatch a new build; the workflow fails closed. |
+| `App Store Connect ... failed with HTTP 400` after processing | The binary is already uploaded and `VALID`; inspect the endpoint in the step error. The workflow prepares review metadata before group attachment, treats an unsubmitted external review as pending, and never creates a beta-review submission implicitly. |
 
 Public App Store submission remains a separate, explicitly authorized workflow.
+
+### Recover a processed upload without rebuilding
+
+If Apple processing finishes after the wait expires, or metadata/distribution fails,
+use **Resume TestFlight Distribution** (`resume-ios-testflight.yml`) from `main`,
+with `upload_run_id` set to the original upload run. It reads the upload receipt,
+validates its source is on main, reconciles the same version/build with Apple,
+and repeats the idempotent group assignment. It does not archive, upload another
+binary, run App Intent tests, or submit beta review. A still-processing build can
+be reconciled again later with the same run ID. Original failed runs remain failed;
+the recovery run records the recovered distribution separately.
+
+Receipts are preserved immediately after successful uploads for 90 days. Runs
+before this receipt was introduced require an operator to verify the existing
+build's bundle ID, version, number and source before using the distribution CLI;
+do not rebuild merely to recover metadata. The normal release's `run_core_tests`
+flag remains `false` by default.
+
+The localization relationship GET accepts `limit`, not `filter[locale]`. Locale
+selection follows all pages locally; localization PATCH sends only `whatsNew`.
+The test double rejects unsupported query parameters and checks update payloads.

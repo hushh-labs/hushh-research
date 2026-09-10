@@ -1,6 +1,13 @@
 "use client";
 
-import { useCallback, useLayoutEffect, useRef, useState } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import {
   contactInvitationsEnabled,
   type InviteCandidate,
@@ -10,12 +17,17 @@ import {
   type InvitationShare,
 } from "@/lib/services/contact-invitations-service";
 import { personalizeInvitation } from "./personalize-invitation";
+import { useInvitationQueue } from "./use-invitation-queue";
 
-/** Owned by the sync surface, never a global store or persisted query. */
-export function useContactInvitations(userId: string | null | undefined) {
+/** Owned by the account/route invitation session, never persisted. */
+export function useContactInvitationSession(
+  userId: string | null | undefined,
+  scope = "local",
+) {
   const enabled = contactInvitationsEnabled();
   const owner = userId ?? null;
   const ownerRef = useRef(owner);
+  const scopeRef = useRef(scope);
   const generation = useRef(0);
   const prepareRef = useRef<(() => Promise<InvitationShare | null>) | null>(
     null,
@@ -28,6 +40,17 @@ export function useContactInvitations(userId: string | null | undefined) {
   const [error, setError] = useState<string | null>(null);
   const [version, setVersion] = useState(0);
 
+  const captureSession = useCallback(() => {
+    const token = generation.current;
+    const initiatingOwner = ownerRef.current;
+    return () =>
+      Boolean(initiatingOwner) &&
+      generation.current === token &&
+      ownerRef.current === initiatingOwner;
+  }, []);
+  const draft = useInvitationQueue(candidates, share, captureSession);
+  const { reset: resetDraft } = draft;
+
   const clear = useCallback(() => {
     generation.current += 1;
     prepareRef.current = null;
@@ -38,15 +61,17 @@ export function useContactInvitations(userId: string | null | undefined) {
     setShare(null);
     setPreparing(false);
     setError(null);
-  }, []);
+    resetDraft();
+  }, [resetDraft]);
 
   useLayoutEffect(() => {
     ownerRef.current = owner;
+    scopeRef.current = scope;
     clear();
     return () => {
       generation.current += 1;
     };
-  }, [owner, enabled, clear]);
+  }, [owner, scope, enabled, clear]);
 
   const beginSync = useCallback(() => {
     clear();
@@ -58,15 +83,6 @@ export function useContactInvitations(userId: string | null | undefined) {
         setCandidates(next);
     };
   }, [clear, enabled]);
-
-  const captureSession = useCallback(() => {
-    const token = generation.current;
-    const initiatingOwner = ownerRef.current;
-    return () =>
-      Boolean(initiatingOwner) &&
-      generation.current === token &&
-      ownerRef.current === initiatingOwner;
-  }, []);
 
   const open = useCallback(
     async (prepare: () => Promise<InvitationShare | null>) => {
@@ -125,7 +141,7 @@ export function useContactInvitations(userId: string | null | undefined) {
     if (prepareRef.current) await open(prepareRef.current);
   }, [open]);
 
-  const currentOwner = ownerRef.current === owner;
+  const currentOwner = ownerRef.current === owner && scopeRef.current === scope;
   return {
     enabled,
     version,
@@ -139,9 +155,21 @@ export function useContactInvitations(userId: string | null | undefined) {
     share: currentOwner ? share : null,
     preparing,
     error,
+    draft,
   };
 }
 
 export type ContactInvitationController = ReturnType<
-  typeof useContactInvitations
+  typeof useContactInvitationSession
 >;
+export const ContactInvitationSessionContext = createContext<{
+  owner: string | null;
+  controller: ContactInvitationController;
+} | null>(null);
+
+export function useContactInvitations(userId: string | null | undefined) {
+  const session = useContext(ContactInvitationSessionContext);
+  // Isolated surfaces/tests retain the same lifecycle without an app provider.
+  const local = useContactInvitationSession(session ? null : userId);
+  return session?.owner === (userId ?? null) ? session.controller : local;
+}

@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { ContactInvitationSheet } from "@/components/connections/contact-invitation-sheet";
+import { ContactInvitationSheet as InvitationSheet } from "@/components/connections/contact-invitation-sheet";
+import { useInvitationQueue } from "@/lib/contacts/use-invitation-queue";
 import type { ContactInvitationController } from "@/lib/contacts/use-contact-invitations";
 import type { InviteCandidate } from "@/lib/contacts/invitation-candidates";
 
@@ -9,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   share: vi.fn(),
   copy: vi.fn(),
   canComposeSms: vi.fn(),
+  toast: vi.fn(),
 }));
 vi.mock("@/lib/services/contact-invitations-service", () => ({
   invitationBody: (share: { text: string; url: string }) =>
@@ -17,8 +19,29 @@ vi.mock("@/lib/services/contact-invitations-service", () => ({
     ...mocks,
     isNative: () => true,
     canComposeSms: mocks.canComposeSms,
+    completesRecipient: (outcome: string) =>
+      ["queued_or_sent", "native-share", "web-share"].includes(outcome),
   },
 }));
+vi.mock("sonner", () => ({ toast: { success: mocks.toast } }));
+
+type TestController = Omit<ContactInvitationController, "draft">;
+function ContactInvitationSheet({
+  controller: state,
+  onFinish,
+}: {
+  controller: TestController;
+  onFinish: () => void;
+}) {
+  const draft = useInvitationQueue(
+    state.candidates,
+    state.share,
+    state.captureSession,
+  );
+  return (
+    <InvitationSheet controller={{ ...state, draft }} onFinish={onFinish} />
+  );
+}
 
 const person = (
   id: string,
@@ -29,9 +52,7 @@ const person = (
   classification: "no_match",
   destinations: [{ kind: "phone", value }],
 });
-function controller(
-  candidates: InviteCandidate[],
-): ContactInvitationController {
+function controller(candidates: InviteCandidate[]): TestController {
   return {
     enabled: true,
     version: 1,
@@ -41,7 +62,7 @@ function controller(
     beginSync: vi.fn(),
     open: vi.fn(),
     retryPreparation: vi.fn(),
-    captureSession: vi.fn(),
+    captureSession: vi.fn(() => () => true),
     preparing: false,
     error: null,
     share: {
@@ -53,8 +74,10 @@ function controller(
   };
 }
 beforeEach(() => {
-  vi.clearAllMocks();
+  vi.resetAllMocks();
   mocks.compose.mockResolvedValue("cancelled");
+  mocks.copy.mockResolvedValue("copied");
+  mocks.share.mockResolvedValue("native-share");
   mocks.canComposeSms.mockResolvedValue(true);
 });
 
@@ -164,11 +187,11 @@ describe("contact invitation selection", () => {
     );
     await waitFor(() =>
       expect(
-        screen.getByRole("button", { name: "Compose invitation" }),
+        screen.getByRole("button", { name: "Open Messages" }),
       ).toBeEnabled(),
     );
-    fireEvent.click(screen.getByRole("button", { name: "Compose invitation" }));
-    fireEvent.click(screen.getByRole("button", { name: "Compose invitation" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open Messages" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open Messages" }));
     expect(mocks.compose).toHaveBeenCalledTimes(1);
     expect(mocks.compose).toHaveBeenCalledWith(person("1").destinations[0], {
       ...state.share,
@@ -177,13 +200,13 @@ describe("contact invitation selection", () => {
     complete("cancelled");
     await screen.findByText(/Cancelled. You can retry/);
     expect(
-      screen.getByRole("button", { name: "Next recipient" }),
-    ).toBeDisabled();
+      screen.queryByRole("button", { name: "Next recipient" }),
+    ).not.toBeInTheDocument();
     expect(mocks.compose).toHaveBeenCalledTimes(1);
     fireEvent.click(screen.getByRole("button", { name: "Skip" }));
     expect(screen.getByText("Person 2")).toBeInTheDocument();
     expect(mocks.compose).toHaveBeenCalledTimes(1);
-    fireEvent.click(screen.getByRole("button", { name: "Finish and clear" }));
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
     expect(state.clear).toHaveBeenCalled();
     expect(finish).toHaveBeenCalled();
   });
@@ -236,7 +259,7 @@ describe("contact invitation selection", () => {
       screen.getByRole("button", { name: "Continue with 2 invitations" }),
     );
     expect(
-      screen.getByRole("button", { name: "Compose invitation" }),
+      screen.getByRole("button", { name: "Open Messages" }),
     ).toBeDisabled();
     fireEvent.click(screen.getByRole("button", { name: "Copy invitation" }));
     await screen.findByRole("alert");
@@ -248,10 +271,8 @@ describe("contact invitation selection", () => {
     expect(
       screen.getByRole("textbox", { name: "Invitation message for Person 1" }),
     ).toHaveAttribute("readonly");
-    fireEvent.click(
-      screen.getByRole("button", { name: "I handled it elsewhere" }),
-    );
-    expect(screen.getByText(/1 processed/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Skip" }));
+    expect(screen.getByText(/1 skipped/)).toBeInTheDocument();
     expect(
       screen.getByRole("textbox", { name: "Invitation message for Person 2" }),
     ).toHaveValue(
@@ -259,4 +280,95 @@ describe("contact invitation selection", () => {
     );
     expect(mocks.compose).not.toHaveBeenCalled();
   });
+
+  it("selects and deselects from the contact name and number, with only one toggle per checkbox tap", () => {
+    render(
+      <ContactInvitationSheet
+        controller={controller([person("1")])}
+        onFinish={vi.fn()}
+      />,
+    );
+    const checkbox = screen.getByRole("checkbox", { name: "Select Person 1" });
+    fireEvent.click(screen.getByText("Person 1"));
+    expect(checkbox).toBeChecked();
+    fireEvent.click(screen.getByText(person("1").destinations[0]!.value));
+    expect(checkbox).not.toBeChecked();
+    fireEvent.click(checkbox);
+    expect(checkbox).toBeChecked();
+  });
+
+  it("keeps the sheet open when clipboard fallback moves focus outside and confirms successful copy", async () => {
+    const state = controller([person("1")]);
+    const finish = vi.fn();
+    mocks.copy.mockImplementation(async () => {
+      const textarea = document.createElement("textarea");
+      document.body.append(textarea);
+      textarea.focus();
+      textarea.remove();
+      return "copied";
+    });
+    render(<ContactInvitationSheet controller={state} onFinish={finish} />);
+    fireEvent.click(screen.getByText("Person 1"));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Review 1 invitations" }),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Continue with 1 invitations" }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Copy invitation" }));
+    await waitFor(() =>
+      expect(mocks.toast).toHaveBeenCalledWith("Invitation copied"),
+    );
+    expect(finish).not.toHaveBeenCalled();
+    expect(state.clear).not.toHaveBeenCalled();
+    expect(
+      screen.getByRole("textbox", { name: "Invitation message for Person 1" }),
+    ).toBeInTheDocument();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Done with this contact" }),
+    );
+    expect(
+      screen.getByText("Your invitation queue is complete."),
+    ).toBeInTheDocument();
+  });
+
+  it.each(["queued_or_sent", "native-share"])(
+    "advances after %s without automatically opening another composer",
+    async (outcome) => {
+      mocks.compose.mockResolvedValue(outcome);
+      mocks.share.mockResolvedValue(outcome);
+      render(
+        <ContactInvitationSheet
+          controller={controller([person("1"), person("2")])}
+          onFinish={vi.fn()}
+        />,
+      );
+      fireEvent.click(screen.getByText("Person 1"));
+      fireEvent.click(screen.getByText("Person 2"));
+      fireEvent.click(
+        screen.getByRole("button", { name: "Review 2 invitations" }),
+      );
+      fireEvent.click(
+        screen.getByRole("button", { name: "Continue with 2 invitations" }),
+      );
+      await waitFor(() =>
+        expect(
+          screen.getByRole("button", { name: "Open Messages" }),
+        ).toBeEnabled(),
+      );
+      fireEvent.click(
+        screen.getByRole("button", {
+          name:
+            outcome === "native-share" ? "Share invitation" : "Open Messages",
+        }),
+      );
+      await screen.findByRole("textbox", {
+        name: "Invitation message for Person 2",
+      });
+      expect(
+        mocks.compose.mock.calls.length + mocks.share.mock.calls.length,
+      ).toBe(1);
+      expect(screen.getByText(/1 processed/)).toBeInTheDocument();
+    },
+  );
 });

@@ -364,9 +364,10 @@ import { filterPeopleByQuery } from "@/lib/one-location/people-search";
 import { OneLocationStateResource } from "@/lib/one-location/one-location-state-resource";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import {
-  isCircleSelectionFullySelected,
+  mergeShareAudienceRecipientIds,
   mergeRecipientsByUserId,
   resolveCircleRecipientSelection,
+  sourceCircleIdForRecipient,
   type CircleRecipientSelection,
 } from "@/lib/one-location/circle-recipient-selection";
 import {
@@ -1552,14 +1553,27 @@ async function runOneLocationForegroundAttempt<T>(params: {
   operation: OneLocationForegroundOperation;
   trigger: OneLocationForegroundTrigger;
   task: () => Promise<T>;
+  isStale?: () => boolean;
 }): Promise<T> {
   const startedAt = Date.now();
   let attemptIndex = 0;
 
   for (;;) {
     try {
-      return await params.task();
+      if (params.isStale?.()) {
+        throw Object.assign(new Error("Location operation was cancelled."), {
+          name: "AbortError",
+        });
+      }
+      const result = await params.task();
+      if (params.isStale?.()) {
+        throw Object.assign(new Error("Location operation was cancelled."), {
+          name: "AbortError",
+        });
+      }
+      return result;
     } catch (error) {
+      if (params.isStale?.()) throw error;
       const retryDelayMs = FOREGROUND_RETRY_DELAYS_MS[attemptIndex] ?? 0;
       const shouldRetry = retryDelayMs > 0 && isRetryableForegroundError(error);
       const retryCount = shouldRetry
@@ -1715,14 +1729,12 @@ function LocalMapPreview({
     >
       <div
         className={cn(
-          "relative h-48 max-w-full overflow-hidden bg-[#e5e5ea] sm:h-56 dark:bg-[#111113]",
+          "relative h-48 max-w-full overflow-hidden bg-[color:var(--app-secondary-fill)] sm:h-56",
           // Nested in SharedWithMeCard the preview draws no card of its own, so
-          // THIS element frames the map: a 2px iOS-accent outline rounded to the
-          // container's 14px inner radius on top (so the stroke follows the same
-          // curve the container clips to instead of being sliced by it) and
-          // square on the bottom, where the metadata column continues below.
-          nested &&
-            "rounded-t-[14px] rounded-b-none border-2 border-[color:var(--app-accent)]",
+          // The clipping parent owns the neutral outline. Keeping the nested
+          // map borderless avoids the loud double-frame that previously made
+          // the map look detached from its own metadata.
+          nested && "rounded-t-[18px] rounded-b-none",
         )}
       >
         <LiveMap point={point} viewportResetKey={viewportResetKey} />
@@ -1751,9 +1763,9 @@ function LocalMapPreview({
         </div>
       </div>
 
-      <div className="space-y-3 p-3">
+      <div className="space-y-3 p-3.5 sm:p-4">
         <div className="min-w-0">
-          <p className="break-words text-[12px] font-medium text-muted-foreground [overflow-wrap:anywhere]">
+          <p className="break-words text-[13px] font-medium leading-5 text-[color:var(--app-secondary-label)] [overflow-wrap:anywhere]">
             Updated {captured}
             {accuracy ? ` - ${accuracy}` : ""} -{" "}
             {locationSourceLabel(point.sourcePlatform)}
@@ -1761,8 +1773,8 @@ function LocalMapPreview({
         </div>
 
         {point.drive ? (
-          <div className="rounded-[12px] border border-sky-500/30 bg-sky-500/[0.08] p-3">
-            <p className="flex items-center gap-1.5 text-[12px] font-semibold text-sky-700 dark:text-sky-300">
+          <div className="rounded-[14px] border border-[color:var(--app-accent-border)] bg-[color:var(--app-accent-tint)] p-3">
+            <p className="flex items-center gap-1.5 text-[12px] font-semibold text-[color:var(--app-accent-deep)] dark:text-[color:var(--app-accent)]">
               <Route className="h-3.5 w-3.5" aria-hidden="true" />
               Driving to {point.drive.destination.label}
             </p>
@@ -1778,7 +1790,7 @@ function LocalMapPreview({
               asChild
               variant="outline"
               size="sm"
-              className="h-10 w-full min-w-0 rounded-full border-[color:var(--app-accent-border)] bg-[color:var(--app-accent-tint)] text-[color:var(--app-accent)] hover:bg-[color:var(--app-accent-surface-strong)] dark:text-[color:var(--app-accent-deep)]"
+              className="h-10 w-full min-w-0 rounded-full border-[color:var(--app-accent-border)] bg-[color:var(--app-accent-tint)] text-[color:var(--app-accent)] hover:bg-[color:var(--app-accent-surface-strong)]"
             >
               <a
                 href={directionsUrl}
@@ -1797,7 +1809,7 @@ function LocalMapPreview({
       {isStale ? (
         <div
           role="status"
-          className="mx-3 mb-3 flex min-w-0 flex-col gap-2 rounded-[12px] border border-amber-500/35 bg-amber-500/10 px-3 py-2 text-[12px] font-medium text-amber-800 sm:flex-row sm:items-center sm:justify-between dark:text-amber-100"
+          className="mx-3.5 mb-3.5 flex min-w-0 flex-col gap-2 rounded-[14px] border border-[color:var(--app-warning-border)] bg-[color:var(--app-warning-tint)] px-3.5 py-3 text-[12px] font-medium text-[color:var(--app-warning-deep)] sm:flex-row sm:items-center sm:justify-between dark:text-[color:var(--app-warning-bright)]"
         >
           <span className="flex min-w-0 items-start gap-2">
             <AlertTriangle
@@ -2482,8 +2494,8 @@ export function OneLocationAgentPageContent({
     state: OneLocationState;
   } | null>(() => {
     if (!auth.userId) return null;
-    const snapshot = OneLocationStateResource.peek(auth.userId);
-    return snapshot ? { userId: auth.userId, state: snapshot.data } : null;
+    const snapshot = OneLocationStateResource.readPresentation(auth.userId);
+    return snapshot ? { userId: auth.userId, state: snapshot } : null;
   });
   // A previous account's state must never survive an auth transition, even for
   // one render. The resource is scoped to the signed-in owner and memory-only.
@@ -2499,8 +2511,8 @@ export function OneLocationAgentPageContent({
     const key = OneLocationStateResource.key(userId);
     const cache = CacheService.getInstance();
     const applySnapshot = () => {
-      const snapshot = OneLocationStateResource.peek(userId);
-      setStateEntry(snapshot ? { userId, state: snapshot.data } : null);
+      const snapshot = OneLocationStateResource.readPresentation(userId);
+      setStateEntry(snapshot ? { userId, state: snapshot } : null);
     };
 
     applySnapshot();
@@ -2741,11 +2753,61 @@ export function OneLocationAgentPageContent({
   const [oneNetworkListExpanded, setOneNetworkListExpanded] = useState(false);
   const [selectedRecipientId, setSelectedRecipientId] = useState("");
   const [selectedRequestOwnerId, setSelectedRequestOwnerId] = useState("");
+  // A Circle is an atomic audience choice, not a temporary way to rewrite the
+  // individually selected contacts. Expand both sources only for delivery.
   const [
-    selectedRecipientIds,
+    selectedDirectRecipientIds,
     setSelectedRecipientIds,
-    selectedRecipientIdsRef,
+    selectedDirectRecipientIdsRef,
   ] = useShareRecipientSelectionState();
+  const [selectedShareCircleSelections, setSelectedShareCircleSelectionsState] =
+    useState<CircleRecipientSelection[]>([]);
+  const selectedShareCircleSelectionsRef = useRef<CircleRecipientSelection[]>(
+    [],
+  );
+  const setSelectedShareCircleSelections = useCallback(
+    (next: SetStateAction<CircleRecipientSelection[]>): CircleRecipientSelection[] => {
+      const resolved =
+        typeof next === "function"
+          ? next(selectedShareCircleSelectionsRef.current)
+          : next;
+      selectedShareCircleSelectionsRef.current = resolved;
+      setSelectedShareCircleSelectionsState(resolved);
+      return resolved;
+    },
+    [],
+  );
+  const [pendingShareCircleIds, setPendingShareCircleIds] = useState<string[]>(
+    [],
+  );
+  const pendingShareCircleIdsRef = useRef<Set<string>>(new Set());
+  const shareComposerGenerationRef = useRef(0);
+  const shareAudienceOwnerUserIdRef = useRef(auth.userId);
+  const shareDeliveryAttemptRef = useRef<symbol | null>(null);
+  const [shareDeliveryPending, setShareDeliveryPending] = useState(false);
+  const shareComposerMountedRef = useRef(true);
+  useEffect(
+    () => {
+      shareComposerMountedRef.current = true;
+      return () => {
+        shareComposerMountedRef.current = false;
+        // Pending location capture / encryption belongs to this mounted
+        // composer. Invalidating the generation prevents route or auth-guard
+        // unmounts from completing a share with credentials captured by a
+        // screen that is gone.
+        shareComposerGenerationRef.current += 1;
+      };
+    },
+    [],
+  );
+  const selectedRecipientIds = useMemo(
+    () =>
+      mergeShareAudienceRecipientIds(
+        selectedDirectRecipientIds,
+        selectedShareCircleSelections,
+      ),
+    [selectedDirectRecipientIds, selectedShareCircleSelections],
+  );
   const [selectedRequestOwnerIds, setSelectedRequestOwnerIds] = useState<
     string[]
   >([]);
@@ -2840,9 +2902,34 @@ export function OneLocationAgentPageContent({
     circleId: string;
     circleName: string;
     recipientUserIds: string[];
+    recipients: OneLocationRecipient[];
   } | null>(null);
-  const [selectedShareCircleSelection, setSelectedShareCircleSelection] =
-    useState<CircleRecipientSelection | null>(null);
+  useLayoutEffect(() => {
+    if (shareAudienceOwnerUserIdRef.current === auth.userId) return;
+
+    // A Circle lookup belongs to one account and one composer lifetime. Clear
+    // both its visible draft and its synchronous cursors before the next owner
+    // can interact; an old network response is rejected by the generation
+    // check in handleSelectNamedCircleForShare.
+    shareAudienceOwnerUserIdRef.current = auth.userId;
+    shareComposerGenerationRef.current += 1;
+    shareDeliveryAttemptRef.current = null;
+    setShareDeliveryPending(false);
+    pendingShareCircleIdsRef.current.clear();
+    setPendingShareCircleIds((current) => (current.length ? [] : current));
+    setBusy((current) =>
+      current === "share" || current === "shareCircle" ? null : current,
+    );
+    setSelectedRecipientId("");
+    setSelectedRecipientIds([]);
+    setSelectedShareCircleSelections([]);
+    setNamedCircleShareContext(null);
+    setShareReviewOpen(false);
+  }, [
+    auth.userId,
+    setSelectedRecipientIds,
+    setSelectedShareCircleSelections,
+  ]);
   const [locationWorkspace, setLocationWorkspace] =
     useState<LocationWorkspaceMemory>(() =>
       readLocationWorkspaceMemory(auth.userId),
@@ -3248,11 +3335,16 @@ export function OneLocationAgentPageContent({
     () =>
       mergeRecipientsByUserId(
         rankedRecipients,
-        (selectedShareCircleSelection?.ready ?? []).map(
-          (target) => target.recipient,
+        selectedShareCircleSelections.flatMap((selection) =>
+          selection.ready.map((target) => target.recipient),
         ),
+        namedCircleShareContext?.recipients ?? [],
       ),
-    [rankedRecipients, selectedShareCircleSelection],
+    [
+      namedCircleShareContext?.recipients,
+      rankedRecipients,
+      selectedShareCircleSelections,
+    ],
   );
   // A typed search matches the NAME, and nothing else on the row.
   //
@@ -3568,10 +3660,10 @@ export function OneLocationAgentPageContent({
     (locationControl.selfPreviewEnabled ||
       locationControl.nearbyPresenceActive ||
       activeOwnerGrants.length > 0);
-  // "Location limited" is a signal-quality badge, not an admission gate, so it
-  // tracks the coarse threshold rather than the hard check-in ceiling. Those two
-  // are now far apart: a 1 km browser fix is genuinely limited but still
-  // perfectly usable for picking the venue you are standing in.
+  // Reduced accuracy remains an internal signal-quality hint, not a separate
+  // on/off state or admission gate. The visible switch status stays
+  // "Location on" while this tracks the coarse threshold rather than the hard
+  // check-in ceiling: a 1 km browser fix can still identify the venue.
   const locationAccuracyLimited =
     locationEnabled &&
     (permission?.precise === false ||
@@ -4066,6 +4158,17 @@ export function OneLocationAgentPageContent({
           setSelectedRecipientIds((current) =>
             current.filter((recipientId) => nextRecipientIds.has(recipientId)),
           );
+          if (nextState.circles) {
+            const nextCircleIds = new Set(
+              nextState.circles.map((circle) => circle.id),
+            );
+            setSelectedShareCircleSelections((current) => {
+              const retained = current.filter((selection) =>
+                nextCircleIds.has(selection.circle.id),
+              );
+              return retained.length === current.length ? current : retained;
+            });
+          }
           setSelectedRequestOwnerIds((current) =>
             current.filter((recipientId) => nextRecipientIds.has(recipientId)),
           );
@@ -4098,6 +4201,7 @@ export function OneLocationAgentPageContent({
       auth.userId,
       contactMatchedUserIds,
       setSelectedRecipientIds,
+      setSelectedShareCircleSelections,
       stateEntry?.userId,
       vaultOwnerToken,
     ],
@@ -4600,6 +4704,7 @@ export function OneLocationAgentPageContent({
       grant: OneLocationGrant,
       recipient: OneLocationRecipient,
       pointOverride?: PlainLocationPoint,
+      isStale?: () => boolean,
     ) => {
       if (!vaultOwnerToken) throw new Error("Vault owner token required.");
       if (!recipient.publicKeyJwk || !recipient.keyId) {
@@ -4609,6 +4714,11 @@ export function OneLocationAgentPageContent({
       }
       const point =
         pointOverride ?? (await OneLocationService.captureCurrentPosition());
+      if (isStale?.()) {
+        throw Object.assign(new Error("Location sharing was cancelled."), {
+          name: "AbortError",
+        });
+      }
       const envelope = await encryptLocationForRecipient({
         point,
         recipientPublicKeyJwk: recipient.publicKeyJwk,
@@ -4642,6 +4752,11 @@ export function OneLocationAgentPageContent({
       // Returned so Save My Soul can tell the sender which contacts the alert
       // actually reached. null for every other share kind, which does not
       // notify from this route.
+      if (isStale?.()) {
+        throw Object.assign(new Error("Location sharing was cancelled."), {
+          name: "AbortError",
+        });
+      }
       const stored = await OneLocationService.storeEnvelope({
         vaultOwnerToken,
         grantId: grant.id,
@@ -4658,11 +4773,13 @@ export function OneLocationAgentPageContent({
       recipient: OneLocationRecipient,
       trigger: OneLocationForegroundTrigger,
       pointOverride?: PlainLocationPoint,
+      isStale?: () => boolean,
     ) =>
       runOneLocationForegroundAttempt({
         operation: "publish",
         trigger,
-        task: () => publishEnvelope(grant, recipient, pointOverride),
+        task: () => publishEnvelope(grant, recipient, pointOverride, isStale),
+        isStale,
       }),
     [publishEnvelope],
   );
@@ -4751,6 +4868,12 @@ export function OneLocationAgentPageContent({
   const resetShareComposer = useCallback(
     (initialRecipientId?: string) => {
       const recipientId = initialRecipientId?.trim() || "";
+      shareComposerGenerationRef.current += 1;
+      pendingShareCircleIdsRef.current.clear();
+      setPendingShareCircleIds((current) => (current.length ? [] : current));
+      setBusy((current) =>
+        current === "share" || current === "shareCircle" ? null : current,
+      );
       shareReviewAttemptRef.current += 1;
       if (shareReviewPendingRef.current) {
         shareReviewPendingRef.current = false;
@@ -4762,12 +4885,14 @@ export function OneLocationAgentPageContent({
       setSelectedRecipientIds(recipientId ? [recipientId] : []);
       setShareReviewOpen(false);
       setNamedCircleShareContext(null);
-      setSelectedShareCircleSelection(null);
+      setSelectedShareCircleSelections((current) =>
+        current.length ? [] : current,
+      );
       setShareDurationHours(ONE_LOCATION_SHARE_DEFAULT_DURATION_HOURS);
       setShareMessage("");
       setShareError(null);
     },
-    [setSelectedRecipientIds],
+    [setSelectedRecipientIds, setSelectedShareCircleSelections],
   );
   /**
    * Clears the ask composer after a send.
@@ -4808,22 +4933,62 @@ export function OneLocationAgentPageContent({
       const durationPayload = privateShareDurationPayload(
         effectiveDurationHours,
       );
-      // Set on every attempt, so a landing asked for by one share can never
-      // survive into the next one. Taps pass nothing and get the clean hub.
-      shareCompletedDestinationRef.current = landOnAfter ?? null;
       if (!vaultOwnerToken) {
         return {
           status: "blocked",
           summary: "Unlock One before sharing your location.",
         };
       }
-      // See resolveEffectiveShareRecipients' doc comment for why an empty
-      // selectedShareRecipients falls back to the ref instead of being trusted
-      // as "nobody picked".
-      const effectiveSelectedShareRecipients = resolveEffectiveShareRecipients(
-        selectedShareRecipients,
+      if (shareDeliveryAttemptRef.current) {
+        return {
+          status: "blocked",
+          summary: "Your current location share is still being sent.",
+        };
+      }
+      // Set on every accepted attempt, so a landing asked for by one share can
+      // never survive into the next one. Blocked duplicate attempts must not
+      // rewrite the destination owned by the delivery already in progress.
+      shareCompletedDestinationRef.current = landOnAfter ?? null;
+      if (pendingShareCircleIdsRef.current.size) {
+        return {
+          status: "blocked",
+          summary: "Wait for your Circle selection to finish loading.",
+        };
+      }
+      const shareAttemptGeneration = shareComposerGenerationRef.current;
+      const shareAttemptOwnerUserId = shareAudienceOwnerUserIdRef.current;
+      const shareAttemptIsCurrent = () =>
+        shareAttemptGeneration === shareComposerGenerationRef.current &&
+        shareAttemptOwnerUserId === shareAudienceOwnerUserIdRef.current;
+      const directRecipientIdsSnapshot = [
+        ...selectedDirectRecipientIdsRef.current,
+      ];
+      const circleSelectionsSnapshot = [
+        ...selectedShareCircleSelectionsRef.current,
+      ];
+      const namedCircleShareContextSnapshot = namedCircleShareContext
+        ? {
+            ...namedCircleShareContext,
+            recipientUserIds: [...namedCircleShareContext.recipientUserIds],
+            recipients: namedCircleShareContext.recipients.map((recipient) => ({
+              ...recipient,
+            })),
+          }
+        : null;
+      const effectiveSelectedRecipientIds = mergeShareAudienceRecipientIds(
+        directRecipientIdsSnapshot,
+        circleSelectionsSnapshot,
+      );
+      const effectiveShareRecipientPool = mergeRecipientsByUserId(
         shareRecipientPool,
-        selectedRecipientIdsRef.current,
+        circleSelectionsSnapshot.flatMap((selection) =>
+          selection.ready.map((target) => target.recipient),
+        ),
+        namedCircleShareContextSnapshot?.recipients ?? [],
+      );
+      const effectiveSelectedShareRecipients = resolveEffectiveShareRecipients(
+        effectiveShareRecipientPool,
+        effectiveSelectedRecipientIds,
       );
       const effectiveSetupNeededSelectedRecipients =
         effectiveSelectedShareRecipients.filter(
@@ -4831,6 +4996,23 @@ export function OneLocationAgentPageContent({
         );
       const effectiveShareReadySelectedRecipients =
         effectiveSelectedShareRecipients.filter(isShareReadyRecipient);
+      const effectiveShareReadyTargets =
+        effectiveShareReadySelectedRecipients.map((recipient) => ({
+          recipient: {
+            ...recipient,
+            publicKeyJwk: { ...recipient.publicKeyJwk },
+          },
+          sourceCircleId:
+            namedCircleShareContextSnapshot?.recipientUserIds.includes(
+              recipient.userId,
+            )
+              ? namedCircleShareContextSnapshot.circleId
+              : sourceCircleIdForRecipient(
+                  circleSelectionsSnapshot,
+                  recipient.userId,
+                  directRecipientIdsSnapshot,
+                ),
+        }));
       // Test the SELECTION, not the share-ready subset of it. Those differ
       // whenever someone is picked who has not finished Location
       // setup, and reading the subset made this answer "nobody is selected"
@@ -4871,20 +5053,52 @@ export function OneLocationAgentPageContent({
           summary: "Sharing needs device Location permission.",
         };
       }
+      const shareDeliveryAttempt = Symbol("one-location-share-delivery");
+      shareDeliveryAttemptRef.current = shareDeliveryAttempt;
+      setShareDeliveryPending(true);
       setShareError(null);
       setBusy("share");
       let successCount = 0;
       let recipientFailureCount = 0;
       let lastRecipientError: unknown = null;
+      const revokeCancelledGrant = async (
+        grant: OneLocationGrant,
+      ): Promise<boolean> => {
+        const retryDelaysMs = [0, 250, 750] as const;
+        for (const retryDelayMs of retryDelaysMs) {
+          if (retryDelayMs) await wait(retryDelayMs);
+          try {
+            await OneLocationService.revokeGrant({
+              vaultOwnerToken,
+              grantId: grant.id,
+            });
+            return true;
+          } catch {
+            // Continue through the bounded cleanup retries. This cleanup is
+            // deliberately independent of the abandoned composer generation.
+          }
+        }
+        toast.error(
+          "Sharing was cancelled, but One could not finish removing a pending share. Please check Active shares.",
+        );
+        return false;
+      };
       try {
         const readiness = await ensureForegroundLocationReady({
           capturePoint: true,
           autoOpenSettings: true,
+          isStale: () => !shareAttemptIsCurrent(),
         });
         if (!readiness.ready || !readiness.point) {
           return {
             status: "blocked",
             summary: "Sharing needs device Location permission.",
+          };
+        }
+        if (!shareAttemptIsCurrent()) {
+          return {
+            status: "blocked",
+            summary: "Sharing was cancelled because the audience changed.",
           };
         }
         const point = readiness.point;
@@ -4899,30 +5113,47 @@ export function OneLocationAgentPageContent({
         // unbounded fan-out over a large Circle can exhaust a small connection
         // pool. Four at a time keeps the wall clock near a single round trip and
         // stays well inside the pool.
-        const pending = [...effectiveShareReadySelectedRecipients];
+        const pending = [...effectiveShareReadyTargets];
         const shareOne = async () => {
           for (;;) {
-            const recipient = pending.shift();
-            if (!recipient) return;
+            if (!shareAttemptIsCurrent()) return;
+            const target = pending.shift();
+            if (!target) return;
+            const { recipient } = target;
+            let createdGrant: OneLocationGrant | null = null;
             try {
-              const grant = await OneLocationService.createGrant({
+              createdGrant = await OneLocationService.createGrant({
                 vaultOwnerToken,
                 recipientUserId: recipient.userId,
                 recipientKeyId: recipient.keyId,
                 ...durationPayload,
                 reason: shareMessage.trim() || undefined,
                 shareKind: "share",
-                sourceCircleId:
-                  namedCircleShareContext &&
-                  namedCircleShareContext.recipientUserIds.includes(
-                    recipient.userId,
-                  )
-                    ? namedCircleShareContext.circleId
-                    : undefined,
+                sourceCircleId: target.sourceCircleId,
               });
-              await publishEnvelopeWithRetry(grant, recipient, "manual", point);
+              if (!shareAttemptIsCurrent()) {
+                await revokeCancelledGrant(createdGrant);
+                return;
+              }
+              await publishEnvelopeWithRetry(
+                createdGrant,
+                recipient,
+                "manual",
+                point,
+                () => !shareAttemptIsCurrent(),
+              );
+              if (!shareAttemptIsCurrent()) {
+                await revokeCancelledGrant(createdGrant);
+                return;
+              }
               successCount += 1;
             } catch (error) {
+              if (!shareAttemptIsCurrent()) {
+                if (createdGrant) {
+                  await revokeCancelledGrant(createdGrant);
+                }
+                return;
+              }
               recipientFailureCount += 1;
               lastRecipientError = error;
             }
@@ -4936,6 +5167,12 @@ export function OneLocationAgentPageContent({
             shareOne,
           ),
         );
+        if (!shareAttemptIsCurrent()) {
+          return {
+            status: "blocked",
+            summary: "Sharing stopped because the audience changed.",
+          };
+        }
         if (!successCount && lastRecipientError) {
           throw lastRecipientError;
         }
@@ -4987,7 +5224,15 @@ export function OneLocationAgentPageContent({
         setShareError(message);
         return { status: "failed", summary: message };
       } finally {
-        setBusy(null);
+        if (shareDeliveryAttemptRef.current === shareDeliveryAttempt) {
+          shareDeliveryAttemptRef.current = null;
+          if (shareComposerMountedRef.current) {
+            setShareDeliveryPending(false);
+          }
+        }
+        if (shareAttemptIsCurrent()) {
+          setBusy((current) => (current === "share" ? null : current));
+        }
       }
     },
     [
@@ -4997,8 +5242,7 @@ export function OneLocationAgentPageContent({
       publishEnvelopeWithRetry,
       refresh,
       resetShareComposer,
-      selectedRecipientIdsRef,
-      selectedShareRecipients,
+      selectedDirectRecipientIdsRef,
       shareDurationHours,
       shareMessage,
       shareRecipientPool,
@@ -7959,23 +8203,26 @@ export function OneLocationAgentPageContent({
 
   const handleSelectNamedCircleForShare = useCallback(
     async (circleId: string) => {
-      // Tapping an already-selected Circle clears it. But a Circle whose members
-      // have been individually deselected below no longer reads as selected, so
-      // the same tap has to re-apply the roster instead of clearing the leftovers.
+      // Removing one Circle must not clear another Circle or a direct contact.
       if (
-        selectedShareCircleSelection?.circle.id === circleId &&
-        isCircleSelectionFullySelected(
-          selectedShareCircleSelection,
-          selectedRecipientIds,
+        selectedShareCircleSelectionsRef.current.some(
+          (selection) => selection.circle.id === circleId,
         )
       ) {
-        setSelectedShareCircleSelection(null);
-        setNamedCircleShareContext(null);
-        setSelectedRecipientId("");
-        setSelectedRecipientIds([]);
+        setSelectedShareCircleSelections((current) =>
+          current.filter((selection) => selection.circle.id !== circleId),
+        );
         setShareReviewOpen(false);
         return;
       }
+      // This guard is synchronous, so a double tap cannot start two roster
+      // requests before React has rendered the disabled row.
+      if (pendingShareCircleIdsRef.current.has(circleId)) return;
+
+      const requestGeneration = shareComposerGenerationRef.current;
+      const requestOwnerUserId = auth.userId;
+      pendingShareCircleIdsRef.current.add(circleId);
+      setPendingShareCircleIds([...pendingShareCircleIdsRef.current]);
 
       setBusy("shareCircle");
       try {
@@ -7983,22 +8230,32 @@ export function OneLocationAgentPageContent({
           circleId,
           "location",
         );
+        if (
+          requestGeneration !== shareComposerGenerationRef.current ||
+          requestOwnerUserId !== shareAudienceOwnerUserIdRef.current
+        ) {
+          return;
+        }
         const recipientUserIds = selection.ready.map(
           (target) => target.recipient.userId,
         );
         if (!recipientUserIds.length) {
           throw new Error("Add members to your Circle");
         }
-        setSelectedShareCircleSelection(selection);
-        setNamedCircleShareContext({
-          circleId: selection.circle.id,
-          circleName: selection.circle.name,
-          recipientUserIds,
-        });
+        setSelectedShareCircleSelections((current) =>
+          current.some((item) => item.circle.id === selection.circle.id)
+            ? current
+            : [...current, selection],
+        );
         setSelectedRecipientId(recipientUserIds[0] ?? "");
-        setSelectedRecipientIds(recipientUserIds);
         setShareReviewOpen(false);
       } catch (error) {
+        if (
+          requestGeneration !== shareComposerGenerationRef.current ||
+          requestOwnerUserId !== shareAudienceOwnerUserIdRef.current
+        ) {
+          return;
+        }
         toast.error(
           oneLocationErrorMessage(
             error,
@@ -8006,14 +8263,21 @@ export function OneLocationAgentPageContent({
           ),
         );
       } finally {
-        setBusy(null);
+        if (requestGeneration === shareComposerGenerationRef.current) {
+          pendingShareCircleIdsRef.current.delete(circleId);
+          setPendingShareCircleIds([...pendingShareCircleIdsRef.current]);
+          if (!pendingShareCircleIdsRef.current.size) {
+            setBusy((current) =>
+              current === "shareCircle" ? null : current,
+            );
+          }
+        }
       }
     },
     [
+      auth.userId,
       handleResolveNamedCircleRecipients,
-      selectedRecipientIds,
-      selectedShareCircleSelection,
-      setSelectedRecipientIds,
+      setSelectedShareCircleSelections,
     ],
   );
 
@@ -8687,14 +8951,11 @@ export function OneLocationAgentPageContent({
             "This Circle member is not ready to receive location yet.",
           );
         }
-        setSelectedShareCircleSelection({
-          ...selection,
-          ready: [target],
-        });
         setNamedCircleShareContext({
           circleId: selection.circle.id,
           circleName: selection.circle.name,
           recipientUserIds: [target.recipient.userId],
+          recipients: [target.recipient],
         });
         setSelectedRecipientId(target.recipient.userId);
         setSelectedRecipientIds([target.recipient.userId]);
@@ -8719,8 +8980,10 @@ export function OneLocationAgentPageContent({
 
   const clearNamedCircleShareContext = useCallback(() => {
     setNamedCircleShareContext(null);
-    setSelectedShareCircleSelection(null);
-  }, []);
+    setSelectedShareCircleSelections((current) =>
+      current.length ? [] : current,
+    );
+  }, [setSelectedShareCircleSelections]);
 
   const handleRevokePublicInvite = useCallback(
     async (invite: OneLocationPublicInvite) => {
@@ -9820,6 +10083,8 @@ export function OneLocationAgentPageContent({
 
   const canShare = Boolean(
     vaultOwnerToken &&
+    !shareDeliveryPending &&
+    !pendingShareCircleIds.length &&
     selectedShareRecipients.length &&
     shareReadySelectedRecipients.length &&
     !setupNeededSelectedRecipients.length &&
@@ -13599,6 +13864,7 @@ export function OneLocationAgentPageContent({
   const locationHubVm: LocationHubViewModel = {
     userId: auth.userId ?? null,
     canShare,
+    shareDeliveryPending,
     busy,
     revokingGrantId,
     withdrawingRequestId,
@@ -13634,7 +13900,8 @@ export function OneLocationAgentPageContent({
     myLocationError,
     recipients: shareRecipientPool,
     circles: namedCircles,
-    selectedShareCircleSelection,
+    selectedShareCircleSelections,
+    pendingShareCircleIds,
     incomingCircleMemberInvites,
     incomingCircleMemberInvitesLoading,
     incomingCircleMemberInvitesError,
@@ -13666,6 +13933,7 @@ export function OneLocationAgentPageContent({
     })),
     recipientSearch,
     shareRecipientSearch,
+    selectedDirectRecipientIds,
     selectedRecipientIds,
     selectedRequestOwnerIds,
     shareDurationHours,

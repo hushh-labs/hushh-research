@@ -17,9 +17,7 @@ export type InvitationShare = {
   dialogTitle: string;
 };
 export type InvitationOutcome =
-  | SmsComposeOutcome
-  | ShareDelivery
-  | "launch_requested";
+  SmsComposeOutcome | ShareDelivery | "launch_requested";
 
 export function invitationBody(share: InvitationShare): string {
   return `${share.text}\n${share.url}`;
@@ -51,6 +49,12 @@ export function invitationComposeUrl(
 /** Owns platform handoff. No recipients are sent to any Hushh endpoint. */
 export const ContactInvitationsService = {
   isNative: () => Capacitor.isNativePlatform(),
+  // Android share completion can mean only that a target was opened (or the
+  // chooser closed). Keep that recipient until the person confirms completion.
+  completesRecipient: (outcome: InvitationOutcome) =>
+    outcome === "queued_or_sent" ||
+    outcome === "web-share" ||
+    (outcome === "native-share" && Capacitor.getPlatform() === "ios"),
   async canComposeSms(): Promise<boolean> {
     if (!Capacitor.isNativePlatform()) return false;
     try {

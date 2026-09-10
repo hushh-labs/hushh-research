@@ -1507,6 +1507,12 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
   color: var(--ios-account-service-icon-glyph) !important;
 }
 
+.profile-account-provider-icon {
+  background: var(--app-primary-surface);
+  box-shadow: inset 0 0 0 1px var(--app-separator);
+  color: var(--ios-account-label);
+}
+
 [data-profile-stack-screen="account"] [data-slot="settings-row-title"],
 [data-profile-stack-screen="panel:account"] [data-slot="settings-row-title"],
 .profile-account-content [data-slot="settings-row-title"] {
@@ -1888,7 +1894,7 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
 }
 
 .profile-home-content [data-icon-tone="purple"] {
-  background: var(--ios-account-utility-icon-tile-background) !important;
+  background: var(--app-purple) !important;
 }
 
 .profile-home-content [data-icon-tone="red"] {

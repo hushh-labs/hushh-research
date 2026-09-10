@@ -23,6 +23,11 @@ on:
         required: false
         default: false
         type: boolean
+      run_core_tests:
+        description: Run the focused simulator App Intent/action smoke gate (full AppTests remain in change-aware CI).
+        required: false
+        default: false
+        type: boolean
       notes:
         description: Optional release note context for the workflow summary.
         required: false
@@ -185,6 +190,36 @@ jobs:
         shell: bash
         run: bash scripts/ci/materialize-ios-testflight-release-config.sh
 
+      - name: Create signing keychain
+        shell: bash
+        run: |
+          set -euo pipefail
+          KEYCHAIN="${RUNNER_TEMP}/app-signing.keychain-db"
+          KC_PW="$(openssl rand -base64 24)"
+          security create-keychain -p "$KC_PW" "$KEYCHAIN"
+          security set-keychain-settings -lt 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KC_PW" "$KEYCHAIN"
+          # Keep the keychain runner-local; Apple-managed signing can use the
+          # existing distribution certificate without creating another one.
+          security list-keychains -d user -s "$KEYCHAIN" "login.keychain-db"
+          security default-keychain -s "$KEYCHAIN"
+
+          DIST_CERT_B64="$(gcloud secrets versions access latest \
+            --secret=APPSTORE_DISTRIBUTION_CERT_P12_B64 \
+            --project="${GCP_PROJECT_ID}" 2>/dev/null || true)"
+          if [ -z "$DIST_CERT_B64" ]; then
+            echo "Missing APPSTORE_DISTRIBUTION_CERT_P12_B64 in ${GCP_PROJECT_ID}." >&2
+            exit 1
+          fi
+          umask 077
+          echo "$DIST_CERT_B64" | openssl base64 -d -A > "${RUNNER_TEMP}/dist_cert.p12"
+          security import "${RUNNER_TEMP}/dist_cert.p12" -k "$KEYCHAIN" -P "" -A
+          rm -f "${RUNNER_TEMP}/dist_cert.p12"
+          security set-key-partition-list \
+            -S apple-tool:,apple:,codesign: -s -k "$KC_PW" "$KEYCHAIN" \
+            >/dev/null 2>&1 || true
+          echo "Distribution certificate imported into signing keychain."
+
       - name: Verify matching UAT backend revision
         shell: bash
         env:
@@ -241,15 +276,28 @@ jobs:
         shell: bash
         run: npm run --prefix hushh-webapp verify:capacitor:product-assets
 
+      - name: Cache Swift packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ runner.temp }}/spm
+            ~/Library/Caches/org.swift.swiftpm
+          key: spm-${{ runner.os }}-${{ hashFiles('hushh-webapp/ios/App/CapApp-SPM/Package.swift', 'hushh-webapp/ios/**/Package.resolved') }}
+          restore-keys: |
+            spm-${{ runner.os }}-
+
       - name: Resolve Swift package dependencies
         shell: bash
         run: |
           set -euo pipefail
           xcodebuild -resolvePackageDependencies \
             -project "$XCODE_PROJECT" \
-            -scheme "$XCODE_SCHEME"
+            -scheme "$XCODE_SCHEME" \
+            -clonedSourcePackagesDirPath "${RUNNER_TEMP}/spm"
 
-      - name: Run iOS unit and App Intent tests
+      - name: Run core iOS App Intent and action tests
+        id: core_tests
+        if: ${{ inputs.run_core_tests == true }}
         shell: bash
         run: |
           set -euo pipefail
@@ -259,8 +307,13 @@ jobs:
             -scheme "$XCODE_SCHEME" \
             -configuration Debug \
             -destination "platform=iOS Simulator,id=$simulator_id" \
+            -clonedSourcePackagesDirPath "${RUNNER_TEMP}/spm" \
             -derivedDataPath "$RUNNER_TEMP/one-voice-simulator-derived-data" \
-            -only-testing:AppTests \
+            -only-testing:AppTests/OneVoiceInvocationCoordinatorTests/testAppIntentAvailabilityContractsCompileFromTheIOS17DeploymentTarget \
+            -only-testing:AppTests/OneSystemActionInvocationCoordinatorTests/testActionCatalogMatchesGeneratedLocationContractIdentifiers \
+            -only-testing:AppTests/OneSystemActionInvocationCoordinatorTests/testDirectIntentFactoriesMapPeopleAndSlotsToCanonicalActions \
+            -only-testing:AppTests/OneSystemActionInvocationCoordinatorTests/testDirectIntentFactoriesMapLocationAndCircleMutations \
+            -only-testing:AppTests/OneSystemActionInvocationCoordinatorTests/testAllTenDestinationIntentsRemainNonMutatingAdapters \
             CODE_SIGNING_ALLOWED=NO
 
       - name: Resolve next TestFlight build number
@@ -295,6 +348,7 @@ jobs:
             -configuration Release \
             -destination 'generic/platform=iOS' \
             -archivePath "$RUNNER_TEMP/App.xcarchive" \
+            -clonedSourcePackagesDirPath "${RUNNER_TEMP}/spm" \
             -derivedDataPath "$RUNNER_TEMP/one-voice-archive-derived-data" \
             -allowProvisioningUpdates \
             -authenticationKeyPath "$RUNNER_TEMP/asc.p8" \
@@ -315,6 +369,7 @@ jobs:
             -- "$RUNNER_TEMP/App.xcarchive"
 
       - name: Export and upload TestFlight build
+        id: upload
         shell: bash
         run: |
           set -euo pipefail
@@ -333,7 +388,31 @@ jobs:
             -authenticationKeyID "$ASC_KEY_ID" \
             -authenticationKeyIssuerID "$ASC_ISSUER_ID"
 
+      - name: Preserve uploaded build identity for recovery
+        if: inputs.dry_run != true
+        shell: bash
+        env:
+          RELEASE_SHA: ${{ needs.preflight.outputs.release_sha }}
+          BUILD_NUMBER: ${{ steps.build_number.outputs.next_build }}
+        run: |
+          python3 - <<'PY'
+          import json, os, pathlib, re
+          version = re.search(r'MARKETING_VERSION\s*=\s*([^;]+)', pathlib.Path(os.environ['PBXPROJ']).read_text()).group(1).strip()
+          receipt = dict(source_sha=os.environ['RELEASE_SHA'], build_number=os.environ['BUILD_NUMBER'], marketing_version=version, bundle_id=os.environ['IOS_BUNDLE_ID'])
+          pathlib.Path(os.environ['RUNNER_TEMP'], 'testflight-upload-receipt.json').write_text(json.dumps(receipt))
+          PY
+
+      - name: Upload recovery receipt before Apple processing
+        if: inputs.dry_run != true
+        uses: actions/upload-artifact@v4
+        with:
+          name: testflight-upload-receipt
+          path: ${{ runner.temp }}/testflight-upload-receipt.json
+          retention-days: 90
+          if-no-files-found: error
+
       - name: Wait for valid TestFlight processing
+        id: processing
         if: inputs.dry_run != true
         shell: bash
         run: |
@@ -348,24 +427,30 @@ jobs:
             --marketing-version "$marketing_version" \
             --build-number "${{ steps.build_number.outputs.next_build }}" \
             --timeout-seconds 1200 \
-            --poll-interval-seconds 15
+            --poll-interval-seconds 15 \
+            --output-json "$RUNNER_TEMP/testflight-build.json"
 
       - name: Attach the same valid build to both TestFlight groups
+        id: distribution
         if: inputs.dry_run != true
         shell: bash
         run: |
           set -euo pipefail
+          marketing_version="$(grep -m1 -E 'MARKETING_VERSION[[:space:]]*=' "$PBXPROJ" | sed -E 's/.*= *([^;]+);.*/\1/' | tr -d ' ')"
+          test -n "$marketing_version"
           "$RUNNER_TEMP/asc-venv/bin/python" scripts/ci/distribute-testflight-build.py \
             --p8-path "$RUNNER_TEMP/asc.p8" \
             --key-id "$ASC_KEY_ID" \
             --issuer-id "$ASC_ISSUER_ID" \
             --bundle-id "$IOS_BUNDLE_ID" \
+            --marketing-version "$marketing_version" \
             --build-number "${{ steps.build_number.outputs.next_build }}" \
+            --build-id-file "$RUNNER_TEMP/testflight-build.json" \
             --internal-group-id "$ASC_INTERNAL_GROUP_ID" \
             --external-group-id "$ASC_EXTERNAL_GROUP_ID" \
             --beta-review-contact-file "$ASC_BETA_REVIEW_CONTACT_PATH" \
             --beta-review-notes-file "$ASC_BETA_REVIEW_NOTES_PATH" \
-            --output "$RUNNER_TEMP/testflight-distribution.json"
+            --output-json "$RUNNER_TEMP/testflight-distribution.json"
 
       - name: Upload redacted release evidence
         if: always()
@@ -398,7 +483,11 @@ jobs:
             echo
             echo "| Release source | ${{ needs.preflight.outputs.release_sha }} |"
             echo "| Physical iPhone p95 (ms) | ${{ inputs.require_hardware == true && needs.hardware-capture.outputs.p95_time_to_capture_ms || 'not requested' }} |"
+            echo "| Focused App Intent/action gate | ${{ steps.core_tests.outcome }} |"
             echo "| Build number | ${{ steps.build_number.outputs.next_build }} |"
+            echo "| Upload | ${{ steps.upload.outcome }} |"
+            echo "| Apple processing | ${{ steps.processing.outcome }} |"
+            echo "| TestFlight distribution | ${{ steps.distribution.outcome }} |"
             echo
             echo "The workflow uses TestFlight beta endpoints only. External tester availability is pending until Apple approves TestFlight Beta App Review when required; this workflow never submits an App Store version."
           } >> "$GITHUB_STEP_SUMMARY"

@@ -100,6 +100,7 @@ import {
   NEARBY_PRIVATE_RESUME_PARAM,
 } from "@/lib/one-location/nearby-private-navigation";
 import { OneLocationService } from "@/lib/one-location/service";
+import { OneLocationStateResource } from "@/lib/one-location/one-location-state-resource";
 import type {
   OneLocationMapMarker,
   OneLocationMapPreferences,
@@ -541,6 +542,12 @@ export function LocationImmersiveMap({
   const demoAvailable = isLocationMapDemoAvailable();
   const nearbyCheckInAvailable = isOneLocationNearbyCheckInAvailable();
   const initialDemoMode = isLocationMapDemoEnabled(searchParams.get("demo"));
+  const cachedLocationState = auth.userId
+    ? OneLocationStateResource.readPresentation(auth.userId)
+    : null;
+  const cachedActiveShareNames = cachedLocationState
+    ? activeShareLabels(cachedLocationState.ownerGrants)
+    : null;
   const mapElement = useRef<HTMLElement | null>(null);
   const mapRef = useRef<GoogleMap | null>(null);
   const topControlsRef = useRef<HTMLElement | null>(null);
@@ -654,8 +661,12 @@ export function LocationImmersiveMap({
   // incoming markers), so it's fetched on a lighter cadence than the 5s marker
   // refresh — the map surfaces it as a "Sharing with N" status, since outgoing
   // shares carry no coordinate to plot.
-  const [activeShareCount, setActiveShareCount] = useState<number | null>(null);
-  const [activeShareNames, setActiveShareNames] = useState<string[]>([]);
+  const [activeShareCount, setActiveShareCount] = useState<number | null>(
+    cachedActiveShareNames?.length ?? null,
+  );
+  const [activeShareNames, setActiveShareNames] = useState<string[]>(
+    cachedActiveShareNames ?? [],
+  );
   /**
    * The same number, resolved and named for what it is to the reader.
    *
@@ -671,6 +682,18 @@ export function LocationImmersiveMap({
    */
   const privateShareCount = activeShareCount ?? 0;
   const privateShareCountKnown = activeShareCount !== null;
+
+  // Auth may settle one render after this retained route mounts. Hydrate the
+  // count at that boundary too, so returning to Map never paints an unknown
+  // placeholder while the same-session Location snapshot is already present.
+  useEffect(() => {
+    if (!auth.userId || demoMode) return;
+    const snapshot = OneLocationStateResource.readPresentation(auth.userId);
+    if (!snapshot) return;
+    const names = activeShareLabels(snapshot.ownerGrants);
+    setActiveShareCount(names.length);
+    setActiveShareNames(names);
+  }, [auth.userId, demoMode]);
   const [sharingPopoverOpen, setSharingPopoverOpen] = useState(false);
   /** The in-sheet twin of `sharingPopoverOpen`: the header chip's popover
    *  opens over the map, which is the wrong place to answer a question asked
@@ -1113,7 +1136,9 @@ export function LocationImmersiveMap({
   const refreshShareCount = useCallback(async () => {
     if (demoMode || !vaultOwnerToken || !auth.userId) return;
     try {
-      const state = await OneLocationService.getState(vaultOwnerToken);
+      const state = await OneLocationStateResource.load(auth.userId, () =>
+        OneLocationService.getState(vaultOwnerToken),
+      );
       if (!mountedRef.current) return;
       const names = activeShareLabels(state.ownerGrants);
       setActiveShareCount(names.length);
@@ -2187,7 +2212,8 @@ export function LocationImmersiveMap({
   }, []);
 
   const locateMe = useCallback(async () => {
-    if (!vaultOwnerToken) return;
+    const activeUserId = auth.userId;
+    if (!vaultOwnerToken || !activeUserId) return;
     setBusy("locate");
     // Getting a position and telling other people about it are two different
     // jobs that used to share one catch, so a failed network call and a device
@@ -2229,6 +2255,7 @@ export function LocationImmersiveMap({
       // Ghost Mode is a control over the GENERAL audience -- people who were
       // never handed a share -- and it does not reach in here.
       const state = await OneLocationService.getState(vaultOwnerToken);
+      OneLocationStateResource.write(activeUserId, state);
       const recipientsByKey = new Map(
         state.recipients.map((recipient) => [
           `${recipient.userId}:${recipient.keyId}`,
@@ -2286,6 +2313,7 @@ export function LocationImmersiveMap({
       setBusy(null);
     }
   }, [
+    auth.userId,
     captureCurrentLocation,
     demoMode,
     focusSelfPoint,

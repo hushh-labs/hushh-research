@@ -1,8 +1,35 @@
 import { describe, expect, it } from "vitest";
 
-import { resolveTopShellBreadcrumb } from "@/lib/navigation/top-shell-breadcrumbs";
+import {
+  resolveTopShellBreadcrumb,
+  visibleTopShellBreadcrumbItems,
+} from "@/lib/navigation/top-shell-breadcrumbs";
 
 describe("top shell breadcrumbs", () => {
+  it("shows only the immediate parent and current page in deep trails", () => {
+    expect(
+      visibleTopShellBreadcrumbItems([
+        { label: "Profile", href: "/one/profile" },
+        { label: "Security", href: "/one/profile/security" },
+        { label: "Vault methods" },
+      ]),
+    ).toEqual([
+      { label: "Security", href: "/one/profile/security" },
+      { label: "Vault methods" },
+    ]);
+
+    expect(
+      visibleTopShellBreadcrumbItems([
+        { label: "One", href: "/one" },
+        { label: "Location", href: "/one/location" },
+        { label: "Settings" },
+      ]),
+    ).toEqual([
+      { label: "Location", href: "/one/location" },
+      { label: "Settings" },
+    ]);
+  });
+
   it("returns a query-selected saved analysis to its Analysis workspace", () => {
     expect(
       resolveTopShellBreadcrumb(
