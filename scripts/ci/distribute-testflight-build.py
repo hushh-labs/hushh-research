@@ -23,7 +23,12 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, NoReturn
 
-from wait_for_testflight_build import ASC_API_ROOT, build_url, mint_jwt, resolve_app_id
+from wait_for_testflight_build import (
+    ASC_API_ROOT,
+    build_upload_url,
+    mint_jwt,
+    resolve_app_id,
+)
 
 
 RESOURCE_ID = re.compile(r"^[A-Za-z0-9-]{2,128}$")
@@ -185,23 +190,49 @@ def resolve_valid_build_id(
     marketing_version: str,
     build_number: str,
 ) -> str:
-    payload = client.get(build_url(app_id, marketing_version, build_number))
-    builds = payload.get("data")
-    if not isinstance(builds, list):
-        raise DistributionError("App Store Connect did not return builds")
+    # Resolve through buildUploads, the same endpoint used by the processing
+    # gate. App Store Connect rejects the preReleaseVersion.version filter on
+    # the top-level /v1/builds endpoint for some apps, even though the upload
+    # resource includes the definitive build and its processing state.
+    payload = client.get(
+        build_upload_url(app_id, marketing_version, build_number, "IOS")
+    )
+    uploads = payload.get("data")
+    if not isinstance(uploads, list):
+        raise DistributionError("App Store Connect did not return build uploads")
     matches = [
-        build
-        for build in builds
-        if isinstance(build, dict)
-        and build.get("type") == "builds"
-        and str((build.get("attributes") or {}).get("version")) == str(build_number)
+        upload
+        for upload in uploads
+        if isinstance(upload, dict)
+        and upload.get("type") == "buildUploads"
+        and str((upload.get("attributes") or {}).get("cfBundleShortVersionString"))
+        == marketing_version
+        and str((upload.get("attributes") or {}).get("cfBundleVersion"))
+        == str(build_number)
     ]
     if len(matches) != 1:
-        raise DistributionError("exact VALID TestFlight build was not found")
-    build = matches[0]
+        raise DistributionError("exact TestFlight build upload was not found")
+
+    upload = matches[0]
+    build_ref = ((upload.get("relationships") or {}).get("build") or {}).get("data")
+    included_builds = [
+        resource
+        for resource in payload.get("included") or []
+        if isinstance(resource, dict)
+        and resource.get("type") == "builds"
+        and (
+            not isinstance(build_ref, dict)
+            or resource.get("id") == build_ref.get("id")
+        )
+    ]
+    if len(included_builds) != 1:
+        raise DistributionError("App Store Connect did not return the uploaded build")
+    build = included_builds[0]
+    if not isinstance(build.get("id"), str) or not build["id"].strip():
+        raise DistributionError("App Store Connect returned the build without an id")
     if (build.get("attributes") or {}).get("processingState") != "VALID":
         raise DistributionError("TestFlight build is not VALID")
-    return validate_resource_id("TestFlight build", str(build.get("id") or ""))
+    return validate_resource_id("TestFlight build", build["id"])
 
 
 def require_group_type(
