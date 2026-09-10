@@ -226,6 +226,8 @@ export default function RiaClientsPage() {
               <SegmentedTabs
                 value={view}
                 onValueChange={(next) => setView(next as ClientsView)}
+                ariaLabel="Clients view"
+                variant="subordinate"
                 options={[
                   { value: "connected", label: "Connected" },
                   { value: "nearby", label: "Around you" },

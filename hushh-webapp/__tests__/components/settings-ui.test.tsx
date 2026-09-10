@@ -459,6 +459,64 @@ describe("SegmentedTabs", () => {
     expect(active.className).toContain("mx-0.5");
     expect(label).toHaveClass("ui-text-agent-tab-label");
   });
+
+  it("supports a subordinate text-tab hierarchy without changing tab semantics", () => {
+    const handleValueChange = vi.fn();
+    const { container } = render(
+      <SegmentedTabs
+        value="connected"
+        onValueChange={handleValueChange}
+        ariaLabel="Clients view"
+        variant="subordinate"
+        options={[
+          { value: "connected", label: "Connected" },
+          { value: "nearby", label: "Around you" },
+        ]}
+      />,
+    );
+
+    const root = container.firstElementChild;
+    const active = screen.getByRole("tab", { name: "Connected" });
+    const inactive = screen.getByRole("tab", { name: "Around you" });
+
+    expect(root).toHaveAttribute("data-ui-variant", "subordinate");
+    expect(root?.className).toContain("bg-transparent");
+    expect(root?.className).toContain("border-b");
+    expect(active.className).toContain("border-[color:var(--app-accent)]");
+    expect(active.className).not.toContain(
+      "bg-[color:var(--app-segmented-active-surface)]",
+    );
+    expect(active.getAttribute("aria-selected")).toBe("true");
+    fireEvent.click(inactive);
+    expect(handleValueChange).toHaveBeenCalledWith("nearby");
+  });
+
+  it("supports compact filter pills with horizontal overflow safety", () => {
+    const { container } = render(
+      <SegmentedTabs
+        value="top-picks"
+        onValueChange={() => {}}
+        ariaLabel="Picks category"
+        variant="filter"
+        options={[
+          { value: "top-picks", label: "Top picks" },
+          { value: "avoid", label: "Avoid" },
+          { value: "screening", label: "Screening" },
+        ]}
+      />,
+    );
+
+    const root = container.firstElementChild;
+    const active = screen.getByRole("tab", { name: "Top picks" });
+
+    expect(root).toHaveAttribute("data-ui-variant", "filter");
+    expect(root?.className).toContain("overflow-x-auto");
+    expect(active.className).toContain("rounded-full");
+    expect(active.className).toContain(
+      "bg-[color:var(--app-accent-surface)]",
+    );
+    expect(active.getAttribute("aria-selected")).toBe("true");
+  });
 });
 
 describe("SettingsDetailPanel", () => {

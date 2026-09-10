@@ -2706,8 +2706,10 @@ export default function RiaPicksPage() {
                 setUploadOpen(false);
                 updatePicksRouteState({ source: nextSource });
               }}
+              ariaLabel="Picks list source"
               options={sourceOptions}
               mobileColumns={2}
+              variant="subordinate"
             />
           </div>
 
@@ -2718,8 +2720,10 @@ export default function RiaPicksPage() {
               setCategory(nextCategory);
               updatePicksRouteState({ category: nextCategory });
             }}
+            ariaLabel="Picks category"
             options={categoryOptions}
             mobileColumns={2}
+            variant="filter"
           />
 
           {
