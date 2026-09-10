@@ -1,6 +1,8 @@
 import type { NextConfig } from "next";
 import path from "path";
 
+import packageJson from "./package.json";
+
 /**
  * Next.js Configuration
  *
@@ -15,7 +17,28 @@ import path from "path";
 
 const isCapacitorBuild = process.env.CAPACITOR_BUILD === "true";
 
+/**
+ * Stamp a real app version into the client bundle.
+ *
+ * `NEXT_PUBLIC_*` is inlined at build time, and nothing was supplying
+ * `NEXT_PUBLIC_CLIENT_VERSION`, so every observability event on every platform
+ * reported `app_version: "unknown"`. That makes it impossible to tell whether
+ * a release moved a metric, whether an old build is still in the wild, or
+ * whether new instrumentation actually shipped.
+ *
+ * An explicitly supplied value still wins. The package version is the floor,
+ * so the worst case is a real version instead of "unknown".
+ */
+const clientVersion =
+  String(process.env.NEXT_PUBLIC_CLIENT_VERSION || "").trim() ||
+  String(packageJson.version || "").trim() ||
+  "unknown";
+
 const config: NextConfig = {
+  env: {
+    NEXT_PUBLIC_CLIENT_VERSION: clientVersion,
+  },
+
   // Native static exports may run while the local web dev server is active.
   // Keep their compiler caches isolated so `next build` cannot corrupt the
   // live `.next` module graph and turn local API routes into transient 500s.
