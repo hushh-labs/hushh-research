@@ -428,12 +428,19 @@ async def _device_loop(websocket: WebSocket, key: tuple[str, str], link: _Device
             done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
             for task in pending:
                 task.cancel()
-            frame = next(iter(done)).result()
+            finished = next(iter(done))
+            frame = finished.result()
+            from_device = finished is receive_task
             link.last_seen_monotonic = time.monotonic()
             await BROKER.touch(key)
             kind = str(frame.get("type") or "")
             request_id = str(frame.get("requestId") or "")
             if kind == "inference.request":
+                # Only the cross-instance rendezvous may hand a request to the device.
+                # A device that sends one is trying to inject into its own answer
+                # stream; the socket closes rather than echoing the frame back.
+                if from_device:
+                    raise ValueError("a device answers inference, it does not request it")
                 await websocket.send_json(frame)
                 continue
             if kind in {"relay.heartbeat", "relay.status"}:
@@ -503,6 +510,13 @@ async def _provider_loop(websocket: WebSocket, key: tuple[str, str], token: str)
     try:
         while True:
             frame = await _frame(websocket)
+            # Resolve the device link PER REQUEST. The link captured before the ready
+            # frame belonged to whatever socket the device had then; a device that
+            # reconnected since holds a new one, and writing to the replaced socket
+            # sent every later request into a closed connection while the pod waited
+            # out the full frame timeout for an answer that could never arrive.
+            if not distributed:
+                link = await BROKER.get(key)
             valid, _reason, _claims = await validate_token_with_db(
                 token, expected_scope=ConsentScope.CAP_PUPPY_INFERENCE.value
             )
@@ -521,6 +535,13 @@ async def _provider_loop(websocket: WebSocket, key: tuple[str, str], token: str)
             device_id = str(frame.get("deviceId") or "")
             if not request_id or len(request_id) > _MAX_REQUEST_ID_LENGTH or device_id != key[1]:
                 raise ValueError("Puppy request binding mismatch")
+            if link is None and not distributed:
+                # The device dropped between requests. Say offline, not busy: the
+                # two are different answers for the person waiting.
+                await websocket.send_json(
+                    {"type": "inference.error", "requestId": request_id, "code": "PUPPY_OFFLINE"}
+                )
+                continue
             local_busy = link is not None and link.busy_request_id is not None
             rendezvous_busy = (
                 not await BROKER.acquire_busy(key, request_id) if rendezvous_enabled else False

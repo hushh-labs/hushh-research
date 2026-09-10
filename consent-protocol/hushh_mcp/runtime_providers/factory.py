@@ -328,8 +328,15 @@ def _build(
 
         return OpenAITransport(api_key=api_key, base_url=GROK_BASE_URL, provider="grok")
     if provider == "puppy":
+        from .puppy_local_transport import select_puppy_transport
         from .puppy_transport import PuppyRelayTransport
 
+        # Owner-direct first: inside a pod whose configuration keeps the in-pod broker
+        # on, a device linked to THIS pod is served over that link and the hub is never
+        # dialled. A device that still dials the hub keeps the relay transport.
+        local = select_puppy_transport(device_id=puppy_device_id)
+        if local is not None:
+            return local
         return PuppyRelayTransport(api_key=api_key, device_id=puppy_device_id)
     # normalize_provider already rejects unknown providers, so this is defensive.
     raise ValueError(f"Unsupported runtime provider: {provider!r}")

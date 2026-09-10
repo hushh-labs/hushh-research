@@ -86,6 +86,8 @@ def test_pod_surface_stays_within_reviewed_routes():
         "/api/one/pod/session/revoke",
         "/api/one/pod/status",
         "/api/one/pod/config",
+        # The device door: Puppy One dials this pod directly (Lane A).
+        "/api/one/puppy/relay",
         "/docs",
         "/docs/oauth2-redirect",
         "/openapi.json",

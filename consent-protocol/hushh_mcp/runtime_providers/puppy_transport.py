@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 import uuid
 from typing import Any, AsyncIterator
@@ -20,6 +21,12 @@ from .translate import NeutralRequest
 
 DEFAULT_TIMEOUT_SECONDS = 120.0
 MAX_FRAME_BYTES = 1_048_576
+
+#: Handed to the websockets client so its frame-level DEBUG output (which would
+#: carry prompts and tool results) is never emitted, whatever the root level is.
+_WIRE_LOGGER = logging.getLogger("hussh.puppy.wire")
+_WIRE_LOGGER.disabled = True
+_WIRE_LOGGER.propagate = False
 
 
 class PuppyRelayUnavailable(RuntimeError):
@@ -243,6 +250,9 @@ class PuppyRelayTransport(ProviderTransport):
                 open_timeout=min(self._timeout, 15.0),
                 ping_interval=20,
                 ping_timeout=20,
+                # The library's own debug logger would print every frame, prompt
+                # and all, at DEBUG. Wire logging on this socket is off, always.
+                logger=_WIRE_LOGGER,
             )
         except Exception as exc:  # noqa: BLE001 - credentials and endpoint are never logged
             raise PuppyRelayUnavailable("Puppy inference connection unavailable") from exc

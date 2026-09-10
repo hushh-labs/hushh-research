@@ -52,6 +52,7 @@ from api.routes.one.agent_prompt import router as agent_prompt_router  # noqa: E
 from api.routes.one.pod_maintenance import router as pod_maintenance_router  # noqa: E402
 from api.routes.one.pod_memory import router as pod_memory_router  # noqa: E402
 from api.routes.one.pod_migration import router as pod_migration_router  # noqa: E402
+from api.routes.one.pod_puppy_relay import router as pod_puppy_relay_router  # noqa: E402
 from api.routes.one.pod_session import router as pod_session_router  # noqa: E402
 from api.routes.one.pod_turn import router as pod_turn_router  # noqa: E402
 from db.connection import DatabaseUnavailableError  # noqa: E402
@@ -128,6 +129,10 @@ _POD_ROUTERS = (
     # admits its owner's app and devices itself from a hub-signed binding, so a
     # turn no longer needs the hub in the path. See api/routes/one/pod_session.py.
     pod_session_router,
+    # The device door: Puppy One dials THIS pod with a device-role session and
+    # answers inference over sealed frames. The hub broker stays for UAT and
+    # production; an owner pod brokers its own device. See pod_puppy_relay.py.
+    pod_puppy_relay_router,
 )
 
 app = FastAPI(
