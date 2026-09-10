@@ -30,6 +30,28 @@ class PuppyRelayProtocolError(RuntimeError):
     """Puppy returned a malformed, mismatched, or explicitly failed frame."""
 
 
+class PuppyCapabilityUnsupported(RuntimeError):
+    """The linked device cannot honour a capability this request needs.
+
+    Raised before ``inference.request`` is sent when the admission frame declares
+    the device's capabilities and one the request needs is missing, and when the
+    device itself answers ``inference.error`` with ``UNSUPPORTED_CAPABILITY``.
+    Never a ``PuppyRelayUnavailable`` and never a fallback: the device is fine,
+    the request asked for something it does not do, and the caller has to say so.
+    """
+
+    def __init__(self, capability: str) -> None:
+        super().__init__(f"Puppy device does not support {capability}")
+        self.capability = capability
+
+
+#: The capability names a device may declare, in the Puppy One harness vocabulary
+#: (``hermes_cli/hussh_one_routing/profile.py``). Anything else on the wire is
+#: ignored rather than trusted.
+DEVICE_CAPABILITY_NAMES: tuple[str, ...] = ("tool_calling", "json_schema", "streaming")
+UNSUPPORTED_CAPABILITY_CODE = "UNSUPPORTED_CAPABILITY"
+
+
 def _env_float(name: str, default: float) -> float:
     try:
         value = float(str(os.getenv(name) or "").strip())
@@ -90,6 +112,57 @@ def _tools(request: NeutralRequest) -> list[dict[str, Any]]:
     ]
 
 
+def _response_format(request: NeutralRequest) -> dict[str, Any] | None:
+    if request.response_schema is not None:
+        return {"type": "json_schema", "jsonSchema": request.response_schema}
+    if request.requires_json_schema():
+        return {"type": "json"}
+    return None
+
+
+def declared_capabilities(ready: dict[str, Any]) -> dict[str, bool] | None:
+    """The device capabilities an admission frame declares, or None when absent.
+
+    Absent means an older relay or device that never said; the request proceeds
+    exactly as before and the device is the only judge (negative control). A
+    present block is trusted only for the allowlisted names and boolean values.
+    """
+    device = ready.get("device")
+    if not isinstance(device, dict):
+        return None
+    raw = device.get("capabilities")
+    if not isinstance(raw, dict):
+        return None
+    return {
+        name: bool(raw[name])
+        for name in DEVICE_CAPABILITY_NAMES
+        if name in raw and isinstance(raw[name], bool)
+    }
+
+
+def missing_capability(request: NeutralRequest, capabilities: dict[str, bool] | None) -> str:
+    """The first capability the request needs that the device declares it lacks."""
+    if capabilities is None:
+        return ""
+    for name in request.required_capabilities():
+        if name in capabilities and not capabilities[name]:
+            return name
+    return ""
+
+
+def _reported_model(frame: dict[str, Any]) -> str:
+    """The model id a device frame reports, if it reports one it may report."""
+    value = frame.get("model")
+    if not isinstance(value, str):
+        return ""
+    value = value.strip()
+    if not value or len(value) > 128 or "://" in value or value.startswith("/"):
+        return ""
+    if any(char.isspace() for char in value):
+        return ""
+    return value
+
+
 class PuppyRelayTransport(ProviderTransport):
     provider = "puppy"
 
@@ -115,7 +188,7 @@ class PuppyRelayTransport(ProviderTransport):
             raise ValueError("Puppy inference device binding is required")
 
     def _payload(self, request: NeutralRequest, model: str, request_id: str) -> dict[str, Any]:
-        return {
+        payload: dict[str, Any] = {
             "type": "inference.request",
             "requestId": request_id,
             "deviceId": self._device_id,
@@ -126,6 +199,29 @@ class PuppyRelayTransport(ProviderTransport):
             "maxOutputTokens": request.max_output_tokens,
             "tools": _tools(request),
         }
+        # Only set knobs travel: an absent key means "not asked", which the device
+        # can tell apart from "asked for the default".
+        response_format = _response_format(request)
+        if response_format is not None:
+            payload["responseFormat"] = response_format
+        if request.tool_choice is not None:
+            payload["toolChoice"] = request.tool_choice
+        if request.allowed_function_names:
+            payload["allowedFunctionNames"] = list(request.allowed_function_names)
+        if request.top_p is not None:
+            payload["topP"] = request.top_p
+        if request.stop_sequences:
+            payload["stopSequences"] = list(request.stop_sequences)
+        if request.seed is not None:
+            payload["seed"] = request.seed
+        if request.thinking_budget is not None or request.include_thoughts is not None:
+            thinking: dict[str, Any] = {}
+            if request.thinking_budget is not None:
+                thinking["budgetTokens"] = request.thinking_budget
+            if request.include_thoughts is not None:
+                thinking["includeThoughts"] = request.include_thoughts
+            payload["thinking"] = thinking
+        return payload
 
     async def _connect(self) -> Any:
         try:
@@ -200,6 +296,12 @@ class PuppyRelayTransport(ProviderTransport):
                 raise PuppyRelayUnavailable("Puppy relay admission unavailable") from exc
             if ready.get("type") != "relay.ready":
                 raise PuppyRelayUnavailable("Puppy relay admission refused")
+            # Refuse BEFORE dispatch. A declared capability gap is answered here,
+            # with nothing sent to the device, so the device never spends a
+            # cold model load on a request it was going to drop a field from.
+            lacking = missing_capability(request, declared_capabilities(ready))
+            if lacking:
+                raise PuppyCapabilityUnsupported(lacking)
             await socket.send(
                 json.dumps(self._payload(request, model, request_id), separators=(",", ":"))
             )
@@ -217,6 +319,9 @@ class PuppyRelayTransport(ProviderTransport):
                     raise PuppyRelayProtocolError("Puppy returned a mismatched request")
                 kind = str(frame.get("type") or "")
                 if kind == "inference.error":
+                    if str(frame.get("code") or "") == UNSUPPORTED_CAPABILITY_CODE:
+                        capability = str(frame.get("capability") or "")
+                        raise PuppyCapabilityUnsupported(capability or "requested capability")
                     raise PuppyRelayUnavailable("Puppy inference was refused")
                 yield frame
                 if kind in {"inference.done", "inference.result"}:
@@ -230,7 +335,9 @@ class PuppyRelayTransport(ProviderTransport):
     async def _generate(self, request: NeutralRequest, *, model: str) -> NormalizedResponse:
         text: list[str] = []
         calls: tuple[NormalizedFunctionCall, ...] = ()
+        reported = ""
         async for frame in self._frames(request, model=model):
+            reported = _reported_model(frame) or reported
             if str(frame.get("type") or "") in {"inference.delta", "inference.result"}:
                 value = frame.get("text")
                 if isinstance(value, str):
@@ -238,26 +345,30 @@ class PuppyRelayTransport(ProviderTransport):
                 parsed_calls = self._calls(frame.get("functionCalls"))
                 if parsed_calls:
                     calls = parsed_calls
-        return NormalizedResponse(text="".join(text), function_calls=calls)
+        return NormalizedResponse(text="".join(text), function_calls=calls, model_version=reported)
 
     async def _stream(
         self, request: NeutralRequest, *, model: str
     ) -> AsyncIterator[NormalizedChunk]:
         emitted_result = False
+        reported = ""
         async for frame in self._frames(request, model=model):
             kind = str(frame.get("type") or "")
+            reported = _reported_model(frame) or reported
             if kind in {"inference.delta", "inference.result"}:
                 value = frame.get("text")
                 if isinstance(value, str) and value:
                     emitted_result = True
                     yield NormalizedChunk(
-                        text=value, function_calls=self._calls(frame.get("functionCalls"))
+                        text=value,
+                        function_calls=self._calls(frame.get("functionCalls")),
+                        model_version=reported,
                     )
                 else:
                     calls = self._calls(frame.get("functionCalls"))
                     if calls:
-                        yield NormalizedChunk(function_calls=calls)
+                        yield NormalizedChunk(function_calls=calls, model_version=reported)
             if kind == "inference.done" and not emitted_result:
                 value = frame.get("text")
                 if isinstance(value, str) and value:
-                    yield NormalizedChunk(text=value)
+                    yield NormalizedChunk(text=value, model_version=reported)

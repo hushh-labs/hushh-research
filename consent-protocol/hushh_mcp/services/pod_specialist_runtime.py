@@ -12,8 +12,20 @@ import asyncio
 from typing import Any
 
 from hushh_mcp.adk_bridge.dispatch import SpecialistRuntime
+from hushh_mcp.runtime_providers.puppy_transport import PuppyCapabilityUnsupported
 from hushh_mcp.services.pod_agent_chat_store import PodAgentChatStore
 from hushh_mcp.services.pod_consent_client import require_owner_scope
+
+
+class PodSpecialistCapabilityUnsupported(PuppyCapabilityUnsupported):
+    """A specialist's model call asked the owner's device for a capability it lacks.
+
+    Typed, and a subclass of the transport's refusal, so One's tool layer can name
+    the outcome (``status: unsupported``) instead of folding it into the generic
+    "specialist runtime failed" that would send the person to retry something
+    that cannot succeed on this device.
+    """
+
 
 # Specialist model calls run inside One's turn and share its budget. The generic
 # bound stays at 30 seconds; a local Puppy model has a measured cold first token
@@ -185,6 +197,9 @@ def build_pod_specialist_runtime(
                 client.aio.models.generate_content(model=model, contents=contents, config=config),
                 timeout=specialist_model_timeout_seconds(runtime_mode),
             )
+        except PuppyCapabilityUnsupported as exc:
+            # Not "unavailable": the device answered and said no to a capability.
+            raise PodSpecialistCapabilityUnsupported(exc.capability) from None
         except Exception:
             raise RuntimeError("Pod specialist provider unavailable") from None
         await require_access()

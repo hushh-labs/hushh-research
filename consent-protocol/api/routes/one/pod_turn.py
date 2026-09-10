@@ -118,6 +118,26 @@ def _is_keyless_pod_db_wall(exc: BaseException) -> bool:
     return False
 
 
+def _is_puppy_capability_unsupported(exc: BaseException) -> bool:
+    """True when One's own model call was refused for a capability the device lacks.
+
+    Walks the cause chain like the DB-wall detector, because the transport's typed
+    refusal is re-wrapped by the ADK runner before it reaches the turn boundary.
+    """
+    from hushh_mcp.runtime_providers.puppy_transport import (  # noqa: PLC0415
+        PuppyCapabilityUnsupported,
+    )
+
+    seen: set[int] = set()
+    cur: BaseException | None = exc
+    while cur is not None and id(cur) not in seen:
+        seen.add(id(cur))
+        if isinstance(cur, PuppyCapabilityUnsupported):
+            return True
+        cur = cur.__cause__ or cur.__context__
+    return False
+
+
 async def _validate_consent(consent_token: str, *, verifier: Any = None) -> dict:
     """Ask the hub whether this consent is live. The hub is the authority.
 
@@ -332,6 +352,27 @@ async def run_pod_turn(
         # as "I can't do that here yet", never as their agent crashing (a 502). Only
         # in pod mode, and only for that specific wall: a real DB error on the
         # DB-capable hub still surfaces, and any OTHER pod failure is still a 502.
+        if pod_mode() and _is_puppy_capability_unsupported(exc):
+            # The owner's device model refused a capability One's own request
+            # needs. The device is up and the consent is good, so this is a
+            # bounded answer about the model, never a 502 about the agent.
+            logger.info("pod_turn.degraded_puppy_capability_unsupported")
+            return {
+                "text": (
+                    "Your device's model can't handle the way I need to ask this "
+                    "question here. I can still help with anything that needs a "
+                    "plain answer, or you can switch to a model that supports it."
+                ),
+                "model": model,
+                "modelReported": False,
+                "provider": provider,
+                "grounded": bool(grounding),
+                "directiveCount": 0,
+                "directives": [],
+                "specialists": [],
+                "runtimeMode": runtime_mode,
+                "degraded": "puppy_capability_unsupported",
+            }
         if pod_mode() and _is_keyless_pod_db_wall(exc):
             logger.info("pod_turn.degraded_db_wall %s", type(exc).__name__)
             text = (

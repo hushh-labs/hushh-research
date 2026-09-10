@@ -604,3 +604,94 @@ async def test_pod_ingress_runs_shared_location_loop_and_recovers_history(tmp_pa
     assert "Propose a public link" in contents_seen[-1]
     assert "Confirm the proposed link." in contents_seen[-1]
     assert not specialist_runtime_bound()
+
+
+# -- Lane B1: a capability the owner's device model lacks is refused, named, and
+# never a 502. The device answered; the request asked for something it cannot do.
+
+
+def _capability_refusal() -> Exception:
+    from hushh_mcp.runtime_providers.puppy_transport import PuppyCapabilityUnsupported
+
+    return PuppyCapabilityUnsupported("json_schema")
+
+
+async def test_a_root_level_capability_refusal_is_200_degraded_not_502(enabled, monkeypatch):
+    _consent_ok(monkeypatch)
+    result = await pod_turn.run_pod_turn(
+        payload=_payload(),
+        consent_token="t",
+        stream_fn=_stream([], boom=_capability_refusal()),
+    )
+    assert result["degraded"] == "puppy_capability_unsupported"
+    assert result["modelReported"] is False
+    assert result["directives"] == [] and result["specialists"] == []
+    assert result["text"]
+    assert "traceback" not in result["text"].lower()
+
+
+async def test_a_capability_refusal_wrapped_by_the_runner_still_degrades(enabled, monkeypatch):
+    _consent_ok(monkeypatch)
+    wrapped = RuntimeError("runner wrapper")
+    wrapped.__cause__ = _capability_refusal()
+    result = await pod_turn.run_pod_turn(
+        payload=_payload(), consent_token="t", stream_fn=_stream([], boom=wrapped)
+    )
+    assert result["degraded"] == "puppy_capability_unsupported"
+
+
+async def test_an_ordinary_failure_is_still_a_502_negative_control(enabled, monkeypatch):
+    _consent_ok(monkeypatch)
+    with pytest.raises(HTTPException) as exc:
+        await pod_turn.run_pod_turn(
+            payload=_payload(),
+            consent_token="t",
+            stream_fn=_stream([], boom=RuntimeError("model exploded")),
+        )
+    assert exc.value.status_code == 502
+
+
+async def test_a_specialist_capability_refusal_is_named_unsupported(tmp_path, monkeypatch):
+    """The same refusal from a specialist's model call reaches One as an
+    `unsupported` outcome, not as the generic `specialist_runtime_failed`."""
+    from types import SimpleNamespace
+
+    from hushh_mcp.adk_bridge import _register_builtin_specialists
+    from hushh_mcp.one_adk import agent_tree
+    from hushh_mcp.services import pod_consent_client
+    from hushh_mcp.services.pod_consent_client import ConsentVerdict
+    from hushh_mcp.services.pod_specialist_runtime import PodSpecialistCapabilityUnsupported
+
+    monkeypatch.setenv("HUSSH_POD_MODE", "1")
+    monkeypatch.setenv("HUSSH_ID", "pod-synthetic")
+    _register_builtin_specialists()
+
+    async def verify(token, *, expected_scope):
+        scoped = {"read": "pkm.read", "invoke": "cap.one.invoke"}
+        return ConsentVerdict(
+            token in scoped and scoped[token] == expected_scope,
+            True,
+            "owner",
+            "pod-synthetic",
+            scoped.get(token, ""),
+        )
+
+    monkeypatch.setattr(pod_consent_client, "verify_consent", verify)
+
+    async def refusing_dispatch(agent_id, task):
+        raise PodSpecialistCapabilityUnsupported("json_schema")
+
+    monkeypatch.setattr(agent_tree, "dispatch", refusing_dispatch)
+    context = SimpleNamespace(
+        state={
+            agent_tree.STATE_USER_ID: "owner",
+            agent_tree.STATE_CONSENT_TOKEN: "read",
+            agent_tree.STATE_CONVERSATION_ID: "c1",
+            agent_tree.STATE_DATA_DOOR_GRANTS: {"invoke": "invoke"},
+        }
+    )
+    result = await agent_tree._specialist_turn("agent_location", "Propose a link", context)
+    assert result["status"] == "unsupported"
+    assert result["reason"] == "provider_capability_unsupported"
+    assert result["capability"] == "json_schema"
+    assert result["availability"]["specialist_id"] == "agent_location"

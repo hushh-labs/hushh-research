@@ -93,6 +93,7 @@ from hushh_mcp.one_adk.specialist_availability import (
     specialist_label,
 )
 from hushh_mcp.runtime_providers import build_managed_gemini_adk_model
+from hushh_mcp.runtime_providers.puppy_transport import PuppyCapabilityUnsupported
 from hushh_mcp.runtime_settings import one_db_sessions_enabled, pod_mode
 from hushh_mcp.services.action_gateway import (
     AVAILABLE_ACTION_IDS_CAP,
@@ -1336,6 +1337,21 @@ async def _specialist_turn(
 
     try:
         result = await dispatch(agent_id, task)
+    except PuppyCapabilityUnsupported as exc:
+        # The owner's device model lacks something this specialist's request needs
+        # (a schema, tool calling). Named as its own outcome: it is not a transient
+        # failure to retry and not a consent refusal, and only an honest word here
+        # lets One say so instead of guessing.
+        return {
+            "status": "unsupported",
+            "reason": "provider_capability_unsupported",
+            "capability": getattr(exc, "capability", ""),
+            "availability": availability_payload,
+            "message": (
+                f"{specialist_label(agent_id)} needs a model capability your device's "
+                "model does not offer, so it cannot answer this here."
+            ),
+        }
     except PermissionError as exc:
         return {
             "status": "scope_required",

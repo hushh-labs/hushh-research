@@ -1155,3 +1155,309 @@ def test_puppy_messages_never_pair_different_tools_negative_control():
     wire = _messages(request)
     assert wire[0]["toolCallId"] == "call_1"
     assert "toolCallId" not in wire[1], "a result for another tool must not steal the id"
+
+
+# --------------------------------------------------------------------------- #
+# Lane B1: the neutral wire carries schema, tool choice, sampling and thinking,
+# and a capability the device lacks is refused BEFORE dispatch, never dropped.
+# --------------------------------------------------------------------------- #
+
+
+class _FunctionCallingConfig:
+    def __init__(self, mode, allowed=None):
+        self.mode = mode
+        self.allowed_function_names = allowed
+
+
+class _ToolConfig:
+    def __init__(self, calling):
+        self.function_calling_config = calling
+
+
+class _ThinkingConfig:
+    def __init__(self, budget, include):
+        self.thinking_budget = budget
+        self.include_thoughts = include
+
+
+class _Mode:
+    """Mimics the genai enum: `.value` carries the wire word."""
+
+    def __init__(self, value):
+        self.value = value
+
+
+def _rich_config(**over):
+    config = _Config(system_instruction="sys", temperature=0.2, max_output_tokens=64)
+    config.response_schema = {"type": "object", "properties": {"colour": {"type": "string"}}}
+    config.response_mime_type = "application/json"
+    config.tool_config = _ToolConfig(_FunctionCallingConfig(_Mode("ANY"), ["lookup"]))
+    config.top_p = 0.9
+    config.stop_sequences = ["END"]
+    config.seed = 7
+    config.thinking_config = _ThinkingConfig(512, True)
+    for key, value in over.items():
+        setattr(config, key, value)
+    return config
+
+
+def test_to_neutral_request_reads_schema_tool_choice_sampling_and_thinking():
+    request = to_neutral_request(_basic_contents(), _rich_config())
+    assert request.response_schema == {
+        "type": "object",
+        "properties": {"colour": {"type": "string"}},
+    }
+    assert request.response_mime_type == "application/json"
+    assert request.tool_choice == "any"
+    assert request.allowed_function_names == ("lookup",)
+    assert request.top_p == 0.9
+    assert request.stop_sequences == ("END",)
+    assert request.seed == 7
+    assert request.thinking_budget == 512
+    assert request.include_thoughts is True
+    assert request.required_capabilities() == ("tool_calling", "json_schema")
+
+
+def test_to_neutral_request_leaves_unset_knobs_unset_negative_control():
+    """A plain config must not invent a schema or a tool choice."""
+    request = to_neutral_request(_basic_contents(), _Config(temperature=0.5))
+    assert request.response_schema is None
+    assert request.response_mime_type is None
+    assert request.tool_choice is None
+    assert request.allowed_function_names == ()
+    assert request.top_p is None
+    assert request.stop_sequences == ()
+    assert request.seed is None
+    assert request.thinking_budget is None
+    assert request.include_thoughts is None
+    assert request.required_capabilities() == ()
+
+
+def test_puppy_payload_carries_the_extended_wire_fields():
+    from hushh_mcp.runtime_providers.puppy_transport import PuppyRelayTransport
+
+    transport = PuppyRelayTransport("grant", relay_url="ws://relay", device_id="tdv_1")
+    request = to_neutral_request(_basic_contents(), _rich_config())
+    payload = transport._payload(request, "local", "req-1")
+    assert payload["responseFormat"] == {
+        "type": "json_schema",
+        "jsonSchema": {"type": "object", "properties": {"colour": {"type": "string"}}},
+    }
+    assert payload["toolChoice"] == "any"
+    assert payload["allowedFunctionNames"] == ["lookup"]
+    assert payload["topP"] == 0.9
+    assert payload["stopSequences"] == ["END"]
+    assert payload["seed"] == 7
+    assert payload["thinking"] == {"budgetTokens": 512, "includeThoughts": True}
+
+
+def test_puppy_payload_omits_unset_wire_fields_negative_control():
+    from hushh_mcp.runtime_providers.puppy_transport import PuppyRelayTransport
+
+    transport = PuppyRelayTransport("grant", relay_url="ws://relay", device_id="tdv_1")
+    payload = transport._payload(to_neutral_request(_basic_contents(), _Config()), "local", "r")
+    for key in ("responseFormat", "toolChoice", "allowedFunctionNames", "topP", "seed"):
+        assert key not in payload
+    assert "stopSequences" not in payload and "thinking" not in payload
+
+
+class _DeclaringSocket(_PuppySocket):
+    """A relay whose admission frame declares the device's capabilities."""
+
+    def __init__(self, capabilities, *, model=None):
+        super().__init__()
+        ready = {"type": "relay.ready", "role": "pod", "device": {"capabilities": capabilities}}
+        if model is not None:
+            ready["device"]["model"] = model
+        self._frames[0] = ready
+
+
+def _tooled_request():
+    from hushh_mcp.runtime_providers.translate import NeutralMessage, NeutralRequest, NeutralTool
+
+    return NeutralRequest(
+        messages=(NeutralMessage(role="user", text="hello"),),
+        tools=(NeutralTool(name="lookup", description="look up", parameters={"type": "object"}),),
+    )
+
+
+async def test_puppy_transport_refuses_before_dispatch_when_the_device_lacks_a_capability(
+    monkeypatch,
+):
+    from hushh_mcp.runtime_providers.puppy_transport import (
+        PuppyCapabilityUnsupported,
+        PuppyRelayTransport,
+    )
+
+    socket = _DeclaringSocket({"tool_calling": False, "json_schema": True, "streaming": True})
+    transport = PuppyRelayTransport("grant", relay_url="ws://relay", device_id="tdv_1")
+    monkeypatch.setattr(transport, "_connect", lambda: _async_return(socket))
+    with pytest.raises(PuppyCapabilityUnsupported) as refused:
+        await transport._generate(_tooled_request(), model="local")
+    assert refused.value.capability == "tool_calling"
+    # Nothing was dispatched: the hello went out, the request never did.
+    assert [frame["type"] for frame in socket.sent] == ["relay.hello"]
+
+
+async def test_puppy_transport_refuses_a_schema_the_device_cannot_honour(monkeypatch):
+    from hushh_mcp.runtime_providers.puppy_transport import (
+        PuppyCapabilityUnsupported,
+        PuppyRelayTransport,
+    )
+    from hushh_mcp.runtime_providers.translate import NeutralMessage, NeutralRequest
+
+    socket = _DeclaringSocket({"tool_calling": True, "json_schema": False})
+    transport = PuppyRelayTransport("grant", relay_url="ws://relay", device_id="tdv_1")
+    monkeypatch.setattr(transport, "_connect", lambda: _async_return(socket))
+    request = NeutralRequest(
+        messages=(NeutralMessage(role="user", text="hello"),),
+        response_schema={"type": "object"},
+    )
+    with pytest.raises(PuppyCapabilityUnsupported) as refused:
+        await transport._generate(request, model="local")
+    assert refused.value.capability == "json_schema"
+    assert [frame["type"] for frame in socket.sent] == ["relay.hello"]
+
+
+async def test_a_ready_frame_without_a_device_block_keeps_legacy_behaviour_negative_control(
+    monkeypatch,
+):
+    """An older relay declares nothing. The request must still go out and the
+    device stays the only judge, exactly as before this lane."""
+    from hushh_mcp.runtime_providers.puppy_transport import PuppyRelayTransport
+
+    socket = _PuppySocket()
+    assert "device" not in socket._frames[0]
+    transport = PuppyRelayTransport("grant", relay_url="ws://relay", device_id="tdv_1")
+    monkeypatch.setattr(transport, "_connect", lambda: _async_return(socket))
+    result = await transport._generate(_tooled_request(), model="local")
+    assert [frame["type"] for frame in socket.sent] == ["relay.hello", "inference.request"]
+    assert result.text == "local answer"
+    assert result.model_version == "", "no frame reported a model, so none may be claimed"
+
+
+async def test_a_declared_capability_the_request_does_not_need_is_not_a_refusal(monkeypatch):
+    from hushh_mcp.runtime_providers.puppy_transport import PuppyRelayTransport
+    from hushh_mcp.runtime_providers.translate import NeutralMessage, NeutralRequest
+
+    socket = _DeclaringSocket({"tool_calling": False, "json_schema": False})
+    transport = PuppyRelayTransport("grant", relay_url="ws://relay", device_id="tdv_1")
+    monkeypatch.setattr(transport, "_connect", lambda: _async_return(socket))
+    plain = NeutralRequest(messages=(NeutralMessage(role="user", text="hello"),))
+    result = await transport._generate(plain, model="local")
+    assert result.text == "local answer"
+
+
+class _RefusingSocket(_PuppySocket):
+    def __init__(self, code, *, capability=None):
+        super().__init__()
+        error = {"type": "inference.error", "requestId": "", "code": code}
+        if capability:
+            error["capability"] = capability
+        self._frames = [self._frames[0], error]
+
+
+async def test_a_device_unsupported_capability_error_is_typed_not_unavailable(monkeypatch):
+    from hushh_mcp.runtime_providers.puppy_transport import (
+        PuppyCapabilityUnsupported,
+        PuppyRelayTransport,
+    )
+
+    socket = _RefusingSocket("UNSUPPORTED_CAPABILITY", capability="json_schema")
+    transport = PuppyRelayTransport("grant", relay_url="ws://relay", device_id="tdv_1")
+    monkeypatch.setattr(transport, "_connect", lambda: _async_return(socket))
+    with pytest.raises(PuppyCapabilityUnsupported) as refused:
+        await transport._generate(_tooled_request(), model="local")
+    assert refused.value.capability == "json_schema"
+
+
+async def test_other_device_errors_stay_unavailable_negative_control(monkeypatch):
+    from hushh_mcp.runtime_providers.puppy_transport import (
+        PuppyCapabilityUnsupported,
+        PuppyRelayTransport,
+        PuppyRelayUnavailable,
+    )
+
+    socket = _RefusingSocket("LOCAL_MODEL_UNAVAILABLE")
+    transport = PuppyRelayTransport("grant", relay_url="ws://relay", device_id="tdv_1")
+    monkeypatch.setattr(transport, "_connect", lambda: _async_return(socket))
+    with pytest.raises(PuppyRelayUnavailable) as failed:
+        await transport._generate(_tooled_request(), model="local")
+    assert not isinstance(failed.value, PuppyCapabilityUnsupported)
+
+
+# --------------------------------------------------------------------------- #
+# Lane B2: the model the device says answered travels to the normalized response
+# --------------------------------------------------------------------------- #
+
+
+class _ModelReportingSocket(_PuppySocket):
+    def __init__(self, model):
+        super().__init__()
+        self._frames[2]["model"] = model
+
+
+async def test_puppy_generate_reports_the_device_model(monkeypatch):
+    from hushh_mcp.runtime_providers.puppy_transport import PuppyRelayTransport
+
+    socket = _ModelReportingSocket("qwen3-30b-a3b-mlx")
+    transport = PuppyRelayTransport("grant", relay_url="ws://relay", device_id="tdv_1")
+    monkeypatch.setattr(transport, "_connect", lambda: _async_return(socket))
+    result = await transport._generate(_tooled_request(), model="local")
+    assert result.model_version == "qwen3-30b-a3b-mlx"
+
+
+async def test_puppy_stream_stamps_the_device_model_on_chunks(monkeypatch):
+    from hushh_mcp.runtime_providers.puppy_transport import PuppyRelayTransport
+
+    socket = _ModelReportingSocket("qwen3-30b-a3b-mlx")
+    transport = PuppyRelayTransport("grant", relay_url="ws://relay", device_id="tdv_1")
+    monkeypatch.setattr(transport, "_connect", lambda: _async_return(socket))
+    chunks = [chunk async for chunk in transport._stream(_tooled_request(), model="local")]
+    # The delta arrived before the result named the model; the result chunk carries it.
+    assert chunks[-1].model_version == "qwen3-30b-a3b-mlx"
+    assert chunks[0].model_version == ""
+
+
+@pytest.mark.parametrize(
+    "bad",
+    ["http://127.0.0.1:1234/v1", "/models/local", "two words", "x" * 129, 42, ""],
+)
+async def test_a_model_that_could_be_an_endpoint_or_path_is_not_reported(monkeypatch, bad):
+    """The wire must never carry the local endpoint or a filesystem path as a
+    'model'. Anything shaped like one is dropped, and the turn says unreported."""
+    from hushh_mcp.runtime_providers.puppy_transport import PuppyRelayTransport
+
+    socket = _ModelReportingSocket(bad)
+    transport = PuppyRelayTransport("grant", relay_url="ws://relay", device_id="tdv_1")
+    monkeypatch.setattr(transport, "_connect", lambda: _async_return(socket))
+    result = await transport._generate(_tooled_request(), model="local")
+    assert result.model_version == ""
+
+
+async def test_provider_adk_model_reports_the_device_model_on_every_event(monkeypatch):
+    lookup = NormalizedFunctionCall(name="lookup", args={"q": "x"}, id="call-1")
+    models = _PuppyModels(
+        scripts=[
+            [
+                NormalizedChunk(text="local ", model_version="qwen3"),
+                NormalizedChunk(function_calls=(lookup,), model_version="qwen3"),
+            ]
+        ],
+        full=NormalizedResponse(text="answer", model_version="qwen3"),
+    )
+    model, _ = _puppy_model(monkeypatch, models)
+    stream = [event async for event in model.generate_content_async(_llm_request(), stream=True)]
+    assert stream and all(event.model_version == "qwen3" for event in stream)
+    assert stream[-1].partial is False
+    full = [event async for event in model.generate_content_async(_llm_request(), stream=False)]
+    assert full[0].model_version == "qwen3"
+
+
+async def test_provider_adk_model_falls_back_to_the_requested_id_when_unreported(monkeypatch):
+    """No fabricated version: an unreported model reads as the id One asked for,
+    and the turn route is what turns that into `modelReported: false`."""
+    models = _PuppyModels(scripts=[], full=NormalizedResponse(text="answer"))
+    model, _ = _puppy_model(monkeypatch, models, model="local")
+    full = [event async for event in model.generate_content_async(_llm_request(), stream=False)]
+    assert full[0].model_version == "local"
