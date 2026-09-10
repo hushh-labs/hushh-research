@@ -256,19 +256,16 @@ describe("NearbyCheckInSheet", () => {
     ).toBeInTheDocument();
     expect(screen.queryByText("Stay visible for")).not.toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: "See all places" }),
-    ).toBeInTheDocument();
-
-    expect(
-      screen.queryByRole("button", { name: "Food" }),
+      screen.queryByRole("button", { name: "See all places" }),
     ).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "See all places" }));
+
+    expect(screen.getByRole("button", { name: "Food" })).toBeInTheDocument();
     expect(
       await screen.findByRole("radio", { name: /Place Four/ }),
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Food" })).toBeInTheDocument();
     // Attribution only. The place count that used to lead this line is
-    // already on the expansion control and in the list itself.
+    // already represented by the list itself.
     expect(screen.getByText("Google Maps")).toBeInTheDocument();
     expect(screen.queryByText(/places · Google Maps/)).not.toBeInTheDocument();
   });
@@ -351,14 +348,11 @@ describe("NearbyCheckInSheet", () => {
         .map((heading) => heading.textContent?.trim()),
     ).toEqual(["Nearby places", "Visible for", "Visibility"]);
 
-    // Compact setup keeps categories out of the first decision. They appear
-    // only after the person asks for the full chooser.
+    // Category filters are available immediately with their concise labels.
+    expect(screen.getByRole("button", { name: "Food" })).toBeInTheDocument();
     expect(
-      screen.queryByRole("button", { name: "Food" }),
-    ).not.toBeInTheDocument();
-    expect(
-      screen.queryByRole("button", { name: "Shops" }),
-    ).not.toBeInTheDocument();
+      screen.getByRole("button", { name: "Shops" }),
+    ).toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: "Food & drink" }),
     ).not.toBeInTheDocument();
@@ -605,7 +599,7 @@ describe("NearbyCheckInSheet", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("tells the owner the fix is broad without blocking check-in", async () => {
+  it("allows coarse-position check-in without the accuracy notice", async () => {
     const coarsePoint = { ...point, accuracyM: 1_200 };
     const capture = vi.fn().mockResolvedValue(coarsePoint);
 
@@ -622,9 +616,7 @@ describe("NearbyCheckInSheet", () => {
     fireEvent.click(
       await screen.findByRole("radio", { name: /Stanford University/ }),
     );
-    expect(
-      await screen.findByText(/accurate to about 1\.2 km/i),
-    ).toBeInTheDocument();
+    expect(screen.queryByText(/accurate to about/i)).not.toBeInTheDocument();
 
     fireEvent.click(
       screen.getByRole("checkbox", {
@@ -954,7 +946,8 @@ describe("NearbyCheckInSheet", () => {
     expect(drift).not.toHaveTextContent(/match against the place/i);
   });
 
-  it("makes leaving the primary active action without using destructive red", async () => {    service.getNearbyPresence.mockResolvedValue({
+  it("makes leaving the primary active action without using destructive red", async () => {
+    service.getNearbyPresence.mockResolvedValue({
       presence: {
         status: "active",
         audience: "all_opted_in",
@@ -1269,7 +1262,6 @@ describe("NearbyCheckInSheet", () => {
     service.nearbyPlaces.mockClear();
 
     fireEvent.click(screen.getByPlaceholderText("Search places"));
-    fireEvent.click(screen.getByRole("button", { name: "See all places" }));
     const allPlaces = await screen.findByRole("button", { name: "All" });
     await act(async () => {
       // A failed refresh must degrade the drawer, not blank it.
@@ -1469,7 +1461,6 @@ describe("NearbyCheckInSheet", () => {
       category: "all",
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "See all places" }));
     fireEvent.click(screen.getByRole("button", { name: "Health" }));
     await waitFor(() => {
       expect(screen.getByRole("button", { name: "Health" })).toHaveAttribute(
@@ -1587,7 +1578,6 @@ describe("NearbyCheckInSheet", () => {
     fireEvent.click(
       await screen.findByRole("radio", { name: /Stanford University/ }),
     );
-    fireEvent.click(screen.getByRole("button", { name: "See all places" }));
     fireEvent.click(screen.getByRole("button", { name: "Health" }));
     await waitFor(() => {
       expect(screen.getByRole("button", { name: "Health" })).toHaveAttribute(
@@ -1714,7 +1704,6 @@ describe("NearbyCheckInSheet", () => {
     );
 
     await screen.findByRole("radio", { name: /Stanford University/ });
-    fireEvent.click(screen.getByRole("button", { name: "See all places" }));
     fireEvent.click(screen.getByRole("button", { name: "Health" }));
     await waitFor(() => {
       expect(screen.getByRole("button", { name: "Health" })).toHaveAttribute(
@@ -1920,7 +1909,6 @@ describe("NearbyCheckInSheet", () => {
     );
 
     await screen.findByRole("radio", { name: /Stanford University/ });
-    fireEvent.click(screen.getByRole("button", { name: "See all places" }));
     fireEvent.click(screen.getByRole("button", { name: "Transit" }));
 
     const empty = await screen.findByTestId("nearby-category-empty");
