@@ -185,6 +185,36 @@ jobs:
         shell: bash
         run: bash scripts/ci/materialize-ios-testflight-release-config.sh
 
+      - name: Create signing keychain
+        shell: bash
+        run: |
+          set -euo pipefail
+          KEYCHAIN="${RUNNER_TEMP}/app-signing.keychain-db"
+          KC_PW="$(openssl rand -base64 24)"
+          security create-keychain -p "$KC_PW" "$KEYCHAIN"
+          security set-keychain-settings -lt 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KC_PW" "$KEYCHAIN"
+          # Keep the keychain runner-local; Apple-managed signing can use the
+          # existing distribution certificate without creating another one.
+          security list-keychains -d user -s "$KEYCHAIN" "login.keychain-db"
+          security default-keychain -s "$KEYCHAIN"
+
+          DIST_CERT_B64="$(gcloud secrets versions access latest \
+            --secret=APPSTORE_DISTRIBUTION_CERT_P12_B64 \
+            --project="${GCP_PROJECT_ID}" 2>/dev/null || true)"
+          if [ -z "$DIST_CERT_B64" ]; then
+            echo "Missing APPSTORE_DISTRIBUTION_CERT_P12_B64 in ${GCP_PROJECT_ID}." >&2
+            exit 1
+          fi
+          umask 077
+          echo "$DIST_CERT_B64" | openssl base64 -d -A > "${RUNNER_TEMP}/dist_cert.p12"
+          security import "${RUNNER_TEMP}/dist_cert.p12" -k "$KEYCHAIN" -P "" -A
+          rm -f "${RUNNER_TEMP}/dist_cert.p12"
+          security set-key-partition-list \
+            -S apple-tool:,apple:,codesign: -s -k "$KC_PW" "$KEYCHAIN" \
+            >/dev/null 2>&1 || true
+          echo "Distribution certificate imported into signing keychain."
+
       - name: Verify matching UAT backend revision
         shell: bash
         env:
@@ -241,13 +271,24 @@ jobs:
         shell: bash
         run: npm run --prefix hushh-webapp verify:capacitor:product-assets
 
+      - name: Cache Swift packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ runner.temp }}/spm
+            ~/Library/Caches/org.swift.swiftpm
+          key: spm-${{ runner.os }}-${{ hashFiles('hushh-webapp/ios/App/CapApp-SPM/Package.swift', 'hushh-webapp/ios/**/Package.resolved') }}
+          restore-keys: |
+            spm-${{ runner.os }}-
+
       - name: Resolve Swift package dependencies
         shell: bash
         run: |
           set -euo pipefail
           xcodebuild -resolvePackageDependencies \
             -project "$XCODE_PROJECT" \
-            -scheme "$XCODE_SCHEME"
+            -scheme "$XCODE_SCHEME" \
+            -clonedSourcePackagesDirPath "${RUNNER_TEMP}/spm"
 
       - name: Run iOS unit and App Intent tests
         shell: bash
@@ -259,6 +300,7 @@ jobs:
             -scheme "$XCODE_SCHEME" \
             -configuration Debug \
             -destination "platform=iOS Simulator,id=$simulator_id" \
+            -clonedSourcePackagesDirPath "${RUNNER_TEMP}/spm" \
             -derivedDataPath "$RUNNER_TEMP/one-voice-simulator-derived-data" \
             -only-testing:AppTests \
             CODE_SIGNING_ALLOWED=NO
@@ -295,6 +337,7 @@ jobs:
             -configuration Release \
             -destination 'generic/platform=iOS' \
             -archivePath "$RUNNER_TEMP/App.xcarchive" \
+            -clonedSourcePackagesDirPath "${RUNNER_TEMP}/spm" \
             -derivedDataPath "$RUNNER_TEMP/one-voice-archive-derived-data" \
             -allowProvisioningUpdates \
             -authenticationKeyPath "$RUNNER_TEMP/asc.p8" \
@@ -355,17 +398,20 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          marketing_version="$(grep -m1 -E 'MARKETING_VERSION[[:space:]]*=' "$PBXPROJ" | sed -E 's/.*= *([^;]+);.*/\1/' | tr -d ' ')"
+          test -n "$marketing_version"
           "$RUNNER_TEMP/asc-venv/bin/python" scripts/ci/distribute-testflight-build.py \
             --p8-path "$RUNNER_TEMP/asc.p8" \
             --key-id "$ASC_KEY_ID" \
             --issuer-id "$ASC_ISSUER_ID" \
             --bundle-id "$IOS_BUNDLE_ID" \
+            --marketing-version "$marketing_version" \
             --build-number "${{ steps.build_number.outputs.next_build }}" \
             --internal-group-id "$ASC_INTERNAL_GROUP_ID" \
             --external-group-id "$ASC_EXTERNAL_GROUP_ID" \
             --beta-review-contact-file "$ASC_BETA_REVIEW_CONTACT_PATH" \
             --beta-review-notes-file "$ASC_BETA_REVIEW_NOTES_PATH" \
-            --output "$RUNNER_TEMP/testflight-distribution.json"
+            --output-json "$RUNNER_TEMP/testflight-distribution.json"
 
       - name: Upload redacted release evidence
         if: always()
