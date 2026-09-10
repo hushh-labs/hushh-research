@@ -159,6 +159,13 @@ class DistributeTestFlightBuildTests(unittest.TestCase):
         self.assertEqual(apple.assignments[INTERNAL_GROUP_ID], {BUILD_ID})
         self.assertEqual(apple.assignments[EXTERNAL_GROUP_ID], {BUILD_ID})
         self.assertFalse(any("appStoreVersions" in url or "reviewSubmissions" in url for _, url, _ in apple.calls))
+        self.assertFalse(any(method == "POST" and url.endswith("/betaAppReviewSubmissions") for method, url, _ in apple.calls))
+
+        detail_post = next(index for index, (method, url, _) in enumerate(apple.calls) if method == "POST" and url.endswith("/betaAppReviewDetails"))
+        localization_post = next(index for index, (method, url, _) in enumerate(apple.calls) if method == "POST" and url.endswith("/betaBuildLocalizations"))
+        relationship_posts = [index for index, (method, url, _) in enumerate(apple.calls) if method == "POST" and "relationships/builds" in url]
+        self.assertLess(detail_post, relationship_posts[0])
+        self.assertLess(localization_post, relationship_posts[0])
 
     def test_exact_build_id_handoff_does_not_requery_transient_upload(self) -> None:
         apple = FakeApple(external_review_state="APPROVED")
@@ -219,7 +226,8 @@ class DistributeTestFlightBuildTests(unittest.TestCase):
         result = self.run_distribution(apple)
 
         self.assertEqual(result["external"], "pending_apple_beta_review")
-        self.assertEqual(result["external_beta_review_state"], "WAITING_FOR_REVIEW")
+        self.assertEqual(result["external_beta_review_state"], "NOT_SUBMITTED")
+        self.assertFalse(any(method == "POST" and url.endswith("/betaAppReviewSubmissions") for method, url, _ in apple.calls))
 
     def test_external_review_rejection_fails_closed(self) -> None:
         with self.assertRaisesRegex(subject.DistributionError, "rejected"):
