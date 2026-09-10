@@ -1909,6 +1909,12 @@ describe("OneLocationAgentPage", () => {
     expect(screen.getByTestId("page-header").className).toContain(
       "sm:[&_[data-slot=page-header-actions]]:!ml-5",
     );
+    expect(screen.getByTestId("page-header").className).toContain(
+      "lg:[&_[data-slot=page-header-row]]:!justify-between",
+    );
+    expect(screen.getByTestId("page-header").className).toContain(
+      "lg:[&_[data-slot=page-header-actions]]:!ml-auto",
+    );
     expect(heading).toHaveClass("ui-text-agent-title");
     expect(screen.getByTestId("one-location-header-icon")).toBeTruthy();
     expect(

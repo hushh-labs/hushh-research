@@ -29,7 +29,7 @@ import {
 } from "../components/one-location/redesign/location-header-layout";
 import { cn } from "../lib/utils";
 
-const WIDTHS = [320, 360, 393, 430, 600, 768] as const;
+const WIDTHS = [320, 360, 393, 430, 600, 768, 1024] as const;
 const STATUS_LABELS = [
   "Location on",
   "Location off",
@@ -298,12 +298,16 @@ test.describe("One Location compact CTA layout", () => {
           header.titleClientWidth + 1,
         );
         if (width >= 640) {
-          expect(
-            header.actions.left - header.title.right,
-          ).toBeGreaterThanOrEqual(16);
-          expect(header.actions.left - header.title.right).toBeLessThanOrEqual(
-            32,
-          );
+          if (width >= 1024) {
+            expect(header.header.right - header.actions.right).toBeLessThanOrEqual(1);
+          } else {
+            expect(
+              header.actions.left - header.title.right,
+            ).toBeGreaterThanOrEqual(16);
+            expect(header.actions.left - header.title.right).toBeLessThanOrEqual(
+              32,
+            );
+          }
         }
         if (width >= 400) {
           expect(
