@@ -58,6 +58,7 @@ import {
 import { usePersonaState } from "@/lib/persona/persona-context";
 import { trackEvent } from "@/lib/observability/client";
 import { trackGrowthFunnelStepCompleted } from "@/lib/observability/growth";
+import { trackRiaVerificationStatusChanged } from "@/lib/observability/ria-events";
 import { resolveAppEnvironment } from "@/lib/app-env";
 import { openKaiCommandBar } from "@/lib/navigation/kai-command-bar-events";
 import { PreVaultUserStateService } from "@/lib/services/pre-vault-user-state-service";
@@ -960,6 +961,11 @@ export default function RiaOnboardingPage({
         result.verification_status ||
         ""
       ).toLowerCase();
+
+      // Verification is the step that gates a profile going live in the
+      // directory. `ria_onboarding_submitted` above only says the form went
+      // in. See lib/observability/ria-events.ts for why this is bucketed.
+      trackRiaVerificationStatusChanged(advisoryOutcome);
 
       await RiaService.setRiaMarketplaceDiscoverability(idToken, {
         enabled: advisoryOutcome === "verified" || advisoryOutcome === "active",
