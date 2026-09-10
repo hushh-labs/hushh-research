@@ -77,9 +77,17 @@ def hub_environment() -> str:
 
 
 def _signing_hmac_key() -> str:
-    # Never used for a binding (asymmetric is required); passed because the
-    # signature helper's contract names it.
-    return _clean(os.getenv("APP_SIGNING_KEY"))
+    """The HMAC key the signature helper's contract names, read through the config.
+
+    A binding is never HMAC-signed: `_sign` passes `require_asymmetric=True`, so the
+    helper refuses unless an Ed25519 key is configured. The value is still read the
+    way every other canonical secret is read, through `hushh_mcp.config`, because a
+    direct environment read bypasses the KMS envelope resolution that config owns
+    and the runtime-config contract refuses it for exactly that reason.
+    """
+    from hushh_mcp.config import APP_SIGNING_KEY  # noqa: PLC0415 - avoids import cycle
+
+    return _clean(APP_SIGNING_KEY)
 
 
 def _sign(payload: str) -> str:
