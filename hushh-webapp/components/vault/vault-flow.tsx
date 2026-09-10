@@ -219,7 +219,7 @@ function clearGeneratedUnlockCancellation(
   }
 }
 
-function claimGeneratedUnlock(
+function _claimGeneratedUnlock(
   owner: symbol,
   userId: string,
   mode: GeneratedVaultKeyMode,
@@ -926,7 +926,7 @@ export function VaultFlow({
   ]);
 
   const handleUnlockGeneratedDefault = useCallback(
-    async (source: GeneratedUnlockAttemptSource = "user") => {
+    async (_source: GeneratedUnlockAttemptSource = "user") => {
       if (
         generatedUnlockAttemptRef.current ||
         !isGeneratedVaultKeyMode(vaultMode)
