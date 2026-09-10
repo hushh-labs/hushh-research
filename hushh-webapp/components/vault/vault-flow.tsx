@@ -981,7 +981,9 @@ export function VaultFlow({
         }
 
         await VaultService.assertVaultKeyMatchesState(vaultData, decryptedKey);
-        await finalizeUnlock(decryptedKey);
+        if (!(await finalizeUnlock(decryptedKey))) {
+          throw new Error("We could not complete Vault access. Please try again.");
+        }
       } catch (err: any) {
         // A duplicate caller is rejected before it can reach the browser. The
         // original ceremony remains active and owns the visible prompt.
@@ -1679,6 +1681,10 @@ export function VaultFlow({
                           fullWidth
                           className={VAULT_ALTERNATIVE_BUTTON_CLASS}
                           onClick={() => {
+                            if (hasActiveGeneratedWrapper) {
+                              handleRetryGeneratedUnlock();
+                              return;
+                            }
                             generatedUnlockCancelledRef.current = false;
                             if (availableGeneratedMethod) {
                               clearGeneratedUnlockCancellation(
