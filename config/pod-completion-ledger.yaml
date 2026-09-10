@@ -184,6 +184,10 @@ assertions:
         all_taught_facts_recalled: {equals: true}
         negative_control_clean: {equals: true}
         identity_preserved: {equals: true}
+        # Recall across the death is credited only as an observed load_memory call,
+        # and the facts come back to a paraphrase, not only to their exact words.
+        recall_via_observed_tool_call: {equals: true}
+        paraphrase_recalled: {equals: true}
         cleanup_verified: {equals: true}
       reproduce: consent-protocol/scripts/ops/pod_lifecycle_drill.py
       expires_after_days: 14
@@ -392,6 +396,10 @@ assertions:
         identity_preserved: {equals: true}
         learned_before_upgrade: {equals: true}
         recalled_after_upgrade: {equals: true}
+        # A pod that holds tombstones must never be moved onto an image that predates
+        # them (scripts/ops/pod_upgrade.py refuses below MEMORY_TOMBSTONE_MIN_IMAGE_COMMIT),
+        # and after any image change a revoked fact stays unrecalled.
+        tombstones_honoured_after_upgrade: {equals: true}
         cleanup_verified: {equals: true}
       reproduce: consent-protocol/scripts/ops/pod_upgrade.py
       expires_after_days: 14
@@ -457,6 +465,12 @@ assertions:
         pod_identity_created_engine: {equals: true}
         provider_recall_verified: {equals: true}
         sealed_log_fallback_verified: {equals: true}
+        # The provider boundary is a recorded consent (cap.memory.provider.process):
+        # generation ran only after it, and a revoked fact never came back through
+        # the provider. Fallback to the sealed log is never credited as provider success.
+        provider_consent_recorded: {equals: true}
+        provider_generate_completed: {equals: true}
+        provider_revoked_fact_not_served: {equals: true}
       reproduce: consent-protocol/scripts/ops/pod_lifecycle_drill.py
       expires_after_days: 14
       pending: >-
@@ -464,6 +478,56 @@ assertions:
         Scripted provider tests establish the adapter contract, not owner-cloud engine
         creation or real recall. Extend the existing disposable lifecycle drill to
         observe these facts without crediting sealed-log fallback as provider success.
+
+  - id: the-agent-learns-between-turns
+    requirement: Learning loop
+    statement: "The private agent learns between turns: a paraphrase is answered from an observed load_memory call, a correction wins over the old value, a revocation stays final across a restart's replay, and a never-taught question yields nothing."
+    falsifiable: true
+    owner_action: >-
+      Run the memory learning drill against an installed image that reports the
+      memory join (scripts/ops/pod_lifecycle_drill.py --memory) on the dev
+      simulation pod with Vertex and on the owner pod through the hub with Puppy,
+      same fixtures. Grade the blinded judge queue in a separate session under the
+      puppy-one-harness contract; quality_judged_independently is set only by that
+      run and never by the drill. The receipt must be produced by the drill itself
+      and stay sanitized: counts, hashes and words, never a taught fact.
+    check:
+      kind: receipt
+      required_target_mode: deployed
+      # Expected target and artifact digest are filled only from a fresh verified run.
+      source_paths:
+        - consent-protocol/scripts/ops/pod_lifecycle_drill.py
+        - consent-protocol/api/routes/one/pod_turn.py
+        - consent-protocol/api/routes/one/pod_memory.py
+        - consent-protocol/hushh_mcp/one_adk/memory_review.py
+        - consent-protocol/hushh_mcp/one_adk/memory_review_tools.py
+        - consent-protocol/hushh_mcp/one_adk/text_runtime.py
+        - consent-protocol/hushh_mcp/services/pod_memory_service.py
+        - consent-protocol/hushh_mcp/services/pod_memory_bank.py
+        - consent-protocol/hushh_mcp/services/pod_commit_log.py
+        - consent-protocol/pod_server.py
+      observation_requirements:
+        taught: {minimum: 6}
+        paraphrase_recalled: {equals: true}
+        recall_via_observed_tool_call: {equals: true}
+        correction_supersedes: {equals: true}
+        stale_value_not_recalled: {equals: true}
+        restart_without_history: {equals: true}
+        revoked_fact_not_recalled_after_replay: {equals: true}
+        negative_control_clean: {equals: true}
+        review_ran_on_close: {equals: true}
+        review_provider_matches_turn_provider: {equals: true}
+        memory_join_present_on_image: {equals: true}
+        quality_judged_independently: {equals: true}
+      reproduce: consent-protocol/scripts/ops/pod_lifecycle_drill.py
+      expires_after_days: 14
+      pending: >-
+        No passing run yet. The offline self-test proves the orchestration and that
+        seven leaky variants fail it; it proves nothing about an installed image.
+        Both live runs are still owed: the dev simulation pod with Vertex, and the
+        owner pod relayed through the hub with Puppy as the model. The judged
+        quality number needs a separate grading session; until it lands the
+        receipt cannot carry quality_judged_independently as true.
 
   - id: only-the-pod-can-vouch-for-its-model
     requirement: Economics
