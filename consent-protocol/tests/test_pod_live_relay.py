@@ -30,6 +30,9 @@ def dependencies(monkeypatch):
         "issue_pod_data_door_grants",
         AsyncMock(
             return_value={
+                "invoke": "synthetic-invoke-read",
+                "marketplace": "synthetic-marketplace-read",
+                "nav": "synthetic-nav-read",
                 "location": "synthetic-location-read",
                 "email": "synthetic-email-read",
                 "calendar": "synthetic-calendar-read",
@@ -197,6 +200,9 @@ async def test_admitted_hub_couriers_bootstrap_and_context_to_bound_pod(dependen
         assert headers["X-Hussh-location-Grant"] == "synthetic-location-read"
         assert headers["X-Hussh-email-Grant"] == "synthetic-email-read"
         assert headers["X-Hussh-calendar-Grant"] == "synthetic-calendar-read"
+        assert headers["X-Hussh-invoke-Grant"] == "synthetic-invoke-read"
+        assert headers["X-Hussh-marketplace-Grant"] == "synthetic-marketplace-read"
+        assert headers["X-Hussh-nav-Grant"] == "synthetic-nav-read"
         assert headers["Authorization"] == "Bearer synthetic-iam"
         assert headers["X-Hussh-Voice-Session"].startswith("voice_")
         assert connection_options["url"] == "wss://pod.example/api/one/pod/live"

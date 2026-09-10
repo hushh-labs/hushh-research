@@ -30,6 +30,7 @@ from typing import Any, Optional
 from fastapi import APIRouter, Body, Header, HTTPException, WebSocket
 from pydantic import BaseModel, ConfigDict, Field
 
+from api.routes.one.pod_relay import POD_DATA_DOOR_NAMES
 from hushh_mcp.runtime_settings import pod_mode, pod_turn_enabled
 from hushh_mcp.services.pod_commit_log import PodLogFenced
 from hushh_mcp.services.pod_pkm_resolver import PodPkmOwnerMismatch
@@ -569,7 +570,7 @@ async def pod_live_route(websocket: WebSocket) -> None:
             raise HTTPException(status_code=403, detail="voice binding required")
         claims = await _validate_consent(consent)
         doors = {}
-        for name in ("location", "email", "calendar"):
+        for name in POD_DATA_DOOR_NAMES:
             token = str(websocket.headers.get("x-hussh-" + name + "-grant") or "")
             if len(token) > 4096:
                 raise HTTPException(status_code=403, detail="specialist grant unavailable")

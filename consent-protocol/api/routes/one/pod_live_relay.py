@@ -19,6 +19,7 @@ from api.routes.one.pod_live_authority import HubVoiceAuthority
 from api.routes.one.pod_live_courier import run_live_courier
 from api.routes.one.pod_live_transport import MAX_FRAME_BYTES
 from api.routes.one.pod_relay import (
+    POD_DATA_DOOR_NAMES,
     _identity_token,
     _pod_url,
     _require_enabled,
@@ -149,7 +150,7 @@ async def relay_private_live(browser: Any, *, user_id: str) -> None:
             door_headers = {}
             for name, token in doors.items():
                 if (
-                    name not in {"location", "email", "calendar"}
+                    name not in POD_DATA_DOOR_NAMES
                     or not isinstance(token, str)
                     or not 0 < len(token) <= 4096
                 ):

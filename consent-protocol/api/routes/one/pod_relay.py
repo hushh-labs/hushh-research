@@ -58,6 +58,17 @@ _INFO_TIMEOUT_SECONDS = 5.0
 # seconds, and a 5s bound would turn every genuine answer into "your agent is not
 # answering right now" -- a false fault report, in the person's own language.
 _TURN_TIMEOUT_SECONDS = 120.0
+# The names are the single wire contract shared by text and Live pod relays.
+# Each value is a short-lived, owner-scoped consent grant; no caller may add a
+# header outside this allowlist.
+POD_DATA_DOOR_NAMES: tuple[str, ...] = (
+    "invoke",
+    "marketplace",
+    "nav",
+    "location",
+    "email",
+    "calendar",
+)
 
 
 def _require_enabled() -> None:
