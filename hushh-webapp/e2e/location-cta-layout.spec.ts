@@ -3,10 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import {
-  awaitProductFont,
-  productFontStyle,
-} from "./fixtures/product-font";
+import { awaitProductFont, productFontStyle } from "./fixtures/product-font";
 import {
   DURATION_COMPACT_CELL_CLASS,
   DURATION_COMPACT_GRID_CLASS,
@@ -108,7 +105,9 @@ async function buildFixture(): Promise<string> {
     )
     .join("");
   const headers = STATUS_LABELS.map(
-    (label) => `<header data-header class="${LOCATION_HUB_PAGE_HEADER_CLASSNAME}">
+    (
+      label,
+    ) => `<header data-header class="${LOCATION_HUB_PAGE_HEADER_CLASSNAME}">
       <div class="flex items-stretch gap-3 sm:gap-4">
         <span class="h-11 w-11 shrink-0 self-center rounded-[10px]"></span>
         <div class="min-w-0 flex-1">
@@ -172,7 +171,9 @@ test.describe("One Location compact CTA layout", () => {
 
       const result = await page.evaluate(() => {
         const box = (selector: string) =>
-          document.querySelector<HTMLElement>(selector)!.getBoundingClientRect();
+          document
+            .querySelector<HTMLElement>(selector)!
+            .getBoundingClientRect();
         const publicCard = box("[data-public-card]");
         const publicCardPaddingLeft = Number.parseFloat(
           getComputedStyle(
@@ -227,6 +228,11 @@ test.describe("One Location compact CTA layout", () => {
           publicOptions: publicOptions.map((value) => value.toJSON()),
           publicCta: publicCta.toJSON(),
           shareCard: shareCard.toJSON(),
+          shareCardPaddingRight: parseFloat(
+            getComputedStyle(
+              document.querySelector<HTMLElement>("[data-share-card]")!,
+            ).paddingRight,
+          ),
           shareOptions: shareOptions.toJSON(),
           shareCells: shareCells.map((value) => value.toJSON()),
           shareActions: shareActions.toJSON(),
@@ -248,9 +254,7 @@ test.describe("One Location compact CTA layout", () => {
         ),
       ).toBeLessThanOrEqual(1);
       expect(
-        Math.abs(
-          result.publicOptions[0].width - result.publicOptions[1].width,
-        ),
+        Math.abs(result.publicOptions[0].width - result.publicOptions[1].width),
       ).toBeLessThanOrEqual(1);
       expect(result.publicOptions[0].height).toBeGreaterThanOrEqual(44);
       expect(result.publicOptions[1].height).toBeGreaterThanOrEqual(44);
@@ -261,12 +265,13 @@ test.describe("One Location compact CTA layout", () => {
       expect(result.shareOptions.width).toBeLessThanOrEqual(240.5);
       expect(
         Math.abs(
-          result.shareOptions.left -
-            (result.shareCard.left +
-              (result.shareCard.width - result.shareOptions.width) / 2),
+          result.shareOptions.right -
+            (result.shareCard.right - result.shareCardPaddingRight),
         ),
       ).toBeLessThanOrEqual(1);
-      expect(new Set(result.shareCells.map((cell) => Math.round(cell.top))).size).toBe(2);
+      expect(
+        new Set(result.shareCells.map((cell) => Math.round(cell.top))).size,
+      ).toBe(2);
       for (const cell of result.shareCells) {
         expect(cell.height).toBeGreaterThanOrEqual(44);
         expect(
@@ -281,7 +286,9 @@ test.describe("One Location compact CTA layout", () => {
       }
 
       for (const header of result.headers) {
-        expect(header.actions.right).toBeLessThanOrEqual(header.header.right + 1);
+        expect(header.actions.right).toBeLessThanOrEqual(
+          header.header.right + 1,
+        );
         expect(header.toggle.left).toBeGreaterThanOrEqual(
           header.actions.left - 1,
         );
@@ -299,14 +306,16 @@ test.describe("One Location compact CTA layout", () => {
         );
         if (width >= 640) {
           if (width >= 1024) {
-            expect(header.header.right - header.actions.right).toBeLessThanOrEqual(1);
+            expect(
+              header.header.right - header.actions.right,
+            ).toBeLessThanOrEqual(1);
           } else {
             expect(
               header.actions.left - header.title.right,
             ).toBeGreaterThanOrEqual(16);
-            expect(header.actions.left - header.title.right).toBeLessThanOrEqual(
-              32,
-            );
+            expect(
+              header.actions.left - header.title.right,
+            ).toBeLessThanOrEqual(32);
           }
         }
         if (width >= 400) {

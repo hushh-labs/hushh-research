@@ -71,6 +71,14 @@ Approximate native permission and fixes worse than 100 m fail before
 publication with an app-settings recovery path. Active rosters refresh on a
 15-second, visible-app cadence without extending the server expiry.
 
+The nearby place chooser exposes search and category filters immediately, with
+the full result list in a bounded scroll area. Category changes filter the
+existing nearby results. The accuracy information box is omitted; permission,
+capture, and check-in rejection recovery still use their existing controls.
+
+The final sharing review keeps its duration choices in a compact two-column
+group aligned to the card's right edge on phones and desktop.
+
 ## Saved location onboarding
 
 Every Location onboarding run offers the saved-place flow after foreground
