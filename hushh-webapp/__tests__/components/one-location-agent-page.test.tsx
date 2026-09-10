@@ -1861,7 +1861,7 @@ describe("OneLocationAgentPage", () => {
     expect(headerActions.className).toContain("ml-auto");
     expect(headerActions.className).toContain("items-center");
     expect(headerActions.className).toContain("justify-center");
-    expect(headerActions.className).toContain("min-w-[108px]");
+    expect(headerActions.className).toContain("min-w-[104px]");
     expect(headerActions.className).toContain("max-w-[45vw]");
     // The actions column owns the switch and its compact visible status.
     const status = screen.getByTestId("one-location-header-status");

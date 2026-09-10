@@ -931,9 +931,9 @@ export function resolveLocationDeepLinkFocus(input: {
 
 /**
  * The id the header switch points `aria-describedby` at. A constant, not
- * `useId`: the status text now renders under the title while the switch stays
- * in the actions column, and `aria-describedby` resolves by id anywhere in the
- * document. There is exactly one Location header on screen.
+ * `useId`: the status text now renders below the switch in the actions column,
+ * and `aria-describedby` resolves by id anywhere in the document. There is
+ * exactly one Location header on screen.
  */
 const LOCATION_HEADER_STATUS_ID = "one-location-header-status";
 
