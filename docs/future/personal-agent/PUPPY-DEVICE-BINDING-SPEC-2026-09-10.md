@@ -10,6 +10,12 @@ disagree: `consent-protocol/hushh_mcp/services/pod_session_authority.py`,
 `consent-protocol/hushh_mcp/services/puppy_broker.py`,
 `consent-protocol/hushh_mcp/services/pod_binding_service.py`.
 
+## Visual Context
+
+Canonical visual owner: [personal-agent Visual Map](./README.md). The topology this
+contract serves is the intended owner deployment in the
+[owner-pod direct runtime handoff](./OWNER-POD-DIRECT-RUNTIME-HANDOFF-2026-09-10.md).
+
 Style: the private agent is One; the device is Puppy One (Hermes on the owner's Mac).
 Code identifiers are verbatim. Every byte layout below is pinned by a pod-side test.
 
@@ -318,7 +324,8 @@ today. The pod-side order is pinned by `tests/test_timeout_ladder.py`.
   session is refused with `stale_version`, `expired` or `foreign_deployment`, admits at
   the pod, opens the relay, renews the session at 11 hours.
 * launchd job: `ai.hussh-one.puppy-relay.<profile_id>`, shaped like the existing jobs in
-  `scripts/hussh-one-supervisor.sh` (lines 585 to 620 at `6d5b3204af`): `RunAtLoad`,
+  the fork's supervisor script `hussh-one-supervisor.sh` in its scripts directory (lines
+  585 to 620 at `6d5b3204af`): `RunAtLoad`,
   `KeepAlive`, `ThrottleInterval` 10, stdout and stderr under the profile's log
   directory, `ProgramArguments` naming the venv python, the launcher and the profile.
 * Wire logging: pass a disabled logger to `websockets.connect(..., logger=<disabled>)`;
