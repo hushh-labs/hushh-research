@@ -255,7 +255,10 @@ export function PageHeader({
             )}
             data-slot="page-header-row"
           >
-            <div className="min-w-0 flex-1 space-y-[var(--page-header-copy-gap)]">
+            <div
+              className="min-w-0 flex-1 space-y-[var(--page-header-copy-gap)]"
+              data-slot="page-header-copy"
+            >
               {eyebrow ? (
                 <SectionLabel
                   as="p"

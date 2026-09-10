@@ -45,6 +45,25 @@ export type TopShellBreadcrumbConfig = {
   hideBack?: boolean;
 };
 
+/**
+ * Keep the visible top-bar trail to immediate context only.
+ *
+ * Resolvers retain their complete hierarchy for deterministic back navigation,
+ * but rendering more than the parent and current page crowds the compact app
+ * bar and turns every ancestor into a truncated fragment. The app root remains
+ * implicit on inner One routes, matching the existing top-shell convention.
+ */
+export function visibleTopShellBreadcrumbItems(
+  items: TopShellBreadcrumbItem[],
+): TopShellBreadcrumbItem[] {
+  const cleaned = items.filter(
+    (item) => typeof item.label === "string" && item.label.trim().length > 0,
+  );
+  const withoutImplicitRoot =
+    cleaned[0]?.label === "One" ? cleaned.slice(1) : cleaned;
+  return withoutImplicitRoot.slice(-2);
+}
+
 function titleizeSegment(segment: string): string {
   return segment
     .split("-")

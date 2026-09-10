@@ -167,6 +167,7 @@ import {
 } from "./location-cta-layout";
 import {
   LOCATION_HEADER_ACTIONS_CLASSNAME,
+  LOCATION_HUB_PAGE_HEADER_CLASSNAME,
   LOCATION_HEADER_STATUS_CLASSNAME,
 } from "./location-header-layout";
 import {
@@ -1752,7 +1753,7 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
         titleRole="agent"
         actionsInlineMobile
         actions={<LocationHeaderActions vm={vm} />}
-        className="[&>div:first-child]:!gap-3.5 [&_[data-slot=page-header-actions]]:!self-center [&_[data-slot=page-header-row]]:!items-center"
+        className={LOCATION_HUB_PAGE_HEADER_CLASSNAME}
       />
 
       {/*
