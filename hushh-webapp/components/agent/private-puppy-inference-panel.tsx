@@ -40,6 +40,13 @@ export function PrivatePuppyInferencePanel({ className }: { className?: string }
     try {
       if (!user?.uid || !vaultOwnerToken) throw new Error("PRIVATE_AGENT_UNLOCK_REQUIRED");
       if (link?.state !== "live" || !link.device?.id) throw new Error("PUPPY_OFFLINE");
+      const relayStatus = await ApiService.getPuppyRelayStatus(link.device.id);
+      if (relayStatus.state === "busy") throw new Error("PUPPY_BUSY");
+      if (!relayStatus.inference_ready) {
+        throw new Error(
+          relayStatus.state === "revoked" ? "PUPPY_REVOKED" : "PUPPY_OFFLINE",
+        );
+      }
       const status = await ApiService.getPersonalAgentStatus();
       if (status.state !== "active" || !status.hushhId) throw new Error("PRIVATE_AGENT_UNAVAILABLE");
       const grant = await ApiService.issuePuppyInferenceGrant(link.device.id);
@@ -58,7 +65,11 @@ export function PrivatePuppyInferencePanel({ className }: { className?: string }
       const reason = cause instanceof Error ? cause.message : "PRIVATE_AGENT_UNAVAILABLE";
       setError(
         reason === "PUPPY_OFFLINE"
-          ? "Puppy One is offline. Turn on the linked profile and try again."
+          ? "Puppy unavailable—open Puppy on your computer and try again."
+          : reason === "PUPPY_BUSY"
+            ? "Puppy is handling another private turn. Try again shortly."
+            : reason === "PUPPY_REVOKED"
+              ? "Puppy inference access was revoked. Re-link the device to continue."
           : reason === "PRIVATE_AGENT_UNLOCK_REQUIRED"
             ? "Unlock your private agent before using the Puppy relay."
             : "The private Puppy path is unavailable right now. No shared or cloud fallback was used.",

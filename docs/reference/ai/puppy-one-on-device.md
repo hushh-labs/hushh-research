@@ -339,10 +339,17 @@ the local model is the only work Puppy performs. Provider errors, offline device
 expired grants, mismatched request ids, and unsupported frames fail closed without
 cloud fallback or replay.
 
-The broker is process-local and therefore suitable for the isolated dev lane only;
-Cloud Run session affinity is best effort and multi-instance operation requires an
-external rendezvous store before production use. The device-side adapter calls the
-configured local OpenAI-compatible model endpoint directly, so Hermes tool
-execution is not reachable through this lane. A successful live local-model turn,
-owner identity receipt, and installed dev image are required before marking the
-core path complete; source wiring and synthetic tests alone are not that evidence.
+The WebSocket itself remains instance-local, while the existing Redis/Memorystore
+seam carries only short-lived presence, busy fencing, and bounded inference frames
+between Cloud Run instances. `PUPPY_RELAY_RENDEZVOUS_URL` may provide a dedicated
+URI; otherwise the relay reuses `RATE_LIMIT_STORAGE_URI`. If neither is configured,
+the relay fails closed when the device is not on the same instance. `GET
+/api/one/puppy/status/{device_id}` reports `ready`, `busy`, `offline`, or `revoked`
+from the authenticated owner view; it never reports a shared or cloud fallback.
+Cloud Run session affinity remains best effort, and connected WebSockets retain
+active-instance billing, so capacity and idle cost still require live measurement.
+The device-side adapter calls the configured local OpenAI-compatible model endpoint
+directly, so Hermes tool execution is not reachable through this lane. A successful
+live local-model turn, owner identity receipt, and installed dev image are required
+before marking the core path complete; source wiring and synthetic tests alone are
+not that evidence.

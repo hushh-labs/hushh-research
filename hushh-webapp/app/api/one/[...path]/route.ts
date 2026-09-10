@@ -14,6 +14,10 @@ const ONE_API_TIMEOUT_MS = resolveSlowRequestTimeoutMs(45_000, {
   developmentFloorMs: 45_000,
   overrideEnvKey: "HUSHH_ONE_API_TIMEOUT_MS",
 });
+const ONE_TURN_TIMEOUT_MS = resolveSlowRequestTimeoutMs(120_000, {
+  developmentFloorMs: 120_000,
+  overrideEnvKey: "HUSHH_ONE_TURN_TIMEOUT_MS",
+});
 const ONE_STREAM_TIMEOUT_MS = resolveSlowRequestTimeoutMs(285_000, {
   developmentFloorMs: 285_000,
   overrideEnvKey: "HUSHH_ONE_STREAM_TIMEOUT_MS",
@@ -87,6 +91,9 @@ function resolveOneUpstreamTimeoutMs(
   // web client's own 60s abort while letting the backend's answer arrive.
   if (path === "runtime/byoc/authorize/complete") {
     return 55_000;
+  }
+  if (/^u\/[^/]+\/turn$/.test(path)) {
+    return ONE_TURN_TIMEOUT_MS;
   }
   // Streaming routes (agent-chat, any `/stream` endpoint, or a caller that
   // asks for text/event-stream) hold open far longer than a JSON call, so the

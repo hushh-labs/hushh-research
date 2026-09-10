@@ -82,7 +82,7 @@ fi
 # The optional Puppy controls travel with the two model selectors so this lane
 # stays below Cloud Build's 100-entry step limit. An empty relay URL intentionally
 # leaves Puppy unusable even when the switch is on.
-IFS=',' read -r -a _model_pairs <<< "${_MODEL_SETTINGS:-puppy_enabled=false,puppy_relay_url=,puppy_model=local,puppy_timeout=45,agent_adk=,gemini_text=}"
+IFS=',' read -r -a _model_pairs <<< "${_MODEL_SETTINGS:-puppy_enabled=false,puppy_relay_url=,puppy_model=local,puppy_timeout=120,agent_adk=,gemini_text=}"
 for _pair in "${_model_pairs[@]}"; do
   _key="${_pair%%=*}"; _value="${_pair#*=}"
   case "${_key}" in

@@ -18,7 +18,7 @@ from .base import ProviderTransport
 from .normalized import NormalizedChunk, NormalizedFunctionCall, NormalizedResponse
 from .translate import NeutralRequest
 
-DEFAULT_TIMEOUT_SECONDS = 45.0
+DEFAULT_TIMEOUT_SECONDS = 120.0
 MAX_FRAME_BYTES = 1_048_576
 
 
@@ -105,9 +105,18 @@ class PuppyRelayTransport(ProviderTransport):
         try:
             from websockets.asyncio.client import connect
 
+            headers = {
+                "Authorization": f"Bearer {self._token}",
+                "X-Hussh-Relay-Role": "pod",
+            }
+            relay_environment = str(
+                os.getenv("PUPPY_RELAY_ENV") or os.getenv("HUSHH_DEPLOY_ENV") or ""
+            ).strip()
+            if relay_environment:
+                headers["X-Hussh-Deploy-Env"] = relay_environment
             return await connect(
                 self._url,
-                additional_headers={"Authorization": f"Bearer {self._token}"},
+                additional_headers=headers,
                 max_size=MAX_FRAME_BYTES,
                 open_timeout=min(self._timeout, 15.0),
                 ping_interval=20,

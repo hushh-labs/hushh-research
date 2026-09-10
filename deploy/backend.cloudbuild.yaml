@@ -583,7 +583,7 @@ substitutions:
   _PUPPY_INFERENCE_ENABLED: "false"
   _PUPPY_INFERENCE_RELAY_URL: ""
   _PUPPY_INFERENCE_MODEL: "local"
-  _PUPPY_INFERENCE_TIMEOUT_SECONDS: "45"
+  _PUPPY_INFERENCE_TIMEOUT_SECONDS: "120"
   # Durable Kai analyze-run terminal-checkpoint store (migration 125). Empty =>
   # off (add_env skips empty values; runtime_settings defaults
   # False), preserving in-memory-only behavior. Set per-env below.

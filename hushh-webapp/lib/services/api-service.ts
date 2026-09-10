@@ -4118,6 +4118,28 @@ export class ApiService {
     return response.json();
   }
 
+  static async getPuppyRelayStatus(deviceId: string): Promise<{
+    device_id: string;
+    state: "revoked" | "ready" | "busy" | "offline" | "unavailable";
+    linked: boolean;
+    inference_ready: boolean;
+    execution_target: "puppy" | "unavailable";
+  }> {
+    const firebaseIdToken = await this.getFirebaseToken();
+    const response = await ApiService.apiFetch(
+      `/api/one/puppy/status/${encodeURIComponent(deviceId)}`,
+      {
+        method: "GET",
+        headers: {
+          ...(firebaseIdToken ? { Authorization: `Bearer ${firebaseIdToken}` } : {}),
+        },
+        cache: "no-store",
+      },
+    );
+    if (!response.ok) throw new Error(`PUPPY_STATUS_UNAVAILABLE:${response.status}`);
+    return response.json();
+  }
+
   /**
    * Build the WebSocket URL for the server-side One ADK live relay.
    *
