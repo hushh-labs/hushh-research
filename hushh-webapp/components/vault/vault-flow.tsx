@@ -843,7 +843,7 @@ export function VaultFlow({
       }
     } catch (err: any) {
       console.error("Unlock error:", err);
-      if (isWebAuthnCancellation(err)) {
+      if (isWebAuthnCancellationError(err)) {
         setError(null);
         return;
       }
@@ -934,6 +934,7 @@ export function VaultFlow({
         return;
       }
       const generatedMode = vaultMode;
+      try {
         if (
           Capacitor.isNativePlatform() &&
           generatedMode === "generated_default_web_prf"
