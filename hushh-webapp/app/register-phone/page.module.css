@@ -98,7 +98,7 @@
 }
 
 :global(.dark) .phoneTitle h1 {
-  width: 324px;
+  width: 402px;
   height: 32px;
   margin: 0 auto;
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif;
@@ -107,6 +107,7 @@
   line-height: 32px;
   letter-spacing: -0.7px;
   text-align: center;
+  white-space: nowrap;
 }
 
 :global(.dark) .inputRegion {

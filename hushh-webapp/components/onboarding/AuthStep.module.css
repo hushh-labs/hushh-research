@@ -92,8 +92,8 @@
 :global(.dark) .authTitle {
   position: absolute;
   top: 357px;
-  left: 76px;
-  width: 250px;
+  left: 0;
+  width: 402px;
   height: 32px;
   margin: 0;
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif;
@@ -102,6 +102,7 @@
   line-height: 32px;
   letter-spacing: -0.7px;
   text-align: center;
+  white-space: nowrap;
 }
 
 :global(.dark) .providerActionsShell {

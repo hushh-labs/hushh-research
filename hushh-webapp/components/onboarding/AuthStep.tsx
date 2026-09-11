@@ -1174,7 +1174,7 @@ export function AuthStep({
               aria-level={1}
               aria-label="Welcome to One"
               className={cn(
-                "font-[family-name:var(--font-app-display)] text-[27px] font-bold leading-[1.1] tracking-[-0.7px] text-[#0a0a0a] dark:text-[#fafafa]",
+                "whitespace-nowrap font-[family-name:var(--font-app-display)] text-[27px] font-bold leading-[1.1] tracking-[-0.7px] text-[#0a0a0a] dark:text-[#fafafa]",
                 styles.authTitle,
               )}
             >
