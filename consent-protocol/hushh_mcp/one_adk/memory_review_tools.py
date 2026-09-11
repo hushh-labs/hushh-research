@@ -81,7 +81,7 @@ class MemoryReviewSink:
         return {"status": "refused", "reason": reason}
 
     def _cap_reached(self) -> bool:
-        return self.op_count >= MEMORY_REVIEW_MAX_OPS
+        return bool(self.op_count >= MEMORY_REVIEW_MAX_OPS)
 
     @staticmethod
     def _clean_fact(fact: Any) -> str:

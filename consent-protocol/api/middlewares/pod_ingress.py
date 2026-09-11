@@ -123,7 +123,7 @@ def _header(headers: Any, name: str) -> str:
     wanted = name.lower().encode("latin-1")
     for key, value in headers or ():
         if key.lower() == wanted:
-            return value.decode("latin-1").strip()
+            return str(value.decode("latin-1")).strip()
     return ""
 
 

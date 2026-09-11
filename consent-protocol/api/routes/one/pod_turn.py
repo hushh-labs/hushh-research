@@ -303,7 +303,7 @@ async def _puppy_link_available(hushh_id: str, device_id: str) -> bool:
         from hushh_mcp.services.puppy_broker import BROKER  # noqa: PLC0415
     except Exception:  # noqa: BLE001 - no broker in this image means no link
         return False
-    return await BROKER.available((hushh_id, device_id))
+    return bool(await BROKER.available((hushh_id, device_id)))
 
 
 async def _require_local_puppy_admission(session: dict, device_id: str) -> None:
@@ -785,7 +785,7 @@ def _resolve_model(payload: PodTurnRequest | None = None) -> tuple[str, str]:
         # before this resolver is reached.
         if requested != "puppy":
             raise HTTPException(status_code=400, detail="requested inference target is unavailable")
-        if not str(payload.puppy_device_id or "").strip():
+        if not str(getattr(payload, "puppy_device_id", None) or "").strip():
             raise HTTPException(status_code=400, detail="Puppy device is required")
         model = str(os.getenv("PUPPY_INFERENCE_MODEL") or "local").strip()
         return "puppy", model
@@ -833,7 +833,8 @@ async def _bounded_turn(turn: Any) -> dict:
 
     try:
         async with asyncio.timeout(POD_TURN_ROUTE_TIMEOUT_SECONDS):
-            return await turn
+            completed: dict = await turn
+            return completed
     except TimeoutError:
         logger.warning("pod_turn.route_timeout seconds=%s", POD_TURN_ROUTE_TIMEOUT_SECONDS)
         raise HTTPException(

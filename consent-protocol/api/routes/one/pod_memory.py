@@ -267,8 +267,9 @@ async def run_conversation_close(
     And if such a review DOES reach for a tombstone, it writes nothing at all,
     including its additive half: the alternative is the corrected sentence landing
     beside the stale fact it was meant to replace, which recall would then serve as
-    two equally true facts. ``run_memory_review`` states that rule, what it costs
-    and why the checkpoint still advances.
+    two equally true facts. ``run_memory_review`` states that rule, what it costs,
+    and why the checkpoint HOLDS rather than advancing: the records stay
+    unreviewed so the door that may retire them still finds them.
     """
     claims = await _admit_owner(consent_token, verifier=verifier, session=session)
 
@@ -582,7 +583,8 @@ async def run_memory_status(
     """Owner inspection: counts, sequence numbers and provider words. No content."""
     await _admit_owner(consent_token, verifier=verifier, session=session)
     service = _require_memory(memory_service)
-    return await service.memory_status()
+    status: dict = await service.memory_status()
+    return status
 
 
 @router.post("/memory/revoke")

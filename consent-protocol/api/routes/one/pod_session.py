@@ -212,7 +212,8 @@ async def _puppy_report(hushh_id: str) -> dict[str, Any]:
     try:
         from hushh_mcp.services.puppy_broker import BROKER  # noqa: PLC0415
 
-        return await BROKER.report(hushh_id)
+        report: dict[str, Any] = await BROKER.report(hushh_id)
+        return report
     except Exception:  # noqa: BLE001 - status must not fail on the broker
         return {"links": []}
 

@@ -654,8 +654,9 @@ async def run_memory_review(
         # THE PASS IS REFUSED AS A UNIT. Nothing reaches `_apply_sink`, including
         # the additive operations and the PKM proposals from the same pass: half a
         # correction recorded beside the fact it was meant to replace is the
-        # contradiction this whole narrowing exists to prevent. See the docstring
-        # for why the checkpoint below still advances anyway.
+        # contradiction this whole narrowing exists to prevent. The checkpoint
+        # does not move either: see the docstring for why a denial must leave the
+        # records for the door that may retire them.
         outcome: ReviewOutcome = "refused_authority"
     elif sink.op_count == 0:
         outcome = "nothing_to_save"

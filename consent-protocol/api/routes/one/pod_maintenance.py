@@ -168,4 +168,5 @@ async def memory_bank_rebuild_job(
 async def _rebuild_memory_bank_engine(*, log: Any = None) -> str:
     from hushh_mcp.services.pod_memory_bank import rebuild_memory_bank  # noqa: PLC0415
 
-    return await rebuild_memory_bank(store=getattr(log, "_store", None), log=log)
+    rebuilt: str = await rebuild_memory_bank(store=getattr(log, "_store", None), log=log)
+    return rebuilt

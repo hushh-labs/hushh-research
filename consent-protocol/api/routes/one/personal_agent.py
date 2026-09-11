@@ -477,7 +477,8 @@ async def personal_agent_endpoint_route(
     )
 
     try:
-        return await PodBindingService().endpoint(user_id=user_id)
+        endpoint: dict = await PodBindingService().endpoint(user_id=user_id)
+        return endpoint
     except PodBindingError as exc:
         raise HTTPException(
             status_code=exc.status, detail={"code": exc.code, "message": exc.message}

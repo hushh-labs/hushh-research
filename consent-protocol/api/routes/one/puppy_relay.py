@@ -674,9 +674,9 @@ async def puppy_relay(websocket: WebSocket) -> None:
             link = await BROKER.register(
                 key,
                 websocket,
-                model=hello.get("model"),
+                model=str(hello.get("model") or ""),
                 capabilities=hello.get("capabilities"),
-                probe_mode=hello.get("probe_mode"),
+                probe_mode=str(hello.get("probe_mode") or ""),
             )
             await _device_loop(websocket, key, link)
         elif role == "pod":
