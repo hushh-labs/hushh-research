@@ -69,9 +69,14 @@ describe("Navbar bottom chrome contract", () => {
     );
     expect(agentBar).toContain('data-agent-action="voice"');
     expect(agentBar).toContain("onClick={handleVoiceStartClick}");
+    // The enabled command lane has a speech-end boundary, rather than the
+    // old open-ended voice-conversation contract. The launcher must describe
+    // that truth to assistive technology as well as visually.
     expect(agentBar).toContain(
-      "aria-label={`Start a voice conversation. ${hint}`}",
+      '? "Tap to talk to One. I’ll listen until you finish."',
     );
+    expect(agentBar).toContain("aria-label={");
+    expect(agentBar).toContain("voiceLauncherInstruction");
     // The native control is the complete visible voice pill. The separate
     // Agent Chat button is a labeled sibling action, so the dock never reads
     // like one giant input with a hidden second function.

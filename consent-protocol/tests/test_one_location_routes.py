@@ -35,6 +35,43 @@ class _MemoryNearbyPresenceService:
         return {"expired": 0, "deleted": 0}
 
 
+class _AsyncLocationOnboardingRetention:
+    def __init__(self, count: int) -> None:
+        self.count = count
+        self.calls = 0
+
+    async def purge_expired_drafts(self) -> int:
+        self.calls += 1
+        return self.count
+
+
+class _AsyncCapabilityRunRetention:
+    def __init__(self, count: int) -> None:
+        self.count = count
+        self.limits: list[int] = []
+
+    async def purge_expired(self, *, limit: int) -> int:
+        self.limits.append(limit)
+        return self.count
+
+
+def _stub_durable_runtime_retention(
+    monkeypatch,
+    *,
+    draft_count: int = 0,
+    run_count: int = 0,
+) -> tuple[_AsyncLocationOnboardingRetention, _AsyncCapabilityRunRetention]:
+    draft_retention = _AsyncLocationOnboardingRetention(draft_count)
+    run_retention = _AsyncCapabilityRunRetention(run_count)
+    monkeypatch.setattr(
+        one_location,
+        "get_location_onboarding_runtime_service",
+        lambda: draft_retention,
+    )
+    monkeypatch.setattr(one_location, "get_capability_run_store", lambda: run_retention)
+    return draft_retention, run_retention
+
+
 def _client(
     service: FourUserMemoryService, current_user: dict[str, str], monkeypatch
 ) -> TestClient:
@@ -952,11 +989,14 @@ def test_one_location_retention_purge_rejects_missing_maintenance_token(
     monkeypatch.setenv("ONE_LOCATION_RETENTION_TOKEN", "expected-token")
     service = FourUserMemoryService()
     client = _client(service, {"user_id": "user_a"}, monkeypatch)
+    draft_retention, run_retention = _stub_durable_runtime_retention(monkeypatch)
 
     response = client.post("/api/one/location/retention/purge?older_than_hours=12")
 
     assert response.status_code == 401
     assert response.json()["detail"]["code"] == "ONE_LOCATION_RETENTION_UNAUTHORIZED"
+    assert draft_retention.calls == 0
+    assert run_retention.limits == []
 
 
 def test_one_location_retention_purge_rejects_wrong_maintenance_token(
@@ -983,6 +1023,11 @@ def test_one_location_retention_purge_accepts_valid_dedicated_token(
     monkeypatch.setenv("ONE_LOCATION_RETENTION_TOKEN", "expected-token")
     service = FourUserMemoryService()
     client = _client(service, {"user_id": "user_a"}, monkeypatch)
+    draft_retention, run_retention = _stub_durable_runtime_retention(
+        monkeypatch,
+        draft_count=2,
+        run_count=3,
+    )
 
     response = client.post(
         "/api/one/location/retention/purge?older_than_hours=12",
@@ -990,7 +1035,12 @@ def test_one_location_retention_purge_accepts_valid_dedicated_token(
     )
 
     assert response.status_code == 200
-    assert response.json()["retention_hours"] == 12
+    payload = response.json()
+    assert payload["retention_hours"] == 12
+    assert payload["location_onboarding_drafts"] == 2
+    assert payload["capability_runs"] == 3
+    assert draft_retention.calls == 1
+    assert run_retention.limits == [500]
 
 
 def test_one_location_retention_route_purges_terminal_state_and_preserves_active_envelope(
@@ -1000,6 +1050,7 @@ def test_one_location_retention_route_purges_terminal_state_and_preserves_active
     monkeypatch.setenv("ONE_LOCATION_RETENTION_TOKEN", "expected-token")
     service = FourUserMemoryService()
     client = _client(service, {"user_id": "user_a"}, monkeypatch)
+    _stub_durable_runtime_retention(monkeypatch)
     now = datetime.now(timezone.utc)
     old_grant_id = str(uuid.uuid4())
     active_grant_id = str(uuid.uuid4())
@@ -1132,6 +1183,8 @@ def test_one_location_retention_route_purges_terminal_state_and_preserves_active
         "deleted_public_submissions": 1,
         "deleted_events": 1,
         "nearby_presence": {"expired": 0, "deleted": 0},
+        "location_onboarding_drafts": 0,
+        "capability_runs": 0,
         "retention_hours": 12.0,
     }
     assert old_grant_id not in service.grants
@@ -1170,6 +1223,7 @@ def test_one_location_retention_auth_can_be_disabled_in_local_test_mode(
     monkeypatch.delenv("ONE_LOCATION_RETENTION_TOKEN", raising=False)
     service = FourUserMemoryService()
     client = _client(service, {"user_id": "user_a"}, monkeypatch)
+    _stub_durable_runtime_retention(monkeypatch)
 
     response = client.post("/api/one/location/retention/purge?older_than_hours=12")
 

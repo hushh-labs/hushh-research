@@ -180,7 +180,10 @@
     "205_contact_sync_disconnect_actor.sql",
     "206_contact_sync_disconnect_actor_upgrade.sql",
     "207_pkm_manifest_display_segment.sql",
-    "208_gmail_authorized_send_enablement_backfill.sql"
+    "208_gmail_authorized_send_enablement_backfill.sql",
+    "209_one_capability_runs.sql",
+    "210_one_location_onboarding_runtime.sql",
+    "211_one_capability_runs_rls_lockdown.sql"
   ],
   "environment_overlays": {
     "uat": [
@@ -310,7 +313,10 @@
       "203_feed_counterpart_recipient_index.sql",
       "204_feed_counterpart_indexed_lookup.sql",
       "205_contact_sync_disconnect_actor.sql",
-      "206_contact_sync_disconnect_actor_upgrade.sql"
+      "206_contact_sync_disconnect_actor_upgrade.sql",
+      "209_one_capability_runs.sql",
+      "210_one_location_onboarding_runtime.sql",
+      "211_one_capability_runs_rls_lockdown.sql"
     ],
     "pkm": [
       "030_pkm_cutover.sql",
@@ -357,6 +363,8 @@
     "204_feed_counterpart_indexed_lookup.sql": "rollback/204_feed_counterpart_indexed_lookup.rollback.sql",
     "205_contact_sync_disconnect_actor.sql": "rollback/205_contact_sync_disconnect_actor.rollback.sql",
     "206_contact_sync_disconnect_actor_upgrade.sql": "rollback/206_contact_sync_disconnect_actor_upgrade.rollback.sql",
-    "207_pkm_manifest_display_segment.sql": "rollback/207_pkm_manifest_display_segment.rollback.sql"
+    "207_pkm_manifest_display_segment.sql": "rollback/207_pkm_manifest_display_segment.rollback.sql",
+    "210_one_location_onboarding_runtime.sql": "rollback/210_one_location_onboarding_runtime.rollback.sql",
+    "211_one_capability_runs_rls_lockdown.sql": "rollback/211_one_capability_runs_rls_lockdown.rollback.sql"
   }
 }

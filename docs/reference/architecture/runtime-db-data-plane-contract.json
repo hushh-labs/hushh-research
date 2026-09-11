@@ -20,6 +20,7 @@
     "google_calendar_action_proposals",
     "agent_chat_messages",
     "one_action_directive_ledger",
+    "one_capability_runs",
     "kai_funding_webhook_events",
     "kai_funding_transfer_events",
     "kai_funding_trade_events",
@@ -61,6 +62,12 @@
       "owner": "one-voice-governance",
       "mode": "report_only",
       "job_id": "directive_ledger_retention_report"
+    },
+    {
+      "family_id": "one_capability_runtime",
+      "owner": "backend-runtime-governance",
+      "mode": "report_only",
+      "job_id": "capability_runtime_retention_report"
     },
     {
       "family_id": "one_location_agent",
@@ -261,6 +268,21 @@
       "trust_boundary": "Stores generated action identifiers, revisions, state, timing, and keyed fingerprints only; never prompts, slots, credentials, consent exports, decrypted PKM, or protected information.",
       "plaintext_posture": "metadata_only",
       "expected_row_growth": "medium_per_agent_session"
+    },
+    {
+      "id": "one_capability_runtime",
+      "owner": "backend-runtime-governance",
+      "data_class": "workflow_state",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "one_capability_runs"
+      ],
+      "primary_access_path": "Authenticated Agent One Capability Runtime start, resume, compare-and-set transition, and verified-settlement services shared by typed input, command voice, Siri handoff, web, and iOS. Browser and mobile callers reach it only through the authenticated backend API; they have no direct database role or row policy.",
+      "retention_policy": "A run is non-authorizing at its bounded expires_at (24 hours by default). Active runs transition to expired on authoritative recovery; terminal and expired metadata remain only for the bounded replay and incident-review window before the authenticated maintenance path physically compacts expired parent runs in bounded batches. Encrypted task slots are workflow state, not durable personal memory or a transcript archive.",
+      "deletion_behavior": "Cascade-delete with the actor profile. Dependent workflow interaction, receipt, draft, and authorization rows cascade with their owned run where applicable; cancellation and expiry remove active authority rather than preserving a reusable mutation grant.",
+      "trust_boundary": "Server-owned task authority with opaque run/capability identifiers, revision/state metadata, idempotency and settlement HMACs, and optional AEAD-encrypted bounded slots. It never stores raw audio, transcripts, routes or query strings, private entities, coordinates, addresses, credentials, provider payloads, or generated prose. RLS is default-deny and anon/authenticated database roles have no table access.",
+      "plaintext_posture": "metadata_and_encrypted_bounded_slots_only",
+      "expected_row_growth": "medium_per_user_bounded_ttl"
     },
     {
       "id": "pkm_metadata_and_scope",
@@ -513,14 +535,18 @@
         "one_location_recipient_keys",
         "one_location_referrals",
         "kai_location_referrals",
+        "one_location_onboarding_interactions",
+        "one_location_onboarding_receipts",
+        "one_location_onboarding_drafts",
+        "one_location_pkm_finalize_authorizations",
         "one_location_sms_contacts",
         "one_location_share_grants",
         "one_location_sos_voice_preferences"
       ],
-      "primary_access_path": "One Location Agent verified-recipient directory, server-owned and revocable automatic-approval preferences, owner-selected Save My Soul contacts, named-Circle join-code workflows, recipient public key registration, owner-approved grants, encrypted envelope writes, authenticated recipient ciphertext reads, UAT-only short-lived nearby check-in with alias-based Connect requests, public request invites, Invite to One network onboarding, referrals, revocation, expiry, and metadata-only audit",
-      "retention_policy": "One mutable standing-rule metadata row is retained while the account exists, including the latest disabled state and version needed to invalidate stale clients. Active grants and ciphertext envelopes are short-lived by scoped duration; expired or terminal workflow rows are retained only for bounded operational review before compaction.",
-      "deletion_behavior": "Delete standing automatic-approval and visibility preferences plus rows where the deleting account is owner, excluded party, nearby attendee, SMS contact, recipient, requester, referrer, referred or candidate user, join-code creator, or key owner; remove visibility exclusions before their owner preference, and revoke active grants, nearby presence, and join codes before deletion where possible.",
-      "trust_boundary": "Raw live-share coordinates remain on owner and recipient devices. Standing automatic-approval preferences contain only enabled state, scope, Circle identifier, server activation time, and rule version; every automatic grant locks and revalidates that rule and the current relationship. UAT nearby presence captures a fresh point at confirmation and stores that point only as short-lived AES-256-GCM ciphertext plus a six-hour server-keyed spatial candidate token; accuracy is request-memory-only. Checkout clears point material synchronously. Expiry synchronously blocks roster and Connect access; the next feature operation or required hosted hourly retention job scrubs the due envelope and token. Backend also stores recipient public keys, grant metadata, ciphertext envelopes, keyed join-code digests, rotating nearby participant aliases, public invite token hashes, Invite to One token hashes, One Network connection metadata, request metadata, hashed public-intake throttling metadata, and audit metadata. It must not persist nearby point plaintext, exact distance, plaintext venue labels or addresses, map previews, movement trails, raw public tokens, or raw Circle codes. Nearby rosters require mutual active opt-in, expose no stable user id or peer location, and remain disabled in production. Circle code resolution reveals only a safe name, owner label, member count, and expiry.",
+      "primary_access_path": "One Location Agent verified-recipient directory, server-owned and revocable automatic-approval preferences, owner-selected Save My Soul contacts, named-Circle join-code workflows, recipient public key registration, owner-approved grants, encrypted envelope writes, authenticated recipient ciphertext reads, the server-owned Location onboarding permission/GPS/place/Circle workflow, UAT-only short-lived nearby check-in with alias-based Connect requests, public request invites, Invite to One network onboarding, referrals, revocation, expiry, and metadata-only audit",
+      "retention_policy": "One mutable standing-rule metadata row is retained while the account exists, including the latest disabled state and version needed to invalidate stale clients. Active grants and ciphertext envelopes are short-lived by scoped duration; expired or terminal workflow rows are retained only for bounded operational review before compaction. Location onboarding leases, opaque receipts, pre-vault draft metadata, and PKM-finalize authorities expire with their task. Drafts and unused authorities are removed on sign-out, cancellation, finalization, or expiry; expired parent-run compaction cascades the remaining run-scoped workflow records, and none can authorize a later run.",
+      "deletion_behavior": "Delete standing automatic-approval and visibility preferences plus rows where the deleting account is owner, excluded party, nearby attendee, SMS contact, recipient, requester, referrer, referred or candidate user, join-code creator, or key owner; remove visibility exclusions before their owner preference, revoke active grants, nearby presence, and join codes before deletion where possible, and cascade every onboarding lease, receipt, draft, and finalize authority through its owner-bound capability run.",
+      "trust_boundary": "Raw live-share coordinates remain on owner and recipient devices. Standing automatic-approval preferences contain only enabled state, scope, Circle identifier, server activation time, and rule version; every automatic grant locks and revalidates that rule and the current relationship. UAT nearby presence captures a fresh point at confirmation and stores that point only as short-lived AES-256-GCM ciphertext plus a six-hour server-keyed spatial candidate token; accuracy is request-memory-only. Checkout clears point material synchronously. Expiry synchronously blocks roster and Connect access; the next feature operation or required hosted hourly retention job scrubs the due envelope and token. Backend also stores recipient public keys, grant metadata, ciphertext envelopes, keyed join-code digests, rotating nearby participant aliases, public invite token hashes, Invite to One token hashes, One Network connection metadata, request metadata, hashed public-intake throttling metadata, and audit metadata. Onboarding records add only allowlisted workflow and interaction enums, opaque owner/run/revision identifiers, timestamps, and HMAC/SHA digests; the actual pre-vault Location payload remains encrypted on the same device. It must not persist nearby point plaintext, exact distance, plaintext venue labels or addresses, map previews, movement trails, raw public tokens, raw Circle codes, audio, transcripts, route queries, place labels, device-draft ciphertext, or keys. Nearby rosters require mutual active opt-in, expose no stable user id or peer location, and remain disabled in production. Circle code resolution reveals only a safe name, owner label, member count, and expiry.",
       "plaintext_posture": "ciphertext_coordinates_and_metadata_only",
       "expected_row_growth": "medium_per_user_share"
     },

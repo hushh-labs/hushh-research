@@ -1,6 +1,9 @@
 "use client";
 
-import { GeminiLiveTransport } from "@/lib/services/gemini-live-client";
+import {
+  GeminiLiveTransport,
+  primeGeminiLiveOutputAudio,
+} from "@/lib/services/gemini-live-client";
 import type {
   OneVoiceProvider,
   OneVoiceTransportHandlers,
@@ -19,4 +22,9 @@ export function createRealtimeVoiceTransport(
   _provider: OneVoiceProvider = DEFAULT_ONE_VOICE_PROVIDER
 ): RealtimeVoiceTransport {
   return new GeminiLiveTransport(handlers);
+}
+
+/** Prime browser playback from the microphone tap before async setup begins. */
+export function primeRealtimeVoiceOutput(): void {
+  primeGeminiLiveOutputAudio();
 }

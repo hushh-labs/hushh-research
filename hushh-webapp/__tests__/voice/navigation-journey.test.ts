@@ -102,6 +102,10 @@ describe("navigation journeys", () => {
       // absent for the same reason share_selected is: arriving and checking
       // in unattended is the thing that must not happen.
       "location.nearby_check_in",
+      // The legacy capability escorts only to the run-bound Location setup
+      // card. The command runtime itself renders that card globally and
+      // never treats this navigation as a completed setup.
+      "location.onboarding.choose_place",
       "location.pause_updates",
       "location.remove_emergency_contact",
       "location.remove_from_circle",

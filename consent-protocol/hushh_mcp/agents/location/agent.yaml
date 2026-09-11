@@ -3,6 +3,19 @@ id: agent_location
 name: Location Agent
 version: 0.1.0
 description: Fallback under One for Location capabilities with no generated action -- public links, viewing an incoming share, device permission, and referral.
+one_exposure:
+  service_id: location
+  discovery_status: discoverable
+  exposure_status: active
+  supported_entrypoints:
+    - typed
+    - voice
+    - siri_app_shortcut
+  knowledge_package_ref:
+    schema_version: one.knowledge_package_ref.v1
+    package_id: location.brain
+    package_version: 2
+    path: knowledge.yaml
 model: gemini-default
 system_instruction: |
   You are the Location Agent under One — a narrow fallback for the handful of

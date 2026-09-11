@@ -424,7 +424,13 @@ function hasExpectedRangeStart(response: Response, expectedStart: number): boole
 
 async function hasSha256(bytes: ArrayBuffer, expected: string): Promise<boolean> {
   if (!globalThis.crypto?.subtle) throw new Error("sha256_unavailable");
-  const digest = await globalThis.crypto.subtle.digest("SHA-256", bytes);
+  // Cache Storage/Response implementations can return an ArrayBuffer from a
+  // different realm. WebCrypto accepts a BufferSource from its own realm, so
+  // make one owned copy before hashing. This also ensures that a mutable
+  // storage buffer cannot change between verification and the digest call.
+  const ownedBytes = new Uint8Array(bytes.byteLength);
+  ownedBytes.set(new Uint8Array(bytes));
+  const digest = await globalThis.crypto.subtle.digest("SHA-256", ownedBytes);
   const actualHex = [...new Uint8Array(digest)]
     .map((byte) => byte.toString(16).padStart(2, "0"))
     .join("");

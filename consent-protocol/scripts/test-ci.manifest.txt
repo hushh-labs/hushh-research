@@ -36,6 +36,12 @@ tests/test_pkm_upgrade_service.py
 tests/test_vault_keys_metadata.py
 tests/test_one_location_routes.py
 tests/services/test_one_location_agent_service.py
+tests/test_one_capability_runtime_router_mount.py
+tests/test_location_command_relay.py
+tests/services/test_location_command_runtime.py
+tests/services/test_location_brain_semantic_retrieval.py
+tests/services/test_location_circle_direct_executor.py
+tests/services/test_location_circle_name_interaction.py
 tests/services/test_connections_service.py
 tests/services/test_push_notifications.py
 tests/test_fcm_messages.py

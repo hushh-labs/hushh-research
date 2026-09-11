@@ -14,8 +14,15 @@ second execution authority.
 
 ## Current Runtime Boundary
 
-- In-bar live voice runs through `WS /api/one/adk/live` and One's ADK
-  `Runner.run_live` relay in `consent-protocol/api/routes/one/adk_live.py`.
+- The UAT-gated, transcript-first Location command lane runs through
+  `WS /api/one/adk/location-command/live`. Tap opens listening; provider
+  speech end plus a final transcript gates semantic retrieval, constrained
+  capability selection, and a verified server action, approved card, or
+  registered route. It has no chat reply, model tool execution, or
+  alias/keyword admission path.
+- In-bar conversational live voice remains on `WS /api/one/adk/live` and
+  One's ADK `Runner.run_live` relay in
+  `consent-protocol/api/routes/one/adk_live.py`.
 - Typed private-agent chat uses the canonical AG-UI endpoint in
   `consent-protocol/api/routes/one/agent_chat.py` with the same One semantic
   and generated-action boundary.
@@ -45,9 +52,10 @@ second execution authority.
 ## Migration Rule
 
 Do not restore deleted Kai-era planner, composer, or client-side action runtime
-modules as a fallback. Extend One's ADK relay, the generated action gateway,
-and the governed browser settlement path. Preserve literal `kai` identifiers
-only where an existing route, contract, or package must remain compatible.
+modules as a fallback. Extend the compiled command runtime or One's ADK
+conversation relay, the generated action gateway, and the governed browser
+settlement path. Preserve literal `kai` identifiers only where an existing
+route, contract, or package must remain compatible.
 
 ## References
 

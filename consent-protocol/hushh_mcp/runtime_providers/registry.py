@@ -87,7 +87,32 @@ _MODELS: tuple[ModelEntry, ...] = (
         model="gemini-3.1-pro-preview",
         supported_vertex_locations=("global",),
     ),
+    # Retrieval-only model used by the server-owned Location Brain semantic
+    # index. Global-only availability makes ManagedGeminiRuntimeBinding return
+    # the native GenAI client, which exposes ``embed_content``, rather than the
+    # generation-only regional failover facade.
+    ModelEntry(
+        provider="gemini",
+        model="gemini-embedding-001",
+        supports_streaming=False,
+        supports_function_calling=False,
+        supported_vertex_locations=("global",),
+    ),
     ModelEntry(provider="gemini", model="gemini-3.1-flash-lite"),
+    # Dedicated managed-GCP text transcription transport for the Location
+    # command lane.  It has no tool-calling authority; the server-owned
+    # Location Brain remains the only router/executor.
+    ModelEntry(
+        provider="gemini",
+        model="gemini-3.5-transcribe-live-preview",
+        supports_function_calling=False,
+        supports_native_realtime=True,
+        # Gemini 3.5 Transcribe Live is currently served through the managed
+        # global endpoint only.  Keep this on the model contract so a
+        # capacity-pool typo cannot turn into an opaque device-side Live
+        # connection failure after the microphone has already been armed.
+        supported_vertex_locations=("global",),
+    ),
     ModelEntry(
         provider="gemini",
         model="gemini-live-2.5-flash-native-audio",
