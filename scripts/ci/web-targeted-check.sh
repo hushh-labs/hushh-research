@@ -48,6 +48,26 @@ if has_match '^(hushh-webapp/(lib/(auth/|firebase/auth-context|flows/delete-acco
   ran=1
 fi
 
+# Consent surfaces and the Memory route they are supposed to match.
+#
+# The founder's benchmark for how information should read is the Memory tab --
+# one domain, then attributes, one level at a time. Its tests already assert
+# every property that makes it good: immediate children only, a back control
+# named for its parent, ancestors-only breadcrumbs, descendant counts that
+# exclude hidden keys, human labels for opaque segments. NONE of it gated a pull
+# request, because no pack named components/profile or lib/pkm, so the reference
+# surface was free to drift away from its own contract.
+#
+# The consent side is here for the same reason and a sharper one: it is where a
+# person decides what another person may see. It shipped offering 24 rows of
+# which roughly five were information about anybody -- the rest onboarding
+# checkpoints and routing telemetry -- and no test in the repository could have
+# said so.
+if has_match '^hushh-webapp/(components/(consent/|profile/)|lib/(consent/|pkm/|personal-knowledge-model/)|components/connections/person-profile-page\.tsx|__tests__/.*(consent|pkm|person-profile))'; then
+  run_check "consent + memory parity" npm run test:consent-memory-parity
+  ran=1
+fi
+
 if has_match '^hushh-webapp/(lib/voice/|components/agent/|scripts/voice/|__tests__/.*(voice|agent)|app/api/(kai|one)/.*(voice|realtime)|\.voice-action-contract\.json)'; then
   run_check "voice gateway" npm run verify:voice-gateway
   run_check "One Voice runtime evaluations" npm run verify:one-voice
