@@ -763,6 +763,19 @@ async def _stream_one_text_turn_once(
             yield OneTextStreamEvent(
                 kind="token", text=text, model_version=_event_model_version(event)
             )
+        # A NON-PARTIAL TEXT EVENT CLOSES ONE MODEL STEP, so the flag resets here.
+        #
+        # `saw_partial_text` answers one question only: "has this step's text already
+        # gone out as partials, so the aggregate would be a duplicate?" It was set once
+        # and never cleared, which silently answered that question for the whole TURN.
+        # A turn with a tool call has more than one step: a short preamble, the tool,
+        # then the real answer. The preamble's partials latched the flag, and every
+        # later step's aggregate was then discarded as if it were a duplicate of text
+        # nobody had sent. Reproduced before this line existed: a turn that streamed
+        # "Let me check. " and then answered "Your dog is called Bo." delivered only
+        # "Let me check. ", which is the shape of the twenty characters the owner pod
+        # recorded on both live Puppy turns.
+        saw_partial_text = False
 
     if not emitted_visible_output:
         raise OneTextEmptyResponseError(

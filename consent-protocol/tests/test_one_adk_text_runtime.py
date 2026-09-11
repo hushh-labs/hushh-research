@@ -822,3 +822,80 @@ def test_event_memory_recalls_reads_only_load_memory_parts():
     assert text_runtime._pair_memory_recalls(text_runtime._event_memory_recalls(call)) == [
         {"queryChars": 4, "hits": 0, "backend": None}
     ]
+
+
+async def test_a_second_model_step_answer_is_not_discarded_as_a_duplicate(monkeypatch):
+    """The shape of the twenty characters both live Puppy turns delivered.
+
+    A turn that calls a tool has more than one model step: a short preamble, the
+    tool, then the real answer. `saw_partial_text` exists to stop a step's
+    aggregate being emitted a second time after its own partials already went
+    out. It was set once and never cleared, so it answered that question for the
+    whole TURN: the preamble's partials latched it, and the answer that arrived
+    in the next step was thrown away as a duplicate of text nobody had sent.
+
+    Measured before the fix: this test delivered "Let me check. " and nothing
+    else.
+    """
+
+    class _Recorder:
+        async def add_session_to_memory(self, session):  # noqa: ANN001
+            pass
+
+    class _FakeRunner:
+        def __init__(self, *, app_name, agent, session_service, memory_service=None):
+            self.session_service = session_service
+
+        async def run_async(self, *, user_id, session_id, new_message, run_config):
+            # Step one: a preamble, streamed and then aggregated.
+            yield Event(
+                author="one",
+                partial=True,
+                content=genai_types.Content(
+                    role="model", parts=[genai_types.Part.from_text(text="Let me check. ")]
+                ),
+            )
+            yield Event(
+                author="one",
+                partial=False,
+                content=genai_types.Content(
+                    role="model", parts=[genai_types.Part.from_text(text="Let me check. ")]
+                ),
+            )
+            # Step two, after the tool ran: the answer, aggregate only.
+            yield Event(
+                author="one",
+                partial=False,
+                content=genai_types.Content(
+                    role="model",
+                    parts=[genai_types.Part.from_text(text="Your dog is called Bo.")],
+                ),
+            )
+
+    monkeypatch.setattr(text_runtime, "Runner", _FakeRunner)
+    monkeypatch.setattr(text_runtime, "build_one_text_agent", lambda *, model: ("one", model))
+    monkeypatch.setattr(text_runtime, "_resolve_pod_memory_service", lambda: _Recorder())
+
+    events = [
+        event
+        async for event in text_runtime.stream_one_text_turn(
+            user_id="u1",
+            consent_token="opaque-" + "token",
+            conversation_id="c1",
+            message="what is my dog called",
+            history=[],
+            timezone="America/Los_Angeles",
+            screen_context={"screen": "one_home"},
+            pkm_context="",
+            runtime_provider="puppy",
+            runtime_model="local",
+            runtime_mode="hushh_managed_vertex",
+            runtime_credential=None,
+        )
+    ]
+
+    delivered = "".join(event.text for event in events if event.kind == "token")
+    assert "Your dog is called Bo." in delivered, delivered
+    # And the preamble is still delivered exactly once, not twice: the aggregate
+    # that duplicates a step's own partials is still suppressed.
+    assert delivered.count("Let me check. ") == 1, delivered
