@@ -49,6 +49,7 @@ from api.routes import health  # noqa: E402
 from api.routes.one.a2a import router as a2a_router  # noqa: E402
 from api.routes.one.a2a import well_known_router as a2a_well_known_router  # noqa: E402
 from api.routes.one.agent_prompt import router as agent_prompt_router  # noqa: E402
+from api.routes.one.pod_consumer_memory import router as pod_consumer_memory_router  # noqa: E402
 from api.routes.one.pod_maintenance import router as pod_maintenance_router  # noqa: E402
 from api.routes.one.pod_memory import router as pod_memory_router  # noqa: E402
 from api.routes.one.pod_migration import router as pod_migration_router  # noqa: E402
@@ -114,6 +115,9 @@ _POD_ROUTERS = (
     # model), owner revoke, provider consent and memory status. Same admission as
     # the turn route; see api/routes/one/pod_memory.py.
     pod_memory_router,
+    # Typed consumer MCP memory uses the same pod custody and PKM store; the
+    # gateway's signed short-lived grant is checked at this door before recovery.
+    pod_consumer_memory_router,
     # The tick: background attention arrives as an inbound authenticated request,
     # because an economy pod has no CPU between requests and no process a loop
     # could live in. Fail-closed without its audience/allowlist env; see the

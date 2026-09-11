@@ -17,6 +17,7 @@ from hushh_mcp.services.consumer_mcp_connections import (
 )
 from hushh_mcp.services.consumer_mcp_memory import (
     ConsumerMcpMemory,
+    ConsumerMemoryConflict,
     ConsumerMemoryInvalid,
     ConsumerMemoryUnavailable,
 )
@@ -143,6 +144,8 @@ async def _handle_memory(operation: str, arguments: dict) -> CallToolResult:
             "OWNER_POD_UNAVAILABLE",
             "Your owner pod is not ready for memory access. Hussh did not use shared memory or a cloud fallback.",
         )
+    except ConsumerMemoryConflict as error:
+        return _error("MEMORY_REVISION_CONFLICT", str(error))
     except ConsumerConnectionDenied as error:
         return _error("MEMORY_ACCESS_REFUSED", str(error))
     except Exception:

@@ -19,6 +19,11 @@ from hushh_mcp.services.consumer_mcp_connections import (
 )
 from hushh_mcp.services.developer_registry_service import DeveloperPrincipal
 
+
+class ConsumerMemoryConflict(RuntimeError):
+    """The canonical PKM revision changed before a mutation committed."""
+
+
 MAX_MEMORY_QUERY_CHARS = 512
 MAX_MEMORY_CONTENT_CHARS = 4_000
 MAX_MEMORY_RESULTS = 20
@@ -61,6 +66,75 @@ class UnavailableConsumerMemoryTransport:
 
     async def execute(self, **_: Any) -> dict[str, Any]:
         raise ConsumerMemoryUnavailable("owner pod memory transport unavailable")
+
+
+class OwnerPodConsumerMemoryTransport:
+    """Forward typed memory operations through the existing owner-pod relay.
+
+    The gateway never opens a second storage path or keeps a vault key. It resolves
+    the owner-bound registry row, verifies that its recorded HusshID is the same
+    deployment admitted by the connection ledger, and reuses the existing relay
+    identity token plus the short-lived consumer grant token.
+    """
+
+    def __init__(self, *, registry: Any = None, proxy_post: Any = None) -> None:
+        if registry is None:
+            from hushh_mcp.services.personal_agent_registry_repo import (  # noqa: PLC0415
+                PersonalAgentRegistryRepo,
+            )
+
+            registry = PersonalAgentRegistryRepo()
+        if proxy_post is None:
+            from api.routes.one.pod_relay import (  # noqa: PLC0415
+                _pod_url,
+                _proxy_post,
+            )
+
+            proxy_post = _proxy_post
+            self._pod_url = _pod_url
+        else:
+            self._pod_url = lambda row: (
+                str((row.get("backend_metadata") or {}).get("url") or "").strip().rstrip("/")
+            )
+        self._registry = registry
+        self._proxy_post = proxy_post
+
+    async def execute(
+        self,
+        *,
+        operation: str,
+        owner_id: str,
+        deployment_id: str,
+        connection_id: str,
+        generation: int,
+        grant_receipt: str,
+        grant_token: str,
+        arguments: dict[str, Any],
+    ) -> dict[str, Any]:
+        del connection_id, generation, grant_receipt
+        row = await self._registry.get(owner_id)
+        if not isinstance(row, dict) or str(row.get("user_id") or "") != owner_id:
+            raise ConsumerMemoryUnavailable("owner pod is not registered")
+        if str(row.get("hushh_id") or "") != deployment_id:
+            raise ConsumerMemoryUnavailable("owner pod binding changed")
+        url = self._pod_url(row)
+        if not url or not url.startswith("https://"):
+            raise ConsumerMemoryUnavailable("owner pod endpoint is unavailable")
+        if not grant_token:
+            raise ConsumerMemoryUnavailable("owner pod memory grant is unavailable")
+        status, body = await self._proxy_post(
+            url,
+            "/api/one/pod/consumer/memory",
+            body={"ownerId": owner_id, "operation": operation, "arguments": arguments},
+            consent_token=grant_token,
+        )
+        if status == 409:
+            raise ConsumerMemoryConflict("personal memory changed; retry with the current revision")
+        if status >= 400 or not isinstance(body, dict):
+            raise ConsumerMemoryUnavailable("owner pod memory is unavailable")
+        if body.get("execution_target") != "owner_pod":
+            raise ConsumerMemoryUnavailable("owner pod returned an invalid execution target")
+        return body
 
 
 @dataclass(frozen=True)
@@ -143,7 +217,7 @@ class ConsumerMcpMemory:
         transport: ConsumerMemoryTransport | None = None,
     ) -> None:
         self._connections = connections or ConsumerMcpConnections()
-        self._transport = transport or UnavailableConsumerMemoryTransport()
+        self._transport = transport or OwnerPodConsumerMemoryTransport()
 
     async def execute(
         self, principal: DeveloperPrincipal, *, operation: str, arguments: dict[str, Any]
@@ -185,10 +259,12 @@ class ConsumerMcpMemory:
 
 __all__ = [
     "ConsumerMemoryInvalid",
+    "ConsumerMemoryConflict",
     "ConsumerMemoryRequest",
     "ConsumerMemoryTransport",
     "ConsumerMemoryUnavailable",
     "ConsumerMcpMemory",
+    "OwnerPodConsumerMemoryTransport",
     "MEMORY_OPERATIONS",
     "validate_memory_request",
 ]

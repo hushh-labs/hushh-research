@@ -668,27 +668,34 @@ def _local(authority, claims, **extra) -> dict:
 
 
 def test_every_memory_route_declares_both_doors():
-    """FastAPI must extract the bearer on all four, or the local door is unreachable.
+    """FastAPI must extract the bearer on every memory door, or it is unreachable.
 
     A surface guard only: declaring the header is necessary and nowhere near
     sufficient, and this stays green if a route ignores what it extracted. The
     functional pins are the route-level tests further down, and the reachability of
     each path over the pod's ingress policy is pinned in ``tests/test_pod_server.py``.
     """
+    from api.routes.one import pod_consumer_memory
+
     wanted = {
         "/api/one/pod/conversation/{conversation_id}/close",
         "/api/one/pod/memory/revoke",
         "/api/one/pod/memory/provider-consent",
+        "/api/one/pod/consumer/memory",
         "/api/one/pod/memory/status",
     }
     seen = {
         route.path: {param.alias.lower() for param in route.dependant.header_params}
-        for route in pod_memory.router.routes
+        for router in (pod_memory.router, pod_consumer_memory.router)
+        for route in router.routes
         if getattr(route, "path", "") in wanted
     }
     assert set(seen) == wanted
     for path, headers in seen.items():
-        assert headers == {"x-consent-token", "authorization"}, path
+        expected = {"x-consent-token"}
+        if path != "/api/one/pod/consumer/memory":
+            expected.add("authorization")
+        assert headers == expected, path
 
 
 async def test_the_close_door_opens_for_an_owner_local_session_with_no_hub(
@@ -1845,6 +1852,7 @@ def test_the_memory_doors_are_on_the_app_surface_and_the_wall_no_longer_covers_t
         "/api/one/pod/memory/status",
         "/api/one/pod/memory/revoke",
         "/api/one/pod/memory/provider-consent",
+        "/api/one/pod/consumer/memory",
     )
     for path in doors:
         assert is_app_surface(path), path
