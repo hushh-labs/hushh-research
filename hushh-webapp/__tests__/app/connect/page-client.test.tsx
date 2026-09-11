@@ -363,15 +363,20 @@ describe("Connect — People", () => {
       "aria-controls",
       "connect-my-connections-panel",
     );
+    const panel = document.getElementById(
+      "connect-my-connections-panel",
+    );
+    expect(panel).toBeTruthy();
     expect(
-      screen.queryByRole("button", {
-        name: "Remove connection with Collapsed Friend",
-      }),
-    ).toBeNull();
+      panel?.closest('[data-slot="settings-group-shell"]'),
+    ).toHaveClass("hidden");
 
     fireEvent.click(toggle);
 
     expect(toggle).toHaveAttribute("aria-expanded", "true");
+    expect(
+      panel?.closest('[data-slot="settings-group-shell"]'),
+    ).not.toHaveClass("hidden");
     expect(
       await screen.findByRole("button", {
         name: "Remove connection with Collapsed Friend",
@@ -382,10 +387,8 @@ describe("Connect — People", () => {
 
     expect(toggle).toHaveAttribute("aria-expanded", "false");
     expect(
-      screen.queryByRole("button", {
-        name: "Remove connection with Collapsed Friend",
-      }),
-    ).toBeNull();
+      panel?.closest('[data-slot="settings-group-shell"]'),
+    ).toHaveClass("hidden");
   });
 
   it("discards a late append after a new search starts", async () => {
