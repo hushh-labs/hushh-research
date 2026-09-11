@@ -407,7 +407,7 @@ export function PhoneMandatePageContent() {
                 ? "Enter verification code"
                 : "Verify your phone number"
             }
-            className="font-[family-name:var(--font-app-display)] text-[27px] font-bold leading-[1.1] tracking-[-0.7px] text-[#0a0a0a] dark:text-[#fafafa]"
+            className="whitespace-nowrap font-[family-name:var(--font-app-display)] text-[27px] font-bold leading-[1.1] tracking-[-0.7px] text-[#0a0a0a] dark:text-[#fafafa]"
           >
             {verificationStep === "code"
               ? "Enter verification code"
