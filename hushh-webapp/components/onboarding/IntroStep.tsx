@@ -152,7 +152,7 @@ export function IntroStep({ onLogin }: { onLogin?: () => void }) {
             data-voice-control-id="onboarding_claim_one"
             className={styles.cta}
           >
-            <span className="relative z-0 inline-flex items-center gap-2">
+            <span className="relative z-0 inline-flex items-center gap-2 whitespace-nowrap">
               Claim your One
               <span aria-hidden>&rarr;</span>
             </span>
