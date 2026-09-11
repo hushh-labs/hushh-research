@@ -1,8 +1,27 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+
 import { describe, expect, it } from "vitest";
 
 import { buildIosUatRuntimeEnv } from "../../scripts/native/prepare-ios-uat-archive.mjs";
 
 describe("iOS UAT native runtime env", () => {
+  it("keeps the command rollout key in every canonical frontend profile", () => {
+    const profiles = [
+      ".env.local.local.example",
+      ".env.uat.local.example",
+      ".env.dev.local.example",
+      ".env.prod.local.example",
+    ];
+
+    for (const profile of profiles) {
+      const contents = readFileSync(resolve(process.cwd(), profile), "utf8");
+      expect(contents).toMatch(
+        /^NEXT_PUBLIC_LOCATION_COMMAND_RUNTIME_ENABLED=false$/m,
+      );
+    }
+  });
+
   it("keeps UAT enrollment scoped to UAT despite production shell and file defaults", () => {
     const env = buildIosUatRuntimeEnv({
       processEnv: { NEXT_PUBLIC_PASSKEY_RP_ID: "one.hushh.ai" },
