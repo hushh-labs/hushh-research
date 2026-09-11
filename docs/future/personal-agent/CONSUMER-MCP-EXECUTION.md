@@ -10,7 +10,8 @@ flowchart LR
     review[Secure owner approval] --> ledger[Canonical consent ledger]
     binding --> fence[Generation and revocation check]
     ledger --> fence
-    fence -. Pending implementation .-> runtime[Pod custody and memory execution]
+    fence --> runtime[Owner-pod custody and memory execution]
+    runtime -. Installed-host evidence pending .-> live[Consumer acceptance]
 ```
 
 GitHub action item: [#6719 Build consumer Hussh MCP with owner-pod memory and Puppy interoperability](https://github.com/hushh-labs/hushh-research/issues/6719). Board status is In Progress; assigned to `kushaltrivedi5`. Local standing-consent checkpoint: `253e89abe`.
@@ -18,7 +19,7 @@ GitHub action item: [#6719 Build consumer Hussh MCP with owner-pod memory and Pu
 ## Baseline and boundaries
 
 - Worktree: sibling `hushh-consumer-mcp`; branch `feat/consumer-mcp`.
-- Current branch candidate: `a171afbe8` (11 September 2026); the earlier private baseline remains recorded in git history.
+- Current branch candidate: `700a58602` (11 September 2026); the earlier private baseline remains recorded in git history.
 - Original workspace and ADK worktree are independently active and remain untouched.
 - No deployment, main promotion, production activation or marketplace submission has occurred in this workstream.
 - Working source is implementation evidence, not installed-runtime or host acceptance evidence.
@@ -125,5 +126,6 @@ The topology generator remains the existing coverage join: `scripts/ops/generate
 - `/api/one/pod/custody/challenge` and `/api/one/pod/custody/enroll` reuse the existing owner app session, durable X25519 recipient and `PodVaultEnrollment`. The hub sees only a key fingerprint/version validation request; it never receives the envelope or plaintext key. A non-durable key, unavailable authority, mismatched owner, replayed challenge or invalid envelope fails closed.
 - Save/correct use existing content revisions, idempotency commit IDs and sealed commit-log writes. Reads and exports are bounded to 20 records; provider, execution target and revision are returned without exposing the owner ID or vault material.
 - This adapter requires the pod’s existing local PKM/custody configuration and parked migration `939`; no hosted migration or deployment was applied in this branch. A missing or unhealthy pod returns an explicit unavailable result and cannot route to shared/cloud intelligence. The initial ceremony accepts key version `1` because the current canonical vault record exposes a hash but no independent version field; rotation remains a follow-up contract.
+- Latest focused source checks: `60` pod-consent-authority tests, `9` pod-hub data-path tests, and `20` Puppy relay/local-transport tests passed under locked Python 3.13. The three new vault-fingerprint cases prove owner binding, foreign-owner refusal before key lookup, and fail-closed authority errors. This remains synthetic source evidence; it is not installed-host or marketplace acceptance.
 
 - Subsequent validation: 47 focused backend checks passed before the recipient/async-validation additions; all eight enrollment checks then passed. Four frontend proxy tests, frontend typecheck and docs/runtime parity passed. No combined final release or live acceptance gate has run.
