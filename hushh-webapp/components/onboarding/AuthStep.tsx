@@ -1113,7 +1113,8 @@ export function AuthStep({
               role="heading"
               aria-level={1}
               aria-label="Welcome to One"
-              className="whitespace-nowrap font-[family-name:var(--font-app-display)] text-[clamp(1.5rem,7vw,1.6875rem)] font-bold leading-[1.05] tracking-[-0.8px] text-[#f2f2f7]"
+              className="inline-block max-w-none whitespace-nowrap font-[family-name:var(--font-app-display)] text-[clamp(1.25rem,6.5vw,1.6875rem)] font-bold leading-[1.05] tracking-[-0.8px] text-[#f2f2f7]"
+              style={{ whiteSpace: "nowrap" }}
             >
               Welcome to One
               <span style={{ color: "var(--app-accent)" }}>.</span>
