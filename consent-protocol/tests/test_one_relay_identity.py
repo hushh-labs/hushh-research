@@ -298,7 +298,11 @@ async def test_public_context_and_provider_frames_complete_and_cancel_idle_input
     socket.receive_text = receive
     await asyncio.wait_for(adk_live.one_adk_live_relay(socket), timeout=1)
     frames = [json.loads(call.args[0]) for call in socket.send_text.await_args_list]
-    assert {"appContextAccepted": {"contextId": "synthetic-context"}} in frames
+    # The frame grew `executableActionIds` when the One Voice action surface
+    # landed on main, so pinning the whole dict pinned a field this test never
+    # cared about. What it actually asserts is that the context was accepted.
+    accepted = [frame["appContextAccepted"] for frame in frames if "appContextAccepted" in frame]
+    assert [entry.get("contextId") for entry in accepted] == ["synthetic-context"], frames
     assert {
         "serverContent": {"modelTurn": {"parts": [{"text": "Synthetic public greeting"}]}}
     } in frames
