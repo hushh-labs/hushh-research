@@ -73,7 +73,7 @@ describe("Navbar bottom chrome contract", () => {
     // old open-ended voice-conversation contract. The launcher must describe
     // that truth to assistive technology as well as visually.
     expect(agentBar).toContain(
-      '? "Tap to talk to One. I’ll listen until you finish."',
+      'const voiceLauncherInstruction = "Tap to talk to One. I’ll listen until you finish.";',
     );
     expect(agentBar).toContain("aria-label={");
     expect(agentBar).toContain("voiceLauncherInstruction");
