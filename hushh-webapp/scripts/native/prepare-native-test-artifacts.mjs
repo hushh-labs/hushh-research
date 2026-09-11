@@ -14,13 +14,33 @@ import { createNativeUiAuditManifest } from "./native-ui-audit-plan.mjs";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "..", "..");
 
+/**
+ * The directory Capacitor will actually copy into the app bundle.
+ *
+ * These artifacts only reach the device if they are written where `cap sync`
+ * reads from, and that is not always `out/`. A native build overrides
+ * NEXT_DIST_DIR (the iOS UAT lane uses `.next-native-uat`), and
+ * capacitor.config.ts resolves `webDir` from the same variable. Writing to a
+ * hardcoded `out/` meant the flows manifest, the test runner and the audit
+ * assets were produced correctly and then left behind: `cap sync` reported
+ * success, copied a directory that did not contain them, and the device build
+ * failed at the "was not copied into the iOS app bundle" check with nothing
+ * obviously wrong upstream.
+ *
+ * Resolved exactly as capacitor.config.ts:7 resolves it, so the two cannot
+ * disagree again.
+ */
+function webAssetDir() {
+  return process.env.NEXT_DIST_DIR?.trim() || "out";
+}
+
 export function writeNativeUiFlowsManifest({
   repoRoot: root = repoRoot,
   flowFilter = "",
   routeFilter = "",
 } = {}) {
   const flows = filterUiFlows({ flowFilter, routeFilter });
-  const flowsPublicPath = path.join(root, "out", "native-ui-flows.json");
+  const flowsPublicPath = path.join(root, webAssetDir(), "native-ui-flows.json");
   const nativeAuditManifest = createNativeUiAuditManifest(flows);
   fs.mkdirSync(path.dirname(flowsPublicPath), { recursive: true });
   fs.writeFileSync(
@@ -57,7 +77,7 @@ export function copyNativeImportE2eAsset({
   }
 
   const relativeAssetPath = KAI_IMPORT_E2E_ASSET_PATH.replace(/^\/+/, "");
-  const destination = path.join(root, "out", relativeAssetPath);
+  const destination = path.join(root, webAssetDir(), relativeAssetPath);
   fs.mkdirSync(path.dirname(destination), { recursive: true });
   fs.copyFileSync(source, destination);
   console.log(
@@ -68,7 +88,7 @@ export function copyNativeImportE2eAsset({
 
 export function syncNativeUiTestRunner({ repoRoot: root = repoRoot } = {}) {
   const sourcePath = path.join(root, "scripts/native/native-ui-test-runner-source.js");
-  const publicRunnerPath = path.join(root, "out", "native-ui-test-runner.js");
+  const publicRunnerPath = path.join(root, webAssetDir(), "native-ui-test-runner.js");
   fs.mkdirSync(path.dirname(publicRunnerPath), { recursive: true });
   fs.copyFileSync(sourcePath, publicRunnerPath);
 
