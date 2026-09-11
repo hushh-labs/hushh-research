@@ -705,7 +705,13 @@ export function OneAgentRoster({
     <section
       aria-labelledby="one-agents-heading"
       data-testid="one-agents-section"
-      className="mx-auto w-full max-w-[720px] pb-[calc(var(--app-bottom-fixed-ui,96px)+1.75rem)] md:pb-[calc(var(--app-bottom-fixed-ui,96px)+2rem)]"
+      // No pb- here. The scroll root already reserves the bottom bars
+      // (app/providers.tsx pads it by --app-scroll-bottom-pad, the measured
+      // --app-bottom-shell-height), and .app-page-shell adds the 24px reading
+      // gap on top. Reserving them a second time is the wide empty band under
+      // the last agent on /one: roughly another 90-115px of scroll that no
+      // content can ever occupy. See components/calendar/calendar-agent-page-layout.ts.
+      className="mx-auto w-full max-w-[720px]"
     >
       <div className="mb-3 flex items-center justify-between gap-3">
         <PageTitle
