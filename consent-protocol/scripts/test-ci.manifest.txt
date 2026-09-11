@@ -257,6 +257,7 @@ tests/test_webauthn_routes.py
 tests/test_webauthn_service.py
 tests/test_user_gcp_model_access_boundary.py
 tests/test_pod_architecture_is_authoritative.py
+tests/test_pod_architecture_merge_guard.py
 tests/test_user_adc_turn.py
 
 # The privacy property contact sync is built around, as code instead of prose.
