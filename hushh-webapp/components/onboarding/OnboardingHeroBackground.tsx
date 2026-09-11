@@ -24,11 +24,15 @@ const MOTES = Array.from({ length: 5 }, (_, i) => {
   };
 });
 
-export function OnboardingHeroBackground() {
+export function OnboardingHeroBackground({
+  variant = "ambient",
+}: {
+  variant?: "ambient" | "solid";
+}) {
   return (
     <div
       aria-hidden
-      className={styles.root}
+      className={`${styles.root} ${variant === "solid" ? styles.solid : ""}`}
     >
       {/* Base wash. One neutral Foundation surface keeps attention on One,
           rather than introducing coloured edge bands around the composition. */}
