@@ -162,6 +162,63 @@ boot, so a pod whose workers die on import reports Ready and still 503s everythi
 Then ask the agent a question in the app. A streamed answer is the thing nobody has seen
 yet, in any environment, for anyone.
 
+## Running pod operator tooling locally (2026-09-11)
+
+`pod_upgrade.py`, `pod_fleet.py` and the rest of `consent-protocol/scripts/ops/` are
+hub-side tools. They need three things at once, and missing any one of them fails in a
+way that looks like something else.
+
+**1. The hub's identity, not yours.** `pod_image_copy` pushes into a project hushh does
+not own, so it refuses unless the acting identity is the consent-plane runtime service
+account. Your own account is not it, and `load_operator_credentials` is explicitly the
+wrong loader. The chain that works: gcloud's operator service account can impersonate
+`consent-protocol-runtime@hushh-pda-dev`. Write an impersonated ADC once:
+
+```jsonc
+// ~/.config/gcloud/hushh-dev-consent-plane-adc.json   (chmod 600)
+{
+  "type": "impersonated_service_account",
+  "service_account_impersonation_url":
+    "https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/consent-protocol-runtime@hushh-pda-dev.iam.gserviceaccount.com:generateAccessToken",
+  "delegates": [],
+  "source_credentials": { /* the operator SA key from ~/.config/gcloud/legacy_credentials/<operator>/adc.json */ }
+}
+```
+
+then `export GOOGLE_APPLICATION_CREDENTIALS=~/.config/gcloud/hushh-dev-consent-plane-adc.json`.
+Verify it resolves before trusting it:
+
+```bash
+uv run python -c "import google.auth,google.auth.transport.requests as t;c,_=google.auth.default(scopes=['https://www.googleapis.com/auth/cloud-platform']);c.refresh(t.Request());print(c._target_principal)"
+```
+
+**2. The live flags.** Without `HUSSH_GCP_BACKEND_LIVE` and `HUSSH_USER_GCP_LIVE` the
+backend renders a plan, calls no cloud, and **reads as success at every layer**. On
+2026-09-11 an upgrade run without them printed `already current`, exited 0, and wrote its
+imagined result into the registry, nulling `source_image` and deleting `observed`. The
+upgrade path now refuses a plan-mode backend outright, but every other tool still needs
+the flags set deliberately. Both are `true` on the dev hub; neither is in the worktree
+`.env`.
+
+**3. The dev registry, which is not the worktree default.** The checked-in `.env` points
+at UAT. Dev runs against `hushh-pda-dev:us-central1:hushh-dev-pg`:
+
+```bash
+cloud-sql-proxy --address 127.0.0.1 --port 6544 hushh-pda-dev:us-central1:hushh-dev-pg &
+export DB_HOST=127.0.0.1 DB_PORT=6544 DB_NAME=postgres
+export DB_USER=$(gcloud secrets versions access latest --secret=DB_USER --project=hushh-pda-dev)
+export DB_PASSWORD=$(gcloud secrets versions access latest --secret=DB_PASSWORD --project=hushh-pda-dev)
+unset DB_UNIX_SOCKET
+```
+
+**Two failure modes worth recognising by sight.** An upgrade that reports
+`temporary_issue` is a sanitised message; the real reason is in the hub log as
+`personal_agent.upgrade_failed`, and `pod incarnation unverified` there means the
+registry row is missing `serviceUid`. And a retained `upgradeLease` is released only by a
+terminal result, never by elapsed time, so one failed upgrade removes that pod from every
+later sweep until someone resolves it against real evidence: the pod's heartbeat carries
+`observed.imageTag`, which is proof, where age is not.
+
 ## If something refuses
 
 | Symptom | Cause | Fix |
