@@ -1189,6 +1189,190 @@ async def test_lost_provider_acknowledgement_remains_unresolved_after_restart():
     assert "synthetic-private-error" not in store.objects[mb.MEMORY_BANK_RECORD_KEY].decode()
 
 
+async def test_a_lost_acknowledgement_is_recovered_by_asking_the_provider():
+    """The owner pod's own shape, measured 2026-09-11 and reproduced here.
+
+    A reservation was written, the POST landed, and the acknowledgement never
+    came back. The slot stuck at `submitting`, which used to refuse every later
+    turn forever: no restart cleared it, the erasure reconciler refused it and
+    `rebuild_memory_bank` refused it. The founder's pod spent twenty-five hours
+    and five cold starts in that state, over a generation that had finished,
+    error-free, in 2.8 seconds.
+
+    The old refusal's reasoning was right as far as it went -- no timeout or
+    restart can prove an unacknowledged POST will not materialize later -- but
+    it never asked the provider, which simply knows. Discovery is scoped to the
+    engine the owner-bound record already names, and the most recent generate
+    operation is necessarily the reservation's own, because once a slot latches
+    no later POST can happen.
+
+    Nothing is re-sent: the recovered operation is adopted, reconciled, and the
+    turn that triggered the recovery submits its OWN body exactly once.
+    """
+
+    class LostAckThenListed(_RestHttp):
+        """Loses the acknowledgement, then lists the operation the POST made."""
+
+        def __init__(self):
+            super().__init__()
+            self.lose_ack = True
+
+        def post(self, *args, **kwargs):
+            response = super().post(*args, **kwargs)
+            if self.lose_ack and str(args[0]).endswith("memories:generate"):
+                self.lose_ack = False
+                raise TimeoutError("synthetic-private-error")
+            return response
+
+        def get(self, url, **kwargs):
+            resource = url.split("/v1beta1/", 1)[1]
+            if resource.endswith("/operations"):
+                return _Resp(
+                    200,
+                    {
+                        "operations": [
+                            {
+                                "name": (
+                                    "projects/p/locations/us-central1"
+                                    "/reasoningEngines/91/operations/7"
+                                ),
+                                "done": True,
+                                "metadata": {
+                                    "@type": (
+                                        "type.googleapis.com/google.cloud.aiplatform"
+                                        ".v1beta1.GenerateMemoriesOperationMetadata"
+                                    ),
+                                    "genericMetadata": {"createTime": "2026-09-10T17:31:57Z"},
+                                },
+                            },
+                            {
+                                "name": (
+                                    "projects/p/locations/us-central1"
+                                    "/reasoningEngines/91/operations/1"
+                                ),
+                                "done": True,
+                                "metadata": {
+                                    "@type": (
+                                        "type.googleapis.com/google.cloud.aiplatform"
+                                        ".v1beta1.CreateReasoningEngineOperationMetadata"
+                                    ),
+                                    "genericMetadata": {"createTime": "2026-09-04T20:01:10Z"},
+                                },
+                            },
+                        ]
+                    },
+                )
+            return super().get(url, **kwargs)
+
+    store, http = _ready_store(), LostAckThenListed()
+
+    with pytest.raises(mb.MemoryBankUnavailable):
+        await _tracked_service(store, http).add_session_to_memory(_rest_session("fact"))
+    stuck = _slot(store)
+    assert stuck["phase"] == "submitting"
+
+    # The next turn recovers instead of refusing forever.
+    await _tracked_service(store, http).add_session_to_memory(_rest_session("later"))
+
+    # Every turn leaves its OWN reservation behind, cleared by the turn after
+    # it, so the proof is that the stuck one is gone and the slot has moved on.
+    recovered = _slot(store)
+    assert recovered["attempt"] != stuck["attempt"], "the stuck reservation was never cleared"
+    assert recovered["phase"] == "pending", recovered
+
+    generate_posts = [u for u, _ in http.posts if u.endswith("memories:generate")]
+    assert len(generate_posts) == 2, (
+        "expected the lost submission plus this turn's own, never a re-send of the lost body"
+    )
+
+
+async def test_recovery_never_adopts_an_engine_create_operation():
+    """A create operation is not a generation, and the engine list holds both.
+
+    The owner pod's engine has exactly two operations in its whole history, one
+    of each kind. Adopting the create would clear the slot on evidence that has
+    nothing to do with the submission.
+    """
+
+    class OnlyCreateListed(_RestHttp):
+        def post(self, *args, **kwargs):
+            response = super().post(*args, **kwargs)
+            if str(args[0]).endswith("memories:generate"):
+                raise TimeoutError("synthetic-private-error")
+            return response
+
+        def get(self, url, **kwargs):
+            resource = url.split("/v1beta1/", 1)[1]
+            if resource.endswith("/operations"):
+                return _Resp(
+                    200,
+                    {
+                        "operations": [
+                            {
+                                "name": (
+                                    "projects/p/locations/us-central1"
+                                    "/reasoningEngines/91/operations/1"
+                                ),
+                                "done": True,
+                                "metadata": {
+                                    "@type": (
+                                        "type.googleapis.com/google.cloud.aiplatform"
+                                        ".v1beta1.CreateReasoningEngineOperationMetadata"
+                                    ),
+                                    "genericMetadata": {"createTime": "2026-09-04T20:01:10Z"},
+                                },
+                            }
+                        ]
+                    },
+                )
+            return super().get(url, **kwargs)
+
+    store, http = _ready_store(), OnlyCreateListed()
+    with pytest.raises(mb.MemoryBankUnavailable):
+        await _tracked_service(store, http).add_session_to_memory(_rest_session("fact"))
+
+    with pytest.raises(mb.MemoryBankGenerationPending):
+        await _tracked_service(store, http).add_session_to_memory(_rest_session("retry"))
+    assert _slot(store)["phase"] == "submitting"
+
+
+async def test_a_finished_generation_carries_no_response_and_is_still_success():
+    """Measured against real Vertex: a done `memories:generate` has no `response`.
+
+    It returns exactly {name, metadata, done: true}. The engine CREATE operation
+    does carry a response, which is why requiring one looked right. Requiring it
+    made every successful generation unreconcilable, because the poll raised
+    before the slot could clear and the next turn polled the same finished
+    operation and raised again. That is a second permanent latch sitting inside
+    the path meant to recover from the first.
+    """
+
+    class ResponseLess(_RestHttp):
+        def get(self, url, **kwargs):
+            resource = url.split("/v1beta1/", 1)[1]
+            if "/operations/" in resource:
+                return _Resp(200, {"name": resource, "done": True})
+            return super().get(url, **kwargs)
+
+    store, http = _ready_store(), ResponseLess()
+    await _tracked_service(store, http).add_session_to_memory(_rest_session("fact"))
+    first = _slot(store)
+
+    # The second turn must POLL the first turn's finished operation, reconcile
+    # it, and reserve its own. Before this fix the poll raised here instead.
+    await _tracked_service(store, http).add_session_to_memory(_rest_session("second"))
+    second = _slot(store)
+
+    assert second["attempt"] != first["attempt"], (
+        "the finished generation was never reconciled, so its reservation stuck"
+    )
+    assert second["phase"] == "pending", second
+
+    # And it keeps working, rather than latching one turn later.
+    await _tracked_service(store, http).add_session_to_memory(_rest_session("third"))
+    assert _slot(store)["attempt"] not in {first["attempt"], second["attempt"]}
+
+
 async def test_pending_generation_survives_restart_without_blocking_retrieval():
     class Pending(_RestHttp):
         def get(self, url, **kwargs):

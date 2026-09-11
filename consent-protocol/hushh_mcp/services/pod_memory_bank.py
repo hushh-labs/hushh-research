@@ -56,6 +56,12 @@ MEMORY_BANK_RECORD_KEY = "memory_bank.json"
 _DISPLAY_PREFIX = "one-pod-memory-"
 _DEFAULT_LOCATION = "us-central1"
 _CREATE_WAIT_SECONDS = 180
+#: Operations read while recovering an unacknowledged submission. The owner
+#: pod's engine holds two in its entire history; this is a runaway bound.
+_OPERATION_PAGE_MAX = 200
+#: The LRO metadata type a `memories:generate` submission creates. Recovery
+#: adopts only this kind; an engine CREATE operation is not a generation.
+_GENERATE_METADATA_TYPE = "GenerateMemoriesOperationMetadata"
 _POLL_SECONDS = 3.0
 # Strong references retain already-admitted workers after caller cancellation.
 # This is process-local execution bookkeeping; the durable record owns admission.
@@ -1482,6 +1488,66 @@ def build_rest_memory_bank_service(
             await _persist_record(store, record, generation)
             return {"status": "provider_deleted"}
 
+        async def _discover_submitted_generation(self) -> Optional[str]:
+            """The operation an unacknowledged POST created, or None if it never landed.
+
+            WHY THIS IS SAFE TO ADOPT, and why the module's usual rule does not
+            forbid it. `_operation_path` says a matching project and region is
+            never enough to adopt an operation, and that is right: it guards
+            against picking up a stranger's work. This lists the operations OF
+            THE ENGINE THE OWNER-BOUND RECORD ALREADY NAMES, so the scope is the
+            pod's own engine, not the project.
+
+            WHY THE MOST RECENT ONE IS NECESSARILY OURS. Once a slot reaches
+            phase `submitting`, `_generate` refuses before the POST on every
+            later turn. So no generate operation can be created after the
+            reservation, and the newest one is either the reservation's own or
+            it predates it.
+
+            That makes the duplicate risk zero, which is the whole reason this
+            exists rather than a timer:
+
+            *   the lost POST landed -> its operation is the newest -> adopted,
+                and nothing is re-sent;
+            *   the lost POST never landed -> the newest is an older, already
+                finished operation -> adopting it clears the slot and the
+                current turn proceeds normally. Nothing is duplicated, because
+                there was never a second submission to duplicate. One already
+                lost turn stays lost, which is what it already was.
+
+            A blind expiry cannot make that distinction, which is why it was
+            refused: on the owner pod the POST HAD landed and completed in 2.8
+            seconds, so forgetting it would have duplicated that memory on the
+            retry.
+            """
+            listing = await asyncio.to_thread(
+                self._get,
+                f"projects/{cfg.project}/locations/{cfg.location}"
+                f"/reasoningEngines/{engine_id}/operations",
+            )
+            operations = listing.get("operations")
+            if not isinstance(operations, list):
+                return None
+            newest_name: Optional[str] = None
+            newest_created = ""
+            for entry in operations[:_OPERATION_PAGE_MAX]:
+                if not isinstance(entry, dict):
+                    continue
+                metadata = entry.get("metadata")
+                if not isinstance(metadata, dict):
+                    continue
+                if not str(metadata.get("@type") or "").endswith(_GENERATE_METADATA_TYPE):
+                    continue
+                generic = metadata.get("genericMetadata")
+                created = (generic if isinstance(generic, dict) else metadata).get("createTime")
+                if not isinstance(created, str) or not created:
+                    continue
+                if created > newest_created:
+                    # Validated the same way a polled operation is: a name this
+                    # pod's own engine and project do not account for is refused.
+                    newest_created, newest_name = created, self._operation_path(entry.get("name"))
+            return newest_name
+
         async def _finish_operation(
             self, record: dict[str, Any], generation: int, payload: dict[str, Any]
         ) -> tuple[dict[str, Any], int]:
@@ -1497,8 +1563,25 @@ def build_rest_memory_bank_service(
                     or "response" in payload
                 ):
                     raise MemoryBankUnavailable("memory operation result invalid")
-            elif not isinstance(payload.get("response"), dict):
+            elif "response" in payload and not isinstance(payload["response"], dict):
                 raise MemoryBankUnavailable("memory operation result unavailable")
+            # A DONE OPERATION WITH NO `error` IS A SUCCESS, EVEN WITH NO `response`.
+            #
+            # Measured against real Vertex on 2026-09-11: a finished
+            # `memories:generate` LRO returns exactly {name, metadata, done:true}
+            # -- no `response` key at all. The engine CREATE operation does carry
+            # one, which is why requiring it looked right.
+            #
+            # Demanding it made every successful generation unreconcilable: the
+            # poll raised before `_complete_slot`, so the slot never cleared and
+            # the next turn polled the same finished operation and raised again.
+            # A second permanent latch, sitting in the path that was supposed to
+            # recover from the first. The owner pod has exactly one generate
+            # operation in its whole history, so this path had never once run to
+            # completion.
+            #
+            # A malformed payload is still refused: a `response` that is present
+            # and not an object fails above.
             slot = _generation_slot(record)
             if slot is None:
                 raise MemoryBankUnavailable("memory generation completion lacks reservation")
@@ -1516,11 +1599,51 @@ def build_rest_memory_bank_service(
             slot = _generation_slot(record)
             if slot:
                 if slot["phase"] == "submitting":
-                    # No timeout, restart or empty inventory can prove an
-                    # unacknowledged POST will not materialize later.
-                    raise MemoryBankGenerationPending(
-                        "memory generation acknowledgement unresolved"
+                    # ASK THE PROVIDER BEFORE REFUSING.
+                    #
+                    # This used to raise unconditionally, and the reasoning was
+                    # sound as far as it went: no timeout, restart or empty
+                    # inventory can prove an unacknowledged POST will not
+                    # materialize later. What it missed is that the provider can
+                    # simply be ASKED. Measured on the owner pod 2026-09-11: the
+                    # lost submission was sitting in the engine's operation list,
+                    # created eight milliseconds before the pod logged its
+                    # failure, done and error-free in 2.8 seconds. The pod had
+                    # refused every memory write for twenty-five hours and five
+                    # cold starts over an operation that had already succeeded.
+                    #
+                    # Discovery first, always. Only a provider that reports no
+                    # generate operation at all establishes that nothing landed,
+                    # and then there is nothing to duplicate by clearing.
+                    discovered = await self._discover_submitted_generation()
+                    if discovered is None:
+                        # AN EMPTY INVENTORY STILL PROVES NOTHING, and the
+                        # original refusal said so. A POST can be in flight and
+                        # not yet listed, so clearing here would re-send it and
+                        # duplicate the memory. That is exactly the case
+                        # `test_lost_provider_acknowledgement_remains_unresolved`
+                        # pins, and it is the owner pod's own shape.
+                        #
+                        # Expiring safely needs a reservation TIMESTAMP, so an
+                        # empty inventory can be read as "long enough that an
+                        # in-flight POST would have appeared by now". The slot
+                        # schema has no timestamp today, and adding one changes
+                        # the record in a way older images reject, so it carries
+                        # a protocol bump and a rollback guard. That is a
+                        # separate change; this one recovers the case that is
+                        # provable and leaves the unprovable one exactly as it
+                        # was.
+                        raise MemoryBankGenerationPending(
+                            "memory generation acknowledgement unresolved"
+                        )
+                    record, generation = await self._complete_slot(
+                        record,
+                        "generationOperation",
+                        slot,
+                        {**slot, "phase": "pending", "operation": discovered},
                     )
+                    slot = _generation_slot(record)
+            if slot:
                 operation = self._operation_path(slot["operation"])
                 payload = await asyncio.to_thread(self._get, operation)
                 if self._operation_path(payload.get("name")) != operation:
