@@ -273,6 +273,53 @@ erase personal information or revoke another client's access. Previously returne
 results cannot be recalled, and this connection fence alone does not cancel work
 already admitted by other services.
 
+### Consumer setup on the isolated private branch
+
+This implementation is not deployed or ready for marketplace acceptance.
+Owner-bound, resource-aware OAuth sessions additionally discover
+`get_hussh_connection`. It returns an authenticated setup or memory-approval link;
+it never approves permission, reads memory or provisions infrastructure. The
+existing developer five-tool catalog remains unchanged for application-only
+credentials. Account creation, pod custody, executable memory operations and
+full consumer coverage remain incomplete.
+
+Memory permission is distinct from one OAuth session. A durable assistant
+binding can reuse the owner's recorded approval across new authenticated
+sessions. Its `cap.consumer.memory` decision lives in the canonical consent
+ledger and permits ordinary reads, additions and corrections until disconnected.
+It is not requestable through generic developer scope discovery. Secrets,
+deletion, sharing changes, external actions and vault-key custody remain outside
+this permission.
+
+The existing OAuth proxy and `/oauth/authorize` page also serve consumer review:
+
+| Endpoint | Authority and behavior |
+|---|---|
+| `POST /oauth/consumer-connections/prepare` | Current owner OAuth; resume a binding to the existing serving pod |
+| `GET /oauth/consumer-connections/{id}?authorization_id=...` | Firebase owner; review the registered assistant and current binding |
+| `POST /oauth/consumer-connections/{id}/approve` | Firebase owner; explicit policy version, reviewed authorization and generation |
+| `DELETE /oauth/consumer-connections/{id}?generation=...` | Firebase owner; revoke the assistant generation and all bound sessions |
+
+The approval payload contains `policy_version: 1` and
+`personal_memory_until_disconnected: true`. These are never accepted as MCP tool
+arguments. Returned `cmr_` values identify consent receipts, not bearer tokens.
+API and proxy responses use `Cache-Control: no-store`.
+
+Parked dev migration 938 serializes standing decisions with canonical database
+operations. Generic ledger revocation joins the same fence. A pre-disconnect
+OAuth session cannot acquire the successor generation; a fresh sign-in is
+required. Reset/persona cleanup revokes assistant access and retains decisions;
+full account erasure removes the rows only behind the existing terminal account
+tombstone. This database ordering does not itself cancel remote execution or
+retract information already received by an assistant.
+
+Rollback before deployment requires no runtime action. After this schema is
+activated, preserve the binding generations and consent decisions when restoring
+compatible application revisions. Do not drop migration 938 as an application
+rollback or restore an older grant snapshot over current revocations.
+The OAuth authorization sequence must stay monotonic and above retained
+connection floors during restore; never reset it beneath those fences.
+
 ### MuleSoft trusted connector for Salesforce and Agentforce
 
 > **Important current boundary.** Hussh preserves one canonical five-tool

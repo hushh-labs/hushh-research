@@ -6,6 +6,7 @@
   "contract_note": "These files MUST stay under db/migrations/parked/ and MUST NOT be added to release_migration_manifest.json. Both scripts/ops/verify_release_migration_contract.py and scripts/ops/db_migration_release_guard.py enumerate db/migrations/ with Path.is_file(), so the parked subdirectory is invisible to the repo-head and contract-version checks. Moving or manifesting these files would push the repo head from 131 to 904 and break the UAT and production schema contracts.",
   "ordering_note": "Numeric order is load-bearing: 902 creates an index on personal_agent_deletion_tombstones, which 900 creates, and 905, 906 and 907 alter personal_agent_registry, which 900 creates.",
   "tables": [
+    "consumer_mcp_connections",
     "personal_agent_registry",
     "personal_agent_deletion_tombstones",
     "agent_prompt_versions",
@@ -52,6 +53,7 @@
     "934_personal_agent_erasure_resource_coverage.sql",
     "935_personal_agent_erasure_finalization.sql",
     "936_personal_agent_stale_erasure_recovery.sql",
-    "937_consumer_mcp_oauth_resource.sql"
+    "937_consumer_mcp_oauth_resource.sql",
+    "938_consumer_mcp_connections.sql"
   ]
 }

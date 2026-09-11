@@ -6,6 +6,7 @@ from mcp.types import Tool
 
 from mcp_modules.canonical_contract import canonical_tool_name
 from mcp_modules.public_contract import get_public_contract
+from mcp_modules.tools.consumer_tools import ConsumerConnectionResult
 
 
 def _private_tool_definitions() -> list[Tool]:
@@ -26,6 +27,18 @@ def _private_tool_definitions() -> list[Tool]:
 
     empty = schema({})
     return [
+        Tool(
+            name="get_hussh_connection",
+            description="Check your Hussh private-agent setup and get a secure memory-approval link. Requires owner OAuth. Does not read memory, approve permission or provision paid infrastructure.",
+            inputSchema=empty,
+            outputSchema=ConsumerConnectionResult.model_json_schema(),
+            annotations={
+                "readOnlyHint": False,
+                "destructiveHint": False,
+                "idempotentHint": True,
+                "openWorldHint": False,
+            },
+        ),
         Tool(
             name="list_ria_profiles",
             description="List entitlement-gated RIA marketplace profiles.",

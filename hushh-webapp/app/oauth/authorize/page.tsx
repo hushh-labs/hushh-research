@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 
 import { useAuth } from "@/hooks/use-auth";
+import { ConsumerMemoryApproval } from "@/components/developers/consumer-memory-approval";
 import { Button } from "@/lib/morphy-ux/button";
 import { ApiService } from "@/lib/services/api-service";
 import {
@@ -24,6 +25,14 @@ type ConnectionReview = {
 };
 
 export default function OAuthAuthorizePage() {
+  const params = useSearchParams();
+  if (params.has("consumer")) {
+    return <ConsumerMemoryApproval connectionId={params.get("consumer") || ""} authorizationId={params.get("authorization") || ""} />;
+  }
+  return <OAuthConnectionApproval />;
+}
+
+function OAuthConnectionApproval() {
   const { user, loading } = useAuth();
   const searchParams = useSearchParams();
   const requestRef = String(searchParams.get("request") || "").trim();

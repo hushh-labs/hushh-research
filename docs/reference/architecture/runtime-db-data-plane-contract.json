@@ -994,9 +994,10 @@
       "glob_tables": [
         "developer_*"
       ],
-      "primary_access_path": "developer app registration, token issuance, and MCP/developer API access",
+      "exact_tables": ["consumer_mcp_connections"],
+      "primary_access_path": "Developer registration, token issuance, and MCP/developer API access. Dev-only migration 938 adds durable owner/client/environment/resource/deployment bindings across OAuth sessions; canonical consent_audit remains standing permission authority.",
       "retention_policy": "Retain active apps/tokens and audit metadata; revoke or expire inactive tokens.",
-      "deletion_behavior": "Delete/revoke by developer app lifecycle; preserve audit metadata where needed.",
+      "deletion_behavior": "Delete/revoke by developer app lifecycle. Consumer disconnect advances generation and revokes bound OAuth sessions. Reset/persona cleanup retains canonical decisions and revokes access; full account erasure deletes consumer bindings and decisions behind the existing terminal account tombstone.",
       "trust_boundary": "Developer metadata and token hashes/wrappers only; no user PKM payloads.",
       "plaintext_posture": "metadata_and_token_hashes",
       "expected_row_growth": "low_developer"

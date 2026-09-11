@@ -193,6 +193,9 @@ class AccountService:
             "developer_oauth_authorizations": text(
                 "DELETE FROM developer_oauth_authorizations WHERE subject_firebase_uid = :user_id"
             ),
+            "consumer_mcp_connections": text(
+                "DELETE FROM consumer_mcp_connections WHERE user_id = :user_id"
+            ),
             "developer_oauth_audit_events": text(
                 """
                 DELETE FROM developer_oauth_audit_events
@@ -867,6 +870,36 @@ class AccountService:
         for table_name in table_names:
             self._delete_user_rows_if_table_exists(conn, table_name=table_name, params=params)
             results[table_name] = True
+
+    def _revoke_consumer_memory_connections(self, conn, *, user_id: str) -> None:
+        """Reset/persona deletion revokes access while retaining generation fences."""
+        if not self._table_exists(conn, "consumer_mcp_connections"):
+            return
+        import secrets
+
+        from hushh_mcp.services.consent_db import ConsentDBService
+
+        AccountDeletionLifecycleService._lock_user_ids_in_transaction(conn, user_ids=(user_id,))
+        bindings = (
+            conn.execute(
+                text("""
+            SELECT connection_id, generation FROM consumer_mcp_connections
+            WHERE user_id=:user_id ORDER BY connection_id FOR UPDATE
+        """),
+                {"user_id": user_id},
+            )
+            .mappings()
+            .all()
+        )
+        for binding in bindings:
+            ConsentDBService.append_consumer_memory_decision(
+                conn,
+                user_id=user_id,
+                connection_id=binding["connection_id"],
+                generation=binding["generation"],
+                action="REVOKED",
+                receipt_ref="cmr_" + secrets.token_hex(16),
+            )
 
     def _delete_one_referral_graph(
         self,
@@ -1656,7 +1689,12 @@ class AccountService:
             conn, table_name="marketplace_public_profiles", params=params
         )
         results["marketplace_profile"] = True
-        conn.execute(text("DELETE FROM consent_audit WHERE user_id = :user_id"), params)
+        self._revoke_consumer_memory_connections(conn, user_id=user_id)
+        conn.execute(
+            text("""DELETE FROM consent_audit WHERE user_id = :user_id
+            AND scope IS DISTINCT FROM 'cap.consumer.memory'"""),
+            params,
+        )
         results["consent_audit"] = True
         self._delete_user_rows_if_table_exists(
             conn, table_name="internal_access_events", params=params
@@ -1947,6 +1985,7 @@ class AccountService:
             "ria_pick_legacy_retirements": False,
             "developer_oauth_tokens": False,
             "developer_oauth_authorizations": False,
+            "consumer_mcp_connections": False,
             "developer_oauth_audit_events": False,
             "developer_applications": False,
             "developer_apps": False,
@@ -2062,6 +2101,7 @@ class AccountService:
                         "ria_pick_legacy_retirements",
                         "developer_oauth_tokens",
                         "developer_oauth_authorizations",
+                        "consumer_mcp_connections",
                         "developer_oauth_audit_events",
                         "developer_applications",
                         "developer_apps",
@@ -2591,12 +2631,14 @@ class AccountService:
                     params,
                 )
                 results["investor_marketplace_profile"] = True
+                self._revoke_consumer_memory_connections(conn, user_id=user_id)
                 conn.execute(
                     text(
                         """
                         DELETE FROM consent_audit
                         WHERE user_id = :user_id
                           AND COALESCE(scope, '') NOT LIKE 'attr.ria.%'
+                          AND scope IS DISTINCT FROM 'cap.consumer.memory'
                         """
                     ),
                     params,

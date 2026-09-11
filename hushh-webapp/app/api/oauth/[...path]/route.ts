@@ -19,9 +19,10 @@ async function proxyOAuthRequest(
   const path = params.path.join("/");
   const reviewPath = /^authorize\/oar_[a-f0-9]{32}$/;
   const connectionPath = /^connections\/oar_[a-f0-9]{32}$/;
+  const consumerPath = /^consumer-connections\/cmc_[a-f0-9]{32}$/;
   if (
-    (method === "GET" && path !== "connections" && !reviewPath.test(path)) ||
-    (method === "DELETE" && !connectionPath.test(path))
+    (method === "GET" && path !== "connections" && !reviewPath.test(path) && !consumerPath.test(path)) ||
+    (method === "DELETE" && !connectionPath.test(path) && !consumerPath.test(path))
   ) {
     return withRequestIdJson(requestId, { error: "Not found" }, { status: 404 });
   }

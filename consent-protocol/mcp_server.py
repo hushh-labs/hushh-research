@@ -54,6 +54,7 @@ from mcp_modules.public_contract import (
     validate_public_tool_output,
 )
 from mcp_modules.tools.campaign_context_tools import handle_prepare_campaign_context
+from mcp_modules.tools.consumer_tools import handle_get_hussh_connection
 from mcp_modules.tools.definitions import get_tool_definitions
 from mcp_modules.tools.kai_tools import (
     handle_kai_analyze_stock,
@@ -111,6 +112,7 @@ server = Server(
 )
 
 HANDLERS = {
+    "get_hussh_connection": handle_get_hussh_connection,
     "search_user_scopes": handle_search_user_scopes,
     "prepare_campaign_context": handle_prepare_campaign_context,
     "request_consent": handle_request_consent,

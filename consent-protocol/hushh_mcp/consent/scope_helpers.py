@@ -55,6 +55,7 @@ def resolve_scope_to_enum(scope: str) -> ConsentScope:
     # Agent and capability permissions
     _AGENT_SCOPE_MAP = {
         "cap.one.invoke": ConsentScope.CAP_ONE_INVOKE,
+        "cap.consumer.memory": ConsentScope.CAP_CONSUMER_MEMORY,
         "agent.kai.analyze": ConsentScope.AGENT_KAI_ANALYZE,
         "agent.wallet.manage": ConsentScope.AGENT_WALLET_MANAGE,
         "agent.nav.review": ConsentScope.AGENT_NAV_REVIEW,
@@ -224,6 +225,12 @@ def get_scope_display_metadata(scope: str) -> dict:
             "label": "Invoke One",
             "description": "Allow One to create or resume a task without granting data access",
             "icon_name": "route",
+            "color_hex": "#3B82F6",
+        },
+        "cap.consumer.memory": {
+            "label": "Personal memory",
+            "description": "Read, save and correct personal memory until disconnected",
+            "icon_name": "book-open",
             "color_hex": "#3B82F6",
         },
         "agent.kai.analyze": {

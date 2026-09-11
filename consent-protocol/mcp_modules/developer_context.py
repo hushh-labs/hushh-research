@@ -153,10 +153,14 @@ def get_current_developer_principal() -> DeveloperPrincipal | None:
 
 
 def get_current_visible_tool_names() -> tuple[str, ...]:
+    from hushh_mcp.services.consumer_mcp_connections import has_consumer_oauth_identity
+
     principal = get_current_developer_principal()
     if principal is None:
         return visible_tool_names_for_groups(DEFAULT_PUBLIC_TOOL_GROUPS)
     visible = visible_tool_names_for_groups(principal.allowed_tool_groups)
+    if has_consumer_oauth_identity(principal):
+        visible = (*visible, "get_hussh_connection")
     return visible
 
 

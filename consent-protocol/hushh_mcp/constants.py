@@ -44,6 +44,11 @@ class ConsentScope(str, Enum):
     # task, but it never grants PKM reads, specialist data access, or mutations.
     CAP_ONE_INVOKE = "cap.one.invoke"
 
+    # Secure consumer onboarding only, not generic developer scope discovery.
+    # Read/add/correct ordinary memory until disconnected. Never vault keys,
+    # credentials, deletion, sharing changes or consequential external actions.
+    CAP_CONSUMER_MEMORY = "cap.consumer.memory"
+
     AGENT_KAI_ANALYZE = "agent.kai.analyze"
 
     # Cards specialist invocation. Control-plane only: it never authorizes a
@@ -306,6 +311,7 @@ class ConsentScope(str, Enum):
         """Return workflow capability scopes that are not durable attr.* PKM scopes."""
         return [
             cls.CAP_ONE_INVOKE,
+            cls.CAP_CONSUMER_MEMORY,
             cls.CAP_LOCATION_LIVE_SHARE,
             cls.CAP_LOCATION_LIVE_VIEW,
             cls.CAP_LOCATION_LIVE_REQUEST,

@@ -103,6 +103,72 @@ class ConsentDBService:
     def __init__(self):
         self._db = None
 
+    @staticmethod
+    def consumer_consent_fence_available(transaction) -> bool:
+        """Inspect the installed authority, never infer it from a table name."""
+        from sqlalchemy import text
+
+        return (
+            transaction.execute(
+                text("""
+            SELECT count(*) FROM pg_trigger
+            WHERE tgrelid='public.consent_audit'::regclass
+              AND tgenabled IN ('O','A') AND tgnargs=0 AND tgqual IS NULL
+              AND ((tgname='zz_consumer_memory_consent' AND tgtype=7
+                AND tgfoid='public.guard_consumer_memory_consent()'::regprocedure)
+                OR (tgname='zz_preserve_consumer_memory_consent' AND tgtype=27
+                AND tgfoid='public.preserve_consumer_memory_consent()'::regprocedure))
+        """)
+            ).scalar_one()
+            == 2
+        )
+
+    @staticmethod
+    def append_consumer_memory_decision(
+        transaction,
+        *,
+        user_id: str,
+        connection_id: str,
+        generation: int,
+        action: str,
+        receipt_ref: str,
+        authorization_id: int | None = None,
+    ) -> int:
+        """Append to the canonical ledger within the caller's fenced transaction.
+
+        Migration 938 serializes this with generic consent revocation. The
+        receipt reference is an identifier, never a bearer credential. No
+        personal content or key material belongs in these receipt fields.
+        """
+        from sqlalchemy import text
+
+        if not ConsentDBService.consumer_consent_fence_available(transaction):
+            raise PermissionError("Consumer connection authority unavailable")
+        if action not in {"CONSENT_GRANTED", "REVOKED", "CONSENT_DENIED"}:
+            raise ValueError("Unsupported consumer consent decision")
+        return int(
+            transaction.execute(
+                text("""
+            INSERT INTO consent_audit
+              (token_id, request_id, user_id, agent_id, scope, action,
+               issued_at, scope_description, metadata)
+            VALUES (:receipt, :receipt, :owner, :agent, 'cap.consumer.memory',
+              :action, :now, :description, CAST(:metadata AS jsonb)) RETURNING id
+        """),
+                {
+                    "receipt": receipt_ref,
+                    "owner": user_id,
+                    "agent": f"consumer_mcp:{connection_id}:{generation}",
+                    "action": action,
+                    "now": int(datetime.now(tz=timezone.utc).timestamp() * 1000),
+                    "description": "Personal memory: read, save and correct until disconnected",
+                    "metadata": json.dumps(
+                        {"policy_version": 1, "authorization_id": authorization_id}
+                    ),
+                },
+            ).scalar_one()
+        )
+
     def _get_db(self):
         """Get database client (private - ONLY for internal service use)."""
         if self._db is None:
@@ -800,7 +866,11 @@ class ConsentDBService:
             row_agent_id = row.get("agent_id") or ""
             # A private-agent denial also closes implicit renewal/reuse. Keep
             # the pre-existing decision semantics of other agent namespaces.
-            if row.get("action") == "CONSENT_DENIED" and row_agent_id != "personal_agent":
+            if (
+                row.get("action") == "CONSENT_DENIED"
+                and row_agent_id != "personal_agent"
+                and row_scope != "cap.consumer.memory"
+            ):
                 continue
             if not row_scope:
                 continue

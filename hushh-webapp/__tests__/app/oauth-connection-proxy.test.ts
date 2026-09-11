@@ -2,12 +2,25 @@ import { NextRequest } from "next/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/app/api/_utils/backend", () => ({ getDeveloperApiUrl: () => "https://backend.example.test" }));
-import { DELETE, GET } from "@/app/api/oauth/[...path]/route";
+import { DELETE, GET, POST } from "@/app/api/oauth/[...path]/route";
 
 const ref = "oar_0123456789abcdef0123456789abcdef";
 afterEach(() => vi.unstubAllGlobals());
 
 describe("owner OAuth connection proxy", () => {
+  it("carries consumer approval and disconnect through the existing proxy", async () => {
+    const consumerRef = "cmc_0123456789abcdef0123456789abcdef";
+    const upstream = vi.fn().mockImplementation(() => Promise.resolve(Response.json({ memory_access: true })));
+    vi.stubGlobal("fetch", upstream);
+    for (const [method, verb, suffix] of [[GET, "GET", ""], [POST, "POST", "/approve"], [DELETE, "DELETE", ""]] as const) {
+      const path = `consumer-connections/${consumerRef}${suffix}`;
+      const response = await method(new NextRequest(`https://one.example.test/api/oauth/${path}?generation=2`, {
+        method: verb, headers: { Authorization: "Bearer synthetic-owner-session" },
+      }), { params: Promise.resolve({ path: path.split("/") }) });
+      expect(response.status).toBe(200);
+      expect(upstream).toHaveBeenLastCalledWith(`https://backend.example.test/oauth/${path}?generation=2`, expect.objectContaining({ method: verb, cache: "no-store" }));
+    }
+  });
   it("forwards authenticated review requests without caching", async () => {
     const upstream = vi.fn().mockResolvedValue(new Response(JSON.stringify({ client_name: "Assistant" })));
     vi.stubGlobal("fetch", upstream);

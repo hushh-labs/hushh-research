@@ -60,6 +60,34 @@ recipient can access the target. Publication and revocation complete only when
 the deterministic filesystem operation succeeds and the resulting artifact
 state is reconciled.
 
+## Consumer personal-memory permission (private branch, not deployed)
+
+`cap.consumer.memory` is a separate, explicitly reviewed consumer-onboarding
+policy. It covers current and future ordinary personal memory: read, add and
+correct until disconnected. It excludes secrets, credentials, vault custody,
+destructive deletion, sharing changes and consequential external actions. It
+does not widen `pkm.read`, `pkm.write`, `vault.owner` or the generic developer
+requestable scope list.
+
+`consumer_mcp_connections` binds owner, registered client, environment, MCP
+resource and verified deployment across OAuth sessions. It stores generations,
+not grant status. Canonical `consent_audit` decisions use
+`consumer_mcp:<connection_id>:<generation>` as their agent identity. Short-lived
+credentials cannot renew revoked permission. Approval and reuse lock the same
+authority as revocation and canonical database commit. Device registration and
+pod custody remain separate authorities; memory execution and custody acceptance
+are still pending.
+
+Generic audit cleanup cannot delete these authority decisions. Account reset
+revokes them while retaining generations. Full account erasure may remove the
+records after its irreversible account tombstone is recorded in the same
+transaction. A receipt identifier is not a capability token or evidence of an
+individual save-confirmation click.
+
+Implementation: `consumer_mcp_connections.py`, the existing `ConsentDBService`,
+and parked dev migration 938. Tests in `test_consumer_mcp_connections.py` exercise
+real PostgreSQL transactions; they do not prove pod/network or host behavior.
+
 ## Display Metadata Contract
 
 Consent UIs and MCP discovery surfaces should not hand-author labels for dynamic scopes.

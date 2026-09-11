@@ -35,6 +35,7 @@ from api.developer_auth import (
 )
 from api.middleware import require_firebase_auth
 from api.middlewares.rate_limit import RateLimits, limiter
+from api.routes.consumer_mcp import router as consumer_mcp_router
 from api.utils.firebase_admin import get_firebase_auth_app
 from hushh_mcp.consent.connector_crypto_profiles import (
     X25519_AES256_GCM,
@@ -3538,6 +3539,7 @@ async def oauth_revoke(request: Request):
     return Response(status_code=status.HTTP_200_OK)
 
 
+router.include_router(consumer_mcp_router)
 router.include_router(developer_api_router)
 router.include_router(portal_router)
 router.include_router(oauth_router)
