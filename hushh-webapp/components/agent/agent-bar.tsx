@@ -2652,7 +2652,7 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
       )}
       <span
         aria-hidden
-        className="pointer-events-none absolute inset-0 overflow-hidden rounded-full"
+        className="pointer-events-none absolute inset-0 overflow-hidden rounded-[inherit]"
       >
         <MaterialRipple variant="gradient" effect="fill" />
       </span>
@@ -2678,7 +2678,7 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
       />
       <span
         aria-hidden
-        className="pointer-events-none absolute inset-0 overflow-hidden rounded-full"
+        className="pointer-events-none absolute inset-0 overflow-hidden rounded-[inherit]"
       >
         <MaterialRipple variant="gradient" effect="fill" />
       </span>
@@ -2729,7 +2729,7 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
         />
         <span
           aria-hidden
-          className="pointer-events-none absolute inset-0 overflow-hidden rounded-full"
+          className="pointer-events-none absolute inset-0 overflow-hidden rounded-[inherit]"
         >
           <MaterialRipple variant="gradient" effect="fill" />
         </span>
@@ -2802,7 +2802,7 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
         </span>
         <span
           aria-hidden
-          className="pointer-events-none absolute inset-0 z-0 overflow-hidden rounded-full"
+          className="pointer-events-none absolute inset-0 z-0 overflow-hidden rounded-[inherit]"
         >
           <MaterialRipple variant="gradient" effect="fill" />
         </span>
@@ -2826,7 +2826,7 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
           </span>
           <span
             aria-hidden
-            className="pointer-events-none absolute inset-0 overflow-hidden rounded-full"
+            className="pointer-events-none absolute inset-0 overflow-hidden rounded-[inherit]"
           >
             <MaterialRipple variant="gradient" effect="fill" />
           </span>
