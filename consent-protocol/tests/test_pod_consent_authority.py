@@ -21,7 +21,12 @@ import pytest
 from fastapi import HTTPException
 
 from api.routes.one import pod_consent, pod_turn
-from api.routes.one.pod_consent import PodConsentVerifyRequest, verify_consent_for_pod
+from api.routes.one.pod_consent import (
+    PodConsentVerifyRequest,
+    PodVaultKeyVerifyRequest,
+    verify_consent_for_pod,
+    verify_pod_vault_key,
+)
 from hushh_mcp.services import pod_consent_client
 from hushh_mcp.services.pod_consent_client import ConsentVerdict, verify_consent
 
@@ -129,6 +134,85 @@ def test_the_route_is_mounted_on_the_hub():
 
     paths = {getattr(r, "path", "") for r in one_router.routes}
     assert "/api/one/pod/consent/verify" in paths
+
+
+async def test_vault_key_fingerprint_is_verified_against_the_bound_owner(monkeypatch):
+    monkeypatch.setattr(pod_consent, "personal_agent_enabled", lambda: True)
+
+    async def _is_pod(_request, _auth):
+        return "hushh-abc"
+
+    async def _owner(_user_id):
+        return "hushh-abc"
+
+    class _VaultKeys:
+        async def get_vault_state(self, _user_id):
+            return {"vaultKeyHash": "a" * 64}
+
+    monkeypatch.setattr(pod_consent, "verify_pod_identity", _is_pod)
+    monkeypatch.setattr(pod_consent, "resolve_serving_owner_hushh_id", _owner)
+    monkeypatch.setattr("hushh_mcp.services.vault_keys_service.VaultKeysService", _VaultKeys)
+
+    result = await verify_pod_vault_key(
+        _Request(),
+        PodVaultKeyVerifyRequest(userId="u1", keyVersion=1, keyFingerprint="a" * 64),
+        "Bearer pod",
+    )
+    assert result == {"valid": True}
+
+
+async def test_vault_key_fingerprint_refuses_a_foreign_owner_before_key_lookup(monkeypatch):
+    monkeypatch.setattr(pod_consent, "personal_agent_enabled", lambda: True)
+
+    async def _is_pod(_request, _auth):
+        return "hushh-abc"
+
+    async def _foreign_owner(_user_id):
+        return "hushh-other"
+
+    class _VaultKeys:
+        called = False
+
+        async def get_vault_state(self, _user_id):
+            self.called = True
+            return {"vaultKeyHash": "a" * 64}
+
+    monkeypatch.setattr(pod_consent, "verify_pod_identity", _is_pod)
+    monkeypatch.setattr(pod_consent, "resolve_serving_owner_hushh_id", _foreign_owner)
+    monkeypatch.setattr("hushh_mcp.services.vault_keys_service.VaultKeysService", _VaultKeys)
+
+    result = await verify_pod_vault_key(
+        _Request(),
+        PodVaultKeyVerifyRequest(userId="u1", keyVersion=1, keyFingerprint="a" * 64),
+        "Bearer pod",
+    )
+    assert result == {"valid": False}
+
+
+async def test_vault_key_authority_failure_is_not_reported_as_invalid(monkeypatch):
+    monkeypatch.setattr(pod_consent, "personal_agent_enabled", lambda: True)
+
+    async def _is_pod(_request, _auth):
+        return "hushh-abc"
+
+    async def _owner(_user_id):
+        return "hushh-abc"
+
+    class _VaultKeys:
+        async def get_vault_state(self, _user_id):
+            raise RuntimeError("database unavailable")
+
+    monkeypatch.setattr(pod_consent, "verify_pod_identity", _is_pod)
+    monkeypatch.setattr(pod_consent, "resolve_serving_owner_hushh_id", _owner)
+    monkeypatch.setattr("hushh_mcp.services.vault_keys_service.VaultKeysService", _VaultKeys)
+
+    with pytest.raises(HTTPException) as exc:
+        await verify_pod_vault_key(
+            _Request(),
+            PodVaultKeyVerifyRequest(userId="u1", keyVersion=1, keyFingerprint="a" * 64),
+            "Bearer pod",
+        )
+    assert exc.value.status_code == 503
 
 
 # -- pod side: the client ------------------------------------------------------
