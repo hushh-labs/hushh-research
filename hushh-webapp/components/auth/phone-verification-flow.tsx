@@ -1093,7 +1093,7 @@ export function PhoneVerificationFlow({
                     FLOW_CONTROL_SHELL_CLASS_NAME,
                     "relative w-full",
                     !countryComboboxOpen &&
-                      "[&_input]:min-w-0 [&_input]:truncate [&_input]:whitespace-nowrap [&_input]:text-transparent [&_input]:caret-transparent",
+                      "[&_input]:min-w-0 [&_input]:truncate [&_input]:whitespace-nowrap [&_input]:!text-transparent [&_input]:!caret-transparent",
                   )}
                   autoComplete="off"
                   autoCorrect="off"
