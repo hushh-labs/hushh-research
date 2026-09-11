@@ -1,6 +1,9 @@
 "use client";
 
 import { useDeferredValue, useMemo, useState, type ReactNode } from "react";
+import { ConsentScopeList } from "@/components/consent/consent-scope-list";
+import { scopeItemsFromPermissions } from "@/lib/consent/consent-scope-items";
+import { Switch } from "@/components/ui/switch";
 import {
   AlertTriangle,
   ChevronRight,
@@ -34,7 +37,6 @@ import { Input } from "@/components/ui/input";
 import {
   SettingsGroup,
   SettingsRow,
-  SegmentedTabs,
 } from "@/components/app-ui/settings-ui";
 import { Button } from "@/lib/morphy-ux/morphy";
 import {
@@ -494,6 +496,14 @@ export function PkmDomainDetailPanel({
     nextPosture: PkmVisibilityPosture,
   ) => void;
 }) {
+
+  // One adapter call, so this surface renders the same rows as chat and the
+  // person profile instead of a third hand-rolled card.
+  const scopeItems = useMemo(() => scopeItemsFromPermissions(permissions), [permissions]);
+  const permissionsByKey = useMemo(
+    () => new Map(permissions.map((permission) => [permission.key, permission])),
+    [permissions],
+  );
   const updatedLabel = formatDomainRowTimestamp(domain.updatedAt);
   return (
     <div className="space-y-4">
@@ -594,91 +604,52 @@ export function PkmDomainDetailPanel({
               Loading shareable sections...
             </SurfaceInset>
           ) : permissions.length > 0 ? (
-            permissions.map((permission) => {
-              const pending =
-                pendingPermissionKeys?.includes(permission.key) ?? false;
-              const disabled = pending || Boolean(permission.disabledReason);
-              const postureOptions: Array<{
-                value: PkmVisibilityPosture;
-                label: string;
-              }> = [
-                { value: "private", label: "Private" },
-                { value: "consent_required", label: "Ask first" },
-              ];
-              return (
-                <div
-                  key={permission.key}
-                  className="rounded-[var(--app-card-radius-compact)] border border-[color:var(--app-card-border-standard)] bg-[var(--app-card-surface-compact)] p-4"
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0 space-y-1">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <p className="text-sm font-semibold text-foreground">
-                          {permission.label}
-                        </p>
-                        <Badge variant="outline">{permission.stateLabel}</Badge>
-                      </div>
-                      <p className="text-sm leading-6 text-muted-foreground">
-                        {permission.description}
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        {permission.stateDescription}
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        {permission.counterpartSummary}
-                      </p>
-                      {permission.requesterLabels.length > 0 ? (
-                        <div className="flex flex-wrap gap-2 pt-1">
-                          {permission.requesterLabels.map((label) => (
-                            <Badge key={label} variant="secondary">
-                              {label}
-                            </Badge>
-                          ))}
-                        </div>
-                      ) : null}
-                      {permission.disabledReason ? (
-                        <p className="text-xs text-muted-foreground">
-                          {permission.disabledReason}
-                        </p>
-                      ) : null}
-                    </div>
-                    <div className="flex shrink-0 items-center gap-2 pt-0.5">
-                      <Button
-                        type="button"
-                        variant="none"
-                        effect="fade"
-                        size="sm"
-                        onClick={() => onPreviewPermission(permission)}
-                        aria-label={`View ${permission.label} information`}
-                      >
-                        <Eye className="h-4 w-4" />
-                      </Button>
-                      {pending ? (
-                        <RefreshCw className="h-4 w-4 animate-spin text-muted-foreground" />
-                      ) : null}
-                    </div>
-                  </div>
-                  <div
-                    className={cn(
-                      "mt-3",
-                      disabled && "pointer-events-none opacity-60",
+            // Was a flat permissions.map with no grouping, no search and no
+            // collapse: every section of a domain, all at once, in hand-rolled
+            // cards that bypassed the settings primitives the rest of the app
+            // uses. groupByDomain is off because these are one domain's own
+            // sections, so every heading would say the same word.
+            <ConsentScopeList
+              items={scopeItems}
+              groupByDomain={false}
+              testIdPrefix="pkm-permission"
+              emptyText="No shareable sections yet."
+              renderTrailing={(scopeItem) => {
+                const permission = permissionsByKey.get(scopeItem.id);
+                if (!permission) return null;
+                const pending = pendingPermissionKeys?.includes(permission.key) ?? false;
+                const disabled = pending || Boolean(permission.disabledReason);
+                return (
+                  <div className="flex items-center gap-2">
+                    <Button
+                      type="button"
+                      variant="none"
+                      effect="fade"
+                      size="sm"
+                      onClick={() => onPreviewPermission(permission)}
+                      aria-label={`View ${permission.label} information`}
+                    >
+                      <Eye className="h-4 w-4" />
+                    </Button>
+                    {pending ? (
+                      <RefreshCw className="h-4 w-4 animate-spin text-muted-foreground" />
+                    ) : (
+                      <Switch
+                        checked={permission.visibilityPosture === "consent_required"}
+                        disabled={disabled}
+                        onCheckedChange={(next) =>
+                          onTogglePermission(
+                            permission,
+                            (next ? "consent_required" : "private") as PkmVisibilityPosture,
+                          )
+                        }
+                        aria-label={`Ask before sharing ${permission.label}`}
+                      />
                     )}
-                  >
-                    <SegmentedTabs
-                      value={permission.visibilityPosture}
-                      onValueChange={(next) =>
-                        onTogglePermission(
-                          permission,
-                          next as PkmVisibilityPosture,
-                        )
-                      }
-                      options={postureOptions}
-                      mobileColumns={1}
-                    />
                   </div>
-                </div>
-              );
-            })
+                );
+              }}
+            />
           ) : (
             <SurfaceInset className="p-4 text-sm text-muted-foreground">
               Section-level sharing controls will appear here once these details
