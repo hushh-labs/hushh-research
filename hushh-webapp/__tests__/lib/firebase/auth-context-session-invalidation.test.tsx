@@ -1025,3 +1025,51 @@ describe("AuthProvider terminal session invalidation", () => {
     expect(mocks.authServiceSignOut).not.toHaveBeenCalled();
   });
 });
+
+describe("AuthProvider foreground revalidation gate", () => {
+  it("keeps the screen rendered on an ordinary window focus", async () => {
+    // Revalidating an already-published identity is a background check, not a
+    // sign-in. Raising the loading gate on every focus unmounted the tree
+    // behind a spinner and re-rendered the whole screen, which the owner
+    // experienced as the app checking their session over and over. The check
+    // still has to run; only the spinner waits for it.
+    renderProvider();
+    await screen.findByText("Vault content for account-owner");
+    mocks.apiGetAccountSessionStatus.mockResolvedValueOnce(activeSessionResponse());
+
+    act(() => {
+      window.dispatchEvent(new Event("focus"));
+    });
+
+    expect(screen.queryByText("Checking session")).not.toBeInTheDocument();
+    expect(
+      screen.getByText("Vault content for account-owner"),
+    ).toBeInTheDocument();
+
+    // The validation itself must still have happened. A "fix" that simply
+    // stopped checking would pass the assertion above and be a security bug.
+    await waitFor(() => {
+      expect(mocks.apiGetAccountSessionStatus).toHaveBeenCalled();
+    });
+    expect(mocks.authServiceSignOut).not.toHaveBeenCalled();
+  });
+
+  it("still raises the gate immediately on a native background to active", async () => {
+    // The deferral is scoped to web focus on purpose. A lifecycle resume is the
+    // moment the account-deletion probe runs, and vault content must not be on
+    // screen while that is undecided.
+    renderProvider();
+    await screen.findByText("Vault content for account-owner");
+    mocks.apiGetAccountSessionStatus.mockResolvedValueOnce(activeSessionResponse());
+
+    act(() => {
+      emitLifecycle("background");
+      emitLifecycle("active");
+    });
+
+    expect(screen.getByText("Checking session")).toBeInTheDocument();
+    expect(
+      await screen.findByText("Vault content for account-owner"),
+    ).toBeInTheDocument();
+  });
+});

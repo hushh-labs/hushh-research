@@ -1,6 +1,6 @@
 {
   "contract_name": "prod_core_schema",
-  "expected_migration_version": 206,
+  "expected_migration_version": 207,
   "migration_version_policy": "exact",
   "required_functions": [
     "resolve_feed_counterpart_user_id",
@@ -33,7 +33,10 @@
     "refresh_account_deletion_guards_after_identity_ddl"
   ],
   "required_tables": {
-    "feed_event_counterparts": ["feed_event_id", "counterpart_user_id"],
+    "feed_event_counterparts": [
+      "feed_event_id",
+      "counterpart_user_id"
+    ],
     "account_identity_presence": [
       "user_id_hash",
       "first_observed_at"

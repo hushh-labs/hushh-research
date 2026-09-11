@@ -243,8 +243,11 @@ export default function OneLocationCircleInvitePageClient() {
     !phoneVerificationRequired;
 
   return (
-    <main className="min-h-screen bg-background text-foreground">
-      <div className="mx-auto flex min-h-screen w-full max-w-[720px] flex-col px-5 pb-10 pt-[max(48px,calc(env(safe-area-inset-top)+28px))] sm:px-6 sm:pt-[max(64px,calc(env(safe-area-inset-top)+40px))]">
+    // No height floor. min-h-screen compiles to 100vh, which in a WKWebView
+    // does not shrink for chrome or safe areas, so it renders taller than the
+    // visible viewport. The scroll root already fills the screen.
+    <main className="bg-background text-foreground">
+      <div className="mx-auto flex w-full max-w-[720px] flex-col px-5 pb-10 pt-[max(48px,calc(env(safe-area-inset-top)+28px))] sm:px-6 sm:pt-[max(64px,calc(env(safe-area-inset-top)+40px))]">
         <div className="space-y-6 rounded-[var(--app-card-radius-standard)] bg-[color:var(--app-card-surface-default-solid)] p-5 shadow-none sm:p-6">
           <div className="flex items-start gap-4">
             <div

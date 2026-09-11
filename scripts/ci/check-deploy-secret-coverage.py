@@ -64,8 +64,13 @@ def bound_substitutions() -> list[str]:
     text = CLOUDBUILD.read_text(encoding="utf-8")
     defaults = _defaults(text)
     names: list[str] = list(_BIND.findall(text))
-    for group in _LOOP.findall(text):
-        names.extend(f"_{env}_SECRET" for env in group.split())
+    for match in _LOOP.finditer(text):
+        # Ordinary environment loops use _${n}, not _${n}_SECRET. They must
+        # not create fictitious secret bindings or baseline exemptions.
+        body = text[match.end():].split("done", 1)[0]
+        if 'v="_${n}_SECRET"' not in body or 'add_secret "${!v}" "${n}"' not in body:
+            continue
+        names.extend(f"_{env}_SECRET" for env in match.group(1).split())
 
     seen: dict[str, None] = {}
     for name in names:

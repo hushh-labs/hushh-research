@@ -664,6 +664,7 @@ def search_actions(
     Never returns an empty result set as an automatic execution fallback.
     A semantic match must not require positive lexical score.
     """
+    global _retrieval_available, _retrieval_error
     entries = gateway.get("actions") or []
     if not entries:
         return []
@@ -708,8 +709,13 @@ def search_actions(
             # action's similarity, which is unfindable at runtime.
             for entry, score in zip(supported, sims, strict=True):
                 semantic_scores[id(entry)] = float(score)
+        _retrieval_available = True
+        _retrieval_error = None
     except Exception:
-        logger.warning("semantic_search_failed", exc_info=True)
+        semantic_scores.clear()
+        _retrieval_available = False
+        _retrieval_error = "embedding_unavailable"
+        logger.warning("semantic_search_failed")
 
     # Every wired action is scored above; this bounds how many reach fusion.
     semantic_rank_map = {

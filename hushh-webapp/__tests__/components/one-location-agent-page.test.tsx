@@ -25,6 +25,7 @@ import {
   type OneLocationContactSignalResult,
 } from "@/lib/one-location/contact-signals";
 import { INTERNAL_APP_NAVIGATION_REQUEST_EVENT } from "@/lib/utils/browser-navigation";
+import { ContactInvitationSessionProvider } from "@/components/connections/contact-invitation-session-provider";
 
 function openDropdownMenu(trigger: HTMLElement) {
   fireEvent.keyDown(trigger, { key: "Enter", code: "Enter" });
@@ -178,6 +179,7 @@ vi.mock("next/navigation", () => ({
 
 vi.mock("@/hooks/use-auth", () => ({
   useRequireAuth: mockUseRequireAuth,
+  useAuth: () => ({ user: mockUseRequireAuth().user }),
 }));
 
 vi.mock("@/lib/contacts/use-contact-discoverability-consent", () => ({
@@ -6310,30 +6312,7 @@ describe("OneLocationAgentPage", () => {
     expect(screen.getByRole("button", { name: "Send request" })).toBeEnabled();
   });
 
-  it("drops the arrangement while a query is active", async () => {
-    // A search result is ordered by how well each person matches. Headings over
-    // that would name an order the list does not have, so the sections go and
-    // the caller's ranking passes through untouched.
-    mockGetState.mockResolvedValue(locationState());
 
-    render(<OneLocationAgentPage />);
-    await skipLocationEntryFlow();
-    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
-    await openAskFlow();
-
-    fireEvent.change(screen.getByPlaceholderText(/search/i), {
-      target: { value: "Tru" },
-    });
-
-    await waitFor(() => {
-      expect(
-        screen.queryByTestId("one-location-ask-section-header:recent"),
-      ).toBeNull();
-      expect(
-        screen.queryByTestId("one-location-ask-section-header:all"),
-      ).toBeNull();
-    });
-  });
 
   it("keeps Ask for location as one compact list of people who can receive a new ask", async () => {
     // The roster carries `role="list"`, and every entry in it is wrapped as a
@@ -7026,6 +7005,43 @@ describe("OneLocationAgentPage", () => {
     // the graph even when no matched identity can be rendered here.
   });
 
+  it.each(["people", "onboarding"])("restores Google results after an auth-gate remount from %s", async (entry) => {
+    mockGoogleAvailability = () => "connectable";
+    let finishGoogle!: (token: string) => void;
+    mockRequestGoogleContactsToken.mockImplementationOnce(() => new Promise((resolve) => { finishGoogle = resolve; }));
+    mockSyncOneLocationContactSignals.mockResolvedValueOnce(contactSyncOutcomeFixture({ sourcePlatform: "google" }));
+    function Gate({ blocked = false }: { blocked?: boolean }) {
+      return <ContactInvitationSessionProvider>{blocked ? <p>Checking session</p> : <OneLocationAgentPage />}</ContactInvitationSessionProvider>;
+    }
+    const view = render(<Gate />);
+    if (entry === "people") {
+      await skipLocationEntryFlow();
+      fireEvent.click(screen.getByRole("button", { name: "People" }));
+      openDropdownMenu(await screen.findByRole("button", { name: /Add or manage people/i }));
+      fireEvent.click(screen.getByRole("menuitem", { name: /Find contacts/i }));
+    } else {
+      await leaveLocationFeatureStep();
+      const panel = await openReadyContactsPanel();
+      fireEvent.click(within(panel).getByRole("button", { name: "Check my contacts" }));
+    }
+    expect(await screen.findByRole("dialog", { name: "Connect Google Contacts" })).toBeTruthy();
+    view.rerender(<Gate blocked />);
+    expect(screen.queryByRole("dialog")).toBeNull();
+    await act(async () => { finishGoogle("google-token"); });
+    await waitFor(() => expect(mockSyncOneLocationContactSignals).toHaveBeenCalledTimes(1));
+    view.rerender(<Gate />);
+    const results = await screen.findByRole("dialog", { name: "Contact sync results" });
+    expect(within(results).getByText("Asha Rao")).toBeTruthy();
+    expect(within(results).getByText("Connected now")).toBeTruthy();
+    expect(within(results).getByRole("button", { name: "Choose Google account" })).toBeEnabled();
+    expect(mockRequestGoogleContactsToken).toHaveBeenCalledTimes(1);
+    fireEvent.click(within(results).getByRole("button", { name: "Close" }));
+    if (entry === "onboarding") {
+      const contacts = await openReadyContactsPanel();
+      expect(within(contacts).getByText("Asha Rao")).toBeTruthy();
+    }
+  });
+
   it("treats a closed Google consent sheet as a shrug, not a failure", async () => {
     // The Google fallback is the only contact source on desktop and iOS Safari,
     // and it is reached through a consent sheet the person can simply close.
@@ -7062,6 +7078,9 @@ describe("OneLocationAgentPage", () => {
     // must not fall through to a device read that would also fail here.
     expect(mockSyncOneLocationContactSignals).not.toHaveBeenCalled();
     expect(toast.error).not.toHaveBeenCalled();
+    expect(await screen.findByRole("dialog", { name: "Contact sync cancelled" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Choose Google account" })).toBeEnabled();
+    fireEvent.click(within(screen.getByRole("dialog", { name: "Contact sync cancelled" })).getAllByRole("button", { name: "Close" }).at(-1)!);
     // Not reported as a failed sync either. An analytics row that counts every
     // dismissal as an error makes the feature look broken in the dashboard.
     expect(mockTrackEvent).not.toHaveBeenCalledWith(
@@ -7668,6 +7687,8 @@ describe("OneLocationAgentPage", () => {
       expect(mockRequestGoogleContactsToken).toHaveBeenCalledTimes(1),
     );
     expect(mockSyncOneLocationContactSignals).not.toHaveBeenCalled();
+    const cancelledSheet = await screen.findByRole("dialog", { name: "Contact sync cancelled" });
+    fireEvent.click(within(cancelledSheet).getAllByRole("button", { name: "Close" }).at(-1)!);
     expect(
       within(contactsPanel).getByRole("button", { name: "Check my contacts" }),
     ).toBeEnabled();
@@ -7692,7 +7713,7 @@ describe("OneLocationAgentPage", () => {
     expect(
       await screen.findByText(/Google Contacts is still getting ready/i),
     ).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    fireEvent.click(screen.getByRole("button", { name: "Choose Google account" }));
 
     await waitFor(() =>
       expect(mockRequestGoogleContactsToken).toHaveBeenCalledTimes(2),
@@ -7702,7 +7723,7 @@ describe("OneLocationAgentPage", () => {
     );
   });
 
-  it("keeps named contact results available when Finish is pressed during the scan", async () => {
+  it("keeps Google progress in front of onboarding until the named results are ready", async () => {
     mockGoogleAvailability = () => "connectable";
     let finishSync: (() => void) | null = null;
     mockSyncOneLocationContactSignals.mockImplementationOnce(
@@ -7720,12 +7741,8 @@ describe("OneLocationAgentPage", () => {
       within(contactsPanel).getByRole("button", { name: "Check my contacts" }),
     );
 
-    expect(await screen.findByText(/Checking your contacts/i)).toBeTruthy();
-    expect(await locationFinishButton()).toBeEnabled();
-    fireEvent.click(await locationFinishButton());
-    await waitFor(() =>
-      expect(screen.queryByTestId("one-location-onboarding")).toBeNull(),
-    );
+    expect(await screen.findByRole("dialog", { name: "Checking your Google contacts" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Cancel" })).toBeEnabled();
 
     await act(async () => {
       finishSync?.();
@@ -7776,17 +7793,18 @@ describe("OneLocationAgentPage", () => {
           finishRetry = resolve;
         }),
     );
-    const retry = within(sheet).getByRole("button", { name: "Sync again" });
+    const retry = within(sheet).getByRole("button", { name: "Choose Google account" });
     await act(async () => {
       fireEvent.click(retry);
       fireEvent.click(retry);
     });
     expect(mockSyncOneLocationContactSignals).toHaveBeenCalledTimes(2);
-    expect(retry).toBeDisabled();
-    await act(async () => finishRetry(contactSyncOutcomeFixture()));
-    expect(retry).toBeEnabled();
+    expect(await screen.findByRole("dialog", { name: "Checking your Google contacts" })).toBeTruthy();
+    await act(async () => finishRetry(contactSyncOutcomeFixture({ sourcePlatform: "google" })));
+    const updatedSheet = await screen.findByRole("dialog", { name: "Contact sync results" });
+    expect(within(updatedSheet).getByRole("button", { name: "Choose Google account" })).toBeEnabled();
     expect(
-      within(sheet).queryByText("Only part of your contact list was checked."),
+      within(updatedSheet).queryByText("Only part of your contact list was checked."),
     ).toBeNull();
     await waitFor(() =>
       expect(

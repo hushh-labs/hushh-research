@@ -402,6 +402,31 @@ export function AuthProvider({ children }: AuthProviderProps) {
     observedAnonymous: boolean;
   } | null>(null);
   const activeSessionValidationPromiseRef = useRef<Promise<void> | null>(null);
+  /**
+   * How long a background revalidation may run before the loading gate is
+   * raised.
+   *
+   * Revalidating an ALREADY-PUBLISHED identity is a background check, not a
+   * sign-in. Raising the gate synchronously meant every window focus and every
+   * app foreground unmounted the tree behind a spinner and re-rendered the
+   * whole screen, which is what the owner sees as the app "checking your
+   * session again and again". In the overwhelming majority of cases Firebase
+   * answers from cache in a few milliseconds and nothing needed to be hidden at
+   * all.
+   *
+   * The validation itself is unchanged and still runs on every foreground: only
+   * the moment the gate becomes VISIBLE moves. A check that is genuinely slow,
+   * or one that is about to sign the person out, still raises it and still
+   * prevents a cached Vault dialog from flashing.
+   */
+  const DEFERRED_AUTH_GATE_MS = 200;
+  const deferredAuthGateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const clearDeferredAuthGate = useCallback(() => {
+    if (deferredAuthGateTimerRef.current !== null) {
+      clearTimeout(deferredAuthGateTimerRef.current);
+      deferredAuthGateTimerRef.current = null;
+    }
+  }, []);
   // A web auth observer can validate a new identity while a foreground check
   // for the previously published identity is still settling. Only the current
   // observer may release this gate; otherwise the old Vault can flash before
@@ -1048,8 +1073,13 @@ export function AuthProvider({ children }: AuthProviderProps) {
    * the account still exists.
    */
   const validateActiveSession = useCallback(
-    (options?: { force?: boolean }): Promise<void> => {
+    (options?: { force?: boolean; deferGate?: boolean }): Promise<void> => {
       const force = options?.force === true;
+      // Only the web focus/pageshow path may defer the gate. A native
+      // background-to-active transition must raise it immediately: that is the
+      // moment an account-deletion check runs, and vault content must not be on
+      // screen while it does.
+      const deferGate = options?.deferGate === true && !force;
       const predecessor = activeSessionValidationPromiseRef.current;
 
       // Ordinary focus/pageshow events remain single-flight. A shielded native
@@ -1071,10 +1101,21 @@ export function AuthProvider({ children }: AuthProviderProps) {
       }
 
       if (userRef.current) {
-        // Set the React gate before waiting for an older validation. The native
-        // overlay protects the first frame; this prevents the WebView tree from
-        // becoming visible between serialized checks.
-        setLoading(true);
+        if (!deferGate) {
+          // Every lifecycle-driven check, and every shielded native resume,
+          // raises the gate immediately. The tree must not be visible between
+          // serialized checks.
+          setLoading(true);
+        } else {
+          // An ordinary web focus or pageshow. Let the tree keep rendering what
+          // it already had, and only raise the gate if this check is still
+          // running after the grace window.
+          clearDeferredAuthGate();
+          deferredAuthGateTimerRef.current = setTimeout(() => {
+            deferredAuthGateTimerRef.current = null;
+            if (activeSessionValidationPromiseRef.current) setLoading(true);
+          }, DEFERRED_AUTH_GATE_MS);
+        }
       }
 
       let operation!: Promise<void>;
@@ -1140,6 +1181,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
         // A newer forced validation owns the loading gate. Its predecessor must
         // not expose cached Vault UI between the two operations.
         if (activeSessionValidationPromiseRef.current === operation) {
+          clearDeferredAuthGate();
           if (!webAuthObserverPendingRef.current) setLoading(false);
         }
       };
@@ -1161,13 +1203,14 @@ export function AuthProvider({ children }: AuthProviderProps) {
         ) {
           // Also releases a gate when the serialized task safely became a no-op
           // (for example, the identity disappeared through another observer).
+          clearDeferredAuthGate();
           setLoading(false);
         }
       };
       void operation.then(clearCompletedOperation, clearCompletedOperation);
       return operation;
     },
-    [validateAccountSession],
+    [validateAccountSession, clearDeferredAuthGate],
   );
 
   useEffect(() => {
@@ -1312,7 +1355,11 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
     const validateWhenVisible = () => {
       if (document.visibilityState !== "visible" || !userRef.current) return;
-      void validateActiveSession();
+      // Deferred gate: window focus fires on every trip back to the tab or app
+      // window, and gating the tree on each one re-rendered the whole screen
+      // for a check that almost always answers from cache in a few
+      // milliseconds. The check still runs; only the spinner waits.
+      void validateActiveSession({ deferGate: true });
     };
     window.addEventListener("focus", validateWhenVisible);
     window.addEventListener("pageshow", validateWhenVisible);
@@ -1417,9 +1464,17 @@ export function AuthProvider({ children }: AuthProviderProps) {
       removeLifecycleListener();
       window.removeEventListener("focus", validateWhenVisible);
       window.removeEventListener("pageshow", validateWhenVisible);
+      // A deferred gate that fires after unmount would set state on a dead tree.
+      clearDeferredAuthGate();
       unsubscribe();
     };
-  }, [applyAuthUser, checkAuth, validateAccountSession, validateActiveSession]);
+  }, [
+    applyAuthUser,
+    checkAuth,
+    validateAccountSession,
+    validateActiveSession,
+    clearDeferredAuthGate,
+  ]);
 
   const startPhoneVerification = useCallback(
     async (

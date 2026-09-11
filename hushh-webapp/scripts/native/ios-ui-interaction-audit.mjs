@@ -225,7 +225,9 @@ function ensureSimulatorBooted() {
   if (!destinationDeviceId) return;
   tryRun("xcrun", ["simctl", "boot", destinationDeviceId]);
   run("xcrun", ["simctl", "bootstatus", destinationDeviceId, "-b"]);
-  tryRun("open", ["-a", "Simulator"]);
+  if (process.env.NATIVE_AUDIT_VISIBLE === "true") {
+    tryRun("open", ["-a", "Simulator"]);
+  }
 }
 
 function parseStatus(raw) {

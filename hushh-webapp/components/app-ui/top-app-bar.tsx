@@ -82,10 +82,9 @@ import { VaultService } from "@/lib/services/vault-service";
 import { getKaiChromeState } from "@/lib/navigation/kai-chrome-state";
 import {
   KAI_MARKET_PATH,
-  normalizeInternalRouteHref,
   ROUTES,
 } from "@/lib/navigation/routes";
-import { buildProfileRoute } from "@/lib/navigation/profile-routes";
+import { requestProfilePaneOpen } from "@/lib/navigation/profile-pane";
 
 import { getAgentSection } from "@/lib/navigation/agent-sections";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
@@ -845,29 +844,6 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
     });
   }, [normalizedPathname, searchParams, topShellBreadcrumb]);
 
-  // The avatar opens Profile from EVERY signed-in screen, so tag the current
-  // route as the `?from` origin. The shared top-bar back control then retraces
-  // to wherever the user opened Profile from instead of always dropping them on
-  // the One dashboard — the profile "back goes to dashboard" glitch. We strip
-  // any inherited `from` (no nesting) and never tag Profile as its own origin.
-  const profileOpenHref = useMemo(() => {
-    const base = normalizeInternalRouteHref(normalizedPathname);
-    if (
-      !base ||
-      base === ROUTES.PROFILE ||
-      base.startsWith(`${ROUTES.PROFILE}/`)
-    ) {
-      return ROUTES.PROFILE;
-    }
-    const query = new URLSearchParams(searchParams?.toString?.() ?? "");
-    query.delete("from");
-    const queryString = query.toString();
-    const origin = queryString ? `${base}?${queryString}` : base;
-    return buildProfileRoute({
-      searchParams: new URLSearchParams({ from: origin }),
-    });
-  }, [normalizedPathname, searchParams]);
-
   const [switchingPersona, setSwitchingPersona] = useState<Persona | null>(
     null,
   );
@@ -1235,14 +1211,7 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
                         <ShellActionSurface
                           variant="icon"
                           aria-label="Open Profile"
-                          onClick={() =>
-                            requestInternalAppNavigation({
-                              href: profileOpenHref,
-                              scroll: false,
-                              source: "tap",
-                              transitionMode: "full",
-                            })
-                          }
+                          onClick={() => requestProfilePaneOpen("tap")}
                           className="!h-8 !w-8 !border-transparent !bg-[color:var(--app-accent)] p-0 !text-[color:var(--app-accent-fg)] !shadow-none hover:!bg-[color:var(--app-accent-hover)]"
                         >
                           <Avatar className="h-8 w-8">

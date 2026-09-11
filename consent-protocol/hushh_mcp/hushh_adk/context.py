@@ -8,7 +8,7 @@ every tool function.
 
 from contextvars import ContextVar
 from dataclasses import dataclass, field
-from typing import Dict, Optional
+from typing import Any, Dict, Optional
 
 # Thread-local storage for current execution context
 # This allows tools to access the active user/token without explicit arguments
@@ -29,6 +29,8 @@ class HushhContext:
     user_id: str
     consent_token: str
     vault_keys: Dict[str, str] = field(default_factory=dict)
+    service_ports: Dict[str, Any] = field(default_factory=dict)
+    scope_tokens: Dict[str, str] = field(default_factory=dict, repr=False)
 
     @classmethod
     def current(cls) -> Optional["HushhContext"]:

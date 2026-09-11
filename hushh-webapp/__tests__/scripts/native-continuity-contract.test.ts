@@ -259,14 +259,15 @@ describe("native cold-audit and continuity contract", () => {
     expect(nativeSupport).toContain("bridge._uiFlowsRoutingOwned === true");
   });
 
-  it("drives Profile through the canonical signed-in route", () => {
+  it("opens Profile as a pane before entering its canonical routes", () => {
     const runner = source("scripts/native/native-ui-test-runner-source.js");
     const flows = source("scripts/testing/signed-in-ui-flows.mjs");
 
     expect(runner).toContain("clickShellAction");
     expect(runner).not.toContain("NAV_ROUTE_BY_PERSONA_AND_LABEL");
-    expect(flows).toContain('route: "/one/profile"');
-    expect(flows).toContain('routeIds: ["/one/profile"]');
+    expect(flows).toContain('route: "/one/profile/account"');
+    expect(flows).toContain('testId: "profile-pane"');
+    expect(flows).toContain('routeIds: ["/one/profile/account"]');
   });
 
   it("keeps Location onboarding UI-flow checkpoints within the authored screen contract", () => {

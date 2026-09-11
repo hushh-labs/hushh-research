@@ -214,4 +214,24 @@ describe("consent SSE stops retrying a permanent refusal", () => {
     // 3s, 6s, 12s, 24s, 48s -> six attempts in total, then silence.
     expect(mocks.apiFetchStream).toHaveBeenCalledTimes(6);
   });
+  it("bounds repeated successful responses that immediately close", async () => {
+    mocks.apiFetchStream.mockImplementation(async () => ({
+      ok: true,
+      status: 200,
+      body: new ReadableStream({
+        start(controller) {
+          controller.close();
+        },
+      }),
+    }));
+    render(
+      <ConsentNotificationProvider>
+        <div>Setup</div>
+      </ConsentNotificationProvider>,
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(300_000);
+    });
+    expect(mocks.apiFetchStream).toHaveBeenCalledTimes(6);
+  });
 });

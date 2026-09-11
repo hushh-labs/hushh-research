@@ -68,6 +68,11 @@ const OUTPUT_RESUME_FADE_SECONDS = 0.006;
 const CAPTURE_FRAME_SIZE = 2048;
 const VISITOR_ACTIVITY_LEVEL = 0.08;
 const VISITOR_ACTIVITY_FRAMES = 8;
+// The first cue is idle-only on the relay. A quiet device fan or room tone can
+// otherwise look like speech during that short window and cancel the welcome
+// before the owner has said anything. Once the first model audio arrives,
+// normal sensitivity resumes for natural barge-in behavior.
+const INITIAL_VISITOR_ACTIVITY_LEVEL = 0.14;
 
 export type GeminiLiveVoiceState =
   "idle" | "connecting" | "listening" | "thinking" | "speaking";
@@ -345,6 +350,7 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
   /** Consent token for One's specialist tools; rides only in app_context frames. */
   private consentToken: string | null = null;
   private visitorActivitySent = false;
+  private initialGreetingPending = false;
   /** Real-time pacing guard for outbound audio; see sendRealtimeAudio. */
   private lastRealtimeAudioSentAt = 0;
   /** Frames discarded as backlog. Non-zero means the main thread stalled. */
@@ -620,6 +626,7 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
     this.sessionId = createGeminiLiveSessionId();
     this.sourceSeq = 0;
     this.visitorActivitySent = false;
+    this.initialGreetingPending = true;
     this.lastRealtimeAudioSentAt = 0;
     this.droppedBacklogFrames = 0;
     this.consecutiveSpeechFrames = 0;
@@ -865,7 +872,10 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
    */
   private sendVisitorActivityStart(level: number, pcm: Uint8Array): boolean {
     if (this.visitorActivitySent) return true;
-    if (level >= VISITOR_ACTIVITY_LEVEL) {
+    const activityLevel = this.initialGreetingPending
+      ? INITIAL_VISITOR_ACTIVITY_LEVEL
+      : VISITOR_ACTIVITY_LEVEL;
+    if (level >= activityLevel) {
       this.consecutiveSpeechFrames += 1;
       const maxFrames = 24;
       if (this.bufferedVisitorSpeechFrames.length >= maxFrames) {
@@ -893,6 +903,10 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
     )
       return false;
     this.visitorActivitySent = true;
+    // This is a real first-turn onset, so the idle greeting is no longer
+    // owed. Return to normal sensitivity for the next utterance even if the
+    // provider ultimately chooses not to emit audio for this turn.
+    this.initialGreetingPending = false;
     this.ws.send(JSON.stringify({ type: "voice_activity_start" }));
     for (const bufferedFrame of this.bufferedVisitorSpeechFrames) {
       this.sendRealtimeAudio(bufferedFrame, false);
@@ -1239,6 +1253,7 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
       outputTranscription?.text ?? outputTranscription?.transcript,
     );
     if (outputText) {
+      this.initialGreetingPending = false;
       this.handlers.onEvent?.({
         type: "assistant_text",
         provider: this.provider,
@@ -1319,6 +1334,7 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
         inlineData?.data &&
         (inlineData.mimeType ?? "").startsWith("audio/")
       ) {
+        this.initialGreetingPending = false;
         if (!this.suppressModelAudio) {
           this.enqueueAudio(bytesFromBase64(inlineData.data));
         }

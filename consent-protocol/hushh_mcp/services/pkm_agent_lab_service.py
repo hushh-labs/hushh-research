@@ -13,6 +13,7 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
+from hushh_mcp.consent.segment_labels import humanize_path
 from hushh_mcp.constants import GEMINI_MODEL
 from hushh_mcp.hushh_adk.manifest import ManifestLoader
 from hushh_mcp.runtime_providers import (
@@ -74,6 +75,9 @@ _MERGE_MODES = {
     "delete_entity",
     "no_op",
 }
+# Segments the walk invents; they were never keys the owner wrote.
+_SYNTHETIC_SEGMENTS = frozenset({"_items", "_entities"})
+
 _BLOCKED_EXTERNAL_PATH_PARTS = {
     "changes",
     "created_at",
@@ -878,7 +882,13 @@ class PKMAgentLabService:
 
     @classmethod
     def _titleize_path(cls, value: str) -> str:
-        return " ".join(part.replace("_", " ").title() for part in value.split(".") if part)
+        """Owner-facing words for a path, built from the segments AS WRITTEN.
+
+        Must be handed the raw path, never the normalized one. Once a segment
+        has been lowercased for authorization the word boundary is gone, and no
+        resolver can tell ``addressdetails`` from a single word.
+        """
+        return humanize_path(value)
 
     @classmethod
     def _infer_sensitivity(cls, path: str) -> str | None:
@@ -3229,7 +3239,18 @@ class PKMAgentLabService:
         value: Any,
         path: list[str],
         paths: dict[str, dict[str, Any]],
+        display_path: list[str] | None = None,
     ) -> None:
+        """Record every path in a payload, with its owner-facing label.
+
+        ``display_path`` mirrors ``path`` segment for segment, spelled the way
+        the owner's data spells it. It is carried rather than derived because
+        ``path`` has already been through ``_normalize_segment``: this walk is
+        the only point where both forms exist at once, and therefore the only
+        place the label can be authored correctly.
+        """
+        if display_path is None:
+            display_path = list(path)
         if value is None:
             return
 
@@ -3246,7 +3267,12 @@ class PKMAgentLabService:
                 and not any(
                     part in _BLOCKED_EXTERNAL_PATH_PARTS for part in current_path.split(".")
                 ),
-                "consent_label": cls._titleize_path(current_path),
+                "consent_label": cls._titleize_path(".".join(display_path)),
+                "display_segment": (
+                    None
+                    if not display_path or display_path[-1] in _SYNTHETIC_SEGMENTS
+                    else display_path[-1]
+                ),
                 "sensitivity_label": cls._infer_sensitivity(current_path),
                 "segment_id": path[0] if path else "root",
                 "source_agent": "pkm_structure_agent",
@@ -3255,7 +3281,7 @@ class PKMAgentLabService:
         if isinstance(value, list):
             sample = next((item for item in value if item is not None), None)
             if sample is not None:
-                cls._walk_payload(sample, [*path, "_items"], paths)
+                cls._walk_payload(sample, [*path, "_items"], paths, [*display_path, "_items"])
             return
 
         if not isinstance(value, dict):
@@ -3264,7 +3290,10 @@ class PKMAgentLabService:
         for raw_key, child_value in value.items():
             normalized_key = cls._normalize_segment(str(raw_key))
             if normalized_key:
-                cls._walk_payload(child_value, [*path, normalized_key], paths)
+                # raw_key, not normalized_key: the spelling still exists here.
+                cls._walk_payload(
+                    child_value, [*path, normalized_key], paths, [*display_path, str(raw_key)]
+                )
 
     @classmethod
     def _payload_financial_signature(cls, payload: dict[str, Any]) -> bool:

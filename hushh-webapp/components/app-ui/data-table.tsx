@@ -49,6 +49,7 @@ import {
 import { Search } from "lucide-react";
 import { surfaceDataTableShellClassName } from "@/lib/morphy-ux/surfaces";
 import { cn } from "@/lib/utils";
+import { SearchClearButton } from "@/components/app-ui/search-clear-button";
 
 function buildPaginationItems(
   currentPage: number,
@@ -255,8 +256,13 @@ export function DataTable<TData, TValue>({
                 placeholder={searchPlaceholder}
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="pl-9 cursor-text"
+                className="cursor-text pl-9 pr-11"
                 aria-label="Search table"
+              />
+              <SearchClearButton
+                visible={searchTerm.length > 0}
+                label="Clear table search"
+                onClear={() => setSearchTerm("")}
               />
             </div>
           )}

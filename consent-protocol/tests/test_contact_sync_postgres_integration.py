@@ -590,16 +590,20 @@ def test_legacy_disconnect_actor_schema_replays_into_owner_resync_on_postgres() 
             connection.exec_driver_sql(upgrade.replace("BEGIN;", "").replace("COMMIT;", ""))
             connection.exec_driver_sql(upgrade.replace("BEGIN;", "").replace("COMMIT;", ""))
 
-            row = connection.execute(
-                text(
-                    """
+            row = (
+                connection.execute(
+                    text(
+                        """
                     SELECT revoked_by_side, revoked_by_at = revoked_at AS episode_matches
                     FROM connections
                     WHERE user_a_id=LEAST('owner', 'manish')
                       AND user_b_id=GREATEST('owner', 'manish')
                     """
+                    )
                 )
-            ).mappings().one()
+                .mappings()
+                .one()
+            )
             assert row["revoked_by_side"] == "b"
             assert row["episode_matches"] is True
             constraint = connection.execute(

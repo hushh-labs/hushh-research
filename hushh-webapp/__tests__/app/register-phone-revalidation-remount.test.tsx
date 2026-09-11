@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
 import { describe, expect, it, vi } from "vitest";
@@ -118,7 +118,10 @@ vi.mock("@/lib/onboarding/onboarding-journey-phase", () => ({
 describe("the phone mandate page survives an auth re-validation", () => {
   it("does not unmount the verification flow when loading flips true for a signed-in person", async () => {
     mountCount = 0;
-    authState.current = { user: { uid: "u1", phoneNumber: null }, loading: false };
+    authState.current = {
+      user: { uid: "u1", phoneNumber: null },
+      loading: false,
+    };
 
     const view = render(<PhoneMandatePageContent />);
     await screen.findByText("step: phone");
@@ -152,5 +155,15 @@ describe("the phone mandate page survives an auth re-validation", () => {
     render(<PhoneMandatePageContent />);
     await screen.findByText("Loading phone verification...");
     expect(mountCount).toBe(0);
+  });
+  it("clears the pending code when the authenticated owner changes", async () => {
+    authState.current = { user: { uid: "owner-a" }, loading: false };
+    const view = render(<PhoneMandatePageContent />);
+    fireEvent.click(screen.getByRole("button", { name: "Send code" }));
+    await screen.findByText("step: code");
+    authState.current = { user: { uid: "owner-b" }, loading: false };
+    view.rerender(<PhoneMandatePageContent />);
+    await screen.findByText("step: phone");
+    expect(screen.queryByText("step: code")).toBeNull();
   });
 });
