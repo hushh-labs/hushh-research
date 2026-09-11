@@ -40,6 +40,10 @@ import { Button } from "@/components/ui/button";
 import { AgentHistorySidebar } from "@/components/agent/agent-history-sidebar";
 import { SegmentedControl } from "@/lib/morphy-ux/ui/segmented-control";
 import {
+  mergeScopeItems,
+  scopeItemFromPendingConsent,
+} from "@/lib/consent/consent-scope-items";
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -514,6 +518,16 @@ function pendingConsentLookupItemToCardItem(
     reason: item.reason ?? null,
     additionalAccessSummary: item.additional_access_summary ?? null,
     status: "pending",
+    // These three were being dropped here, which is why a fourteen-field
+    // request rendered as fourteen unrelated cards: the wire said they were one
+    // ask and the mapper threw that away.
+    bundleId: item.bundle_id ?? null,
+    bundleLabel: item.bundle_label ?? null,
+    bundleScopeCount: item.bundle_scope_count ?? null,
+    bundledRequestIds: [id],
+    bundledScopes: [scopeItemFromPendingConsent(item)].filter(
+      (scope): scope is NonNullable<typeof scope> => Boolean(scope),
+    ),
   };
 }
 
@@ -2288,6 +2302,49 @@ export function AgentChatWorkspace({
           ) {
             return current;
           }
+
+          // One ask, one card. When this request belongs to a bundle a card is
+          // already showing, fold it into that card's list rather than stacking
+          // another Approve button underneath the last one.
+          if (item.bundleId) {
+            const existingIndex = current.findIndex((message) => {
+              if (!message.specialistDirective) return false;
+              const payload = getPendingConsentRequestPayload(message.specialistDirective);
+              return payload?.item?.bundleId === item.bundleId;
+            });
+            if (existingIndex >= 0) {
+              const existing = current[existingIndex]!;
+              const payload = existing.specialistDirective
+                ? getPendingConsentRequestPayload(existing.specialistDirective)
+                : null;
+              const previous = payload?.item;
+              if (previous) {
+                const mergedItem: SpecialistPendingConsentRequestItem = {
+                  ...previous,
+                  bundledRequestIds: [
+                    ...new Set([...(previous.bundledRequestIds || []), ...(item.bundledRequestIds || [])]),
+                  ],
+                  bundledScopes: mergeScopeItems(
+                    previous.bundledScopes || [],
+                    item.bundledScopes || [],
+                  ),
+                };
+                const next = [...current];
+                next[existingIndex] = {
+                  ...existing,
+                  specialistDirective: {
+                    ...existing.specialistDirective!,
+                    directive: {
+                      ...existing.specialistDirective!.directive,
+                      payload: { kind: "pending_consent_request", item: mergedItem },
+                    },
+                  },
+                };
+                return next;
+              }
+            }
+          }
+
           return [
             ...current,
             {
