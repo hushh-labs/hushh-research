@@ -355,6 +355,71 @@ async def test_a_revocation_at_the_pod_closes_the_link_on_the_next_frame(pod):
     assert pb.BROKER.is_linked((OWNER, device.subject_id)) is False
 
 
+async def test_a_silent_device_is_evicted_instead_of_held_forever(pod, monkeypatch):
+    """A half-open socket used to leave the pod holding a corpse.
+
+    A Mac that sleeps, a Wi-Fi drop and a NAT rebind all leave the TCP
+    connection open as far as the pod is concerned, so `await _frame(...)`
+    never returns. Before the deadline the link stayed registered forever:
+    `BROKER.available()` kept answering True, the turn's admission check kept
+    passing, and the person waited out the 65 s dispatch bound to be told
+    PUPPY_TIMEOUT. Every later turn did the same, and the device never learnt
+    it should re-dial, because from its side nothing had happened either.
+
+    The eviction needs no reaper task. The frame loop's own `finally` removes
+    the link, so the read deadline IS the reaper.
+    """
+    monkeypatch.setattr(pod_puppy_relay, "_DEVICE_SILENCE_SECONDS", 0.3)
+    device = Device()
+    token, _claims = await pod["admit"](device)
+    with _connect(pod, token) as ws:
+        ws.send_json(_hello(device))
+        assert ws.receive_json()["type"] == "relay.ready"
+        assert pb.BROKER.is_linked((OWNER, device.subject_id)) is True
+
+        # Say nothing at all, which is exactly what a sleeping Mac does.
+        #
+        # Poll for the eviction rather than blocking on `receive_json`. Without
+        # the deadline the pod never closes, so a blocking read would HANG the
+        # lane instead of failing it, and a guard that hangs CI is a guard
+        # somebody deletes. Measured: this fails in about two seconds when the
+        # deadline is removed, where the blocking form ran past forty-five.
+        deadline = time.monotonic() + 3.0
+        while time.monotonic() < deadline:
+            if not pb.BROKER.is_linked((OWNER, device.subject_id)):
+                break
+            time.sleep(0.05)
+        assert pb.BROKER.is_linked((OWNER, device.subject_id)) is False, (
+            "the pod is still holding a link to a device that stopped speaking"
+        )
+
+        with pytest.raises(WebSocketDisconnect) as caught:
+            ws.receive_json()
+        assert caught.value.code == 1001
+
+
+async def test_a_device_inside_its_heartbeat_contract_is_never_evicted(pod, monkeypatch):
+    """The negative control: quiet within contract is not gone.
+
+    The device's relay clamps its heartbeat to at most 120 s, and the pod's
+    bound sits above that with room for a missed beat. A guard that evicted a
+    conforming device would be worse than no guard, because it would churn the
+    link on every slow turn.
+    """
+    monkeypatch.setattr(pod_puppy_relay, "_DEVICE_SILENCE_SECONDS", 5.0)
+    device = Device()
+    token, claims = await pod["admit"](device)
+    with _connect(pod, token) as ws:
+        ws.send_json(_hello(device))
+        assert ws.receive_json()["type"] == "relay.ready"
+        envelope = _device_envelope(pod, device, claims)
+        ws.send_json(
+            envelope.seal({"type": "relay.heartbeat"}, direction=env.DIR_DEVICE_TO_POD, seq=1)
+        )
+        # Still linked: a beat arrived well inside the bound.
+        assert pb.BROKER.is_linked((OWNER, device.subject_id)) is True
+
+
 def test_model_and_capability_validation_is_strict():
     assert pod_puppy_relay.valid_model_name("qwen3-8b-mlx") == "qwen3-8b-mlx"
     assert pod_puppy_relay.valid_model_name("http://evil") == ""
