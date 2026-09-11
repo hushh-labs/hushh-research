@@ -384,6 +384,43 @@ async def test_mcp_dispatch_returns_owner_handoff_without_granting_access(consum
 
 
 @pytest.mark.asyncio
+async def test_consumer_mcp_disconnect_requires_confirmation_and_revokes_only_current_connection(
+    consumer, monkeypatch
+):
+    import mcp_server
+    from mcp_modules.developer_context import (
+        reset_current_developer_principal,
+        set_current_developer_principal,
+    )
+    from mcp_modules.tools import consumer_tools
+
+    service, _, _ = consumer
+    principal, review, _ = connect(consumer)
+    approve(service, review)
+    monkeypatch.setattr(consumer_tools, "ConsumerMcpConnections", lambda: service)
+    context = set_current_developer_principal(principal)
+    try:
+        refused = await mcp_server.call_tool(
+            "disconnect_hussh_connection",
+            {"confirm": False, "generation": review.generation},
+        )
+        assert refused.isError
+        assert service.prepare(principal).memory_access
+
+        disconnected = await mcp_server.call_tool(
+            "disconnect_hussh_connection",
+            {"confirm": True, "generation": review.generation},
+        )
+        assert not disconnected.isError
+        assert disconnected.structuredContent["state"] == "disconnected"
+        assert disconnected.structuredContent["connection_id"] == review.connection_id
+        with pytest.raises(ConsumerConnectionDenied):
+            service.prepare(principal)
+    finally:
+        reset_current_developer_principal(context)
+
+
+@pytest.mark.asyncio
 async def test_consumer_mcp_reads_resumable_setup_status_without_starting_a_job(
     consumer, monkeypatch
 ):

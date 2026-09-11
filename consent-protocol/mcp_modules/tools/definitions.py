@@ -9,6 +9,7 @@ from mcp_modules.public_contract import get_public_contract
 from mcp_modules.tools.consumer_tools import (
     ConsumerCapabilitiesResult,
     ConsumerConnectionResult,
+    ConsumerDisconnectResult,
     ConsumerMemoryResult,
     ConsumerReceiptsResult,
     ConsumerSetupStatusResult,
@@ -77,6 +78,24 @@ def _private_tool_definitions() -> list[Tool]:
             annotations={
                 "readOnlyHint": True,
                 "destructiveHint": False,
+                "idempotentHint": True,
+                "openWorldHint": False,
+            },
+        ),
+        Tool(
+            name="disconnect_hussh_connection",
+            description="Disconnect this assistant after explicit confirmation. This revokes its standing Hussh memory access while keeping your private agent and information intact.",
+            inputSchema=schema(
+                {
+                    "confirm": {"type": "boolean", "const": True},
+                    "generation": {"type": "integer", "minimum": 1},
+                },
+                ["confirm", "generation"],
+            ),
+            outputSchema=ConsumerDisconnectResult.model_json_schema(),
+            annotations={
+                "readOnlyHint": False,
+                "destructiveHint": True,
                 "idempotentHint": True,
                 "openWorldHint": False,
             },

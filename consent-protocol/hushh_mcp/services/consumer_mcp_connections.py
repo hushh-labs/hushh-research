@@ -534,6 +534,38 @@ class ConsumerMcpConnections:
                 receipt_ref="cmr_" + secrets.token_hex(16),
             )
 
+    def disconnect_current(self, principal: DeveloperPrincipal, *, generation: int) -> dict:
+        """Revoke only the MCP connection represented by this OAuth session.
+
+        The owner may revoke any assistant from the authenticated Hussh UI.  An
+        external assistant gets a narrower self-service operation: its OAuth
+        authorization must name the same consumer binding, and the caller must
+        repeat the current generation.  This prevents one client from revoking
+        another client belonging to the same owner and makes delayed retries
+        harmless after a reconnect.
+        """
+        owner = principal.subject_firebase_uid or ""
+        if type(generation) is not int or generation < 1:
+            raise ConsumerConnectionDenied("Invalid connection generation")
+        with self._transaction(owner) as tx:
+            authorization = self._oauth(tx, principal)
+            connection_id = str(authorization.get("consumer_connection_id") or "")
+            if not connection_id:
+                raise ConsumerConnectionDenied("Complete the assistant connection first")
+            binding = self._binding(tx, connection_id, owner)
+            self._match(binding, authorization, self._deployment(tx, owner))
+            if binding["generation"] != generation:
+                raise ConsumerConnectionDenied("This assistant connection changed; reconnect")
+            ConsentDBService.append_consumer_memory_decision(
+                tx,
+                user_id=owner,
+                connection_id=connection_id,
+                generation=generation,
+                action="REVOKED",
+                receipt_ref="cmr_" + secrets.token_hex(16),
+            )
+            return {"connection_id": connection_id, "generation": generation}
+
     @contextmanager
     def memory_transaction(
         self, principal: DeveloperPrincipal, *, operation: str

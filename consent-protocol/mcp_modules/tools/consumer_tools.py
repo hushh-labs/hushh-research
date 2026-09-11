@@ -78,6 +78,14 @@ class ConsumerReceiptsResult(BaseModel):
     next_action: str
 
 
+class ConsumerDisconnectResult(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    state: Literal["disconnected"]
+    connection_id: str
+    generation: int
+    next_action: str
+
+
 class ConsumerMemoryResult(BaseModel):
     model_config = ConfigDict(extra="allow")
     state: Literal["completed"]
@@ -269,6 +277,7 @@ async def handle_list_hussh_capabilities(arguments: dict) -> CallToolResult:
         "export_hussh_memory",
         "list_hussh_capabilities",
         "list_hussh_receipts",
+        "disconnect_hussh_connection",
     }
     public_names = {
         "search-user-scopes",
@@ -296,6 +305,9 @@ async def handle_list_hussh_capabilities(arguments: dict) -> CallToolResult:
         }:
             execution = "owner_pod"
             availability = "approval_required"
+        elif name == "disconnect_hussh_connection":
+            execution = "consent_service"
+            availability = "contract_available"
         else:
             execution = "consent_service"
             availability = "contract_available"
@@ -334,6 +346,45 @@ async def handle_list_hussh_receipts(arguments: dict) -> CallToolResult:
             state="available",
             items=list(result.get("items") or []),
             next_action="Receipt references are non-bearer audit records; reconnect or approve again when access is revoked.",
+        )
+    )
+
+
+async def handle_disconnect_hussh_connection(arguments: dict) -> CallToolResult:
+    """Revoke this assistant's standing grant after explicit confirmation."""
+    if not isinstance(arguments, dict):
+        return _error("INVALID_ARGUMENTS", "Arguments must be an object.")
+    if arguments.get("confirm") is not True:
+        return _error(
+            "CONFIRMATION_REQUIRED",
+            "Set confirm=true to disconnect this assistant. Your private agent and information remain intact.",
+        )
+    generation = arguments.get("generation")
+    if type(generation) is not int or generation < 1:
+        return _error("INVALID_ARGUMENTS", "generation must be a positive integer.")
+    if set(arguments) != {"confirm", "generation"}:
+        return _error("INVALID_ARGUMENTS", "Only confirm and generation are accepted.")
+    principal = get_current_developer_principal()
+    if not has_consumer_oauth_identity(principal):
+        return _error("OWNER_AUTH_REQUIRED", "Reconnect using your own Hussh account.")
+    try:
+        result = await asyncio.to_thread(
+            ConsumerMcpConnections().disconnect_current,
+            principal,
+            generation=generation,
+        )
+    except ConsumerConnectionDenied as error:
+        return _error("DISCONNECT_REFUSED", str(error))
+    except Exception:
+        return _error(
+            "DISCONNECT_UNAVAILABLE", "Assistant access could not be revoked. Retry later."
+        )
+    return _result(
+        ConsumerDisconnectResult(
+            state="disconnected",
+            connection_id=str(result["connection_id"]),
+            generation=int(result["generation"]),
+            next_action="This assistant is disconnected. The private agent and its information remain available to you.",
         )
     )
 
