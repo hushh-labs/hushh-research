@@ -1092,7 +1092,8 @@ export function PhoneVerificationFlow({
                   className={cn(
                     FLOW_CONTROL_SHELL_CLASS_NAME,
                     "relative w-full",
-                    !countryComboboxOpen && "[&_input]:text-transparent",
+                    !countryComboboxOpen &&
+                      "[&_input]:min-w-0 [&_input]:truncate [&_input]:whitespace-nowrap [&_input]:text-transparent [&_input]:caret-transparent",
                   )}
                   autoComplete="off"
                   autoCorrect="off"
@@ -1100,9 +1101,12 @@ export function PhoneVerificationFlow({
                   showTrigger
                 >
                   {!countryComboboxOpen ? (
-                    <span className="pointer-events-none absolute inset-y-0 left-4 z-10 flex items-center gap-3 text-[15px] text-[#17130c] dark:text-[#f5f5f7]">
+                    <span
+                      aria-hidden="true"
+                      className="pointer-events-none absolute inset-y-0 left-4 z-10 flex min-w-0 max-w-[calc(100%-3.5rem)] items-center gap-2 whitespace-nowrap text-[15px] text-[#17130c] dark:text-[#f5f5f7]"
+                    >
                       <FigmaCountryFlag />
-                      <span>{selectedCountryDisplayLabel}</span>
+                      <span className="min-w-0 truncate">{selectedCountryDisplayLabel}</span>
                     </span>
                   ) : null}
                 </ComboboxInput>
