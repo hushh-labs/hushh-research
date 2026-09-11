@@ -1,6 +1,8 @@
 "use client";
 
 import type { ReactNode } from "react";
+import { ConsentScopeList } from "@/components/consent/consent-scope-list";
+import { domainLabelFor } from "@/lib/consent/consent-scope-items";
 import Link from "next/link";
 import {
   ArrowUpRight,
@@ -9,7 +11,6 @@ import {
   FileCheck2,
   FolderLock,
   Link2,
-  LockKeyhole,
   ShieldCheck,
   UserRound,
 } from "lucide-react";
@@ -97,35 +98,23 @@ function personName(value: string): string {
     .replace(/(^|[\s'-])([a-z])/g, (_match, boundary, letter) => `${boundary}${letter.toUpperCase()}`);
 }
 
-/** A domain key ("location") as a heading a person would read. */
-function domainHeading(value: string): string {
-  const cleaned = String(value || "").replace(/[_.]+/g, " ").trim();
-  if (!cleaned) return "Information";
-  return cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
-}
-
-// Labels are authored information. Word boundaries do not identify a field
-// path: shortening "Employment status" to "status" changes its meaning.
-function scopeTitle(label: string): string {
-  return label.trim() || "Information";
-}
-
 function ScopeDiscoveryView({
   experience,
 }: {
   experience: ScopeDiscoveryExperience;
 }) {
-  const groups = experience.scopes.reduce<
-    Array<{ domain: string; scopes: ScopeDiscoveryExperience["scopes"] }>
-  >((current, scope) => {
-    const existing = current.find((group) => group.domain === scope.domain);
-    if (existing) {
-      existing.scopes.push(scope);
-      return current;
-    }
-    current.push({ domain: scope.domain, scopes: [scope] });
-    return current;
-  }, []);
+  // The same list every other scope surface renders. Was a hand-rolled
+  // reduce-based group-by-domain, one of two independent implementations of the
+  // same thing over the same field shape.
+  const items = experience.scopes.map((scope, index) => ({
+    id: `${scope.domain || "other"}:${scope.label}:${index}`,
+    label: scope.label,
+    description: scope.description || null,
+    domainKey: scope.domain || "other",
+    domainLabel: domainLabelFor(scope.domain),
+    badge: sensitivityLabel(scope.sensitivity),
+    searchText: `${scope.label} ${scope.description || ""} ${scope.domain || ""}`.toLowerCase(),
+  }));
 
   return (
     <section
@@ -148,43 +137,13 @@ function ScopeDiscoveryView({
         </div>
       </header>
 
-      {groups.length > 0 ? (
-        <div className="space-y-4 px-1">
-          {groups.map((group) => (
-            <section key={group.domain} aria-label={group.domain}>
-              <h4 className="ui-text-section-label pb-1.5 text-muted-foreground">
-                {domainHeading(group.domain)}
-              </h4>
-              <ul className="divide-y divide-border/35">
-                {group.scopes.map((scope) => {
-                  const sensitivity = sensitivityLabel(scope.sensitivity);
-                  const title = scopeTitle(scope.label);
-                  return (
-                    <li key={scope.scopeRef} className="py-2.5 first:pt-2 last:pb-2">
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <p className="text-sm font-semibold text-foreground">
-                            {title}
-                          </p>
-                          {scope.description ? (
-                            <p className="mt-0.5 text-xs leading-5 text-muted-foreground">
-                              {scope.description}
-                            </p>
-                          ) : null}
-                        </div>
-                        {sensitivity ? (
-                          <span className="inline-flex shrink-0 items-center gap-1 text-[11px] font-semibold text-muted-foreground">
-                            <LockKeyhole className="h-3 w-3" aria-hidden="true" />
-                            {sensitivity}
-                          </span>
-                        ) : null}
-                      </div>
-                    </li>
-                  );
-                })}
-              </ul>
-            </section>
-          ))}
+      {items.length > 0 ? (
+        <div className="px-1">
+          <ConsentScopeList
+            items={items}
+            collapsible={false}
+            testIdPrefix="scope-discovery-scopes"
+          />
         </div>
       ) : null}
 
@@ -201,23 +160,37 @@ function ScopeDiscoveryView({
 }
 
 function InformationRequestReviewView({ experience }: { experience: InformationRequestReviewExperience }) {
+  // Every field becomes a row in the one list every scope surface uses, so this
+  // reads the same as Memory and the same as the pending-request card.
+  const items = experience.fields.map((field, index) => ({
+    id: `${field.domain}:${field.label}:${index}`,
+    label: field.label,
+    description: null,
+    domainKey: field.domain || "other",
+    domainLabel: domainLabelFor(field.domain),
+    badge: sensitivityLabel(field.sensitivity),
+    searchText: `${field.label} ${field.domain || ""}`.toLowerCase(),
+  }));
+
   return (
     <ExperienceShell
-      label="Consent review"
-      title={`Request from ${experience.personName}`}
-      summary={`${experience.fields.length} fields · ${experience.durationLabel}`}
+      // Not "Consent review", not "N fields", and the raw domain key no longer
+      // sits beside every row. agent.yaml:62-70 bans this vocabulary in
+      // owner-facing speech; the chrome used to reintroduce all of it.
+      label="Waiting on you"
+      title={`${experience.personName} asked to see some of your information`}
+      summary={`${items.length} ${items.length === 1 ? "thing" : "things"} · ${experience.durationLabel}`}
       icon={<ShieldCheck className="h-5 w-5" aria-hidden="true" />}
     >
       <p className="text-sm leading-6 text-foreground">{experience.purpose}</p>
-      <ul className="mt-3 divide-y divide-border/35">
-        {experience.fields.map((field) => (
-          <li key={`${field.domain}:${field.label}`} className="flex items-center justify-between gap-3 py-2.5">
-            <span><span className="text-sm font-medium text-foreground">{field.label}</span><span className="ml-2 text-xs text-muted-foreground">{field.domain}</span></span>
-            <span className="text-xs font-medium text-accent-strong">{sensitivityLabel(field.sensitivity) || "Standard"}</span>
-          </li>
-        ))}
-      </ul>
-      <p className="mt-3 text-xs font-medium text-muted-foreground">{experience.status.replace(/_/g, " ")}</p>
+      <div className="mt-3">
+        <ConsentScopeList
+          items={items}
+          groupByDomain={items.length > 1}
+          collapsible={false}
+          testIdPrefix="information-request-review-scopes"
+        />
+      </div>
     </ExperienceShell>
   );
 }
