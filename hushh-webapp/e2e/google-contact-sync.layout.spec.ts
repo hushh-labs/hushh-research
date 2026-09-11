@@ -197,12 +197,21 @@ for (const width of [393, 1440]) {
     await expect(
       results.getByRole("button", { name: "Choose Google account" }),
     ).toBeVisible();
+    await expect(
+      results.getByRole("button", { name: "Choose Google account" }),
+    ).toHaveClass(/bg-\[color:var\(--app-accent\)\]/);
+    await expect(
+      results.getByRole("button", { name: "Invite contacts" }),
+    ).toHaveCount(0);
+    await expect(results.getByText("Checked", { exact: true })).toHaveCount(0);
     // Radix becomes visible at the start of its slide animation. Wait until
     // the entire sheet, including recovery actions, is inside the viewport.
-    await expect.poll(async () => {
-      const bounds = await results.boundingBox();
-      return bounds ? Math.round(bounds.y + bounds.height) : Infinity;
-    }).toBeLessThanOrEqual(901);
+    await expect
+      .poll(async () => {
+        const bounds = await results.boundingBox();
+        return bounds ? Math.round(bounds.y + bounds.height) : Infinity;
+      })
+      .toBeLessThanOrEqual(901);
     const box = (await results.boundingBox())!;
     expect(box.x).toBeGreaterThanOrEqual(0);
     expect(box.x + box.width).toBeLessThanOrEqual(width + 1);
@@ -214,7 +223,9 @@ for (const width of [393, 1440]) {
     ).toMatchObject({ syncCalls: 1, tokenCalls: 1, activation: [true] });
     expect(errors).toEqual([]);
     await testInfo.attach("Google contact results", {
-      body: await page.screenshot({ path: testInfo.outputPath("google-results.png") }),
+      body: await page.screenshot({
+        path: testInfo.outputPath("google-results.png"),
+      }),
       contentType: "image/png",
     });
   });

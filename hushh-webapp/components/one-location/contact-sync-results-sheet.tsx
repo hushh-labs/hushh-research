@@ -162,6 +162,10 @@ export function ContactSyncResultsSheet({
   }
   if (!result) return null;
   const googleSummary = googleContactSyncSummary(result);
+  const emptyGoogleBook =
+    result.sourcePlatform === "google" &&
+    !result.partial &&
+    result.totalContacts === 0;
 
   const connectedCount =
     result.autoConnectedCount + result.alreadyConnectedCount;
@@ -217,22 +221,24 @@ export function ContactSyncResultsSheet({
           </p>
         ) : null}
 
-        <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
-          {[
-            ["Checked", result.checkedContactCount],
-            ["Matched", result.matchedContactCount],
-            ["Connected", connectedCount],
-            ["No match", result.unmatchedContactCount],
-          ].map(([label, count]) => (
-            <div
-              key={String(label)}
-              className="rounded-2xl bg-muted/45 px-3 py-2.5"
-            >
-              <p className="text-lg font-semibold text-foreground">{count}</p>
-              <p className="text-xs text-muted-foreground">{label}</p>
-            </div>
-          ))}
-        </div>
+        {!emptyGoogleBook ? (
+          <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+            {[
+              ["Checked", result.checkedContactCount],
+              ["Matched", result.matchedContactCount],
+              ["Connected", connectedCount],
+              ["No match", result.unmatchedContactCount],
+            ].map(([label, count]) => (
+              <div
+                key={String(label)}
+                className="rounded-2xl bg-muted/45 px-3 py-2.5"
+              >
+                <p className="text-lg font-semibold text-foreground">{count}</p>
+                <p className="text-xs text-muted-foreground">{label}</p>
+              </div>
+            ))}
+          </div>
+        ) : null}
 
         {result.partial ||
         result.lookupLimitExceeded ||
@@ -403,7 +409,12 @@ export function ContactSyncResultsSheet({
           ) : null}
         </div>
 
-        <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2">
+        <div
+          className={cn(
+            "mt-4 grid grid-cols-1 gap-2",
+            !emptyGoogleBook && "sm:grid-cols-2",
+          )}
+        >
           {capOnlyPartial ? (
             <Button
               type="button"
@@ -416,7 +427,7 @@ export function ContactSyncResultsSheet({
           ) : (
             <Button
               type="button"
-              variant="outline"
+              variant={emptyGoogleBook ? "default" : "outline"}
               disabled={syncing}
               onClick={() => void onSyncAgain()}
               className="h-11 rounded-full"
@@ -431,20 +442,22 @@ export function ContactSyncResultsSheet({
                 : "Sync again"}
             </Button>
           )}
-          <Button
-            type="button"
-            disabled={
-              syncing ||
-              !(invitations?.enabled
-                ? invitations.candidates.length
-                : result.inviteCandidateCount)
-            }
-            onClick={() => void onInvite()}
-            className="h-11 rounded-full"
-          >
-            <Send className="mr-2 h-4 w-4" />
-            Invite contacts
-          </Button>
+          {!emptyGoogleBook ? (
+            <Button
+              type="button"
+              disabled={
+                syncing ||
+                !(invitations?.enabled
+                  ? invitations.candidates.length
+                  : result.inviteCandidateCount)
+              }
+              onClick={() => void onInvite()}
+              className="h-11 rounded-full"
+            >
+              <Send className="mr-2 h-4 w-4" />
+              Invite contacts
+            </Button>
+          ) : null}
         </div>
       </SheetContent>
     </Sheet>
