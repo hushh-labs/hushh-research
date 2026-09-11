@@ -148,6 +148,19 @@ function getCountryOptionLabel(option: {
   return `${option.label} (${option.dialCode})`;
 }
 
+function getCountryFlag(countryValue: string): string {
+  const normalizedValue = countryValue.trim().toUpperCase();
+  if (!/^[A-Z]{2}$/.test(normalizedValue)) {
+    return "🌐";
+  }
+
+  return String.fromCodePoint(
+    ...normalizedValue
+      .split("")
+      .map((letter) => 127397 + letter.charCodeAt(0)),
+  );
+}
+
 function getCountryOption(value: string): CountryPhoneOption {
   return (
     PHONE_COUNTRY_OPTIONS.find((option) => option.value === value) ??
@@ -419,6 +432,9 @@ export function PhoneVerificationFlow({
       getCountryOptionLabel(selectedCountryOption ?? DEFAULT_PHONE_COUNTRY_OPTION),
     [selectedCountryOption],
   );
+  const selectedCountryDisplay =
+    selectedCountryOption ?? DEFAULT_PHONE_COUNTRY_OPTION;
+  const selectedCountryFlag = getCountryFlag(selectedCountryDisplay.value);
   const countryInputValue = countryComboboxOpen
     ? countryQuery
     : selectedCountryLabel;
@@ -1028,13 +1044,32 @@ export function PhoneVerificationFlow({
                   }}
                   className={cn(
                     flowControlShellClassName,
-                    "w-full [&_input]:min-w-0 [&_input]:truncate [&_input]:whitespace-nowrap",
+                    "relative w-full [&_input]:min-w-0 [&_input]:truncate [&_input]:whitespace-nowrap",
+                    !countryComboboxOpen &&
+                      "[&_input]:text-transparent [&_input]:caret-transparent",
                   )}
                   autoComplete="off"
                   autoCorrect="off"
                   spellCheck={false}
                   showTrigger
-                />
+                >
+                  {!countryComboboxOpen ? (
+                    <span
+                      aria-hidden="true"
+                      className="pointer-events-none absolute inset-y-0 left-4 z-10 flex min-w-0 max-w-[calc(100%-3.5rem)] items-center gap-2 whitespace-nowrap text-[15px] text-[#f2f2f7]"
+                    >
+                      <span className="shrink-0 text-base leading-none">
+                        {selectedCountryFlag}
+                      </span>
+                      <span className="shrink-0 font-medium">
+                        {selectedCountryDisplay.dialCode}
+                      </span>
+                      <span className="min-w-0 truncate">
+                        {selectedCountryDisplay.label}
+                      </span>
+                    </span>
+                  ) : null}
+                </ComboboxInput>
                 <ComboboxContent
                   className={cn(
                     "w-[var(--anchor-width)]",
