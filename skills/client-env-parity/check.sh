@@ -12,8 +12,14 @@ MANIFEST="${ROOT}/skills/client-env-parity/required-client-env.tsv"
 WEB_LANE="${ROOT}/deploy/frontend.cloudbuild.yaml"
 TF_LANE="${ROOT}/.github/workflows/ship-ios-testflight.yml"
 AS_LANE="${ROOT}/.github/workflows/release-ios-appstore.yml"
+# The TestFlight lane no longer writes its credentials inline. They moved into a
+# script it calls, shared with the physical-iPhone lane so both build from the
+# same inputs. A checker that only reads the workflow reports thirteen gaps that
+# are not real, which is worse than no checker: the next real gap is dismissed
+# as "that one always shouts". Read both, and require a write in one of them.
+TF_SCRIPT="${ROOT}/scripts/ci/materialize-ios-uat-build-contract.sh"
 
-for f in "$MANIFEST" "$WEB_LANE" "$TF_LANE" "$AS_LANE"; do
+for f in "$MANIFEST" "$WEB_LANE" "$TF_LANE" "$AS_LANE" "$TF_SCRIPT"; do
   [ -f "$f" ] || { echo "MISSING FILE: $f" >&2; exit 1; }
 done
 
@@ -22,7 +28,12 @@ done
 # real mechanisms; grepping for the bare name would match comments and pass
 # a lane that only mentions the var.
 web_provides()  { grep -qE "build-arg[[:space:]]+$1=" "$WEB_LANE"; }
-tf_provides()   { grep -qE "put[[:space:]]+$1[[:space:]]" "$TF_LANE"; }
+# `put` in the workflow, `put_env` in the shared script. Both write the value
+# into the build environment; neither matches a bare mention in a comment.
+tf_provides()   {
+  grep -qE "put[[:space:]]+$1[[:space:]]" "$TF_LANE" ||
+    grep -qE "put_env[[:space:]]+$1[[:space:]]" "$TF_SCRIPT"
+}
 as_provides()   { grep -qE "put[[:space:]]+$1[[:space:]]" "$AS_LANE"; }
 
 fail=0
