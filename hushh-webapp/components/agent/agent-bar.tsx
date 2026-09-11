@@ -53,6 +53,7 @@ import {
 import {
   AGENT_CONVERSATION_CANCEL_EVENT,
   AGENT_CONVERSATION_REQUEST_EVENT,
+  AGENT_CONVERSATION_STOP_EVENT,
   acknowledgeAgentConversation,
   markAgentConversationOwnerReady,
   type AgentConversationRequest,
@@ -2270,6 +2271,25 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
         request?.source === "siri_app_shortcut" ? request : undefined,
       );
     };
+    // A stop that is a no-op unless something is actually live, so it cannot
+    // become a general-purpose cancel. `stopConversation` also aborts the
+    // in-flight action run and cancels active action runs, so an unconditional
+    // call would kill a typed action run every time someone looked at another
+    // surface. The lease check is the half that matters: it covers the window
+    // where the mic is leased but the transport is not live yet, and releasing
+    // the lease makes the in-flight `startConversation` abort at its own
+    // post-await `lease.isCurrent()` check.
+    const handleConversationStop = () => {
+      if (
+        !voiceLeaseRef.current &&
+        !liveClientRef.current &&
+        !erroredRef.current &&
+        !conversationActive
+      ) {
+        return;
+      }
+      stopConversation();
+    };
     const handleConversationCancel = (event: Event) => {
       const cancellation = (event as CustomEvent<{
         source?: string;
@@ -2294,6 +2314,10 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
       handleConversationRequest,
     );
     window.addEventListener(
+      AGENT_CONVERSATION_STOP_EVENT,
+      handleConversationStop,
+    );
+    window.addEventListener(
       AGENT_CONVERSATION_CANCEL_EVENT,
       handleConversationCancel,
     );
@@ -2305,11 +2329,15 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
         handleConversationRequest,
       );
       window.removeEventListener(
+        AGENT_CONVERSATION_STOP_EVENT,
+        handleConversationStop,
+      );
+      window.removeEventListener(
         AGENT_CONVERSATION_CANCEL_EVENT,
         handleConversationCancel,
       );
     };
-  }, [startConversation]);
+  }, [conversationActive, startConversation, stopConversation]);
 
   const openAgentChat = useCallback(() => {
     if (conversationActive) return;
@@ -2770,8 +2798,11 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
           data-testid="one-agent-chat-open"
           data-agent-action="chat"
           onClick={openAgentChat}
-          aria-label={`Chat with One. ${hint}`}
-          title="Chat with One"
+          // The workspace is a two-agent window (One and Puppy One) and the
+          // mode survives a minimise, so a name that promises One is a promise
+          // this control cannot keep. The visible label already says "Chat".
+          aria-label={`Open Agent Chat. ${hint}`}
+          title="Open Agent Chat"
           className="bottom-chrome-surface press-scale relative flex h-11 min-w-[88px] shrink-0 items-center justify-center gap-1.5 overflow-hidden rounded-full px-3 text-current transition-[background-color,transform] duration-200 hover:bg-current/[0.09] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--app-accent-ring)] dark:hover:bg-current/[0.12] sm:min-w-[96px]"
         >
           <MessageCircle className="h-[17px] w-[17px]" />

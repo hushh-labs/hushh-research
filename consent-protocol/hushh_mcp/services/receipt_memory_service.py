@@ -20,6 +20,9 @@ from typing import Any
 from db.db_client import DatabaseExecutionError, get_db
 from hushh_mcp.constants import GEMINI_MODEL
 from hushh_mcp.runtime_providers import build_managed_runtime_client
+from hushh_mcp.services.gmail_cache_retention import (
+    GMAIL_PREVIEW_RETENTION_DAYS,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +31,7 @@ RECEIPT_MEMORY_DETERMINISTIC_SCHEMA_VERSION = 1
 RECEIPT_MEMORY_ENRICHMENT_SCHEMA_VERSION = 1
 RECEIPT_MEMORY_INFERENCE_WINDOW_DAYS = 365
 RECEIPT_MEMORY_HIGHLIGHTS_WINDOW_DAYS = 90
-RECEIPT_MEMORY_STALE_AFTER_DAYS = 7
+RECEIPT_MEMORY_STALE_AFTER_DAYS = GMAIL_PREVIEW_RETENTION_DAYS
 RECEIPT_MEMORY_CLASSIFICATION_CONFIDENCE_FLOOR = 0.5
 RECEIPT_MEMORY_MAX_MERCHANTS = 12
 RECEIPT_MEMORY_MAX_PATTERNS = 8
@@ -1094,6 +1097,7 @@ class ReceiptMemoryArtifactService:
                 SELECT *
                 FROM kai_receipt_memory_artifacts
                 WHERE user_id = :user_id
+                  AND created_at > CURRENT_TIMESTAMP - make_interval(days => :retention_days)
                   AND source_watermark_hash = :source_watermark_hash
                   AND inference_window_days = :inference_window_days
                   AND highlights_window_days = :highlights_window_days
@@ -1104,6 +1108,7 @@ class ReceiptMemoryArtifactService:
                 """,
                 {
                     "user_id": user_id,
+                    "retention_days": GMAIL_PREVIEW_RETENTION_DAYS,
                     "source_watermark_hash": source_watermark_hash,
                     "inference_window_days": inference_window_days,
                     "highlights_window_days": highlights_window_days,
@@ -1130,11 +1135,13 @@ class ReceiptMemoryArtifactService:
                 FROM kai_receipt_memory_artifacts
                 WHERE artifact_id = :artifact_id
                   AND user_id = :user_id
+                  AND created_at > CURRENT_TIMESTAMP - make_interval(days => :retention_days)
                 LIMIT 1
                 """,
                 {
                     "artifact_id": artifact_id,
                     "user_id": user_id,
+                    "retention_days": GMAIL_PREVIEW_RETENTION_DAYS,
                 },
             ).data
         except Exception as exc:
@@ -1324,7 +1331,7 @@ class ReceiptMemoryArtifactService:
                 "reason": "missing_created_at",
             }
         age = _utcnow() - created_at
-        is_stale = age > timedelta(days=RECEIPT_MEMORY_STALE_AFTER_DAYS)
+        is_stale = age >= timedelta(days=RECEIPT_MEMORY_STALE_AFTER_DAYS)
         return {
             "status": "stale" if is_stale else "fresh",
             "is_stale": is_stale,

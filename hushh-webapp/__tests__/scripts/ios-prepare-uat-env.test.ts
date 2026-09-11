@@ -3,6 +3,14 @@ import { describe, expect, it } from "vitest";
 import { buildIosUatRuntimeEnv } from "../../scripts/native/prepare-ios-uat-archive.mjs";
 
 describe("iOS UAT native runtime env", () => {
+  it("keeps UAT enrollment scoped to UAT despite production shell and file defaults", () => {
+    const env = buildIosUatRuntimeEnv({
+      processEnv: { NEXT_PUBLIC_PASSKEY_RP_ID: "one.hushh.ai" },
+      uatValues: { NEXT_PUBLIC_PASSKEY_RP_ID: "one.hushh.ai" },
+      localValues: {},
+    });
+    expect(env.NEXT_PUBLIC_PASSKEY_RP_ID).toBe("uat.one.hushh.ai");
+  });
   it("falls back from placeholder UAT env to the canonical UAT backend and shared local Firebase config", () => {
     const env = buildIosUatRuntimeEnv({
       processEnv: {},
@@ -23,6 +31,7 @@ describe("iOS UAT native runtime env", () => {
 
     expect(env.APP_RUNTIME_PROFILE).toBe("uat");
     expect(env.NEXT_PUBLIC_APP_ENV).toBe("uat");
+    expect(env.NEXT_PUBLIC_PASSKEY_RP_ID).toBe("uat.one.hushh.ai");
     expect(env.NEXT_DIST_DIR).toBe(".next-native-uat");
     expect(env.NEXT_PUBLIC_BACKEND_URL).toBe(
       "https://consent-protocol-f2gsa4kfsq-uc.a.run.app",

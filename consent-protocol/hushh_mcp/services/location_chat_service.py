@@ -302,8 +302,12 @@ class LocationChatService:
         ready: Callable[[], bool] | None = None,
         tools: list | None = None,
         system_prompt: str | None = None,
+        location_service: Any = None,
+        scope_tokens: dict[str, str] | None = None,
     ) -> None:
         self._chat_store = chat_store if chat_store is not None else get_agent_chat_service()
+        self._location_service = location_service
+        self._scope_tokens = dict(scope_tokens or {})
 
         if model_call is not None:
             self._model_call = model_call
@@ -441,7 +445,15 @@ class LocationChatService:
         state_changed = False
         directives: list[dict] = []
         prompts: list[dict] = []
-        with HushhContext(user_id=user_id, consent_token=consent_token, vault_keys={}):
+        with HushhContext(
+            user_id=user_id,
+            consent_token=consent_token,
+            vault_keys={},
+            scope_tokens=self._scope_tokens,
+            service_ports={"location": self._location_service}
+            if self._location_service is not None
+            else {},
+        ):
             for _ in range(_MAX_TOOL_STEPS):
                 try:
                     calls, reply = await self._model_step(contents, config)

@@ -26,7 +26,7 @@ const verifyProductAssetsScript = path.join(
 );
 const DEFAULT_UAT_BACKEND_URL = "https://consent-protocol-f2gsa4kfsq-uc.a.run.app";
 const DEFAULT_UAT_APP_URL = "https://uat.one.hushh.ai";
-const DEFAULT_PASSKEY_RP_ID = "one.hushh.ai";
+const DEFAULT_PASSKEY_RP_ID = "uat.one.hushh.ai";
 
 function isLocalBackend(value) {
   try {
@@ -102,11 +102,9 @@ export function buildIosUatRuntimeEnv({
       [processEnv, uatValues],
       DEFAULT_UAT_APP_URL,
     ),
-    NEXT_PUBLIC_PASSKEY_RP_ID: firstConfiguredValue(
-      "NEXT_PUBLIC_PASSKEY_RP_ID",
-      [processEnv, uatValues],
-      DEFAULT_PASSKEY_RP_ID,
-    ),
+    // UAT enrollment must not inherit a production RP from shell/local files.
+    // Existing credentials retain their stored RP ID during unlock.
+    NEXT_PUBLIC_PASSKEY_RP_ID: DEFAULT_PASSKEY_RP_ID,
     NEXT_PUBLIC_FIREBASE_API_KEY: firstConfiguredValue(
       "NEXT_PUBLIC_FIREBASE_API_KEY",
       publicSources,

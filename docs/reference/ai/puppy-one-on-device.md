@@ -214,28 +214,73 @@ become work items rather than N/A.
 ## Puppy One inside Agent Chat
 
 Agent Chat carries a two-chip switch, One and Puppy. It changes which
-transcript is on screen and nothing else. The two agents never share a message,
-a conversation or a history row: Puppy One brings its own transcript, its own
-composer and its own session, and One's transcript and composer are removed
-from the page (and from the tab order and the accessibility tree) while it is
-showing. The header names the agent actually answering, because that name is
-the reader's only guarantee about where an answer came from.
+transcript is on screen. The two agents never share a message, a conversation
+or a history row: Puppy One brings its own transcript, its own composer and its
+own session, and One's transcript and composer are removed from the page (and
+from the tab order and the accessibility tree) while it is showing. The header
+names the agent actually answering, because that name is the reader's only
+guarantee about where an answer came from.
 
-The mode is deliberately not persisted. It resets to One every time the
-workspace mounts, so a toggle left on yesterday can never make a cloud answer
-look like it was generated on the owner's machine.
+Neither transcript is destroyed by looking at the other. Both are HIDDEN rather
+than unmounted, so a turn already in flight survives the glance in either
+direction: One's cloud stream, and a local answer that can take tens of
+seconds. Puppy One is mounted lazily, on the first switch, so a workspace that
+never opens it costs the loopback gateway and the trusted-device list nothing;
+after that it stays mounted and takes no readings while it is off screen, and
+its machine panel is closed on the way out (that panel is a portal on
+`document.body`, which a `hidden` ancestor cannot reach).
+
+Two things do change besides the transcript, and both exist because a cloud
+turn must never look like it happened on the owner's machine:
+
+- **Entering Puppy ends any live One voice session.** A session that survived
+  the switch kept the microphone open and kept the cloud agent answering aloud
+  under a header that says "Puppy One", with its own status word suppressed and
+  its mute and cancel controls inside the composer that `hidden` removes. The
+  workspace dispatches an explicit stop (`requestAgentConversationStop`) and the
+  Agent Bar, still the only audio owner, stops. Unconditionally, because the
+  shared voice store still reads "idle" in the window where the microphone lease
+  is already held.
+- **A handoff brings One back on screen first.** `openAgent({ handoff })` can
+  re-expand a workspace that is still in Puppy mode, and every handoff is One
+  speaking, so the effect sets the surface back to One before it enqueues a
+  prompt, appends a confirmation turn, or opens the vault dialog.
+
+One's own header controls do not cross the switch. The model picker names the
+CLOUD model and writes One's preference, so it is gated on the surface (and
+its slot keeps its width, so the chip the reader just pressed does not slide
+sideways). One's status word is suppressed too, with one exception: work of
+One's that is still running or still waiting on the person is named
+("One is still working", "One needs you"), because it would otherwise happen
+entirely unseen behind `display:none`.
+
+The mode is not persisted, but the scope is narrower than "every open": it
+resets to One every time the workspace MOUNTS, and the popover keeps the
+workspace mounted for the life of the page, so in practice that is a cold start
+rather than each minimise and reopen. The handoff reset above is what closes
+the gap that matters.
 
 The machine's readings are on demand. Above the Puppy transcript, on both
 `/one/puppy` and the workspace mode, sits one quiet control, "This machine",
-that opens them in a sheet; nothing is polled while that sheet is shut, so a
-screen nobody is reading costs the local gateway nothing.
+that opens them in a sheet. Opening it is what buys the 20-second cadence, and
+closing it is what ends it. One full reading is still taken on mount and
+re-taken every five minutes with the sheet shut, because the link banner below
+has to be able to announce a dead session unasked and the gateway offers no
+cheaper question than the whole reading.
+
+The control is only offered when the panel has something to say: either the
+bridge answered with a live reading, or One holds a heartbeat snapshot. An
+account with no machine is not handed a control that opens onto one muted
+sentence. Once offered it stays, so a transient unreadable link cannot take it
+away under a thumb.
 
 The link banner is the exception, and it is inline and unconditional: a machine
 can be enrolled, healthy and still signed out of Hussh One, every other reading
 keeps saying "healthy" while that is true, and an owner with no reason to open
 anything is exactly the owner who needs to be told. So a `link.session` that is
 neither `ok` nor `not_connected` is shown on the page itself, and it is shown
-there only — the sheet does not repeat it.
+there only — the sheet does not repeat it. This is also why the five-minute
+reading survives a shut sheet: the banner cannot announce what nothing re-read.
 
 ## Status and toggles, audited 2026-09-02
 
@@ -249,6 +294,7 @@ in the fork at
 | `/one/puppy` header dot and model name | Two authorities, in order. `GET /api/hermes/status` (the gateway's `/health/detailed` on loopback) when the bridge is connected; otherwise `trusted_devices.last_heartbeat_at` through `fetchPuppyLink`, One's own record of the device | Repaired twice. First, the gateway did not name its model in that payload and the route read a field that never existed, so a connected agent showed no model; the gateway now reports `model` and `provider` there and the route reads every shape. Second, on a deployed origin the loopback is a Cloud Run container and never the owner's Mac, so the dot said "not connected" to every deployed viewer; it now turns green with the device name when One has a fresh heartbeat, and says "last seen …" when it has a stale one. The bridge keeps the pill whenever it is connected. |
 | Model picker | `GET /api/hermes/models` reading the gateway's `/api/model/options` | Repaired. The gateway names a provider by `slug` and lists models as strings with a capabilities map; the route mapped `id` and `{id}` objects, so every provider and model rendered as an empty string. |
 | Model pin | `POST /api/hermes/models` to the gateway's `/api/model/set` | Repaired. That route existed only in the Hermes dashboard, never in the loopback API server, so every pin from One answered "could not change the model". The API server now serves it with the same expensive-model confirmation and next-session semantics. |
+| One's model picker in the workspace header | `ModelPreferenceService`, One's own cloud model preference | One's control only, and absent in Puppy One. It used to render there, so the header said "Puppy One · on your machine" with a Gemini chip beside it and choosing an item silently rewrote the CLOUD agent's model from the on-device surface. Gated on the surface rather than hidden, so the write is not merely invisible but unreachable. |
 | `on-device` / `any model` pill | Browser state, sent per turn as the provider pin | Now remembered per browser. It reset to on-device on every reload while the header kept the last choice. |
 | Bridge on/off | `HERMES_API_SERVER_KEY` in the webapp's server-side env, same value as `API_SERVER_KEY` in `~/.hermes/.env` | Documented in `.env.example`. It was absent from every env template, so a localhost stack rendered "not connected" with a healthy gateway beside it. |
 | Devices page liveness | `trusted_devices.last_heartbeat_at` and `heartbeat`, posted by the device to the environment it enrolled in | Working, with one consequence to know: a device enrolls in one environment (`api_base` in its identity record), so the founder's machine reports to UAT and is invisible to a localhost or dev stack. |
@@ -283,13 +329,15 @@ one machine.
 
 | State | Source of truth | What is shown | The way out |
 | --- | --- | --- | --- |
+| Checking | Neither authority has answered yet: the shared link store returns null until its first read lands, which goes through a Firebase token and a backend roundtrip while the bridge answers instantly on a deployed origin | Muted pill "checking…" with a spinner rather than the grey dot (that dot already means "there is no machine"). Empty state: "Checking Puppy One…"; composer placeholder the same, and still disabled, because not knowing yet is not permission to send. | Wait. Nothing about the machine is implied, and the read is bounded before it resolves to one of the rows below. |
 | Local bridge connected | `GET /api/hermes/status` on loopback | Green pill with the model name, the composer, the model picker, the on-device pill, the live machine reading in the sheet | Nothing to do |
 | Live | An active trusted device with a heartbeat inside `HEARTBEAT_FRESH_MS` | Green pill "connected · {device}". Empty state: "Puppy One is connected to your account on {device} · {model} · seen {relative}. Chat here works from that machine." with a Trusted devices link; the composer placeholder says "Chat with Puppy One from {device}". The sheet shows the heartbeat snapshot under "As reported to Hussh One {relative}" (the configured model, busy and sessions, brand and processor, memory, battery). | Use the machine, or open Trusted devices |
-| Quiet | An active device exists, none has reported inside the window | Muted pill "last seen {relative}". Empty state: "Puppy One on {device} was last seen {relative}. It may be asleep or offline. On that machine, run /hussh-one status." A device that has never reported is "trusted but has not reported yet", with no claim that it is offline. | On that machine, `/hussh-one status` |
+| Quiet | An active device exists, none has reported inside the window | Muted pill "last seen {relative}". Empty state: "Puppy One on {device} was last seen {relative}. It answers only while that Mac is on and awake, so waking it is the first thing to try. If it stays quiet after that, run /hussh-one status on that machine." with a Trusted devices link; composer placeholder "Puppy One on {device} is quiet right now", hedged to the same strength as the copy. A device that has never reported is "trusted but has not reported yet", with no claim that it is offline and no wake instruction. | Wake that Mac; if it stays quiet, `/hussh-one status` on it, or open Trusted devices |
 | Unlinked | No trusted device rows at all | Muted pill "not connected". Empty state: "Puppy One isn't connected to your account yet. Install it on your Mac, then run /hussh-one connect." with the [Get Puppy One on GitHub](https://github.com/hushh-labs/hussh-one-hermes) anchor and the Trusted devices link; composer placeholder "Connect Puppy One to start". | Install from GitHub, then `/hussh-one connect` |
-| Revoked | Only revoked rows remain | Muted pill "not connected". Empty state: "Puppy One was unlinked from this account. On that machine, run /hussh-one connect." (`connect`, not `reconnect`: a revoked device is sealed and the agent's own remedy is a fresh connect; `reconnect` repairs an expired login on a still-trusted machine and refuses to run otherwise.) | On that machine, `/hussh-one connect` |
+| Revoked | Only revoked rows remain | Muted pill "not connected". Empty state: "Puppy One was unlinked from this account. On that machine, run /hussh-one connect." with the Trusted devices link (unlinking can be done from another session or by someone else on the account, so this is news, and that page is the only one that says which device and when). No install anchor: that machine already has Puppy One on it. (`connect`, not `reconnect`: a revoked device is sealed and the agent's own remedy is a fresh connect; `reconnect` repairs an expired login on a still-trusted machine and refuses to run otherwise.) | On that machine, `/hussh-one connect`, or open Trusted devices |
 | Unavailable | The device list could not be read (signed out, backend down, malformed payload) | Muted pill "not connected". Empty state: "Couldn't check your Puppy One link right now." A brief backend hiccup never reads as a broken machine. | Reload; nothing about the device is implied |
-| Developer hint | The bridge's own `message` ("Set HERMES_API_SERVER_KEY …") | Rendered ONLY when `window.location.hostname` is `localhost` or `127.0.0.1` (`lib/hermes/local-host.ts`), and then only as a second muted line under the state copy above | Set the key in the webapp's server env, same value as `API_SERVER_KEY` in `~/.hermes/.env` |
+| Developer hint | The bridge's own `message` ("Set HERMES_API_SERVER_KEY …") | Rendered ONLY when `window.location.hostname` is `localhost` or `127.0.0.1` and the app is not the native shell (`lib/hermes/local-host.ts`). It can appear on two surfaces and both are guarded: as a second muted line under the chat empty state, and inside the machine sheet (both the readings line and the jobs line). Off that machine the sheet says "Live readings can only be taken on the machine Puppy One runs on." instead, once, and the jobs probe adds nothing. | Set the key in the webapp's server env, same value as `API_SERVER_KEY` in `~/.hermes/.env` |
+| Machine sheet, off the serving machine | `isLocalHost()` | "This machine" in the sheet's own branches means the machine the page is SERVED from. Off it, both the not-configured and the unreachable branch say "Live readings can only be taken on the machine Puppy One runs on." rather than telling the reader their own phone is at fault or naming a server env key. No remedy is offered there: opening the page on the Mac does not help either (the bridge is loopback on the SERVER), and the ways out belong to the chat panel directly below. | Use the machine, or open Trusted devices |
 
 One fact, one place. The strip above the chat speaks only for the DEVICE's
 own account of its session (`link.session` from the bridge), which knows

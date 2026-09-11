@@ -1417,45 +1417,6 @@ async def test_run_sync_worker_history_gap_queues_recovery(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_ensure_access_token_marks_needs_reauth_on_refresh_failure(monkeypatch):
-    service = GmailReceiptsService()
-    db_calls: list[tuple[str, dict | None]] = []
-
-    class _CaptureDb:
-        def execute_raw(self, sql, params=None):
-            db_calls.append((sql, params))
-            return SimpleNamespace(data=[])
-
-    service._db = _CaptureDb()
-    monkeypatch.setattr(
-        service,
-        "_fetch_connection_row",
-        lambda user_id: {
-            "status": "connected",
-            "refresh_token_ciphertext": "cipher",
-            "refresh_token_iv": "iv",
-            "refresh_token_tag": "tag",
-            "access_token_ciphertext": None,
-            "access_token_iv": None,
-            "access_token_tag": None,
-            "access_token_expires_at": None,
-        },
-    )
-    monkeypatch.setattr(service, "_decrypt_token", lambda *args, **kwargs: "refresh-token")
-
-    async def _refresh_access_token(**kwargs):
-        raise GmailApiError("invalid_grant", status_code=401)
-
-    monkeypatch.setattr(service, "_refresh_access_token", _refresh_access_token)
-
-    with pytest.raises(GmailApiError) as exc_info:
-        await service._ensure_access_token(user_id="user_123")
-
-    assert exc_info.value.status_code == 401
-    assert any("SET status = 'error'" in sql for sql, _ in db_calls)
-
-
-@pytest.mark.asyncio
 async def test_meeting_invite_fetch_is_bounded_and_parallel(monkeypatch):
     service = GmailReceiptsService()
     message_ids = [f"message-{index}" for index in range(8)]

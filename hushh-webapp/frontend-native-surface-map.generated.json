@@ -7089,7 +7089,6 @@
             "setup.open_email",
             "setup.open_finance",
             "setup.open_ria",
-            "setup.open_connected_systems",
             "setup.hub_master_ack"
           ],
           "required_inputs": [],
@@ -7947,7 +7946,7 @@
       "native": {
         "route": "/one/wallet",
         "classification": "native-required-functional",
-        "initialRoute": "/login?redirect=%2Fone%2Fcards",
+        "initialRoute": "/login?redirect=%2Fone%2Fwallet",
         "expectedMarker": "native-route-one-wallet",
         "expectedRoute": "/one/wallet",
         "autoReviewerLogin": true,
@@ -9469,5 +9468,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "99ba2cb127762d582537d7f295209f4405b7215d601beec621fe7961ba9c5896"
+  "content_sha256": "d1098b2de80bbe0158e600f7402734be520eab7614fbc67ed7a32283a52e4df0"
 }

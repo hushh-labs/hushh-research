@@ -396,6 +396,7 @@ export function PhoneMandatePageContent() {
           }}
         >
           <PhoneVerificationFlow
+            key={user.uid}
             mode="link"
             currentPhoneNumber={phoneNumber}
             startVerification={startPhoneVerification}

@@ -2236,12 +2236,14 @@ async def propose_information_request(
             "durationHours": hours,
             "connectorReady": connector_ready,
             "nextStep": (
-                "Read back the person, the fields, the purpose, and the duration, then ask for a yes. "
+                "Read back who you are asking, what you are asking for, why, and for how long, in "
+                "plain words, then ask for a yes. Name the things themselves, never a path or an id. "
                 "After the yes, call run_app_action with action_id consent.request and slots "
                 "the in-app confirmation control. Say nothing was sent until that result confirms it."
                 if connector_ready
-                else "This request cannot be sent from chat yet: their secure connector is not set up. "
-                "Send them to profilePath once to set it up, then they can ask again."
+                else "The owner's secure key is not ready yet, so nothing can be asked for. "
+                "Say exactly that in plain words, tell them to unlock their private agent and try "
+                "again, and do not use the word connector: it means nothing to them."
             ),
         }
     except ConsentLifecycleError as exc:
@@ -4217,7 +4219,7 @@ async def report_no_app_action(reason: str, spoken_reply: str) -> dict[str, Any]
     """
     clean_reason = str(reason or "").strip()[:120] or "no_matching_action"
     clean_reply = str(spoken_reply or "").strip()[:600]
-    logger.info("one_adk_action_decision status=no_app_action reason=%s", clean_reason)
+    logger.info("one_adk_action_decision status=no_app_action")
     return {
         "status": "no_app_action",
         "reason": clean_reason,

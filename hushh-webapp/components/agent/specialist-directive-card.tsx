@@ -375,6 +375,9 @@ export function SpecialistConsentActionsCard({
 
 // ─── Pending consent request mode ────────────────────────────────────────────
 
+import type { ConsentScopeItem } from "@/lib/consent/consent-scope-items";
+import { ConsentScopeList } from "@/components/consent/consent-scope-list";
+
 export type SpecialistPendingConsentRequestItem = {
   id: string;
   requesterLabel: string;
@@ -388,6 +391,25 @@ export type SpecialistPendingConsentRequestItem = {
   reason?: string | null;
   additionalAccessSummary?: string | null;
   status?: "pending" | "approved" | "denied";
+  /**
+   * The request this one arrived as part of.
+   *
+   * The backend writes one consent event PER SCOPE, correctly: a grant and a
+   * revocation are per-scope security decisions. But someone who asked for
+   * fourteen things asked ONE question, and answering fourteen separate cards
+   * with fourteen Approve buttons is not that question. These three fields were
+   * always on the wire and were dropped by the mapper, so chat could not tell
+   * that fourteen cards were one ask.
+   *
+   * Only the decision surface bundles. The authority underneath is unchanged.
+   */
+  bundleId?: string | null;
+  bundleLabel?: string | null;
+  bundleScopeCount?: number | null;
+  /** Every request id folded into this card, including this one. */
+  bundledRequestIds?: string[];
+  /** One row per thing being asked for, when this card represents several. */
+  bundledScopes?: ConsentScopeItem[];
 };
 
 export type SpecialistPendingConsentRequestCardProps = {
@@ -423,6 +445,9 @@ export function SpecialistPendingConsentRequestCard({
   const timeout = formatConsentTime(item.approvalTimeoutAt);
   const resolved = item.status === "approved" || item.status === "denied";
   const access = item.scopeDescription || item.scope || "requested context";
+  // How many things this one card now stands for. The bundle merge folds
+  // same-bundle requests together, so this grows as they arrive.
+  const bundledCount = item.bundledScopes?.length || 1;
   const requester = item.requesterLabel || "An agent";
 
   return (
@@ -436,7 +461,13 @@ export function SpecialistPendingConsentRequestCard({
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <p className="text-sm font-semibold text-foreground">Consent request</p>
+            <p className="text-sm font-semibold text-foreground">
+              {/* Not "Consent request". agent.yaml bans that vocabulary for the
+                  model's speech; the chrome should not undo it one line later. */}
+              {bundledCount > 1
+                ? `${requester} wants to see ${bundledCount} things`
+                : `${requester} wants to see something`}
+            </p>
             {item.status === "approved" ? (
               <span className="rounded-full border border-[#6b8f71]/25 bg-[#6b8f71]/10 px-2 py-0.5 text-[11px] font-medium text-[#426548]">
                 Approved
@@ -447,9 +478,25 @@ export function SpecialistPendingConsentRequestCard({
               </span>
             ) : null}
           </div>
-          <p className="mt-1 text-sm text-foreground/75">
-            {requester} is asking for {access}.
-          </p>
+          {bundledCount > 1 ? (
+            <p className="mt-1 text-sm text-foreground/75">
+              They are asking for these. You decide together, once.
+            </p>
+          ) : (
+            <p className="mt-1 text-sm text-foreground/75">
+              {requester} is asking for {access}.
+            </p>
+          )}
+          {bundledCount > 1 ? (
+            <div className="mt-3">
+              <ConsentScopeList
+                items={item.bundledScopes || []}
+                groupByDomain={false}
+                collapsible={false}
+                testIdPrefix="pending-consent-scopes"
+              />
+            </div>
+          ) : null}
           {item.additionalAccessSummary ? (
             <p className="mt-2 text-sm text-foreground/70">{item.additionalAccessSummary}</p>
           ) : null}

@@ -62,6 +62,7 @@ export function PuppyModelPicker({
     provider: string;
     model: string;
     message: string;
+    onDevice: boolean;
   } | null>(null);
   const [error, setError] = useState("");
 
@@ -79,7 +80,22 @@ export function PuppyModelPicker({
   }, [open, payload, load]);
 
   const apply = useCallback(
-    async (provider: string, model: string, confirmExpensive: boolean) => {
+    async (
+      provider: string,
+      model: string,
+      confirmExpensive: boolean,
+      /**
+       * The GATEWAY's own answer for this provider, as rendered in the row.
+       *
+       * Not the POST response's `onDevice`: that route has no provider list to
+       * look the answer up in and decides from a hardcoded three-name set, so
+       * a gateway-reported local provider with any other slug is labelled "on
+       * this machine" in the row and then told, in writing, that it runs off
+       * it. The label the person read and the sentence the transcript writes
+       * now come from one source.
+       */
+      providerOnDevice: boolean,
+    ) => {
       setApplying(`${provider}:${model}`);
       setError("");
       try {
@@ -95,6 +111,7 @@ export function PuppyModelPicker({
           setConfirm({
             provider,
             model,
+            onDevice: providerOnDevice,
             message: result.confirmMessage ?? "This model bills per token.",
           });
           return;
@@ -108,7 +125,7 @@ export function PuppyModelPicker({
         onApplied({
           provider,
           model,
-          onDevice: Boolean(result.onDevice),
+          onDevice: providerOnDevice,
           reasoningEffort: effort,
         });
         setPayload((prior) =>
@@ -189,7 +206,14 @@ export function PuppyModelPicker({
                       key={`${provider.id}:${model.id}:${index}`}
                       type="button"
                       disabled={Boolean(applying)}
-                      onClick={() => void apply(provider.id, model.id, false)}
+                      onClick={() =>
+                        void apply(
+                          provider.id,
+                          model.id,
+                          false,
+                          provider.onDevice,
+                        )
+                      }
                       className={cn(
                         "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs transition-colors",
                         "hover:bg-muted disabled:opacity-60",
@@ -256,7 +280,12 @@ export function PuppyModelPicker({
                 size="sm"
                 className="h-7 text-[11px]"
                 onClick={() =>
-                  void apply(confirm.provider, confirm.model, true)
+                  void apply(
+                    confirm.provider,
+                    confirm.model,
+                    true,
+                    confirm.onDevice,
+                  )
                 }
               >
                 Use it anyway

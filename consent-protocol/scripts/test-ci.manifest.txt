@@ -3,6 +3,10 @@
 
 tests/quality/test_byok_encryption.py
 tests/test_developer_api_routes.py
+tests/test_encrypted_blob_bounds.py
+tests/test_data_model_audit_script.py
+tests/test_data_model_audit_postgres.py
+tests/services/test_gmail_cache_retention.py
 tests/services/test_consent_request_lock.py
 tests/test_scoped_export_download.py
 tests/test_partner_developer_apps.py
@@ -185,10 +189,25 @@ tests/services/test_one_location_nearby_presence_service.py
 tests/test_one_location_nearby_point_contract_migration.py
 tests/test_one_location_nearby_check_in_preferences_migration.py
 
-# Exact-release license evidence rejects missing, modified and conflicting metadata.
-tests/test_third_party_license_evidence.py
-# The migration authority decides whether every deploy survives a busy
-# database, and none of its tests had ever run: this file was not in this
-# manifest, and this manifest is the only pytest invocation in any lane. R28's
-# masking tests and the lock-contention retry tests were both decoration.
+# Existing retrieval adapter: deterministic tests do not download a model.
+tests/services/test_action_retrieval.py
+
+# Migration locking, checksum authority and failure recovery.
 tests/test_migration_authority.py
+
+tests/test_dev_release_classification.py
+
+tests/test_data_model_audit_postgres.py
+
+tests/test_data_model_audit_script.py
+
+tests/test_third_party_license_evidence.py
+
+# Merged route execution and per-screen context contracts.
+tests/test_live_context_executable_split.py
+tests/test_one_action_search_contract.py
+tests/test_live_context_screen_state.py
+
+tests/test_adk_dispatch.py
+
+tests/test_information_chat_service.py

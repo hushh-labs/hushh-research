@@ -10,15 +10,38 @@ from hushh_mcp.adk_bridge.nav_agent import get_nav_a2a
 from hushh_mcp.adk_bridge.personal_information_agent import get_personal_information_a2a
 
 
+def _with_service(module_name, class_name):
+    async def invoke(task, service):
+        from importlib import import_module
+
+        wrapper = getattr(import_module(module_name), class_name)
+        return await wrapper(service=service).handle(task)
+
+    return invoke
+
+
+async def _runtime_handle(task, service):
+    return await service.handle(task)
+
+
 def _register_builtin_specialists() -> None:
     # Email, Gmail, Connections, and Connected Systems stay unwired until their
     # callers construct ingress-validated A2AAuthorityContext objects. A raw One
     # invocation token must never reach their ambient user-id service methods.
-    register_specialist("agent_location", lambda task: get_location_a2a().handle(task))
-    register_specialist("agent_nav", lambda task: get_nav_a2a().handle(task))
+    register_specialist(
+        "agent_location",
+        lambda task: get_location_a2a().handle(task),
+        service_handler=_with_service("hushh_mcp.adk_bridge.location_agent", "LocationAgentA2A"),
+    )
+    register_specialist(
+        "agent_nav", lambda task: get_nav_a2a().handle(task), service_handler=_runtime_handle
+    )
     register_specialist(
         "agent_personal_information",
         lambda task: get_personal_information_a2a().handle(task),
+        service_handler=_with_service(
+            "hushh_mcp.adk_bridge.personal_information_agent", "PersonalInformationAgentA2A"
+        ),
     )
 
 
