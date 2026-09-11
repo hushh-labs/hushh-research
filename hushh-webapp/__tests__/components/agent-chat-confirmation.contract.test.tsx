@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 /**
  * One confirmation means one tap.
@@ -81,5 +81,37 @@ describe("agent turn stream sections", () => {
 
     // The reasoning section must name its own.
     expect(panel).toMatch(/title=\{thinkingTitle\}[\s\S]{0,600}?icon=\{Brain\}/);
+  });
+});
+
+describe("the confirm card itself", () => {
+  it("runs the action on the first press, with no step in between", async () => {
+    // The source contract above proves onConfirm reaches execute(). This proves
+    // the other half: that ONE press reaches onConfirm. Together they are the
+    // whole claim -- one press, one execution -- which is what the removed
+    // Authorize step broke by consuming the first press and doing nothing.
+    const { render, screen, fireEvent } = await import("@testing-library/react");
+    const { SpecialistDirectiveCard } = await import(
+      "@/components/agent/specialist-directive-card"
+    );
+
+    const onConfirm = vi.fn();
+    render(
+      <SpecialistDirectiveCard
+        summary="One is ready to send the request."
+        confirmLabel="Send request"
+        onConfirm={onConfirm}
+        onCancel={() => undefined}
+      />,
+    );
+
+    const button = screen.getByTestId("specialist-directive-confirm");
+
+    // The label is the action. It must never be the name of a step before it.
+    expect(button).toHaveTextContent("Send request");
+    expect(button).not.toHaveTextContent("Authorize");
+
+    fireEvent.click(button);
+    expect(onConfirm).toHaveBeenCalledTimes(1);
   });
 });
