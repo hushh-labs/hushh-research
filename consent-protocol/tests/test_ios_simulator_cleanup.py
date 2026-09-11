@@ -18,6 +18,27 @@ assert SPEC and SPEC.loader
 cleanup = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(cleanup)
 DEVICE = "12345678-1234-1234-1234-123456789abc"
+
+#: Hang guard for the two subprocesses these tests shell out to, NOT a
+#: performance assertion.
+#
+# Both cases assert an EXIT CODE from a script fragment lifted out of
+# `ios-test.sh`. Neither measures how long `node` or `bash` takes to start, so
+# the bound only exists to stop a runaway fragment hanging the lane.
+#
+# It was 5 s, which is inside the range a shared CI runner can spend merely
+# spawning `node` under load. On 2026-09-11 that turned the whole Protocol lane
+# red: five of these cases timed out in one run while the same resolver passed
+# in every other run and passes locally every time. A parametrised test whose
+# logic is identical across cases cannot fail for four and pass for two on
+# merit; that shape is contention, not a defect. This is very likely the
+# one-in-eight intermittent an earlier round looked for and could not
+# reproduce.
+#
+# Sixty seconds still catches an infinite loop, which is the only thing this
+# bound was ever for, and removes a failure mode that costs a CI run.
+_SUBPROCESS_HANG_GUARD_SECONDS = 60
+
 HEADER = "PID\tStatus\tLabel\n"
 ABSENT = HEADER + "42\t0\tcom.apple.testmanagerd\n"
 RUNNING = ABSENT + "91\t0\tUIKitApplication:com.hushh.app[a1][rb-legacy]\n"
@@ -245,7 +266,7 @@ def test_actual_host_exit_trap_preserves_test_failure_and_requires_cleanup(
         text=True,
         capture_output=True,
         check=False,
-        timeout=5,
+        timeout=_SUBPROCESS_HANG_GUARD_SECONDS,
         env={
             **os.environ,
             "PATH": f"{tmp_path}:{os.environ['PATH']}",
@@ -282,7 +303,7 @@ def test_cold_audit_resolves_named_destinations_before_tests(tmp_path, destinati
         text=True,
         capture_output=True,
         check=False,
-        timeout=5,
+        timeout=_SUBPROCESS_HANG_GUARD_SECONDS,
         env={
             **os.environ,
             "PATH": f"{tmp_path}:{os.environ['PATH']}",
