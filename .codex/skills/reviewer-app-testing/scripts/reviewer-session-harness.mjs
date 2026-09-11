@@ -353,19 +353,56 @@ export async function createReviewerSessionHarness({
   // that cannot fail, because it teaches the reader to discount real findings.
   const firstRunPages = new WeakSet();
 
+  // How long bootstrap may take to publish its state after a navigation.
+  //
+  // A hard `page.goto` resolves at domcontentloaded, which is BEFORE the app has
+  // rehydrated auth and republished `__HUSHH_NATIVE_TEST__`. Reading once at
+  // that instant caught the gap and reported "lost the expected reviewer
+  // session" on a session that was fine: measured against UAT, the same page
+  // read `vault_unlocked` with a matching uid moments later. That is the false
+  // alarm this file warns about a few lines up, and it cost a whole rehearsal
+  // run before anyone looked at what the state actually was.
+  //
+  // Polling, not sleeping: a healthy page satisfies this on the first read and
+  // pays nothing, while a genuinely lost session still fails -- just after
+  // giving the app the time it was always going to need.
+  const VAULT_CONTINUITY_SETTLE_MS = 15_000;
+
   async function assertVaultContinuity(page, label) {
-    const unlockVisible = await page.locator("#unlock-passphrase").isVisible().catch(() => false);
-    if (unlockVisible) throw new Error(`${label} lost the reviewer vault key.`);
-    const { state, userMatches } = await page.evaluate((expectedUserId) => ({
-      state: window.__HUSHH_NATIVE_TEST__?.bootstrapState || "",
-      userMatches: window.__HUSHH_NATIVE_TEST__?.bootstrapUserId === expectedUserId,
-    }), reviewerUid);
     const acceptable = firstRunPages.has(page)
       ? new Set(["vault_unlocked", "authenticated"])
       : new Set(["vault_unlocked"]);
-    if (!userMatches || !acceptable.has(state)) {
-      throw new Error(`${label} lost the expected reviewer session.`);
+    const deadline = Date.now() + VAULT_CONTINUITY_SETTLE_MS;
+    let state = "";
+    let userMatches = false;
+
+    for (;;) {
+      const unlockVisible = await page
+        .locator("#unlock-passphrase")
+        .isVisible()
+        .catch(() => false);
+      // An unlock prompt is terminal, never a settling state: the key is gone
+      // and waiting cannot bring it back.
+      if (unlockVisible) throw new Error(`${label} lost the reviewer vault key.`);
+
+      ({ state, userMatches } = await page.evaluate((expectedUserId) => ({
+        state: window.__HUSHH_NATIVE_TEST__?.bootstrapState || "",
+        userMatches: window.__HUSHH_NATIVE_TEST__?.bootstrapUserId === expectedUserId,
+      }), reviewerUid));
+
+      if (userMatches && acceptable.has(state)) return;
+      if (Date.now() >= deadline) break;
+      await page.waitForTimeout(250);
     }
+
+    // Name what was actually seen. The previous message said only that the
+    // session was lost, which is the one thing it could not distinguish from
+    // "not published yet".
+    throw new Error(
+      `${label} lost the expected reviewer session ` +
+        `(state=${state || "(unpublished)"} uidMatch=${userMatches} ` +
+        `after ${VAULT_CONTINUITY_SETTLE_MS}ms).`,
+    );
   }
 
   async function navigateInApp(page, href) {
