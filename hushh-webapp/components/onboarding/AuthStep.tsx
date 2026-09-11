@@ -2,13 +2,13 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import Image from "next/image";
 import { ArrowLeft, Shield } from "lucide-react";
 import { AuthService } from "@/lib/services/auth-service";
 import { ApiService } from "@/lib/services/api-service";
 import { useAuth } from "@/lib/firebase/auth-context";
 import { HushhLoader } from "@/components/app-ui/hushh-loader";
 import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
-import { OnboardingHeroBackground } from "@/components/onboarding/OnboardingHeroBackground";
 import { useStepProgress } from "@/lib/progress/step-progress-context";
 import { isAndroid } from "@/lib/capacitor/platform";
 import { Icon } from "@/lib/morphy-ux/ui";
@@ -54,9 +54,9 @@ const AUTH_CANCEL_CODES = new Set([
 // charcoal cards with light text on the dark sheet. Reviewer stays a quiet
 // outlined tertiary in both themes.
 const APPLE_BTN_CLASS =
-  "!bg-white !text-[#17130C] border border-black/10 shadow-sm hover:!bg-black/[0.02] dark:!bg-[#1c1c1e] dark:!text-[#F7F3EA] dark:border-white/12 dark:hover:!bg-[#26262a]";
+  "!h-[60px] !min-h-[60px] !bg-[#1c1c1e] !text-[#f2f2f7] rounded-[16px] border-0 shadow-none hover:!bg-[#26262a]";
 const GOOGLE_BTN_CLASS =
-  "!bg-white !text-[#17130C] border border-black/10 shadow-sm hover:!bg-black/[0.02] dark:!bg-[#1c1c1e] dark:!text-[#F7F3EA] dark:border-white/12 dark:hover:!bg-[#26262a]";
+  "!h-[60px] !min-h-[60px] !bg-[#1c1c1e] !text-[#f2f2f7] rounded-[16px] border-0 shadow-none hover:!bg-[#26262a]";
 const REVIEWER_BTN_CLASS =
   "!bg-transparent !text-[#6b6b70] border border-black/10 shadow-none hover:!bg-black/[0.03] dark:!text-white/60 dark:border-white/15 dark:hover:!bg-white/[0.05]";
 
@@ -997,15 +997,15 @@ export function AuthStep({
       // parser requires escaped whitespace around the minus sign
       // ("100dvh_-_var(...)"); without it the whole declaration is invalid
       // CSS and silently dropped, which is what happened here before.
-      className="relative w-full overflow-hidden"
+      className="relative w-full overflow-hidden bg-black text-white"
       style={{
         height: "calc(100dvh - var(--app-scroll-bottom-pad, 0px))",
         minHeight: "calc(100svh - var(--app-scroll-bottom-pad, 0px))",
       }}
       data-testid="auth-step-primary"
     >
-      {/* Shared immersive gradient backdrop (welcome / login / carousel). */}
-      <OnboardingHeroBackground />
+      {/* Figma's auth surface is an edge-to-edge black canvas. */}
+      <div aria-hidden className="absolute inset-0 bg-black" />
       <NativeTestBeacon
         routeId="/login"
         marker="native-route-login"
@@ -1038,7 +1038,7 @@ export function AuthStep({
         data-voice-control-id={
           activeLegalDoc || providerBusy ? undefined : "auth_back"
         }
-        className="fixed left-4 top-[calc(max(var(--app-safe-area-top-effective),0.5rem))] z-50 grid h-9 w-9 place-items-center rounded-full bg-black/[0.05] text-[#1d1d1f]/70 transition-colors hover:bg-black/[0.08] disabled:pointer-events-none disabled:opacity-40 dark:bg-white/10 dark:text-white/80 dark:hover:bg-white/15"
+        className="fixed left-4 top-[calc(max(var(--app-safe-area-top-effective),0.5rem))] z-50 grid h-11 w-11 place-items-center rounded-full bg-white/[0.06] text-white/90 transition-colors hover:bg-white/[0.1] disabled:pointer-events-none disabled:opacity-40"
       >
         <ArrowLeft className="h-[18px] w-[18px]" strokeWidth={2} />
       </button>
@@ -1057,25 +1057,24 @@ export function AuthStep({
             then the consent and legal context. */}
         <div
           className="flex w-full flex-none flex-col items-center gap-6 px-6 pb-6 text-center"
+          style={{ transform: "translateY(-clamp(3rem, 10svh, 6rem))" }}
           data-auth-signin-clusters
         >
           <div className="flex flex-col items-center gap-4">
-            {/* Quiet mark: the bare 🤫 over a soft accent glow, no medallion
-                chrome (badge circle removed by design). */}
-            <div
-              className="relative flex h-[92px] w-[92px] items-center justify-center"
+            <Image
+              src="/onboarding/one-agent-network.png"
+              alt=""
               aria-hidden="true"
-            >
-              <span className="pointer-events-none absolute h-28 w-28 rounded-full bg-accent/20 blur-2xl" />
-              <span className="hushh-brand-mark relative select-none text-[56px] leading-none drop-shadow-[0_6px_14px_rgba(0,0,0,0.25)]">
-                🤫
-              </span>
-            </div>
+              width={1536}
+              height={1024}
+              className="block h-auto w-[min(357px,calc(100vw-32px))] max-w-full object-contain"
+              draggable={false}
+            />
             <h1
               role="heading"
               aria-level={1}
               aria-label="Welcome to One"
-              className="font-[family-name:var(--font-app-display)] text-[34px] font-extrabold leading-[1.05] tracking-[-1.1px] text-[#17130C] dark:text-[#FAF6EE]"
+              className="whitespace-nowrap font-[family-name:var(--font-app-display)] text-[clamp(1.5rem,7vw,1.6875rem)] font-bold leading-[1.05] tracking-[-0.8px] text-[#f2f2f7]"
             >
               Welcome to One<span style={{ color: "var(--app-accent)" }}>.</span>
             </h1>
@@ -1125,41 +1124,44 @@ export function AuthStep({
               ) : null}
             </div>
 
-            <div className="flex flex-col items-center gap-3" data-auth-supporting-content>
-              {/* Consent-first reassurance chip. */}
-              <div className="flex w-fit items-center gap-1.5 rounded-full bg-[color:var(--app-accent-tint)] px-3 py-1.5 dark:bg-white/[0.06]">
-                <Icon
-                  icon={Shield}
-                  size="sm"
-                  className="text-[color:var(--app-accent-deep)] dark:text-[color:var(--app-accent-deep)]"
-                />
-                <span className="type-footnote text-[color:var(--app-accent-deep)] dark:text-[color:var(--app-accent-deep)]">
-                  Consent-first. Nothing moves without your yes.
-                </span>
-              </div>
-
-              <p className="type-footnote mx-auto max-w-[22rem] text-center leading-5 text-[#86868b] dark:text-white/45">
-                By continuing, you agree to the{" "}
-                <button
-                  type="button"
-                  onClick={() => void openLegalDoc("terms")}
-                  data-voice-control-id="auth_terms"
-                  className="font-semibold text-[color:var(--app-accent-deep)] transition-opacity hover:opacity-70 dark:text-[color:var(--app-accent-deep)]"
-                >
-                  Terms of Service
-                </button>
-                <span aria-hidden="true"> and </span>
-                <button
-                  type="button"
-                  onClick={() => void openLegalDoc("privacy")}
-                  data-voice-control-id="auth_privacy"
-                  className="font-semibold text-[color:var(--app-accent-deep)] transition-opacity hover:opacity-70 dark:text-[color:var(--app-accent-deep)]"
-                >
-                  Privacy Policy
-                </button>
-                .
-              </p>
-            </div>
+          </div>
+        </div>
+      </div>
+      <div className="absolute inset-x-6 bottom-5 z-10 flex justify-center">
+        <div
+          className="flex flex-col items-center gap-3"
+          data-auth-supporting-content
+        >
+          <div className="flex items-center gap-2 whitespace-nowrap">
+            <Image
+              src="/onboarding/privacy-icon.svg"
+              alt=""
+              aria-hidden="true"
+              width={32}
+              height={26}
+              className="h-6 w-8 shrink-0 object-contain"
+            />
+            <p className="type-footnote mx-auto text-left !text-[11px] leading-[normal] text-white/45">
+              By continuing you agree to our{" "}
+              <button
+                type="button"
+                onClick={() => void openLegalDoc("terms")}
+                data-voice-control-id="auth_terms"
+                className="font-semibold text-[color:var(--app-accent-deep)] transition-opacity hover:opacity-70 dark:text-[color:var(--app-accent-deep)]"
+              >
+                Terms
+              </button>
+              <span aria-hidden="true"> and </span>
+              <button
+                type="button"
+                onClick={() => void openLegalDoc("privacy")}
+                data-voice-control-id="auth_privacy"
+                className="font-semibold text-[color:var(--app-accent-deep)] transition-opacity hover:opacity-70 dark:text-[color:var(--app-accent-deep)]"
+              >
+                Privacy Policy
+              </button>
+              .
+            </p>
           </div>
         </div>
       </div>

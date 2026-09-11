@@ -2,6 +2,7 @@
 
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import Image from "next/image";
 import { ChevronLeft, LogOut, MoreHorizontal } from "lucide-react";
 import { toast } from "sonner";
 
@@ -303,7 +304,7 @@ export function PhoneMandatePageContent() {
     // padding-bottom, so this element is exactly one viewport minus that
     // reservation.
     <main
-      className="relative w-full overflow-hidden"
+      className="relative w-full overflow-hidden bg-black text-white"
       style={{
         height: "calc(100dvh - var(--app-scroll-bottom-pad, 0px))",
         minHeight: "calc(100svh - var(--app-scroll-bottom-pad, 0px))",
@@ -334,7 +335,7 @@ export function PhoneMandatePageContent() {
             type="button"
             aria-label="Go back"
             onClick={() => router.back()}
-            className="grid h-9 w-9 place-items-center rounded-full bg-black/[0.05] text-[#1d1d1f]/70 transition-colors hover:bg-black/[0.08] active:scale-95 dark:bg-white/10 dark:text-white/80 dark:hover:bg-white/15"
+            className="grid h-11 w-11 place-items-center rounded-full bg-white/[0.06] text-white/90 transition-colors hover:bg-white/[0.1] active:scale-95"
           >
             <ChevronLeft className="h-5 w-5" />
           </button>
@@ -343,7 +344,7 @@ export function PhoneMandatePageContent() {
               <button
                 type="button"
                 aria-label="Account actions"
-                className="grid h-9 w-9 place-items-center rounded-full bg-black/[0.05] text-[#1d1d1f]/70 transition-colors hover:bg-black/[0.08] active:scale-95 dark:bg-white/10 dark:text-white/80 dark:hover:bg-white/15"
+                className="grid h-11 w-11 place-items-center rounded-full bg-white/[0.06] text-white/90 transition-colors hover:bg-white/[0.1] active:scale-95"
               >
                 <MoreHorizontal className="h-5 w-5" />
               </button>
@@ -359,18 +360,27 @@ export function PhoneMandatePageContent() {
 
         {/* Verification is a focused task, not a hero. Keep the heading tight
             so the active field row can clear the native keyboard. */}
-        <div className="px-6 pb-3 pt-7 text-center">
+        <div
+          className="px-6 pb-7 pt-7 text-center"
+          style={{ marginTop: "clamp(1.5rem, 6svh, 3.5rem)" }}
+        >
+          <Image
+            src="/onboarding/one-agent-network.png"
+            alt=""
+            aria-hidden="true"
+            width={1536}
+            height={1024}
+            className="mx-auto block h-auto w-[min(357px,calc(100vw-32px))] max-w-full object-contain"
+            draggable={false}
+          />
           <h1
             role="heading"
             aria-level={1}
             aria-label="Verify your phone number"
-            className="font-[family-name:var(--font-app-display)] text-[28px] font-extrabold leading-[1.1] tracking-[-0.9px] text-[#17130C] dark:text-[#FAF6EE]"
+            className="mt-2 whitespace-nowrap font-[family-name:var(--font-app-display)] text-[clamp(1.375rem,7vw,1.75rem)] font-bold leading-[1.1] tracking-[-0.8px] text-[#f2f2f7]"
           >
             Verify your phone number
           </h1>
-          <p className="mx-auto mt-1.5 max-w-[20rem] text-[15px] leading-[1.4] text-[rgba(23,19,12,0.6)] dark:text-[rgba(250,246,238,0.62)]">
-            Add your phone number to continue.
-          </p>
         </div>
 
         {/* The active field group owns the keyboard clearance. The keyboard

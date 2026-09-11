@@ -82,8 +82,12 @@ const E164_MAX_DIGITS = 15;
 const DEFAULT_COUNTRY_VALUE = "US";
 const FLOW_CONTROL_SHELL_CLASS_NAME =
   "h-[54px] overflow-hidden rounded-[15px] border-black/10 bg-[#f5f5f7]/92 shadow-xs transition-[border-color,box-shadow] focus-within:border-[color:var(--app-accent)] focus-within:ring-4 focus-within:ring-[color:var(--app-accent-ring)] dark:border-white/10 dark:bg-white/[0.08]";
+const FLOW_CONTROL_DARK_SHELL_CLASS_NAME =
+  "h-[60px] overflow-hidden rounded-[16px] border border-white/[0.04] bg-[#1c1c1e] text-[#f2f2f7] shadow-none transition-[border-color,box-shadow] focus-within:border-white/15 focus-within:ring-4 focus-within:ring-white/10";
 const FLOW_CONTROL_CLASS_NAME =
   "type-callout h-full rounded-[inherit] border-0 bg-transparent px-4 shadow-none focus-visible:border-transparent focus-visible:ring-0 dark:bg-transparent";
+const FLOW_CONTROL_DARK_CLASS_NAME =
+  "type-callout h-full rounded-[inherit] border-0 bg-transparent px-4 text-[#f2f2f7] shadow-none placeholder:text-[#98989d] focus-visible:border-transparent focus-visible:ring-0";
 const FLOW_SURFACE_RADIUS_CLASS_NAME = "rounded-[18px]";
 // Theme-aware flat accent pill CTA (follows the accent preference: iOS Blue
 // default, Molten Gold opt-in). No gradient, no decorative shadow.
@@ -359,6 +363,13 @@ export function PhoneVerificationFlow({
   onStepChange,
 }: PhoneVerificationFlowProps) {
   const pathname = usePathname();
+  const isDarkPhoneMandate = pathname === ROUTES.PHONE_MANDATE;
+  const flowControlShellClassName = isDarkPhoneMandate
+    ? FLOW_CONTROL_DARK_SHELL_CLASS_NAME
+    : FLOW_CONTROL_SHELL_CLASS_NAME;
+  const flowControlClassName = isDarkPhoneMandate
+    ? FLOW_CONTROL_DARK_CLASS_NAME
+    : FLOW_CONTROL_CLASS_NAME;
   const [selectedCountry, setSelectedCountry] = useState(DEFAULT_COUNTRY_VALUE);
   const [countryQuery, setCountryQuery] = useState("");
   const [countryComboboxOpen, setCountryComboboxOpen] = useState(false);
@@ -943,13 +954,27 @@ export function PhoneVerificationFlow({
   }
 
   return (
-    <form className={className} style={style} noValidate onSubmit={handleSubmit}>
+    <form
+      className={className}
+      style={style}
+      noValidate
+      onSubmit={handleSubmit}
+      data-phone-verification-flow={isDarkPhoneMandate ? "dark" : "default"}
+    >
       <FieldSet>
       {step === "phone" ? (
         <>
           <FieldGroup className="gap-5">
             <Field className="gap-2.5">
-              <FieldLabel htmlFor="phone-flow-country">Country code</FieldLabel>
+              <FieldLabel
+                htmlFor="phone-flow-country"
+                className={cn(
+                  "whitespace-nowrap",
+                  isDarkPhoneMandate && "text-[#8d8d94]",
+                )}
+              >
+                Country code
+              </FieldLabel>
               <Combobox
                 open={countryComboboxOpen}
                 onOpenChange={(open) => {
@@ -1001,14 +1026,22 @@ export function PhoneVerificationFlow({
                     setCountryQuery("");
                     event.currentTarget.select();
                   }}
-                  className={`${FLOW_CONTROL_SHELL_CLASS_NAME} w-full`}
+                  className={cn(
+                    flowControlShellClassName,
+                    "w-full [&_input]:min-w-0 [&_input]:truncate [&_input]:whitespace-nowrap",
+                  )}
                   autoComplete="off"
                   autoCorrect="off"
                   spellCheck={false}
                   showTrigger
                 />
                 <ComboboxContent
-                  className={`w-[var(--anchor-width)] ${FLOW_SURFACE_RADIUS_CLASS_NAME}`}
+                  className={cn(
+                    "w-[var(--anchor-width)]",
+                    FLOW_SURFACE_RADIUS_CLASS_NAME,
+                    isDarkPhoneMandate &&
+                      "bg-[#1c1c1e] text-[#f2f2f7] ring-white/10",
+                  )}
                 >
                   <ComboboxList>
                     <ComboboxEmpty>No country codes found.</ComboboxEmpty>
@@ -1021,7 +1054,7 @@ export function PhoneVerificationFlow({
                             className="cursor-pointer"
                             onClick={() => handleCountrySelection(item.value)}
                           >
-                            <div className="flex w-full items-center justify-between gap-3">
+                            <div className="flex w-full items-center justify-between gap-3 whitespace-nowrap">
                               <span className="truncate">{item.label}</span>
                               <span className="shrink-0 text-current">
                                 {item.dialCode}
@@ -1037,8 +1070,16 @@ export function PhoneVerificationFlow({
             </Field>
 
             <Field className="gap-2.5">
-              <FieldLabel htmlFor="phone-flow-number">Phone number</FieldLabel>
-              <InputGroup className={FLOW_CONTROL_SHELL_CLASS_NAME}>
+              <FieldLabel
+                htmlFor="phone-flow-number"
+                className={cn(
+                  "whitespace-nowrap",
+                  isDarkPhoneMandate && "text-[#8d8d94]",
+                )}
+              >
+                Phone number
+              </FieldLabel>
+              <InputGroup className={flowControlShellClassName}>
                 <InputGroupInput
                   id="phone-flow-number"
                   data-voice-control-id="phone-flow-number"
@@ -1056,7 +1097,7 @@ export function PhoneVerificationFlow({
                   }
                   onPaste={handlePhoneNumberPaste}
                   placeholder="6505550101"
-                  className={FLOW_CONTROL_CLASS_NAME}
+                  className={flowControlClassName}
                 />
               </InputGroup>
               {phoneNumberError ? (
@@ -1071,10 +1112,18 @@ export function PhoneVerificationFlow({
             </Field>
           </FieldGroup>
 
-          <FieldDescription className="type-callout text-[rgba(0,0,0,0.56)] dark:text-[rgba(245,245,247,0.60)]">
-            {helperText ||
-              "Choose your country code and enter your phone number. We’ll send you a verification code."}
-          </FieldDescription>
+          {helperText ? (
+            <FieldDescription
+              className={cn(
+                "type-callout",
+                isDarkPhoneMandate
+                  ? "text-[#98989d]"
+                  : "text-[rgba(0,0,0,0.56)] dark:text-[rgba(245,245,247,0.60)]",
+              )}
+            >
+              {helperText}
+            </FieldDescription>
+          ) : null}
           <div className="grid gap-3">
             <Button
               type="submit"
@@ -1108,18 +1157,36 @@ export function PhoneVerificationFlow({
         </>
       ) : (
         <>
-          <p className="text-center text-sm leading-6 text-muted-foreground">
+          <p
+            className={cn(
+              "overflow-hidden text-ellipsis whitespace-nowrap text-center text-sm leading-6",
+              isDarkPhoneMandate ? "text-[#98989d]" : "text-muted-foreground",
+            )}
+          >
             Enter the code sent to{" "}
-            <span className="font-semibold text-foreground">
+            <span
+              className={cn(
+                "font-semibold",
+                isDarkPhoneMandate ? "text-[#f2f2f7]" : "text-foreground",
+              )}
+            >
               {maskPhoneNumberForOtp(submittedPhoneNumber)}
             </span>
             .
           </p>
 
           <Field className="gap-2.5">
-            <FieldLabel htmlFor="phone-flow-code">One-time code</FieldLabel>
+            <FieldLabel
+              htmlFor="phone-flow-code"
+              className={cn(
+                "whitespace-nowrap",
+                isDarkPhoneMandate && "text-[#8d8d94]",
+              )}
+            >
+              One-time code
+            </FieldLabel>
             <div className="relative">
-              <div className="flex gap-2.5">
+              <div className="flex min-w-0 flex-nowrap gap-1.5 sm:gap-2.5">
                 {Array.from({ length: 6 }).map((_, index) => {
                   const active = index === Math.min(verificationCode.length, 5);
                   const filled = index < verificationCode.length;
@@ -1127,10 +1194,14 @@ export function PhoneVerificationFlow({
                     <div
                       key={index}
                       className={cn(
-                        "flex h-[58px] flex-1 items-center justify-center rounded-2xl border-[1.5px] text-[24px] font-bold text-[#0A0A0A] transition-colors dark:text-white",
+                        "flex h-14 min-w-0 flex-1 items-center justify-center rounded-2xl border-[1.5px] text-[24px] font-bold transition-colors sm:h-[58px]",
                         active
-                          ? "border-[color:var(--app-accent)] bg-white shadow-[0_0_0_4px_var(--app-accent-ring)] dark:bg-white/[0.06]"
-                          : "border-black/10 bg-black/[0.02] dark:border-white/15 dark:bg-white/[0.04]",
+                          ? isDarkPhoneMandate
+                            ? "border-[color:var(--app-accent)] bg-[#1c1c1e] text-[#f2f2f7] shadow-[0_0_0_4px_var(--app-accent-ring)]"
+                            : "border-[color:var(--app-accent)] bg-white text-[#0A0A0A] shadow-[0_0_0_4px_var(--app-accent-ring)]"
+                          : isDarkPhoneMandate
+                            ? "border-white/15 bg-[#1c1c1e] text-[#f2f2f7]"
+                            : "border-black/10 bg-black/[0.02] text-[#0A0A0A] dark:bg-white/[0.04] dark:text-white",
                       )}
                     >
                       {filled ? (
@@ -1179,7 +1250,7 @@ export function PhoneVerificationFlow({
             )}
           </Button>
 
-          <div className="flex items-center justify-center gap-3 pt-1 text-[15px]">
+          <div className="flex flex-nowrap items-center justify-center gap-3 whitespace-nowrap pt-1 text-[clamp(0.75rem,3.5vw,0.9375rem)]">
             <button
               type="button"
               onClick={() => void handleStartVerification(true)}
