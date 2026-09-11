@@ -432,6 +432,47 @@ async def test_consumer_mcp_disconnect_requires_confirmation_and_revokes_only_cu
 
 
 @pytest.mark.asyncio
+async def test_consumer_mcp_delegation_dispatches_through_owner_tool_contract(
+    consumer, monkeypatch
+):
+    import mcp_server
+    from mcp_modules.developer_context import (
+        reset_current_developer_principal,
+        set_current_developer_principal,
+    )
+    from mcp_modules.tools import consumer_tools
+
+    principal, _, _ = connect(consumer)
+
+    class _Task:
+        async def execute(self, _principal, *, arguments):
+            assert _principal is principal
+            assert arguments["message"] == "hello"
+            return {
+                "state": "completed",
+                "execution_target": "owner_pod",
+                "deployment_id": "pod_a",
+                "conversation_id": "c1",
+                "response": "done",
+                "runtime_mode": "owner-pod",
+                "provider": "pod",
+                "model": "resident-model",
+                "delegation": None,
+            }
+
+    monkeypatch.setattr(consumer_tools, "ConsumerMcpTask", _Task)
+    context = set_current_developer_principal(principal)
+    try:
+        result = await mcp_server.call_tool("delegate_hussh_task", {"message": "hello"})
+    finally:
+        reset_current_developer_principal(context)
+
+    assert not result.isError
+    assert result.structuredContent["execution_target"] == "owner_pod"
+    assert result.structuredContent["provider"] == "pod"
+
+
+@pytest.mark.asyncio
 async def test_consumer_mcp_reads_resumable_setup_status_without_starting_a_job(
     consumer, monkeypatch
 ):
