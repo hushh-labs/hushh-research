@@ -560,7 +560,7 @@ export class CacheSyncService {
     const cache = CacheService.getInstance();
     // This invalidates any in-flight Location load before it can republish a
     // server snapshot after the vault security boundary changes.
-    OneLocationStateResource.invalidate(userId);
+    OneLocationStateResource.discard(userId);
     clearLocationWorkspaceMemory(userId);
     clearOneLocationControlRuntime(userId);
     if (typeof options?.hasVault === "boolean") {
@@ -823,7 +823,7 @@ export class CacheSyncService {
   static onAuthSignedOut(userId?: string | null): void {
     const cache = CacheService.getInstance();
     if (userId) {
-      OneLocationStateResource.invalidate(userId);
+      OneLocationStateResource.discard(userId);
       clearLocationWorkspaceMemory(userId);
       clearOneLocationControlRuntime(userId);
       cache.invalidateUser(userId);
@@ -834,6 +834,7 @@ export class CacheSyncService {
         .catch(() => undefined);
       return;
     }
+    OneLocationStateResource.discardAll();
     clearAllLocationWorkspaceMemory();
     clearAllOneLocationControlRuntime();
     cache.clear();

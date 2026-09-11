@@ -1313,6 +1313,77 @@ describe("named Circle flows", () => {
     );
   });
 
+  it("shows every member of a joined Circle and Connect only for the four strangers", async () => {
+    const members: OneLocationCircleDetail["members"] = [
+      {
+        userId: "owner-user",
+        displayName: "Circle owner",
+        role: "owner",
+        phoneVerified: true,
+        secureLocationReady: true,
+        relationship: "connected",
+      },
+      {
+        userId: "viewer-user",
+        displayName: "You",
+        role: "member",
+        phoneVerified: true,
+        secureLocationReady: true,
+        relationship: "self",
+      },
+      ...Array.from({ length: 4 }, (_, index) => ({
+        userId: `known-${index + 1}`,
+        displayName: `Connected member ${index + 1}`,
+        role: "member" as const,
+        phoneVerified: true,
+        secureLocationReady: true,
+        relationship: "connected" as const,
+      })),
+      ...Array.from({ length: 4 }, (_, index) => ({
+        userId: `stranger-${index + 1}`,
+        displayName: `New member ${index + 1}`,
+        role: "member" as const,
+        phoneVerified: true,
+        secureLocationReady: true,
+        relationship: "none" as const,
+        canConnect: true,
+      })),
+    ];
+    const joinedCircle: OneLocationCircleDetail = {
+      ...circle("circle-1", "Friends of friends"),
+      role: "member",
+      memberCount: 10,
+      viewerCapabilities: {
+        canInviteMembers: false,
+        canViewInviteCode: false,
+        canRotateInviteCode: false,
+        canManageCircle: false,
+        canModerateInvites: false,
+      },
+      members,
+    };
+
+    render(
+      <CircleDetailFlow
+        circleId="circle-1"
+        {...detailProps(async () => joinedCircle)}
+        currentUserId="viewer-user"
+      />,
+    );
+
+    const roster = await screen.findByTestId("one-location-circle-members");
+    const rosterRows = roster.querySelector(
+      '[data-slot="settings-group-shell"] > div',
+    );
+    expect(rosterRows?.children).toHaveLength(10);
+    expect(screen.getAllByText("10 people").length).toBeGreaterThanOrEqual(1);
+    expect(
+      within(roster).getAllByRole("button", { name: /^Connect with / }),
+    ).toHaveLength(4);
+    expect(within(roster).getByText("Connected member 4")).toBeTruthy();
+    expect(within(roster).getByText("New member 4")).toBeTruthy();
+  });
+
   it("sends an incoming request to where it can actually be answered", async () => {
     const onConnectMember = vi.fn(async () => undefined);
     const ownerCircle = {

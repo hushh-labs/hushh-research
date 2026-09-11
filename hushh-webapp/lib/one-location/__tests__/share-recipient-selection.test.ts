@@ -62,33 +62,28 @@ describe("isShareReadyRecipient", () => {
 });
 
 describe("resolveEffectiveShareRecipients", () => {
-  it("uses the reactive selection as-is when it is not empty", () => {
-    // The common path: a render has already happened, so the reactive
-    // selection is trusted over the ref-based fallback even if the two
-    // happen to disagree (e.g. a stale ref from a previous share).
-    expect(
-      resolveEffectiveShareRecipients([JORDAN], POOL, ["user-2"]),
-    ).toEqual([JORDAN]);
+  it("uses current ids when a rendered audience is already present", () => {
+    // Circle A may already be rendered while a same-turn voice action adds B.
+    // The synchronous cursor is newer than the non-empty rendered array.
+    expect(resolveEffectiveShareRecipients(POOL, ["user-2"])).toEqual([AVERY]);
   });
 
-  it("falls back to reconstructing from the ref-backed ids when the reactive selection is empty", () => {
+  it("reconstructs from current ids when the rendered selection is empty", () => {
     // The race this function exists to close: voice picks someone and says
     // "share" in the same breath, faster than the render that would have
     // made the pick visible in the reactive selection.
     expect(
-      resolveEffectiveShareRecipients([], POOL, ["user-1", "user-2"]),
+      resolveEffectiveShareRecipients(POOL, ["user-1", "user-2"]),
     ).toEqual([JORDAN, AVERY]);
   });
 
-  it("returns an empty list when both the reactive selection and the fallback are empty", () => {
-    expect(resolveEffectiveShareRecipients([], POOL, [])).toEqual([]);
+  it("returns an empty list when the current selection is empty", () => {
+    expect(resolveEffectiveShareRecipients(POOL, [])).toEqual([]);
   });
 
   it("does not mutate the inputs it is given", () => {
-    const reactive = [JORDAN];
-    const fallbackIds = ["user-2"];
-    resolveEffectiveShareRecipients(reactive, POOL, fallbackIds);
-    expect(reactive).toEqual([JORDAN]);
-    expect(fallbackIds).toEqual(["user-2"]);
+    const currentIds = ["user-2"];
+    resolveEffectiveShareRecipients(POOL, currentIds);
+    expect(currentIds).toEqual(["user-2"]);
   });
 });

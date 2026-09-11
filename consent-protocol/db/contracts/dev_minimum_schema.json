@@ -1,6 +1,6 @@
 {
   "contract_name": "dev_minimum_schema",
-  "expected_migration_version": 205,
+  "expected_migration_version": 206,
   "migration_version_policy": "minimum",
   "required_functions": [
     "resolve_feed_counterpart_user_id",

@@ -23,7 +23,12 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, NoReturn
 
-from wait_for_testflight_build import ASC_API_ROOT, build_url, mint_jwt, resolve_app_id
+from wait_for_testflight_build import (
+    ASC_API_ROOT,
+    build_upload_url,
+    mint_jwt,
+    resolve_app_id,
+)
 
 
 RESOURCE_ID = re.compile(r"^[A-Za-z0-9-]{2,128}$")
@@ -40,6 +45,16 @@ EXTERNAL_REJECTED_STATES = {"REJECTED", "EXPIRED", "INVALID"}
 
 class DistributionError(RuntimeError):
     """A fail-closed TestFlight beta distribution error."""
+
+
+class AppStoreConnectHTTPError(DistributionError):
+    """An App Store Connect HTTP response with a status useful to callers."""
+
+    def __init__(self, method: str, path: str, status_code: int) -> None:
+        super().__init__(f"App Store Connect {method} {path} failed with HTTP {status_code}")
+        self.method = method
+        self.path = path
+        self.status_code = status_code
 
 
 @dataclass(frozen=True)
@@ -156,7 +171,8 @@ class AppStoreConnectClient:
         except urllib.error.HTTPError as exc:
             # Apple responses can contain reviewer-facing information. Status is
             # enough for CI and avoids echoing request data or error payloads.
-            raise DistributionError(f"App Store Connect {method} failed with HTTP {exc.code}") from exc
+            path = urllib.parse.urlsplit(url).path
+            raise AppStoreConnectHTTPError(method, path, exc.code) from exc
         except urllib.error.URLError as exc:
             raise DistributionError(f"App Store Connect {method} request failed") from exc
         if not raw:
@@ -184,24 +200,60 @@ def resolve_valid_build_id(
     app_id: str,
     marketing_version: str,
     build_number: str,
+    build_id: str | None = None,
 ) -> str:
-    payload = client.get(build_url(app_id, marketing_version, build_number))
-    builds = payload.get("data")
-    if not isinstance(builds, list):
-        raise DistributionError("App Store Connect did not return builds")
+    if build_id is not None:
+        return validate_resource_id("TestFlight build", build_id)
+
+    # Resolve through buildUploads, the same endpoint used by the processing
+    # gate. App Store Connect rejects the preReleaseVersion.version filter on
+    # the top-level /v1/builds endpoint for some apps, even though the upload
+    # resource includes the definitive build and its processing state.
+    payload = client.get(
+        build_upload_url(app_id, marketing_version, build_number, "IOS")
+    )
+    uploads = payload.get("data")
+    if not isinstance(uploads, list):
+        raise DistributionError("App Store Connect did not return build uploads")
     matches = [
-        build
-        for build in builds
-        if isinstance(build, dict)
-        and build.get("type") == "builds"
-        and str((build.get("attributes") or {}).get("version")) == str(build_number)
+        upload
+        for upload in uploads
+        if isinstance(upload, dict)
+        and upload.get("type") == "buildUploads"
     ]
+    if len(matches) > 1:
+        version_matches = [
+            upload
+            for upload in matches
+            if str((upload.get("attributes") or {}).get("cfBundleShortVersionString"))
+            == marketing_version
+            and str((upload.get("attributes") or {}).get("cfBundleVersion"))
+            == str(build_number)
+        ]
+        matches = version_matches
     if len(matches) != 1:
-        raise DistributionError("exact VALID TestFlight build was not found")
-    build = matches[0]
+        raise DistributionError("exact TestFlight build upload was not found")
+
+    upload = matches[0]
+    build_ref = ((upload.get("relationships") or {}).get("build") or {}).get("data")
+    included_builds = [
+        resource
+        for resource in payload.get("included") or []
+        if isinstance(resource, dict)
+        and resource.get("type") == "builds"
+        and (
+            not isinstance(build_ref, dict)
+            or resource.get("id") == build_ref.get("id")
+        )
+    ]
+    if len(included_builds) != 1:
+        raise DistributionError("App Store Connect did not return the uploaded build")
+    build = included_builds[0]
+    if not isinstance(build.get("id"), str) or not build["id"].strip():
+        raise DistributionError("App Store Connect returned the build without an id")
     if (build.get("attributes") or {}).get("processingState") != "VALID":
         raise DistributionError("TestFlight build is not VALID")
-    return validate_resource_id("TestFlight build", str(build.get("id") or ""))
+    return validate_resource_id("TestFlight build", build["id"])
 
 
 def require_group_type(
@@ -302,11 +354,24 @@ def upsert_beta_review_detail(
 def upsert_beta_build_localization(
     client: AppStoreConnectClient, build_id: str, notes: str
 ) -> None:
-    query = urllib.parse.urlencode({"filter[locale]": "en-US", "limit": "2"})
-    payload = client.get(f"/v1/builds/{build_id}/betaBuildLocalizations?{query}")
-    records = payload.get("data")
-    if not isinstance(records, list):
-        raise DistributionError("App Store Connect returned invalid beta build localizations")
+    # The build relationship endpoint supports `limit` but not the collection
+    # `filter[locale]` parameter. Fetch the bounded relationship page and select
+    # the requested locale locally so Apple does not reject the request with 400.
+    query = urllib.parse.urlencode({"limit": "200"})
+    next_url = f"/v1/builds/{build_id}/betaBuildLocalizations?{query}"
+    records: list[Any] = []
+    visited: set[str] = set()
+    while next_url:
+        absolute = client.absolute_url(next_url)
+        if absolute in visited:
+            raise DistributionError("App Store Connect returned cyclic localization pages")
+        visited.add(absolute)
+        payload = client.get(next_url)
+        page = payload.get("data")
+        if not isinstance(page, list):
+            raise DistributionError("App Store Connect returned invalid beta build localizations")
+        records.extend(page)
+        next_url = (payload.get("links") or {}).get("next")
     matches = [
         record
         for record in records
@@ -327,7 +392,7 @@ def upsert_beta_build_localization(
                 "data": {
                     "type": "betaBuildLocalizations",
                     "id": localization_id,
-                    "attributes": attributes,
+                    "attributes": {"whatsNew": notes},
                 }
             },
         )
@@ -345,15 +410,19 @@ def upsert_beta_build_localization(
 
 
 def external_beta_status(client: AppStoreConnectClient, build_id: str) -> tuple[str, str]:
-    payload = client.get(f"/v1/builds/{build_id}/betaAppReviewSubmission")
+    try:
+        payload = client.get(f"/v1/builds/{build_id}/betaAppReviewSubmission")
+    except AppStoreConnectHTTPError as exc:
+        if exc.status_code == 404:
+            # A build can be attached to an external group before the operator
+            # submits it for beta review. That is a valid pending state; this
+            # workflow must not submit it implicitly or fail the upload.
+            return "pending_apple_beta_review", "NOT_SUBMITTED"
+        raise
     resource = payload.get("data")
     if resource is None:
-        created = client.post(
-            "/v1/betaAppReviewSubmissions",
-            {"data": {"type": "betaAppReviewSubmissions", "relationships": {"build": {"data": {"type": "builds", "id": build_id}}}}},
-        )
-        resource = require_resource(created, "betaAppReviewSubmissions", "beta review submission")
-    elif not isinstance(resource, dict) or resource.get("type") != "betaAppReviewSubmissions":
+        return "pending_apple_beta_review", "NOT_SUBMITTED"
+    if not isinstance(resource, dict) or resource.get("type") != "betaAppReviewSubmissions":
         raise DistributionError("App Store Connect returned invalid beta review submission")
 
     state = str((resource.get("attributes") or {}).get("betaReviewState") or "").upper()
@@ -375,16 +444,22 @@ def distribute_valid_build(
     marketing_version: str,
     build_number: str,
     configuration: DistributionConfiguration,
+    build_id: str | None = None,
 ) -> dict[str, str]:
-    build_id = resolve_valid_build_id(client, app_id, marketing_version, build_number)
+    build_id = resolve_valid_build_id(
+        client, app_id, marketing_version, build_number, build_id=build_id
+    )
     require_group_type(client, configuration.internal_group_id, is_internal=True)
     require_group_type(client, configuration.external_group_id, is_internal=False)
-    internal_assignment = attach_build_once(client, configuration.internal_group_id, build_id)
-    external_assignment = attach_build_once(client, configuration.external_group_id, build_id)
+    # Apple requires the beta-review metadata to be present before an external
+    # group can accept a build. Prepare it before the relationship writes, but
+    # leave the actual beta-review submission to an explicit operator action.
     upsert_beta_review_detail(
         client, app_id, configuration.review_contact, configuration.review_notes
     )
     upsert_beta_build_localization(client, build_id, configuration.review_notes)
+    internal_assignment = attach_build_once(client, configuration.internal_group_id, build_id)
+    external_assignment = attach_build_once(client, configuration.external_group_id, build_id)
     external, review_state = external_beta_status(client, build_id)
     return {
         "build_id": build_id,
@@ -429,6 +504,14 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         "--beta-review-notes-file",
         help="Read beta-review notes from a protected runner-local file.",
     )
+    parser.add_argument(
+        "--build-id",
+        help="Use the exact VALID Apple build id returned by the processing gate.",
+    )
+    parser.add_argument(
+        "--build-id-file",
+        help="Read the exact VALID Apple build id from a runner-local JSON file.",
+    )
     parser.add_argument("--output-json")
     return parser.parse_args(argv)
 
@@ -442,6 +525,26 @@ def read_optional_file(path: str | None, label: str) -> str | None:
         raise DistributionError(f"cannot read {label} file") from exc
 
 
+def read_build_id_file(path: str, *, build_number: str) -> str:
+    try:
+        with open(path, "r", encoding="utf-8") as handle:
+            payload = json.load(handle)
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise DistributionError("validated TestFlight build file is invalid") from exc
+    if not isinstance(payload, dict) or payload.get("type") != "builds":
+        raise DistributionError("validated TestFlight build file has the wrong resource type")
+    build_id = payload.get("id")
+    if not isinstance(build_id, str):
+        raise DistributionError("validated TestFlight build file has no build id")
+    attrs = payload.get("attributes") or {}
+    if attrs.get("processingState") != "VALID":
+        raise DistributionError("validated TestFlight build file is not VALID")
+    version = attrs.get("version")
+    if version is not None and str(version) != str(build_number):
+        raise DistributionError("validated TestFlight build does not match the requested build number")
+    return validate_resource_id("TestFlight build", build_id)
+
+
 def main(argv: list[str]) -> int:
     args = parse_args(argv)
     try:
@@ -451,6 +554,13 @@ def main(argv: list[str]) -> int:
         review_notes = read_optional_file(
             args.beta_review_notes_file, "beta review notes"
         ) or args.beta_review_notes
+        if args.build_id and args.build_id_file:
+            raise DistributionError("use only one of --build-id and --build-id-file")
+        build_id = args.build_id
+        if args.build_id_file:
+            build_id = read_build_id_file(
+                args.build_id_file, build_number=str(args.build_number)
+            )
     except DistributionError as exc:
         die(str(exc))
     missing = [
@@ -484,6 +594,7 @@ def main(argv: list[str]) -> int:
             marketing_version=args.marketing_version,
             build_number=str(args.build_number),
             configuration=configuration,
+            build_id=build_id,
         )
     except DistributionError as exc:
         die(str(exc))

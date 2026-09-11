@@ -1959,6 +1959,7 @@ export default function GmailReceiptsPage({
                 type="button"
                 variant="muted"
                 onClick={() => setWorkspace("kyc")}
+                className="w-full justify-center sm:w-auto"
               >
                 Open KYC
               </Button>
@@ -1982,6 +1983,7 @@ export default function GmailReceiptsPage({
                 type="button"
                 variant="muted"
                 onClick={() => setWorkspace("receipts")}
+                className="w-full justify-center sm:w-auto"
               >
                 Open receipts
               </Button>

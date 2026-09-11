@@ -371,6 +371,28 @@ test.describe("Circle roster row", () => {
       const avatars = await boxesOf(page, '[data-testid="row-avatar"]');
       const copies = await boxesOf(page, '[data-testid="row-copy"]');
 
+      const actionMenuGaps = await page.evaluate(() =>
+        Array.from(
+          document.querySelectorAll<HTMLElement>('[data-testid="row"]'),
+        ).flatMap((row) => {
+          const action = row.querySelector<HTMLElement>(
+            '[data-testid="row-action"]',
+          );
+          const menu = row.querySelector<HTMLElement>(
+            '[data-testid="row-menu"]',
+          );
+          if (!action || !menu) return [];
+          const actionBox = action.getBoundingClientRect();
+          const menuBox = menu.getBoundingClientRect();
+          return [
+            {
+              gap: menuBox.left - actionBox.right,
+              actionHeight: actionBox.height,
+            },
+          ];
+        }),
+      );
+
       expect(rows).toHaveLength(ROSTER.length);
       // The spacer is what makes this true: the column exists on all four rows,
       // not only on the two that have a menu to put in it.
@@ -430,6 +452,19 @@ test.describe("Circle roster row", () => {
         );
         expect(metric.textOverflow).not.toBe("ellipsis");
         expect(metric.whiteSpace).not.toBe("nowrap");
+      }
+
+      if (width < 640) {
+        expect(actionMenuGaps).toHaveLength(
+          ROSTER.filter((row) => row.action !== "none").length,
+        );
+        for (const cluster of actionMenuGaps) {
+          // The action and kebab are one compact trailing cluster. The old
+          // `justify-between` pushed them to opposite edges of the second row.
+          expect(cluster.gap).toBeGreaterThanOrEqual(3);
+          expect(cluster.gap).toBeLessThanOrEqual(5);
+          expect(cluster.actionHeight).toBeGreaterThanOrEqual(44);
+        }
       }
 
       // The avatar and the trailing control sit on the row's centre line, so

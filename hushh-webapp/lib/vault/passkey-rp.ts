@@ -43,15 +43,34 @@ export function isPasskeyRpIdCompatibleWithHost(
   hostname: string | null | undefined,
   rpId: string | null | undefined,
 ): boolean {
+  if (isLikelyIpAddress(hostname) || isLikelyIpAddress(rpId)) return false;
   const normalizedHost = normalizeRpHost(hostname);
   const normalizedRpId = normalizeRpHost(rpId);
   if (!normalizedHost || !normalizedRpId) return false;
+  if (isLikelyIpAddress(normalizedHost) || isLikelyIpAddress(normalizedRpId)) {
+    return false;
+  }
   return (
     normalizedHost === normalizedRpId ||
     normalizedHost.endsWith(`.${normalizedRpId}`)
   );
 }
 
+/** WebAuthn RPs are registrable domains; bare IP addresses are never valid. */
+function isLikelyIpAddress(value: string | null | undefined): boolean {
+  const raw = value?.trim() ?? "";
+  if (!raw) return false;
+  const host = raw.startsWith("[") ? raw : extractHost(raw) || raw;
+  const unbracketed = host.replace(/^\[|\]$/g, "");
+  const ipv4Parts = unbracketed.split(".");
+  if (
+    ipv4Parts.length === 4 &&
+    ipv4Parts.every((part) => /^\d{1,3}$/.test(part) && Number(part) <= 255)
+  ) {
+    return true;
+  }
+  return unbracketed.includes(":") && /^[0-9a-fA-F:]+$/.test(unbracketed);
+}
 export function resolvePasskeyRpId(options: ResolvePasskeyRpIdOptions): string {
   const explicitRp = normalizeRpHost(process.env.NEXT_PUBLIC_PASSKEY_RP_ID);
   if (explicitRp) {

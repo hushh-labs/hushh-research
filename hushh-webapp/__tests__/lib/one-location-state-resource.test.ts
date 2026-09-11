@@ -6,6 +6,7 @@ import { CacheService } from "@/lib/services/cache-service";
 
 describe("OneLocationStateResource", () => {
   afterEach(() => {
+    OneLocationStateResource.discardAll();
     CacheService.getInstance().clear();
   });
 
@@ -54,6 +55,28 @@ describe("OneLocationStateResource", () => {
 
     expect(OneLocationStateResource.peek(userId)?.data).toBe(snapshot);
     expect(OneLocationStateResource.peek("another-owner")).toBeNull();
+  });
+
+  it("keeps the last presentation visible while invalidated state revalidates", () => {
+    const userId = "location-resource-owner";
+    const snapshot = { recipients: [] } as OneLocationState;
+
+    OneLocationStateResource.write(userId, snapshot);
+    OneLocationStateResource.invalidate(userId);
+
+    expect(OneLocationStateResource.peek(userId)).toBeNull();
+    expect(OneLocationStateResource.readPresentation(userId)).toBe(snapshot);
+  });
+
+  it("discards presentation state at an auth or vault privacy boundary", () => {
+    const userId = "location-resource-owner";
+    OneLocationStateResource.write(userId, {
+      recipients: [],
+    } as OneLocationState);
+
+    OneLocationStateResource.discard(userId);
+
+    expect(OneLocationStateResource.readPresentation(userId)).toBeNull();
   });
 
   it("publishes SMS membership immediately and rejects an older in-flight snapshot", async () => {

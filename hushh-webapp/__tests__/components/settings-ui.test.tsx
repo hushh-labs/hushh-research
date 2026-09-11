@@ -96,6 +96,25 @@ describe("SettingsRow", () => {
     expect(screen.queryByTestId("settings-row-description")).toBeNull();
   });
 
+  it("can keep navigation-row labels and descriptions to one responsive line", () => {
+    const { container } = render(
+      <SettingsRow
+        title="A deliberately long navigation destination"
+        description="Supporting copy that must not make the row taller"
+        textOverflow="truncate"
+      />,
+    );
+
+    const title = container.querySelector('[data-slot="settings-row-title"]');
+    const description = container.querySelector(
+      '[data-slot="settings-row-description"]',
+    );
+    expect(title?.className).toContain("truncate");
+    expect(title?.className).toContain("whitespace-nowrap");
+    expect(description?.className).toContain("truncate");
+    expect(description?.className).toContain("whitespace-nowrap");
+  });
+
   it("uses the calm iPhone settings list label by default", () => {
     const { container } = render(
       <SettingsRow title="Security & privacy" density="compact" />,
@@ -439,6 +458,64 @@ describe("SegmentedTabs", () => {
     expect(active.className).toContain("rounded-[8px]");
     expect(active.className).toContain("mx-0.5");
     expect(label).toHaveClass("ui-text-agent-tab-label");
+  });
+
+  it("supports a subordinate text-tab hierarchy without changing tab semantics", () => {
+    const handleValueChange = vi.fn();
+    const { container } = render(
+      <SegmentedTabs
+        value="connected"
+        onValueChange={handleValueChange}
+        ariaLabel="Clients view"
+        variant="subordinate"
+        options={[
+          { value: "connected", label: "Connected" },
+          { value: "nearby", label: "Around you" },
+        ]}
+      />,
+    );
+
+    const root = container.firstElementChild;
+    const active = screen.getByRole("tab", { name: "Connected" });
+    const inactive = screen.getByRole("tab", { name: "Around you" });
+
+    expect(root).toHaveAttribute("data-ui-variant", "subordinate");
+    expect(root?.className).toContain("bg-transparent");
+    expect(root?.className).toContain("border-b");
+    expect(active.className).toContain("border-[color:var(--app-accent)]");
+    expect(active.className).not.toContain(
+      "bg-[color:var(--app-segmented-active-surface)]",
+    );
+    expect(active.getAttribute("aria-selected")).toBe("true");
+    fireEvent.click(inactive);
+    expect(handleValueChange).toHaveBeenCalledWith("nearby");
+  });
+
+  it("supports compact filter pills with horizontal overflow safety", () => {
+    const { container } = render(
+      <SegmentedTabs
+        value="top-picks"
+        onValueChange={() => {}}
+        ariaLabel="Picks category"
+        variant="filter"
+        options={[
+          { value: "top-picks", label: "Top picks" },
+          { value: "avoid", label: "Avoid" },
+          { value: "screening", label: "Screening" },
+        ]}
+      />,
+    );
+
+    const root = container.firstElementChild;
+    const active = screen.getByRole("tab", { name: "Top picks" });
+
+    expect(root).toHaveAttribute("data-ui-variant", "filter");
+    expect(root?.className).toContain("overflow-x-auto");
+    expect(active.className).toContain("rounded-full");
+    expect(active.className).toContain(
+      "bg-[color:var(--app-accent-surface)]",
+    );
+    expect(active.getAttribute("aria-selected")).toBe("true");
   });
 });
 

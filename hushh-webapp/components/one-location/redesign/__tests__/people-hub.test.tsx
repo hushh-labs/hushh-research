@@ -187,6 +187,37 @@ describe("PeopleHub requests sent manage surface", () => {
     expect(sectionStack?.firstElementChild).toBe(circles);
   });
 
+  it("represents the Circles category with one stable group icon", () => {
+    renderPeopleHub({
+      viewModel: vm({
+        circles: [
+          {
+            id: "circle-jc",
+            name: "JC",
+            role: "owner",
+            memberCount: 2,
+          },
+          {
+            id: "circle-nt",
+            name: "NT",
+            role: "member",
+            memberCount: 3,
+          },
+        ] as LocationHubViewModel["circles"],
+      }),
+    });
+
+    const summary = screen.getByTestId("one-location-circles-summary");
+    const icon = within(summary).getByTestId(
+      "one-location-circle-category-icon",
+    );
+
+    expect(icon.querySelector("svg")).toBeTruthy();
+    expect(icon).toHaveTextContent("");
+    expect(summary).not.toHaveTextContent("JC");
+    expect(summary).not.toHaveTextContent("NT");
+  });
+
   it("opens received-location management from the row", () => {
     const onOpenSharedWithMe = vi.fn();
     const onStartShare = vi.fn();
@@ -201,9 +232,10 @@ describe("PeopleHub requests sent manage surface", () => {
       }),
     );
 
-    expect(
-      screen.getByRole("dialog", { name: "Roopmann V" }),
-    ).toBeTruthy();
+    const dialog = screen.getByRole("dialog", { name: "Roopmann V" });
+    expect(dialog).toHaveClass("max-w-[380px]", "rounded-[26px]", "gap-0");
+    const overlay = document.querySelector('[data-slot="dialog-overlay"]');
+    expect(overlay).toHaveClass("bg-black/35", "backdrop-blur-[12px]");
     fireEvent.click(screen.getByRole("button", { name: "View their location" }));
     expect(onOpenSharedWithMe).toHaveBeenCalled();
     expect(onStartShare).not.toHaveBeenCalled();

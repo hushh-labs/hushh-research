@@ -77,10 +77,20 @@ export function ContactSyncResultsSheet({
     setRequestedUserIds(new Set());
     setVisibleMatchCount(MATCH_PAGE_SIZE);
   }, [result]);
-  if (!result) return null;
-  if (open && invitations?.enabled && invitations.active) {
-    return <ContactInvitationSheet key={invitations.version} controller={invitations} takeover={takeover} onFinish={() => onOpenChange(false)} />;
+  // Admission gates can remount the route after an external composer returns.
+  // The active, account/route-owned invitation session survives that temporary
+  // remount even though the route's matching results/open flag do not.
+  if (invitations?.enabled && invitations.active) {
+    return (
+      <ContactInvitationSheet
+        key={invitations.version}
+        controller={invitations}
+        takeover={takeover}
+        onFinish={() => onOpenChange(false)}
+      />
+    );
   }
+  if (!result) return null;
 
   const connectedCount =
     result.autoConnectedCount + result.alreadyConnectedCount;
@@ -164,11 +174,14 @@ export function ContactSyncResultsSheet({
               </p>
             ) : null}
             {result.uncheckedContactCount ? (
-              <p>{result.uncheckedContactCount} contacts were not checked yet.</p>
+              <p>
+                {result.uncheckedContactCount} contacts were not checked yet.
+              </p>
             ) : null}
             {result.lookupLimitExceeded ? (
               <p>
-                This address book exceeded the secure {CONTACT_SYNC_MAX_LOOKUPS.toLocaleString()}-number sync limit.
+                This address book exceeded the secure{" "}
+                {CONTACT_SYNC_MAX_LOOKUPS.toLocaleString()}-number sync limit.
                 {result.lookupLimitedContactCount
                   ? ` ${result.lookupLimitedContactCount} contacts with overflow numbers were left unchecked and are not inviteable.`
                   : " Additional numbers were outside the limit, but no matched contact was reclassified as unchecked or inviteable."}
@@ -217,7 +230,9 @@ export function ContactSyncResultsSheet({
                         ) : null}
                       </div>
                       <p className="break-words text-xs text-muted-foreground [overflow-wrap:anywhere]">
-                        {requested ? "Request sent" : resultStatus(match.outcome)}
+                        {requested
+                          ? "Request sent"
+                          : resultStatus(match.outcome)}
                       </p>
                     </div>
                     {match.outcome === "request_required" && !requested ? (
@@ -271,8 +286,8 @@ export function ContactSyncResultsSheet({
           {hiddenMatchCount ? (
             <div className="mt-3 flex flex-col items-center gap-2">
               <p className="text-xs text-muted-foreground" aria-live="polite">
-                Showing {visibleMatches.length} of {result.matches.length} matched
-                people
+                Showing {visibleMatches.length} of {result.matches.length}{" "}
+                matched people
               </p>
               <Button
                 type="button"
@@ -319,7 +334,12 @@ export function ContactSyncResultsSheet({
           )}
           <Button
             type="button"
-            disabled={syncing || !(invitations?.enabled ? invitations.candidates.length : result.inviteCandidateCount)}
+            disabled={
+              syncing ||
+              !(invitations?.enabled
+                ? invitations.candidates.length
+                : result.inviteCandidateCount)
+            }
             onClick={() => void onInvite()}
             className="h-11 rounded-full"
           >

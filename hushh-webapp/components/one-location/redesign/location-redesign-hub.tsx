@@ -1,7 +1,5 @@
 "use client";
 
-import { ContactInvitationNotice } from "@/components/connections/contact-invitation-notice";
-
 /**
  * LocationRedesignHub — mobile-first re-skin of the One Location feature.
  *
@@ -119,11 +117,7 @@ import type {
   PlainLocationPoint,
 } from "@/lib/one-location/types";
 import { locationStatusLabel } from "@/lib/one-location/location-readiness";
-import {
-  countSelectedCircleRecipients,
-  isCircleSelectionFullySelected,
-  type CircleRecipientSelection,
-} from "@/lib/one-location/circle-recipient-selection";
+import type { CircleRecipientSelection } from "@/lib/one-location/circle-recipient-selection";
 import type { AutoApproveScope } from "@/lib/one-location/location-control-state";
 import { resolveOwnSmsSystemCircleId } from "@/lib/one-location/system-circles";
 
@@ -147,6 +141,11 @@ import {
   useExpandedShareLanes,
 } from "./share-lanes";
 import {
+  ACTIVE_SHARE_ACTIONS_CLASSNAME,
+  ACTIVE_SHARE_CHANGE_TIME_CLASSNAME,
+  ACTIVE_SHARE_STOP_CLASSNAME,
+} from "./active-share-row-layout";
+import {
   ShareReplacementConfirmDialog,
   ShareReplacementNotice,
   type ShareReplacementRow,
@@ -159,6 +158,18 @@ import {
   ReasonChips,
   type ReasonValue,
 } from "./selectors";
+import {
+  PUBLIC_LINK_CONTROLS_CLASSNAME,
+  PUBLIC_LINK_PRIMARY_CTA_CLASSNAME,
+  SHARE_CONFIRM_ACTIONS_CLASSNAME,
+  SHARE_CONFIRM_PRIMARY_CTA_CLASSNAME,
+  SHARE_CONFIRM_SECONDARY_CTA_CLASSNAME,
+} from "./location-cta-layout";
+import {
+  LOCATION_HEADER_ACTIONS_CLASSNAME,
+  LOCATION_HUB_PAGE_HEADER_CLASSNAME,
+  LOCATION_HEADER_STATUS_CLASSNAME,
+} from "./location-header-layout";
 import {
   CHANGE_TIME_DURATION_LADDER,
   REQUEST_DURATION_LADDER,
@@ -356,6 +367,7 @@ export type LocationHubViewModel = {
   /* identity / gating */
   userId: string | null;
   canShare: boolean;
+  shareDeliveryPending: boolean;
   busy: string | null;
   /** Id of the grant currently being revoked (per-grant Stop sharing spinner). */
   revokingGrantId: string | null;
@@ -424,7 +436,8 @@ export type LocationHubViewModel = {
   /* data lists */
   recipients: OneLocationRecipient[];
   circles: OneLocationCircleSummary[];
-  selectedShareCircleSelection: CircleRecipientSelection | null;
+  selectedShareCircleSelections: CircleRecipientSelection[];
+  pendingShareCircleIds: string[];
   incomingCircleMemberInvites: OneLocationCircleMemberInvite[];
   incomingCircleMemberInvitesLoading: boolean;
   incomingCircleMemberInvitesError: string | null;
@@ -455,6 +468,7 @@ export type LocationHubViewModel = {
   /* composer state */
   recipientSearch: string;
   shareRecipientSearch: string;
+  selectedDirectRecipientIds: string[];
   selectedRecipientIds: string[];
   selectedRequestOwnerIds: string[];
   shareDurationHours: string;
@@ -918,9 +932,9 @@ export function resolveLocationDeepLinkFocus(input: {
 
 /**
  * The id the header switch points `aria-describedby` at. A constant, not
- * `useId`: the status text now renders under the title while the switch stays
- * in the actions column, and `aria-describedby` resolves by id anywhere in the
- * document. There is exactly one Location header on screen.
+ * `useId`: the status text now renders below the switch in the actions column,
+ * and `aria-describedby` resolves by id anywhere in the document. There is
+ * exactly one Location header on screen.
  */
 const LOCATION_HEADER_STATUS_ID = "one-location-header-status";
 
@@ -939,16 +953,28 @@ function locationHeaderStatusText(vm: LocationHubViewModel): string {
   });
 }
 
-/** The header switch status sits under the switch without becoming a page subtitle. */
-function LocationHeaderStatus({ vm }: { vm: LocationHubViewModel }) {
+/** The status stays with the switch and may wrap rather than clip on a narrow phone. */
+function LocationHeaderStatus({
+  vm,
+  onToggle,
+}: {
+  vm: LocationHubViewModel;
+  onToggle: () => void;
+}) {
   return (
-    <span
+    <button
+      type="button"
       id={LOCATION_HEADER_STATUS_ID}
       data-testid="one-location-header-status"
-      className="mt-1 block w-full whitespace-nowrap text-right font-[family-name:var(--font-app-body)] text-[13px] font-normal leading-[18px] tracking-[-0.01em] text-[color:var(--app-secondary-label)]"
+      aria-label={locationHeaderStatusText(vm)}
+      onClick={onToggle}
+      className={cn(
+        LOCATION_HEADER_STATUS_CLASSNAME,
+        "cursor-pointer select-none appearance-none border-0 bg-transparent p-0 text-inherit touch-manipulation",
+      )}
     >
       {locationHeaderStatusText(vm)}
-    </span>
+    </button>
   );
 }
 
@@ -965,11 +991,13 @@ function LocationHeaderActions({ vm }: { vm: LocationHubViewModel }) {
     vm.onHideMyLocation();
   };
 
+  const handleLocationToggle = () => handleLocationChange(!locationOn);
+
   return (
     <div
       role="group"
       aria-label="Location"
-      className="ml-auto flex min-h-[58px] w-[92px] shrink-0 flex-col items-end justify-center overflow-visible"
+      className={LOCATION_HEADER_ACTIONS_CLASSNAME}
       data-testid="one-location-header-actions"
     >
       <Switch
@@ -994,7 +1022,7 @@ function LocationHeaderActions({ vm }: { vm: LocationHubViewModel }) {
         // system green, so this toggle reads the same as every other one.
         className={cn("shrink-0", acquiring && "animate-pulse")}
       />
-      <LocationHeaderStatus vm={vm} />
+      <LocationHeaderStatus vm={vm} onToggle={handleLocationToggle} />
     </div>
   );
 }
@@ -1042,6 +1070,23 @@ const STICKY_FLOW_ACTION_CLASSNAME =
 function selectedCountCopy(count: number, emptyCopy: string) {
   if (count <= 0) return emptyCopy;
   return `${count} selected`;
+}
+
+function shareAudienceSelectionCopy(circleCount: number, contactCount: number) {
+  if (!circleCount && !contactCount) {
+    return "Choose one or more Circles or contacts.";
+  }
+
+  const parts: string[] = [];
+  if (circleCount) {
+    parts.push(`${circleCount} ${circleCount === 1 ? "Circle" : "Circles"}`);
+  }
+  if (contactCount) {
+    parts.push(
+      `${contactCount} ${contactCount === 1 ? "contact" : "contacts"}`,
+    );
+  }
+  return `${parts.join(" + ")} selected`;
 }
 
 export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
@@ -1093,7 +1138,10 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
   // re-triggers it (#5430).
   usePageEnterAnimation(flowContainerRef, {
     key: flow,
-    enabled: flow !== "none",
+    // The hub is also a destination: closing a focused flow should settle back
+    // into it with the same page-enter beat used when opening that flow. This
+    // removes the hard cut that made Location feel unlike the One home roster.
+    enabled: true,
   });
   const liveShareDurationTriggerRef = useRef<HTMLElement | null>(null);
   const openLiveShareDuration = (
@@ -1711,7 +1759,7 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
   /* Hub (Now | People | Links)                                        */
   /* ----------------------------------------------------------------- */
   return renderLocationSurface(
-    <div className="space-y-4 sm:space-y-5">
+    <div ref={flowContainerRef} className="space-y-4 sm:space-y-5">
       <PageHeader
         title={<PageTitle as="span">Location</PageTitle>}
         leading={<LocationHeaderIconTile />}
@@ -1719,7 +1767,7 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
         titleRole="agent"
         actionsInlineMobile
         actions={<LocationHeaderActions vm={vm} />}
-        className="[&>div:first-child]:!gap-3.5 [&_[data-slot=page-header-actions]]:!self-center [&_[data-slot=page-header-row]]:!items-center"
+        className={LOCATION_HUB_PAGE_HEADER_CLASSNAME}
       />
 
       {/*
@@ -2249,6 +2297,7 @@ function LocationActionGrid({ items }: { items: LocationActionGridItem[] }) {
     >
       <div
         data-one-location-action-grid=""
+        data-settings-density="compact"
         className="grid w-full grid-cols-1 gap-3 min-[360px]:grid-cols-2 sm:gap-4"
       >
         {regularItems.map((item) => (
@@ -2275,12 +2324,13 @@ function LocationActionGrid({ items }: { items: LocationActionGridItem[] }) {
               {item.icon}
             </span>
             <span className="min-w-0">
-              <ButtonLabel
+              <RowLabel
                 as="span"
-                className="block min-w-0 !text-[15px] !leading-5"
+                compact
+                className="block min-w-0"
               >
                 {item.title}
-              </ButtonLabel>
+              </RowLabel>
             </span>
           </button>
         ))}
@@ -2629,7 +2679,12 @@ function LocationDetailFlow({
     },
     "shared-with-me": {
       title: "Shared with me",
-      description: "People sharing location with you.",
+      description:
+        receivedGrantGroups.length === 1
+          ? "1 person is sharing their location with you."
+          : receivedGrantGroups.length > 1
+            ? `${receivedGrantGroups.length} people are sharing their locations with you.`
+            : "Locations shared with you appear here.",
     },
     "needs-review": {
       title: "Needs review",
@@ -2638,7 +2693,14 @@ function LocationDetailFlow({
   }[kind];
 
   return (
-    <div className="space-y-5" data-testid={`one-location-${kind}`}>
+    <div
+      className={cn(
+        "space-y-5",
+        kind === "shared-with-me" &&
+          "mx-auto w-full max-w-[680px] pb-[max(16px,env(safe-area-inset-bottom))]",
+      )}
+      data-testid={`one-location-${kind}`}
+    >
       <TaskFlowHeader title={copy.title} description={copy.description} />
       {kind === "active-shares" ? (
         ownerGrantGroups.length ? (
@@ -2659,27 +2721,7 @@ function LocationDetailFlow({
                   title={name}
                   description={
                     single ? (
-                      <div className="space-y-1.5">
-                        <div>
-                          <ActiveShareMetadata grant={single} />
-                        </div>
-                        {!isSmsTriggeredGrant(single) ? (
-                          <button
-                            type="button"
-                            className="inline-flex min-h-[32px] items-center justify-center rounded-full px-3 text-[15px] font-medium leading-[20px] text-[color:var(--app-accent)] transition-colors hover:bg-[color:var(--app-accent)]/10 active:bg-[color:var(--app-accent)]/20 disabled:cursor-wait disabled:opacity-60"
-                            onClick={(event) =>
-                              onEditLiveShareDurationStart(
-                                single.id,
-                                event.currentTarget,
-                              )
-                            }
-                          >
-                            {single.durationMode === "until_stopped"
-                              ? "Set end time"
-                              : "Change time"}
-                          </button>
-                        ) : null}
-                      </div>
+                      <ActiveShareMetadata grant={single} />
                     ) : (
                       <>
                         <span>{`${group.grants.length} active shares`}</span>
@@ -2697,13 +2739,35 @@ function LocationDetailFlow({
                   }
                   trailing={
                     single ? (
-                      <StopGrantTextButton
-                        grantId={single.id}
-                        revokingGrantId={vm.revokingGrantId}
-                        onStopGrant={vm.onStopGrant}
-                      />
+                      <div
+                        className={ACTIVE_SHARE_ACTIONS_CLASSNAME}
+                        data-testid="one-location-active-share-actions"
+                      >
+                        {!isSmsTriggeredGrant(single) ? (
+                          <button
+                            type="button"
+                            className={ACTIVE_SHARE_CHANGE_TIME_CLASSNAME}
+                            onClick={(event) =>
+                              onEditLiveShareDurationStart(
+                                single.id,
+                                event.currentTarget,
+                              )
+                            }
+                          >
+                            {single.durationMode === "until_stopped"
+                              ? "Set end time"
+                              : "Change time"}
+                          </button>
+                        ) : null}
+                        <StopGrantTextButton
+                          grantId={single.id}
+                          revokingGrantId={vm.revokingGrantId}
+                          onStopGrant={vm.onStopGrant}
+                        />
+                      </div>
                     ) : null
                   }
+                  stackTrailingOnMobile={Boolean(single)}
                 />
               );
             })}
@@ -3450,7 +3514,7 @@ function StopGrantTextButton({
   return (
     <button
       type="button"
-      className="inline-flex min-h-11 items-center justify-center rounded-full px-2 text-[15px] font-medium leading-[20px] text-[#FF3B30] transition-colors hover:text-[#D70015] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)] focus-visible:ring-offset-2 disabled:cursor-wait disabled:opacity-60"
+      className={ACTIVE_SHARE_STOP_CLASSNAME}
       onClick={() => onStopGrant(grantId)}
       disabled={stopping}
     >
@@ -3707,53 +3771,19 @@ function circleFlowErrorMessage(error: unknown, fallback: string): string {
     : fallback;
 }
 
-function CircleIdentityStack({
-  circles,
-}: {
-  circles: readonly OneLocationCircleSummary[];
-}) {
-  const visible = circles.slice(0, 3);
-  const fallback = visible.length
-    ? visible
-    : [
-        {
-          id: "circle-summary-fallback",
-          name: "Circles",
-          memberCount: 0,
-        } as OneLocationCircleSummary,
-      ];
+function CircleCategoryIcon() {
+  const role = roleClasses("people");
   return (
     <span
       aria-hidden="true"
-      className="flex h-11 w-[54px] shrink-0 items-center"
+      className={cn(
+        "inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-[12px]",
+        role.tile,
+        role.glyph,
+      )}
+      data-testid="one-location-circle-category-icon"
     >
-      {fallback.map((circle, index) => {
-        const isSmsCircle = circle.systemKind === "sms";
-        const isTrustedCircle = circle.systemKind === "trusted";
-        const initials = circleInitials(circle.name);
-        return (
-          <span
-            key={`${circle.id}-${index}`}
-            className={cn(
-              "inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-[12px] border-2 border-[color:var(--app-primary-surface)] text-[13px] font-semibold shadow-sm",
-              index > 0 && "-ml-6",
-              isSmsCircle
-                ? "bg-[color:var(--app-destructive)] text-[color:var(--app-destructive-fg)]"
-                : "bg-[#E5E5EA] text-[#6E6E73] dark:bg-[rgba(142,142,147,0.28)] dark:text-[#F2F2F7]",
-            )}
-          >
-            {isSmsCircle ? (
-              <SmsTextIcon className="text-[10px] font-bold tracking-[-0.2px]" />
-            ) : isTrustedCircle ? (
-              <ShieldCheck className="h-[17px] w-[17px]" />
-            ) : initials ? (
-              initials
-            ) : (
-              <UsersRound className="h-[17px] w-[17px]" />
-            )}
-          </span>
-        );
-      })}
+      <UsersRound className="h-[18px] w-[18px]" strokeWidth={2.1} />
     </span>
   );
 }
@@ -3769,7 +3799,7 @@ function CircleSummaryGroup({
   onOpenCircles: () => void;
   onOpenInvitations: () => void;
 }) {
-  const { personal, created, joined } = personalCircleSummary(circles);
+  const { created, joined } = personalCircleSummary(circles);
   const summary = personalCircleCountLabel({ created, joined });
   const invitationTitle =
     invitationCount === 1 ? "Circle invitation" : "Circle invitations";
@@ -3788,7 +3818,7 @@ function CircleSummaryGroup({
           "[@media(hover:hover)]:hover:bg-[color:var(--app-neutral-fill)]",
         )}
       >
-        <CircleIdentityStack circles={personal.length ? personal : circles} />
+        <CircleCategoryIcon />
         <span className="min-w-0">
           <span className="block text-[16px] font-semibold leading-[21px] tracking-[-0.2px] text-foreground">
             Circles
@@ -4090,21 +4120,23 @@ function PersonActionsDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog modal open={open} onOpenChange={onOpenChange}>
       <DialogContent
         aria-label={`Location actions for ${name}`}
-        className="max-w-[420px] rounded-[24px] p-0"
+        data-testid="one-location-person-actions-dialog"
+        overlayClassName="bg-black/35 backdrop-blur-[12px] [-webkit-backdrop-filter:blur(12px)]"
+        className="w-[calc(100%-2rem)] max-w-[380px] gap-0 overflow-hidden rounded-[26px] border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] p-0 shadow-[0_24px_80px_-28px_rgba(15,23,42,0.55)]"
       >
-        <DialogHeader className="px-5 pb-3 pt-5 text-left">
+        <DialogHeader className="border-b border-[color:var(--app-separator)] px-5 pb-4 pr-14 pt-5 text-left">
           <div className="flex items-center gap-3">
             <ConnectionPersonAvatar
               label={name}
               photoUrl={photoUrl}
               verified={verified}
-              className="h-11 w-11 text-[14px]"
+              className="h-12 w-12 text-[14px]"
             />
             <div className="min-w-0">
-              <DialogTitle className="break-words text-[20px] font-semibold leading-[25px] tracking-[-0.3px]">
+              <DialogTitle className="break-words text-[19px] font-semibold leading-6 tracking-[-0.25px]">
                 {name}
               </DialogTitle>
               {status.label ? (
@@ -4115,10 +4147,11 @@ function PersonActionsDialog({
             </div>
           </div>
         </DialogHeader>
-        <div className="mx-4 mb-4">
+        <div className="p-3">
           <SettingsGroup
+            embedded
             separatorInset
-            shellClassName={LOCATION_GROUP_SHELL_CLASSNAME}
+            shellClassName="!rounded-[18px] !bg-[color:var(--app-primary-surface)] !shadow-none ring-1 ring-inset ring-[color:var(--app-separator)]"
           >
             {actionRows.slice(0, 3)}
           </SettingsGroup>
@@ -4333,7 +4366,6 @@ export function PeopleHub({
 
   return (
     <div data-testid="one-location-people-hub">
-      <ContactInvitationNotice />
       <div className="w-full space-y-4 sm:space-y-5">
         {!hasSearch ? (
           <CircleSummaryGroup
@@ -4817,29 +4849,36 @@ function LinksHub({ vm }: { vm: LocationHubViewModel }) {
               title="Create a temporary link"
               description="Anyone with this link can see your location until it expires."
             />
-            <div className="space-y-3 px-4 pb-4 pt-1.5">
-              <DurationSelector
-                value={vm.publicLinkDurationHours}
-                onChange={vm.setPublicLinkDurationHours}
-                options={PUBLIC_LINK_DURATION_OPTIONS.map((option) => option)}
-                label="Duration"
-                presentation="buttons"
-                maxWidthClassName={null}
-              />
-              {/* The label changes while it works. This press waits on a device fix
-                  before it can post anything, so on a cold start it can sit for
-                  several seconds -- and it used to sit as a bare spinner with the
-                  label hidden, which is why it read as "taking longer than
-                  expected" rather than as "still finding you". Naming the wait is
-                  the fix available here; the wait itself is a GPS acquisition. */}
-              <Button
-                onClick={vm.onCreatePublicInvite}
-                isLoading={vm.busy === "publicInvite"}
-                data-voice-control-id="one-location-action-temp-link"
-                className="h-11 min-h-11 w-full max-w-[200px] self-start rounded-[13px] bg-[color:var(--app-accent)] text-[16px] font-semibold leading-[21px] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90"
-              >
-                {vm.busy === "publicInvite" ? "Creating link…" : "Create link"}
-              </Button>
+            <div className="px-4 pb-4 pt-1.5">
+              <div className={PUBLIC_LINK_CONTROLS_CLASSNAME}>
+                <DurationSelector
+                  value={vm.publicLinkDurationHours}
+                  onChange={vm.setPublicLinkDurationHours}
+                  options={PUBLIC_LINK_DURATION_OPTIONS.map(
+                    (option) => option,
+                  )}
+                  label="Duration"
+                  presentation="buttons"
+                  equalWidthButtons
+                  maxWidthClassName={null}
+                />
+                {/* The label changes while it works. This press waits on a device fix
+                    before it can post anything, so on a cold start it can sit for
+                    several seconds -- and it used to sit as a bare spinner with the
+                    label hidden, which is why it read as "taking longer than
+                    expected" rather than as "still finding you". Naming the wait is
+                    the fix available here; the wait itself is a GPS acquisition. */}
+                <Button
+                  onClick={vm.onCreatePublicInvite}
+                  isLoading={vm.busy === "publicInvite"}
+                  data-voice-control-id="one-location-action-temp-link"
+                  className={PUBLIC_LINK_PRIMARY_CTA_CLASSNAME}
+                >
+                  {vm.busy === "publicInvite"
+                    ? "Creating link…"
+                    : "Create link"}
+                </Button>
+              </div>
             </div>
           </>
         )}
@@ -5001,6 +5040,17 @@ function ShareFlow({
   }, [onEnterShareConfirm, step]);
 
   const filtered = vm.visibleShareRecipients;
+  const selectedCircleByRecipientId = new globalThis.Map<
+    string,
+    CircleRecipientSelection
+  >();
+  for (const selection of vm.selectedShareCircleSelections) {
+    for (const target of selection.ready) {
+      if (!selectedCircleByRecipientId.has(target.recipient.userId)) {
+        selectedCircleByRecipientId.set(target.recipient.userId, selection);
+      }
+    }
+  }
   /**
    * Who can already see you, by recipient — the same `activeOwnerGrants` the
    * Active shares screen lists, read here for the first time.
@@ -5044,13 +5094,15 @@ function ShareFlow({
     r: OneLocationRecipient,
     activeGrant: OneLocationGrant | undefined,
   ) => {
-    const selected = vm.selectedRecipientIds.includes(r.userId);
+    const selected = vm.selectedDirectRecipientIds.includes(r.userId);
+    const includedThroughCircle = selectedCircleByRecipientId.get(r.userId);
     const ready = vm.isRecipientShareReady(r);
     const label = vm.recipientLabel(r);
     return (
       <SettingsRow
         key={r.userId}
         density="compact"
+        textOverflow="truncate"
         disabled={!ready}
         onClick={
           ready
@@ -5060,7 +5112,13 @@ function ShareFlow({
         ariaPressed={ready ? selected : undefined}
         ariaLabel={
           ready
-            ? `${selected ? "Deselect" : "Select"} ${label} for private sharing`
+            ? selected
+              ? includedThroughCircle
+                ? `Remove ${label} as an individual contact; they will still be included through ${includedThroughCircle.circle.name}`
+                : `Deselect ${label} for private sharing`
+              : includedThroughCircle
+                ? `Also select ${label} as an individual contact; already included through ${includedThroughCircle.circle.name}`
+                : `Select ${label} for private sharing`
             : undefined
         }
         leading={
@@ -5091,11 +5149,29 @@ function ShareFlow({
             ) : (
               <ShareCountdownText expiresAt={activeGrant.expiresAt} />
             )
+          ) : includedThroughCircle ? (
+            `Included through ${includedThroughCircle.circle.name}`
           ) : ready ? undefined : (
             "Invite them first"
           )
         }
-        trailing={ready ? <SelectionDot selected={selected} /> : undefined}
+        trailing={
+          ready ? (
+            selected ? (
+              <SelectionDot selected />
+            ) : includedThroughCircle ? (
+              <span
+                aria-label={`Included through ${includedThroughCircle.circle.name}`}
+                className="inline-flex min-h-7 shrink-0 items-center gap-1 rounded-full bg-[color:var(--app-accent-surface)] px-2 text-[11px] font-semibold text-[color:var(--app-accent)]"
+              >
+                <UsersRound className="h-3.5 w-3.5" aria-hidden="true" />
+                Circle
+              </span>
+            ) : (
+              <SelectionDot selected={false} />
+            )
+          ) : undefined
+        }
       />
     );
   };
@@ -5169,22 +5245,36 @@ function ShareFlow({
     shareNoteLength > 0 ||
     shareNoteLength >= ONE_LOCATION_SHARE_NOTE_MAX_LENGTH - 20 ||
     shareNoteLimitExceeded;
-  // Picking a Circle selects its ready members in the list below, and those
-  // rows remain individually deselectable. Once one is turned off the recipients
-  // are no longer that Circle, so the Circle row stops reading as selected.
+  // Circles stay atomic in the picker. Their recipients are expanded only for
+  // review and encrypted delivery.
   const shareableCircles = useMemo(
     () => vm.circles.filter((circle) => circle.systemKind !== "trusted"),
     [vm.circles],
   );
-  const shareCircleFullySelected = isCircleSelectionFullySelected(
-    vm.selectedShareCircleSelection,
-    vm.selectedRecipientIds,
-  );
-  const selectedShareCircleRecipientCount = countSelectedCircleRecipients(
-    vm.selectedShareCircleSelection,
-    vm.selectedRecipientIds,
-  );
+  const shareCircleGroups = useMemo(() => {
+    const ownedSystem: OneLocationCircleSummary[] = [];
+    const ownedNamed: OneLocationCircleSummary[] = [];
+    const joined: OneLocationCircleSummary[] = [];
 
+    for (const circle of shareableCircles) {
+      if (circle.role !== "owner") {
+        joined.push(circle);
+      } else if (circle.systemKind === "sms" || circle.isSystem) {
+        ownedSystem.push(circle);
+      } else {
+        ownedNamed.push(circle);
+      }
+    }
+
+    return [
+      {
+        key: "owned",
+        title: "Your circles",
+        circles: [...ownedSystem, ...ownedNamed],
+      },
+      { key: "joined", title: "Joined circles", circles: joined },
+    ].filter((group) => group.circles.length > 0);
+  }, [shareableCircles]);
   // Step 2 of 2 — "Details" and the old separate "Consent check" merged.
   //
   // They were split as set-then-confirm, which put a screen transition between
@@ -5246,6 +5336,7 @@ function ShareFlow({
               hint={shareEndsAtLabel(vm.shareDurationHours, nowMs)}
               presentation="ladder"
               untilStopValue="until_stopped"
+              compact
             />
             {/* space-y-2.5 matches DurationSelector's own label→control gap
                 above. The two label/field pairs sit in the same card, so an
@@ -5326,7 +5417,7 @@ function ShareFlow({
           newDurationLabel={shareReplacementDurationLabel}
         />
 
-        <div className="space-y-2.5">
+        <div className={SHARE_CONFIRM_ACTIONS_CLASSNAME}>
           <Button
             // Unchanged for every share that takes nothing away. When one
             // would, the tap opens the confirm dialog instead of posting, and
@@ -5341,14 +5432,14 @@ function ShareFlow({
             disabled={!vm.canShare || shareNoteLimitExceeded}
             isLoading={vm.busy === "share"}
             data-voice-control-id="one-location-confirm-share"
-            className="h-[52px] w-full rounded-2xl bg-[color:var(--app-accent)] text-[17px] font-semibold leading-[22px] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90 disabled:bg-black/10 disabled:text-black/35 disabled:opacity-100 dark:disabled:bg-white/10 dark:disabled:text-white/35"
+            className={SHARE_CONFIRM_PRIMARY_CTA_CLASSNAME}
           >
             Start sharing
           </Button>
           <Button
             variant="ghost"
             onClick={() => onClose()}
-            className="h-11 w-full rounded-2xl bg-transparent text-[17px] font-medium leading-[22px] text-[color:var(--app-accent)] hover:bg-transparent"
+            className={SHARE_CONFIRM_SECONDARY_CTA_CLASSNAME}
           >
             Cancel
           </Button>
@@ -5375,9 +5466,9 @@ function ShareFlow({
       <TaskFlowHeader
         eyebrow="Step 1 of 2"
         title="Who can see you?"
-        description={selectedCountCopy(
-          selectedReady.length,
-          "Choose a Circle or contact.",
+        description={shareAudienceSelectionCopy(
+          vm.selectedShareCircleSelections.length,
+          vm.selectedDirectRecipientIds.length,
         )}
       />
       {/* Trusted is not a group you share with.
@@ -5394,29 +5485,29 @@ function ShareFlow({
        * invite step already filters the same way. Only this picker is
        * narrowed: the People tab, SOS contacts and the SMS flow still list
        * every Circle. */}
-      {shareableCircles.length ? (
+      {shareCircleGroups.map((group) => (
         <SettingsGroup
-          title="Circles"
+          key={group.key}
+          title={group.title}
           separatorInset
           className="[&>div:first-child]:mt-0"
+          testId={`one-location-share-circles-${group.key}`}
         >
-          {[...shareableCircles]
-            .sort((a, b) =>
-              a.name === "SMS Circle" ? 1 : b.name === "SMS Circle" ? -1 : 0,
-            )
-            .map((circle) => {
-              const selected =
-                vm.selectedShareCircleSelection?.circle.id === circle.id &&
-                shareCircleFullySelected;
-              const circleSelectionDescription = selected
-                ? `${selectedShareCircleRecipientCount} selected`
-                : circleMemberCountLabel(circle.memberCount);
+          {group.circles.map((circle) => {
+              const selected = vm.selectedShareCircleSelections.some(
+                (selection) => selection.circle.id === circle.id,
+              );
+              const pending = vm.pendingShareCircleIds.includes(circle.id);
+              const circleSelectionDescription = circleMemberCountLabel(
+                circle.memberCount,
+              );
               const circleRole = roleClasses("people");
               return (
                 <SettingsRow
                   key={circle.id}
                   density="compact"
-                  disabled={vm.busy === "shareCircle"}
+                  textOverflow="truncate"
+                  disabled={pending}
                   onClick={() => void vm.onSelectShareCircle(circle.id)}
                   ariaPressed={selected}
                   ariaLabel={`${selected ? "Deselect" : "Select"} the ${circle.name} Circle, ${circleSelectionDescription}`}
@@ -5432,17 +5523,13 @@ function ShareFlow({
                     </span>
                   }
                   title={circle.name}
-                  description={
-                    vm.busy === "shareCircle"
-                      ? "Loading…"
-                      : circleSelectionDescription
-                  }
+                  description={pending ? "Adding…" : circleSelectionDescription}
                   trailing={<SelectionDot selected={selected} />}
                 />
               );
             })}
         </SettingsGroup>
-      ) : null}
+      ))}
       <PersonSearchInput
         value={vm.shareRecipientSearch}
         onChange={vm.setShareRecipientSearch}
@@ -5521,10 +5608,18 @@ function ShareFlow({
       <div className={STICKY_FLOW_ACTION_CLASSNAME}>
         <Button
           onClick={() => setStep("details")}
-          disabled={!selectedReady.length}
+          disabled={
+            !selectedReady.length ||
+            Boolean(vm.pendingShareCircleIds.length) ||
+            vm.shareDeliveryPending
+          }
           className="h-[52px] w-full rounded-2xl bg-[color:var(--app-accent)] text-[17px] font-semibold leading-[22px] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90 disabled:bg-black/10 disabled:text-black/35 disabled:opacity-100 dark:disabled:bg-white/10 dark:disabled:text-white/35"
         >
-          Continue
+          {vm.shareDeliveryPending
+            ? "Sharing…"
+            : vm.pendingShareCircleIds.length
+              ? "Adding Circle…"
+              : "Continue"}
         </Button>
       </div>
     </div>
