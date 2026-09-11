@@ -45,7 +45,10 @@ import json
 import os
 import secrets
 import tempfile
+import threading
+import time
 import urllib.parse
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Optional, Protocol
 
@@ -105,6 +108,111 @@ class ObjectStore(Protocol):
         ...
 
 
+# --- the shared key validator ---------------------------------------------------------
+
+# How many times a key is percent-decoded before the validator gives up on it.
+# Four is far past any real stack; a key still encoded after four rounds is
+# refused rather than passed on as "probably fine".
+_PERCENT_DECODE_ROUNDS = 4
+
+
+def _refuse_unsafe_text(text: str) -> tuple[str, ...]:
+    """The literal checks, run on one spelling of a key. Returns its segments."""
+    if not text:
+        raise ValueError("object key is empty")
+    if text.startswith("/"):
+        raise ValueError("object key must be relative")
+    if "\\" in text:
+        raise ValueError("object key contains a backslash")
+    if any(ord(character) < 32 or ord(character) == 127 for character in text):
+        raise ValueError("object key contains a control character")
+    segments = tuple(text.split("/"))
+    if any(segment in ("", ".", "..") for segment in segments):
+        raise ValueError("object key has an empty or traversing segment")
+    return segments
+
+
+def object_key_segments(key: str) -> tuple[str, ...]:
+    """Validate one object key and return its path segments.
+
+    Every store shares this. It rejects the shapes that let a key address
+    something other than what the caller named: absolute paths, backslashes,
+    control characters, empty segments, and ``.`` or ``..`` traversal.
+
+    It judges EVERY percent-decoding of the key, not only the literal text.
+    The threat model is a file manager built on this class, and a file manager
+    takes keys over HTTP, where some layer routinely decodes once more than
+    this one did. ``a/%2e%2e/b`` is traversal written in a second alphabet, and
+    a validator that only reads the first alphabet is a validator an attacker
+    chooses the spelling for.
+
+    Nothing owner-supplied reaches a key today. A file manager would be the
+    first caller that does, and validation added after the first caller is
+    validation added after the first mistake.
+    """
+    if not isinstance(key, str):
+        raise ValueError("object key is empty")
+    segments = _refuse_unsafe_text(key)
+    decoded = key
+    for _ in range(_PERCENT_DECODE_ROUNDS):
+        try:
+            once = urllib.parse.unquote(decoded, errors="strict")
+        except UnicodeDecodeError:
+            raise ValueError("object key has an undecodable escape") from None
+        if once == decoded:
+            return segments
+        decoded = once
+        _refuse_unsafe_text(decoded)
+    raise ValueError("object key is still percent-encoded after decoding")
+
+
+def object_prefix_segments(prefix: str) -> tuple[str, ...]:
+    """Validate a store prefix and return its segments. Empty means no prefix."""
+    trimmed = (prefix or "").strip("/")
+    return object_key_segments(trimmed) if trimmed else ()
+
+
+def _landing_segments(path: str) -> Optional[tuple[str, ...]]:
+    """Where a slash-separated path LANDS, with ``.`` and ``..`` applied.
+
+    None when it climbs above its own root, which no prefix can contain.
+    """
+    landed: list[str] = []
+    for segment in path.split("/"):
+        if segment in ("", "."):
+            continue
+        if segment == "..":
+            if not landed:
+                return None
+            landed.pop()
+            continue
+        landed.append(segment)
+    return tuple(landed)
+
+
+def object_key_is_within(prefix: str, key: str) -> bool:
+    """Whole-segment confinement: does ``key`` LAND strictly inside ``prefix``?
+
+    The comparison is segment by segment, never a bare string prefix. A string
+    prefix check would let a prefix of ``pods/abc`` admit ``pods/abcdef/head.json``
+    because the text happens to start the same way. That is the exact shape of
+    CVE-2025-53110, where allowing one directory also allowed every sibling whose
+    name merely began with it.
+
+    This is a real second layer, not a re-run of :func:`object_key_segments`: it
+    applies ``.`` and ``..`` itself and decides on where the key lands, so
+    relaxing the validator (a file manager wanting relative navigation is the
+    plausible way that happens) cannot silently un-protect confinement. It is
+    total by design and never raises: a key that cannot be resolved, or that
+    climbs above the root, is simply not within anything.
+    """
+    landed = _landing_segments(key if isinstance(key, str) else "")
+    root = _landing_segments(prefix if isinstance(prefix, str) else "")
+    if landed is None or root is None:
+        return False
+    return len(landed) > len(root) and landed[: len(root)] == root
+
+
 class LocalObjectStore:
     """Single-machine object store with locked reads and recoverable file-pair CAS.
 
@@ -139,7 +247,7 @@ class LocalObjectStore:
             self._sync_directory(child.parent)
 
     def _path(self, key: str) -> Path:
-        path = (self._root / key).resolve()
+        path = self._root.joinpath(*object_key_segments(key)).resolve()
         if self._root.resolve() not in path.parents:
             raise ValueError("object key escapes the store root")
         if path in {self._root.resolve() / ".lock", self._root.resolve() / self._JOURNAL}:
@@ -272,6 +380,23 @@ class GcsObjectStore:
 
     ``ifGenerationMatch`` is the whole point -- the compare-and-swap the log's
     atomicity rides on is enforced by GCS itself, not by this client.
+
+    COST, stated exactly, because an earlier telling of it was too generous.
+    A WARM read is one object round trip: the media response states the
+    generation of the very bytes it returned. A COLD read is two, because the
+    first call on a fresh store also mints the access credential.
+
+    The credential cache is per INSTANCE, and ``resolve_pod_storage()``
+    constructs a new instance on every call (pod_identity_store,
+    pod_memory_service, pod_pkm_resolver, and one per ``/one/pod/migration``
+    request each build their own), so a pod process holds several caches and
+    mints once per instance, not once per process. That is a deliberate pick
+    over a module-global cache: a process-wide credential keyed to nothing is
+    shared mutable state that outlives any owner's request, and the honest fix
+    for the duplication is for the resolver to memoize the store, which is
+    that module's call to make. The saving that matters is already here --
+    one instance serves many reads, and a log replay reads every record
+    through a single store.
     """
 
     # The GCE metadata endpoint that mints the pod's OWN access credential -- an
@@ -280,11 +405,31 @@ class GcsObjectStore:
         "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token"
     )
 
+    # Stop reusing a minted credential this long before the issuer says it dies,
+    # so a request that starts inside the window still completes with a live one.
+    _TOKEN_REFRESH_MARGIN_SECONDS = 60
+
+    # Statuses that mean "this credential is not accepted", whatever the cache
+    # believes about its remaining life.
+    _CREDENTIAL_REFUSED = (401, 403)
+
     def __init__(self, bucket: str, prefix: str = "", *, session: Any = None) -> None:
         if not bucket:
             raise ValueError("a bucket is required")
         self._bucket = bucket
-        self._prefix = prefix.strip("/")
+        self._prefix_segments = object_prefix_segments(prefix)
+        self._prefix = "/".join(self._prefix_segments)
+        # The credential is minted per store instance, not per HTTP call. Reads
+        # run on worker threads, so the cache is guarded -- but only the cache:
+        # the mint itself deliberately runs OUTSIDE the lock (see _token).
+        self._token_lock = threading.Lock()
+        self._token_value: Optional[str] = None
+        self._token_expires_at = 0.0
+        # Learned once per instance: whether media responses on this egress
+        # path actually carry x-goog-generation. A gateway that strips it
+        # strips it for every object, so paying the probe (and its discarded
+        # body) on every read would be paying for the same answer repeatedly.
+        self._media_states_generation = True
         if session is None:
             import requests  # type: ignore[import-untyped]  # noqa: PLC0415
 
@@ -292,8 +437,7 @@ class GcsObjectStore:
         self._session = session
 
     @staticmethod
-    def _generation(body: Any) -> int:
-        value = body.get("generation") if isinstance(body, dict) else None
+    def _generation_value(value: Any) -> int:
         if (
             not isinstance(value, str)
             or not 1 <= len(value) <= 20
@@ -304,10 +448,76 @@ class GcsObjectStore:
             raise RuntimeError("pod storage generation unverified")
         return int(value)
 
-    def _key(self, key: str) -> str:
-        return f"{self._prefix}/{key}" if self._prefix else key
+    @classmethod
+    def _generation(cls, body: Any) -> int:
+        return cls._generation_value(body.get("generation") if isinstance(body, dict) else None)
 
-    def _token(self) -> str:
+    @staticmethod
+    def _header(response: Any, name: str) -> Optional[str]:
+        """One response header, matched case-insensitively, or None."""
+        headers = getattr(response, "headers", None)
+        if not hasattr(headers, "items"):
+            return None
+        wanted = name.lower()
+        for header, value in headers.items():
+            if isinstance(header, str) and header.lower() == wanted:
+                return value if isinstance(value, str) else None
+        return None
+
+    @classmethod
+    def _stated_generation(cls, response: Any) -> Optional[int]:
+        """The generation this response states, or None when it states none usable.
+
+        A MISSING ``x-goog-generation`` and a MALFORMED one are the same fact:
+        this response cannot prove which version it carries. Both take the same
+        pinned fallback, which re-derives the generation authoritatively from
+        the metadata endpoint. Hard-failing the malformed case would fail closed
+        for no benefit -- the recovery is exactly as trustworthy either way, and
+        refusing it would let one normalizing egress proxy take the pod's
+        storage down.
+        """
+        stated = cls._header(response, "x-goog-generation")
+        if stated is None:
+            return None
+        try:
+            return cls._generation_value(stated)
+        except RuntimeError:
+            return None
+
+    def _key(self, key: str) -> str:
+        """Compose the stored object name, confined to this store's prefix."""
+        composed = "/".join(self._prefix_segments + object_key_segments(key))
+        # Second layer, independent of the validator above: object_key_is_within
+        # resolves traversal itself and decides on where the key LANDS, so this
+        # still refuses an escape if object_key_segments is ever relaxed.
+        if not object_key_is_within(self._prefix, composed):
+            raise ValueError("object key escapes the store prefix")
+        return composed
+
+    @staticmethod
+    def _token_lifetime(body: Any) -> int:
+        """Seconds the issuer says this credential is good for; 0 when unstated."""
+        value = body.get("expires_in") if isinstance(body, dict) else None
+        if type(value) is not int or value <= 0:
+            return 0
+        return value
+
+    def _cached_token(self) -> Optional[str]:
+        """The cached credential while it is still inside its window, else None."""
+        with self._token_lock:
+            if self._token_value is not None and time.monotonic() < self._token_expires_at:
+                return self._token_value
+            # Never serve a credential past its window.
+            self._token_value, self._token_expires_at = None, 0.0
+            return None
+
+    def _forget_token(self) -> None:
+        """Drop the cached credential so the next call mints a fresh one."""
+        with self._token_lock:
+            self._token_value, self._token_expires_at = None, 0.0
+
+    def _mint_token(self) -> tuple[str, int]:
+        """One metadata round trip: the credential and the seconds it is usable."""
         response = self._session.get(
             self._METADATA_ACCESS_ENDPOINT,
             headers={"Metadata-Flavor": "Google"},
@@ -320,10 +530,66 @@ class GcsObjectStore:
         token = body.get("access_token") if isinstance(body, dict) else None
         if not isinstance(token, str) or not token.strip() or len(token) > 16384:
             raise RuntimeError("pod storage credential unavailable")
+        return token, self._token_lifetime(body) - self._TOKEN_REFRESH_MARGIN_SECONDS
+
+    def _token(self) -> str:
+        """The pod's own access credential, reused until its stated expiry nears.
+
+        Minting was once per HTTP call, and a single object read made two of
+        them. On a scale-to-zero pod that round trip is the latency the owner
+        waits on, and it bought nothing: the credential does not change between
+        the two calls of one read.
+
+        THE LOCK GUARDS THE CACHE, NOT THE MINT. Holding it across the metadata
+        call would turn N concurrent storage operations into N SEQUENTIAL
+        10-second timeouts whenever the metadata server is unresponsive, where
+        the uncached code failed all N in parallel -- a caching optimisation
+        that converts a slow dependency into an availability outage. The cost
+        of minting outside the lock is a thundering herd of redundant mints on
+        a cold start; the cost of minting inside it is the pod hanging. A
+        failed mint also leaves the cache exactly as it found it, so a live
+        cached credential is never thrown away by an unrelated refresh.
+        """
+        cached = self._cached_token()
+        if cached is not None:
+            return cached
+        token, usable = self._mint_token()
+        if usable > 0:
+            with self._token_lock:
+                self._token_value, self._token_expires_at = token, time.monotonic() + usable
         return token
 
     def _headers(self) -> dict[str, str]:
         return {"Authorization": f"Bearer {self._token()}"}
+
+    def _authorized(self, send: Callable[[dict[str, str]], Any]) -> Any:
+        """Send one authorized request, re-minting ONCE if the credential is refused.
+
+        Before the credential was cached, every call minted fresh, so a
+        credential that died mid-life self-healed on the very next call.
+        Caching would otherwise keep re-presenting the same dead bearer for the
+        rest of its window (up to ``expires_in`` minus the margin). One retry,
+        never a loop: if the fresh credential is refused too, the refusal is
+        real and the caller must see it. Every request this wraps is safe to
+        repeat -- reads are reads, and the write carries ``ifGenerationMatch``,
+        which a refused attempt cannot have consumed.
+        """
+        response = send(self._headers())
+        if getattr(response, "status_code", 0) in self._CREDENTIAL_REFUSED:
+            self._forget_token()
+            response = send(self._headers())
+        return response
+
+    def _object_get(self, url: str, params: dict[str, str], timeout: int) -> Any:
+        return self._authorized(
+            lambda headers: self._session.get(
+                url,
+                params=params,
+                headers=headers,
+                timeout=timeout,
+                allow_redirects=False,
+            )
+        )
 
     async def get(self, key: str) -> Optional[bytes]:
         data, _ = await self.get_with_generation(key)
@@ -334,25 +600,40 @@ class GcsObjectStore:
 
     def _get_with_generation(self, key: str) -> tuple[Optional[bytes], int]:
         quoted = urllib.parse.quote(self._key(key), safe="")
-        meta = self._session.get(
-            f"https://storage.googleapis.com/storage/v1/b/{self._bucket}/o/{quoted}",
-            params={"fields": "generation"},
-            headers=self._headers(),
-            timeout=30,
-            allow_redirects=False,
-        )
+        url = f"https://storage.googleapis.com/storage/v1/b/{self._bucket}/o/{quoted}"
+        if not self._media_states_generation:
+            # This egress path already proved it strips the header. Probing it
+            # again would download the whole body only to discard it.
+            return self._get_pinned(url)
+        # ONE object round trip. A media response states the generation of the
+        # very bytes it returned (``x-goog-generation``), so a preceding
+        # metadata GET buys nothing but latency and a second billed Class B
+        # operation, and it is strictly weaker: two calls can straddle a write,
+        # one cannot.
+        media = self._object_get(url, {"alt": "media"}, 60)
+        if getattr(media, "status_code", 0) == 404:
+            return None, 0
+        if media.status_code != 200:
+            raise RuntimeError("pod storage content unavailable")
+        generation = self._stated_generation(media)
+        if generation is not None:
+            return media.content, generation
+        # A response that states no usable generation cannot prove which
+        # version it is, and the compare-and-swap rides on that number. Fall
+        # back to the pinned read rather than guess it, and remember, so the
+        # body is downloaded twice ONCE per store rather than on every read.
+        self._media_states_generation = False
+        return self._get_pinned(url)
+
+    def _get_pinned(self, url: str) -> tuple[Optional[bytes], int]:
+        """Metadata first, then the media pinned to that exact generation."""
+        meta = self._object_get(url, {"fields": "generation"}, 30)
         if getattr(meta, "status_code", 0) == 404:
             return None, 0
         if meta.status_code != 200:
             raise RuntimeError("pod storage metadata unavailable")
         generation = self._generation(meta.json())
-        media = self._session.get(
-            f"https://storage.googleapis.com/storage/v1/b/{self._bucket}/o/{quoted}",
-            params={"alt": "media", "generation": str(generation)},
-            headers=self._headers(),
-            timeout=60,
-            allow_redirects=False,
-        )
+        media = self._object_get(url, {"alt": "media", "generation": str(generation)}, 60)
         if media.status_code != 200:
             raise RuntimeError("pod storage content unavailable")
         return media.content, generation
@@ -386,17 +667,20 @@ class GcsObjectStore:
         return worker.result()
 
     def _put_if_generation(self, key: str, data: bytes, expected: int) -> Optional[int]:
-        response = self._session.post(
-            f"https://storage.googleapis.com/upload/storage/v1/b/{self._bucket}/o",
-            params={
-                "uploadType": "media",
-                "name": self._key(key),
-                "ifGenerationMatch": str(expected),
-            },
-            headers={**self._headers(), "Content-Type": "application/octet-stream"},
-            data=data,
-            timeout=60,
-            allow_redirects=False,
+        name = self._key(key)
+        response = self._authorized(
+            lambda headers: self._session.post(
+                f"https://storage.googleapis.com/upload/storage/v1/b/{self._bucket}/o",
+                params={
+                    "uploadType": "media",
+                    "name": name,
+                    "ifGenerationMatch": str(expected),
+                },
+                headers={**headers, "Content-Type": "application/octet-stream"},
+                data=data,
+                timeout=60,
+                allow_redirects=False,
+            )
         )
         if getattr(response, "status_code", 0) == 412:
             return None  # lost the race; the caller retries from a fresh pointer

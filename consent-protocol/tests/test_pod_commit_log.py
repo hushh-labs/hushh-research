@@ -22,11 +22,13 @@ import secrets
 import sqlite3
 import subprocess
 import sys
+import threading
 from pathlib import Path
 from typing import Any, Optional
 
 import pytest
 
+from hushh_mcp.services import pod_commit_log
 from hushh_mcp.services.pkm_sqlite_engine import SqlitePkmWriteEngine
 from hushh_mcp.services.pod_commit_log import (
     GcsObjectStore,
@@ -35,6 +37,8 @@ from hushh_mcp.services.pod_commit_log import (
     PodLogConflict,
     PodLogFenced,
     PodLogTampered,
+    object_key_is_within,
+    object_key_segments,
 )
 from hushh_mcp.services.pod_pkm_store import PodPkmStore
 from hushh_mcp.services.pod_storage import (
@@ -359,10 +363,17 @@ async def test_a_lost_cas_race_retries_and_linearizes(tmp_path: Path):
 
 
 class _FakeResponse:
-    def __init__(self, status_code: int, body: Any = None, content: bytes = b"") -> None:
+    def __init__(
+        self,
+        status_code: int,
+        body: Any = None,
+        content: bytes = b"",
+        headers: Optional[dict[str, str]] = None,
+    ) -> None:
         self.status_code = status_code
         self._body = body
         self.content = content
+        self.headers = headers or {}
 
     def json(self) -> Any:
         return self._body
@@ -404,6 +415,476 @@ async def test_gcs_writes_are_conditional_by_construction():
 async def test_gcs_precondition_failure_reports_a_lost_race_not_an_error():
     store = GcsObjectStore("user-bucket", session=_FakeGcsTransport())
     assert await store.put_if_generation("head.json", b"{}", 412) is None
+
+
+# --- the GCS client's round trips: one credential, one read --------------------------
+
+
+_SAME_AS_METADATA = object()
+
+
+class _CountingGcsTransport(_FakeGcsTransport):
+    """Counts every call the store makes, and serves one stored object.
+
+    A fresh access token each time it is asked for, so a reused credential is
+    visible in the Authorization header, not only in the call count. It can
+    also make a credential DIE mid-life, which is how a real one behaves when
+    its service account loses the binding it was minted under.
+    """
+
+    def __init__(
+        self,
+        *,
+        expires_in: Any = 3600,
+        content: Optional[bytes] = b"stored",
+        generation: str = "9",
+        media_generation: Any = _SAME_AS_METADATA,
+        credential_dies_after: Optional[int] = None,
+        refuse_every_credential: bool = False,
+        refusal_status: int = 401,
+    ) -> None:
+        super().__init__()
+        self._expires_in = expires_in
+        self._content = content
+        self._generation = generation
+        self._media_generation = (
+            generation if media_generation is _SAME_AS_METADATA else media_generation
+        )
+        self._dies_after = credential_dies_after
+        self._refuse_every_credential = refuse_every_credential
+        self._refusal_status = refusal_status
+        self._dead: set[str] = set()
+        self.minted: list[str] = []  # Authorization header values, as presented
+        self.token_calls = 0
+        self.object_calls = 0
+        self.object_gets: list[dict] = []
+        self.authorizations: list[str] = []
+
+    def _is_refused(self, authorization: str) -> bool:
+        if self._refuse_every_credential:
+            return True
+        if self._dies_after is not None and self.object_calls >= self._dies_after:
+            # Every credential alive at the moment of the outage dies with it;
+            # one minted afterwards is good again.
+            self._dead.update(self.minted)
+            self._dies_after = None
+        return authorization in self._dead
+
+    def get(self, url: str, **kwargs: Any) -> _FakeResponse:
+        if "metadata.google.internal" in url:
+            self.token_calls += 1
+            token = f"t{self.token_calls}"
+            self.minted.append(f"Bearer {token}")
+            body: dict[str, Any] = {"access_token": token}
+            if self._expires_in is not None:
+                body["expires_in"] = self._expires_in
+            return _FakeResponse(200, body)
+        params = kwargs.get("params") or {}
+        authorization = kwargs["headers"]["Authorization"]
+        self.object_gets.append(params)
+        self.authorizations.append(authorization)
+        if self._is_refused(authorization):
+            return _FakeResponse(self._refusal_status)
+        self.object_calls += 1
+        if self._content is None:
+            return _FakeResponse(404)
+        if params.get("fields") == "generation":
+            return _FakeResponse(200, {"generation": self._generation})
+        headers = (
+            {} if self._media_generation is None else {"X-Goog-Generation": self._media_generation}
+        )
+        return _FakeResponse(200, content=self._content, headers=headers)
+
+    def post(self, url: str, **kwargs: Any) -> _FakeResponse:
+        authorization = kwargs["headers"]["Authorization"]
+        self.authorizations.append(authorization)
+        if self._is_refused(authorization):
+            return _FakeResponse(self._refusal_status)
+        self.object_calls += 1
+        return super().post(url, **kwargs)
+
+
+class _RendezvousMetadataTransport(_FakeGcsTransport):
+    """A metadata server that answers only once ``parties`` callers arrive together.
+
+    A deterministic stand-in for an unresponsive one. If the refreshes are
+    serialized behind a lock the parties never meet, the barrier breaks, and
+    the test fails on a type, not on a wall-clock threshold. No sleeps, no
+    flake.
+    """
+
+    def __init__(self, *, parties: int, timeout: float = 5.0) -> None:
+        super().__init__()
+        self._barrier = threading.Barrier(parties)
+        self._timeout = timeout
+        self._counter_lock = threading.Lock()
+        self.token_calls = 0
+
+    def get(self, url: str, **kwargs: Any) -> _FakeResponse:
+        if "metadata.google.internal" not in url:
+            raise AssertionError("no object call is reachable without a credential")
+        with self._counter_lock:
+            self.token_calls += 1
+        self._barrier.wait(timeout=self._timeout)
+        return _FakeResponse(500)
+
+
+@pytest.mark.asyncio
+async def test_gcs_read_is_one_media_call_that_states_its_own_generation():
+    """One WARM object read is ONE request, not a metadata GET plus a media GET."""
+    transport = _CountingGcsTransport()
+    store = GcsObjectStore("user-bucket", "pods/abc", session=transport)
+
+    assert await store.get_with_generation("head.json") == (b"stored", 9)
+
+    assert transport.object_gets == [{"alt": "media"}]
+    # A COLD read is two round trips: this one, plus the credential mint.
+    assert transport.token_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_gcs_mints_one_credential_across_many_reads_and_a_write():
+    transport = _CountingGcsTransport()
+    store = GcsObjectStore("user-bucket", session=transport)
+
+    for _ in range(3):
+        assert await store.get_with_generation("head.json") == (b"stored", 9)
+    assert await store.put_if_generation("head.json", b"{}", 9) == 7
+
+    # Four object operations, four round trips, ONE minted credential.
+    assert transport.token_calls == 1
+    assert len(transport.object_gets) == 3
+    assert len(transport.uploads) == 1
+    assert set(transport.authorizations) == {"Bearer t1"}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("expires_in", [None, 0, 30, 60, "3600", True])
+async def test_gcs_reuses_no_credential_whose_stated_life_is_inside_the_margin(expires_in):
+    transport = _CountingGcsTransport(expires_in=expires_in)
+    store = GcsObjectStore("user-bucket", session=transport)
+
+    await store.get_with_generation("head.json")
+    await store.get_with_generation("head.json")
+
+    assert transport.token_calls == 2
+    assert transport.authorizations == ["Bearer t1", "Bearer t2"]
+
+
+@pytest.mark.asyncio
+async def test_a_slow_credential_mint_does_not_serialize_concurrent_reads():
+    """The token lock guards the CACHE, never the metadata call.
+
+    Holding it across the mint turns N concurrent storage operations into N
+    sequential timeouts when the metadata server is unresponsive, where the
+    uncached code failed all N in parallel. The rendezvous proves the four
+    mints overlap: serialized, party one waits inside the barrier while the
+    rest wait on the lock, the barrier breaks, and every caller raises
+    BrokenBarrierError instead of the storage error.
+    """
+    parties = 4
+    transport = _RendezvousMetadataTransport(parties=parties)
+    store = GcsObjectStore("user-bucket", "pods/abc", session=transport)
+
+    outcomes = await asyncio.gather(
+        *(store.get_with_generation("head.json") for _ in range(parties)),
+        return_exceptions=True,
+    )
+
+    assert [type(outcome) for outcome in outcomes] == [RuntimeError] * parties
+    assert [str(outcome) for outcome in outcomes] == [
+        "pod storage credential unavailable"
+    ] * parties
+    assert transport.token_calls == parties
+
+
+@pytest.mark.asyncio
+async def test_the_token_lock_is_not_held_while_the_metadata_call_is_in_flight():
+    """The same rule as above, stated single-threaded and checked directly.
+
+    A lock held across a blocking dependency call is the whole defect; this
+    asks the lock itself, so the guarantee does not rest on thread timing.
+    """
+    transport = _CountingGcsTransport()
+    store = GcsObjectStore("user-bucket", session=transport)
+    lock_was_free: list[bool] = []
+
+    class _WatchingTheLock:
+        def get(self, url: str, **kwargs: Any) -> _FakeResponse:
+            if "metadata.google.internal" in url:
+                acquired = store._token_lock.acquire(blocking=False)
+                lock_was_free.append(acquired)
+                if acquired:
+                    store._token_lock.release()
+            return transport.get(url, **kwargs)
+
+        def post(self, url: str, **kwargs: Any) -> _FakeResponse:
+            return transport.post(url, **kwargs)
+
+    store._session = _WatchingTheLock()
+
+    assert await store.get_with_generation("head.json") == (b"stored", 9)
+    assert lock_was_free == [True]
+
+
+@pytest.mark.asyncio
+async def test_gcs_missing_object_still_reads_as_absent():
+    transport = _CountingGcsTransport(content=None)
+    store = GcsObjectStore("user-bucket", "pods/abc", session=transport)
+
+    assert await store.get_with_generation("head.json") == (None, 0)
+    assert await store.get("head.json") is None
+    assert transport.object_gets == [{"alt": "media"}, {"alt": "media"}]
+
+
+@pytest.mark.asyncio
+async def test_gcs_read_falls_back_to_a_pinned_read_when_no_generation_is_stated():
+    """No stated generation means no proof of version, so pin it the slow way."""
+    transport = _CountingGcsTransport(media_generation=None)
+    store = GcsObjectStore("user-bucket", session=transport)
+
+    assert await store.get_with_generation("head.json") == (b"stored", 9)
+
+    assert transport.object_gets == [
+        {"alt": "media"},
+        {"fields": "generation"},
+        {"alt": "media", "generation": "9"},
+    ]
+    assert transport.token_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_a_header_stripping_path_costs_a_discarded_body_only_once():
+    """Learn it once. Re-probing re-downloads the whole body on every read.
+
+    A gateway that strips ``x-goog-generation`` strips it for every object, so
+    the probe answers the same question each time and pays for the answer in
+    egress. For a file manager serving large objects that is the difference
+    between one wasted body and one per read.
+    """
+    transport = _CountingGcsTransport(media_generation=None)
+    store = GcsObjectStore("user-bucket", session=transport)
+
+    for _ in range(3):
+        assert await store.get_with_generation("head.json") == (b"stored", 9)
+
+    assert [params for params in transport.object_gets if params == {"alt": "media"}] == [
+        {"alt": "media"}
+    ]
+    # Read one pays three trips to learn; reads two and three pay the pinned two.
+    assert len(transport.object_gets) == 3 + 2 + 2
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("stated", ["0", "-1", "oops", "", "9 "])
+async def test_gcs_read_falls_back_when_the_stated_generation_is_unusable(stated):
+    """A MALFORMED header is the same fact as an ABSENT one: no proof of version.
+
+    It must take the same fallback, not fail closed. The fallback re-derives
+    the generation authoritatively from the metadata endpoint, so it is exactly
+    as safe as the stripped-header case, and refusing instead would let one
+    normalizing egress proxy take the pod's storage down.
+    """
+    transport = _CountingGcsTransport(generation="9", media_generation=stated)
+    store = GcsObjectStore("user-bucket", session=transport)
+
+    assert await store.get_with_generation("head.json") == (b"stored", 9)
+
+    # The request SHAPE is what distinguishes the header path from the body
+    # path: the old two-call read never issues a bare {'alt': 'media'} first,
+    # and the hard-failing version never issues the two calls after it.
+    assert transport.object_gets == [
+        {"alt": "media"},
+        {"fields": "generation"},
+        {"alt": "media", "generation": "9"},
+    ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("stated", ["0", "oops", ""])
+async def test_gcs_read_still_refuses_when_no_call_can_prove_the_generation(stated):
+    """Falling back is not giving up: with nothing provable anywhere, refuse."""
+    transport = _CountingGcsTransport(generation=stated, media_generation=stated)
+    store = GcsObjectStore("user-bucket", session=transport)
+
+    with pytest.raises(RuntimeError, match="pod storage generation unverified"):
+        await store.get_with_generation("head.json")
+
+    assert transport.object_gets == [{"alt": "media"}, {"fields": "generation"}]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("refusal_status", [401, 403])
+async def test_a_credential_refused_mid_life_is_dropped_and_reminted(refusal_status):
+    """The self-healing the cache would otherwise have cost.
+
+    Before caching, every call minted fresh, so a credential that died mid-life
+    healed on the next call. Cached, a dead bearer would be re-presented for
+    the rest of its window unless a refusal evicts it.
+    """
+    transport = _CountingGcsTransport(credential_dies_after=1, refusal_status=refusal_status)
+    store = GcsObjectStore("user-bucket", session=transport)
+
+    assert await store.get_with_generation("head.json") == (b"stored", 9)
+    assert await store.get_with_generation("head.json") == (b"stored", 9)
+    assert await store.get_with_generation("head.json") == (b"stored", 9)
+
+    assert transport.token_calls == 2
+    assert transport.authorizations == ["Bearer t1", "Bearer t1", "Bearer t2", "Bearer t2"]
+
+
+@pytest.mark.asyncio
+async def test_a_refused_write_credential_is_reminted_and_the_write_still_lands():
+    """The retry is safe on the write too: ifGenerationMatch rides on it."""
+    transport = _CountingGcsTransport(credential_dies_after=0)
+    store = GcsObjectStore("user-bucket", session=transport)
+
+    assert await store.put_if_generation("head.json", b"{}", 3) == 7
+
+    assert transport.token_calls == 2
+    assert transport.authorizations == ["Bearer t1", "Bearer t2"]
+    assert [upload["ifGenerationMatch"] for upload in transport.uploads] == ["3"]
+
+
+@pytest.mark.asyncio
+async def test_a_credential_refused_twice_fails_rather_than_looping():
+    transport = _CountingGcsTransport(refuse_every_credential=True)
+    store = GcsObjectStore("user-bucket", session=transport)
+
+    with pytest.raises(RuntimeError, match="pod storage content unavailable"):
+        await store.get_with_generation("head.json")
+
+    assert transport.object_gets == [{"alt": "media"}, {"alt": "media"}]
+    assert transport.token_calls == 2
+
+
+# --- the shared key validator ---------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "key",
+    [
+        "",
+        "/head.json",
+        "..",
+        "../head.json",
+        "records/../../head.json",
+        # The prefix-confusion case: naive concatenation under prefix 'pods/abc'
+        # yields 'pods/abc/../abcdef/head.json', which resolves to a SIBLING pod.
+        "../abcdef/head.json",
+        "pods/abc/../abcdef/head.json",
+        "records//head.json",
+        "records/./head.json",
+        "records/",
+        "records\\head.json",
+        "records/head\njson",
+        "records/head\x7fjson",
+        "\x00",
+    ],
+)
+def test_both_stores_reject_the_same_unsafe_object_keys(tmp_path: Path, key: str):
+    gcs = GcsObjectStore("user-bucket", "pods/abc", session=_CountingGcsTransport())
+    with pytest.raises(ValueError):
+        gcs._key(key)
+    with pytest.raises(ValueError):
+        LocalObjectStore(str(tmp_path))._path(key)
+
+
+@pytest.mark.parametrize(
+    "key",
+    [
+        "%2e%2e/head.json",
+        "a/%2e%2e/%2e%2e/pods/abcdef/head.json",
+        "..%2f..%2fetc",
+        "%2fhead.json",
+        "records/%2e%2e/head.json",
+        "%252e%252e/head.json",
+        "records/%00",
+        "records/%5chead.json",
+    ],
+)
+def test_both_stores_reject_percent_encoded_traversal(tmp_path: Path, key: str):
+    """Traversal written in a second alphabet is still traversal.
+
+    The stated threat model is a file manager built on these stores, and a file
+    manager takes keys over HTTP, where some layer decodes once more than the
+    validator did.
+    """
+    gcs = GcsObjectStore("user-bucket", "pods/abc", session=_CountingGcsTransport())
+    with pytest.raises(ValueError):
+        gcs._key(key)
+    with pytest.raises(ValueError):
+        LocalObjectStore(str(tmp_path))._path(key)
+
+
+def test_an_undecodable_escape_is_refused_rather_than_guessed():
+    with pytest.raises(ValueError, match="undecodable escape"):
+        object_key_segments("records/%ff%fe.bin")
+
+
+def test_a_literal_percent_in_a_key_is_still_a_usable_key():
+    """Decode-then-validate refuses traversal, not every key containing a '%'."""
+    gcs = GcsObjectStore("user-bucket", "pods/abc", session=_CountingGcsTransport())
+    assert gcs._key("records/50%25-off.bin") == "pods/abc/records/50%25-off.bin"
+
+
+def test_prefix_confinement_compares_whole_segments_not_a_string_prefix():
+    # The naive check that CVE-2025-53110 shipped: a sibling whose NAME merely
+    # starts with the allowed one passes a string prefix test.
+    assert "pods/abcdef/head.json".startswith("pods/abc")
+
+    assert object_key_is_within("pods/abc", "pods/abc/head.json") is True
+    assert object_key_is_within("pods/abc", "pods/abcdef/head.json") is False
+    assert object_key_is_within("pods/abc", "pods/abc") is False
+    assert object_key_is_within("", "head.json") is True
+
+
+def test_prefix_confinement_resolves_traversal_itself_and_never_raises():
+    """Layer two has to hold on its own, not because layer one ran first."""
+    assert object_key_is_within("pods/abc", "pods/abc/./head.json") is True
+    assert object_key_is_within("pods/abc", "pods/abc/records/../head.json") is True
+    assert object_key_is_within("pods/abc", "pods/abc/../abcdef/head.json") is False
+    assert object_key_is_within("pods/abc", "pods/abc/..") is False
+    assert object_key_is_within("pods/abc", "../../etc/passwd") is False
+    assert object_key_is_within("pods/../other", "pods/abc/head.json") is False
+
+
+def test_the_key_confinement_check_still_refuses_when_the_validator_is_relaxed(monkeypatch):
+    """Defence in depth, demonstrated rather than advertised.
+
+    Relax layer one to a bare split -- the plausible way it gets relaxed is a
+    file manager wanting relative navigation -- and layer two must still refuse
+    the escape.
+    """
+    monkeypatch.setattr(pod_commit_log, "object_key_segments", lambda key: tuple(key.split("/")))
+    store = GcsObjectStore("user-bucket", "pods/abc", session=_CountingGcsTransport())
+
+    assert store._key("records/head.json") == "pods/abc/records/head.json"
+    for escaping in ("../abcdef/head.json", "../../etc/passwd", ".."):
+        with pytest.raises(ValueError, match="escapes the store prefix"):
+            store._key(escaping)
+
+
+@pytest.mark.asyncio
+async def test_a_traversing_key_never_reaches_a_sibling_pod_prefix():
+    transport = _CountingGcsTransport()
+    store = GcsObjectStore("user-bucket", "pods/abc", session=transport)
+
+    assert store._key("head.json") == "pods/abc/head.json"
+    for unsafe in ("../abcdef/head.json", "/pods/abcdef/head.json"):
+        with pytest.raises(ValueError):
+            await store.get_with_generation(unsafe)
+        with pytest.raises(ValueError):
+            await store.put_if_generation(unsafe, b"{}", 0)
+
+    # Refused before any credential is minted or any request is sent.
+    assert (transport.token_calls, transport.object_gets, transport.uploads) == (0, [], [])
+
+
+def test_a_traversing_store_prefix_is_refused_at_construction():
+    for unsafe in ("pods/../other", "pods//abc", "pods/abc\\evil", "pods/abc\n", "pods/%2e%2e"):
+        with pytest.raises(ValueError):
+            GcsObjectStore("user-bucket", unsafe, session=_CountingGcsTransport())
 
 
 # --- the log-backed PKM store ---------------------------------------------------------
