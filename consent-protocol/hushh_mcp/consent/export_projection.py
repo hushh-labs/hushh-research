@@ -29,10 +29,8 @@ import copy
 import json
 from typing import Any
 
-from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric.x25519 import (
     X25519PrivateKey,
-    X25519PublicKey,
 )
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
@@ -42,6 +40,7 @@ from hushh_mcp.consent.export_envelope import (
     canonical_envelope_submission_bytes,
     digest_bytes,
 )
+from hushh_mcp.consent.key_wrapping import unwrap_x25519_aes256_key
 
 
 def _b64decode(value: str) -> bytes:
@@ -66,24 +65,19 @@ def decrypt_scoped_export_package(
     raw bytes returned by the authenticated ``/api/v1/scoped-export/download``
     endpoint. Both delivery shapes carry the same plaintext.
     """
-    sender_public = X25519PublicKey.from_public_bytes(
-        _b64decode(str(wrapped_key_bundle["sender_public_key"]))
-    )
-    shared_secret = connector_private_key.exchange(sender_public)
-    digest = hashes.Hash(hashes.SHA256())
-    digest.update(shared_secret)
-    wrapping_key = digest.finalize()
     envelope = (
         ConsentExportEnvelopeSubmissionV2.model_validate(export_envelope)
         if export_envelope
         else None
     )
     key_wrap_aad = canonical_envelope_submission_bytes(envelope) if envelope else None
-    export_key = AESGCM(wrapping_key).decrypt(
-        _b64decode(str(wrapped_key_bundle["wrapped_key_iv"])),
-        _b64decode(str(wrapped_key_bundle["wrapped_export_key"]))
-        + _b64decode(str(wrapped_key_bundle["wrapped_key_tag"])),
-        key_wrap_aad,
+    export_key = unwrap_x25519_aes256_key(
+        recipient_private_key=connector_private_key,
+        sender_public_key=_b64decode(str(wrapped_key_bundle["sender_public_key"])),
+        nonce=_b64decode(str(wrapped_key_bundle["wrapped_key_iv"])),
+        wrapped_key=_b64decode(str(wrapped_key_bundle["wrapped_export_key"])),
+        tag=_b64decode(str(wrapped_key_bundle["wrapped_key_tag"])),
+        additional_data=key_wrap_aad,
     )
     ciphertext_bytes = ciphertext if isinstance(ciphertext, bytes) else _b64decode(str(ciphertext))
     if envelope is not None:

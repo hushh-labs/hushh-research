@@ -13,6 +13,8 @@ flowchart LR
     fence -. Pending implementation .-> runtime[Pod custody and memory execution]
 ```
 
+GitHub action item: [#6719 Build consumer Hussh MCP with owner-pod memory and Puppy interoperability](https://github.com/hushh-labs/hushh-research/issues/6719). Board intake is Inbox; implementation is active. Local standing-consent checkpoint: `253e89abe`.
+
 ## Baseline and boundaries
 
 - Worktree: sibling `hushh-consumer-mcp`; branch `feat/consumer-mcp`.
@@ -91,3 +93,11 @@ The topology generator remains the existing coverage join: `scripts/ops/generate
 - Final slice checks: 132 backend tests passed across consumer connections, IAM, Source Library scope policy and developer API routes. Documentation parity, package documentation/config checks and release-migration alignment passed; no release migration was added. Independent architecture review found no remaining blocker in this slice.
 - Original workspace rechecked before commit: still `claude/hushh-infrastructure-analysis-7o991c` at `883327eaf`; no intervening private-branch commits to integrate.
 - Next: extend resumable setup with explicit pod custody and canonical encrypted memory. Profile disconnect discovery, remote execution fencing, cross-host acceptance and signed receipt-mirror reconciliation remain incomplete.
+
+## Active custody slice
+
+- Reused the existing X25519/SHA-256/AES-GCM key-unwrapping primitive; 19 export compatibility checks passed. No vault key enrollment is exposed yet.
+- Added a synchronous internal commit-log precondition evaluated against the captured, verified HEAD history on every CAS attempt. Existing 113 log tests and four new race/corruption cases passed. This is an atomic persistence seam, not completed custody authority.
+- Independent vault/identity review found no blocking defect. The custody consumer must still commit writer activation to HEAD, enforce signed approval and key binding, seal recoverable custody under owner-project protection, and clean orphan encrypted objects during erasure.
+- Original private branch advanced to `4ba7cae5a` during work (four commits covering pod build restoration, test isolation, merge protection and client-env checks). It remains untouched. None changes this slice's files; review these explicit dependencies before integration or deployment.
+- GitHub #6719 was created and read back on Hussh Action Items; no owner, delivery date or completion status was invented.

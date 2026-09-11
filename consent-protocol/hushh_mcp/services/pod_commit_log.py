@@ -882,8 +882,20 @@ class PodCommitLog:
 
     # -- operations -------------------------------------------------------------------
 
-    async def append(self, kind: str, payload: Any) -> dict[str, Any]:
-        """Append one record. Linearized by the pointer CAS; retries lost races."""
+    async def append(
+        self,
+        kind: str,
+        payload: Any,
+        *,
+        precondition: Callable[[list[dict[str, Any]]], None] | None = None,
+    ) -> dict[str, Any]:
+        """Append one record, linearized by the pointer CAS.
+
+        Internal authority transitions may supply a side-effect-free precondition
+        that raises on refusal. It receives the verified history for this exact
+        HEAD generation and runs again after every lost CAS. A separate replay
+        before append cannot provide that atomic authority check.
+        """
         for _ in range(self._max_retries):
             head_bytes, generation = await self._store.get_with_generation(self.HEAD)
             head = self._read_head(head_bytes)
@@ -900,6 +912,8 @@ class PodCommitLog:
                     or predecessor.get("sha") != head["sha"]
                 ):
                     raise PodLogTampered("the log head and predecessor disagree")
+            if precondition is not None:
+                precondition(await self._replay_head(head))
             seq = (int(head["seq"]) + 1) if head else 1
             prev_key = head["key"] if head else None
             prev_sha = head["sha"] if head else None

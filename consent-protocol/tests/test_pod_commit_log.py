@@ -175,6 +175,70 @@ async def test_append_and_fence_share_one_atomic_publication_point(tmp_path, fir
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("winner", ["replacement", "revocation", "erasure"])
+async def test_guarded_append_rechecks_authority_after_lost_cas(tmp_path, winner):
+    entered, release = asyncio.Event(), asyncio.Event()
+
+    class RacingStore(LocalObjectStore):
+        pause_next = False
+
+        async def put_if_generation(self, key, data, expected):
+            if key == PodCommitLog.HEAD and self.pause_next:
+                self.pause_next = False
+                entered.set()
+                await release.wait()
+            return await super().put_if_generation(key, data, expected)
+
+    store = RacingStore(str(tmp_path / "guard"))
+    log = PodCommitLog(store, KEY, owner_id="synthetic-owner")
+    await log.append("writer", {"epoch": 1})
+    observed = []
+
+    def require_initial_writer(records):
+        observed.append([record["kind"] for record in records])
+        if records[-1]["kind"] != "writer" or records[-1]["payload"]["epoch"] != 1:
+            raise PermissionError("authority changed")
+
+    store.pause_next = True
+    pending = asyncio.create_task(log.append("enroll", {}, precondition=require_initial_writer))
+    await asyncio.wait_for(entered.wait(), 2)
+    try:
+        if winner == "erasure":
+            await log.fence_for_erasure(owner_id="synthetic-owner", attempt_id="erase")
+        elif winner == "replacement":
+            await log.append("writer", {"epoch": 2})
+        else:
+            await log.append("revoked", {})
+    finally:
+        release.set()
+    with pytest.raises(PodLogFenced if winner == "erasure" else PermissionError):
+        await pending
+    if winner == "erasure":
+        assert observed == [["writer"]]
+    else:
+        history = await log.replay()
+        assert all(record["kind"] != "enroll" for record in history)
+        assert len(observed) == 2
+        assert observed[-1] == [record["kind"] for record in history]
+
+
+@pytest.mark.asyncio
+async def test_guarded_append_checks_full_chain_before_authority_or_publication(tmp_path):
+    store = LocalObjectStore(str(tmp_path / "guard"))
+    log = PodCommitLog(store, KEY)
+    await log.append("first", {})
+    first_head, _ = await store.get_with_generation(log.HEAD)
+    await log.append("second", {})
+    (tmp_path / "guard" / json.loads(first_head)["key"]).write_bytes(b"corrupt")
+    before = await store.get_with_generation(log.HEAD)
+    observed = []
+    with pytest.raises(PodLogTampered):
+        await log.append("guarded", {}, precondition=lambda records: observed.append(records))
+    assert not observed
+    assert await store.get_with_generation(log.HEAD) == before
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("failure", ["lost_ack", "failed_readback", "mismatch"])
 async def test_unconfirmed_fence_is_reconciled_without_reopening(tmp_path, failure):
     class UncertainStore(LocalObjectStore):
