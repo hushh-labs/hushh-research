@@ -482,7 +482,21 @@ async def create_one_adk_relay_session(
         try:
             async with asyncio.timeout(30.0):
                 await admit_private_live(uid)
-        except Exception:
+        except Exception as exc:
+            # The reason was discarded here, and the cost was real: a release
+            # verifier reported this 503 for eleven consecutive dev deploys and
+            # no log anywhere said which of admission's preconditions failed --
+            # no registry row, no pod URL, an unreachable pod, or the timeout.
+            # The client-facing detail is deliberately unchanged: the caller
+            # still learns only that voice is unavailable.
+            logger.warning(
+                "one.adk.relay_session.admission_refused",
+                extra={
+                    "uid": uid,
+                    "reason": type(exc).__name__,
+                    "detail": str(exc)[:300],
+                },
+            )
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail={

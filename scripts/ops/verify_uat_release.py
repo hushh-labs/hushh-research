@@ -79,6 +79,20 @@ def _run_signed_in_routes(frontend_url: str, route_filter: str) -> dict[str, Any
     }
 
 
+def _json_or_empty(response: Any) -> dict[str, Any]:
+    """The body as a dict, or an empty one. A refusal is still a body to read.
+
+    A non-200 may legitimately carry no JSON at all (a proxy's HTML error page,
+    an empty 502). Treating that as a crash would turn a clean classification
+    back into the opaque failure this exists to remove.
+    """
+    try:
+        parsed = response.json()
+    except Exception:
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
 def _record_exception(
     report: dict[str, Any],
     failures: list[str],
@@ -168,28 +182,58 @@ def main() -> int:
             _record_exception(report, failures, name="gmail_status", exc=exc)
 
         try:
-            relay_session = smoke._request(  # noqa: SLF001
+            # Not `expected=200`. Private voice moved into the owner's pod, so
+            # this route now has THREE answers, not two: a ticket, a refusal
+            # because the caller has no admitted pod, and a real failure. The
+            # shared maintainer account the smoke user signs in as has no pod,
+            # so it draws the refusal every time -- which is the isolation
+            # working, and which blocked eleven consecutive dev deploys as
+            # `runtime_behavior_failed` while the build, the deploy, the
+            # promotion and every other check were healthy. Same reasoning the
+            # RIA check below already applies to `provider_unavailable`.
+            relay_response = smoke._request(  # noqa: SLF001
                 "POST",
                 "/api/one/adk/relay-session",
                 headers=smoke._firebase_auth_headers(),  # noqa: SLF001
-                expected=200,
-            ).json()
-            relay_session_ok = bool(
-                isinstance(relay_session.get("relay_ticket"), str)
-                and relay_session.get("relay_ticket")
-                and isinstance(relay_session.get("expires_at"), int)
-                and relay_session.get("expires_at") > 0
+                expected=None,
             )
-            report["checks"].append(
-                {
-                    "name": "voice_relay_session",
-                    "ok": relay_session_ok,
-                    "model": relay_session.get("model"),
-                    "tier": relay_session.get("tier"),
-                }
+            relay_session = _json_or_empty(relay_response)
+            relay_detail = relay_session.get("detail")
+            relay_code = str(
+                (relay_detail or {}).get("code") if isinstance(relay_detail, dict) else ""
             )
-            if not relay_session_ok:
-                failures.append("voice_relay_session")
+            if relay_response.status_code == 503 and relay_code == "AGENT_NOT_READY":
+                report["checks"].append(
+                    {
+                        "name": "voice_relay_session",
+                        "ok": False,
+                        "status": "agent_not_ready",
+                    }
+                )
+                degraded.append("voice_relay_session")
+            else:
+                if relay_response.status_code != 200:
+                    # The message shape the release log has always carried.
+                    raise RuntimeError(
+                        "POST /api/one/adk/relay-session returned "
+                        f"{relay_response.status_code}: {relay_response.text[:1200]}"
+                    )
+                relay_session_ok = bool(
+                    isinstance(relay_session.get("relay_ticket"), str)
+                    and relay_session.get("relay_ticket")
+                    and isinstance(relay_session.get("expires_at"), int)
+                    and relay_session.get("expires_at") > 0
+                )
+                report["checks"].append(
+                    {
+                        "name": "voice_relay_session",
+                        "ok": relay_session_ok,
+                        "model": relay_session.get("model"),
+                        "tier": relay_session.get("tier"),
+                    }
+                )
+                if not relay_session_ok:
+                    failures.append("voice_relay_session")
         except Exception as exc:  # pragma: no cover - exercised in live verification
             _record_exception(report, failures, name="voice_relay_session", exc=exc)
 
