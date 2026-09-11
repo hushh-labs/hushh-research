@@ -50,13 +50,13 @@ Non-owned surfaces:
 
 1. Resolve the issue and project-item state dynamically instead of assuming cached IDs.
 2. Create the GitHub issue first, then attach and update the board item.
-   For Action Items, intake starts in `Inbox`; use the selected board reference for acceptance, ownership, and scheduling rules.
-3. Re-read the issue and board state after editing to confirm the change stuck.
+   For Action Items, use `Inbox` for new proposals; carry prior approval and active execution into the appropriate status. Follow the selected board reference for cadence, ownership and scheduling.
+3. Re-read live issue and board state after editing, bypassing caches; verify assignment and every supplied view-filter predicate.
 4. When reporting work back to the user, always use the stable task shape `#<number> <title>`.
 5. When the user asks for labels, treat labels as a first-class part of the task update instead of leaving them implicit.
 6. Do not move sprint or reset dates on existing tasks unless the user explicitly asks for that metadata change.
 7. Do not use bare issue numbers in summaries, status lists, overdue lists, or change logs when the title is available.
-8. Use `In review` when implementation is complete but PR review, UAT proof, dashboard acceptance, founder sign-off, or other external verification remains.
+8. Use the selected board's verification state when implementation is complete but acceptance remains; resolve its live status options rather than borrowing another board's labels.
 9. Use `Done` only when the work is accepted and the issue state or acceptance evidence agrees with completion.
 10. Before and after broad cleanups, run `board_ops.py audit-state` and resolve drift deliberately.
 11. For duplicate or redundant board tasks, consolidate the scope into the canonical issue, leave a traceability comment, then remove the duplicate project item with `board_ops.py remove-task`; do not mark duplicates as `Done` just to clear the board.
@@ -71,6 +71,6 @@ Non-owned surfaces:
 
 ```bash
 python3 -m py_compile .codex/skills/planning-board/scripts/board_ops.py
-python3 .codex/skills/planning-board/scripts/board_ops.py summary --from 2026-04-01 --to 2026-04-07
+python3 -m unittest discover -s .codex/skills/planning-board/scripts -p test_board_ops.py
 python3 .codex/skills/planning-board/scripts/board_ops.py audit-state
 ```

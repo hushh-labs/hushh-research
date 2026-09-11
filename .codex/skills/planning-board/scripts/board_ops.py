@@ -271,10 +271,10 @@ def _save_cache():
         pass
 
 
-def get_issue_json(repo: str, issue_number: int) -> Any:
+def get_issue_json(repo: str, issue_number: int, *, refresh: bool = False) -> Any:
     _load_cache()
     key = (repo, issue_number)
-    if key in _issue_json_cache:
+    if not refresh and key in _issue_json_cache:
         return _issue_json_cache[key]
     try:
         payload = run_gh_json(
@@ -488,7 +488,7 @@ def issue_create(args: argparse.Namespace) -> None:
         hierarchy=hierarchy,
         extra_fields=args.fields,
     )
-    print(json.dumps(get_issue_json(args.repo, issue_number), indent=2))
+    print(json.dumps(get_issue_json(args.repo, issue_number, refresh=True), indent=2))
 
 
 def resolve_date_field(fields: dict[str, Any], candidates: tuple[str, ...]) -> str | None:
@@ -618,14 +618,14 @@ def cmd_update_task(args: argparse.Namespace) -> None:
         hierarchy=args.hierarchy,
         extra_fields=args.fields,
     )
-    print(json.dumps(get_issue_json(args.repo, args.issue), indent=2))
+    print(json.dumps(get_issue_json(args.repo, args.issue, refresh=True), indent=2))
 
 
 def cmd_remove_task(args: argparse.Namespace) -> None:
     item_id = get_project_item_id_for_issue(args.repo, args.issue)
     if item_id:
         delete_project_item(item_id)
-    issue = get_issue_json(args.repo, args.issue)
+    issue = get_issue_json(args.repo, args.issue, refresh=True)
     print(
         json.dumps(
             {
