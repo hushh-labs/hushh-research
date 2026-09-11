@@ -2026,7 +2026,12 @@ jobs:
             # Degradation is reported next to the status, not buried in the JSON.
             # A release that deployed correctly while a provider was down must be
             # readable as exactly that -- neither a clean success nor a failure.
-            degraded_capabilities="$(python3 -c "import json; from pathlib import Path; print(','.join(json.loads(Path('/tmp/uat-release-status.json').read_text(encoding='utf-8')).get('dependency_health', {}).get('degraded_capabilities') or []))" 2>/dev/null || true)"
+            # Read from the CLASSIFICATION file, which is the only one that has
+            # ever carried `dependency_health`. This read pointed at the status
+            # file, whose payload has no such key, so `.get(...)` always returned
+            # {} and the branch below always printed "healthy" -- a banner that
+            # said the same thing whether or not a capability was down.
+            degraded_capabilities="$(python3 -c "import json; from pathlib import Path; print(','.join(json.loads(Path('/tmp/uat-release-classification.json').read_text(encoding='utf-8')).get('dependency_health', {}).get('degraded_capabilities') or []))" 2>/dev/null || true)"
             if [[ -n "${degraded_capabilities}" ]]; then
               echo "- **Dependency health: DEGRADED**"
               echo "- Degraded capabilities: \`${degraded_capabilities}\`"

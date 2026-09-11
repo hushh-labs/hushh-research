@@ -783,6 +783,7 @@ jobs:
               frontend_failure = True
 
           semantic_failures = set(semantic_report.get("failures") or [])
+          semantic_degraded = sorted(semantic_report.get("degraded") or [])
           advisory_semantic_failures = sorted(
               item for item in semantic_failures if item.startswith("signed_in_routes:")
           )
@@ -842,6 +843,17 @@ jobs:
               },
               "db_contract": {
                   "outcome": db_outcome,
+              },
+              "dependency_health": {
+                  # A dev release can be simultaneously correct and not fully
+                  # functional, and this lane had no way to say so: it read only
+                  # `failures`, so a capability the verifier deliberately marked
+                  # degraded left no trace in the summary at all. That matters
+                  # more here than on UAT, because the smoke account has no
+                  # provisioned pod, so private voice is degraded on EVERY dev
+                  # release. An amber nobody can see is the same as green.
+                  "degraded": bool(semantic_degraded),
+                  "degraded_capabilities": semantic_degraded,
               },
           }
 
@@ -1041,6 +1053,19 @@ jobs:
             echo "- Frontend deployed SHA before run: \`${{ steps.predeploy-state.outputs.frontend_sha || 'unknown' }}\`"
             echo "- Status: \`$(python3 -c "import json; from pathlib import Path; print(json.loads(Path('/tmp/dev-release-status.json').read_text(encoding='utf-8'))['status'])")\`"
             echo "- Blocking classifications: \`${{ steps.classify-dev-release.outputs.blocking_classifications || 'none' }}\`"
+            # Degradation beside the status, not buried in an artifact. A dev
+            # release that deployed correctly while a capability is unavailable
+            # must read as exactly that, and not as a clean success.
+            degraded_capabilities="$(python3 -c "import json; from pathlib import Path; print(','.join(json.loads(Path('/tmp/dev-release-classification.json').read_text(encoding='utf-8')).get('dependency_health', {}).get('degraded_capabilities') or []))" 2>/dev/null || true)"
+            if [[ -n "${degraded_capabilities}" ]]; then
+              echo "- **Dependency health: DEGRADED**"
+              echo "- Degraded capabilities: \`${degraded_capabilities}\`"
+              echo "  > The application deployed correctly. These capabilities"
+              echo "  > are unavailable to the smoke account, most often because"
+              echo "  > it has no provisioned pod. This is not a code defect."
+            else
+              echo "- Dependency health: \`healthy\`"
+            fi
             echo "- Backend URL: \`${{ steps.final-state.outputs.backend_url }}\`"
             echo "- Frontend URL: \`${{ env.APP_FRONTEND_ORIGIN }}\`"
             echo "- Backend revision: \`${{ steps.final-state.outputs.backend_revision }}\`"
