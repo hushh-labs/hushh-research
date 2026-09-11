@@ -95,6 +95,20 @@ export const GLOBAL_NAV_ACTION_IDS: readonly string[] = [
  */
 export const GLOBAL_SESSION_ACTION_IDS: readonly string[] = [
   "profile.sign_out",
+  // Asking someone for information is not a screen verb either.
+  //
+  // Its handlers were registered on person-profile-page, which is right for
+  // "connect" or "remove connection" -- verbs about the person whose page you
+  // are standing on. But "can we ask Sharu for her finance information" is said
+  // from wherever someone happens to be, and from chat the profile page is not
+  // mounted, so requireMountedLocalHandlers dropped the action and the agent's
+  // only remaining move was to send them to a screen. That is what made the
+  // consent lifecycle look broken when it was only mis-scoped.
+  //
+  // Mounted app-wide in components/agent/global-consent-action-handlers.tsx.
+  // Both halves are required: a global slot for an unmounted handler is still
+  // filtered out, and a mounted handler nobody is told about is never called.
+  "consent.request",
 ];
 /**
  * available_action_ids carries the screen-ranked local segment PLUS the

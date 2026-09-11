@@ -29,6 +29,7 @@ import { CacheProvider } from "@/lib/cache/cache-context";
 import { useDeepLinkReturn } from "@/lib/navigation/use-deep-link-return";
 import { ConsentNotificationProvider } from "@/components/consent/notification-provider";
 import { GlobalVoiceActionHandlers } from "@/components/agent/global-voice-action-handlers";
+import { GlobalConsentActionHandlers } from "@/components/agent/global-consent-action-handlers";
 import { ConsentSheetProvider } from "@/components/consent/consent-sheet-controller";
 import { resolveTopShellRouteProfile } from "@/components/app-ui/top-shell-metrics";
 import { resolveAppRouteLayout } from "@/lib/navigation/app-route-layout";
@@ -723,6 +724,7 @@ export function Providers({ children }: ProvidersProps) {
               so a page-scoped registration would make the action depend on
               which tab happened to be open. */}
           <GlobalVoiceActionHandlers />
+          <GlobalConsentActionHandlers />
           {/* AppShellFrame resolves route-backed tab state through
               useSearchParams(). This boundary must be above that shared shell
               so static/native builds can pre-render every route, including

@@ -2508,6 +2508,46 @@ async def get_location_circle_members(circle: str, tool_context: ToolContext) ->
     }
 
 
+def _resolved_directive_slots(
+    action_id: str, slots: dict[str, Any], tool_context: ToolContext
+) -> dict[str, Any]:
+    """Expand an opaque proposal id into the request the browser must send.
+
+    `consent.request` executes in the browser, because the directive ledger is
+    what actually authorises a consent mutation -- a model saying it heard a yes
+    is not authority, which is why `confirmed` is stripped a few hundred lines
+    above this. But the browser cannot resolve a proposal id: proposals live in
+    this session's state, parked by `propose_information_request`.
+
+    So the server resolves it here and hands over the result. The model still
+    only ever passes the opaque id. It never names a scope, a person ref or a
+    duration, so it cannot widen a request between the read-back the owner
+    agreed to and the request that is actually sent -- which is the whole
+    property that makes asking from chat safe.
+
+    An unknown id expands to nothing and the directive goes out as it came in;
+    the handler refuses it rather than guessing.
+    """
+    if action_id != "consent.request":
+        return slots
+    proposal_id = str(slots.get("proposal_id") or slots.get("proposalId") or "").strip()
+    if not proposal_id:
+        return slots
+    proposals = tool_context.state.get(_STATE_INFORMATION_REQUEST_PROPOSALS) or {}
+    proposal = proposals.get(proposal_id) if isinstance(proposals, dict) else None
+    if not isinstance(proposal, dict):
+        return slots
+    return {
+        **slots,
+        "personRef": proposal.get("personRef"),
+        "displayName": proposal.get("displayName"),
+        "scopeRefs": list(proposal.get("scopeRefs") or []),
+        "labels": list(proposal.get("labels") or []),
+        "purpose": proposal.get("purpose"),
+        "durationHours": proposal.get("durationHours"),
+    }
+
+
 async def run_app_action(
     action_id: str, slots: dict[str, Any], tool_context: ToolContext
 ) -> dict[str, Any]:
@@ -2904,9 +2944,10 @@ async def run_app_action(
         label = str(entry.get("label") or clean_id)
         return await _run_backend_direct_action(clean_id, clean_slots, tool_context, label=label)
 
+    # Resolve a parked proposal SERVER-SIDE before the directive leaves.
     directive_payload: dict[str, Any] = {
         "actionId": clean_id,
-        "slots": clean_slots,
+        "slots": _resolved_directive_slots(clean_id, clean_slots, tool_context),
         "needsConfirmation": needs_confirmation,
         "trustedActivationRequired": trusted_activation,
     }

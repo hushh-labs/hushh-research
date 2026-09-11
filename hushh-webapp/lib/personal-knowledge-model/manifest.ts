@@ -1,3 +1,4 @@
+import { isInternalManifestPath } from "@/lib/pkm/internal-path-keys";
 import {
   CURRENT_PKM_CONTRACT_VERSION,
   CURRENT_READABLE_SUMMARY_VERSION,
@@ -186,8 +187,44 @@ const BLOCKED_EXTERNAL_PATH_PARTS = new Set([
   "workflow_state",
 ]);
 
-function isExternalizablePath(path: string, pathType: PathDescriptor["path_type"]): boolean {
+/** Segments the walk invents; they were never keys the owner wrote. */
+const SYNTHETIC_SEGMENTS = new Set(["_items", ENTITY_COLLECTION_SEGMENT]);
+
+function isExternalizablePath(
+  path: string,
+  pathType: PathDescriptor["path_type"],
+  value: unknown,
+): boolean {
   if (pathType !== "leaf") return false;
+
+  // A value nobody ever set is not information about anybody.
+  //
+  // This returned true for `null`, so `nav_skipped_at: null` -- a thing that
+  // never happened -- became a requestable scope. kai-profile-service
+  // initialises a dozen such fields to null at :181-196, which is a large part
+  // of how one person's finance catalogue reached fifty rows. `countMaterializedLeaves`
+  // above has always treated null as zero; this now agrees with it.
+  if (value === null || value === undefined) return false;
+  if (typeof value === "string" && !value.trim()) return false;
+
+  // Plumbing, at any depth. BLOCKED_EXTERNAL_PATH_PARTS stays as the
+  // write-time list it always was; the shared contract adds the app-state
+  // shapes it never covered -- setup checkpoints, nested domain_intent, and the
+  // *_selected_at / *_anchor_at timestamps that listed beside the answers they
+  // timestamp and read as duplicates.
+  // Synthetic segments are exempt. `_entities` and `_items` are invented by
+  // this walk, not written by the owner (see SYNTHETIC_SEGMENTS), so the
+  // leading-underscore convention -- which means "the OWNER marked this
+  // private" -- does not apply to them. Without this carve-out the filter ate
+  // every entity-collapsed holding, which manifest-entity-collapse caught
+  // immediately: exactly the job of the half of these tests that assert what
+  // must survive.
+  const ownerWrittenPath = path
+    .split(".")
+    .filter((segment) => !SYNTHETIC_SEGMENTS.has(segment))
+    .join(".");
+  if (ownerWrittenPath && isInternalManifestPath(ownerWrittenPath)) return false;
+
   return !path.split(".").some((part) => BLOCKED_EXTERNAL_PATH_PARTS.has(part));
 }
 
@@ -227,8 +264,6 @@ function countEntityMaps(value: unknown): number {
   return count;
 }
 
-/** Segments the walk invents; they were never keys the owner wrote. */
-const SYNTHETIC_SEGMENTS = new Set(["_items", ENTITY_COLLECTION_SEGMENT]);
 
 function walkValue(
   value: unknown,
@@ -261,7 +296,7 @@ function walkValue(
       json_path: pathKey,
       parent_path: path.length > 1 ? joinPath(path.slice(0, -1)) : null,
       path_type: pathType,
-      exposure_eligibility: isExternalizablePath(pathKey, pathType),
+      exposure_eligibility: isExternalizablePath(pathKey, pathType, value),
       display_segment: SYNTHETIC_SEGMENTS.has(rawSegment) ? null : rawSegment || null,
       consent_label: titleizePath(joinPath(displayPath)),
       sensitivity_label: sensitivityLabel,
