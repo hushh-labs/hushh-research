@@ -560,7 +560,14 @@ function profileRouteNeedsWorkspaceData(panel: ProfilePanel | null): boolean {
   return panel === "my-data";
 }
 
-function ProfilePageContent() {
+export type ProfilePagePresentation = "route" | "pane";
+
+function ProfilePageContent({
+  presentation = "route",
+}: {
+  presentation?: ProfilePagePresentation;
+}) {
+  const isPanePresentation = presentation === "pane";
   const [canShowPkmAgentLab, setCanShowPkmAgentLab] = useState(false);
   const appAccent = useAccent();
   const router = useRouter();
@@ -713,8 +720,11 @@ function ProfilePageContent() {
   const supportSuccessHeadingRef = useRef<HTMLHeadingElement | null>(null);
 
   const legacyProfileRedirectHref = useMemo(
-    () => buildCanonicalProfileRouteFromLegacyQuery(pathname, searchParams),
-    [pathname, searchParams],
+    () =>
+      isPanePresentation
+        ? null
+        : buildCanonicalProfileRouteFromLegacyQuery(pathname, searchParams),
+    [isPanePresentation, pathname, searchParams],
   );
   const profileRouteState = useMemo(
     () => resolveProfileRouteState(pathname, searchParams),
@@ -769,7 +779,7 @@ function ProfilePageContent() {
   useScrollReset(
     `${pathname}:${activePanel ?? "root"}:${activeDetail ?? "root"}`,
     {
-      enabled: true,
+      enabled: !isPanePresentation,
       behavior: "auto",
     },
   );
@@ -4518,18 +4528,23 @@ function ProfilePageContent() {
       as="div"
       width="reading"
       fitContent
-      className="relative isolate pb-3"
-      nativeTest={{
-        routeId: profileNativeRouteId,
-        marker: "native-route-profile",
-        authState: user ? "authenticated" : "pending",
-        dataState: authLoading ? "loading" : "loaded",
-      }}
+      className={cn("relative isolate pb-3", isPanePresentation && "profile-pane-page")}
+      nativeTest={
+        isPanePresentation
+          ? undefined
+          : {
+              routeId: profileNativeRouteId,
+              marker: "native-route-profile",
+              authState: user ? "authenticated" : "pending",
+              dataState: authLoading ? "loading" : "loaded",
+            }
+      }
     >
       <SettingsPresentationProvider density="compact">
         <ProfileStackNavigator
           rootContent={profileRootContent}
           entries={profileStackEntries}
+          resetScroll={!isPanePresentation}
         />
       </SettingsPresentationProvider>
 
@@ -4771,10 +4786,16 @@ function ProfilePageContent() {
   );
 }
 
-export default function ProfilePage() {
+export function ProfilePage({
+  presentation = "route",
+}: {
+  presentation?: ProfilePagePresentation;
+}) {
   return (
     <Suspense fallback={null}>
-      <ProfilePageContent />
+      <ProfilePageContent presentation={presentation} />
     </Suspense>
   );
 }
+
+export default ProfilePage;

@@ -33,6 +33,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
+import { SearchClearButton } from "@/components/app-ui/search-clear-button";
 import type { AgentChatConversation } from "@/lib/services/agent-chat-client";
 import { cn } from "@/lib/utils";
 
@@ -499,11 +500,16 @@ export function AgentHistorySidebar({
                 autoCorrect="off"
                 spellCheck={false}
                 className={cn(
-                  "h-10 rounded-xl pl-9 text-[15px] text-foreground placeholder:text-muted-foreground",
+                  "h-10 rounded-xl pl-9 pr-11 text-[15px] text-foreground placeholder:text-muted-foreground",
                   isMobileMode
                     ? "border-transparent bg-foreground/[0.055] shadow-[inset_0_1px_0_rgba(255,255,255,0.45)] dark:bg-white/[0.07]"
                     : "border-transparent bg-foreground/[0.045] shadow-none dark:bg-white/[0.05]"
                 )}
+              />
+              <SearchClearButton
+                visible={searchQuery.length > 0}
+                label="Clear chat search"
+                onClear={() => setSearchQuery("")}
               />
             </div>
           </div>

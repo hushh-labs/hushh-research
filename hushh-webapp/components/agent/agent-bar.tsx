@@ -2,7 +2,7 @@
 // Persistent, screen-aware agent launcher bar.
 //
 // A small dock that sits above the bottom navbar + search on every
-// authenticated screen. Voice and Chat are separate sibling actions: Voice owns
+// authenticated screen. Voice and Chat share one segmented pill: Voice owns
 // the waveform/effects, Chat owns the text conversation entry point.
 
 "use client";
@@ -2707,6 +2707,12 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
         type="button"
         data-native-voice-control-id="one_voice_agent_bar_end"
         data-testid="one-voice-agent-bar-end"
+        onPointerDown={(event) => {
+          // Stop on press, before Material Web's release ripple can finish.
+          // Keyboard activation still uses onClick below.
+          event.preventDefault();
+          stopConversation();
+        }}
         onClick={stopConversation}
         aria-label="End conversation"
         title="Tap to end conversation"
@@ -2766,6 +2772,12 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
     // Onboarding adds only its appearance controls; it does not fork the
     // interaction hierarchy, hit target, motion, or voice entry contract.
     <>
+      <div
+        className={cn(
+          "flex min-w-0 flex-1 items-stretch",
+          showAgentChatAction && "overflow-hidden rounded-full",
+        )}
+      >
       <button
         type="button"
         data-native-voice-control-id="one_voice_agent_bar_start"
@@ -2774,7 +2786,10 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
         onClick={handleVoiceStartClick}
         aria-label={`Start a voice conversation. ${hint}`}
         title="Start a voice conversation with One"
-        className="agent-bar-voice-launcher press-scale bottom-chrome-surface relative flex h-11 min-w-0 flex-1 items-center gap-2 overflow-hidden rounded-full px-3 text-left transition-[background-color,transform] duration-200 hover:bg-current/[0.09] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--app-accent-ring)] dark:hover:bg-current/[0.12]"
+        className={cn(
+          "agent-bar-voice-launcher press-scale bottom-chrome-surface relative flex h-11 min-w-0 flex-1 items-center gap-2 overflow-hidden px-3 text-left transition-[background-color,transform] duration-200 hover:bg-current/[0.09] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--app-accent-ring)] dark:hover:bg-current/[0.12]",
+          showAgentChatAction ? "rounded-l-full rounded-r-none" : "rounded-full",
+        )}
       >
         <span
           aria-hidden
@@ -2798,12 +2813,9 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
           data-testid="one-agent-chat-open"
           data-agent-action="chat"
           onClick={openAgentChat}
-          // The workspace is a two-agent window (One and Puppy One) and the
-          // mode survives a minimise, so a name that promises One is a promise
-          // this control cannot keep. The visible label already says "Chat".
-          aria-label={`Open Agent Chat. ${hint}`}
-          title="Open Agent Chat"
-          className="bottom-chrome-surface press-scale relative flex h-11 min-w-[88px] shrink-0 items-center justify-center gap-1.5 overflow-hidden rounded-full px-3 text-current transition-[background-color,transform] duration-200 hover:bg-current/[0.09] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--app-accent-ring)] dark:hover:bg-current/[0.12] sm:min-w-[96px]"
+          aria-label={`Chat with One. ${hint}`}
+          title="Chat with One"
+          className="bottom-chrome-surface press-scale relative flex h-11 min-w-[88px] shrink-0 items-center justify-center gap-1.5 overflow-hidden rounded-l-none rounded-r-full border-l border-current/15 px-3 text-current transition-[background-color,transform] duration-200 hover:bg-current/[0.09] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--app-accent-ring)] dark:hover:bg-current/[0.12] sm:min-w-[96px]"
         >
           <MessageCircle className="h-[17px] w-[17px]" />
           <span
@@ -2820,6 +2832,7 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
           </span>
         </button>
       ) : null}
+      </div>
       {/* Theme toggle stays available on signed-in surfaces too, matching the
           pre-auth greeter row. */}
       {showToggles ? (
