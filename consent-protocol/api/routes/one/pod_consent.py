@@ -48,6 +48,7 @@ that question for anonymous callers would turn this into a token oracle.
 
 from __future__ import annotations
 
+import hmac
 import logging
 from typing import Any, Optional
 
@@ -69,6 +70,14 @@ router = APIRouter(prefix="/api/one/pod/consent", tags=["personal-agent"])
 class PodConsentVerifyRequest(BaseModel):
     token: str = Field(..., min_length=1, max_length=4096)
     expected_scope: str = Field(default="", alias="expectedScope", max_length=128)
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class PodVaultKeyVerifyRequest(BaseModel):
+    user_id: str = Field(..., alias="userId", min_length=1, max_length=128)
+    key_version: int = Field(..., alias="keyVersion", ge=1, le=1)
+    key_fingerprint: str = Field(..., alias="keyFingerprint", pattern=r"^[a-f0-9]{64}$")
 
     model_config = ConfigDict(populate_by_name=True)
 
@@ -153,3 +162,29 @@ async def pod_consent_verify_route(
 ) -> dict:
     """A pod asks the hub whether a consent token is still good."""
     return await verify_consent_for_pod(request, authorization, payload)
+
+
+@router.post("/vault-key/verify")
+async def verify_pod_vault_key(
+    request: Request,
+    payload: PodVaultKeyVerifyRequest = Body(...),
+    authorization: Optional[str] = Header(default=None),
+) -> dict[str, bool]:
+    """Compare a pod-held key fingerprint with the owner's canonical vault hash."""
+    if not personal_agent_enabled():
+        raise HTTPException(status_code=404, detail="personal agent is not available")
+    asserted = await verify_pod_identity(request, authorization)
+    if not asserted:
+        raise HTTPException(status_code=401, detail="pod identity required")
+    try:
+        owner_hushh_id = await resolve_serving_owner_hushh_id(payload.user_id)
+        if owner_hushh_id != asserted:
+            return {"valid": False}
+        from hushh_mcp.services.vault_keys_service import VaultKeysService
+
+        state = await VaultKeysService().get_vault_state(payload.user_id)
+    except Exception as exc:  # noqa: BLE001 - never turn a DB failure into a valid key
+        logger.warning("pod_vault_key.authority_unavailable %s", type(exc).__name__)
+        raise HTTPException(status_code=503, detail="vault authority is unavailable") from exc
+    expected = str((state or {}).get("vaultKeyHash") or "").strip().lower()
+    return {"valid": bool(expected and hmac.compare_digest(expected, payload.key_fingerprint))}

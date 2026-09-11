@@ -14,18 +14,22 @@ refused with ``role_mismatch`` and no other information.
 
 from __future__ import annotations
 
+import asyncio
+import hashlib
 import logging
 import os
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 from fastapi import APIRouter, Body, Header, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field
 
 from api.middlewares.rate_limit import limiter
 from hushh_mcp.runtime_settings import pod_mode
+from hushh_mcp.services.pod_commit_log import PodLogFenced
 from hushh_mcp.services.pod_config import PodConfigError, active_pod_config
 from hushh_mcp.services.pod_session_authority import (
     ROLE_APP,
+    SCOPE_PKM_READ,
     SCOPE_POD_CONFIG,
     SCOPE_POD_REVOKE,
     SCOPE_POD_STATUS,
@@ -33,6 +37,8 @@ from hushh_mcp.services.pod_session_authority import (
     PodSessionRefused,
     active_session_authority,
 )
+from hushh_mcp.services.pod_vault_custody import CustodyRefused
+from hushh_mcp.services.pod_vault_enrollment import PodVaultEnrollment, WrappedCustodyKey
 
 logger = logging.getLogger(__name__)
 
@@ -65,6 +71,21 @@ class RevokeRequest(BaseModel):
 
 class ConfigRequest(BaseModel):
     changes: dict[str, Any] = Field(default_factory=dict)
+
+
+class CustodyChallengeRequest(BaseModel):
+    key_version: Literal[1] = Field(default=1, alias="keyVersion")
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class CustodyEnrollRequest(BaseModel):
+    challenge_id: str = Field(..., alias="challengeId", min_length=1, max_length=128)
+    envelope: WrappedCustodyKey
+    proof: str = Field(..., min_length=1, max_length=1024)
+    model_config = ConfigDict(populate_by_name=True)
+
+
+_CUSTODY_ENROLLMENTS: dict[tuple[str, int, str], PodVaultEnrollment] = {}
 
 
 def _refuse(exc: PodSessionRefused) -> HTTPException:
@@ -203,6 +224,116 @@ async def _close_subject_links(subject_id: str) -> None:
         await BROKER.close_subject(subject_id)
     except Exception:  # noqa: BLE001 - the tombstone is the authority; the socket is a courtesy
         logger.debug("pod_session.close_subject_links_failed", exc_info=True)
+
+
+def _custody_ceremony(authority: PodSessionAuthority, user_id: str) -> PodVaultEnrollment:
+    """Return the process-local pending-challenge holder for this pod incarnation."""
+    custody = authority.vault_custody
+    if custody is None:
+        raise CustodyRefused("custody_not_ready")
+    from hushh_mcp.services.pod_self_registration import pod_key_is_durable, pod_keypair
+
+    if not pod_key_is_durable():
+        raise CustodyRefused("custody_recipient_not_durable")
+    key = (authority.hushh_id, authority.epoch, user_id)
+    ceremony = _CUSTODY_ENROLLMENTS.get(key)
+    if ceremony is None:
+        ceremony = PodVaultEnrollment(
+            custody,
+            recipient=pod_keypair().private_key,
+            pod_key_id=authority.pod_key_id,
+            user_id=user_id,
+        )
+        _CUSTODY_ENROLLMENTS[key] = ceremony
+    return ceremony
+
+
+async def _validate_vault_key_with_hub(key: bytes, key_version: int, user_id: str) -> None:
+    """Validate only a key fingerprint against the canonical vault record."""
+    fingerprint = hashlib.sha256(key).hexdigest()
+    from hushh_mcp.services.pod_hub_client import PodHubClient, PodHubUnavailable
+
+    try:
+        response = await asyncio.to_thread(
+            PodHubClient().post,
+            "/api/one/pod/vault-key/verify",
+            json={"userId": user_id, "keyVersion": key_version, "keyFingerprint": fingerprint},
+        )
+    except PodHubUnavailable as exc:
+        raise CustodyRefused("custody_key_validation_unavailable") from exc
+    if getattr(response, "status_code", 0) != 200:
+        raise CustodyRefused("custody_key_validation_unavailable")
+    try:
+        valid = bool(response.json().get("valid"))
+    except Exception as exc:  # noqa: BLE001 - malformed authority response is a refusal
+        raise CustodyRefused("custody_key_validation_unavailable") from exc
+    if not valid:
+        raise CustodyRefused("custody_key_validation_invalid")
+
+
+def _custody_refusal(exc: Exception) -> HTTPException:
+    code = str(getattr(exc, "code", "custody_refused"))
+    if isinstance(exc, CustodyRefused):
+        code = str(exc)
+    status = (
+        503
+        if isinstance(exc, PodLogFenced)
+        or code.endswith("unavailable")
+        or code in {"custody_not_ready", "custody_recipient_not_durable"}
+        else 403
+    )
+    return HTTPException(
+        status_code=status, detail={"code": code, "message": "Pod vault custody is not available."}
+    )
+
+
+@router.post("/custody/challenge")
+async def pod_custody_challenge(
+    payload: CustodyChallengeRequest = Body(...),
+    authorization: Optional[str] = Header(default=None),
+) -> dict[str, Any]:
+    """Begin owner-approved pod custody without exposing vault material."""
+    authority, claims = verified_session(authorization, role=ROLE_APP, scope=SCOPE_PKM_READ)
+    try:
+        await authority.require_held()
+        ceremony = _custody_ceremony(authority, str(claims["user_id"]))
+        challenge = await ceremony.challenge(claims=claims, key_version=payload.key_version)
+    except (CustodyRefused, PodLogFenced) as exc:
+        raise _custody_refusal(exc) from exc
+    return {
+        "challengeId": challenge["challenge_id"],
+        "nonce": challenge["nonce"],
+        "expiresAt": challenge["expires_at"],
+        "podKeyId": challenge["pod_key_id"],
+        "recipientPublicKey": challenge["recipient_public_key"],
+        "keyVersion": challenge["key_version"],
+        "signingPayload": challenge,
+    }
+
+
+@router.post("/custody/enroll")
+async def pod_custody_enroll(
+    payload: CustodyEnrollRequest = Body(...),
+    authorization: Optional[str] = Header(default=None),
+) -> dict[str, Any]:
+    """Commit an owner-approved encrypted vault envelope into pod custody."""
+    authority, claims = verified_session(authorization, role=ROLE_APP, scope=SCOPE_PKM_READ)
+    user_id = str(claims["user_id"])
+    try:
+        await authority.require_held()
+        ceremony = _custody_ceremony(authority, user_id)
+        state = await ceremony.enroll(
+            claims=claims,
+            challenge_id=payload.challenge_id,
+            envelope=payload.envelope,
+            proof=payload.proof,
+            validate_vault_key=lambda key, version: _validate_vault_key_with_hub(
+                key, version, user_id
+            ),
+        )
+    except (CustodyRefused, PodLogFenced) as exc:
+        raise _custody_refusal(exc) from exc
+    return {"enrolled": True, "generation": state.generation, "keyVersion": state.key_version}
 
 
 # -- status and configuration ------------------------------------------------------------

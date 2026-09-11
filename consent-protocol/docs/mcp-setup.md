@@ -287,7 +287,12 @@ credentials. Account creation, pod custody, installed owner-pod acceptance and
 full consumer coverage remain incomplete. On the isolated branch, typed memory
 tools forward through the existing authenticated relay to
 `/api/one/pod/consumer/memory`; a missing or unhealthy pod fails closed and never
-falls back to shared memory.
+falls back to shared memory. Once a durable pod key is configured, the owner app
+session can complete the pod custody handoff through
+`/api/one/pod/custody/challenge` and `/api/one/pod/custody/enroll`; the hub
+validates only the vault-key fingerprint and never receives the envelope or
+plaintext key. These routes are implemented on the isolated branch but have not
+been exercised on an installed host.
 
 Memory permission is distinct from one OAuth session. A durable assistant
 binding can reuse the owner's recorded approval across new authenticated

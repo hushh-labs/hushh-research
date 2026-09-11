@@ -80,6 +80,8 @@ def test_pod_surface_stays_within_reviewed_routes():
         "/api/one/pod/memory/provider-consent",
         "/api/one/pod/memory/status",
         "/api/one/pod/consumer/memory",
+        "/api/one/pod/custody/challenge",
+        "/api/one/pod/custody/enroll",
         # The app surface: owner-local sessions, status, configuration (Lane A).
         "/api/one/pod/session/challenge",
         "/api/one/pod/session/admit",
@@ -350,6 +352,8 @@ OWNER_REACHABLE_PATHS = frozenset(
         "/api/one/pod/memory/revoke",
         "/api/one/pod/memory/provider-consent",
         "/api/one/pod/consumer/memory",
+        "/api/one/pod/custody/challenge",
+        "/api/one/pod/custody/enroll",
     }
 )
 

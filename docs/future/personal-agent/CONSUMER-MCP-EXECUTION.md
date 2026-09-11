@@ -38,8 +38,8 @@ Provisioning, recoverable owner-pod vault custody and client access are separate
 | OAuth owner/client/resource binding | Local checks pass | 55 focused checks; live host acceptance pending |
 | Owner connection review and disconnect | Local checks pass | 34 backend and 8 frontend checks; typecheck, ESLint and surface-map generation passed |
 | Standing memory consent | Implemented; local checks pass | Durable binding, secure review, revoke/commit race and full erasure/rollback exercised in disposable PostgreSQL |
-| Resumable onboarding and provisioning | Pending | Compose existing setup jobs, custody approval and no duplicate infrastructure |
-| Pod custody and canonical memory | Local adapter implemented; live custody pending | Authenticated enrollment, encrypted commit, CAS and replacement recovery on an installed pod |
+| Resumable onboarding and provisioning | Existing setup job; custody handoff wired in source | Compose the setup job, owner-session custody approval and no duplicate infrastructure on an installed pod |
+| Pod custody and canonical memory | Ceremony and local adapter implemented; live custody pending | Durable key/KMS configuration, authenticated envelope enrollment, encrypted commit, CAS and replacement recovery on an installed pod |
 | Consumer tools and Puppy adapters | Typed memory tools wired to owner-pod transport; Puppy parity pending | Common capability execution, receipts and Puppy device acceptance |
 | Direct/universal transport parity | Local relay adapter implemented; live parity pending | Isolation, revocation races and non-persistence across installed transports |
 | Host acceptance and submission packages | Pending | Real Claude and ChatGPT journeys, operational receipts |
@@ -98,7 +98,7 @@ The topology generator remains the existing coverage join: `scripts/ops/generate
 
 - Reused the existing X25519/SHA-256/AES-GCM key-unwrapping primitive; 19 export compatibility checks passed. No vault key enrollment is exposed yet.
 - Added a synchronous internal commit-log precondition evaluated against the captured, verified HEAD history on every CAS attempt. Existing 113 log tests and four new race/corruption cases passed. This is an atomic persistence seam, not completed custody authority.
-- Independent vault/identity review found no blocking defect. The custody consumer must still commit writer activation to HEAD, enforce signed approval and key binding, seal recoverable custody under owner-project protection, and clean orphan encrypted objects during erasure.
+- Independent vault/identity review found no blocking defect. The custody consumer now has owner-session challenge/enrollment routes; it still requires durable pod key/KMS configuration and installed-host exercise before acceptance.
 - Original private branch advanced to `4ba7cae5a` during work (four commits covering pod build restoration, test isolation, merge protection and client-env checks). It remains untouched. None changes this slice's files; review these explicit dependencies before integration or deployment.
 - GitHub #6719 was created and read back on Hussh Action Items; no owner, delivery date or completion status was invented.
 
@@ -109,7 +109,7 @@ The topology generator remains the existing coverage join: `scripts/ops/generate
 - Eighteen focused custody/enrollment tests pass, including actual startup replacement, generation races, altered ciphertext context, wrong-purpose signature, revoked subjects and key-validation failure. These are synthetic local tests, not installed runtime or browser/host acceptance.
 - Added paginated owner-scoped connection discovery through the existing OAuth API/proxy. Revoked connections remain discoverable without exposing credentials. Disconnect UI remains to be connected.
 - Added typed `read_hussh_memory`, `save_hussh_memory`, `correct_hussh_memory` and `export_hussh_memory` contracts. Each call is admitted through the existing standing-consent generation fence and carries only verified owner/deployment/connection metadata to the owner pod. The default transport now resolves the owner registry row and reuses the existing authenticated pod relay; it refuses missing, mismatched or non-HTTPS deployments and never falls back to shared memory. The pod route revalidates the short-lived grant against the hub, recovers existing custody, and commits through `PodPkmStore` using AES-256-GCM, CAS and sealed-log persistence.
-- Added local executor, route-surface and transport tests. The focused consumer/pod slice has 86 passing tests in locked Python 3.13. This is source and synthetic evidence only: secure setup route/client ceremony, authoritative vault-key validation, installed-pod custody, live owner memory journey, Puppy parity and host acceptance remain incomplete.
+- Added local executor, route-surface and transport tests. The focused consumer/pod slice has 86 passing tests in locked Python 3.13 before the custody-route additions; the expanded pod/session suite has 107 passing tests. This is source and synthetic evidence only: installed-pod custody, live owner memory journey, Puppy parity and host acceptance remain incomplete.
 
 ## Runtime credential fence
 
@@ -122,7 +122,8 @@ The topology generator remains the existing coverage join: `scripts/ops/generate
 
 - Commit `a171afbe8` adds the first executable owner-pod data-plane seam. `OwnerPodConsumerMemoryTransport` resolves the owner’s registry endpoint and forwards only typed operation arguments plus the renewable `cap.consumer.memory` token through the existing relay. The connection receipt remains non-bearer metadata.
 - `/api/one/pod/consumer/memory` is mounted in the allowlisted pod app surface. It rechecks the token and owner against the pod’s `HUSSH_ID`, requires active pod custody, recovers the owner key only inside the operation, and uses the existing rebuildable `PodPkmStore` rather than a hub database or new memory backend.
+- `/api/one/pod/custody/challenge` and `/api/one/pod/custody/enroll` reuse the existing owner app session, durable X25519 recipient and `PodVaultEnrollment`. The hub sees only a key fingerprint/version validation request; it never receives the envelope or plaintext key. A non-durable key, unavailable authority, mismatched owner, replayed challenge or invalid envelope fails closed.
 - Save/correct use existing content revisions, idempotency commit IDs and sealed commit-log writes. Reads and exports are bounded to 20 records; provider, execution target and revision are returned without exposing the owner ID or vault material.
-- This adapter requires the pod’s existing local PKM/custody configuration and parked migration `939`; no hosted migration or deployment was applied in this branch. A missing or unhealthy pod returns an explicit unavailable result and cannot route to shared/cloud intelligence.
+- This adapter requires the pod’s existing local PKM/custody configuration and parked migration `939`; no hosted migration or deployment was applied in this branch. A missing or unhealthy pod returns an explicit unavailable result and cannot route to shared/cloud intelligence. The initial ceremony accepts key version `1` because the current canonical vault record exposes a hash but no independent version field; rotation remains a follow-up contract.
 
 - Subsequent validation: 47 focused backend checks passed before the recipient/async-validation additions; all eight enrollment checks then passed. Four frontend proxy tests, frontend typecheck and docs/runtime parity passed. No combined final release or live acceptance gate has run.

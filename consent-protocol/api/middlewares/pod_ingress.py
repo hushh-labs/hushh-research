@@ -84,6 +84,8 @@ APP_SURFACE_EXACT: frozenset[str] = frozenset(
         "/api/one/pod/memory/revoke",
         "/api/one/pod/memory/provider-consent",
         "/api/one/pod/consumer/memory",
+        "/api/one/pod/custody/challenge",
+        "/api/one/pod/custody/enroll",
     }
 )
 APP_SURFACE_PREFIXES: tuple[str, ...] = (

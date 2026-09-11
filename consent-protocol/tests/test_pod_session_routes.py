@@ -211,6 +211,17 @@ def test_renew_returns_a_fresh_session(pod):
     assert renewed.json()["sid"] != session["sid"]
 
 
+def test_custody_ceremony_fails_closed_until_durable_custody_is_ready(pod):
+    session = _admit(pod["client"], Subject("tdv_web_1", "web"))
+    response = pod["client"].post(
+        "/api/one/pod/custody/challenge",
+        json={"keyVersion": 1},
+        headers=_auth(session),
+    )
+    assert response.status_code == 503
+    assert response.json()["detail"]["code"] == "custody_not_ready"
+
+
 # -- roles on the app surface ----------------------------------------------------------
 
 
