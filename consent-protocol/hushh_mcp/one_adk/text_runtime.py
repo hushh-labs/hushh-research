@@ -18,7 +18,7 @@ import time
 import uuid
 from collections.abc import AsyncGenerator, Sequence
 from dataclasses import dataclass
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from google.adk.agents.run_config import RunConfig, StreamingMode
 from google.adk.events import Event
@@ -50,6 +50,13 @@ from hushh_mcp.runtime_providers import (
 )
 from hushh_mcp.runtime_providers.vertex_failover import is_retryable_vertex_error
 from hushh_mcp.services.action_gateway import get_action_gateway_action
+
+if TYPE_CHECKING:
+    # A TYPE ONLY. Importing `memory_review` at module scope would pull
+    # `pod_memory_service` into this module's import, which
+    # `_resolve_pod_memory_service` deliberately keeps behind a guarded lazy
+    # import so a pod whose memory cannot be resolved still answers.
+    from hushh_mcp.one_adk.memory_review import MemoryReviewPolicy
 
 logger = logging.getLogger(__name__)
 
@@ -564,6 +571,7 @@ async def _stream_one_text_turn_once(
     data_door_grants: dict[str, str] | None = None,
     managed_location: str | None = None,
     memory_commit_allowed: Any = None,
+    memory_review_policy: "MemoryReviewPolicy | None" = None,
 ) -> AsyncGenerator[OneTextStreamEvent, None]:
     """Run one typed turn in one endpoint and expose replay boundaries."""
     if str(runtime_provider or "").strip().lower() not in {"gemini", "puppy"}:
@@ -626,6 +634,10 @@ async def _stream_one_text_turn_once(
         runtime_provider=runtime_provider,
         runtime_model=runtime_model,
         session_owner_id=session_key,
+        # The verdict the TURN'S door reached about this caller, carried, never
+        # recomputed here (`pod_turn.run_pod_turn`). Absent means absent: the
+        # review then retires nothing.
+        review_policy=memory_review_policy,
     )
     # The always-on curated digest (pod only; empty string and False on the hub).
     memory_digest = await _memory_digest(memory_service)
@@ -852,6 +864,7 @@ async def _catch_up_memory_review(
     runtime_provider: str,
     runtime_model: str,
     session_owner_id: str,
+    review_policy: "MemoryReviewPolicy | None" = None,
 ) -> Any:
     """Review what a closed-without-notice conversation left behind, before answering.
 
@@ -859,6 +872,16 @@ async def _catch_up_memory_review(
     service holds un-reviewed records, and only inside the record's budget. It
     returns a ``MemoryReviewResult`` or None, and it can never raise into a turn:
     a review that fails degrades to an un-reviewed turn, never a failed one.
+
+    THIS IS THE STAND-IN FOR THE CLOSE THE PERSON NEVER SENT, so it has to be able
+    to do what that close would have done -- including retire a fact the person
+    corrected or asked to be forgotten. ``review_policy`` is how: the turn route
+    resolved it from the door that admitted this caller
+    (``api.routes.one.pod_memory.review_policy_for_session``) and it travels here
+    as a finding. Nothing in this module reads a session, a binding or a scope; an
+    authority decision inside the model runtime would be a second reader of the
+    same consent, and the two could disagree. Absent means absent: no policy is no
+    authority, and ``run_memory_review`` is default-deny for exactly that case.
     """
     if memory_service is None:
         return None
@@ -871,7 +894,10 @@ async def _catch_up_memory_review(
         pending = getattr(memory_service, "unreviewed_count", None)
         if not callable(pending) or pending() <= 0:
             return None
-        from hushh_mcp.one_adk.memory_review import run_memory_review  # noqa: PLC0415
+        from hushh_mcp.one_adk.memory_review import (  # noqa: PLC0415
+            MemoryReviewPolicy,
+            run_memory_review,
+        )
 
         return await run_memory_review(
             memory_service=memory_service,
@@ -882,6 +908,10 @@ async def _catch_up_memory_review(
             budget_seconds=config.memory_review_budget_seconds,
             max_records=config.memory_review_max_records,
             session_owner_id=session_owner_id,
+            # Made explicit rather than left to the callee's default, so what an
+            # unauthorised caller gets is visible at the boundary that hands it
+            # over: the empty policy denies retirement.
+            policy=review_policy if review_policy is not None else MemoryReviewPolicy(),
         )
     except Exception as error:  # noqa: BLE001 - a review must never cost the answer
         logger.warning("one_text_turn.catch_up_review_failed error=%s", type(error).__name__)
@@ -928,6 +958,9 @@ async def stream_one_text_turn(
     runtime_vertex_location: str | None = None,
     data_door_grants: dict[str, str] | None = None,
     memory_commit_allowed: Any = None,
+    # What the caller's door decided the catch-up review may do. Resolved at the
+    # route and carried; the runtime never derives it. None is default-deny.
+    memory_review_policy: "MemoryReviewPolicy | None" = None,
 ) -> AsyncGenerator[OneTextStreamEvent, None]:
     """Run One with same-model regional failover before any observable event."""
     locations: tuple[str | None, ...] = (None,)
@@ -961,6 +994,7 @@ async def stream_one_text_turn(
                 data_door_grants=data_door_grants,
                 managed_location=location,
                 memory_commit_allowed=memory_commit_allowed,
+                memory_review_policy=memory_review_policy,
             ):
                 if event.kind == "boundary":
                     replay_boundary_crossed = True

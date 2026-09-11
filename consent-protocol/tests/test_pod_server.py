@@ -313,3 +313,140 @@ def test_the_wall_sits_inside_observability_and_outside_the_routes():
         < order.index(CORSMiddleware)
         < order.index(PodIngressPolicy)
     )
+
+
+# -- the app surface is pinned path by path -------------------------------------------
+#
+# The wall and the route allowlist are two different lists, and a route can mount
+# while staying unreachable by its owner. That is not hypothetical: three of the four
+# memory doors mounted, declared both admission headers, had owner-local tests, and
+# still answered the wall's 404 to every owner-direct request, because nothing
+# compared the two lists. These do.
+
+#: Every mounted path an owner may reach directly, with no hub identity. Anything
+#: mounted and absent from here is on the machine wall. Both directions are asserted,
+#: so widening the wall's allowlist without reviewing it here fails.
+OWNER_REACHABLE_PATHS = frozenset(
+    {
+        "/health",
+        "/health/ready",
+        "/health/capabilities",
+        "/api/one/pod/status",
+        "/api/one/pod/config",
+        "/api/one/pod/turn",
+        # NOT /api/one/pod/live: the Live websocket is walled on purpose, and
+        # test_a_walled_websocket_is_closed_before_accept pins the 1008 close.
+        "/api/one/puppy/relay",
+        "/api/one/pod/session/challenge",
+        "/api/one/pod/session/admit",
+        "/api/one/pod/session/renew",
+        "/api/one/pod/session/revoke",
+        # The learning loop's owner doors. Each carries the turn's two-door
+        # admission; see api/middlewares/pod_ingress.APP_SURFACE_EXACT for why each
+        # one is reachable rather than walled.
+        "/api/one/pod/conversation/{conversation_id}/close",
+        "/api/one/pod/memory/status",
+        "/api/one/pod/memory/revoke",
+        "/api/one/pod/memory/provider-consent",
+    }
+)
+
+
+def _concrete(path: str) -> str:
+    """A template path as a real request would spell it."""
+    import re
+
+    return re.sub(r"\{[^}]+\}", "sample", path)
+
+
+def test_the_owner_reachable_surface_is_exactly_these_paths():
+    from api.middlewares.pod_ingress import is_app_surface
+
+    mounted = _paths()
+    assert OWNER_REACHABLE_PATHS <= mounted, (
+        f"pinned as owner-reachable but not mounted: {sorted(OWNER_REACHABLE_PATHS - mounted)}"
+    )
+    reachable = {path for path in mounted if is_app_surface(_concrete(path))}
+    assert reachable == OWNER_REACHABLE_PATHS, (
+        f"newly reachable: {sorted(reachable - OWNER_REACHABLE_PATHS)}; "
+        f"newly walled: {sorted(OWNER_REACHABLE_PATHS - reachable)}"
+    )
+
+
+def test_every_memory_door_is_owner_reachable_over_http(walled):
+    """The property the header parameters alone could not give: the machine wall
+    lets an owner-direct request through to the route, which then answers with its
+    own admission refusal rather than the wall's 404."""
+    from fastapi.testclient import TestClient
+
+    client = TestClient(pod_server.app, raise_server_exceptions=False)
+    calls = (
+        client.get("/api/one/pod/memory/status"),
+        client.post("/api/one/pod/memory/revoke", json={"memoryIds": ["m1"]}),
+        client.post("/api/one/pod/memory/provider-consent", json={"granted": False}),
+        client.post("/api/one/pod/conversation/c1/close", json={}),
+    )
+    for response in calls:
+        assert response.json() != {"detail": "not found"}, (
+            f"{response.request.url.path} was refused by the machine wall, "
+            "so an owner on a laptop can never reach it"
+        )
+
+
+def test_the_memory_doors_still_carry_their_own_refusal(walled, monkeypatch):
+    """Reachable is not open. With the feature ON and no credential of either kind,
+    every door answers its own 401, so putting them on the app surface moved the
+    check to the route rather than removing it."""
+    from fastapi.testclient import TestClient
+
+    from api.routes.one import pod_turn
+
+    monkeypatch.setattr(pod_turn, "pod_mode", lambda: True)
+    monkeypatch.setattr(pod_turn, "pod_turn_enabled", lambda: True)
+    client = TestClient(pod_server.app, raise_server_exceptions=False)
+    for response in (
+        client.get("/api/one/pod/memory/status"),
+        client.post("/api/one/pod/memory/revoke", json={"memoryIds": ["m1"]}),
+        client.post("/api/one/pod/memory/provider-consent", json={"granted": False}),
+        client.post("/api/one/pod/conversation/c1/close", json={}),
+    ):
+        assert response.status_code == 401, response.request.url.path
+        assert response.json() == {"detail": "consent token required"}
+
+
+def test_a_disabled_pod_answers_404_to_every_memory_door_bearer_or_not(walled, monkeypatch):
+    """Availability is settled before any door opens. With the feature off, a
+    request carrying a bearer must look exactly like one that carries nothing:
+    otherwise the refusal is an oracle for a disabled pod's memory surface and for
+    whether its local authority is running."""
+    from fastapi.testclient import TestClient
+
+    from api.routes.one import pod_turn
+
+    monkeypatch.setattr(pod_turn, "pod_mode", lambda: True)
+    monkeypatch.setattr(pod_turn, "pod_turn_enabled", lambda: False)
+    client = TestClient(pod_server.app, raise_server_exceptions=False)
+    for headers in ({}, {"Authorization": "Bearer pst1.whatever.mac"}):
+        for response in (
+            client.get("/api/one/pod/memory/status", headers=headers),
+            client.post("/api/one/pod/memory/revoke", json={"memoryIds": ["m1"]}, headers=headers),
+            client.post(
+                "/api/one/pod/memory/provider-consent", json={"granted": False}, headers=headers
+            ),
+            client.post("/api/one/pod/conversation/c1/close", json={}, headers=headers),
+        ):
+            assert response.status_code == 404, (response.request.url.path, headers)
+            assert response.json() == {"detail": "pod turn is not available"}
+
+
+def test_a_memory_path_that_is_not_named_stays_walled(walled):
+    """The memory doors are allowlisted one at a time, never by prefix: a future
+    /memory/export must be reviewed here before it is public."""
+    from fastapi.testclient import TestClient
+
+    from api.middlewares.pod_ingress import is_app_surface
+
+    assert is_app_surface("/api/one/pod/memory/export") is False
+    assert is_app_surface("/api/one/pod/memory") is False
+    client = TestClient(pod_server.app, raise_server_exceptions=False)
+    assert client.get("/api/one/pod/memory/export").json() == {"detail": "not found"}

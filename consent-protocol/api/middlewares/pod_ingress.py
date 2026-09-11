@@ -10,9 +10,9 @@ assert one container. One middleware can, and this is it.
 Two surfaces:
 
 * **App surface.** Health, the session routes, status, config, the turn, the
-  conversation close, the Puppy relay. These carry their own authentication (a pod
-  session bearer, or nothing for health) and are reachable by anyone who can reach
-  the pod.
+  conversation close, the owner's memory doors, the Puppy relay. These carry their
+  own authentication (a pod session bearer, or nothing for health) and are reachable
+  by anyone who can reach the pod.
 * **Machine wall.** Everything else requires the Google ID token the hub already
   sends with every call it makes to a pod, verified with the same
   ``verify_scheduler_request`` the tick and the migration routes use, against the
@@ -54,6 +54,35 @@ APP_SURFACE_EXACT: frozenset[str] = frozenset(
         "/api/one/pod/config",
         "/api/one/pod/turn",
         "/api/one/puppy/relay",
+        # The owner's memory doors (api/routes/one/pod_memory.py). Each is named
+        # here one at a time rather than by a `/memory/` prefix, so a later memory
+        # route does not inherit public reach by being filed in the same folder.
+        #
+        # `status` is the owner reading their own counts, sequence numbers and
+        # provider words. No content leaves on it, and a person who cannot see what
+        # their agent remembers without the hub does not hold the memory.
+        #
+        # `revoke` is destructive, and that is the argument FOR it: erasure that
+        # works only while a third party is reachable is a request, not erasure.
+        # It is owner-scoped twice over (the binding names this pod's owner, the ids
+        # are this pod's own) and the route requires the binding's `pod.revoke`
+        # scope, matching `/api/one/pod/session/revoke` beside it.
+        #
+        # The cost, taken knowingly and identical to the one `/api/one/pod/turn`
+        # already carries: the hub relay reaches these same three paths with its
+        # Google identity, and the wall no longer re-checks it there. The route's
+        # own admission (a hub-verified consent token, or this pod's app-role
+        # session) becomes the whole defence, which is what "app surface" means.
+        #
+        # `provider-consent` carries both directions of one answer. Withdrawal is
+        # the direction that must survive an outage, so it cannot live behind a wall
+        # that needs the hub to open. Granting is unchanged by being here: it still
+        # demands the hub-minted `cap.memory.provider.process` token and answers 503
+        # when the hub cannot be asked, so this path is never more powerful than the
+        # hub-relayed one.
+        "/api/one/pod/memory/status",
+        "/api/one/pod/memory/revoke",
+        "/api/one/pod/memory/provider-consent",
     }
 )
 APP_SURFACE_PREFIXES: tuple[str, ...] = (

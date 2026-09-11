@@ -260,6 +260,43 @@ async def _validate_consent(consent_token: str, *, verifier: Any = None) -> dict
 # from, and only the app role may run a turn.
 
 
+def _require_local_session(consent_token: str, session: dict | None) -> None:
+    """An owner-local turn runs in the app role, and must carry its claims to prove it.
+
+    The route already asks ``verified_session`` this when it verifies the bearer.
+    This repeats it at the core, so a caller reaching ``run_pod_turn`` directly
+    cannot present a device-role session and run a turn anyway.
+
+    A local call is recognised by the TOKEN, not by whether a session was passed:
+    ``local_token`` is the only token shaped ``pod-session:<sid>`` and only the
+    authority mints it. Asking the shape is what makes the repeat a real check
+    rather than an honour system, because a direct caller that supplies the local
+    token and the local verifier but omits ``session`` would otherwise reach the
+    turn with no role question asked at all. ``pod_memory._require_local_session``
+    is the same guard on the memory doors; the two must stay in step.
+    """
+    from hushh_mcp.services.pod_session_authority import (  # noqa: PLC0415
+        LOCAL_TOKEN_PREFIX,
+        ROLE_APP,
+    )
+
+    if str(consent_token or "").strip().startswith(LOCAL_TOKEN_PREFIX) and session is None:
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "code": "session_required",
+                "message": "an owner-local call must carry its verified session",
+            },
+        )
+    if session is None:
+        return
+    if str(session.get("role") or "") != ROLE_APP:
+        raise HTTPException(
+            status_code=403,
+            detail={"code": "role_mismatch", "message": "an app-role session is required"},
+        )
+
+
 async def _puppy_link_available(hushh_id: str, device_id: str) -> bool:
     """Whether the owner's Puppy device holds a live link on THIS pod's broker."""
     try:
@@ -320,11 +357,7 @@ async def run_pod_turn(
 ) -> dict:
     """The testable core: validate, run one turn, collect. Injectable by keyword."""
     _require_enabled()
-    if session is not None and str(session.get("role") or "") != "app":
-        raise HTTPException(
-            status_code=403,
-            detail={"code": "role_mismatch", "message": "an app-role session is required"},
-        )
+    _require_local_session(consent_token, session)
     if not (consent_token or "").strip():
         raise HTTPException(status_code=401, detail="consent token required")
 
@@ -338,6 +371,31 @@ async def run_pod_turn(
         from hushh_mcp.one_adk.text_runtime import stream_one_text_turn  # noqa: PLC0415
 
         runner = stream_one_text_turn
+
+    # WHAT THE CATCH-UP REVIEW MAY DO, decided HERE, where the door is already known.
+    #
+    # A turn that arrives with un-reviewed records runs the catch-up review before it
+    # answers, and that review is the stand-in for a close the person never sent. Two
+    # of its four tools retire a held fact, so it needs the same authority answer the
+    # close route resolves -- and it must be the SAME answer, from the same helper, or
+    # the two doors into one memory would disagree about one caller.
+    #
+    # Resolved at the route rather than in the runtime on purpose. The runtime can be
+    # handed a verdict; it must not be handed a session and asked to read scopes,
+    # because a second place that interprets consent is a second place that can
+    # interpret it differently, and the interpretation would then live in the ADK
+    # layer where a change to the binding vocabulary has no business reaching. A bare
+    # bool would carry the verdict but not its provenance, so a denial could not name
+    # itself in a log line.
+    #
+    # A turn that reaches here with no verified local session was admitted on the
+    # hub's own verdict about the consent token (`_require_local_session` refuses an
+    # owner-local token that arrives without its claims). `review_policy_for_session`
+    # treats that as full authority for the same reason the close and revoke routes
+    # do: a hub consent token carries hub scopes, not binding scopes.
+    from api.routes.one.pod_memory import review_policy_for_session  # noqa: PLC0415
+
+    memory_review_policy = review_policy_for_session(session)
 
     # Keep the no-argument manifest resolver injectable for existing pod tests
     # and callers; an explicit Puppy target is the only payload-dependent path.
@@ -470,6 +528,8 @@ async def run_pod_turn(
                 data_door_grants=payload.data_door_grants or {},
                 # A fenced incarnation answers but never publishes; see text_runtime.
                 memory_commit_allowed=_memory_commit_allowed,
+                # The door's verdict on retirement, carried to the catch-up review.
+                memory_review_policy=memory_review_policy,
             ):
                 kind = getattr(event, "kind", "")
                 if kind == "token":

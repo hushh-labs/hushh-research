@@ -702,6 +702,88 @@ async def test_text_runtime_reports_observed_recall_digest_and_catch_up(monkeypa
     assert reviewed["model"] == "the-model-object" == observed["agent_model"]
     assert reviewed["reason"] == "catch_up"
     assert reviewed["budget_seconds"] == 45.0 and reviewed["max_records"] == 12
+    # This turn was started with no policy, so the review is handed one that
+    # retires nothing. Default-deny is made explicit at the boundary rather than
+    # left to the callee's default, so what an unauthorised caller gets is visible
+    # here rather than two modules away.
+    assert reviewed["policy"].may_retire is False
+    assert reviewed["policy"].authority == "unstated"
+
+
+async def test_the_catch_up_review_carries_the_turns_verified_authority(monkeypatch):
+    """The turn's door decided this, and the runtime carries it without reading it.
+
+    The catch-up review is the stand-in for a close the person never sent, and two
+    of its four tools retire a held fact. Passing nothing meant it could retire
+    nothing for every caller, the full-authority owner included, so a correction
+    they spoke was remembered while the stale fact stayed live. What this pins is
+    the thread: what the route resolved is what the reviewer is asked for. Nothing
+    in this module reads a session, a binding or a scope to reach it.
+    """
+    from hushh_mcp.one_adk.memory_review import MemoryReviewPolicy, MemoryReviewResult
+
+    class _Memory:
+        last_recall_backend = None
+        last_written = 0
+        provider_report: dict = {}
+        pending = 1
+
+        async def digest(self, max_chars: int) -> str:
+            return ""
+
+        def unreviewed_count(self) -> int:
+            return self.pending
+
+        async def add_session_to_memory(self, session) -> None:  # noqa: ANN001
+            self.last_written = 1
+
+    memory = _Memory()
+    reviewed: dict = {}
+
+    async def _review(**kwargs):
+        reviewed.update(kwargs)
+        memory.pending = 0
+        return MemoryReviewResult(outcome="applied", reason="catch_up", through_seq=1, records=1)
+
+    class _FakeRunner:
+        def __init__(self, *, app_name, agent, session_service, memory_service=None):
+            pass
+
+        async def run_async(self, *, user_id, session_id, new_message, run_config):
+            yield Event(
+                author="one",
+                partial=False,
+                content=genai_types.Content(
+                    role="model", parts=[genai_types.Part.from_text(text="ok")]
+                ),
+            )
+
+    monkeypatch.setattr(text_runtime, "Runner", _FakeRunner)
+    monkeypatch.setattr(text_runtime, "build_one_text_agent", lambda *, model: ("one", model))
+    monkeypatch.setattr(text_runtime, "_runtime_model", lambda **_kw: "the-model-object")
+    monkeypatch.setattr(text_runtime, "_resolve_pod_memory_service", lambda: memory)
+    monkeypatch.setattr("hushh_mcp.one_adk.memory_review.run_memory_review", _review)
+
+    granted = MemoryReviewPolicy(may_retire=True, authority="binding_scope")
+    async for _event in text_runtime.stream_one_text_turn(
+        user_id="u1",
+        consent_token="opaque-" + "token",
+        conversation_id="c1",
+        message="forget the meridian account",
+        history=[],
+        timezone=None,
+        screen_context=None,
+        pkm_context=None,
+        runtime_provider="gemini",
+        runtime_model="gemini-test",
+        runtime_mode="byok",
+        runtime_credential="k",
+        memory_review_policy=granted,
+    ):
+        pass
+
+    assert reviewed["policy"] is granted, "the door's own verdict, not a rebuilt one"
+    assert reviewed["policy"].may_retire is True
 
 
 def test_event_memory_recalls_reads_only_load_memory_parts():

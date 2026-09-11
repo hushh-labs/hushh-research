@@ -1135,3 +1135,87 @@ async def test_hub_path_tests_are_unchanged_by_the_local_door(enabled, monkeypat
         payload=_payload(), consent_token="t", stream_fn=_stream(events)
     )
     assert result["text"] == "hub answer"
+
+
+async def test_a_local_token_without_its_session_is_refused_before_the_turn_runs(
+    enabled, monkeypatch, local_authority
+):
+    """Omitting the claims must not buy the owner-local door with no role check.
+
+    ``run_pod_turn`` only asked the role question when a ``session`` was passed, so
+    a caller that supplied the local token and the local verifier but no claims
+    reached the turn with nothing asked at all. The guard keys on the TOKEN's shape
+    (``pod-session:``), which only the pod's own authority mints, so it cannot be
+    dodged by leaving an argument out.
+    """
+    from hushh_mcp.services import pod_consent_client
+
+    async def _never(*_a, **_k):
+        raise AssertionError("the hub was asked on an owner-local turn")
+
+    monkeypatch.setattr(pod_consent_client, "verify_consent", _never)
+    authority = local_authority["authority"]
+    _, claims = await local_authority["admit"]("tdv_app_1", "web")
+    ran: dict = {}
+
+    async def _run(**kwargs):
+        ran.update(kwargs)
+        yield _Event("token", "should never answer")
+
+    with pytest.raises(HTTPException) as exc:
+        await pod_turn.run_pod_turn(
+            payload=_payload(),
+            consent_token=authority.local_token(claims),
+            verifier=authority.local_verifier(claims),
+            session=None,
+            stream_fn=_run,
+        )
+    assert exc.value.status_code == 403
+    assert exc.value.detail["code"] == "session_required"
+    assert not ran, "the turn must be refused before the runner is reached"
+
+    # The partner control: the same token WITH its claims runs, so what the guard
+    # refuses is the missing session and not the local door itself.
+    result = await pod_turn.run_pod_turn(
+        payload=_payload(),
+        stream_fn=_stream([_Event("token", "local answer")]),
+        **_local_turn_kwargs(authority, claims),
+    )
+    assert result["text"] == "local answer"
+
+
+async def test_the_turn_and_the_memory_doors_refuse_a_sessionless_local_token_alike(
+    local_authority,
+):
+    """``pod_memory``'s module docstring says the two doors behave the same way.
+
+    It said so while only the memory side refused this. Pinned here rather than
+    left as prose, so the next divergence is a red test and not a stale claim.
+    """
+    from api.routes.one import pod_memory
+
+    authority = local_authority["authority"]
+    _, claims = await local_authority["admit"]("tdv_app_1", "web")
+    token = authority.local_token(claims)
+
+    with pytest.raises(HTTPException) as turn_side:
+        pod_turn._require_local_session(token, None)
+    with pytest.raises(HTTPException) as memory_side:
+        pod_memory._require_local_session(token, None)
+    assert turn_side.value.status_code == memory_side.value.status_code == 403
+    assert turn_side.value.detail == memory_side.value.detail
+
+    # And a device-role session is the same refusal on both, by the same code.
+    _, device = await local_authority["admit"]("tdv_mac_1", "macos")
+    with pytest.raises(HTTPException) as turn_role:
+        pod_turn._require_local_session(authority.local_token(device), device)
+    with pytest.raises(HTTPException) as memory_role:
+        pod_memory._require_local_session(authority.local_token(device), device)
+    assert (
+        turn_role.value.detail
+        == memory_role.value.detail
+        == {
+            "code": "role_mismatch",
+            "message": "an app-role session is required",
+        }
+    )
