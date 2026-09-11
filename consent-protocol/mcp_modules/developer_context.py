@@ -172,7 +172,8 @@ def get_current_schema_profile() -> str:
 def is_tool_allowed(tool_name: str) -> bool:
     from mcp_modules.canonical_contract import canonical_tool_name
 
-    return canonical_tool_name(tool_name) in set(get_current_visible_tool_names())
+    resolved = canonical_tool_name(tool_name) or str(tool_name or "").strip()
+    return resolved in set(get_current_visible_tool_names())
 
 
 def get_developer_request_headers() -> dict[str, str]:

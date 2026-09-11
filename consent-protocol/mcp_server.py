@@ -186,7 +186,9 @@ async def call_tool(name: str, arguments: dict):
     start_time = time.perf_counter()
     logger.info("Tool called: %s", name)
 
-    canonical_name = canonical_tool_name(name)
+    # Public names have compatibility aliases; private entitled handlers retain
+    # their exact authored names. The handler registry still rejects unknowns.
+    canonical_name = canonical_tool_name(name) or str(name or "").strip()
     handler = HANDLERS.get(canonical_name or "")
     if not handler:
         logger.warning(f"❌ Unknown tool requested: {name}")
