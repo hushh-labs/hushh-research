@@ -270,6 +270,9 @@ async def execute_pod_consumer_memory(
     *, owner_id: str, operation: str, arguments: dict[str, Any]
 ) -> dict:
     """Resolve the one pod's custody-backed store and execute one operation."""
+    from hushh_mcp.services.consumer_mcp_memory import validate_memory_request
+
+    request = validate_memory_request(operation, arguments)
     from hushh_mcp.services.pod_session_authority import active_session_authority
 
     authority = active_session_authority()
@@ -288,7 +291,7 @@ async def execute_pod_consumer_memory(
     if store is None:
         raise PodConsumerMemoryUnavailable("owner pod PKM is not ready")
     return await PodConsumerMemoryExecutor(store=store, vault_key=vault_key).execute(
-        owner_id=owner_id, operation=operation, arguments=arguments
+        owner_id=owner_id, operation=request.operation, arguments=request.arguments
     )
 
 

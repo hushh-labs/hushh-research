@@ -76,6 +76,23 @@ async def test_default_transport_fails_closed() -> None:
         await UnavailableConsumerMemoryTransport().execute(operation="read")
 
 
+@pytest.mark.asyncio
+async def test_pod_data_plane_revalidates_typed_request_before_custody(monkeypatch) -> None:
+    from hushh_mcp.services import pod_consumer_memory, pod_session_authority
+
+    monkeypatch.setattr(
+        pod_session_authority,
+        "active_session_authority",
+        lambda: pytest.fail("invalid request reached custody"),
+    )
+    with pytest.raises(ConsumerMemoryInvalid, match="query is required"):
+        await pod_consumer_memory.execute_pod_consumer_memory(
+            owner_id="owner-a",
+            operation="read",
+            arguments={"domain": "food"},
+        )
+
+
 class _Connections:
     def admit_memory(self, principal, *, operation):
         assert operation == "save"

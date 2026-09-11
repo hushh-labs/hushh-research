@@ -13,6 +13,7 @@ from fastapi import APIRouter, Body, Header, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 
 from hushh_mcp.constants import ConsentScope
+from hushh_mcp.services.consumer_mcp_memory import ConsumerMemoryInvalid
 from hushh_mcp.services.pod_consent_client import require_owner_scope
 from hushh_mcp.services.pod_consumer_memory import (
     PodConsumerMemoryConflict,
@@ -57,6 +58,8 @@ async def pod_consumer_memory_route(
         raise HTTPException(
             status_code=403, detail="consumer memory grant is not valid here"
         ) from exc
+    except ConsumerMemoryInvalid as exc:
+        raise HTTPException(status_code=422, detail="invalid consumer memory request") from exc
     except PodConsumerMemoryConflict as exc:
         raise HTTPException(
             status_code=409,
