@@ -1,0 +1,319 @@
+/* Figma screen 7 is a 402 × 874 composition. Keeping the visual layout on
+   that canvas and scaling the whole canvas preserves the exact relationships
+   between artwork, fields, and CTA on smaller responsive surfaces. */
+.stage,
+.composition {
+  display: contents;
+}
+
+:global(.dark) .shell {
+  background: #000;
+  color: #f2f2f7;
+}
+
+:global(.dark) .stage {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  overflow: hidden;
+}
+
+:global(.dark) .composition {
+  position: relative;
+  display: block;
+  flex: none;
+  width: 402px !important;
+  height: 874px !important;
+  min-height: 874px !important;
+  max-width: none !important;
+  margin: 0 !important;
+  transform: scale(
+    min(
+      1,
+      calc(100vw / 402px),
+      calc((100svh - var(--app-scroll-bottom-pad, 0px)) / 874px)
+    )
+  );
+  transform-origin: top center;
+}
+
+:global(.dark) .topBar {
+  inset: unset !important;
+  top: 72px !important;
+  right: auto !important;
+  bottom: auto !important;
+  left: 27px !important;
+  width: 43px;
+  height: 43px;
+  padding: 0 !important;
+  display: block !important;
+}
+
+:global(.dark) .phoneBackButton {
+  width: 43px !important;
+  height: 43px !important;
+  padding: 0 !important;
+  background: #1c1c1e !important;
+  color: rgba(255, 255, 255, 0.96) !important;
+  box-shadow: none !important;
+}
+
+:global(.dark) .accountButton {
+  display: none !important;
+}
+
+:global(.dark) .phoneIllustrationSlot {
+  position: static !important;
+  width: 0;
+  height: 0;
+  transform: none !important;
+}
+
+:global(.dark) .phoneIllustration {
+  position: absolute;
+  top: 107px;
+  left: 17px;
+  width: 357px !important;
+  height: 238px !important;
+  aspect-ratio: auto !important;
+}
+
+:global(.dark) .phoneIllustration img {
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  object-fit: contain;
+  object-position: center;
+}
+
+:global(.dark) .phoneTitle {
+  top: 345px !important;
+  right: 0 !important;
+  left: 0 !important;
+  width: 402px;
+  height: 32px;
+}
+
+:global(.dark) .phoneTitle h1 {
+  width: 324px;
+  height: 32px;
+  margin: 0 auto;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif;
+  font-size: 27px;
+  font-weight: 700;
+  line-height: 32px;
+  letter-spacing: -0.7px;
+  text-align: center;
+}
+
+:global(.dark) .inputRegion {
+  inset: 0 !important;
+  width: 402px;
+  height: 874px;
+  padding: 0 !important;
+  overflow: visible !important;
+}
+
+:global(.dark) .phoneForm {
+  position: absolute !important;
+  inset: 0 !important;
+  width: 402px !important;
+  height: 874px !important;
+  display: block !important;
+  overflow: visible;
+}
+
+:global(.dark) .phoneForm :global([data-slot="field-set"]) {
+  position: relative;
+  display: block;
+  width: 402px;
+  height: 874px;
+  margin: 0;
+  padding: 0;
+}
+
+:global(.dark) .phoneForm :global([data-figma-phone-fields]) {
+  position: static;
+  display: block;
+}
+
+:global(.dark) .phoneForm :global([data-figma-phone-field]) {
+  position: absolute;
+  left: 29px;
+  width: 344px;
+  height: 87px;
+  display: block;
+  gap: 0;
+}
+
+:global(.dark) .phoneForm :global([data-figma-phone-field="country"]) {
+  top: 426px;
+}
+
+:global(.dark) .phoneForm :global([data-figma-phone-field="number"]) {
+  top: 524px;
+}
+
+:global(.dark) .phoneForm :global([data-figma-phone-field]) :global([data-slot="field-label"]) {
+  position: absolute;
+  top: 0;
+  left: 11px;
+  width: 250px;
+  height: 16px;
+  margin: 0;
+  padding: 0;
+  color: #8d8d94 !important;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
+  font-size: 13px;
+  font-weight: 590;
+  line-height: 16px;
+}
+
+:global(.dark) .phoneForm :global([data-figma-phone-field]) :global([data-slot="input-group"]) {
+  position: absolute;
+  top: 27px;
+  left: 0;
+  width: 344px !important;
+  height: 60px !important;
+  min-height: 60px;
+  border: 0 !important;
+  border-radius: 16px !important;
+  background: #1c1c1e !important;
+  box-shadow: none !important;
+}
+
+:global(.dark) .phoneForm :global([data-figma-phone-field]) :global([data-slot="input-group-control"]) {
+  height: 60px !important;
+  min-height: 60px;
+  padding: 0 16px !important;
+  border: 0 !important;
+  background: transparent !important;
+  color: #f2f2f7 !important;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
+  font-size: 17px;
+  font-weight: 400;
+  line-height: 22px;
+  letter-spacing: -0.43px;
+}
+
+:global(.dark) .phoneForm :global([data-figma-phone-field="country"]) :global([data-slot="input-group"]) > span {
+  left: 22px;
+  gap: 8px;
+  color: #f2f2f7;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
+  font-size: 17px;
+  line-height: 22px;
+}
+
+:global(.dark) .phoneForm :global([data-figma-phone-field]) :global([data-slot="input-group-addon"]) {
+  padding-right: 16px;
+}
+
+:global(.dark) .phoneForm :global([data-figma-phone-field]) :global([data-slot="combobox-trigger-icon"]) {
+  width: 16px;
+  height: 16px;
+  color: #98989d !important;
+}
+
+:global(.dark) .phoneForm :global([data-figma-phone-field="number"]) :global([role="alert"]) {
+  position: absolute;
+  top: 91px;
+  left: 0;
+  width: 344px;
+}
+
+:global(.dark) .phoneForm :global([data-figma-phone-helper]) {
+  display: none !important;
+}
+
+:global(.dark) .phoneSubmitButton {
+  position: absolute !important;
+  top: 648px;
+  left: 36px;
+  width: 330px !important;
+  max-width: 330px !important;
+  height: 52px !important;
+  min-height: 52px !important;
+  margin: 0 !important;
+  padding: 0 16px !important;
+  border: 0 !important;
+  border-radius: 26px !important;
+  background: var(--app-accent) !important;
+  color: #fff !important;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
+  font-size: 17px;
+  font-weight: 400;
+  line-height: 22px;
+}
+
+/* The OTP state keeps the same Figma art/title/back composition and replaces
+   only the verification controls owned by PhoneVerificationFlow. */
+:global(.dark) .phoneForm :global([data-figma-otp-intro]) {
+  position: absolute;
+  top: 402px;
+  left: 39px;
+  width: 324px;
+  margin: 0;
+  color: rgba(245, 245, 247, 0.72);
+  font-size: 13px;
+  line-height: 18px;
+  text-align: center;
+}
+
+:global(.dark) .phoneForm :global([data-figma-otp-field]) {
+  position: absolute;
+  top: 451px;
+  left: 36px;
+  width: 330px;
+  display: block;
+  gap: 0;
+}
+
+:global(.dark) .phoneForm :global([data-figma-otp-field]) :global([data-slot="field-label"]) {
+  display: block;
+  width: 330px;
+  margin: 0 0 10px;
+  color: rgba(245, 245, 247, 0.5) !important;
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 16px;
+}
+
+:global(.dark) .phoneForm :global([data-figma-otp-field]) > div {
+  width: 330px;
+}
+
+:global(.dark) .phoneForm :global([data-figma-otp-field]) > div > div {
+  gap: 6px;
+}
+
+:global(.dark) .phoneForm :global([data-figma-otp-field]) > div > div > div {
+  height: 52px;
+  min-height: 52px;
+  border-radius: 14px;
+  border-color: rgba(255, 255, 255, 0.12);
+  background: #1c1c1e;
+  font-size: 20px;
+}
+
+:global(.dark) .phoneForm[data-figma-phone-step="code"] :global([data-figma-otp-primary]) {
+  top: 584px;
+}
+
+:global(.dark) .phoneForm[data-figma-phone-step="code"] > :global([data-slot="field-set"]) > div:last-child {
+  position: absolute;
+  top: 661px;
+  left: 36px;
+  width: 330px;
+  padding: 0;
+  justify-content: center;
+  gap: 12px;
+  font-size: 15px;
+}
+
+:global(.dark) .recaptcha {
+  display: none !important;
+}

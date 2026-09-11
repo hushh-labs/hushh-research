@@ -1,0 +1,204 @@
+/* The dark onboarding screen is authored as the same 402 × 874 canvas as
+   Figma. Scaling the complete canvas keeps spacing, artwork, and controls in
+   proportion on narrow WebViews without changing the auth flow. */
+.stage,
+.composition {
+  display: contents;
+}
+
+:global(.dark) .shell {
+  background: #000;
+  color: #fafafa;
+}
+
+:global(.dark) .stage {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  overflow: hidden;
+}
+
+:global(.dark) .composition {
+  position: relative;
+  display: block;
+  flex: none;
+  width: 402px !important;
+  height: 874px !important;
+  min-height: 874px !important;
+  max-width: none !important;
+  margin: 0 !important;
+  transform: scale(
+    min(
+      1,
+      calc(100vw / 402px),
+      calc((100svh - var(--app-scroll-bottom-pad, 0px)) / 874px)
+    )
+  );
+  transform-origin: top center;
+}
+
+:global(.dark) .authBackButton {
+  top: 73px !important;
+  left: 24px !important;
+  width: 43px !important;
+  height: 43px !important;
+  background: #1c1c1e !important;
+  color: rgba(255, 255, 255, 0.9) !important;
+  box-shadow: none !important;
+}
+
+:global(.dark) .authContentBlock {
+  position: absolute !important;
+  inset: 0 !important;
+  width: 402px !important;
+  height: 874px !important;
+  min-height: 874px !important;
+  max-width: none !important;
+  padding: 0 !important;
+  display: block !important;
+}
+
+:global(.dark) .authSignInClusters {
+  position: absolute;
+  inset: 0;
+  display: block;
+  padding: 0;
+}
+
+:global(.dark) .authHero {
+  display: contents;
+}
+
+:global(.dark) .authIllustration {
+  position: absolute;
+  top: 107px;
+  left: 17px;
+  width: 357px !important;
+  height: 238px !important;
+  aspect-ratio: auto !important;
+}
+
+:global(.dark) .authIllustration img {
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  object-fit: contain;
+  object-position: center;
+}
+
+:global(.dark) .authTitle {
+  position: absolute;
+  top: 357px;
+  left: 76px;
+  width: 250px;
+  height: 32px;
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif;
+  font-size: 27px;
+  font-weight: 700;
+  line-height: 32px;
+  letter-spacing: -0.7px;
+  text-align: center;
+}
+
+:global(.dark) .providerActionsShell {
+  position: absolute;
+  top: 427px;
+  left: 26px;
+  width: 344px;
+  max-width: none;
+  margin: 0;
+  padding: 0;
+}
+
+:global(.dark) .providerActions {
+  display: grid;
+  gap: 12px;
+}
+
+:global(.dark) .providerActions > * {
+  margin: 0 !important;
+}
+
+:global(.dark) .authProviderButton {
+  width: 344px !important;
+  min-width: 344px !important;
+  height: 60px !important;
+  min-height: 60px !important;
+  padding: 0 16px !important;
+  border: 0 !important;
+  border-radius: 16px !important;
+  background: #1c1c1e !important;
+  color: #f5f5f7 !important;
+  box-shadow: none !important;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
+  font-size: 17px;
+  font-weight: 510;
+  line-height: 22px;
+  letter-spacing: -0.43px;
+}
+
+:global(.dark) .authProviderButton > span {
+  gap: 12px;
+}
+
+:global(.dark) .authProviderButton :global(img[src$="/apple.png"]) {
+  width: 37px;
+  height: 37px;
+  filter: none;
+  object-fit: contain;
+}
+
+:global(.dark) .authProviderButton :global(img[src$="/google.png"]) {
+  width: 46px;
+  height: 23px;
+  object-fit: fill;
+}
+
+:global(.dark) .reviewerButton {
+  display: none !important;
+}
+
+:global(.dark) .supportingShell {
+  inset: unset !important;
+  top: 786px !important;
+  right: auto !important;
+  bottom: auto !important;
+  left: 90px !important;
+  width: 233px;
+  height: 26px;
+  justify-content: flex-start;
+}
+
+:global(.dark) .supportingContent {
+  display: block;
+  width: 233px;
+  height: 26px;
+}
+
+:global(.dark) .supportingContent > div {
+  width: 233px;
+  max-width: 233px;
+  height: 26px;
+  gap: 12px;
+  justify-content: flex-start;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
+  font-size: 11px;
+  line-height: 13px;
+  letter-spacing: -0.08px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :global(.dark) .composition {
+    transform: scale(
+      min(
+        1,
+        calc(100vw / 402px),
+        calc((100svh - var(--app-scroll-bottom-pad, 0px)) / 874px)
+      )
+    );
+  }
+}
