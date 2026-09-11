@@ -187,6 +187,10 @@ describe("AgentBar Gemini Live voice routing", () => {
     expect(SOURCE).toContain("ensureLocationCommandActivation()");
     expect(SOURCE).not.toContain("if (!locationCommandRuntimeEnabled) {");
     expect(SOURCE).toContain("beginLocationCommandTap();");
+    expect(SOURCE).toContain("retryActivationSourceRef");
+    expect(SOURCE).toContain(
+      "startConversation(undefined, retryActivationSourceRef.current)",
+    );
     // The dedicated branch enters command mode unconditionally after it has
     // established that this is an opaque command turn. It must not inherit a
     // broader conversation flag or downgrade to the old relay after capture.

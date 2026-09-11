@@ -1613,7 +1613,7 @@ describe("GeminiLiveClient Location command turns", () => {
     expect(onEvent).toHaveBeenCalledWith(
       expect.objectContaining({
         type: "error",
-        message: expect.stringContaining("does not support the current command protocol"),
+        message: expect.stringContaining("command service version does not match"),
       }),
     );
   });
@@ -1648,7 +1648,7 @@ describe("GeminiLiveClient Location command turns", () => {
     expect(onEvent).toHaveBeenCalledWith(
       expect.objectContaining({
         type: "error",
-        message: expect.stringContaining("does not support the current command protocol"),
+        message: expect.stringContaining("command service version does not match"),
       }),
     );
     expect(transport.beginInputTurn?.({ turnId: "location-turn-after-version-failure" })).toBe(false);

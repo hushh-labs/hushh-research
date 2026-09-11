@@ -97,6 +97,11 @@ const INITIAL_VISITOR_ACTIVITY_LEVEL = 0.14;
 // client release was the v1 command boundary and must never be accepted by
 // this tap-to-command lane.
 const LOCATION_COMMAND_PROTOCOL = "one_command_v2";
+// A command client and relay must be released together. Keep the remediation
+// truthful without exposing the internal Location protocol to someone using
+// the app-wide Talk-to-One control.
+const COMMAND_SERVICE_VERSION_MISMATCH_MESSAGE =
+  "The command service version does not match this app. Please update and try again.";
 const LOCATION_COMMAND_MAX_BUFFER_DURATION_MS = 10_000;
 /**
  * A browser AudioWorklet control message normally crosses to the audio render
@@ -2728,9 +2733,7 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
       // frame remains a no-op for current sessions and cannot unlock PCM.
       const legacyProviderReady = !this.relayAccepted;
       if (legacyProviderReady && this.locationCommandMode) {
-        this.fail(
-          "This voice relay does not support the Location command protocol yet. Please update the app release.",
-        );
+        this.fail(COMMAND_SERVICE_VERSION_MISMATCH_MESSAGE);
         return;
       }
       this.acceptRelay({ legacyProviderReady });
@@ -2951,9 +2954,7 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
         !command.cancelled &&
         protocolVersion !== LOCATION_COMMAND_PROTOCOL
       ) {
-        this.fail(
-          "This voice relay does not support the current command protocol. Please update the app release.",
-        );
+        this.fail(COMMAND_SERVICE_VERSION_MISMATCH_MESSAGE);
         return;
       }
       if (
@@ -2992,9 +2993,7 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
       const protocolVersion = readString(locationCommandReady.protocolVersion);
       if (protocolVersion !== LOCATION_COMMAND_PROTOCOL) {
         if (this.locationCommandMode) {
-          this.fail(
-            "This voice relay does not support the current command protocol. Please update the app release.",
-          );
+          this.fail(COMMAND_SERVICE_VERSION_MISMATCH_MESSAGE);
         }
         return;
       }
@@ -3049,9 +3048,7 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
       !activeCommand.cancelled &&
       resultProtocolVersion !== LOCATION_COMMAND_PROTOCOL
     ) {
-      this.fail(
-        "This voice relay does not support the current command protocol. Please update the app release.",
-      );
+      this.fail(COMMAND_SERVICE_VERSION_MISMATCH_MESSAGE);
       return;
     }
     if (

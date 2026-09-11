@@ -998,6 +998,11 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
   // handleTransportEvent needs to be able to trigger a reconnect the moment
   // a resumable session closes.
   const startConversationRef = useRef<() => void>(() => {});
+  // Retrying a command must preserve its command-only transport. In
+  // particular, an error card must never turn a Talk-to-One retry into the
+  // retired conversational relay merely because the deferred retry has no
+  // physical click event left to inspect.
+  const retryActivationSourceRef = useRef<OneVoiceActivationSource>("tap");
   const handleTransportEventRef = useRef<(event: OneVoiceSessionEvent) => void>(
     () => {},
   );
@@ -2715,6 +2720,9 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
       externalRequest?: AgentConversationRequest,
       activationSource: OneVoiceActivationSource = "recovery",
     ) => {
+      if (activationSource !== "recovery") {
+        retryActivationSourceRef.current = activationSource;
+      }
       // A tap may still be resolving a relay ticket while capture begins. Keep
       // the opaque command in a ref so this async path can begin it or fail it
       // closed; React state is intentionally not command authority.
@@ -3325,7 +3333,8 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
   // regardless of whether conversationActive does, so the effect below is
   // guaranteed to run on every retry.
   useEffect(() => {
-    startConversationRef.current = () => void startConversation();
+    startConversationRef.current = () =>
+      void startConversation(undefined, retryActivationSourceRef.current);
   }, [startConversation]);
   // A manual retry gets the same continuation token an automatic reconnect
   // would use, and resets the one-per-session automatic budget: a person
