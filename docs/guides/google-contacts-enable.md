@@ -203,6 +203,23 @@ Desktop acceptance on `https://uat.one.hushh.ai`:
    results, connection refresh, and remove-then-resync reconnection using the
    existing matching and invitation suites. Opening a composer is not delivery
    confirmation.
+10. From Google results, open `Invite contacts`. Unmatched phone contacts appear
+    under `No match found`; contacts with only email appear separately under
+    `Not checked—email only`, including when the unmatched phone count is zero.
+    No recipients start selected. Select individual rows, review the personalized
+    message and referral link, return to selection, and confirm selections remain.
+11. For web invitations, `Open email` prepares one recipient and message in the
+    mail handler. For a phone recipient, copy the invitation, then use
+    `Open Messages` to fill the number and paste the message. `Invitation copied`
+    confirms copying. Returning from either handler retains the current contact;
+    `Done with this contact` advances because the browser cannot confirm Send or
+    Cancel. An unavailable handler still leaves copy/share and Skip available.
+12. Cancel Web Share and verify the same recipient remains. Complete a supported
+    Web Share handoff and verify the queue advances without claiming delivery.
+    If Web Share is unavailable, its copy fallback retains the current contact.
+    Repeat a session-check remount during review and during a share handoff: the
+    same-account queue must return. Finish clears it; logout or route/account
+    changes must also clear it and ignore late handoff completions.
 
 Repeat the same flow on a real iPhone in Safari. Native iOS/Android apps are a
 separate path and must continue using the first-party contacts plugin without a
