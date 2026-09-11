@@ -53,6 +53,7 @@ import type {
 } from "@/lib/profile/pkm-section-preview";
 import type { PkmVisibilityPosture } from "@/lib/services/personal-knowledge-model-service";
 import { cn } from "@/lib/utils";
+import { SearchClearButton } from "@/components/app-ui/search-clear-button";
 
 const listShellClassName = cn(
   "overflow-hidden rounded-[var(--app-card-radius-feature)]",
@@ -316,17 +317,24 @@ export function PkmDataManagerPanel({
       </div>
 
       {shouldShowSearch ? (
-        <Input
-          type="search"
-          value={searchQuery}
-          onChange={(event) => setSearchQuery(event.target.value)}
-          placeholder="Search saved details"
-          aria-label="Search saved details"
-          autoComplete="off"
-          autoCorrect="off"
-          spellCheck={false}
-          className="h-10"
-        />
+        <div className="relative">
+          <Input
+            type="search"
+            value={searchQuery}
+            onChange={(event) => setSearchQuery(event.target.value)}
+            placeholder="Search saved details"
+            aria-label="Search saved details"
+            autoComplete="off"
+            autoCorrect="off"
+            spellCheck={false}
+            className="h-10 pr-11"
+          />
+          <SearchClearButton
+            visible={searchQuery.length > 0}
+            label="Clear saved details search"
+            onClear={() => setSearchQuery("")}
+          />
+        </div>
       ) : null}
 
       {metadataStatus ? (

@@ -200,13 +200,16 @@ export const UI_FLOWS = [
   },
   {
     id: "shell-profile",
-    route: "/one/profile",
-    description: "Profile tab from shell",
+    route: "/one/profile/account",
+    description: "Profile pane from shell, then dedicated Account route",
     steps: [
       { type: "ensure_persona", persona: "investor" },
       { type: "click_shell_action", ariaLabel: "Open Profile" },
-      { type: "wait_beacon", routeIds: ["/one/profile"] },
-      { type: "assert_visible_testid", testId: "profile-primary" },
+      { type: "assert_visible_testid", testId: "profile-pane" },
+      { type: "assert_text", value: "Your account" },
+      { type: "click_button", name: "Your account" },
+      { type: "wait_beacon", routeIds: ["/one/profile/account"] },
+      { type: "assert_url_includes", value: "/one/profile/account" },
     ],
   },
   {

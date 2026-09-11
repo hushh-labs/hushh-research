@@ -47,10 +47,19 @@ describe("Navbar bottom chrome contract", () => {
     expect(agentBar).toContain('data-testid="one-agent-chat-open"');
     expect(agentBar).toContain('data-agent-action="chat"');
     expect(agentBar).toContain("onClick={openAgentChat}");
-    // Not "Chat with One": the workspace this opens is a two-agent window
-    // (One and Puppy One) whose mode survives a minimise, so the control
-    // names the workspace rather than promising one of the two agents.
-    expect(agentBar).toContain("aria-label={`Open Agent Chat. ${hint}`}");
+    // "Chat with One", chosen deliberately over the earlier "Open Agent Chat".
+    //
+    // The earlier name described the workspace rather than an agent, because
+    // the window holds both One and Puppy One and naming one of them promises
+    // something the control does not exclusively deliver. That reasoning is
+    // sound and was overruled on product grounds: people do not think of this
+    // as opening a workspace, they think of it as talking to One, and a label
+    // nobody recognises is a worse failure than one that under-describes.
+    //
+    // Puppy One remains reachable inside the same window. If that ever stops
+    // being true, or Puppy One becomes the primary agent there, this name is
+    // the first thing that should be revisited.
+    expect(agentBar).toContain("aria-label={`Chat with One. ${hint}`}");
     expect(agentBar).toContain('data-testid="one-agent-chat-label"');
     expect(agentBar).not.toContain("openSearchAndChat");
     expect(agentBar).not.toContain("openKaiCommandBar");
