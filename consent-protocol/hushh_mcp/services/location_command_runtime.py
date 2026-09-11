@@ -22,12 +22,8 @@ import re
 import time
 import unicodedata
 from dataclasses import dataclass
-from typing import Any, Awaitable, Callable, Mapping
+from typing import Any, Callable, Mapping
 
-from hushh_mcp.runtime_providers.factory import (
-    VERTEX_ADC_AUTH_MODE,
-    ManagedGeminiRuntimeBinding,
-)
 from hushh_mcp.runtime_settings import get_core_security_settings
 from hushh_mcp.services.app_intelligence_runtime import (
     build_location_brain_model_routing_intent,
@@ -283,15 +279,6 @@ async def _dispatch_circle_server_direct(
         execution_scope=execution_scope,
         resume_run_id=resume_run_id,
     )
-
-
-def _build_managed_location_command_text_client(*, model: str) -> Any | None:
-    """Return a selector client only for organization-managed Vertex ADC."""
-
-    binding = ManagedGeminiRuntimeBinding.from_environment()
-    if binding.auth_mode != VERTEX_ADC_AUTH_MODE:
-        return None
-    return binding.build_direct_client(model=model)
 
 
 @dataclass
@@ -714,8 +701,8 @@ class LocationCommandResultV1:
 class LocationCommandPlanV1:
     """A side-effect-free, transient plan for one finalized command.
 
-    The plan is constructed only after semantic retrieval and constrained
-    selection have validated a compiled candidate.  It intentionally retains
+    The plan is constructed only after server-side semantic retrieval and
+    deterministic selection have validated a compiled candidate. It intentionally retains
     no transcript and is never serialized, logged, sent to Gemini, or emitted
     to a client.  ``slots`` contains only server-extracted, adapter-validated
     transient values needed by a later durable advance.
@@ -732,9 +719,6 @@ class LocationCommandPlanV1:
         """Whether advancing this plan may create/continue durable work."""
 
         return self.selected_capability_id in _DURABLE_ADVANCE_CAPABILITY_IDS
-
-
-Selector = Callable[[str, Mapping[str, Any]], Awaitable[Mapping[str, Any] | None]]
 
 
 def _facts_from_active_run(active_run: Mapping[str, Any] | None) -> dict[str, str]:
@@ -1069,60 +1053,27 @@ class LocationCommandRuntime:
     def __init__(
         self,
         *,
-        selector: Selector | None = None,
         semantic_retriever: Callable[..., Mapping[str, Any]] = retrieve_service_brain_candidates,
     ) -> None:
-        self._selector = selector or self._select_with_managed_gemini
         self._semantic_retriever = semantic_retriever
 
-    async def _select_with_managed_gemini(
+    async def _select_deterministic_candidate(
         self,
-        routing_text: str,
+        _routing_text: str,
         projection: Mapping[str, Any],
     ) -> Mapping[str, Any] | None:
-        """Ask the governed text alias for one candidate/declared public slots.
+        """Return the semantic retriever's checked candidate, or fail closed.
 
-        A model failure is an ``ASK`` at the caller.  It never falls back to
-        aliases, keywords, or a guessed action id.
+        The retriever owns the score threshold and ambiguity margin. This
+        method merely carries its already-validated winning candidate through
+        the existing issued-candidate validation gate. It does not prompt
+        Gemini, match aliases, or infer a product action from keywords.
         """
 
-        try:
-            from google.genai import types as genai_types
-
-            from hushh_mcp.runtime_providers.gemini_config import resolve_fleet_model_name
-
-            model = resolve_fleet_model_name("gemini-default")
-            client = _build_managed_location_command_text_client(model=model)
-            if client is None:
-                return None
-            candidates = projection.get("candidates")
-            if not isinstance(candidates, list):
-                return None
-            prompt = {
-                "instruction": (
-                    "Select exactly one candidate_id_or_ASK. Use only candidate ids in "
-                    "selection_contract.allowed_values. Return JSON only. Do not explain, "
-                    "do not invent actions, and include only declared public string slots."
-                ),
-                "redacted_command": routing_text,
-                "candidates": candidates,
-                "selection_contract": projection.get("selection_contract"),
-            }
-            response = await client.aio.models.generate_content(
-                model=model,
-                contents=json.dumps(prompt, separators=(",", ":")),
-                config=genai_types.GenerateContentConfig(
-                    response_mime_type="application/json",
-                    temperature=0,
-                    max_output_tokens=160,
-                ),
-            )
-            text = getattr(response, "text", None)
-            parsed = json.loads(text) if isinstance(text, str) and text.strip() else None
-            return parsed if isinstance(parsed, Mapping) else None
-        except Exception:  # noqa: BLE001 - model/provider detail is not user or telemetry data
-            logger.info("location_command_selector_unavailable")
-            return None
+        candidate_id = str(projection.get("selected_candidate_id") or "").strip()
+        if not candidate_id:
+            return {"candidate_id_or_ASK": "ASK"}
+        return {"candidate_id_or_ASK": candidate_id}
 
     async def _active_run(self, *, user_id: str) -> tuple[dict[str, Any] | None, str | None]:
         try:
@@ -1373,8 +1324,8 @@ class LocationCommandRuntime:
                     reason_code="brain_unavailable",
                 ),
             )
-        # This is the only representation that may reach a managed embedding
-        # or selector. It is derived from the checked-in brain vocabulary and
+        # This is the only representation that may reach the managed semantic
+        # embedding. It is derived from the checked-in brain vocabulary and
         # replaces every free-form transcript value with a static marker.
         model_routing_intent = build_location_brain_model_routing_intent(transcript)
         retrieval = await asyncio.to_thread(
@@ -1406,9 +1357,13 @@ class LocationCommandRuntime:
                 "context_revision",
                 "candidates",
                 "selection_contract",
+                "selected_candidate_id",
             )
         }
-        selection = await self._selector(model_routing_intent, projection)
+        selection = await self._select_deterministic_candidate(
+            model_routing_intent,
+            projection,
+        )
         selected = validate_location_brain_selection(
             projection,
             selection.get("candidate_id_or_ASK") if isinstance(selection, Mapping) else "ASK",
@@ -1440,9 +1395,9 @@ class LocationCommandRuntime:
                     reason_code="selection_required",
                 ),
             )
-        # The constrained selector may choose only a candidate. Private or
-        # free-form values are extracted by the server-owned adapter below,
-        # never returned by Gemini as a model-produced slot.
+        # Private/free-form values are extracted by the server-owned adapter
+        # below. The semantic retriever selected only a registered candidate;
+        # no model supplies an action or a product slot.
         slots = _extract_server_owned_slots(selected, transcript)
         return LocationCommandPlanV1(
             turn_id=turn_id,

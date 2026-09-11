@@ -7821,6 +7821,7 @@
       },
       "voice_action_contract_file": "app/one/setup/location/page.voice-action-contract.json",
       "voice_action_contract_ids": [
+        "location.onboarding.choose_place",
         "setup.finish_location",
         "setup.skip_location"
       ],
@@ -9468,5 +9469,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "d1098b2de80bbe0158e600f7402734be520eab7614fbc67ed7a32283a52e4df0"
+  "content_sha256": "8e39a2a55e7f81e7a14065d45583a0b5b2cf167a8a48cda4ad5e7df07c5bffc3"
 }

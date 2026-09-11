@@ -75,27 +75,13 @@ describe("AgentBar Gemini Live voice routing", () => {
     expect(SOURCE).toContain('"component_unmounted"');
   });
 
-  it("lets only the server decide one fresh-session welcome", () => {
-    const prewarmStart = SOURCE.indexOf("const timer = window.setTimeout");
-    const relaySessionStart = SOURCE.indexOf(
-      "const relaySession = await ApiService.getOneAdkLiveRelaySession",
-      prewarmStart,
-    );
-    const warmStart = SOURCE.slice(
-      relaySessionStart,
-      SOURCE.indexOf(
-        "const ready = await client.waitForContextReady",
-        relaySessionStart,
-      ),
-    );
-
+  it("does not create a foreground welcome or warm conversation", () => {
     expect(SOURCE).toContain("appInteractionCoordinator.subscribeLifecycle");
-    expect(prewarmStart).toBeGreaterThan(-1);
-    expect(relaySessionStart).toBeGreaterThan(prewarmStart);
-    expect(SOURCE).toContain("oneVoiceSessionLifecycle");
-    expect(SOURCE).toContain('event.type === "greeting"');
-    expect(SOURCE).toContain('event.type === "greeting_playback_settled"');
-    expect(SOURCE).toContain("armServerGreetingFollowUp");
+    expect(SOURCE).toContain(
+      "Talk-to-One is a command surface, not a foreground live-chat surface.",
+    );
+    expect(SOURCE).not.toContain('activationSource: "foreground_warm"');
+    expect(SOURCE).not.toContain("initialGreetingEnabled: true");
     expect(SOURCE).not.toContain("reserveGreeting(");
     expect(SOURCE).not.toContain("markGreetingDelivered");
     expect(SOURCE).not.toContain("releaseGreeting(");
@@ -103,21 +89,6 @@ describe("AgentBar Gemini Live voice routing", () => {
     expect(SOURCE).not.toContain("reserveFreshSessionGreeting");
     expect(SOURCE).not.toContain("markFreshSessionGreetingDelivered");
     expect(SOURCE).not.toContain("releaseFreshSessionGreeting");
-    expect(warmStart).toContain("initialGreetingEnabled: true");
-    expect(warmStart).toContain('activationSource: "foreground_warm"');
-    expect(warmStart).toContain(
-      "voiceSessionScopeRef.current = voiceSessionScope",
-    );
-    expect(warmStart).toContain("realtimeAudioInput,");
-    expect(warmStart).toContain("deferAudioInput: true");
-    expect(warmStart).toContain('event.type === "greeting"');
-    expect(warmStart).toContain('event.type === "greeting_playback_settled"');
-    expect(warmStart).toContain("setForegroundGreeting(event.greeting.text)");
-    expect(warmStart).not.toContain("startAudioInput");
-    expect(warmStart).not.toContain("sendUserText");
-    expect(warmStart).not.toContain("speakText");
-    // A physical tap owns the next session; it must never replay the idle
-    // welcome that belongs solely to the foreground warm-up.
     expect(SOURCE).toContain("initialGreetingEnabled: false");
   });
 
@@ -208,33 +179,26 @@ describe("AgentBar Gemini Live voice routing", () => {
     expect(SOURCE).not.toContain("handleVoiceKeyDown");
   });
 
-  it("selects transcript-first command mode only before input when the UAT client is eligible", () => {
-    // The compatibility gate is intentionally client-side only; the relay
-    // remains authoritative. A dark/unavailable command rollout must keep the
-    // established tap-to-conversation path, while a command tap may never
-    // fall back after it has started handling PCM.
-    expect(SOURCE).toContain(
-      "const locationCommandRuntimeEnabled =\n    getVoiceV2Flags().locationCommandRuntimeEnabled",
-    );
-    expect(SOURCE).toContain("if (!locationCommandRuntimeEnabled) {");
-    expect(SOURCE).toContain('void startConversation(undefined, "tap");');
-    expect(SOURCE).toContain(
-      'locationCommandRuntimeEnabled && activationSource === "tap"',
-    );
+  it("always selects transcript-first command mode before tap input", () => {
+    // The Talk control never downgrades to the conversational relay. The
+    // server remains authoritative for admission, and an unavailable command
+    // lane is a typed command failure rather than a chat fallback.
+    expect(SOURCE).toContain('activationSource === "tap" || activationSource === "action_button"');
+    expect(SOURCE).toContain("ensureLocationCommandActivation()");
+    expect(SOURCE).not.toContain("if (!locationCommandRuntimeEnabled) {");
+    expect(SOURCE).toContain("beginLocationCommandTap();");
     // The dedicated branch enters command mode unconditionally after it has
-    // established that this is an opaque command turn. It must not inherit the
+    // established that this is an opaque command turn. It must not inherit a
     // broader conversation flag or downgrade to the old relay after capture.
     expect(SOURCE).toContain("if (locationCommandTurnId) {");
     expect(SOURCE).toContain("locationCommandMode: true,");
+    expect(SOURCE).toContain("locationCommandMode: Boolean(locationCommandTurnId),");
     expect(SOURCE).toContain(
-      "locationCommandMode: locationCommandRuntimeEnabled,",
-    );
-    expect(SOURCE).toContain(
-      "errors remain a\n        // command retry rather than silently moving partial audio to chat.",
+      "A client may never\n      // silently downgrade its PCM to the conversational relay",
     );
   });
 
-  it("keeps command taps out of the warm conversational session", () => {
+  it("keeps command taps out of every warm conversational session", () => {
     const commandStart = SOURCE.indexOf(
       "const startConversation = useCallback",
     );
@@ -248,10 +212,8 @@ describe("AgentBar Gemini Live voice routing", () => {
 
     expect(commandSession).toContain("if (locationCommandTurnId) {");
     expect(commandSession).toContain("stopPrewarmedSession();");
-    expect(commandSession).toContain("const warmed = locationCommandTurnId");
-    expect(commandSession).toContain("prewarmedSessionRef.current");
     expect(SOURCE).toContain(
-      "if (locationCommandRuntimeEnabled) {\n      setForegroundGreeting(null);",
+      "Talk-to-One is a command surface, not a foreground live-chat surface.",
     );
     expect(SOURCE).toContain(
       "Location commands use the managed secure voice service.",

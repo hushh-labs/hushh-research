@@ -118,7 +118,6 @@ import {
   createRealtimeVoiceTransport,
   primeRealtimeVoiceOutput,
 } from "@/lib/voice/one-voice-transport-factory";
-import { getVoiceV2Flags } from "@/lib/voice/voice-feature-flags";
 import {
   oneVoiceSessionLifecycle,
   type OneVoiceFollowUpWindow,
@@ -513,8 +512,6 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
   // the bar highlights and an ambient waveform animates in place, reacting to
   // the user's voice (listening) and the agent's reply (speaking).
   const [conversationActive, setConversationActive] = useState(false);
-  const [foregroundLifecycleRevision, setForegroundLifecycleRevision] =
-    useState(() => appInteractionCoordinator.getLifecycleSnapshot().revision);
   // The relay remains the author of this message. Keeping its first returned
   // text visible means a WebAudio policy that declines background playback
   // still leaves a person with the same welcome, without synthesizing a turn.
@@ -585,12 +582,6 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
   const [voicePreferences, setVoicePreferences] = useState(() =>
     readVoicePreferences(user?.uid),
   );
-  // This is only a presentation/transport eligibility hint. The server still
-  // owns command admission, capacity, transcript completion, and execution.
-  // Defaulting it off preserves the proven conversational relay whenever a
-  // new client is deployed ahead of the governed UAT command runtime.
-  const locationCommandRuntimeEnabled =
-    getVoiceV2Flags().locationCommandRuntimeEnabled;
   const walkthroughModeEnabled = voicePreferences.walkthroughMode;
   useEffect(() => {
     setVoicePreferences(readVoicePreferences(user?.uid));
@@ -643,6 +634,20 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
   const locationCommandActivationRef = useRef<LocationCommandActivation | null>(
     null,
   );
+  const ensureLocationCommandActivation = useCallback(() => {
+    const existing = locationCommandActivationRef.current;
+    if (existing && !existing.cancelled && !existing.completed) {
+      return existing;
+    }
+    const activation: LocationCommandActivation = {
+      turnId: `location_command_${createVoiceTurnId()}`,
+      cancelled: false,
+      endpointed: false,
+      completed: false,
+    };
+    locationCommandActivationRef.current = activation;
+    return activation;
+  }, []);
   const latestVoiceContextRef = useRef<OneVoiceContextSnapshot | null>(
     runtime?.oneVoiceContextSnapshot ?? null,
   );
@@ -947,9 +952,6 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
     user?.uid,
     vaultOwnerToken,
   ]);
-  const sessionWarmInFlightRef = useRef(false);
-  const sessionWarmCooldownUntilRef = useRef(0);
-  const sessionWarmBackoffMsRef = useRef(5_000);
   // Voice stays active regardless of silence -- only explicit user action
   // (disabling voice, ending the call) closes the session now. This ref and
   // the schedule/clear helpers below are kept as inert no-ops rather than
@@ -2716,9 +2718,14 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
       // A tap may still be resolving a relay ticket while capture begins. Keep
       // the opaque command in a ref so this async path can begin it or fail it
       // closed; React state is intentionally not command authority.
+      // The visible Talk-to-One control is command-only. A client may never
+      // silently downgrade its PCM to the conversational relay when a server
+      // deployment is unavailable; that condition gets a truthful command
+      // retry result instead. Non-launcher entrypoints retain their explicit
+      // source and do not inherit a tap command by accident.
       const requestedLocationCommand =
-        locationCommandRuntimeEnabled && activationSource === "tap"
-          ? locationCommandActivationRef.current
+        activationSource === "tap" || activationSource === "action_button"
+          ? ensureLocationCommandActivation()
           : null;
       const locationCommandTurnId = requestedLocationCommand?.turnId ?? null;
       const isSiriRequest =
@@ -2740,6 +2747,12 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
       // the server; this browser never advances the five-minute greeting gate.
       if (isPersonInitiated) {
         clearFollowUpCaptureTimer();
+      }
+      if (locationCommandTurnId) {
+        // Both physical microphone entrypoints (the persistent Talk control
+        // and Agent Chat's mic) enter the same visible command state before
+        // any relay or microphone await. Siri remains a typed handoff.
+        setVoiceStatus("listening", "Listening");
       }
       // Toggle off when a session (live OR an error still on screen) exists.
       if (
@@ -3251,8 +3264,7 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
         initialGreetingEnabled: false,
         activationSource,
         realtimeAudioInput,
-        locationCommandMode:
-          locationCommandRuntimeEnabled && Boolean(locationCommandTurnId),
+        locationCommandMode: Boolean(locationCommandTurnId),
         deferAudioInput: Boolean(externalRequestForSession?.initialRequestText),
       });
       const initialRequestText =
@@ -3291,13 +3303,13 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
       mirrorSessionId,
       scheduleVoiceIdleTimer,
       clearFollowUpCaptureTimer,
+      ensureLocationCommandActivation,
       stopConversation,
       vaultOwnerToken,
       vaultKey,
       user?.uid,
       setVoiceStatus,
       finishExternalStart,
-      locationCommandRuntimeEnabled,
       stopPrewarmedSession,
     ],
   );
@@ -3345,7 +3357,7 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
     const context = runtime?.oneVoiceContextSnapshot;
     const client = liveClientRef.current;
     if (!context || !client?.updateContext) return;
-    const contextKey = actionableContextKey(context);
+    const contextKey = actionableContextKey(context!);
     if (lastPushedContextRef.current === contextKey) return;
     if (client.updateContext(context)) {
       lastPushedContextRef.current = contextKey;
@@ -3371,15 +3383,8 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
   }, [conversationActive, vaultOwnerToken]);
 
   const beginLocationCommandTap = useCallback(() => {
-    const existing = locationCommandActivationRef.current;
-    if (existing && !existing.cancelled && !existing.completed) return;
-    const turnId = `location_command_${createVoiceTurnId()}`;
-    locationCommandActivationRef.current = {
-      turnId,
-      cancelled: false,
-      endpointed: false,
-      completed: false,
-    };
+    const activation = ensureLocationCommandActivation();
+    const turnId = activation.turnId;
     // This runs inside the physical click gesture. The command transport has
     // no output lane, but priming here preserves a valid platform activation
     // for any existing output-context cleanup.
@@ -3398,18 +3403,11 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
     // with the specific retry state below.
     setVoiceStatus("listening", "Listening");
     void startConversation(undefined, "tap");
-  }, [setVoiceStatus, startConversation]);
+  }, [ensureLocationCommandActivation, setVoiceStatus, startConversation]);
 
   const handleVoiceStartClick = useCallback(
     (event: MouseEvent<HTMLButtonElement>) => {
       event.stopPropagation();
-      if (!locationCommandRuntimeEnabled) {
-        // This happens before any command bootstrap or PCM can exist. Once a
-        // command tap has opted into location_command_v1, errors remain a
-        // command retry rather than silently moving partial audio to chat.
-        void startConversation(undefined, "tap");
-        return;
-      }
       const activeCommand = locationCommandActivationRef.current;
       if (
         activeCommand &&
@@ -3426,8 +3424,6 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
     },
     [
       beginLocationCommandTap,
-      locationCommandRuntimeEnabled,
-      startConversation,
       stopConversation,
     ],
   );
@@ -3545,290 +3541,21 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
         }
         return;
       }
-      // The lifecycle revision, rather than a route render, is the explicit
-      // foreground signal that causes an authenticated warm session to be
-      // refreshed after a native app resumes.
-      setForegroundLifecycleRevision(lifecycle.revision);
     };
 
     return appInteractionCoordinator.subscribeLifecycle(handleLifecycleChange);
   }, [conversationActive, stopConversation, stopPrewarmedSession]);
 
+  // Talk-to-One is a command surface, not a foreground live-chat surface.
+  // Clear any residual greeting/prewarm state on mount and whenever its
+  // owner changes; every microphone activation creates an explicit command
+  // turn below.
   useEffect(() => {
-    const context = runtime?.oneVoiceContextSnapshot ?? null;
-    const accessTier = runtime?.tier ?? null;
-    const authenticatedUserId = user?.uid ?? null;
-    if (!authenticatedUserId || !voicePreferences.voiceEnabled) {
-      setForegroundGreeting(null);
-      setForegroundGreetingReady(false);
-      setForegroundGreetingFollowUpState(null);
-      stopPrewarmedSession();
-      return;
-    }
-    // The command runtime is tap-to-listen, transcript-first, and
-    // presentation-silent.  It intentionally does not establish the legacy
-    // foreground warm/greeting conversation, because a command must never
-    // inherit a chat turn or a microphone-free Live session from that path.
-    if (locationCommandRuntimeEnabled) {
-      setForegroundGreeting(null);
-      setForegroundGreetingReady(false);
-      setForegroundGreetingFollowUpState(null);
-      stopPrewarmedSession();
-      return;
-    }
-    if (!context || !accessTier || conversationActive || erroredRef.current) {
-      return;
-    }
-    if (appInteractionCoordinator.getLifecycleSnapshot().state !== "active") {
-      return;
-    }
-    if (
-      typeof document !== "undefined" &&
-      document.visibilityState !== "visible"
-    ) {
-      return;
-    }
-    if (
-      typeof window !== "undefined" &&
-      window.__HUSHH_NATIVE_TEST__?.enabled === true
-    ) {
-      return;
-    }
-
-    const controller = new AbortController();
-    prewarmAbortControllerRef.current = controller;
-    const ownerEpoch = voiceSessionOwnerEpochRef.current;
-    const contextKey = actionableContextKey(context);
-    const timer = window.setTimeout(() => {
-      if (
-        controller.signal.aborted ||
-        appInteractionCoordinator.getLifecycleSnapshot().state !== "active"
-      ) {
-        return;
-      }
-      // Keep a real, authenticated Live connection while the app is
-      // foregrounded, but never capture from the mic here. This replaces the
-      // old ticket-only prewarm: a ticket still left the slow relay/model
-      // handshake on the first spoken word.
-      const existing = prewarmedSessionRef.current;
-      if (
-        existing &&
-        existing.accessTier === accessTier &&
-        existing.contextKey === contextKey &&
-        existing.ownerEpoch === ownerEpoch &&
-        existing.expiresAtMs > Date.now()
-      ) {
-        return;
-      }
-      if (existing) {
-        prewarmedSessionRef.current = null;
-        existing.client.stop();
-      }
-      if (sessionWarmInFlightRef.current) return;
-      if (Date.now() < sessionWarmCooldownUntilRef.current) return;
-      sessionWarmInFlightRef.current = true;
-      void (async () => {
-        const runtimeConnection = await resolveGeminiRuntimeConnection({
-          userId: authenticatedUserId,
-          vaultKey,
-          vaultOwnerToken,
-        });
-        if (controller.signal.aborted) return;
-        // Warm only server-owned capacity. Pulling a personal BYOK key simply
-        // to idle a socket is not required for instant managed voice and
-        // would weaken the server-only credential boundary.
-        if (
-          runtimeConnection.mode !== "hushh_managed_vertex" ||
-          runtimeConnection.transport === "vertex_api_key"
-        ) {
-          return;
-        }
-        const relaySession = await ApiService.getOneAdkLiveRelaySession({
-          signal: controller.signal,
-        });
-        if (
-          controller.signal.aborted ||
-          ownerEpoch !== voiceSessionOwnerEpochRef.current
-        ) {
-          return;
-        }
-        const { relayUrl, voiceSessionScope } = relaySession;
-        if (!voiceSessionScope) {
-          // The opaque server scope is required exclusively for this mounted
-          // follow-up timer. Without it, preserve the tap-only path rather
-          // than inventing a browser identifier.
-          return;
-        }
-        // This value is created server-side from the authenticated relay
-        // identity. It is the only identity-like value passed to the local
-        // lifecycle; `authenticatedUserId` never enters persistence.
-        voiceSessionScopeRef.current = voiceSessionScope;
-
-        let client: RealtimeVoiceTransport | null = null;
-        // Constructing the adapter is inert; deferAudioInput below keeps
-        // AVAudioEngine capture closed until the same physical tap that
-        // promotes this warm socket. Without it, an iOS warm claim falls back
-        // to browser getUserMedia instead of the native PCM lane.
-        const realtimeAudioInput = createOneVoiceRealtimeAudioInput();
-        let greetingDirectiveObserved = false;
-        client = createRealtimeVoiceTransport({
-          onEvent: (event) => {
-            // A warm session is presentation-silent except for its exact
-            // server-owned greeting control event. The transport voices that
-            // fixed directive through the separately-gated app_speech output
-            // path; this callback never turns state or model text into a
-            // greeting and never sends user content.
-            if (client && liveClientRef.current === client) {
-              handleTransportEventRef.current(event);
-              return;
-            }
-            if (event.type === "greeting" && client) {
-              if (
-                greetingDirectiveObserved ||
-                controller.signal.aborted ||
-                prewarmedSessionRef.current?.client !== client
-              ) {
-                return;
-              }
-              greetingDirectiveObserved = true;
-              foregroundGreetingOutputClientRef.current = client;
-              setForegroundGreeting(event.greeting.text);
-              setForegroundGreetingReady(true);
-              // Capture stays closed while the fixed greeting output is
-              // speaking. `greeting_playback_settled` below is the only
-              // boundary allowed to arm the ten-second follow-up window.
-              setForegroundGreetingFollowUpState("arming");
-              return;
-            }
-            if (event.type === "greeting_playback_settled" && client) {
-              if (
-                controller.signal.aborted ||
-                prewarmedSessionRef.current?.client !== client
-              ) {
-                return;
-              }
-              if (foregroundGreetingOutputClientRef.current === client) {
-                foregroundGreetingOutputClientRef.current = null;
-              }
-              if (!event.played) {
-                setForegroundGreetingFollowUpState("tap_required");
-                setVoiceStatus("idle", "Tap to enable microphone for replies.");
-                return;
-              }
-              // The server already claimed eligibility. This only opens the
-              // real 10-second capture window when the platform can actually
-              // capture without a hidden browser permission prompt.
-              void armServerGreetingFollowUp({
-                client,
-                scope: voiceSessionScope,
-                realtimeAudioInput,
-                ownerEpoch,
-                runtimeMode: runtimeConnection.mode,
-              });
-              return;
-            }
-            if (event.type === "closed" && client) {
-              if (prewarmedSessionRef.current?.client === client) {
-                prewarmedSessionRef.current = null;
-              }
-            }
-          },
-        });
-        const warmed: PrewarmedGeminiSession = {
-          client,
-          expiresAtMs: Date.now() + 120_000,
-          accessTier,
-          contextKey,
-          runtimeMode: runtimeConnection.mode,
-          ownerEpoch,
-          voiceSessionScope,
-        };
-        prewarmedSessionRef.current = warmed;
-        await client.start({
-          context,
-          accessTier,
-          relayUrl,
-          sessionMirrorId: mirrorSessionId,
-          allowedActionIds:
-            context.executable_action_ids ?? context.available_action_ids,
-          consentToken: vaultOwnerToken ?? null,
-          runtimeCredentialMode: runtimeConnection.mode,
-          runtimeCredentialTransport: runtimeConnection.transport,
-          voiceName: voicePreferences.voiceName,
-          // Foreground warm-up asks the relay to evaluate its own durable
-          // eligibility. There is intentionally no browser reservation or
-          // localStorage cooldown in this path.
-          initialGreetingEnabled: true,
-          activationSource: "foreground_warm",
-          realtimeAudioInput,
-          // The Location command transport is a separately governed UAT
-          // opt-in. When it is dark, retain the existing warm conversational
-          // relay instead of sending a command protocol request to a backend
-          // that correctly keeps that lane off.
-          locationCommandMode: locationCommandRuntimeEnabled,
-          deferAudioInput: true,
-        });
-        const ready = await client.waitForContextReady?.({ timeoutMs: 4_000 });
-        if (
-          controller.signal.aborted ||
-          ownerEpoch !== voiceSessionOwnerEpochRef.current ||
-          (prewarmedSessionRef.current?.client !== client &&
-            liveClientRef.current !== client) ||
-          ready !== true
-        ) {
-          if (prewarmedSessionRef.current?.client === client) {
-            prewarmedSessionRef.current = null;
-          }
-          client.stop();
-          return;
-        }
-        sessionWarmBackoffMsRef.current = 5_000;
-      })()
-        .catch((error: unknown) => {
-          const status =
-            typeof error === "object" && error !== null
-              ? Number((error as { status?: unknown }).status)
-              : NaN;
-          if (status === 429) {
-            sessionWarmCooldownUntilRef.current =
-              Date.now() + sessionWarmBackoffMsRef.current;
-            sessionWarmBackoffMsRef.current = Math.min(
-              sessionWarmBackoffMsRef.current * 2,
-              60_000,
-            );
-          }
-          // A prewarm failure is never a visible voice error. The real tap
-          // still takes the normal start path and reports actionable errors.
-          if (!controller.signal.aborted) stopPrewarmedSession();
-        })
-        .finally(() => {
-          sessionWarmInFlightRef.current = false;
-        });
-    }, 300);
-
-    return () => {
-      controller.abort();
-      if (prewarmAbortControllerRef.current === controller) {
-        prewarmAbortControllerRef.current = null;
-      }
-      window.clearTimeout(timer);
-    };
-  }, [
-    conversationActive,
-    foregroundLifecycleRevision,
-    mirrorSessionId,
-    runtime?.oneVoiceContextSnapshot,
-    runtime?.tier,
-    armServerGreetingFollowUp,
-    setVoiceStatus,
-    stopPrewarmedSession,
-    user?.uid,
-    vaultKey,
-    vaultOwnerToken,
-    locationCommandRuntimeEnabled,
-    voicePreferences.voiceEnabled,
-    voicePreferences.voiceName,
-  ]);
+    setForegroundGreeting(null);
+    setForegroundGreetingReady(false);
+    setForegroundGreetingFollowUpState(null);
+    stopPrewarmedSession();
+  }, [stopPrewarmedSession]);
 
   useEffect(() => {
     if (typeof document === "undefined") return;
@@ -4123,9 +3850,7 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
         : foregroundGreetingFollowUpState === "listening"
           ? "Listening"
           : "Tap to talk";
-  const voiceLauncherInstruction = locationCommandRuntimeEnabled
-    ? "Tap to talk to One. I’ll listen until you finish."
-    : "Tap to talk to One.";
+  const voiceLauncherInstruction = "Tap to talk to One. I’ll listen until you finish.";
   // Dock contents for the assistant actions, one JSX source across all modes so
   // the voice/theme controls and test ids never fork.
   const pillContents =
@@ -4147,8 +3872,8 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
             stopConversation();
           }}
           onClick={stopConversation}
-          aria-label="End conversation"
-          title="Tap to end conversation"
+            aria-label="Cancel command"
+            title="Tap to cancel command"
           className="bottom-chrome-surface relative z-0 flex h-11 min-w-0 flex-1 items-center gap-3 overflow-hidden rounded-full pl-1 pr-2 text-left transition-[background-color,transform] duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--app-accent-ring)]"
         >
           <span
@@ -4223,13 +3948,7 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
                 : `${voiceLauncherInstruction} ${hint}`
             }
             title={
-              foregroundGreetingReady
-                ? locationCommandRuntimeEnabled
-                  ? "Tap to start a command with One"
-                  : "Tap to talk to One"
-                : locationCommandRuntimeEnabled
-                  ? "Tap to start a command with One"
-                  : "Tap to start a voice conversation with One"
+              "Tap to start a command with One"
             }
             className={cn(
               "agent-bar-voice-launcher press-scale bottom-chrome-surface relative flex h-11 min-w-0 flex-1 items-center gap-2 overflow-hidden px-3 text-left transition-[background-color,transform] duration-200 hover:bg-current/[0.09] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--app-accent-ring)] dark:hover:bg-current/[0.12]",

@@ -20,7 +20,6 @@ import {
   locationPermissionPreflight,
   parseFreshLocationRuntimeCapture,
 } from "@/lib/services/one-location-device-evidence";
-import { getVoiceV2Flags } from "@/lib/voice/voice-feature-flags";
 
 import {
   useOptionalOneLocationInteractionSurface,
@@ -195,11 +194,6 @@ export function LocationCommandDeviceBridge() {
   );
 
   useEffect(() => {
-    if (!getVoiceV2Flags().locationCommandRuntimeEnabled) {
-      processedDirectiveRef.current = null;
-      orchestrator.cancel();
-      return;
-    }
     const activeDirective = surface?.directive;
     if (!activeDirective || activeDirective.authority !== "server") return;
     const directive = activeDirective.serverDirective;

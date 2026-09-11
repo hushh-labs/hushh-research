@@ -121,33 +121,24 @@ describe("One Voice iOS native PCM input contract", () => {
     expect(liveClient).toContain("void this.stopAudioInput()");
   });
 
-  it("keeps a claimed iOS warm socket on native PCM rather than browser getUserMedia", () => {
-    const warmEffectAt = agentBar.indexOf(
-      "Keep a real, authenticated Live connection",
+  it("opens iOS command capture on native PCM without a warm socket", () => {
+    const commandStartAt = agentBar.indexOf(
+      "const relaySessionPromise = ApiService.getOneAdkLiveRelaySession",
     );
-    const warmStartAt = agentBar.indexOf(
-      "const realtimeAudioInput = createOneVoiceRealtimeAudioInput()",
-      warmEffectAt,
-    );
-    const warmStart = agentBar.slice(
-      warmStartAt,
-      agentBar.indexOf("const ready = await client.waitForContextReady", warmStartAt),
-    );
-    const warmClaimAt = agentBar.indexOf(
-      "warmed.client.resumeOutputForUserGesture?.()",
-      agentBar.indexOf("const startConversation"),
-    );
-    const warmCaptureAt = agentBar.indexOf(
-      "await warmed.client.startAudioInput?.()",
-      warmClaimAt,
+    const commandStart = agentBar.slice(
+      commandStartAt,
+      agentBar.indexOf(
+        "const runtimeConnection = await resolveGeminiRuntimeConnection",
+        commandStartAt,
+      ),
     );
 
-    expect(warmEffectAt).toBeGreaterThan(-1);
-    expect(warmStartAt).toBeGreaterThan(-1);
-    expect(warmStart).toContain("realtimeAudioInput,");
-    expect(warmStart).toContain("deferAudioInput: true");
-    expect(warmClaimAt).toBeGreaterThan(-1);
-    expect(warmCaptureAt).toBeGreaterThan(warmClaimAt);
+    expect(commandStartAt).toBeGreaterThan(-1);
+    expect(commandStart).toContain(
+      "const realtimeAudioInput = createOneVoiceRealtimeAudioInput();",
+    );
+    expect(commandStart).toContain("locationCommandMode: true,");
+    expect(agentBar).not.toContain('activationSource: "foreground_warm"');
     expect(nativeInput).toContain("startRealtimeAudioCapture");
     expect(liveClient).toContain("if (this.realtimeAudioInput)");
     expect(liveClient).toContain("await input.start");

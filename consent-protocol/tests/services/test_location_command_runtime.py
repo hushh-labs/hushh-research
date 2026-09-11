@@ -6,6 +6,7 @@ import asyncio
 import json
 from base64 import b64encode
 from contextlib import asynccontextmanager
+from pathlib import Path
 from types import ModuleType, SimpleNamespace
 
 import pytest
@@ -959,16 +960,12 @@ async def test_workflow_result_is_a_typed_card_without_transcript_or_slots(
             "field": "candidate_id_or_ASK",
             "allowed_values": ["workflow.setup.location", "ASK"],
         },
+        "selected_candidate_id": "workflow.setup.location",
         "retrieval_status": "READY",
         "reason_code": "semantic",
     }
 
-    async def selector(_routing_text: str, _turn: object) -> dict[str, object]:
-        return {"candidate_id_or_ASK": "workflow.setup.location", "slots": {}}
-
-    runtime = LocationCommandRuntime(
-        selector=selector, semantic_retriever=lambda **_kwargs: projection
-    )
+    runtime = LocationCommandRuntime(semantic_retriever=lambda **_kwargs: projection)
 
     async def active_run(*, user_id: str):
         assert user_id == "owner"
@@ -1041,7 +1038,9 @@ async def test_workflow_result_is_a_typed_card_without_transcript_or_slots(
 
 
 @pytest.mark.asyncio
-async def test_selector_ask_does_not_start_a_workflow(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_missing_semantic_selection_does_not_start_a_workflow(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     projection = {
         "schema_version": "one.location_turn_projection.v1",
         "graph_revision": "graph_revision",
@@ -1062,12 +1061,7 @@ async def test_selector_ask_does_not_start_a_workflow(monkeypatch: pytest.Monkey
         "reason_code": "semantic",
     }
 
-    async def selector(_routing_text: str, _turn: object) -> dict[str, object]:
-        return {"candidate_id_or_ASK": "ASK"}
-
-    runtime = LocationCommandRuntime(
-        selector=selector, semantic_retriever=lambda **_kwargs: projection
-    )
+    runtime = LocationCommandRuntime(semantic_retriever=lambda **_kwargs: projection)
 
     async def active_run(*, user_id: str):
         return None, None
@@ -1280,11 +1274,8 @@ async def test_unquoted_circle_name_is_local_only_and_never_reaches_routing_prov
         observed["embedding_query"] = kwargs["query"]
         return projection
 
-    async def selector(routing_text: str, _projection: object) -> dict[str, object]:
-        observed["selector_query"] = routing_text
-        return {"candidate_id_or_ASK": "location.create_circle"}
-
-    runtime = LocationCommandRuntime(selector=selector, semantic_retriever=retriever)
+    projection["selected_candidate_id"] = "location.create_circle"
+    runtime = LocationCommandRuntime(semantic_retriever=retriever)
 
     async def active_run(*, user_id: str):
         assert user_id == "owner"
@@ -1315,14 +1306,14 @@ async def test_unquoted_circle_name_is_local_only_and_never_reaches_routing_prov
 
     assert result.outcome == "ask"
     assert observed["slots"] == {"name": secret_name}
-    for provider_input in (observed["embedding_query"], observed["selector_query"]):
-        assert secret_name.lower() not in str(provider_input).lower()
-        assert "create" in str(provider_input).lower()
-        assert "circle" in str(provider_input).lower()
+    provider_input = observed["embedding_query"]
+    assert secret_name.lower() not in str(provider_input).lower()
+    assert "create" in str(provider_input).lower()
+    assert "circle" in str(provider_input).lower()
 
 
 @pytest.mark.asyncio
-async def test_unquoted_address_never_reaches_location_embedding_or_selector(
+async def test_unquoted_address_never_reaches_location_embedding(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     projection = {
@@ -1351,11 +1342,7 @@ async def test_unquoted_address_never_reaches_location_embedding_or_selector(
         observed.append(str(kwargs["query"]))
         return projection
 
-    async def selector(routing_text: str, _projection: object) -> dict[str, object]:
-        observed.append(routing_text)
-        return {"candidate_id_or_ASK": "ASK"}
-
-    runtime = LocationCommandRuntime(selector=selector, semantic_retriever=retriever)
+    runtime = LocationCommandRuntime(semantic_retriever=retriever)
 
     async def active_run(*, user_id: str):
         return None, None
@@ -1374,29 +1361,39 @@ async def test_unquoted_address_never_reaches_location_embedding_or_selector(
     )
 
     assert result.outcome == "ask"
-    assert len(observed) == 2
+    assert len(observed) == 1
     assert all(address.lower() not in value.lower() for value in observed)
 
 
-def test_location_command_selector_rejects_developer_api_key_binding(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    class _DeveloperBinding:
-        auth_mode = "developer_api_key"
+@pytest.mark.asyncio
+async def test_location_command_uses_only_the_semantic_retriever_selection() -> None:
+    runtime = LocationCommandRuntime()
 
-        @classmethod
-        def from_environment(cls):
-            return cls()
-
-        def build_direct_client(self, **_kwargs: object) -> object:
-            raise AssertionError("Developer API key must not build a Location selector client")
-
-    monkeypatch.setattr(location_command_module, "ManagedGeminiRuntimeBinding", _DeveloperBinding)
-
-    assert (
-        location_command_module._build_managed_location_command_text_client(model="gemini-default")
-        is None
+    selected = await runtime._select_deterministic_candidate(
+        "set up my location",
+        {
+            "selected_candidate_id": "workflow.setup.location",
+            "selection_contract": {
+                "field": "candidate_id_or_ASK",
+                "allowed_values": ["workflow.setup.location", "ASK"],
+            },
+        },
     )
+    missing = await runtime._select_deterministic_candidate(
+        "set up my location",
+        {"selection_contract": {"field": "candidate_id_or_ASK", "allowed_values": ["ASK"]}},
+    )
+
+    assert selected == {"candidate_id_or_ASK": "workflow.setup.location"}
+    assert missing == {"candidate_id_or_ASK": "ASK"}
+
+
+def test_location_command_runtime_has_no_model_action_selector() -> None:
+    source = Path(location_command_module.__file__).read_text(encoding="utf-8")
+
+    assert "generate_content" not in source
+    assert "gemini-default" not in source
+    assert "_select_with_managed_gemini" not in source
 
 
 def test_circle_execution_scope_is_server_derived_opaque_and_slot_normalized() -> None:

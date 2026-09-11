@@ -5681,17 +5681,35 @@ def retrieve_location_brain_candidates(
         return {**empty_projection, "retrieval_status": "ASK", "reason_code": "low_confidence"}
     if len(ranked) > 1 and ranked[0][0] - ranked[1][0] < _LOCATION_BRAIN_AMBIGUITY_MARGIN:
         return {**empty_projection, "retrieval_status": "ASK", "reason_code": "ambiguous"}
-    # A candidate set is an explicit choice boundary, not an action grant.
-    # Preserve the best 4--6 semantic alternatives so Gemini can resolve
-    # natural phrasing without relying on aliases, while the exact-selection
-    # and executor guard still reject every id outside this issued list.
+    # Retrieval, rather than a chat model, makes the command choice.  The
+    # score threshold and ambiguity margin above are the only admission
+    # criteria; a result inside either fail-closed boundary is ASK.  Preserve
+    # the best 4--6 candidates for diagnostics/evaluation, but keep the
+    # highest-ranked registered id as a server-only deterministic selection.
+    # It is still only a choice boundary, never an action grant: the command
+    # runtime validates the id against this projection before advancing an
+    # audited adapter, card, or navigation directive.
     selected = [card for _, card in ranked[:bounded_limit]]
     projection = build_location_turn_projection(
         snapshot=current_snapshot,
         candidates=selected,
         graph=payload,
     )
-    return {**projection, "retrieval_status": "READY", "reason_code": "semantic"}
+    selected_candidate_id = str(ranked[0][1].get("candidate_id") or "").strip()
+    if not selected_candidate_id:
+        return {
+            **empty_projection,
+            "retrieval_status": "ASK",
+            "reason_code": "selection_unavailable",
+        }
+    return {
+        **projection,
+        "retrieval_status": "READY",
+        "reason_code": "semantic",
+        # This field is server-internal command state.  It is never included
+        # in a model prompt or command wire payload.
+        "selected_candidate_id": selected_candidate_id,
+    }
 
 
 def _service_brain_registry_descriptor(
