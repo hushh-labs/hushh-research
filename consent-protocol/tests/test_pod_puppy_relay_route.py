@@ -364,7 +364,20 @@ def test_model_and_capability_validation_is_strict():
         "tool_calling",
         "json_schema",
     )
-    assert pod_puppy_relay.valid_capabilities("tool_calling") == ()
+
+    # THREE ANSWERS, NOT TWO. Absent is None, which the pre-dispatch gate reads
+    # as its negative control and refuses nothing by. An empty list is a real
+    # declaration of no capabilities. Anything the door cannot parse RAISES, so
+    # the socket closes rather than the declaration being silently dropped.
+    #
+    # This used to return () for all three. The fork sends a dict today, written
+    # for the hub, so a spec-compliant-looking device had its whole declaration
+    # discarded here and every capability gate downstream switched itself off.
+    assert pod_puppy_relay.valid_capabilities(None) is None
+    assert pod_puppy_relay.valid_capabilities([]) == ()
+    for malformed in ("tool_calling", {"tool_calling": True}, 7):
+        with pytest.raises(ValueError):
+            pod_puppy_relay.valid_capabilities(malformed)
 
 
 def test_the_relay_is_on_the_app_surface_and_the_wall_still_covers_the_rest():
