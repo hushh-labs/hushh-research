@@ -33,7 +33,6 @@ row and the orchestrator replays the set through the same validated writer:
 
 ```
 {"id":"<row id>","verdict":"correct|wrong|unsure","rule":"<rule>","citation":"<quote>"}
-
 uv run python scripts/ops/memory_judge.py --run-dir <run dir> replay --from <grader jsonl>
 ```
 
@@ -54,11 +53,13 @@ Two costs, stated rather than buried:
 - The grader loses the refusal at its own console. `replay` stops at the first
   refused row and names it, and the orchestrator hands it back. Replaying the
   corrected submission resumes rather than duplicating.
-- The orchestrator could alter a verdict in transit. The mitigation is
-  evidence: every submission is appended verbatim to `grader-submission.jsonl`
-  before anything is written, so the recorded verdicts can be diffed against
-  what the grader said. Changing an already-recorded verdict stays refused by
-  the duplicate check.
+- The orchestrator could alter a verdict in transit, and nothing prevents or
+  detects it. `grader-submission.jsonl` is written by the orchestrator from the
+  same rows it records, so an alteration appears identically in both and does
+  not evidence what the grader said. What it gives: a pre-write record
+  surviving a partly refused replay, a second submission beside the first, and
+  the path and SHA-256 of the file replayed. Changing an already-recorded
+  verdict stays refused by the duplicate check.
 
 - `verdict` is exactly `correct`, `wrong`, or `unsure`.
 - A `wrong` verdict **requires** a citation quoting the offending value verbatim

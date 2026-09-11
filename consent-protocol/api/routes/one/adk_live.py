@@ -489,13 +489,22 @@ async def create_one_adk_relay_session(
             # no registry row, no pod URL, an unreachable pod, or the timeout.
             # The client-facing detail is deliberately unchanged: the caller
             # still learns only that voice is unavailable.
+            #
+            # ON THE ARGS PATH, NOT `extra=`, and both halves of that matter.
+            # The serving formatter is the plain one `server.py` installs and
+            # gunicorn does not replace, so it renders `%(message)s` and nothing
+            # else: fields passed through `extra` are carried on the record and
+            # never printed, which would have made this line a no-op wearing the
+            # shape of a fix. And `SensitiveLogFilter` rewrites `record.msg` and
+            # `record.args` only, so `extra` is also the one path that skips
+            # redaction -- reachable here, because a database failure reaches
+            # this handler with the bound parameters inside its own str().
+            # No uid: the reason is what was missing, and the owner is already
+            # identified by the request.
             logger.warning(
-                "one.adk.relay_session.admission_refused",
-                extra={
-                    "uid": uid,
-                    "reason": type(exc).__name__,
-                    "detail": str(exc)[:300],
-                },
+                "one.adk.relay_session.admission_refused reason=%s detail=%s",
+                type(exc).__name__,
+                exc,
             )
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,

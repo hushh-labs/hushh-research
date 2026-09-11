@@ -809,11 +809,16 @@ async def test_the_relay_carries_the_runtime_triple_and_strips_frames(monkeypatc
 
 # -- a denial means exactly one thing ----------------------------------------------------
 #
-# `run_memory_review` drops the WHOLE pass on a consent denial and advances the
-# checkpoint anyway, so a refusal misfiled as a denial does not merely mislabel an
-# event: it destroys the additive writes of that pass and marks their records
-# reviewed, and no later authorised pass can recover them. The narrowed sink must
-# therefore call a denial only what the base sink would otherwise have accepted.
+# `run_memory_review` drops the WHOLE pass on a consent denial: not just the
+# retirement that was refused, but the additive writes and PKM proposals beside
+# it. So a schema refusal misfiled as a denial silently discards work the base
+# sink would have accepted, and the event is mislabelled on top.
+#
+# What it no longer costs is the records. The checkpoint holds on a denial, so
+# they stay unreviewed and an authorised pass still finds them; that half is
+# pinned in `test_a_denied_correction_survives_for_the_door_that_may_retire`.
+# The writes of the misfiled pass are gone regardless, which is why the narrowed
+# sink must call a denial only what the base sink would otherwise have accepted.
 
 
 async def test_a_malformed_supersession_is_a_schema_refusal_even_on_a_narrowed_path(

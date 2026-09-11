@@ -1749,6 +1749,44 @@ def test_the_replay_is_reachable_from_the_command_line(tmp_path, capsys):
     assert len(outcome["recorded"]) == len(rows)
     assert memory_judge.progress(run_dir)["complete"] is True
 
+    # The one part of the submission log an auditor can check against something
+    # OUTSIDE it: the path replayed and a digest of that file's bytes. The rows
+    # cannot serve, because the orchestrator writes them from the same list it
+    # records, so an alteration is identical on both sides.
+    logged = json.loads((run_dir / memory_judge.SUBMISSION_FILENAME).read_text())
+    assert logged["source"] == str(path)
+    assert logged["sha256"] == memory_judge._sha(path.read_text(encoding="utf-8"))
+
+
+def test_the_submission_log_cannot_evidence_what_the_grader_said(tmp_path):
+    """Pinned as a LIMIT, not as a control, because it was once claimed as one.
+
+    The docstring offered this log as the thing the recorded verdicts could be
+    diffed against to catch an orchestrator altering a verdict in transit. It
+    cannot: the orchestrator writes the log from the same rows it records. This
+    measures that directly, so the claim cannot come back without going red.
+    """
+    run_dir, _ = _issue(tmp_path)
+    seal_path = _seal(run_dir)
+    honest = _submission(run_dir, seal_path)
+
+    # The orchestrator flips one verdict the grader gave, before replaying.
+    altered = [dict(r) for r in honest]
+    flipped = next(r for r in altered if r["verdict"] == "correct")
+    flipped["verdict"] = "unsure"
+    memory_judge.replay(run_dir=run_dir, rows=altered)
+
+    logged = json.loads((run_dir / memory_judge.SUBMISSION_FILENAME).read_text())["rows"]
+    recorded = {str(e["id"]): str(e["verdict"]) for e in memory_judge.read_verdicts(run_dir)}
+    # The prescribed diff finds nothing, which is the point.
+    assert all(recorded[r["id"]] == r["verdict"] for r in logged)
+    assert recorded[flipped["id"]] == "unsure"
+    # And the log carries no digest at all when the caller passed no bytes, so
+    # it cannot even name an artifact to check against.
+    assert "sha256" not in json.loads(
+        (run_dir / memory_judge.SUBMISSION_FILENAME).read_text().splitlines()[0]
+    )
+
 
 def test_the_grading_lane_is_read_only_and_is_not_told_to_write(tmp_path):
     """The contradiction this whole path exists to remove, pinned so it cannot

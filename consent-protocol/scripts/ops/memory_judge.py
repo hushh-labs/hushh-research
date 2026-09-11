@@ -496,6 +496,8 @@ def replay(
     *,
     run_dir: Path | str,
     rows: list[dict[str, Any]],
+    raw: str | None = None,
+    source: str | None = None,
 ) -> dict[str, Any]:
     """Put a read-only grader's verdict lines through ``record``, one at a time.
 
@@ -535,12 +537,29 @@ def replay(
         and names the row precisely so that handing it back is possible; a
         replay that swallowed refusals and carried on would be strictly worse
         than what it replaced.
-    *   **The orchestrator could alter a verdict in transit.** It could not
-        before. The mitigation is evidence, not prevention: every submission is
-        appended verbatim to ``grader-submission.jsonl`` before any of it is
-        written, so the recorded verdicts can always be diffed against what the
-        grader actually said, and a second submission is visible beside the
-        first rather than replacing it.
+    *   **The orchestrator could alter a verdict in transit, and nothing here
+        prevents or detects that.** It could not before, and this is the one
+        real loss. Said plainly because the first version of this paragraph
+        overclaimed: it offered ``grader-submission.jsonl`` as evidence the
+        recorded verdicts could be diffed against "what the grader actually
+        said", which is false by construction. That log is written by the
+        orchestrator, from the same list it then hands to ``record``, so an
+        altered verdict appears identically in both and the prescribed diff
+        finds nothing. Closing it needs an independent copy of the grader's own
+        output, which nothing in this flow has: the lane is read-only and is
+        told never to write.
+
+        What the log does give, and all that may be claimed for it: a
+        pre-write record that survives a replay refused partway, a second
+        submission visible beside the first rather than replacing it, and,
+        when the caller passes the bytes it read, the SHA-256 and path of the
+        file that was replayed. An orchestrator that saves the grader's output
+        to a file and replays that file therefore leaves a digest tying the run
+        to it, which is a real audit step and still not proof of authorship.
+        It is also a normalisation rather than a transcript: absent optional
+        fields are materialised as empty strings and values are coerced with
+        ``str``. No submitted value is lost, because an unrecognised field is
+        refused rather than dropped.
 
         An earlier version REFUSED a submission that disagreed with the one on
         disk, which sounded like the stronger control and was simply wrong: the
@@ -577,10 +596,18 @@ def replay(
         normalised.append({key: str(row.get(key) or "") for key in sorted(_SUBMISSION_FIELDS)})
 
     # Append-only, one line per submission, written BEFORE anything is recorded
-    # so a replay that refuses partway still leaves what the grader said.
+    # so a replay refused partway still leaves the rows it was given. `source`
+    # and `sha256` are the only parts an auditor can check against something
+    # outside this file: they name the artifact that was replayed and commit to
+    # its bytes. They are absent when the caller passed rows with no origin.
     submission_path = directory / SUBMISSION_FILENAME
+    entry: dict[str, Any] = {"rows": normalised}
+    if source is not None:
+        entry["source"] = str(source)
+    if raw is not None:
+        entry["sha256"] = _sha(raw)
     with submission_path.open("a", encoding="utf-8") as handle:
-        handle.write(json.dumps({"rows": normalised}, sort_keys=True) + "\n")
+        handle.write(json.dumps(entry, sort_keys=True) + "\n")
 
     already = {str(entry.get("id")): entry for entry in read_verdicts(directory)}
     recorded: list[str] = []
@@ -621,9 +648,15 @@ def replay(
     }
 
 
-def read_submission(source: Path | str | None) -> list[dict[str, Any]]:
-    """Parse grader-emitted JSONL from a file, or from stdin when None."""
+def read_submission(source: Path | str | None) -> tuple[list[dict[str, Any]], str, str]:
+    """Parse grader-emitted JSONL from a file, or from stdin when None.
+
+    Returns the rows, the raw text they were parsed from, and a label for where
+    it came from. The last two are what let the submission log commit to the
+    artifact it replayed rather than only to its own re-serialisation.
+    """
     text = sys.stdin.read() if source is None else Path(source).read_text(encoding="utf-8")
+    label = "<stdin>" if source is None else str(source)
     rows: list[dict[str, Any]] = []
     for position, line in enumerate(text.splitlines(), start=1):
         stripped = line.strip()
@@ -633,7 +666,7 @@ def read_submission(source: Path | str | None) -> list[dict[str, Any]]:
             rows.append(json.loads(stripped))
         except json.JSONDecodeError as exc:
             raise JudgeError(f"line {position} is not JSON: {exc}") from exc
-    return rows
+    return rows, text, label
 
 
 def discarded_verdicts(
@@ -1417,7 +1450,8 @@ def main(argv: list[str] | None = None) -> int:
                 Path(args.report_path).write_text(rendered + "\n", encoding="utf-8")
             return 1 if report["void"] else 0
         if args.command == "replay":
-            outcome = replay(run_dir=args.run_dir, rows=read_submission(args.submission))
+            rows, raw, label = read_submission(args.submission)
+            outcome = replay(run_dir=args.run_dir, rows=rows, raw=raw, source=label)
             print(json.dumps(outcome, indent=2, sort_keys=True))
             return 0
         state = progress(args.run_dir)

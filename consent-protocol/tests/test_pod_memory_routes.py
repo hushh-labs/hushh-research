@@ -1770,41 +1770,58 @@ async def test_the_turn_route_hands_the_catch_up_review_the_doors_own_verdict(
         seen.update(kwargs)
         yield SimpleNamespace(kind="token", text="ok", model_version="")
 
+    def _reached(result) -> dict:
+        """Fail with the reason, not with a bare KeyError on an empty dict.
+
+        ``run_pod_turn`` wraps the whole streaming block in a broad handler that
+        turns two specific conditions into a degraded ANSWER rather than an
+        error, so a failure that happens before the runner is first iterated
+        returns normally and leaves ``seen`` empty. Reading the verdict out of
+        an empty dict then reports a missing key, which says nothing about why.
+        """
+        assert seen, (
+            f"the runner was never iterated, so the turn returned before streaming: {result!r}"
+        )
+        assert "degraded" not in result, f"the turn degraded instead of streaming: {result!r}"
+        return seen
+
     payload = pod_turn.PodTurnRequest(
         message="hello", runtimeCredential="owner-key", pkmContext="grounding"
     )
 
     # The hub-relayed door: no binding at all, and the hub's verdict is the
     # authority, exactly as it is for a close and for the revoke route.
-    await pod_turn.run_pod_turn(payload=payload, consent_token="hub-token", stream_fn=_runner)
-    assert seen["memory_review_policy"].may_retire is True
+    hub_turn = await pod_turn.run_pod_turn(
+        payload=payload, consent_token="hub-token", stream_fn=_runner
+    )
+    assert _reached(hub_turn)["memory_review_policy"].may_retire is True
     assert seen["memory_review_policy"].authority == "hub_consent"
 
     # The owner-local door on the binding the hub actually mints today.
     assert SCOPE_POD_REVOKE in APP_SCOPES
     _full_token, full = await local_authority["admit"]("tdv_web_full", "web")
-    await pod_turn.run_pod_turn(
+    full_turn = await pod_turn.run_pod_turn(
         payload=payload,
         consent_token=authority.local_token(full),
         verifier=authority.local_verifier(full),
         session=full,
         stream_fn=_runner,
     )
-    assert seen["memory_review_policy"].may_retire is True
+    assert _reached(full_turn)["memory_review_policy"].may_retire is True
     assert seen["memory_review_policy"].authority == "binding_scope"
 
     # And a binding narrowed to reading, which keeps the narrowing non-vacuous.
     _read_token, narrowed = await local_authority["admit"](
         "tdv_web_read", "web", scopes=[SCOPE_PKM_READ, SCOPE_POD_CONFIG, SCOPE_POD_STATUS]
     )
-    await pod_turn.run_pod_turn(
+    narrowed_turn = await pod_turn.run_pod_turn(
         payload=payload,
         consent_token=authority.local_token(narrowed),
         verifier=authority.local_verifier(narrowed),
         session=narrowed,
         stream_fn=_runner,
     )
-    assert seen["memory_review_policy"].may_retire is False
+    assert _reached(narrowed_turn)["memory_review_policy"].may_retire is False
     assert seen["memory_review_policy"].authority == "binding_narrowed"
 
 

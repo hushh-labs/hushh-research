@@ -322,3 +322,45 @@ async def test_owner_with_current_pod_gets_pod_ticket(monkeypatch):
     admission.assert_awaited_once_with("synthetic-owner")
     assert result.cell == "pod" and result.tier == "full"
     mint.assert_called_once_with("synthetic-owner", "signed_locked")
+
+
+async def test_the_admission_refusal_says_why_on_a_line_that_actually_prints(monkeypatch, caplog):
+    """The refusal was silent for eleven consecutive dev releases.
+
+    Admission swallowed its own exception, so no log anywhere said which
+    precondition failed: no registry row, no pod URL, an unreachable pod, or
+    the timeout. A first attempt at this put the fields in ``extra=``, which
+    reads like a fix and is not one: the serving formatter renders
+    ``%(message)s`` only, so nothing would have printed, and
+    ``SensitiveLogFilter`` rewrites ``record.msg`` and ``record.args`` only, so
+    ``extra`` is also the one path that skips redaction. Both are why the
+    fields go through the args path, and why this asserts on the RENDERED
+    message rather than on the record's attributes.
+    """
+    import logging
+
+    from api.routes.one import pod_live_relay
+
+    monkeypatch.setattr(
+        pod_live_relay,
+        "admit_private_live",
+        AsyncMock(side_effect=RuntimeError("pod endpoint is not registered")),
+    )
+    monkeypatch.setattr(adk_live, "one_voice_enabled", lambda: True)
+    monkeypatch.setattr(firebase_auth, "verify_firebase_bearer", lambda header: "synthetic-owner")
+    monkeypatch.setattr(adk_live, "issue_relay_ticket", Mock(side_effect=AssertionError("no")))
+
+    with caplog.at_level(logging.WARNING, logger="api.routes.one.adk_live"):
+        with pytest.raises(HTTPException) as failure:
+            await adk_live.create_one_adk_relay_session.__wrapped__(
+                request=None, authorization="Bearer synthetic"
+            )
+
+    assert failure.value.status_code == 503
+    rendered = [record.getMessage() for record in caplog.records]
+    assert any("admission_refused" in line for line in rendered), rendered
+    line = next(line for line in rendered if "admission_refused" in line)
+    assert "reason=RuntimeError" in line
+    assert "pod endpoint is not registered" in line
+    # The caller still learns only that voice is unavailable.
+    assert "pod endpoint is not registered" not in str(failure.value.detail)
