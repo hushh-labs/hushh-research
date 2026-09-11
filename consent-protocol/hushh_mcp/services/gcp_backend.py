@@ -245,6 +245,17 @@ class GcpBackend:
         self._client = client
         self._credentials = credentials
 
+    @property
+    def live(self) -> bool:
+        """Whether this backend actually calls the cloud, or only renders a plan.
+
+        Public because a CALLER must be able to refuse before it changes durable
+        state. Plan mode (no ``HUSSH_GCP_BACKEND_LIVE``) returns a rendered handle with
+        ``status="planned"``, and a caller that persists that handle writes an
+        imagined result into the registry as fact.
+        """
+        return bool(self._live)
+
     def render_deploy_config(self, spec: PodSpec) -> dict[str, Any]:
         """The deployable Cloud Run service resource for this user's pod.
 
