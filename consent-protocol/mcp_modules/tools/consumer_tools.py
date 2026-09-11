@@ -91,12 +91,29 @@ class ConsumerDisconnectResult(BaseModel):
     next_action: str
 
 
+class ConsumerMemoryRecord(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    id: str = Field(..., max_length=128)
+    content: str = Field(..., max_length=4_000)
+    updated_at: str = Field(default="", max_length=64)
+
+
+class ConsumerMemoryPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    domain: str | None = Field(default=None, max_length=64)
+    records: list[ConsumerMemoryRecord] = Field(default_factory=list, max_length=20)
+    revision: int | None = Field(default=None, ge=0)
+    saved: bool | None = None
+    memory_id: str | None = Field(default=None, max_length=128)
+
+
 class ConsumerMemoryResult(BaseModel):
-    model_config = ConfigDict(extra="allow")
+    model_config = ConfigDict(extra="forbid")
     state: Literal["completed"]
     operation: str
     execution_target: Literal["owner_pod"]
     deployment_id: str
+    result: ConsumerMemoryPayload
     next_action: str
 
 

@@ -1,6 +1,7 @@
 from contextlib import contextmanager
 
 import pytest
+from pydantic import ValidationError
 
 from hushh_mcp.services.consumer_mcp_connections import ConsumerConnection
 from hushh_mcp.services.consumer_mcp_memory import (
@@ -16,6 +17,7 @@ from hushh_mcp.services.pod_consumer_memory import (
     PodConsumerMemoryExecutor,
     _encrypt,
 )
+from mcp_modules.tools.consumer_tools import ConsumerMemoryResult
 
 _RUNTIME_TOKEN = "HCT:runtime-token"
 
@@ -40,6 +42,32 @@ def test_memory_requests_are_typed_and_bounded() -> None:
         validate_memory_request("read", {"domain": "food", "query": "x" * 513})
     with pytest.raises(ConsumerMemoryInvalid):
         validate_memory_request("delete", {"domain": "food"})
+
+
+def test_memory_result_schema_keeps_pod_payload_bounded() -> None:
+    base = {
+        "state": "completed",
+        "operation": "read",
+        "execution_target": "owner_pod",
+        "deployment_id": "pod-a",
+        "result": {"records": [], "revision": 1},
+        "next_action": "done",
+    }
+    assert ConsumerMemoryResult.model_validate(base).result.revision == 1
+    with pytest.raises(ValidationError):
+        ConsumerMemoryResult.model_validate(
+            {
+                **base,
+                "result": {
+                    "records": [
+                        {"id": str(index), "content": "ok", "updated_at": "now"}
+                        for index in range(21)
+                    ]
+                },
+            }
+        )
+    with pytest.raises(ValidationError):
+        ConsumerMemoryResult.model_validate({**base, "result": {"secret": "unexpected"}})
 
 
 @pytest.mark.asyncio
