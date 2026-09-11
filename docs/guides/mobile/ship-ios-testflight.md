@@ -145,7 +145,28 @@ authority contract.
 
 1. Land the reviewed source on `main` and wait for the required post-merge
    checks to pass.
-2. Deploy the matching backend to UAT.
+2. Deploy the matching backend to UAT, with **`scope: all`** rather than the
+   default `scope: auto` whenever the release changes no `consent-protocol/`
+   file.
+
+   `auto` resolves the deploy lane from what actually changed, so a
+   frontend-only release correctly skips the backend. The backend then keeps
+   whatever SHA it was last deployed at, and `Verify matching UAT backend
+   revision` fails, because that gate compares the serving revision's
+   `deploy-sha` label against the release SHA for **exact** equality. Not
+   reachability, not recency.
+
+   The two are in direct contradiction for a frontend-only release, and the
+   failure misleads because nothing is wrong with the source: re-cutting the
+   branch, refetching `main`, and re-running the release all change nothing.
+   `scope: all` redeploys the identical backend under the new SHA, which is what
+   the gate is actually asking for.
+
+   Measured 2026-09-11: `git diff --name-only <deployed-sha>..origin/main --
+   consent-protocol/` returned **0 files** across ten commits of `main`. A
+   `scope: auto` deploy skipped the backend, and the TestFlight run failed this
+   gate identically to the run before it. Confirm the lane rather than assume
+   it, with `git diff --name-only <deployed-sha>..<release-sha> -- consent-protocol/`.
 3. Publish and activate the matching UAT model packs.
 4. If device evidence is desired, verify the self-hosted iPhone runner is
    connected and registered with the `ios-voice-device` label.
@@ -171,7 +192,7 @@ model bytes are removed or never uploaded.
 | Failure | Meaning and safe response |
 | --- | --- |
 | No connected iPhone / missing timing result | If `require_hardware: true`, restore the dedicated runner or permission bootstrap and rerun. If physical evidence is not needed, rerun with `require_hardware: false` after the mandatory simulator and native gates pass. |
-| UAT backend provenance differs from source SHA | Deploy that exact reviewed SHA to UAT, then restart the release workflow. |
+| UAT backend provenance differs from source SHA | The UAT backend is not serving the release SHA. Redeploy UAT at that exact SHA with **`scope: all`**. `scope: auto` will skip the backend again whenever the release changed no `consent-protocol/` file, which is the usual reason this row is being read. Then restart the release workflow. |
 | Local model readiness fails | Publish checksum-verified packs for the same SHA; do not hard-code signed URLs. |
 | Missing group, contact, notes, or privacy attestation | Configure the protected UAT release material; the workflow intentionally will not upload. |
 | External beta review pending | Internal testers can use the valid build; wait for Apple's beta-review decision for external testers. |
