@@ -16,6 +16,7 @@ can make the private agent say anything.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
@@ -44,6 +45,22 @@ router = APIRouter(prefix="/api/one/puppy", tags=["private-agent"])
 
 _MODEL_MAX = 128
 _CAPABILITY_MAX = 64
+#: How long the pod waits for ANY frame from the device before calling it gone.
+#
+# Without a deadline here the pod holds a dead link forever. A Mac that sleeps,
+# a Wi-Fi drop, a NAT rebind: none of these close the TCP connection, so
+# `await _frame(...)` simply never returns. The link stays in the broker,
+# `BROKER.available()` keeps answering True, the turn's admission check keeps
+# passing, and the person waits 65 seconds to be told PUPPY_TIMEOUT. Every
+# later turn does the same. The device, for its part, has no idea it should
+# re-dial, because from its side nothing happened either.
+#
+# The bound is set above the device's own maximum permitted heartbeat interval,
+# which its relay clamps to 120 s, with room for one missed beat. A device
+# inside its contract is therefore never evicted for being quiet; only one that
+# has actually stopped speaking is. Eviction needs no reaper task: the frame
+# loop's own `finally` removes the link, so the timeout IS the reaper.
+_DEVICE_SILENCE_SECONDS = 180.0
 _CAPABILITIES_MAX = 32
 _MODEL_FORBIDDEN = re.compile(r"\s|://")
 
@@ -178,7 +195,18 @@ async def pod_puppy_relay(websocket: WebSocket) -> None:
             }
         )
         while True:
-            raw = await _frame(websocket)
+            try:
+                async with asyncio.timeout(_DEVICE_SILENCE_SECONDS):
+                    raw = await _frame(websocket)
+            except asyncio.TimeoutError:
+                # Gone, not merely quiet. Say so and let `finally` evict the link,
+                # so the next turn is refused honestly instead of waiting out the
+                # dispatch deadline against a device that is not there.
+                logger.info(
+                    "pod_puppy_relay.device_silent seconds=%s", int(_DEVICE_SILENCE_SECONDS)
+                )
+                await websocket.close(code=1001, reason="Puppy relay went silent")
+                return
             inner = envelope.open(
                 raw, expected_direction=DIR_DEVICE_TO_POD, expected_seq=inbound_expected
             )
