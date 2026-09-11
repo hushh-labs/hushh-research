@@ -390,7 +390,8 @@ export function PhoneMandatePageContent() {
             role="heading"
             aria-level={1}
             aria-label="Verify your phone number"
-            className="mt-2 whitespace-nowrap font-[family-name:var(--font-app-display)] text-[clamp(1.375rem,7vw,1.75rem)] font-bold leading-[1.1] tracking-[-0.8px] text-[#f2f2f7]"
+            className="mt-2 inline-block max-w-none whitespace-nowrap font-[family-name:var(--font-app-display)] text-[clamp(1.25rem,6.5vw,1.75rem)] font-bold leading-[1.1] tracking-[-0.8px] text-[#f2f2f7]"
+            style={{ whiteSpace: "nowrap" }}
           >
             Verify your phone number
           </h1>
