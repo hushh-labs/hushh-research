@@ -159,19 +159,22 @@ async def is_token_active(user_id: str, scope: str, agent_id: Optional[str] = No
 
     now_ms = int(datetime.now().timestamp() * 1000)
 
+    actions = ["CONSENT_GRANTED", "REVOKED"]
+    if agent_id and str(agent_id).startswith("consumer_mcp:"):
+        actions.insert(1, "CONSUMER_TOKEN_ISSUED")
     query = """
         SELECT action, expires_at FROM consent_audit
         WHERE user_id = $1
           AND scope = $2
-          AND action IN ('CONSENT_GRANTED', 'REVOKED')
+          AND action = ANY($4::text[])
           AND ($3::text IS NULL OR agent_id = $3)
         ORDER BY issued_at DESC
         LIMIT 1
     """
 
     async with pool.acquire() as conn:
-        row = await conn.fetchrow(query, user_id, scope, agent_id)
-        if row and row["action"] == "CONSENT_GRANTED":
+        row = await conn.fetchrow(query, user_id, scope, agent_id, actions)
+        if row and row["action"] in {"CONSENT_GRANTED", "CONSUMER_TOKEN_ISSUED"}:
             return row["expires_at"] is None or row["expires_at"] > now_ms
         return False
 

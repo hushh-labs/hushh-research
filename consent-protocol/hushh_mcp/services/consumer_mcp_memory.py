@@ -36,9 +36,10 @@ class ConsumerMemoryInvalid(ValueError):
 class ConsumerMemoryTransport(Protocol):
     """The narrow owner-pod execution port.
 
-    ``grant_receipt`` is a ledger reference, never a credential.  Implementations
-    must pass only verified owner/client binding and use the existing pod relay or
-    direct pod route; they must not persist request bodies in the gateway.
+    ``grant_receipt`` is a ledger reference; ``grant_token`` is a short-lived
+    bearer credential issued by that standing grant. Implementations must pass
+    only verified owner/client binding and use the existing pod relay or direct
+    pod route; they must not persist request bodies in the gateway.
     """
 
     async def execute(
@@ -50,6 +51,7 @@ class ConsumerMemoryTransport(Protocol):
         connection_id: str,
         generation: int,
         grant_receipt: str,
+        grant_token: str,
         arguments: dict[str, Any],
     ) -> dict[str, Any]: ...
 
@@ -162,6 +164,7 @@ class ConsumerMcpMemory:
             connection_id=connection.connection_id,
             generation=connection.generation,
             grant_receipt=str(connection.grant_receipt or ""),
+            grant_token=str(connection.grant_token or ""),
             arguments=request.arguments,
         )
         if not isinstance(result, dict):

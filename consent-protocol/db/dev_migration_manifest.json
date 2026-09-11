@@ -54,6 +54,7 @@
     "935_personal_agent_erasure_finalization.sql",
     "936_personal_agent_stale_erasure_recovery.sql",
     "937_consumer_mcp_oauth_resource.sql",
-    "938_consumer_mcp_connections.sql"
+    "938_consumer_mcp_connections.sql",
+    "939_consumer_mcp_runtime_tokens.sql"
   ]
 }

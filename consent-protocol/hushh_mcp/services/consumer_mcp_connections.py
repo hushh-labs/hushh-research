@@ -17,6 +17,8 @@ from typing import Iterator
 from sqlalchemy import Connection, text
 
 from db.db_client import get_db
+from hushh_mcp.consent.token import issue_token, validate_token
+from hushh_mcp.constants import ConsentScope
 from hushh_mcp.runtime_settings import get_app_runtime_settings
 from hushh_mcp.services.consent_db import ConsentDBService
 from hushh_mcp.services.developer_registry_service import (
@@ -25,6 +27,7 @@ from hushh_mcp.services.developer_registry_service import (
 )
 from hushh_mcp.services.mcp_oauth_resource import configured_mcp_resource
 from hushh_mcp.services.pod_access_audit import _owner_binding_denials
+from hushh_mcp.types import AgentID, UserID
 
 
 class ConsumerConnectionDenied(PermissionError):
@@ -33,6 +36,12 @@ class ConsumerConnectionDenied(PermissionError):
 
 class ConsumerSetupRequired(ConsumerConnectionDenied):
     """An existing setup flow must finish before any memory approval is active."""
+
+
+@dataclass(frozen=True)
+class _ConsumerGrant:
+    receipt: str
+    token: str | None
 
 
 def has_consumer_oauth_identity(principal: DeveloperPrincipal | None) -> bool:
@@ -59,6 +68,7 @@ class ConsumerConnection:
     client_name: str
     memory_access: bool
     grant_receipt: str | None
+    grant_token: str | None = None
 
 
 class ConsumerMcpConnections:
@@ -170,13 +180,13 @@ class ConsumerMcpConnections:
         return binding
 
     @staticmethod
-    def _grant(tx: Connection, binding: dict) -> str | None:
+    def _grant_state(tx: Connection, binding: dict) -> _ConsumerGrant | None:
         row = (
             tx.execute(
                 text("""
-            SELECT token_id, action, expires_at FROM consent_audit
+            SELECT token_id, request_id, action, expires_at FROM consent_audit
             WHERE user_id=:owner AND agent_id=:agent AND scope='cap.consumer.memory'
-              AND action IN ('CONSENT_GRANTED','REVOKED','CONSENT_DENIED')
+              AND action IN ('CONSENT_GRANTED','CONSUMER_TOKEN_ISSUED','REVOKED','CONSENT_DENIED')
             ORDER BY issued_at DESC, id DESC LIMIT 1
         """),
                 {
@@ -187,11 +197,28 @@ class ConsumerMcpConnections:
             .mappings()
             .first()
         )
-        return (
-            str(row["token_id"])
-            if row and row["action"] == "CONSENT_GRANTED" and row["expires_at"] is None
-            else None
-        )
+        if not row or row["action"] in {"REVOKED", "CONSENT_DENIED"}:
+            return None
+        receipt = str(row["request_id"] or row["token_id"] or "")
+        token = None
+        if row["action"] == "CONSUMER_TOKEN_ISSUED":
+            candidate = str(row["token_id"] or "")
+            valid, _reason, _claims = validate_token(
+                candidate, expected_scope=ConsentScope.CAP_CONSUMER_MEMORY
+            )
+            if valid and row["expires_at"] is not None:
+                token = candidate
+        return _ConsumerGrant(receipt=receipt, token=token)
+
+    @classmethod
+    def _grant(cls, tx: Connection, binding: dict) -> str | None:
+        state = cls._grant_state(tx, binding)
+        return state.receipt if state else None
+
+    @classmethod
+    def _grant_token(cls, tx: Connection, binding: dict) -> str | None:
+        state = cls._grant_state(tx, binding)
+        return state.token if state else None
 
     @staticmethod
     def _match(binding: dict, authorization: dict, deployment: str) -> None:
@@ -207,16 +234,47 @@ class ConsumerMcpConnections:
             raise ConsumerConnectionDenied("This assistant connection changed; reconnect")
 
     @staticmethod
-    def _review(binding: dict, authorization: dict, receipt: str | None) -> ConsumerConnection:
+    def _review(
+        binding: dict, authorization: dict, grant: _ConsumerGrant | None
+    ) -> ConsumerConnection:
         return ConsumerConnection(
             connection_id=binding["connection_id"],
             generation=binding["generation"],
             deployment_id=binding["deployment_id"],
             authorization_id=authorization["id"],
             client_name=authorization["display_name"],
-            memory_access=receipt is not None,
-            grant_receipt=receipt,
+            memory_access=grant is not None and grant.token is not None,
+            grant_receipt=grant.receipt if grant else None,
+            grant_token=grant.token if grant else None,
         )
+
+    @staticmethod
+    def _issue_grant_token(
+        tx: Connection,
+        *,
+        binding: dict,
+        receipt: str,
+        authorization_id: int | None,
+    ) -> str:
+        token = issue_token(
+            UserID(binding["user_id"]),
+            AgentID(f"consumer_mcp:{binding['connection_id']}:{binding['generation']}"),
+            ConsentScope.CAP_CONSUMER_MEMORY,
+            # Runtime credentials are renewable while standing consent remains active.
+            expires_in_ms=15 * 60 * 1000,
+        )
+        ConsentDBService.append_consumer_memory_decision(
+            tx,
+            user_id=binding["user_id"],
+            connection_id=binding["connection_id"],
+            generation=binding["generation"],
+            action="CONSUMER_TOKEN_ISSUED",
+            receipt_ref=receipt,
+            authorization_id=authorization_id,
+            token_id=token.token,
+            expires_at=token.expires_at,
+        )
+        return token.token
 
     @staticmethod
     def _owner_authorization(tx: Connection, *, owner: str, authorization_id: int) -> dict:
@@ -291,7 +349,7 @@ class ConsumerMcpConnections:
                 tx, owner=owner, authorization_id=authorization_id
             )
             self._match(binding, authorization, self._deployment(tx, owner))
-            return self._review(binding, authorization, self._grant(tx, binding))
+            return self._review(binding, authorization, self._grant_state(tx, binding))
 
     def prepare(self, principal: DeveloperPrincipal) -> ConsumerConnection:
         """Resume one binding; never provision infrastructure or manufacture consent."""
@@ -367,7 +425,7 @@ class ConsumerMcpConnections:
                     consumer_generation=binding["generation"],
                 )
             self._match(binding, authorization, deployment)
-            return self._review(binding, authorization, self._grant(tx, binding))
+            return self._review(binding, authorization, self._grant_state(tx, binding))
 
     def approve(
         self, *, owner: str, connection_id: str, generation: int, authorization_id: int
@@ -381,9 +439,19 @@ class ConsumerMcpConnections:
             if binding["generation"] != generation:
                 raise ConsumerConnectionDenied("This approval changed; review the connection again")
             self._match(binding, dict(authorization), self._deployment(tx, owner))
-            receipt = self._grant(tx, binding)
-            if receipt:
-                return receipt
+            grant = self._grant_state(tx, binding)
+            if grant and grant.token:
+                return grant.receipt
+            if grant and grant.receipt:
+                # A legacy standing grant can be upgraded in place with a
+                # short-lived runtime credential; no second approval is created.
+                self._issue_grant_token(
+                    tx,
+                    binding=binding,
+                    receipt=grant.receipt,
+                    authorization_id=authorization_id,
+                )
+                return grant.receipt
             receipt = "cmr_" + secrets.token_hex(16)
             ConsentDBService.append_consumer_memory_decision(
                 tx,
@@ -392,6 +460,12 @@ class ConsumerMcpConnections:
                 generation=generation,
                 action="CONSENT_GRANTED",
                 receipt_ref=receipt,
+                authorization_id=authorization_id,
+            )
+            self._issue_grant_token(
+                tx,
+                binding=binding,
+                receipt=receipt,
                 authorization_id=authorization_id,
             )
             return receipt
@@ -444,10 +518,20 @@ class ConsumerMcpConnections:
             binding = self._binding(tx, row["consumer_connection_id"], owner)
             authorization = self._oauth(tx, principal)
             self._match(binding, authorization, self._deployment(tx, owner))
-            receipt = self._grant(tx, binding)
-            if receipt is None:
+            grant = self._grant_state(tx, binding)
+            if grant is None or grant.receipt is None:
                 raise ConsumerConnectionDenied("Personal memory approval required")
-            yield tx, self._review(binding, authorization, receipt)
+            if grant.token is None:
+                self._issue_grant_token(
+                    tx,
+                    binding=binding,
+                    receipt=grant.receipt,
+                    authorization_id=authorization["id"],
+                )
+                grant = self._grant_state(tx, binding)
+            if grant is None or grant.token is None:
+                raise ConsumerConnectionDenied("Personal memory approval required")
+            yield tx, self._review(binding, authorization, grant)
 
     def admit_memory(self, principal: DeveloperPrincipal, *, operation: str) -> ConsumerConnection:
         """Snapshot a grant before remote execution, without holding a DB lock."""
@@ -467,6 +551,7 @@ class ConsumerMcpConnections:
                 current.connection_id != admitted.connection_id
                 or current.generation != admitted.generation
                 or current.grant_receipt != admitted.grant_receipt
+                or current.grant_token != admitted.grant_token
             ):
                 raise ConsumerConnectionDenied("Memory approval changed while the pod worked")
             return current

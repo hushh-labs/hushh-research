@@ -11,6 +11,8 @@ from hushh_mcp.services.consumer_mcp_memory import (
     validate_memory_request,
 )
 
+_RUNTIME_TOKEN = "HCT:runtime-token"
+
 
 def test_memory_requests_are_typed_and_bounded() -> None:
     request = validate_memory_request(
@@ -51,6 +53,7 @@ class _Connections:
             client_name="Assistant",
             memory_access=True,
             grant_receipt="cmr_receipt",
+            grant_token=_RUNTIME_TOKEN,
         )
 
     def verify_memory_admission(self, principal, *, operation, admitted):
@@ -70,6 +73,7 @@ class _Connections:
                 client_name="Assistant",
                 memory_access=True,
                 grant_receipt="cmr_receipt",
+                grant_token=_RUNTIME_TOKEN,
             ),
         )
 
@@ -100,5 +104,6 @@ async def test_transport_receives_verified_binding_without_keys() -> None:
     assert result["execution_target"] == "owner_pod"
     assert transport.call["owner_id"] == "owner-a"
     assert transport.call["deployment_id"] == "pod-owner-a"
+    assert transport.call["grant_token"] == _RUNTIME_TOKEN
     assert "vault_key" not in transport.call
     assert transport.call["arguments"]["content"] == "vegetarian"

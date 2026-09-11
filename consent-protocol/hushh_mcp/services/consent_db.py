@@ -133,6 +133,8 @@ class ConsentDBService:
         action: str,
         receipt_ref: str,
         authorization_id: int | None = None,
+        token_id: str | None = None,
+        expires_at: int | None = None,
     ) -> int:
         """Append to the canonical ledger within the caller's fenced transaction.
 
@@ -144,26 +146,42 @@ class ConsentDBService:
 
         if not ConsentDBService.consumer_consent_fence_available(transaction):
             raise PermissionError("Consumer connection authority unavailable")
-        if action not in {"CONSENT_GRANTED", "REVOKED", "CONSENT_DENIED"}:
+        if action not in {
+            "CONSENT_GRANTED",
+            "REVOKED",
+            "CONSENT_DENIED",
+            "CONSUMER_TOKEN_ISSUED",
+        }:
             raise ValueError("Unsupported consumer consent decision")
         return int(
             transaction.execute(
                 text("""
             INSERT INTO consent_audit
               (token_id, request_id, user_id, agent_id, scope, action,
-               issued_at, scope_description, metadata)
-            VALUES (:receipt, :receipt, :owner, :agent, 'cap.consumer.memory',
-              :action, :now, :description, CAST(:metadata AS jsonb)) RETURNING id
+               issued_at, expires_at, scope_description, metadata)
+            VALUES (:token_id, :receipt, :owner, :agent, 'cap.consumer.memory',
+              :action, :now, :expires_at, :description, CAST(:metadata AS jsonb))
+            RETURNING id
         """),
                 {
+                    "token_id": token_id or receipt_ref,
                     "receipt": receipt_ref,
                     "owner": user_id,
                     "agent": f"consumer_mcp:{connection_id}:{generation}",
                     "action": action,
                     "now": int(datetime.now(tz=timezone.utc).timestamp() * 1000),
+                    "expires_at": expires_at,
                     "description": "Personal memory: read, save and correct until disconnected",
                     "metadata": json.dumps(
-                        {"policy_version": 1, "authorization_id": authorization_id}
+                        {
+                            "policy_version": 1,
+                            "authorization_id": authorization_id,
+                            "event_kind": (
+                                "short_lived_runtime_credential"
+                                if action == "CONSUMER_TOKEN_ISSUED"
+                                else "standing_memory_grant"
+                            ),
+                        }
                     ),
                 },
             ).scalar_one()
@@ -1272,6 +1290,9 @@ class ConsentDBService:
             rows = response.data or []
         else:
             db = self._get_db()
+            consumer_runtime = bool(
+                normalized_agent_id and normalized_agent_id.startswith("consumer_mcp:")
+            )
             query = (
                 db.table("consent_audit")
                 .select("action,expires_at,issued_at,token_id")
@@ -1281,7 +1302,11 @@ class ConsentDBService:
                     "action",
                     ["CONSENT_GRANTED", "REVOKED", "CONSENT_DENIED"]
                     if normalized_agent_id == "personal_agent"
-                    else ["CONSENT_GRANTED", "REVOKED"],
+                    else (
+                        ["CONSENT_GRANTED", "CONSUMER_TOKEN_ISSUED", "REVOKED"]
+                        if consumer_runtime
+                        else ["CONSENT_GRANTED", "REVOKED"]
+                    ),
                 )
             )
             if normalized_agent_id:

@@ -14,6 +14,7 @@ from sqlalchemy.engine import URL
 from sqlalchemy.exc import DBAPIError
 
 from db.db_client import DatabaseClient
+from hushh_mcp.consent.token import validate_token
 from hushh_mcp.constants import ConsentScope
 from hushh_mcp.runtime_settings import get_app_runtime_settings
 from hushh_mcp.services.account_service import AccountService
@@ -70,11 +71,18 @@ def consumer(isolated_postgres, monkeypatch):  # noqa: F811 - imported shared py
         token_id TEXT NOT NULL,user_id TEXT,agent_id TEXT,scope TEXT,action TEXT,
         issued_at BIGINT NOT NULL,expires_at BIGINT,metadata JSONB,
         request_id TEXT,scope_description TEXT)""")
-    migration = Path(__file__).parents[1] / "db/migrations/parked/938_consumer_mcp_connections.sql"
     raw = engine.raw_connection()
     try:
         with raw.cursor() as cursor:
-            cursor.execute(migration.read_text())
+            for migration_name in (
+                "938_consumer_mcp_connections.sql",
+                "939_consumer_mcp_runtime_tokens.sql",
+            ):
+                cursor.execute(
+                    (
+                        Path(__file__).parents[1] / "db/migrations/parked" / migration_name
+                    ).read_text()
+                )
         raw.commit()
     finally:
         raw.close()
@@ -115,6 +123,22 @@ def test_renewal_reuses_consent_but_disconnect_fences_every_session(consumer):
     second, second_review, second_tokens = connect(consumer)
     assert second_review.connection_id == review.connection_id
     assert second_review.memory_access and second_review.grant_receipt == receipt
+    assert second_review.grant_token
+    valid, reason, claims = validate_token(
+        second_review.grant_token, expected_scope=ConsentScope.CAP_CONSUMER_MEMORY
+    )
+    assert valid, reason
+    assert claims is not None
+    assert str(claims.agent_id) == f"consumer_mcp:{review.connection_id}:{review.generation}"
+    event = db.execute_raw(
+        "SELECT action, request_id, token_id, expires_at FROM consent_audit "
+        "WHERE user_id='owner_a' AND agent_id=:agent ORDER BY id DESC LIMIT 1",
+        {"agent": f"consumer_mcp:{review.connection_id}:{review.generation}"},
+    ).data[0]
+    assert event["action"] == "CONSUMER_TOKEN_ISSUED"
+    assert event["request_id"] == receipt
+    assert event["token_id"] == second_review.grant_token
+    assert event["expires_at"] > 0
     client = oauth.get_client("client_test")
     renewed = oauth.refresh(
         client=client, refresh_token=tokens["refresh_token"], resource=principal.oauth_resource
