@@ -27,6 +27,8 @@ class PodConsumerMemoryRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
     owner_id: str = Field(..., alias="ownerId", min_length=1, max_length=128)
+    connection_id: str = Field(..., alias="connectionId", min_length=1, max_length=128)
+    generation: int = Field(..., ge=1)
     operation: Literal["read", "query", "save", "correct", "export"]
     arguments: dict[str, Any]
 
@@ -44,6 +46,7 @@ async def pod_consumer_memory_route(
             token,
             expected_scope=ConsentScope.CAP_CONSUMER_MEMORY.value,
             user_id=payload.owner_id,
+            expected_agent_id=f"consumer_mcp:{payload.connection_id}:{payload.generation}",
         )
         result = await execute_pod_consumer_memory(
             owner_id=verdict.user_id,

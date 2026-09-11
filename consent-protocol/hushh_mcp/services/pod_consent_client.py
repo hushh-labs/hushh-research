@@ -34,7 +34,12 @@ _TIMEOUT_SECONDS = 8.0
 
 
 async def require_owner_scope(
-    token: str, *, expected_scope: str, user_id: str | None = None, verifier: Any = None
+    token: str,
+    *,
+    expected_scope: str,
+    user_id: str | None = None,
+    expected_agent_id: str | None = None,
+    verifier: Any = None,
 ) -> "ConsentVerdict":
     """Revalidate one exact scope against this serving pod before a tool runs."""
     mine = (os.getenv("HUSSH_ID") or "").strip()
@@ -49,6 +54,7 @@ async def require_owner_scope(
         or not verdict.user_id
         or verdict.hushh_id != mine
         or (user_id is not None and verdict.user_id != user_id)
+        or (expected_agent_id is not None and verdict.agent_id != str(expected_agent_id).strip())
     ):
         raise PermissionError("Pod consent scope denied")
     return verdict
@@ -64,6 +70,7 @@ class ConsentVerdict:
     hushh_id: str = ""
     scope: str = ""
     reason: str = ""
+    agent_id: str = ""
 
     @property
     def should_refuse(self) -> bool:
@@ -102,6 +109,7 @@ class ConsentVerdict:
             user_id=user_id,
             hushh_id=hushh_id,
             scope=wanted,
+            agent_id=str(claims.get("agent_id") or "").strip(),
             reason="verified by the pod's local authority",
         )
 
@@ -162,5 +170,6 @@ async def verify_consent(
         user_id=str(data.get("userId") or ""),
         hushh_id=str(data.get("hushhId") or ""),
         scope=str(data.get("scope") or ""),
+        agent_id=str(data.get("agentId") or ""),
         reason="verified by the hub",
     )

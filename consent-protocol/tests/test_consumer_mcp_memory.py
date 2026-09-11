@@ -269,6 +269,8 @@ async def test_owner_pod_transport_binds_registry_deployment_and_grant():
         "path": "/api/one/pod/consumer/memory",
         "body": {
             "ownerId": "owner-a",
+            "connectionId": "connection-a",
+            "generation": 2,
             "operation": "read",
             "arguments": {"domain": "food", "query": "veg", "limit": 10},
         },

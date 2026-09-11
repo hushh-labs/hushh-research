@@ -111,7 +111,6 @@ class OwnerPodConsumerMemoryTransport:
         grant_token: str,
         arguments: dict[str, Any],
     ) -> dict[str, Any]:
-        del connection_id, generation, grant_receipt
         row = await self._registry.get(owner_id)
         if not isinstance(row, dict) or str(row.get("user_id") or "") != owner_id:
             raise ConsumerMemoryUnavailable("owner pod is not registered")
@@ -125,7 +124,13 @@ class OwnerPodConsumerMemoryTransport:
         status, body = await self._proxy_post(
             url,
             "/api/one/pod/consumer/memory",
-            body={"ownerId": owner_id, "operation": operation, "arguments": arguments},
+            body={
+                "ownerId": owner_id,
+                "connectionId": connection_id,
+                "generation": generation,
+                "operation": operation,
+                "arguments": arguments,
+            },
             consent_token=grant_token,
         )
         if status == 409:

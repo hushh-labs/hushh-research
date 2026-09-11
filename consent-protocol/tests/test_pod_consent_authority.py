@@ -241,10 +241,19 @@ class _Hub:
 
 
 async def test_the_client_reports_valid():
-    hub = _Hub(200, {"valid": True, "userId": "u1", "scope": "pkm.read"})
+    hub = _Hub(
+        200,
+        {
+            "valid": True,
+            "userId": "u1",
+            "scope": "pkm.read",
+            "agentId": "consumer_mcp:cmc_test:2",
+        },
+    )
     verdict = await verify_consent("tok", client=hub)
     assert verdict.valid is True and verdict.available is True
     assert verdict.user_id == "u1"
+    assert verdict.agent_id == "consumer_mcp:cmc_test:2"
 
 
 async def test_the_client_reports_a_clean_denial():
@@ -279,6 +288,33 @@ async def test_the_expected_scope_is_sent():
     hub = _Hub(200, {"valid": True, "userId": "u1"})
     await verify_consent("tok", expected_scope="pkm.read", client=hub)
     assert hub.calls[0][1]["json"]["expectedScope"] == "pkm.read"
+
+
+@pytest.mark.asyncio
+async def test_owner_scope_rejects_a_token_bound_to_another_consumer_connection(monkeypatch):
+    from hushh_mcp.services.pod_consent_client import require_owner_scope
+
+    monkeypatch.setenv("HUSSH_ID", "pod-owner")
+
+    async def verifier(_token, *, expected_scope):
+        assert expected_scope == "cap.consumer.memory"
+        return ConsentVerdict(
+            valid=True,
+            available=True,
+            user_id="owner-a",
+            hushh_id="pod-owner",
+            scope=expected_scope,
+            agent_id="consumer_mcp:cmc_other:1",
+        )
+
+    with pytest.raises(PermissionError, match="scope denied"):
+        await require_owner_scope(
+            "token",
+            expected_scope="cap.consumer.memory",
+            user_id="owner-a",
+            expected_agent_id="consumer_mcp:cmc_expected:2",
+            verifier=verifier,
+        )
 
 
 # -- the turn route consumes all three states ----------------------------------
