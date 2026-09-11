@@ -589,17 +589,23 @@ describe("GeminiLiveClient cancellation during startup", () => {
     expect(socket).not.toHaveBeenCalled();
   });
 
-  it("never asks for a microphone when the relay ticket arrives after stop", async () => {
-    let finish!: (url: string) => void;
-    vi.spyOn(ApiService, "getOneAdkLiveRelayUrl").mockImplementation(() => new Promise((resolve) => { finish = resolve; }));
-    const getUserMedia = vi.fn();
+  it("does not request a relay ticket after stop during microphone startup", async () => {
+    let allow!: (stream: MediaStream) => void;
+    const trackStop = vi.fn();
+    const getUserMedia = vi.fn(() => new Promise<MediaStream>((resolve) => { allow = resolve; }));
+    const relayLookup = vi.spyOn(ApiService, "getOneAdkLiveRelayUrl").mockResolvedValue(
+      "wss://synthetic.example",
+    );
     vi.stubGlobal("navigator", { mediaDevices: { getUserMedia } });
+    vi.stubGlobal("WebSocket", vi.fn());
     const transport = new GeminiLiveClient();
     const started = transport.start();
+    expect(getUserMedia).toHaveBeenCalledOnce();
     transport.stop();
-    finish("wss://synthetic.example");
+    allow({ getTracks: () => [{ stop: trackStop }] } as unknown as MediaStream);
     await started;
-    expect(getUserMedia).not.toHaveBeenCalled();
+    expect(trackStop).toHaveBeenCalledOnce();
+    expect(relayLookup).not.toHaveBeenCalled();
   });
 
   it("stops audio resources during resume and does not load a worklet afterward", async () => {

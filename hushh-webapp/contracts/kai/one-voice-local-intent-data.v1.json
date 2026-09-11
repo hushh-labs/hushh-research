@@ -3777,6 +3777,31 @@
       "agent_namespace": "agent_one"
     },
     {
+      "utterance": "Finish cloud setup",
+      "action_id": "setup.finish_cloud",
+      "agent_namespace": "agent_one"
+    },
+    {
+      "utterance": "finish cloud setup",
+      "action_id": "setup.finish_cloud",
+      "agent_namespace": "agent_one"
+    },
+    {
+      "utterance": "finish my cloud",
+      "action_id": "setup.finish_cloud",
+      "agent_namespace": "agent_one"
+    },
+    {
+      "utterance": "use this project",
+      "action_id": "setup.finish_cloud",
+      "agent_namespace": "agent_one"
+    },
+    {
+      "utterance": "continue with my cloud",
+      "action_id": "setup.finish_cloud",
+      "agent_namespace": "agent_one"
+    },
+    {
       "utterance": "Finish CRM setup",
       "action_id": "setup.finish_connected_systems",
       "agent_namespace": "agent_one"
@@ -3939,6 +3964,31 @@
     {
       "utterance": "open calendar setup",
       "action_id": "setup.open_calendar",
+      "agent_namespace": "agent_one"
+    },
+    {
+      "utterance": "Set up your cloud",
+      "action_id": "setup.open_cloud",
+      "agent_namespace": "agent_one"
+    },
+    {
+      "utterance": "set up my cloud",
+      "action_id": "setup.open_cloud",
+      "agent_namespace": "agent_one"
+    },
+    {
+      "utterance": "connect my cloud",
+      "action_id": "setup.open_cloud",
+      "agent_namespace": "agent_one"
+    },
+    {
+      "utterance": "open cloud setup",
+      "action_id": "setup.open_cloud",
+      "agent_namespace": "agent_one"
+    },
+    {
+      "utterance": "use my own google cloud",
+      "action_id": "setup.open_cloud",
       "agent_namespace": "agent_one"
     },
     {
