@@ -12,8 +12,9 @@ MANIFEST="${ROOT}/skills/client-env-parity/required-client-env.tsv"
 WEB_LANE="${ROOT}/deploy/frontend.cloudbuild.yaml"
 TF_LANE="${ROOT}/.github/workflows/ship-ios-testflight.yml"
 AS_LANE="${ROOT}/.github/workflows/release-ios-appstore.yml"
+TF_MATERIALIZER="${ROOT}/scripts/ci/materialize-ios-uat-build-contract.sh"
 
-for f in "$MANIFEST" "$WEB_LANE" "$TF_LANE" "$AS_LANE"; do
+for f in "$MANIFEST" "$WEB_LANE" "$TF_LANE" "$AS_LANE" "$TF_MATERIALIZER"; do
   [ -f "$f" ] || { echo "MISSING FILE: $f" >&2; exit 1; }
 done
 
@@ -22,7 +23,15 @@ done
 # real mechanisms; grepping for the bare name would match comments and pass
 # a lane that only mentions the var.
 web_provides()  { grep -qE "build-arg[[:space:]]+$1=" "$WEB_LANE"; }
-tf_provides()   { grep -qE "put[[:space:]]+$1[[:space:]]" "$TF_LANE"; }
+# TestFlight uses the shared UAT materializer so its release lanes cannot drift.
+# Accept an inline `put` only for older compatible workflow revisions; otherwise
+# require both the exact helper invocation and its `put_env` write.
+tf_provides()   {
+  grep -qE "put[[:space:]]+$1[[:space:]]" "$TF_LANE" || {
+    grep -qE "bash[[:space:]]+scripts/ci/materialize-ios-uat-build-contract\\.sh" "$TF_LANE" \
+      && grep -qE "put_env[[:space:]]+$1[[:space:]]" "$TF_MATERIALIZER"
+  }
+}
 as_provides()   { grep -qE "put[[:space:]]+$1[[:space:]]" "$AS_LANE"; }
 
 fail=0
