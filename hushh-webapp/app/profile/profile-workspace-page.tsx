@@ -11,6 +11,7 @@ import {
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   AlertTriangle,
+  BriefcaseBusiness,
   CodeXml,
   ContactRound,
   ExternalLink,
@@ -137,6 +138,7 @@ import { Icon } from "@/lib/morphy-ux/ui";
 import { SegmentedTabs } from "@/lib/morphy-ux/ui";
 import { Button, morphyToast } from "@/lib/morphy-ux/morphy";
 import { AppleIcon, GoogleIcon } from "@/lib/morphy-ux/social-icons";
+import { shouldUseGoogleBrandMark } from "@/lib/profile/profile-auth-provider-presentation";
 import { useScrollReset } from "@/lib/navigation/use-scroll-reset";
 import { cn } from "@/lib/utils";
 import { AccountService } from "@/lib/services/account-service";
@@ -428,9 +430,19 @@ function getProvider(user: ReturnType<typeof useAuth>["user"]) {
   }
 }
 
-function ProviderIcon({ providerId }: { providerId: string }) {
+function ProviderIcon({
+  providerId,
+  email,
+}: {
+  providerId: string;
+  email: string | null | undefined;
+}) {
   if (providerId === "google") {
-    return <GoogleIcon className="shrink-0" size={17} />;
+    if (shouldUseGoogleBrandMark(providerId, email)) {
+      return <GoogleIcon className="shrink-0" size={17} />;
+    }
+
+    return <Icon icon={BriefcaseBusiness} size="xs" className="shrink-0" />;
   }
 
   if (providerId === "apple") {
@@ -3345,7 +3357,7 @@ function ProfilePageContent() {
         <SettingsRow
           leading={
             <span className="profile-account-provider-icon inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg">
-              <ProviderIcon providerId={provider.id} />
+              <ProviderIcon providerId={provider.id} email={user.email} />
             </span>
           }
           title="Sign-in provider"
@@ -4403,7 +4415,7 @@ function ProfilePageContent() {
               className="profile-home-meta flex w-full min-w-0 items-center justify-start gap-1.5 text-xs font-normal text-muted-foreground"
               title={provider.name}
             >
-              <ProviderIcon providerId={provider.id} />
+              <ProviderIcon providerId={provider.id} email={user.email} />
               <span className="[overflow-wrap:anywhere]">
                 {user.email || "Not available"}
               </span>
