@@ -11,6 +11,7 @@ import hashlib
 import inspect
 import secrets
 import time
+from asyncio import Lock
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -55,6 +56,10 @@ class PodVaultEnrollment:
         self.user_id = user_id
         self.clock = clock
         self._pending: dict[str, dict[str, Any]] = {}
+        # Pending challenges are process-local to one pod incarnation. Serialize
+        # consumption so concurrent submissions return the same safe refusal
+        # instead of racing through ``dict.pop`` with an unclassified KeyError.
+        self._enroll_lock = Lock()
 
     def _subject(self, history, claims):
         if (
@@ -119,49 +124,56 @@ class PodVaultEnrollment:
         proof: str,
         validate_vault_key: Callable[[bytes, int], None | Awaitable[None]],
     ):
-        challenge = self._pending.get(challenge_id)
-        if challenge is None or challenge["expires_at"] <= self.clock():
-            raise CustodyRefused("custody_challenge_expired_or_used")
-        envelope_digest = hashlib.sha256(canonical_json(envelope.model_dump()).encode()).hexdigest()
-        payload = canonical_json({"challenge": challenge, "envelope_sha256": envelope_digest})
+        async with self._enroll_lock:
+            challenge = self._pending.get(challenge_id)
+            if challenge is None or challenge["expires_at"] <= self.clock():
+                raise CustodyRefused("custody_challenge_expired_or_used")
+            envelope_digest = hashlib.sha256(
+                canonical_json(envelope.model_dump()).encode()
+            ).hexdigest()
+            payload = canonical_json({"challenge": challenge, "envelope_sha256": envelope_digest})
 
-        def guard(history):
-            subject = self._subject(history, claims)
-            if (
-                challenge["subject_id"] != subject.subject_id
-                or challenge["subject_version"] != subject.version
-                or challenge["expires_at"] <= self.clock()
-                or not verify_subject_proof(subject.binding["subject_public_key"], payload, proof)
-            ):
-                raise CustodyRefused("custody_owner_proof_invalid")
+            def guard(history):
+                subject = self._subject(history, claims)
+                if (
+                    challenge["subject_id"] != subject.subject_id
+                    or challenge["subject_version"] != subject.version
+                    or challenge["expires_at"] <= self.clock()
+                    or not verify_subject_proof(
+                        subject.binding["subject_public_key"], payload, proof
+                    )
+                ):
+                    raise CustodyRefused("custody_owner_proof_invalid")
 
-        history = await self.custody.log.replay()
-        self.custody._require_writer(history)
-        guard(history)
-        # Consume before awaiting persistence; interrupted enrollment needs a new
-        # challenge, while the caller reconciles committed generation explicitly.
-        if self._pending.pop(challenge_id, None) is None:
-            raise CustodyRefused("custody_challenge_expired_or_used")
-        try:
-            raw = {k: base64.b64decode(v, validate=True) for k, v in envelope.model_dump().items()}
-            key = unwrap_x25519_aes256_key(
-                recipient_private_key=self.recipient,
-                additional_data=canonical_json(challenge).encode(),
-                **raw,
+            history = await self.custody.log.replay()
+            self.custody._require_writer(history)
+            guard(history)
+            # Consume before awaiting persistence; interrupted enrollment needs a new
+            # challenge, while the caller reconciles committed generation explicitly.
+            if self._pending.pop(challenge_id, None) is None:
+                raise CustodyRefused("custody_challenge_expired_or_used")
+            try:
+                raw = {
+                    k: base64.b64decode(v, validate=True) for k, v in envelope.model_dump().items()
+                }
+                key = unwrap_x25519_aes256_key(
+                    recipient_private_key=self.recipient,
+                    additional_data=canonical_json(challenge).encode(),
+                    **raw,
+                )
+            except Exception:
+                raise CustodyRefused("custody_envelope_invalid") from None
+            # Existing canonical vault validation must prove the key/version before
+            # custody commits. A successful unwrap alone cannot establish that fact.
+            validation = validate_vault_key(key, challenge["key_version"])
+            if inspect.isawaitable(validation):
+                validation = await validation
+            if validation is not None:
+                raise CustodyRefused("custody_key_validation_invalid")
+            return await self.custody.enroll(
+                vault_key=key,
+                key_version=challenge["key_version"],
+                enrollment_id=challenge_id,
+                expected_generation=challenge["expected_generation"],
+                authority_guard=guard,
             )
-        except Exception:
-            raise CustodyRefused("custody_envelope_invalid") from None
-        # Existing canonical vault validation must prove the key/version before
-        # custody commits. A successful unwrap alone cannot establish that fact.
-        validation = validate_vault_key(key, challenge["key_version"])
-        if inspect.isawaitable(validation):
-            validation = await validation
-        if validation is not None:
-            raise CustodyRefused("custody_key_validation_invalid")
-        return await self.custody.enroll(
-            vault_key=key,
-            key_version=challenge["key_version"],
-            enrollment_id=challenge_id,
-            expected_generation=challenge["expected_generation"],
-            authority_guard=guard,
-        )

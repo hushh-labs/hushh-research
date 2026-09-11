@@ -1,5 +1,6 @@
 """Custody requires a fresh, purpose-bound owner proof and verified vault key."""
 
+import asyncio
 import base64
 import hashlib
 import time
@@ -123,6 +124,7 @@ async def test_purpose_bound_enrollment(tmp_path, failure):
     before = len(await log.replay())
 
     async def async_validate(key, version):
+        await asyncio.sleep(0)
         validate(key, version)
 
     async def enroll():
@@ -134,7 +136,15 @@ async def test_purpose_bound_enrollment(tmp_path, failure):
             validate_vault_key=async_validate if failure == "async_validation" else validate,
         )
 
-    if failure not in (None, "async_validation"):
+    if failure == "async_validation":
+        outcomes = await asyncio.gather(enroll(), enroll(), return_exceptions=True)
+        successes = [item for item in outcomes if not isinstance(item, Exception)]
+        refusals = [item for item in outcomes if isinstance(item, CustodyRefused)]
+        assert len(successes) == 1
+        assert len(refusals) == 1
+        result = successes[0]
+        assert result.active and result.generation == 1 and validated == [True]
+    elif failure is not None:
         with pytest.raises(CustodyRefused):
             await enroll()
         assert len(await log.replay()) == before
