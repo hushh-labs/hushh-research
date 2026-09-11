@@ -33,10 +33,14 @@ const clientVersion =
   String(process.env.NEXT_PUBLIC_CLIENT_VERSION || "").trim() ||
   String(packageJson.version || "").trim() ||
   "unknown";
+const vaultWriteProtocolVersion =
+  String(process.env.NEXT_PUBLIC_VAULT_WRITE_PROTOCOL_VERSION || "").trim() ||
+  "2.0.0";
 
 const config: NextConfig = {
   env: {
     NEXT_PUBLIC_CLIENT_VERSION: clientVersion,
+    NEXT_PUBLIC_VAULT_WRITE_PROTOCOL_VERSION: vaultWriteProtocolVersion,
   },
 
   // Native static exports may run while the local web dev server is active.

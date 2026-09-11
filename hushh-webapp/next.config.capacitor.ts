@@ -27,10 +27,14 @@ const clientVersion =
   String(process.env.NEXT_PUBLIC_CLIENT_VERSION || "").trim() ||
   String(packageJson.version || "").trim() ||
   "unknown";
+const vaultWriteProtocolVersion =
+  String(process.env.NEXT_PUBLIC_VAULT_WRITE_PROTOCOL_VERSION || "").trim() ||
+  "2.0.0";
 
 const capacitorConfig: NextConfig = {
   env: {
     NEXT_PUBLIC_CLIENT_VERSION: clientVersion,
+    NEXT_PUBLIC_VAULT_WRITE_PROTOCOL_VERSION: vaultWriteProtocolVersion,
   },
 
   // Keep file tracing and workspace discovery scoped to this monorepo.
