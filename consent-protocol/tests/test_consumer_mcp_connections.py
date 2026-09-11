@@ -279,6 +279,11 @@ def test_owner_api_requires_explicit_policy_and_current_verified_owner(consumer,
     app.dependency_overrides[require_firebase_auth] = lambda: "owner_a"
     monkeypatch.setattr(consumer_mcp, "ConsumerMcpConnections", lambda: service)
     client = TestClient(app)
+    listing = client.get("/oauth/consumer-connections")
+    assert listing.status_code == 200
+    assert listing.headers["cache-control"] == "no-store"
+    assert listing.json()["items"][0]["connection_id"] == review.connection_id
+    assert client.get("/oauth/consumer-connections?limit=101").status_code == 422
     path = f"/oauth/consumer-connections/{review.connection_id}"
     reviewed = client.get(path, params={"authorization_id": review.authorization_id})
     assert reviewed.status_code == 200 and reviewed.json()["memory_access"] is False
@@ -412,3 +417,26 @@ async def test_full_account_erasure_preserves_other_owner_and_rolls_back_atomica
     if not fail_late:
         with pytest.raises(ConsumerConnectionDenied, match="Owner account unavailable"):
             service.prepare(principal)
+
+
+def test_connection_discovery_is_owner_scoped_and_preserves_revoked_entry(consumer):
+    service, _, _ = consumer
+    _, own, _ = connect(consumer)
+    _, foreign, _ = connect(consumer, owner="owner_b")
+    approve(service, own)
+    listing = service.list_connections(owner="owner_a", limit=1)
+    assert listing["next_cursor"] is None
+    assert listing["items"] == [
+        {
+            "connection_id": own.connection_id,
+            "generation": 1,
+            "client_name": "Test assistant",
+            "memory_access": True,
+        }
+    ]
+    assert foreign.connection_id not in str(listing)
+    assert service.list_connections(owner="owner_a", after=own.connection_id)["items"] == []
+    service.disconnect(owner="owner_a", connection_id=own.connection_id, generation=1)
+    revoked = service.list_connections(owner="owner_a")["items"][0]
+    assert revoked["generation"] == 2 and revoked["memory_access"] is False
+    assert set(revoked) == {"connection_id", "generation", "client_name", "memory_access"}

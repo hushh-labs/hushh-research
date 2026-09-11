@@ -240,6 +240,47 @@ class ConsumerMcpConnections:
             raise ConsumerConnectionDenied("This approval changed; review the connection again")
         return dict(row)
 
+    def list_connections(self, *, owner: str, limit: int = 25, after: str = "") -> dict:
+        """Owner-only connection metadata; never a credential or memory read."""
+        if type(limit) is not int or limit < 1 or limit > 100:
+            raise ConsumerConnectionDenied("Invalid connection page size")
+        environment = get_app_runtime_settings().environment
+        resource = configured_mcp_resource()
+        with self._transaction(owner) as tx:
+            rows = (
+                tx.execute(
+                    text("""
+                SELECT b.*, apps.display_name FROM consumer_mcp_connections b
+                JOIN developer_apps apps ON apps.app_id=b.app_id
+                WHERE b.user_id=:owner AND b.environment=:environment
+                  AND b.resource=:resource AND b.connection_id>:after
+                ORDER BY b.connection_id LIMIT :limit
+            """),
+                    {
+                        "owner": owner,
+                        "environment": environment,
+                        "resource": resource,
+                        "after": after,
+                        "limit": limit + 1,
+                    },
+                )
+                .mappings()
+                .all()
+            )
+            items = [
+                {
+                    "connection_id": row["connection_id"],
+                    "generation": row["generation"],
+                    "client_name": row["display_name"],
+                    "memory_access": self._grant(tx, dict(row)) is not None,
+                }
+                for row in rows[:limit]
+            ]
+            return {
+                "items": items,
+                "next_cursor": items[-1]["connection_id"] if len(rows) > limit else None,
+            }
+
     def review(
         self, *, owner: str, connection_id: str, authorization_id: int
     ) -> ConsumerConnection:

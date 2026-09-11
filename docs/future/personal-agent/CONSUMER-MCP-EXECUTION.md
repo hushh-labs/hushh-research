@@ -13,7 +13,7 @@ flowchart LR
     fence -. Pending implementation .-> runtime[Pod custody and memory execution]
 ```
 
-GitHub action item: [#6719 Build consumer Hussh MCP with owner-pod memory and Puppy interoperability](https://github.com/hushh-labs/hushh-research/issues/6719). Board intake is Inbox; implementation is active. Local standing-consent checkpoint: `253e89abe`.
+GitHub action item: [#6719 Build consumer Hussh MCP with owner-pod memory and Puppy interoperability](https://github.com/hushh-labs/hushh-research/issues/6719). Board status is In Progress; assigned to `kushaltrivedi5`. Local standing-consent checkpoint: `253e89abe`.
 
 ## Baseline and boundaries
 
@@ -101,3 +101,13 @@ The topology generator remains the existing coverage join: `scripts/ops/generate
 - Independent vault/identity review found no blocking defect. The custody consumer must still commit writer activation to HEAD, enforce signed approval and key binding, seal recoverable custody under owner-project protection, and clean orphan encrypted objects during erasure.
 - Original private branch advanced to `4ba7cae5a` during work (four commits covering pod build restoration, test isolation, merge protection and client-env checks). It remains untouched. None changes this slice's files; review these explicit dependencies before integration or deployment.
 - GitHub #6719 was created and read back on Hussh Action Items; no owner, delivery date or completion status was invented.
+
+## Custody implementation continuation
+
+- Added internal recoverable custody and signed enrollment adapters over the existing sealed log. Key versions bind to fingerprints; old versions or changed keys under the same version refuse. Historical encrypted keys remain until lifecycle erasure; revocation is logical, not cryptographic destruction.
+- Pod startup activates the custody writer before publishing readiness, only with configured KMS custody and durable identity. Authenticated enrollment binds owner, environment, deployment, subject/version, recipient key, incarnation, challenge, envelope digest and explicit recoverable-custody purpose. The caller must validate the key against canonical vault records.
+- Eighteen focused custody/enrollment tests pass, including actual startup replacement, generation races, altered ciphertext context, wrong-purpose signature, revoked subjects and key-validation failure. These are synthetic local tests, not installed runtime or browser/host acceptance.
+- Added paginated owner-scoped connection discovery through the existing OAuth API/proxy. Revoked connections remain discoverable without exposing credentials. Disconnect UI remains to be connected.
+- Remaining critical integration: secure setup route/client ceremony, authoritative vault-key validation, canonical encrypted PKM transaction adapter, remote grant fencing and real memory journey. No public custody endpoint or complete memory execution is claimed.
+
+- Subsequent validation: 47 focused backend checks passed before the recipient/async-validation additions; all eight enrollment checks then passed. Four frontend proxy tests, frontend typecheck and docs/runtime parity passed. No combined final release or live acceptance gate has run.

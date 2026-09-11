@@ -23,6 +23,18 @@ router = APIRouter(prefix="/oauth/consumer-connections", tags=["Consumer MCP"])
 CONNECTION_REF = r"^cmc_[a-f0-9]{32}$"
 
 
+class ConnectionSummary(BaseModel):
+    connection_id: str
+    generation: int
+    client_name: str
+    memory_access: bool
+
+
+class ConnectionPage(BaseModel):
+    items: list[ConnectionSummary]
+    next_cursor: str | None
+
+
 class MemoryApproval(BaseModel):
     model_config = ConfigDict(extra="forbid")
     generation: int = Field(ge=1)
@@ -59,6 +71,20 @@ async def prepare_connection(
     review = await _call(ConsumerMcpConnections().prepare, principal=principal)
     response.headers["Cache-Control"] = "no-store"
     return asdict(review)
+
+
+@router.get("", response_model=ConnectionPage)
+async def list_connections(
+    response: Response,
+    limit: int = Query(default=25, ge=1, le=100),
+    after: str = Query(default="", pattern=r"^(cmc_[a-f0-9]{32})?$"),
+    owner: str = Depends(require_firebase_auth),
+):
+    result = await _call(
+        ConsumerMcpConnections().list_connections, owner=owner, limit=limit, after=after
+    )
+    response.headers["Cache-Control"] = "no-store"
+    return result
 
 
 @router.get("/{connection_id}", response_model=ConsumerConnection)

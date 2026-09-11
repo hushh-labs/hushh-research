@@ -426,3 +426,9 @@ tests/test_pod_agent_chat_store.py
 tests/test_email_chat_service.py
 
 tests/test_email_agent_a2a.py
+
+tests/test_pod_vault_custody.py
+
+tests/test_pod_vault_enrollment.py
+
+tests/test_consumer_mcp_connections.py

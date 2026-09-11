@@ -296,6 +296,7 @@ The existing OAuth proxy and `/oauth/authorize` page also serve consumer review:
 | Endpoint | Authority and behavior |
 |---|---|
 | `POST /oauth/consumer-connections/prepare` | Current owner OAuth; resume a binding to the existing serving pod |
+| `GET /oauth/consumer-connections?limit=25&after=...` | Firebase owner; paginated permission metadata, including disconnected entries; no credentials |
 | `GET /oauth/consumer-connections/{id}?authorization_id=...` | Firebase owner; review the registered assistant and current binding |
 | `POST /oauth/consumer-connections/{id}/approve` | Firebase owner; explicit policy version, reviewed authorization and generation |
 | `DELETE /oauth/consumer-connections/{id}?generation=...` | Firebase owner; revoke the assistant generation and all bound sessions |

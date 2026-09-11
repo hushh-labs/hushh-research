@@ -41,7 +41,7 @@ import secrets
 import time
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any, Callable, Optional
+from typing import TYPE_CHECKING, Any, Callable, Optional
 
 from hushh_mcp.consent.token_signing import CONSENT_TOKENS, known_kids, verify_payload
 from hushh_mcp.services.pod_authority_store import (
@@ -51,6 +51,9 @@ from hushh_mcp.services.pod_authority_store import (
     TombstoneRecord,
 )
 from hushh_mcp.services.pod_consent_client import ConsentVerdict
+
+if TYPE_CHECKING:
+    from hushh_mcp.services.pod_vault_custody import PodVaultCustody
 
 logger = logging.getLogger(__name__)
 
@@ -310,6 +313,7 @@ class PodSessionAuthority:
         self._clock = clock
         self._ttl = int(session_ttl_seconds)
         self._challenges: dict[str, _Challenge] = {}
+        self.vault_custody: PodVaultCustody | None = None
 
     # -- properties -----------------------------------------------------------------
 
@@ -721,13 +725,23 @@ async def build_pod_session_authority(*, instance_id: Optional[str] = None) -> P
     active copy unset, and the routes answer 503 "local authority unavailable" rather
     than admitting anyone on a half-built authority.
     """
-    from hushh_mcp.services.byoc_key_custody import resolve_pod_log_key  # noqa: PLC0415
+    from hushh_mcp.services.byoc_key_custody import (  # noqa: PLC0415
+        byoc_custody_configured,
+        resolve_pod_log_key,
+    )
     from hushh_mcp.services.pod_authority_store import (  # noqa: PLC0415
         claim_incarnation,
         set_active_authority_store,
     )
     from hushh_mcp.services.pod_memory_service import _resolve_log  # noqa: PLC0415
-    from hushh_mcp.services.pod_self_registration import pod_keypair  # noqa: PLC0415
+    from hushh_mcp.services.pod_self_registration import (  # noqa: PLC0415
+        pod_key_is_durable,
+        pod_keypair,
+    )
+    from hushh_mcp.services.pod_vault_custody import (  # noqa: PLC0415
+        CustodyBinding,
+        PodVaultCustody,
+    )
 
     hushh_id = _clean(os.getenv("HUSSH_ID"))
     log = _resolve_log()
@@ -752,6 +766,24 @@ async def build_pod_session_authority(*, instance_id: Optional[str] = None) -> P
         pod_key_id=keypair.key_id,
         pod_public_key=keypair.public_key_b64,
     )
+    if authority.environment:
+        custody = PodVaultCustody(
+            log,
+            dek=dek,
+            binding=CustodyBinding(
+                owner_id=hushh_id, environment=authority.environment, deployment_id=hushh_id
+            ),
+            epoch=incarnation.epoch,
+            instance_id=incarnation.instance_id,
+        )
+        # A claimed incarnation is only a candidate. This HEAD commit cuts off
+        # the old custody writer before the replacement is published as ready.
+        await custody.activate_writer()
+        await authority.require_held()
+        # Even an ineligible replacement fences a former custody writer. Only
+        # KMS-backed durable identities may expose enrollment/recovery adapters.
+        if byoc_custody_configured() and pod_key_is_durable():
+            authority.vault_custody = custody
     set_active_authority_store(store)
     set_active_session_authority(authority)
     logger.info(
