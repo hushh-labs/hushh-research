@@ -262,6 +262,17 @@ retain their existing permissions. Consumer onboarding and standing memory
 authorization are under implementation and are not available through this
 five-tool catalog yet.
 
+The secure owner interface can review a pending request with
+`GET /oauth/authorize/{connection_ref}`, inspect its own connected clients with
+`GET /oauth/connections?limit=50&before_id=...`, and disconnect one with
+`DELETE /oauth/connections/{connection_ref}`. These endpoints require the owner's
+Firebase session, not a developer credential. Pages use the existing `/api/oauth`
+proxy. Disconnection atomically records the event and revokes the connection's
+credentials; a new connection requires a fresh PKCE authorization. It does not
+erase personal information or revoke another client's access. Previously returned
+results cannot be recalled, and this connection fence alone does not cancel work
+already admitted by other services.
+
 ### MuleSoft trusted connector for Salesforce and Agentforce
 
 > **Important current boundary.** Hussh preserves one canonical five-tool

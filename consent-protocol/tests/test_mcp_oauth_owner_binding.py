@@ -5,6 +5,7 @@ import hashlib
 
 import pytest
 from sqlalchemy import create_engine
+from sqlalchemy.exc import IntegrityError
 
 from db.db_client import DatabaseClient
 from hushh_mcp.services.developer_oauth_service import DeveloperOAuthService, OAuthValidationError
@@ -176,6 +177,68 @@ def test_preexisting_offline_database_gets_additive_resource_column(oauth, monke
     oauth.ensure_tables()
     _, tokens = issue(oauth)
     assert oauth.authenticate_access_token(tokens["access_token"]).oauth_resource == RESOURCE
+
+
+def test_owner_connection_pagination_and_disconnect_isolation(oauth):
+    _, first_tokens = issue(oauth)
+    _, second_tokens = issue(oauth)
+    _, foreign_tokens = issue(oauth, owner="owner_b")
+    first_page = oauth.list_owner_connections(subject_firebase_uid="owner_a", limit=1)
+    assert len(first_page["connections"]) == 1
+    second_page = oauth.list_owner_connections(
+        subject_firebase_uid="owner_a", limit=1, before_id=first_page["next_cursor"]
+    )
+    assert second_page["next_cursor"] is None
+    old_ref = second_page["connections"][0]["connection_ref"]
+    with pytest.raises(OAuthValidationError):
+        oauth.disconnect_owner_connection(transaction_ref=old_ref, subject_firebase_uid="owner_b")
+    assert oauth.authenticate_access_token(first_tokens["access_token"])
+    oauth.disconnect_owner_connection(transaction_ref=old_ref, subject_firebase_uid="owner_a")
+    oauth.disconnect_owner_connection(transaction_ref=old_ref, subject_firebase_uid="owner_a")
+    assert oauth.authenticate_access_token(first_tokens["access_token"]) is None
+    assert oauth.authenticate_access_token(second_tokens["access_token"])
+    assert oauth.authenticate_access_token(foreign_tokens["access_token"])
+    events = oauth._db.execute_raw(
+        "SELECT * FROM developer_oauth_audit_events WHERE event_type = 'owner_connection_disconnected'"
+    )
+    assert len(events.data) == 1
+
+
+def test_disconnect_rolls_back_if_audit_commit_fails(oauth):
+    _, tokens = issue(oauth)
+    ref = oauth.list_owner_connections(subject_firebase_uid="owner_a")["connections"][0][
+        "connection_ref"
+    ]
+    oauth._db.execute_raw("""CREATE TRIGGER reject_disconnect_receipt
+        BEFORE INSERT ON developer_oauth_audit_events
+        WHEN NEW.event_type = 'owner_connection_disconnected'
+        BEGIN SELECT RAISE(ABORT, 'synthetic commit failure'); END""")
+    with pytest.raises(IntegrityError, match="synthetic commit failure"):
+        oauth.disconnect_owner_connection(transaction_ref=ref, subject_firebase_uid="owner_a")
+    assert oauth.authenticate_access_token(tokens["access_token"])
+
+
+def test_credential_issued_after_disconnect_cannot_revive_connection(oauth):
+    _, tokens = issue(oauth)
+    principal = oauth.authenticate_access_token(tokens["access_token"])
+    ref = oauth.list_owner_connections(subject_firebase_uid="owner_a")["connections"][0][
+        "connection_ref"
+    ]
+    oauth.disconnect_owner_connection(transaction_ref=ref, subject_firebase_uid="owner_a")
+    # Simulate a refresh admitted before revocation whose issuance finishes late.
+    late = oauth._issue_tokens(
+        app_id=principal.app_id,
+        subject=principal.subject_firebase_uid,
+        authorization_id=principal.authorization_id,
+        scopes=principal.oauth_scopes,
+    )
+    assert oauth.authenticate_access_token(late["access_token"]) is None
+    with pytest.raises(OAuthValidationError):
+        oauth.refresh(
+            client=oauth.get_client("client_test"),
+            refresh_token=late["refresh_token"],
+            resource=RESOURCE,
+        )
 
 
 @pytest.mark.parametrize(

@@ -23,6 +23,7 @@ Provisioning, recoverable owner-pod vault custody and client access are separate
 | Isolation and committed baseline | Done | Baseline above; clean source when created |
 | Consumer capability coverage | Inventory complete; implementation pending | Baseline table below; no executable coverage claimed |
 | OAuth owner/client/resource binding | Local checks pass | 55 focused checks; live host acceptance pending |
+| Owner connection review and disconnect | Local checks pass | 34 backend and 8 frontend checks; typecheck, ESLint and surface-map generation passed |
 | Standing grants and resumable onboarding | Pending | Separate approvals, revocation and no duplicate infrastructure |
 | Pod custody and canonical memory | Pending | Authenticated enrollment, encrypted commit, CAS and replacement recovery |
 | Consumer tools and Puppy adapters | Pending | Typed operation execution, receipts and common records |
@@ -68,3 +69,6 @@ The topology generator remains the existing coverage join: `scripts/ops/generate
 - Parked dev migration `937_consumer_mcp_oauth_resource.sql` adds the nullable resource column; old offline SQLite schemas also upgrade additively. No live migration applied.
 - Verification: 55 tests passed across `test_mcp_oauth_owner_binding.py`, `test_developer_oauth.py`, `test_mcp_remote_endpoint.py`, `test_mcp_public_contract_v030.py`, and `test_mcp_encrypted_scoped_export_tool.py`; Ruff and whitespace checks passed. Tests use synthetic local SQL, not live hosts.
 - Next: connect standing-consent admission to the existing consent ledger, then resumable setup and pod custody. OAuth identity is not an implementation of these pending authorities.
+- Foundation commit: `7864eb92c`; existing entitled-tool dispatch fix: `f18fb5de0`. The dispatch defect was reproduced before correction: private RIA/Kai names were advertised but rejected as unknown. The fix retains exact-name, schema and entitlement checks; 19 affected tests passed.
+- Connection management uses the existing OAuth authorization as a permanent connection generation. Owner-scoped deletion atomically marks it denied, revokes its credentials and records the event. Late credentials cannot revive it. This is not a standing memory grant.
+- Approval UI shows the registered client and checks the existing authenticated-session generation after asynchronous work. Request changes abort pending requests; already accepted server-side approvals cannot be undone by browser cancellation.

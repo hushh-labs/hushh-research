@@ -3406,6 +3406,61 @@ async def approve_oauth_authorization(
         raise _oauth_error(status.HTTP_400_BAD_REQUEST, error) from error
 
 
+@oauth_router.get("/authorize/{transaction_ref}")
+async def get_oauth_authorization_details(
+    transaction_ref: str = Path(..., pattern=r"^oar_[a-f0-9]{32}$", max_length=36),
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    import asyncio
+
+    if not developer_api_enabled():
+        raise developer_api_disabled_error()
+    details = await asyncio.to_thread(
+        DeveloperOAuthService().authorization_details, transaction_ref=transaction_ref
+    )
+    if details is None:
+        raise HTTPException(status_code=404, detail="This connection request is unavailable.")
+    return details
+
+
+@oauth_router.get("/connections")
+async def list_oauth_connections(
+    before_id: int | None = Query(default=None, ge=1),
+    limit: int = Query(default=50, ge=1, le=100),
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    import asyncio
+
+    if not developer_api_enabled():
+        raise developer_api_disabled_error()
+    return await asyncio.to_thread(
+        DeveloperOAuthService().list_owner_connections,
+        subject_firebase_uid=firebase_uid,
+        before_id=before_id,
+        limit=limit,
+    )
+
+
+@oauth_router.delete("/connections/{transaction_ref}", status_code=status.HTTP_204_NO_CONTENT)
+async def disconnect_oauth_connection(
+    transaction_ref: str = Path(..., pattern=r"^oar_[a-f0-9]{32}$", max_length=36),
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    import asyncio
+
+    if not developer_api_enabled():
+        raise developer_api_disabled_error()
+    try:
+        await asyncio.to_thread(
+            DeveloperOAuthService().disconnect_owner_connection,
+            transaction_ref=transaction_ref,
+            subject_firebase_uid=firebase_uid,
+        )
+    except OAuthValidationError as error:
+        raise _oauth_error(status.HTTP_404_NOT_FOUND, error) from error
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
 @oauth_router.post("/authorize/{transaction_ref}/deny")
 async def deny_oauth_authorization(
     transaction_ref: str = Path(..., pattern=r"^oar_[a-f0-9]{32}$", max_length=36),

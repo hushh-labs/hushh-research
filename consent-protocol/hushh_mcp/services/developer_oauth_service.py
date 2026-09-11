@@ -19,6 +19,8 @@ from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
+from sqlalchemy import text
+
 from db.db_client import get_db
 from hushh_mcp.runtime_settings import get_core_security_settings
 from hushh_mcp.services.developer_registry_service import (
@@ -569,6 +571,116 @@ class DeveloperOAuthService:
             "redirect_uri": str(row.get("redirect_uri") or ""),
             "state": str(row.get("state") or ""),
         }
+
+    def authorization_details(self, *, transaction_ref: str) -> dict[str, Any] | None:
+        """Display registered identity before approval; never return codes or keys."""
+        self.ensure_tables()
+        result = self._db.execute_raw(
+            """SELECT apps.display_name, authorizations.requested_scope,
+                      authorizations.resource, authorizations.expires_at
+               FROM developer_oauth_authorizations AS authorizations
+               JOIN developer_apps AS apps ON apps.app_id = authorizations.app_id
+               JOIN developer_oauth_clients AS clients ON clients.client_id = authorizations.client_id
+               WHERE authorizations.transaction_ref = :ref AND authorizations.status = 'pending'
+                 AND authorizations.expires_at > :now AND apps.status = 'active'
+                 AND clients.revoked_at IS NULL LIMIT 1""",
+            {"ref": transaction_ref, "now": _now_ms()},
+        )
+        if not result.data:
+            return None
+        row = result.data[0]
+        return {
+            "client_name": str(row["display_name"]),
+            "scope": str(row["requested_scope"]),
+            "resource": row.get("resource"),
+            "expires_at": int(row["expires_at"]),
+            "memory_access_granted": False,
+        }
+
+    def list_owner_connections(
+        self, *, subject_firebase_uid: str, before_id: int | None = None, limit: int = 50
+    ) -> dict[str, Any]:
+        """Safe connection inventory, scoped by authenticated owner before the read."""
+        self.ensure_tables()
+        if not 1 <= limit <= 100 or (before_id is not None and before_id < 1):
+            raise OAuthValidationError("invalid_request", "Invalid connection page.")
+        page_filter = " AND authorizations.id < :before_id" if before_id is not None else ""
+        result = self._db.execute_raw(
+            """SELECT authorizations.id, authorizations.transaction_ref AS connection_ref, apps.display_name AS client_name,
+                      authorizations.resource, authorizations.created_at
+               FROM developer_oauth_authorizations AS authorizations
+               JOIN developer_apps AS apps ON apps.app_id = authorizations.app_id
+               JOIN developer_oauth_clients AS clients ON clients.client_id = authorizations.client_id
+               WHERE authorizations.subject_firebase_uid = :subject
+                 AND authorizations.status = 'consumed' AND clients.revoked_at IS NULL
+                 AND apps.status = 'active'"""
+            + page_filter
+            + " ORDER BY authorizations.id DESC LIMIT :limit",
+            {"subject": subject_firebase_uid, "before_id": before_id, "limit": limit + 1},
+        )
+        rows = result.data[:limit]
+        next_cursor = rows[-1]["id"] if len(result.data) > limit else None
+        return {
+            "connections": [
+                {key: value for key, value in row.items() if key != "id"} for row in rows
+            ],
+            "next_cursor": next_cursor,
+        }
+
+    def disconnect_owner_connection(
+        self, *, transaction_ref: str, subject_firebase_uid: str
+    ) -> None:
+        """Permanently fence one authorization and all of its renewable credentials.
+
+        The authorization row is the connection generation. Reconnecting requires
+        a fresh PKCE ceremony; an old authorization is never re-enabled. Marking
+        it denied also fences credentials minted by an overlapping legacy refresh.
+        No other client's tokens, vault custody or personal information are changed.
+        """
+        self.ensure_tables()
+        now = _now_ms()
+        with self._db.engine.begin() as conn:
+            # Lock only the matched owner's connection; no owner existence leak.
+            lock = " FOR UPDATE" if conn.dialect.name == "postgresql" else ""
+            row = (
+                conn.execute(
+                    text(
+                        "SELECT id, app_id, client_id, status FROM developer_oauth_authorizations "
+                        "WHERE transaction_ref = :ref AND subject_firebase_uid = :subject" + lock
+                    ),
+                    {"ref": transaction_ref, "subject": subject_firebase_uid},
+                )
+                .mappings()
+                .first()
+            )
+            if row is None or row["status"] not in {"consumed", "denied"}:
+                raise OAuthValidationError("invalid_request", "This connection is unavailable.")
+            if row["status"] == "denied":
+                return
+            conn.execute(
+                text("UPDATE developer_oauth_authorizations SET status = 'denied' WHERE id = :id"),
+                {"id": row["id"]},
+            )
+            conn.execute(
+                text(
+                    "UPDATE developer_oauth_tokens SET revoked_at = :now "
+                    "WHERE authorization_id = :id AND revoked_at IS NULL"
+                ),
+                {"now": now, "id": row["id"]},
+            )
+            conn.execute(
+                text(
+                    "INSERT INTO developer_oauth_audit_events "
+                    "(app_id, client_id, subject_firebase_uid, event_type, created_at) "
+                    "VALUES (:app, :client, :subject, 'owner_connection_disconnected', :now)"
+                ),
+                {
+                    "app": row["app_id"],
+                    "client": row["client_id"],
+                    "subject": subject_firebase_uid,
+                    "now": now,
+                },
+            )
 
     def deny_authorization(
         self, *, transaction_ref: str, subject_firebase_uid: str

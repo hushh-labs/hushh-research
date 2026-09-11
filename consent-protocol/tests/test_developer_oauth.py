@@ -137,6 +137,40 @@ def test_resource_discovery_uses_configured_authority_not_host(monkeypatch):
     assert client.get("/.well-known/oauth-protected-resource").status_code == 503
 
 
+def test_owner_connection_routes_bind_identity_from_authentication(monkeypatch):
+    monkeypatch.setenv("DEVELOPER_API_ENABLED", "true")
+    service = MagicMock()
+    service.list_owner_connections.return_value = {"connections": [], "next_cursor": None}
+    service.authorization_details.return_value = {
+        "client_name": "Registered assistant",
+        "memory_access_granted": False,
+    }
+    monkeypatch.setattr(developer, "DeveloperOAuthService", lambda: service)
+    client = TestClient(_app())
+    reference = "oar_0123456789abcdef0123456789abcdef"
+    response = client.get("/oauth/connections?subject_firebase_uid=foreign&limit=5")
+    assert response.status_code == 200
+    service.list_owner_connections.assert_called_once_with(
+        subject_firebase_uid="firebase_test_subject",
+        before_id=None,
+        limit=5,
+    )
+    assert (
+        client.get(f"/oauth/authorize/{reference}").json()["client_name"] == "Registered assistant"
+    )
+    assert (
+        client.delete(f"/oauth/connections/{reference}?subject_firebase_uid=foreign").status_code
+        == 204
+    )
+    service.disconnect_owner_connection.assert_called_once_with(
+        transaction_ref=reference,
+        subject_firebase_uid="firebase_test_subject",
+    )
+    unauthenticated = FastAPI()
+    unauthenticated.include_router(developer.router)
+    assert TestClient(unauthenticated).get("/oauth/connections").status_code == 401
+
+
 def test_authorize_rejects_non_s256_and_unregistered_redirect(monkeypatch):
     monkeypatch.setenv("ENVIRONMENT", "development")
     monkeypatch.setenv("DEVELOPER_API_ENABLED", "true")
