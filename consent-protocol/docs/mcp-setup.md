@@ -275,13 +275,19 @@ already admitted by other services.
 
 ### Consumer setup on the isolated private branch
 
-This implementation is not deployed or ready for marketplace acceptance.
+This implementation is not deployed or ready for marketplace acceptance. The
+isolated `feat/consumer-mcp` branch now contains the typed owner-pod memory
+execution seam, but no hosted migration, installed pod acceptance, or marketplace
+review has occurred.
 Owner-bound, resource-aware OAuth sessions additionally discover
 `get_hussh_connection`. It returns an authenticated setup or memory-approval link;
 it never approves permission, reads memory or provisions infrastructure. The
 existing developer five-tool catalog remains unchanged for application-only
-credentials. Account creation, pod custody, executable memory operations and
-full consumer coverage remain incomplete.
+credentials. Account creation, pod custody, installed owner-pod acceptance and
+full consumer coverage remain incomplete. On the isolated branch, typed memory
+tools forward through the existing authenticated relay to
+`/api/one/pod/consumer/memory`; a missing or unhealthy pod fails closed and never
+falls back to shared memory.
 
 Memory permission is distinct from one OAuth session. A durable assistant
 binding can reuse the owner's recorded approval across new authenticated
