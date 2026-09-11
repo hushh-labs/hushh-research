@@ -899,3 +899,71 @@ async def test_a_second_model_step_answer_is_not_discarded_as_a_duplicate(monkey
     # And the preamble is still delivered exactly once, not twice: the aggregate
     # that duplicates a step's own partials is still suppressed.
     assert delivered.count("Let me check. ") == 1, delivered
+
+
+@pytest.mark.asyncio
+async def test_the_intro_turn_also_survives_a_second_model_step(monkeypatch):
+    """The same defect lived twice, and the first fix only closed one copy.
+
+    `883327eaf` reset `saw_partial_text` at the step boundary in
+    `_stream_one_text_turn_once` and left the identical latch in
+    `stream_one_intro_text_turn`. The intro agent has a navigation roster, so it
+    calls tools, so it has more than one model step, so it loses an answer the
+    same way. Measured before the fix: this delivered "One moment. " and nothing
+    else.
+
+    The intro turn has no production caller today, which is why nobody noticed.
+    That makes this a latent defect rather than a live one, and it is cheaper to
+    pin now than to rediscover when the surface is wired.
+    """
+
+    class _FakeRunner:
+        def __init__(self, *, app_name, agent, session_service, memory_service=None):
+            self.session_service = session_service
+
+        async def run_async(self, *, user_id, session_id, new_message, run_config):
+            yield Event(
+                author="one",
+                partial=True,
+                content=genai_types.Content(
+                    role="model", parts=[genai_types.Part.from_text(text="One moment. ")]
+                ),
+            )
+            yield Event(
+                author="one",
+                partial=False,
+                content=genai_types.Content(
+                    role="model", parts=[genai_types.Part.from_text(text="One moment. ")]
+                ),
+            )
+            # The next step's answer arrives as an aggregate only.
+            yield Event(
+                author="one",
+                partial=False,
+                content=genai_types.Content(
+                    role="model",
+                    parts=[genai_types.Part.from_text(text="Hussh keeps it on your own pod.")],
+                ),
+            )
+
+    monkeypatch.setattr(text_runtime, "Runner", _FakeRunner)
+    monkeypatch.setattr(
+        text_runtime, "build_one_intro_text_agent", lambda *, model: ("one-intro", model)
+    )
+
+    events = [
+        event
+        async for event in text_runtime.stream_one_intro_text_turn(
+            user_id="anonymous",
+            message="where does my information live",
+            screen_context={"screen": "one_landing"},
+            runtime_provider="gemini",
+            runtime_model="gemini-flash",
+            runtime_mode="hushh_managed_vertex",
+            runtime_credential=None,
+        )
+    ]
+
+    delivered = "".join(event.text for event in events if event.kind == "token")
+    assert "Hussh keeps it on your own pod." in delivered, delivered
+    assert delivered.count("One moment. ") == 1, delivered

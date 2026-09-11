@@ -1117,3 +1117,10 @@ async def stream_one_intro_text_turn(
         is_final_response = getattr(event, "is_final_response", None)
         if not saw_partial_text and callable(is_final_response) and is_final_response():
             yield OneTextStreamEvent(kind="token", text=text)
+        # A NON-PARTIAL TEXT EVENT CLOSES ONE MODEL STEP, so the flag resets here.
+        # Same defect and same fix as `_stream_one_text_turn_once`: the flag asks
+        # "has THIS step's text already gone out as partials?", and left latched it
+        # answers for the whole turn, discarding every later step's aggregate as a
+        # duplicate of text nobody sent. The intro turn calls tools too, so it has
+        # more than one step and was losing the same way.
+        saw_partial_text = False
