@@ -55,11 +55,11 @@ Non-owned surfaces:
 ## Workflow
 
 1. Collect outputs from the local model, then write a review queue. Controls are
-   planted, shuffled per run, and unmarked; their answers live in the manifest.
+   planted, shuffled per run, and unmarked; scoring reads them from the seal.
 2. Grade in a session that did **not** write the queue. This cannot be enforced
    from a script, so it is a discipline the report states rather than assumes.
-3. Never open `run-manifest.json` while grading. It holds the control positions,
-   and reading it destroys the only property that makes a pass meaningful.
+3. The answer key is the seal (rows, rules, seed) and `memory_judge_controls` in
+   the harness. Never open or hunt for either; the manifest locates no control.
 4. Every `wrong` verdict cites the offending value verbatim. Ingest checks the
    citation against the output and discards it if absent, because an uncited
    failure is indistinguishable from a hallucinated one.

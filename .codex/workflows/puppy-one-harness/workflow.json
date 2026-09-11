@@ -50,7 +50,9 @@
   ],
   "common_failures": [
     "grading in the session that wrote the queue, which remembers where the controls went",
-    "opening run-manifest.json while grading, which reveals the control positions",
+    "grading a corpus this session has graded before: positions move per run, the planted rows' wording does not",
+    "appending verdict lines to verdicts.jsonl with a shell redirect instead of putting the grader's JSONL through memory_judge.py replay, which voids the run for verdict_appended_past_writer; the grading lane is read-only and does not write, so the orchestrator replays",
+    "opening or hunting for the seal while grading, or reading memory_judge_controls in the harness source, which names the planted rows in clear and leaves no trace; run-manifest.json carries the declared rule vocabulary and locates no control",
     "reporting accuracy for a run whose controls were missed instead of voiding it",
     "comparing runs with different capability profiles, which invents a trend",
     "treating structural validity as correctness"

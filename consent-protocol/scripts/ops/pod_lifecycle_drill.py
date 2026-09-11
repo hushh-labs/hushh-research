@@ -37,8 +37,10 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import contextlib
 import hashlib
 import json
+import os
 import re
 import secrets
 import subprocess
@@ -619,6 +621,18 @@ class GcpFleet:
 
 NO_RECORDED_FACT = "NO_RECORDED_FACT"
 MEMORY_DRILL_ASSERTION_ID = "the-agent-learns-between-turns"
+# The close review's own word for "the reviewer asked to retire a fact this caller
+# may not retire". The pass ran and then wrote nothing at all, not even its
+# additive half (`hushh_mcp.one_adk.memory_review`).
+REVIEW_OUTCOME_REFUSED_AUTHORITY = "refused_authority"
+# Outcomes a close review only reaches by RUNNING to a decision. `disabled` and a
+# missing review object are the two ways a close reviews nothing, and they are the
+# only ones `review_ran_on_close` may read as "it did not run". A denial is not one
+# of them: reading it as "never reviewed" sends the reader after a missing trigger
+# or a pre-join image when the real cause is a binding without `pod.revoke`.
+REVIEW_OUTCOMES_THAT_RAN: frozenset[str] = frozenset(
+    {"applied", "nothing_to_save", REVIEW_OUTCOME_REFUSED_AUTHORITY}
+)
 _RECALL_INSTRUCTION = (
     " Answer only from what you remember about me, in one short sentence. "
     f"If you have no recorded fact about this, reply exactly {NO_RECORDED_FACT}."
@@ -757,6 +771,11 @@ class MemoryDrillResult:
     memory_join_present_on_image: bool = False
     taught: int = 0
     review_ran_on_close: bool = False
+    # A close review that ran and was DENIED its retirement authority. Its own
+    # verdict, kept apart from `review_ran_on_close`, because the two call for
+    # opposite repairs: one says the review never happened, this one says it
+    # happened and threw the whole pass away. Either fails the drill.
+    review_authority_denied_on_close: bool = False
     review_provider_matches_turn_provider: bool = False
     review_outputs_only_proposals: bool = True
     paraphrase_recalled: int = 0
@@ -782,6 +801,7 @@ class MemoryDrillResult:
             self.memory_join_present_on_image
             and self.taught >= self.horizon_size
             and self.review_ran_on_close
+            and not self.review_authority_denied_on_close
             and self.review_provider_matches_turn_provider
             and self.review_outputs_only_proposals
             and self.paraphrase_recalled == self.horizon_size
@@ -811,6 +831,7 @@ class MemoryDrillResult:
             "revoked_fact_not_recalled_after_replay": self.revoked_fact_not_recalled_after_replay,
             "negative_control_clean": self.negative_control_clean,
             "review_ran_on_close": self.review_ran_on_close,
+            "review_authority_not_denied_on_close": not self.review_authority_denied_on_close,
             "review_provider_matches_turn_provider": self.review_provider_matches_turn_provider,
             "memory_join_present_on_image": self.memory_join_present_on_image,
             "catch_up_debt_zero": self.catch_up_debt_zero,
@@ -861,6 +882,24 @@ async def run_memory_learning_drill(
     def answered(turn: dict[str, Any]) -> str:
         return str(turn.get("text") or "")
 
+    def review_of(close: Any) -> dict[str, Any]:
+        """The review report a close returned, or an empty one if it returned none.
+
+        Every close in this drill goes through here, not only the first. A denial
+        on the CORRECTION close is the one that costs the most -- the correction
+        and everything beside it is dropped -- and it used to surface only as
+        `correction_supersedes=False`, which reads as a pod that ignores
+        corrections. The drill is the measurement instrument, so it names the
+        cause it can actually see.
+        """
+        memory = close.get("memory") if isinstance(close, dict) else None
+        review = memory.get("review") if isinstance(memory, dict) else None
+        if not isinstance(review, dict):
+            return {}
+        if str(review.get("outcome") or "") == REVIEW_OUTCOME_REFUSED_AUTHORITY:
+            result.review_authority_denied_on_close = True
+        return review
+
     def recalled(turn: dict[str, Any], fact: MemoryFact, *, after_correction: bool) -> bool:
         tokens = (
             fact.new_value_tokens if (after_correction and fact.correction) else fact.value_tokens
@@ -902,10 +941,10 @@ async def run_memory_learning_drill(
             result.turn_provider = str(turn.get("provider") or "")
         result.taught += 1
     close = await fleet.close_conversation(url, teach_conversation)
-    review = (close.get("memory") or {}).get("review") if isinstance(close, dict) else None
-    review = review if isinstance(review, dict) else {}
-    result.review_ran_on_close = review.get("outcome") in {"applied", "nothing_to_save"} and (
-        review.get("reason") == "close"
+    review = review_of(close)
+    result.review_ran_on_close = (
+        str(review.get("outcome") or "") in REVIEW_OUTCOMES_THAT_RAN
+        and review.get("reason") == "close"
     )
     review_provider = str(close.get("provider") or review.get("provider") or "")
     result.review_provider_matches_turn_provider = bool(result.turn_provider) and (
@@ -923,6 +962,7 @@ async def run_memory_learning_drill(
     stamp("teach_and_close", started)
     stages.append(
         f"taught {result.taught} facts; review_ran_on_close={result.review_ran_on_close} "
+        f"authority_denied={result.review_authority_denied_on_close} "
         f"provider_match={result.review_provider_matches_turn_provider}"
     )
 
@@ -945,7 +985,7 @@ async def run_memory_learning_drill(
     started = clock()
     correction_conversation = "drill-correct-1"
     await fleet.say(url, correctable.correction, correction_conversation)
-    await fleet.close_conversation(url, correction_conversation)
+    review_of(await fleet.close_conversation(url, correction_conversation))
     turn = await ask(correctable.ask)
     result.correction_supersedes = _value_hit(answered(turn), correctable.new_value_tokens)
     result.stale_value_not_recalled = not any(
@@ -961,7 +1001,8 @@ async def run_memory_learning_drill(
     stamp("correction", started)
     stages.append(
         f"correction_supersedes={result.correction_supersedes} "
-        f"stale_value_not_recalled={result.stale_value_not_recalled}"
+        f"stale_value_not_recalled={result.stale_value_not_recalled} "
+        f"authority_denied={result.review_authority_denied_on_close}"
     )
 
     # STAGE 4: restart the compute (a revision replace on the same image), then
@@ -993,7 +1034,7 @@ async def run_memory_learning_drill(
     tombstones_before = int((await fleet.status(url)).get("tombstones") or 0)
     revoke_conversation = "drill-revoke-1"
     await fleet.say(url, f"Please remember this: {revocable.teach}", revoke_conversation)
-    await fleet.close_conversation(url, revoke_conversation)
+    review_of(await fleet.close_conversation(url, revoke_conversation))
     after = set((await fleet.status(url)).get("factIds") or [])
     new_ids = sorted(after - before)
     if new_ids:
@@ -1453,6 +1494,8 @@ class ExistingPodFleet:
 # harness contract. Four negative and two positive controls, seeded shuffle,
 # salted commitments, the seal OUTSIDE the run directory. The queue carries
 # questions and answers only: no owner id, no pod id, no memory id, no prompt.
+# The other half of the contract -- recording verdicts and scoring or voiding
+# the run -- lives in ``scripts/ops/memory_judge.py``.
 # --------------------------------------------------------------------------- #
 
 MEMORY_JUDGE_RULES: tuple[str, ...] = (
@@ -1463,9 +1506,59 @@ MEMORY_JUDGE_RULES: tuple[str, ...] = (
     "omission",
 )
 
+# The grading half (``scripts/ops/memory_judge.py``) owns these names. They are
+# repeated here, and only here, because issuing a run has to retire whatever a
+# previous issue into the same directory left behind.
+JUDGE_SEAL_SUFFIX = ".seal.json"
+JUDGE_SUPERSEDED_SUFFIX = ".superseded"
+JUDGE_INCOMING_SUFFIX = ".incoming"
+JUDGE_QUEUE_FILENAME = "review-queue.jsonl"
+JUDGE_MANIFEST_FILENAME = "run-manifest.json"
+JUDGE_VERDICTS_FILENAME = "verdicts.jsonl"
+# Every artifact a previous issue into this directory owns. The queue and the
+# manifest are in the list because retiring them is what makes issuing
+# reversible: a fresh issue never overwrites a live file, it renames the old one
+# aside and moves a staged one into the freed name, so a failure part way
+# through can put every one of them back.
+JUDGE_RUN_ARTIFACTS: tuple[str, ...] = (
+    JUDGE_QUEUE_FILENAME,
+    JUDGE_MANIFEST_FILENAME,
+    JUDGE_VERDICTS_FILENAME,
+    "verdict-writes.jsonl",
+)
+
+# How this run's shuffle seed was obtained. It is sealed, never published, and
+# ingest reports which of the two a run was issued under, because they are not
+# the same claim: one run's planted positions are unpredictable, the other's are
+# whatever the last run issued with that seed had.
+JUDGE_SEED_MINTED = "minted-at-issue"
+JUDGE_SEED_SUPPLIED = "operator-supplied"
+
+# The four manifest fields that ATTRIBUTE a run: what was graded, under which
+# name, when, and by which answering model. Nothing else in the run directory
+# binds them, and the whole output of this harness is a number attributed to a
+# model, so they are sealed and ``memory_judge`` voids a run whose manifest no
+# longer matches the seal. ``rows``, ``hashes`` and ``controls_commitment`` are
+# already covered by the row hashes and the control commitment; these were not
+# covered by anything.
+JUDGE_IDENTITY_FIELDS: tuple[str, ...] = ("suite", "run_id", "created_at", "answerer_model")
+
 
 def _sha(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def judge_identity_commitment(manifest: dict[str, Any], salt: str) -> str:
+    """Salted commitment to the manifest fields that name and attribute the run.
+
+    ``memory_judge.identity_commitment`` recomputes this at ingest from the
+    manifest on disk. The two are deliberately the same three lines in two
+    files rather than an import: the scoring half loads no module from the
+    harness, and a disagreement between them voids every run loudly instead of
+    passing one quietly.
+    """
+    fields = {field: str(manifest.get(field, "")) for field in JUDGE_IDENTITY_FIELDS}
+    return _sha(salt + json.dumps(fields, sort_keys=True))
 
 
 def memory_judge_controls(horizon: list[MemoryFact] = MEMORY_HORIZON) -> list[dict[str, str]]:
@@ -1513,24 +1606,327 @@ def memory_judge_controls(horizon: list[MemoryFact] = MEMORY_HORIZON) -> list[di
     ]
 
 
+def _retire_judge_artifact(path: Path) -> Path:
+    """Move one artifact out of the live set without destroying it."""
+    target = path.with_name(path.name + JUDGE_SUPERSEDED_SUFFIX)
+    counter = 2
+    while target.exists():
+        target = path.with_name(f"{path.name}{JUDGE_SUPERSEDED_SUFFIX}.{counter}")
+        counter += 1
+    path.rename(target)
+    return target
+
+
+def _as_int(value: Any, default: int) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def previous_issue_seals(run_dir: Path, seal_root: Path) -> list[Path]:
+    """Every live seal in ``seal_root`` that was issued for THIS run directory.
+
+    Only this run's seals. Seals share a directory by default, and an issue that
+    swept it would quietly destroy the tamper detection of every other run in
+    the fleet. A file this issue cannot parse is another run's business.
+    """
+    if not seal_root.is_dir():
+        return []
+    run_dir_sha = _sha(run_dir.resolve().as_posix())
+    found: list[Path] = []
+    for candidate in sorted(seal_root.glob(f"*{JUDGE_SEAL_SUFFIX}")):
+        try:
+            loaded = json.loads(candidate.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if isinstance(loaded, dict) and str(loaded.get("run_dir_sha256") or "") == run_dir_sha:
+            found.append(candidate)
+    return found
+
+
+def count_recorded_verdicts(run_dir: Path) -> int:
+    """How many verdicts the previous issue had already collected.
+
+    The larger of the verdicts file and the write ledger that counts them, so
+    deleting one of the two before re-issuing does not reset the count to zero.
+    A party that deletes both defeats it, exactly as it defeats every other
+    control in this harness; what this buys is that the cheap version of the
+    move does not work.
+    """
+    counts = [0]
+    for name in (JUDGE_VERDICTS_FILENAME, "verdict-writes.jsonl"):
+        try:
+            text = (run_dir / name).read_text(encoding="utf-8")
+        except OSError:
+            continue
+        counts.append(sum(1 for line in text.splitlines() if line.strip()))
+    return max(counts)
+
+
+def issue_counter(run_dir: Path, seal_root: Path) -> dict[str, int]:
+    """The re-issue record the NEW seal will carry, read before anything moves.
+
+    Superseding made re-running the drill into the same directory survivable,
+    and in doing so it deleted the only trace that it had happened: the count
+    went into the operator's receipt, which the score report never sees. A
+    grading session that fails a planted control could then re-issue and be
+    scored clean, which is strictly worse than the void it replaced.
+
+    So the fact is written where ingest can read it and the grader cannot
+    quietly drop it: into the seal, outside the run directory. Two numbers,
+    because the two events are not the same:
+
+    ``ordinal``
+        Which issue this is. A re-issue before anything was graded is an
+        ordinary operator action. It is reported, not punished.
+    ``discarded_verdicts_total``
+        Verdicts that existed and were set aside. That is the serious one, and
+        it voids at ingest. It accumulates across issues on purpose: carrying
+        only this issue's count would let a grader launder a bad run by issuing
+        twice, the second time over an empty directory.
+
+    Both are read from the seal being retired, so the counter survives the
+    supersession that is about to move it.
+    """
+    seals = previous_issue_seals(run_dir, seal_root)
+    ordinal = 0
+    carried = 0
+    for seal in seals:
+        try:
+            loaded = json.loads(seal.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        record = loaded.get("issue") if isinstance(loaded.get("issue"), dict) else {}
+        # ``max`` over the candidates: with two seals claiming the directory the
+        # run is void anyway, and the higher counter is the safe reading.
+        ordinal = max(ordinal, _as_int(record.get("ordinal"), 1))
+        carried = max(carried, _as_int(record.get("discarded_verdicts_total"), 0))
+    discarded = count_recorded_verdicts(run_dir)
+    stale = [name for name in JUDGE_RUN_ARTIFACTS if (run_dir / name).exists()]
+    return {
+        "ordinal": ordinal + 1,
+        "superseded_artifacts": len(stale) + len(seals),
+        "discarded_verdicts": discarded,
+        "discarded_verdicts_total": carried + discarded,
+    }
+
+
+def supersede_previous_issue(
+    run_dir: Path, seal_root: Path, *, journal: list[tuple[Path, Path]] | None = None
+) -> int:
+    """Retire what a previous issue into this directory left behind.
+
+    Re-running the drill into the same queue directory is an ordinary operator
+    action, and it has to be distinguishable from an attack. A fresh issue
+    rewrites the queue and the manifest, which is what tells the two apart: the
+    previous seal's salted row hashes no longer describe anything on disk, and
+    the previous run's verdicts were given on rows that no longer exist.
+
+    Left in place, both are traps. Two seals claim the run, so ingest voids for
+    ``ambiguous_seal``, and the stale seal it may open disagrees with the fresh
+    manifest, so it also voids for ``controls_altered`` -- an accusation of
+    tampering against an operator who only ran the drill twice. The only way out
+    was to delete a seal by hand, which is exactly the act the control exists to
+    detect.
+
+    So issuing supersedes, and it is issuing that does it rather than ingest.
+    Ingest must never choose between two answer keys: a grader that edits the
+    queue and plants a seal matching the edit would otherwise be scored, with
+    the real seal set aside as superseded. Retiring happens at ISSUE time, by
+    the party that owns the seal directory, before a grading session exists, and
+    it leaves exactly one live seal, so ingest's rule stays "exactly one, or
+    void". Nothing is deleted: each stale artifact is renamed out of the live
+    set, so the previous run stays on disk and no operator ever has to remove a
+    seal. That it happened is recorded in the new seal by ``issue_counter``, so
+    the score report says so rather than only the operator's receipt.
+
+    ``journal`` collects every ``(original, retired)`` pair so the caller can
+    put them back. Retiring is the first destructive step of issuing, and
+    without the journal a failure after it left a directory with no seal at all,
+    which ingest reports in the vocabulary of tampering.
+
+    Returns the number of artifacts retired.
+    """
+    retired = 0
+    for name in JUDGE_RUN_ARTIFACTS:
+        stale = run_dir / name
+        if stale.exists():
+            moved = _retire_judge_artifact(stale)
+            if journal is not None:
+                journal.append((stale, moved))
+            retired += 1
+    for candidate in previous_issue_seals(run_dir, seal_root):
+        moved = _retire_judge_artifact(candidate)
+        if journal is not None:
+            journal.append((candidate, moved))
+        retired += 1
+    return retired
+
+
+def _roll_back_issue(
+    placed: list[Path], journal: list[tuple[Path, Path]], staged: list[Path]
+) -> list[str]:
+    """Undo a half-committed issue. Returns what could NOT be put back.
+
+    Reverse order: drop what was already moved into place, put every retired
+    artifact back under its original name, then clear the staging files. It
+    never raises -- a rollback that raised would replace the real failure with
+    its own, and the original is the one worth seeing -- but it does not
+    swallow a failure either, because a directory that is neither the new run
+    nor the old one is the one outcome this whole dance exists to prevent.
+    """
+    unrestored: list[str] = []
+    for path in placed:
+        try:
+            path.unlink(missing_ok=True)
+        except OSError:
+            unrestored.append(str(path))
+    for original, moved in reversed(journal):
+        try:
+            # A plain rename, deliberately not the call that just failed.
+            moved.rename(original)
+        except OSError:
+            unrestored.append(str(original))
+    for temporary in staged:
+        with contextlib.suppress(OSError):
+            temporary.unlink(missing_ok=True)
+    return unrestored
+
+
 def write_judge_queue(
     rows: list[dict[str, str]],
     *,
     run_dir: Path,
-    seed: int,
+    seed: int | None = None,
     seal_dir: Path | None = None,
     controls: list[dict[str, str]] | None = None,
     harness_path: Path | None = None,
+    judge_path: Path | None = None,
+    run_id: str | None = None,
+    created_at: str | None = None,
+    answerer_model: str = "unknown",
 ) -> dict[str, Any]:
-    """Write ``review-queue.jsonl`` and ``run-manifest.json``; seal outside ``run_dir``."""
+    """Write ``review-queue.jsonl`` and ``run-manifest.json``; seal outside ``run_dir``.
+
+    ``run_id``, ``created_at`` and ``answerer_model`` are recorded because the
+    grading half (``memory_judge.py``) cannot do its job without them: a run
+    needs a name to be reported under, and an accuracy with no answering model
+    beside it is a number that cannot be compared to anything. ``created_at`` is
+    stamped here, at ISSUE time, and only here. Scoring reads it back and never
+    calls a clock of its own, so re-ingesting a run always produces the same
+    report.
+
+    The run id is deliberately NOT the seal's filename. The seal holds the
+    plaintext control map -- which rows are planted and which rule each breaks
+    -- so any field in the manifest that names the seal hands a grader holding
+    only the manifest the answer key it is being measured against. The filename
+    stays a salted hash of the run directory, which nothing the grader is given
+    can derive; ingest finds it by opening the candidates and asking each which
+    run it was issued for.
+
+    The SHUFFLE SEED is MINTED HERE when the caller supplies none, and it is
+    sealed rather than published. Both halves are load-bearing, and each was
+    once missing:
+
+    *   *Minted*, because ``--seed`` defaulted to a constant date literal, so
+        every run on the path production takes drew the SAME permutation over
+        the same fixed corpus. Positions that never move are not blinding: one
+        run seen, or one colleague's description of one, named every planted
+        row in every later run, at no cost and with nothing to detect.
+    *   *Sealed*, because the seed is not a neutral reproducibility field. The
+        controls are appended to the rows in a fixed order, so replaying
+        ``random.Random(seed).shuffle`` over the manifest's own ``rows`` and
+        ``controls`` counts recovers every planted position and its kind from
+        the manifest alone. It is the control map in compressed form, so it
+        lives where the control map lives and nowhere a grader is handed --
+        not the manifest, and not the receipt (see ``_receipt_commands``).
+
+    A seed supplied by the caller is a deliberate REPLAY, not a blinded run:
+    its positions are exactly those of every other run issued with that seed.
+    That is a legitimate operator action -- reproducing an issue needs it -- so
+    it is recorded (``seed_source`` in the seal, ``positions_blinded`` in the
+    returned summary) and reported by ingest, rather than refused or, worse,
+    counted as blind.
+
+    Minting draws on the OS CSPRNG, which no replayable path may do. Issuing is
+    not one: it already draws ``salt`` from the same source and stamps
+    ``created_at`` from a clock. SCORING is the path that must replay
+    identically, and it never touches the seed at all -- it reads the control
+    map out of the seal -- so re-ingesting a run stays byte-identical.
+
+    The honest limit, and minting does not move it: ``memory_judge_controls``
+    above holds the six planted rows as literals over a FIXED corpus, so their
+    wording is identical in every run. A grader that reads this file, or that
+    has graded this corpus before, recognises the planted rows wherever the
+    shuffle puts them. Minting closed the shortcut that needed neither -- the
+    predictable permutation -- and closed nothing else. Content-level blinding
+    needs a corpus minted per run, which this harness does not have; until it
+    does, blinding rests on the grader being new to the corpus and not reading
+    the harness, which is a discipline, not a control. What the seal buys is
+    that scoring can tell, afterwards, that the evidence and the rules were not
+    changed.
+
+    Issuing SUPERSEDES a previous issue into the same directory: the stale seal,
+    the queue and manifest it described, and the verdicts given on those rows
+    are renamed out of the live set, never deleted. See
+    ``supersede_previous_issue`` for why that belongs here and not in ingest,
+    and ``issue_counter`` for the trace it leaves in the new seal.
+
+    ISSUING IS ALL OR NOTHING
+    -------------------------
+    Retiring used to run FIRST, before the new queue, manifest and seal existed
+    anywhere. A failure in the gap -- an unreadable harness file, a full disk, a
+    revoked write on the seal directory, an interrupt -- left a run directory
+    with its seal renamed away and no replacement, which ingest reports as
+    ``no_seal``: "an unsealed run is one where tampering is undetectable by
+    construction". The operator's own crash therefore came back wearing the
+    vocabulary of an attack.
+
+    So the write happens in two phases. Everything is computed and STAGED to
+    ``.incoming`` files first, while nothing live has moved; only then is the
+    previous issue retired and each staged file renamed into the freed name.
+    Any failure in the second phase is rolled back from the journal: the placed
+    files are removed and every retired artifact is renamed back. The directory
+    ends with exactly one live seal matching one queue, or exactly as it was.
+
+    The honest limit: a kill that runs no handler (``SIGKILL``, power loss) can
+    still stop between two renames, and no amount of ordering fixes that here.
+    What it leaves is recoverable by hand, because nothing was deleted and the
+    retired names say what they are. A real transaction needs a filesystem that
+    offers one.
+    """
     import random  # noqa: PLC0415
 
     run_dir = Path(run_dir)
     run_dir.mkdir(parents=True, exist_ok=True)
-    seal_root = Path(seal_dir) if seal_dir is not None else run_dir.parent / ".judge-seals"
+    default_seal_root = run_dir.parent / ".judge-seals"
+    seal_root = Path(seal_dir) if seal_dir is not None else default_seal_root
     if seal_root.resolve() == run_dir.resolve() or run_dir.resolve() in seal_root.resolve().parents:
         raise ValueError("the seal must live outside the run directory")
     seal_root.mkdir(parents=True, exist_ok=True)
+    # Whether a party holding only the RECEIPT can name the seal directory. The
+    # receipt carries the queue path, so it carries the run directory, so the
+    # default `<run_dir>/../.judge-seals` needs no derivation at all: one `..`
+    # and a listing, and `run_dir_sha256` on each seal says which is this run's.
+    # Outside the run directory is therefore not the same property as out of
+    # the grader's reach, and the receipt used to assert the first while being
+    # read as the second.
+    resolved_seal = seal_root.resolve()
+    resolved_parent = run_dir.resolve().parent
+    seal_location_derivable = (
+        resolved_seal == default_seal_root.resolve()
+        or resolved_seal == resolved_parent
+        or resolved_parent in resolved_seal.parents
+    )
+    if seal_location_derivable:
+        print(
+            "warning: the seal sits where this run's receipt points. A grading session "
+            "holding the receipt can list it and find this run's seal by its "
+            "run_dir_sha256. Pass --judge-seal-dir outside the run directory's parent "
+            "for a location the grader was never told.",
+            file=sys.stderr,
+        )
     planted = list(controls if controls is not None else memory_judge_controls())
     entries: list[dict[str, Any]] = [
         {"utterance": r["question"], "output": r["answer"], "planted": ""} for r in rows
@@ -1538,8 +1934,21 @@ def write_judge_queue(
         {"utterance": c["question"], "output": c["answer"], "planted": c["kind"], "rule": c["rule"]}
         for c in planted
     ]
-    # A seeded permutation is the contract: reproducible per run, never secret.
-    random.Random(int(seed)).shuffle(entries)  # noqa: S311
+    # Mint unless the caller asked for a specific permutation. See the
+    # docstring: a constant default made every production run's planted
+    # positions identical, and a supplied seed is a replay that says so.
+    replayed = seed is not None
+    seed = secrets.randbits(64) if seed is None else int(seed)
+    seed_source = JUDGE_SEED_SUPPLIED if replayed else JUDGE_SEED_MINTED
+    # The permutation is reproducible FROM THE SEED, which is the seal's
+    # business and nobody else's. The controls are appended to ``rows`` in a
+    # fixed order, so ``random.Random(seed).shuffle(list(range(n)))`` replayed
+    # against the manifest's own ``rows`` and ``controls`` counts names every
+    # planted position and its negative/positive kind exactly -- no seal, no
+    # harness source, nothing but a Python interpreter. So the seed is sealed
+    # with the answer key it is equivalent to, and ``manifest`` below carries
+    # no seed.
+    random.Random(seed).shuffle(entries)  # noqa: S311
     salt = secrets.token_hex(16)
     queue_lines: list[str] = []
     hashes: dict[str, str] = {}
@@ -1554,13 +1963,53 @@ def write_judge_queue(
         sealed_rows[row_id] = _sha(salt + line)
         if entry["planted"]:
             control_map[row_id] = {"kind": entry["planted"], "rule": entry.get("rule", "")}
-    (run_dir / "review-queue.jsonl").write_text("\n".join(queue_lines) + "\n", encoding="utf-8")
     controls_commitment = _sha(salt + ",".join(sorted(control_map)))
     harness = Path(harness_path) if harness_path is not None else Path(__file__).resolve()
+    # Read before anything on disk moves. This used to run after the previous
+    # issue had been retired, so an unreadable harness left the directory with
+    # no seal at all.
     harness_sha = _sha(harness.read_text(encoding="utf-8"))
+    # The scoring module is sealed too. Sealing only this file would answer the
+    # wrong row of the contract's threat table: "Edit judge.py -- defeats the
+    # rules, the controls, the void logic", and all three of those live there.
+    judge = (
+        Path(judge_path)
+        if judge_path is not None
+        else Path(__file__).resolve().parent / "memory_judge.py"
+    )
+    try:
+        judge_sha = _sha(judge.read_text(encoding="utf-8"))
+    except OSError:
+        # Never crash the drill over the grading half: this runs after every
+        # live call against a real pod, and losing that work to a missing
+        # sibling file would be a worse outcome than an unscoreable run. The
+        # sentinel is deliberately one ingest can never compute, so the run
+        # voids loudly at scoring instead of passing on a matching "missing".
+        judge_sha = "<unreadable at issue>"
+    # Domain-separated from the seal's filename below, and not merely a
+    # different slice of the same digest. Both are salted hashes of this run
+    # directory, so without the prefixes an unsupplied run id comes out byte
+    # for byte equal to the seal's name -- which is the whole hole, restored by
+    # the default path that production actually takes.
+    identifier = (
+        str(run_id) if run_id else _sha("run-id\x00" + run_dir.resolve().as_posix() + salt)[:16]
+    )
+    issued_at = str(created_at) if created_at else datetime.now(timezone.utc).isoformat()
     manifest = {
         "suite": "memory_learning",
-        "seed": int(seed),
+        "run_id": identifier,
+        "created_at": issued_at,
+        "answerer_model": str(answerer_model or "unknown"),
+        # No ``seed`` here, deliberately, and ``memory_judge.MANIFEST_FORBIDDEN_KEYS``
+        # voids a run whose manifest carries one rather than trusting this line
+        # to stay written. Nothing ever read it back; what it did was hand any
+        # holder of this file the planted positions. It lives in the seal.
+        #
+        # ``rules`` is why the manifest is readable by the grader's own tool at
+        # all: ``memory_judge.record`` reads the vocabulary from here to reject
+        # an improvised rule at write time, and the vocabulary differs per
+        # suite. That is the legitimate reason this file is not secret, and it
+        # is the reason the seed had to leave rather than the file being locked.
         "rules": list(MEMORY_JUDGE_RULES),
         "rows": len(entries),
         "controls": {"negative": 4, "positive": 2},
@@ -1569,31 +2018,185 @@ def write_judge_queue(
         "harness_sha256": harness_sha,
         "grading": "separate session; verdicts.jsonl per the puppy-one-harness judging contract",
     }
-    (run_dir / "run-manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
-    run_id = _sha(run_dir.resolve().as_posix() + salt)[:16]
-    seal_path = seal_root / f"{run_id}.seal.json"
-    seal_path.write_text(
-        json.dumps(
-            {
-                "run_dir_sha256": _sha(run_dir.resolve().as_posix()),
-                "salt": salt,
-                "rows": sealed_rows,
-                "controls": control_map,
-                "harness_sha256": harness_sha,
-                "verdict_chain": [],
-            },
-            indent=2,
-        ),
-        encoding="utf-8",
+    # What a previous issue into this directory left, read while it is all still
+    # in place. The counter goes into the seal, which is the only record of the
+    # re-issue that ingest reads and the grader is not handed.
+    counter = issue_counter(run_dir, seal_root)
+    # Salted, so it is not derivable from the run directory, the manifest, the
+    # receipt or the run id. Ingest locates it by its `run_dir_sha256`, which
+    # costs a directory listing the grader is not given.
+    seal_name = _sha("seal-name\x00" + run_dir.resolve().as_posix() + salt)[:16]
+    seal_path = seal_root / f"{seal_name}{JUDGE_SEAL_SUFFIX}"
+    seal_body = json.dumps(
+        {
+            "run_id": identifier,
+            "run_dir_sha256": _sha(run_dir.resolve().as_posix()),
+            "salt": salt,
+            "rows": sealed_rows,
+            "controls": control_map,
+            # The shuffle seed belongs here and nowhere in the run directory.
+            # It is not metadata about the run, it IS the control map in
+            # compressed form: replaying the permutation over the manifest's
+            # row and control counts reproduces ``control_map``'s keys and
+            # kinds exactly. Kept so an operator can still reproduce an issue,
+            # sealed because a grader holding it holds the answer.
+            "seed": int(seed),
+            # Whether that seed was minted here or asked for. A run issued
+            # with a supplied seed has the planted positions of every other
+            # run issued with it, so ingest reports it as a replay instead of
+            # reporting blinding the run did not have. Sealed rather than put
+            # in the manifest because it is a statement ABOUT the seed, and a
+            # grader who can edit it can relabel a replay as a blinded run.
+            "seed_source": seed_source,
+            "harness_sha256": harness_sha,
+            "judge_sha256": judge_sha,
+            # The attribution. ``suite``, ``run_id``, ``created_at`` and
+            # ``answerer_model`` live in the manifest, which the grader may
+            # read and can edit, and ingest publishes all four as fact beside
+            # the accuracy. Nothing bound them: forging the answering model
+            # produced a clean, non-void report crediting the wrong model with
+            # the number, which is the entire output of this harness.
+            "identity_sha256": judge_identity_commitment(manifest, salt),
+            # The rule vocabulary is sealed too. Without this commitment a
+            # grader could widen the manifest's rule list and cite whatever
+            # it liked, and "an unknown rule voids the run" would enforce
+            # nothing at all.
+            "rules_sha256": _sha(salt + ",".join(MEMORY_JUDGE_RULES)),
+            # There is deliberately no ``verdict_chain`` here. The seal is
+            # written at ISSUE time, so any chain in it would be the empty list
+            # forever while the real chain accumulates in ``verdicts.jsonl``
+            # beside the write ledger. It was an empty field the judging
+            # contract cited as one of the four things the seal commits to.
+            # Which issue into this directory produced this run, and how many
+            # verdicts a re-issue set aside. Ingest reports the first and voids
+            # on the second.
+            "issue": counter,
+        },
+        indent=2,
     )
+
+    # Phase one: stage. Nothing live has moved, so a failure here needs no
+    # journal -- deleting the staged files is the whole undo.
+    staged: list[tuple[Path, Path]] = [
+        (
+            run_dir / f".{JUDGE_QUEUE_FILENAME}{JUDGE_INCOMING_SUFFIX}",
+            run_dir / JUDGE_QUEUE_FILENAME,
+        ),
+        (
+            run_dir / f".{JUDGE_MANIFEST_FILENAME}{JUDGE_INCOMING_SUFFIX}",
+            run_dir / JUDGE_MANIFEST_FILENAME,
+        ),
+        # The staged seal deliberately does not end in ``.seal.json``: while it
+        # is in flight it must not answer the glob that both this module and
+        # ingest use to find live seals, or a crash mid-issue would leave a
+        # second candidate and void the next run for ambiguity.
+        (seal_root / f".{seal_path.name}{JUDGE_INCOMING_SUFFIX}", seal_path),
+    ]
+    bodies = ["\n".join(queue_lines) + "\n", json.dumps(manifest, indent=2), seal_body]
+    journal: list[tuple[Path, Path]] = []
+    placed: list[Path] = []
+    try:
+        for (temporary, _final), body in zip(staged, bodies, strict=True):
+            temporary.write_text(body, encoding="utf-8")
+        # Phase two: commit. Retire first so every destination name is free,
+        # then move each staged file into place.
+        superseded = supersede_previous_issue(run_dir, seal_root, journal=journal)
+        for temporary, final in staged:
+            os.replace(temporary, final)
+            placed.append(final)
+    except BaseException:
+        unrestored = _roll_back_issue(placed, journal, [pair[0] for pair in staged])
+        if unrestored:
+            # A rollback that itself failed is the one state worse than the
+            # original error, and it must not be silent: the operator is the
+            # only party who can put these back, and ingest would otherwise
+            # report the leftovers as tampering.
+            print(
+                "issue failed AND the rollback could not restore "
+                + ", ".join(unrestored)
+                + "; this run directory is not scoreable until they are back",
+                file=sys.stderr,
+            )
+        raise
     return {
+        "run_id": identifier,
+        "created_at": issued_at,
+        "answerer_model": str(answerer_model or "unknown"),
         "rows": len(entries),
         "negative_controls": sum(1 for c in control_map.values() if c["kind"] == "negative"),
         "positive_controls": sum(1 for c in control_map.values() if c["kind"] == "positive"),
-        "queue": str(run_dir / "review-queue.jsonl"),
-        "manifest": str(run_dir / "run-manifest.json"),
-        "seal_outside_run_dir": True,
+        "queue": str(run_dir / JUDGE_QUEUE_FILENAME),
+        "manifest": str(run_dir / JUDGE_MANIFEST_FILENAME),
+        # A count, never the names: the receipt is an artifact a grading session
+        # can read, and a retired seal's filename is one rename away from the
+        # live one.
+        "superseded_artifacts": superseded,
+        # Whether this run's planted positions are unpredictable, which is
+        # false exactly when a seed was supplied. The seed itself is NOT here:
+        # this summary is copied into the receipt, which a grading session may
+        # read, and the seed IS the planted positions.
+        "positions_blinded": not replayed,
+        "issue_ordinal": counter["ordinal"],
+        # Verdicts a re-issue set aside. Here for the operator, who can still
+        # act on it; the binding copy is in the seal, because a number only the
+        # operator sees is one a grading session can re-issue its way past.
+        "verdicts_discarded_by_reissue": counter["discarded_verdicts_total"],
+        # The seal's FILENAME is deliberately absent, and nothing here is the
+        # salt it is derived from.
+        #
+        # What was here before was ``seal_outside_run_dir: True``, a constant.
+        # It was true and it was useless: outside the run directory is one `..`
+        # from the queue path this same summary publishes, so on the default
+        # path a grader holding the receipt lists that directory and picks out
+        # its own seal by the run-directory hash each one carries, exactly as
+        # ingest does. A field that is True on every run distinguishes nothing,
+        # and this one read as "the grader cannot reach the seal" while being
+        # only "the seal is not in the run directory".
+        #
+        # This says the thing the reader actually needs: False only when the
+        # seal was put somewhere this receipt does not point. Past that, what
+        # the seal buys is detection, not prevention.
+        "seal_location_derivable_from_receipt": seal_location_derivable,
     }
+
+
+def memory_grading_instructions(run_dir: str, seal_dir: str | None = None) -> tuple[str, str]:
+    """The two commands that turn a sealed queue into a score, kept apart.
+
+    They are two blocks because they are for two parties. The first states what
+    the SEPARATE grading session is asked for and names only the run directory;
+    the grading lane is read-only, so the replay in it is run by this session
+    over what the grader returned, not by the grader. The second is for the
+    session that issued the run, and it is the only one that may carry
+    ``--seal-dir``: the seal names every planted row and the rule it breaks, so
+    a grader given that path is a grader holding the answer key.
+
+    Omitting ``--seal-dir`` from the scoring command was not a harmless typo. A
+    run issued with a custom seal directory scores ``no_seal``, which the
+    contract calls the loudest possible finding, on a run whose seal is intact
+    and whose grader did nothing wrong.
+    """
+    grade = (
+        "grade every row in a SEPARATE session, one at a time. A `wrong` names one of "
+        f"{', '.join(MEMORY_JUDGE_RULES)} and quotes the offending value verbatim from "
+        "that row's output, or the utterance span that went unrecorded when the failure "
+        "is an omission. If you cannot quote it, the verdict is `unsure`: a `wrong` that "
+        "quotes nothing is discarded, which leaves the row ungraded and voids the run.\n"
+        "The grading lane is read-only and does not write. It returns one JSON object "
+        "per row and THIS session replays the set through the same validated writer, "
+        "which stops at the first refused row and names it:\n"
+        '  {"id":"<row id>","verdict":"correct|wrong|unsure","rule":"<rule>",'
+        '"citation":"<quote>"}\n'
+        f"  uv run python scripts/ops/memory_judge.py --run-dir {run_dir} replay"
+        " --from <the grader's jsonl>"
+    )
+    seal_flag = f" --seal-dir {seal_dir}" if seal_dir else ""
+    score = (
+        "then score it from THIS session, not the grading one, because the seal directory "
+        "is not the grader's to know:\n"
+        f"  uv run python scripts/ops/memory_judge.py --run-dir {run_dir} ingest{seal_flag}"
+    )
+    return grade, score
 
 
 # --------------------------------------------------------------------------- #
@@ -1760,8 +2363,44 @@ def _memory_main(args: argparse.Namespace) -> int:
             run_dir=Path(args.judge_queue_dir),
             seed=args.seed,
             seal_dir=Path(args.judge_seal_dir) if args.judge_seal_dir else None,
+            answerer_model=result.turn_provider or "unknown",
         )
         print(f"judge queue: {judge['rows']} rows -> {judge['queue']} (seal outside the run dir)")
+        if not judge.get("positions_blinded"):
+            # Say it at issue time, to the operator who can still re-issue
+            # without the flag. Ingest reports it too, but that is after a
+            # grading session has done the work on a queue whose planted
+            # positions were the same as the last run issued with this seed.
+            print(
+                "NOT BLINDED: --seed was supplied, so this run's planted positions are "
+                "those of every other run issued with that seed. The score report says "
+                "so. Omit --seed unless you are deliberately reproducing an issue."
+            )
+        if judge.get("superseded_artifacts"):
+            # Say it out loud. A re-issue into a directory that already held a
+            # run is ordinary, and the operator should not have to infer from a
+            # later void that the previous seal and verdicts were set aside.
+            print(
+                f"superseded {judge['superseded_artifacts']} artifact(s) from a previous issue "
+                f"into this directory (issue {judge['issue_ordinal']}); they are renamed, "
+                "not deleted"
+            )
+        if judge.get("verdicts_discarded_by_reissue"):
+            # The serious case, and the one worth stopping for: verdicts had
+            # already been recorded here. This run will be void at ingest, so
+            # say it now rather than after a grading session has done the work.
+            print(
+                f"WARNING: this directory carries {judge['verdicts_discarded_by_reissue']} "
+                "verdict(s) discarded by a re-issue, so ingest will void this run. "
+                "Issue the replacement into a NEW run directory instead."
+            )
+        # The grading half. Without these two commands the queue is a sealed
+        # file nothing can score, and the judged quality number cannot be
+        # produced honestly at all. The rules are printed here so the grader
+        # never needs to open anything but the queue.
+        grade, score = memory_grading_instructions(args.judge_queue_dir, args.judge_seal_dir)
+        print(grade)
+        print(score)
     if args.report_path:
         Path(args.report_path).write_text(json.dumps(result.to_dict(), indent=2))
     if args.receipt_path:
@@ -1780,7 +2419,7 @@ def _memory_main(args: argparse.Namespace) -> int:
             result=result,
             target=target,
             repo_root=Path(__file__).resolve().parents[3],
-            commands=[" ".join(["pod_lifecycle_drill.py", *_redacted_argv(sys.argv[1:])])],
+            commands=_receipt_commands(sys.argv[1:]),
             judge=judge,
         )
     return 0 if result.passed else 1
@@ -1788,9 +2427,18 @@ def _memory_main(args: argparse.Namespace) -> int:
 
 _SECRET_FLAGS = ("--consent-token", "--firebase-token", "--runtime-credential")
 
+# Not credentials, and redacted from the RECEIPT for a different reason: each
+# one locates the answer key. ``--seed`` IS the planted positions -- replay the
+# permutation over the manifest's own row and control counts and it names every
+# one -- and ``--judge-seal-dir`` is the directory holding the plaintext
+# control map, whose only real protection is a grading session not being told
+# where it is. The receipt is an artifact a grading session may read, so a
+# receipt carrying either publishes exactly what the seal exists to withhold.
+_BLINDING_FLAGS = ("--seed", "--judge-seal-dir")
 
-def _redacted_argv(argv: list[str]) -> list[str]:
-    """The command line with every secret-bearing value replaced by a marker."""
+
+def _redacted_argv(argv: list[str], flags: tuple[str, ...] = _SECRET_FLAGS) -> list[str]:
+    """The command line with every value of ``flags`` replaced by a marker."""
     out: list[str] = []
     skip = False
     for item in argv:
@@ -1799,7 +2447,7 @@ def _redacted_argv(argv: list[str]) -> list[str]:
             skip = False
             continue
         flag, _, inline = item.partition("=")
-        if flag in _SECRET_FLAGS:
+        if flag in flags:
             if inline:
                 out.append(f"{flag}=<redacted>")
             else:
@@ -1808,6 +2456,20 @@ def _redacted_argv(argv: list[str]) -> list[str]:
             continue
         out.append(item)
     return out
+
+
+def _receipt_commands(argv: list[str]) -> list[str]:
+    """The command line as the RECEIPT may carry it.
+
+    Two lists, two reasons, and the receipt needs both. Credentials must never
+    be written anywhere; the blinding flags may be typed in an operator's
+    terminal and must not survive into a file a grading session may read. On a
+    run that supplies neither flag this changes nothing at all, which is
+    exactly why the leak went unnoticed on the runs that do.
+    """
+    return [
+        " ".join(["pod_lifecycle_drill.py", *_redacted_argv(argv, _SECRET_FLAGS + _BLINDING_FLAGS)])
+    ]
 
 
 def main() -> int:
@@ -1855,7 +2517,13 @@ def main() -> int:
         "--judge-queue-dir", help="write the blinded judge queue here (graded separately)"
     )
     ap.add_argument("--judge-seal-dir", help="where the seal lives; must be outside the queue dir")
-    ap.add_argument("--seed", type=int, default=20260910)
+    ap.add_argument(
+        "--seed",
+        type=int,
+        help="replay a specific shuffle. Omit it: the default mints an "
+        "unpredictable seed per issue and seals it, and a supplied seed makes "
+        "the run a declared replay rather than a blinded one",
+    )
     ap.add_argument("--receipt-path", help="write the revision-bound evidence record here")
     ap.add_argument("--target-environment", default="dev")
     ap.add_argument("--image-digest", help="sha256:<64 hex> of the running image, for the receipt")
