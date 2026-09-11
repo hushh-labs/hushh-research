@@ -82,7 +82,7 @@ fi
 # The optional Puppy transport settings travel with the model selectors so this
 # lane stays below Cloud Build's 100-entry step limit. Puppy eligibility is
 # owner/device consent, never a deployment-wide switch.
-IFS=',' read -r -a _model_pairs <<< "${_MODEL_SETTINGS:-puppy_relay_url=,puppy_model=local,puppy_timeout=120,agent_adk=,gemini_text=}"
+IFS=',' read -r -a _model_pairs <<< "${_MODEL_SETTINGS:-puppy_relay_url=,puppy_model=local,puppy_timeout=120,agent_adk=,gemini_text=,voice_pack_secret=,voice_pack_project=,voice_pack_signer=}"
 for _pair in "${_model_pairs[@]}"; do
   _key="${_pair%%=*}"; _value="${_pair#*=}"
   case "${_key}" in
@@ -91,10 +91,14 @@ for _pair in "${_model_pairs[@]}"; do
     puppy_timeout) _PUPPY_INFERENCE_TIMEOUT_SECONDS="${_value}" ;;
     agent_adk) _AGENT_ONE_ADK_MODEL="${_value}" ;;
     gemini_text) _HUSSH_GEMINI_TEXT_MODEL="${_value}" ;;
+    voice_pack_secret) _HUSHH_LOCAL_RUNTIME_PACK_REGISTRY_SECRET="${_value}" ;;
+    voice_pack_project) _HUSHH_LOCAL_RUNTIME_PACK_REGISTRY_PROJECT="${_value}" ;;
+    voice_pack_signer) _HUSHH_LOCAL_RUNTIME_PACK_SIGNER_SERVICE_ACCOUNT="${_value}" ;;
     *) echo "_MODEL_SETTINGS carries an unknown key: ${_key}" >&2; exit 1 ;;
   esac
 done
 export _PUPPY_INFERENCE_RELAY_URL _PUPPY_INFERENCE_MODEL _PUPPY_INFERENCE_TIMEOUT_SECONDS _AGENT_ONE_ADK_MODEL _HUSSH_GEMINI_TEXT_MODEL
+export _HUSHH_LOCAL_RUNTIME_PACK_REGISTRY_SECRET _HUSHH_LOCAL_RUNTIME_PACK_REGISTRY_PROJECT _HUSHH_LOCAL_RUNTIME_PACK_SIGNER_SERVICE_ACCOUNT
 # The runtime-IAM preflight -- runtime service-account validity, the cross-project
 # managed Vertex allowlist, and the aiplatform.user / serviceUsageConsumer role
 # checks -- runs in the dedicated `verify-runtime-iam` build step BEFORE this one,
@@ -270,6 +274,9 @@ env_vars=(
   "DB_POOL_ACQUIRE_TIMEOUT_SECONDS=${_DB_POOL_ACQUIRE_TIMEOUT_SECONDS}"
   "RIA_INTELLIGENCE_CRD_SCRAPER_TIMEOUT_SECONDS=${_RIA_INTELLIGENCE_CRD_SCRAPER_TIMEOUT_SECONDS}"
   "RIA_ONBOARDING_PROVIDER_TIMEOUT_SECONDS=${_RIA_ONBOARDING_PROVIDER_TIMEOUT_SECONDS}"
+  "HUSHH_LOCAL_RUNTIME_PACK_REGISTRY_SECRET=${_HUSHH_LOCAL_RUNTIME_PACK_REGISTRY_SECRET}"
+  "HUSHH_LOCAL_RUNTIME_PACK_REGISTRY_PROJECT=${_HUSHH_LOCAL_RUNTIME_PACK_REGISTRY_PROJECT}"
+  "HUSHH_LOCAL_RUNTIME_PACK_SIGNER_SERVICE_ACCOUNT=${_HUSHH_LOCAL_RUNTIME_PACK_SIGNER_SERVICE_ACCOUNT}"
 )
 worker_count="2"
 if [[ "${_DEPLOY_ENV}" == "dev" ]]; then
