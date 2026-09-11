@@ -701,7 +701,15 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
+      # Full history, deliberately. The Python suite carries guards that can only
+      # be answered against this repository's own log, and actions/checkout defaults
+      # to depth 1. In a depth-1 clone the tombstone rollback pin's commit object is
+      # simply absent, so consent-protocol/tests/test_pod_upgrade_rollback_guard.py
+      # skips instead of failing and a rewritten pin lands green in the lane that
+      # gates every pull request. Seven other jobs here already fetch full history.
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
 
       - uses: ./consent-protocol/.github/actions/setup-python-uv
         with:

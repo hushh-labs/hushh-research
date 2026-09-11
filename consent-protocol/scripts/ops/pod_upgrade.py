@@ -55,17 +55,23 @@ def _short(image: str | None) -> str:
 
 # -- the rollback guard -------------------------------------------------------------
 #
-# Memory schema 2 (this commit) made a revocation a log record that hydration
-# applies in order. An image built BEFORE it replays the same log and knows none
-# of the new kinds: it skips them, so every revoked or superseded fact comes back
-# as if the owner had never removed it. Rolling a pod that holds tombstones onto
-# such an image is therefore not a rollback, it is an un-revocation, and the
-# operator must say so in words before it happens. The count is read from the
-# POD (its memory status), never from the registry row: only the running pod
-# knows what its own log holds.
+# Memory schema 2 made a revocation a log record that hydration applies in order.
+# An image built BEFORE it replays the same log and knows none of the new kinds:
+# it skips them, so every revoked or superseded fact comes back as if the owner
+# had never removed it. Rolling a pod that holds tombstones onto such an image is
+# therefore not a rollback, it is an un-revocation, and the operator must say so
+# in words before it happens. The count is read from the POD (its memory status),
+# never from the registry row: only the running pod knows what its own log holds.
 
-# The first commit whose image applies tombstones on hydration.
-MEMORY_TOMBSTONE_MIN_IMAGE_COMMIT = "da1dfc5943bf9a26d5aeea89da645056548366b7"
+# The first commit whose image applies tombstones on hydration. It has to stay
+# REACHABLE from this branch: git answers "not an ancestor" for a pin that was
+# rewritten or never landed, so the probe below reports "predates" for every
+# target, the guard refuses even a forward roll, and the operator learns to type
+# the override. That is the failure this guard exists to prevent, so
+# tests/test_pod_upgrade_rollback_guard.py asserts the pin against real history,
+# and the lane that runs that suite checks the repository out at fetch-depth 0 so
+# the assertion cannot quietly become a skip.
+MEMORY_TOMBSTONE_MIN_IMAGE_COMMIT = "4d27770023953c1ed684045592209fa1090df390"
 ROLLBACK_ACKNOWLEDGEMENT = (
     "I understand this image predates memory tombstones and revoked facts may return"
 )
@@ -119,6 +125,59 @@ def image_predates_tombstones(
     if probe.returncode == 1:
         return True
     return None
+
+
+def placement_diagnostic(target_image: str, *, repo_root: Path | None = None) -> str:
+    """Why ``image_predates_tombstones`` could not place an image, in one sentence.
+
+    An unplaceable image refuses every pod. That is the safe direction, but on its
+    own it is an opaque one: the operator sees REFUSED on a roll that moves strictly
+    forward and cannot tell whether the image is genuinely old or whether this
+    environment simply has nothing to compare it against. The concrete case is the
+    deployed image, whose ``.dockerignore`` drops ``.git``, so the script shipped
+    inside it has no history at all. Naming the cause keeps the refusal honest
+    without softening it.
+    """
+    import subprocess  # noqa: PLC0415
+
+    root = repo_root if repo_root is not None else ROOT
+    if _image_sha(target_image) is None:
+        return (
+            f"the tag {_short(target_image)} names no commit, so it cannot be ordered "
+            "against the tombstone floor; roll to a :dev-<sha> or :<sha> tag instead"
+        )
+
+    def run(*args: str) -> subprocess.CompletedProcess[str] | None:
+        try:
+            return subprocess.run(  # noqa: S603 - fixed argv
+                ["git", *args],
+                cwd=root,
+                capture_output=True,
+                text=True,
+                timeout=20,
+                check=False,
+            )
+        except (OSError, subprocess.SubprocessError):
+            return None
+
+    work_tree = run("rev-parse", "--is-inside-work-tree")
+    if work_tree is None:
+        return f"git is not runnable from {root}, so no image can be placed in history"
+    if work_tree.returncode != 0:
+        return (
+            f"{root} is not a git work tree, so no image can be placed in history; "
+            "the deployed image ships no .git, so run this from a hub checkout"
+        )
+    shallow = run("rev-parse", "--is-shallow-repository")
+    if shallow is not None and shallow.stdout.strip() == "true":
+        return (
+            f"{root} is a shallow clone, so the tombstone floor is not in its history; "
+            "fetch full history before rolling"
+        )
+    return (
+        f"git in {root} cannot place {_short(target_image)}: neither it nor the "
+        "tombstone floor is in a history this checkout can see"
+    )
 
 
 async def pod_tombstone_count(row: dict, *, reader: object | None = None) -> int | None:
@@ -232,6 +291,8 @@ async def _main(args: argparse.Namespace) -> int:
     # unless the operator typed the acknowledgement. The sweep never needs this:
     # it only moves forward onto the hub's current image.
     predates = image_predates_tombstones(target)
+    if predates is None:
+        print(f"  unplaceable target: {placement_diagnostic(target)}")
     acknowledgement = getattr(args, "acknowledge_tombstone_rollback", None)
 
     failed = 0
