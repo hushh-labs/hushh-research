@@ -23,6 +23,8 @@ import {
 import type { OneLocationContactSignalResult } from "@/lib/one-location/contact-signals";
 import { CONTACT_SYNC_MAX_LOOKUPS } from "@/lib/marketplace/contact-matching";
 import { cn } from "@/lib/utils";
+import type { GoogleContactSyncController } from "@/lib/contacts/use-google-contact-sync-session";
+import { googleContactSyncSummary } from "@/lib/contacts/google-contact-sync-summary";
 
 const MATCH_PAGE_SIZE = 100;
 
@@ -55,6 +57,7 @@ export function ContactSyncResultsSheet({
   onRequestConnection,
   takeover = false,
   invitations,
+  googleSync,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -66,6 +69,7 @@ export function ContactSyncResultsSheet({
   /** Use the existing Location onboarding layer for its nested results. */
   takeover?: boolean;
   invitations?: ContactInvitationController;
+  googleSync?: GoogleContactSyncController;
 }) {
   const [requestingUserId, setRequestingUserId] = useState<string | null>(null);
   const [requestedUserIds, setRequestedUserIds] = useState<Set<string>>(
@@ -90,7 +94,74 @@ export function ContactSyncResultsSheet({
       />
     );
   }
+  if (
+    googleSync &&
+    googleSync.phase !== "idle" &&
+    googleSync.phase !== "complete"
+  ) {
+    const title =
+      googleSync.phase === "authorizing"
+        ? "Connect Google Contacts"
+        : googleSync.phase === "syncing"
+          ? "Checking your Google contacts"
+          : googleSync.phase === "cancelled"
+            ? "Contact sync cancelled"
+            : "Could not sync Google contacts";
+    return (
+      <Sheet modal={takeover} open={open} onOpenChange={onOpenChange}>
+        <SheetContent
+          side="bottom"
+          dragDismiss={false}
+          onFocusOutside={(event) => event.preventDefault()}
+          overlayClassName={takeover ? TAKEOVER_OVERLAY_Z_CLASSNAME : undefined}
+          className={cn(
+            "mx-auto max-h-[88dvh] w-full max-w-2xl overflow-y-auto rounded-t-[24px] px-6 pb-[max(1rem,env(safe-area-inset-bottom))]",
+            takeover && TAKEOVER_SURFACE_Z_CLASSNAME,
+          )}
+        >
+          <SheetHeader className="text-left">
+            <SheetTitle>{title}</SheetTitle>
+            <SheetDescription>
+              {googleSync.phase === "authorizing"
+                ? "Choose the Google account where your contacts are saved. Keep One open; your results will appear here when you return."
+                : googleSync.phase === "syncing"
+                  ? "Reading saved contacts and checking phone numbers for matches."
+                  : googleSync.phase === "cancelled"
+                    ? "No contacts were read. You can choose a Google account and try again."
+                    : googleSync.error}
+            </SheetDescription>
+          </SheetHeader>
+          {googleSync.busy ? (
+            <p
+              role="status"
+              className="mt-6 flex items-center gap-2 text-sm text-muted-foreground"
+            >
+              <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" />
+              {googleSync.phase === "authorizing"
+                ? "Waiting for Google…"
+                : "Syncing contacts…"}
+            </p>
+          ) : null}
+          <div className="mt-6 flex flex-wrap gap-2">
+            {!googleSync.busy ? (
+              <Button type="button" onClick={() => void onSyncAgain()}>
+                Choose Google account
+              </Button>
+            ) : null}
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => onOpenChange(false)}
+            >
+              {googleSync.busy ? "Cancel" : "Close"}
+            </Button>
+          </div>
+        </SheetContent>
+      </Sheet>
+    );
+  }
   if (!result) return null;
+  const googleSummary = googleContactSyncSummary(result);
 
   const connectedCount =
     result.autoConnectedCount + result.alreadyConnectedCount;
@@ -130,6 +201,21 @@ export function ContactSyncResultsSheet({
               : "Only eligible Hushh accounts are listed. Names and raw phone numbers are never sent to Hushh; contacts without a match are shown only as counts."}
           </SheetDescription>
         </SheetHeader>
+
+        {result.sourcePlatform === "google" ? (
+          <p className="mt-3 text-sm text-muted-foreground">
+            Read {result.readContactCount} saved Google{" "}
+            {result.readContactCount === 1 ? "contact" : "contacts"}.{" "}
+            <a
+              href="https://contacts.google.com/"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="underline underline-offset-4"
+            >
+              Check Google Contacts
+            </a>
+          </p>
+        ) : null}
 
         <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
           {[
@@ -278,9 +364,20 @@ export function ContactSyncResultsSheet({
             </ul>
           ) : (
             <div className="rounded-2xl bg-muted/35 px-4 py-6 text-center text-sm text-muted-foreground">
-              No eligible contacts matched. ONE users need an exact verified
-              phone match and must remain visible in the Connect directory.
-              Explicit opt-outs and previous disconnects stay protected.
+              {googleSummary ? (
+                <>
+                  <p className="font-medium text-foreground">
+                    {googleSummary.title}
+                  </p>
+                  <p className="mt-2">{googleSummary.description}</p>
+                </>
+              ) : (
+                <>
+                  No eligible contacts matched. ONE users need an exact verified
+                  phone match and must remain visible in the Connect directory.
+                  Explicit opt-outs and previous disconnects stay protected.
+                </>
+              )}
             </div>
           )}
           {hiddenMatchCount ? (
@@ -329,7 +426,9 @@ export function ContactSyncResultsSheet({
               ) : (
                 <RefreshCw className="mr-2 h-4 w-4" />
               )}
-              Sync again
+              {result.sourcePlatform === "google"
+                ? "Choose Google account"
+                : "Sync again"}
             </Button>
           )}
           <Button

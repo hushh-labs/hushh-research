@@ -174,15 +174,35 @@ and UAT deployment are all in place.
 
 Desktop acceptance on `https://uat.one.hushh.ai`:
 
-1. First-run onboarding keeps the contacts step visible and labels the action
-   `Connect Google Contacts`.
-2. The popup opens from the explicit tap. Closing it returns to idle; a blocked
-   popup shows an actionable error.
+1. Connect and Location People offer `Find contacts`. First-run Location
+   onboarding offers `Find contacts` followed by `Check my contacts` when a
+   contact source is available.
+2. The popup opens from the explicit tap. One shows progress while waiting.
+   Closing the popup shows a neutral cancellation screen with an account-picker
+   retry. A blocked popup, expired access, failed read or missing callback shows
+   an actionable error; the OAuth callback has a two-minute timeout.
 3. The consent sheet requests only
    `https://www.googleapis.com/auth/contacts.readonly`.
 4. A successful read calls `people.googleapis.com` directly from the browser.
 5. Hussh requests contain no Google token, name, or full phone number.
-6. Matching and invite counts render correctly.
+6. Matching and invite counts render correctly. Empty saved contacts, contacts
+   without usable phone numbers, and checked contacts with no One match have
+   separate explanations. The results link to Google Contacts and offer an
+   explicit account-choice retry. This source reads saved contacts, not the
+   device-only address book or Google's Other contacts.
+7. In Connect and Location People, complete Google consent while an active-session
+   check temporarily remounts the route. Progress and results must return after
+   the gate admits the same account. Repeat from Location onboarding; its contact
+   summary must also recover after closing the results sheet.
+8. Double-tap the sync action, cancel and retry, change the signed-in One account,
+   navigate to a different route, and finish the flow during a read. A single
+   account/route owns the memory-only operation. Ended operations abort and ignore
+   late Google callbacks. Results and invitation recipients never persist to
+   browser storage. Existing auth/vault checks still hide protected content.
+9. Verify email-only invitations, exact/canonical phone matching, partial/unknown
+   results, connection refresh, and remove-then-resync reconnection using the
+   existing matching and invitation suites. Opening a composer is not delivery
+   confirmation.
 
 Repeat the same flow on a real iPhone in Safari. Native iOS/Android apps are a
 separate path and must continue using the first-party contacts plugin without a

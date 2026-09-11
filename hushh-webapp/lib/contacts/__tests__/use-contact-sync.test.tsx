@@ -148,6 +148,9 @@ function setup(overrides: Record<string, unknown> = {}) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // An invalidated Google attempt intentionally never consumes its pipeline mock.
+  mocks.syncSignals.mockReset();
+  mocks.requestGoogleToken.mockReset();
   mocks.permissionState = "prompt";
   mocks.googleAvailability = "unconfigured";
   mocks.isNative.mockReturnValue(false);
@@ -302,7 +305,8 @@ describe("useContactSync — which source it reads", () => {
       expect(resolveVerifiedAccountPhoneNumber).toHaveBeenCalledTimes(1),
     );
     expect(mocks.syncSignals).toHaveBeenCalledTimes(1);
-    expect(result.current.resultsOpen).toBe(false);
+    expect(result.current.resultsOpen).toBe(true);
+    expect(result.current.resultsSheetProps.googleSync?.phase).toBe("syncing");
     await act(async () => {
       finishPhoneHydration?.("+919000000001");
       await syncPromise;
@@ -360,10 +364,8 @@ describe("useContactSync — which source it reads", () => {
       await syncPromise;
     });
 
-    expect(mocks.syncSignals).toHaveBeenCalledTimes(1);
-    expect(mocks.toastError).toHaveBeenCalledWith(
-      "Your signed-in account changed. Start contact sync again.",
-    );
+    expect(mocks.syncSignals).not.toHaveBeenCalled();
+    expect(mocks.toastError).not.toHaveBeenCalled();
   });
 
   it("is unavailable where there is neither", async () => {
