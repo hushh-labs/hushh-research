@@ -3,6 +3,14 @@ id: agent_kai
 name: Kai Financial Agent
 version: 2.0.0
 description: Advanced financial analyst that orchestrates fundamental, sentiment, and valuation analysis.
+one_exposure:
+  service_id: finance
+  discovery_status: discoverable
+  exposure_status: active
+  supported_entrypoints:
+    - typed
+    - voice
+    - siri_app_shortcut
 model:
   provider: gemini
   name: gemini-default

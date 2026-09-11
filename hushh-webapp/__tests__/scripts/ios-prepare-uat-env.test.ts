@@ -11,6 +11,24 @@ describe("iOS UAT native runtime env", () => {
     });
     expect(env.NEXT_PUBLIC_PASSKEY_RP_ID).toBe("uat.one.hushh.ai");
   });
+
+  it("preserves the governed Location command rollout flag in the native build", () => {
+    const enabled = buildIosUatRuntimeEnv({
+      processEnv: { NEXT_PUBLIC_LOCATION_COMMAND_RUNTIME_ENABLED: "true" },
+      uatValues: {},
+      localValues: {},
+    });
+    const disabled = buildIosUatRuntimeEnv({
+      processEnv: {},
+      uatValues: {},
+      localValues: {
+        NEXT_PUBLIC_LOCATION_COMMAND_RUNTIME_ENABLED: "true",
+      },
+    });
+
+    expect(enabled.NEXT_PUBLIC_LOCATION_COMMAND_RUNTIME_ENABLED).toBe("true");
+    expect(disabled.NEXT_PUBLIC_LOCATION_COMMAND_RUNTIME_ENABLED).toBe("false");
+  });
   it("falls back from placeholder UAT env to the canonical UAT backend and shared local Firebase config", () => {
     const env = buildIosUatRuntimeEnv({
       processEnv: {},

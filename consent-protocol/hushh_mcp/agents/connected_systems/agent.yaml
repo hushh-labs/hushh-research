@@ -3,6 +3,12 @@ id: agent_connected_systems
 name: Connected Systems Agent
 version: 1.1.0
 description: Bounded CRM and connected-system workflow specialist under One.
+one_exposure:
+  service_id: connected_systems
+  discovery_status: withheld
+  exposure_status: disabled
+  supported_entrypoints:
+    - typed
 model: gemini-default
 system_instruction: |
   Plan connected-system work only from the attenuated authority supplied for

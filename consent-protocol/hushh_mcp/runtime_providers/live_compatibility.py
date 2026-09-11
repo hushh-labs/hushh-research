@@ -32,6 +32,15 @@ class GeminiLiveCompatibility:
 
 
 GEMINI_LIVE_COMPATIBILITY: dict[str, GeminiLiveCompatibility] = {
+    # Text-only Location command transport.  This is intentionally separate
+    # from the conversational/audio models above: it is connected directly
+    # through google-genai with manual activity boundaries and never receives
+    # route prose, function declarations, or an ADK agent tree.
+    "gemini-3.5-transcribe-live-preview": GeminiLiveCompatibility(
+        transport="vertex",
+        supports_mid_session_client_content=False,
+        operator_enablement_required=True,
+    ),
     "gemini-live-2.5-flash-native-audio": GeminiLiveCompatibility(
         transport="vertex",
         supports_mid_session_client_content=True,

@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import hmac
+import re
+import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Literal
 
@@ -19,6 +22,58 @@ _HANDLE_PATTERN = r"^(?:s|scope|pending)_[A-Za-z0-9_-]{6,128}$"
 _OPAQUE_ID_PATTERN = r"^pkm_[A-Za-z0-9_-]{12,128}$"
 _MACHINE_SCOPE_PATTERN = r"^attr\.[a-z][a-z0-9_]*\.[a-z][a-z0-9_.]*\.\*$"
 _MACHINE_PROVENANCE_ID_PATTERN = r"^[a-z][a-z0-9_.:-]{0,127}$"
+_LOCATION_RUN_ID_PATTERN = r"^run_[a-z0-9]{16,96}$"
+_LOCATION_LEASE_ID_PATTERN = r"^loclease_[a-z0-9]{16,96}$"
+_LOCATION_DIRECTIVE_ID_PATTERN = r"^locdirective_[a-z0-9]{16,96}$"
+_LOCATION_DRAFT_ID_PATTERN = r"^locdraft_[a-z0-9]{16,96}$"
+_LOCATION_FINALIZE_AUTHORIZATION_ID_PATTERN = r"^locpkmauth_[a-z0-9]{16,96}$"
+_LOCATION_FINALIZE_TOKEN_PATTERN = r"^locpkmtoken_[a-z0-9]{16,96}_[0-9a-f]{64}$"  # noqa: S105
+_PKM_MUTATION_COMMIT_NAMESPACE = uuid.uuid5(
+    uuid.NAMESPACE_URL,
+    "https://hushh.ai/contracts/pkm/domain-mutation/v1",
+)
+
+
+def derive_pkm_mutation_commit_id(*, user_id: str, domain: str, plan_id: str) -> str:
+    """Derive the opaque ordinary-mutation receipt used by the atomic RPC."""
+
+    owner = str(user_id or "").strip()
+    canonical_domain = validate_dynamic_top_level_domain(domain, allow_internal=True)
+    mutation_plan_id = str(plan_id or "").strip()
+    if not owner or len(owner) > 256 or re.fullmatch(_OPAQUE_ID_PATTERN, mutation_plan_id) is None:
+        raise ValueError("pkm_mutation_commit_binding_invalid")
+    return str(
+        uuid.uuid5(
+            _PKM_MUTATION_COMMIT_NAMESPACE,
+            f"{owner}:{canonical_domain}:{mutation_plan_id}",
+        )
+    )
+
+
+class LocationPkmFinalizeAuthorizationV1(BaseModel):
+    """Opaque server capability for one atomic pre-vault Location PKM write."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    schema_version: Literal["one.location_pkm_finalize_authorization.v1"] = (
+        "one.location_pkm_finalize_authorization.v1"
+    )
+    authorization_id: str = Field(..., pattern=_LOCATION_FINALIZE_AUTHORIZATION_ID_PATTERN)
+    token: str = Field(..., pattern=_LOCATION_FINALIZE_TOKEN_PATTERN)
+    run_id: str = Field(..., pattern=_LOCATION_RUN_ID_PATTERN)
+    run_revision: int = Field(..., ge=1)
+    lease_id: str = Field(..., pattern=_LOCATION_LEASE_ID_PATTERN)
+    directive_id: str = Field(..., pattern=_LOCATION_DIRECTIVE_ID_PATTERN)
+    draft_ref: str = Field(..., pattern=_LOCATION_DRAFT_ID_PATTERN)
+    draft_digest: str = Field(..., pattern=r"^[0-9a-f]{64}$")
+    expected_commit_id: uuid.UUID
+    expires_at: datetime
+
+    @model_validator(mode="after")
+    def validate_expiry_timezone(self) -> LocationPkmFinalizeAuthorizationV1:
+        if self.expires_at.tzinfo is None:
+            raise ValueError("location_finalize_expiry_requires_timezone")
+        return self
 
 
 class PkmConfirmationReceiptV2(BaseModel):
@@ -192,3 +247,31 @@ def validate_mutation_plan_for_write(
         raise ValueError("confirmation_subject_mismatch")
     if plan.proposed_domain != canonical_domain:
         raise ValueError("mutation_plan_domain_mismatch")
+
+
+def validate_location_finalize_authorization_for_write(
+    *,
+    authorization: LocationPkmFinalizeAuthorizationV1,
+    plan: PkmMutationPlanV2,
+    authenticated_user_id: str,
+    domain: str,
+) -> None:
+    """Bind Location's opaque capability to the deterministic PKM mutation."""
+
+    canonical_domain = validate_dynamic_top_level_domain(domain, allow_internal=True)
+    if canonical_domain != "location":
+        raise ValueError("location_finalize_domain_mismatch")
+    if authorization.expires_at.astimezone(UTC) <= datetime.now(UTC):
+        raise ValueError("location_finalize_authorization_expired")
+    validate_mutation_plan_for_write(
+        plan=plan,
+        authenticated_user_id=authenticated_user_id,
+        domain=canonical_domain,
+    )
+    expected_commit_id = derive_pkm_mutation_commit_id(
+        user_id=authenticated_user_id,
+        domain=canonical_domain,
+        plan_id=plan.plan_id,
+    )
+    if not hmac.compare_digest(str(authorization.expected_commit_id), expected_commit_id):
+        raise ValueError("location_finalize_commit_mismatch")

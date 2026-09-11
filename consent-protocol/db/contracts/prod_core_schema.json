@@ -1,6 +1,6 @@
 {
   "contract_name": "prod_core_schema",
-  "expected_migration_version": 208,
+  "expected_migration_version": 211,
   "migration_version_policy": "exact",
   "required_functions": [
     "resolve_feed_counterpart_user_id",
@@ -30,17 +30,10 @@
     "install_account_deletion_write_guards",
     "reject_deleted_account_identity_write",
     "record_account_deletion_tombstone",
-    "refresh_account_deletion_guards_after_identity_ddl"
+    "refresh_account_deletion_guards_after_identity_ddl",
+    "commit_pkm_domain_mutation_v5"
   ],
   "required_tables": {
-    "feed_event_counterparts": [
-      "feed_event_id",
-      "counterpart_user_id"
-    ],
-    "account_identity_presence": [
-      "user_id_hash",
-      "first_observed_at"
-    ],
     "account_deletion_tombstones": [
       "user_id_hash",
       "firebase_uid",
@@ -57,6 +50,10 @@
       "cleanup_last_classification",
       "deleted_at",
       "updated_at"
+    ],
+    "account_identity_presence": [
+      "user_id_hash",
+      "first_observed_at"
     ],
     "actor_identity_cache": [
       "user_id",
@@ -592,6 +589,10 @@
       "crm_connection_mcp_endpoint",
       "crm_connection_token_url"
     ],
+    "feed_event_counterparts": [
+      "feed_event_id",
+      "counterpart_user_id"
+    ],
     "gmail_owner_send_actions": [
       "action_id",
       "user_id",
@@ -940,6 +941,31 @@
       "created_at",
       "updated_at"
     ],
+    "one_capability_runs": [
+      "run_id",
+      "schema_version",
+      "user_id",
+      "capability_id",
+      "capability_version",
+      "graph_revision",
+      "status",
+      "step_cursor",
+      "context_revision",
+      "expected_context_revision",
+      "pending_interaction",
+      "pending_directive_id",
+      "idempotency_key",
+      "slots_hmac",
+      "slots_ciphertext",
+      "slots_iv",
+      "slots_tag",
+      "slots_algorithm",
+      "settlement_reference_hmac",
+      "revision",
+      "expires_at",
+      "created_at",
+      "updated_at"
+    ],
     "one_email_kyc_preferences": [
       "user_id",
       "automatic_response_preparation_enabled",
@@ -1187,6 +1213,79 @@
       "updated_at",
       "revoked_at",
       "metadata"
+    ],
+    "one_location_onboarding_drafts": [
+      "draft_id",
+      "schema_version",
+      "user_id",
+      "run_id",
+      "workflow_version",
+      "graph_revision",
+      "run_revision",
+      "content_digest",
+      "status",
+      "created_at",
+      "expires_at"
+    ],
+    "one_location_onboarding_interactions": [
+      "lease_id",
+      "directive_id",
+      "schema_version",
+      "user_id",
+      "run_id",
+      "workflow_version",
+      "step_cursor",
+      "run_revision",
+      "context_revision",
+      "surface_id",
+      "resume_surface_id",
+      "allowed_actions_digest",
+      "issued_at",
+      "expires_at",
+      "consumed_at",
+      "outcome_code",
+      "result_digest"
+    ],
+    "one_location_onboarding_receipts": [
+      "receipt_id",
+      "schema_version",
+      "user_id",
+      "run_id",
+      "workflow_version",
+      "step_cursor",
+      "context_revision",
+      "receipt_kind",
+      "outcome_code",
+      "issuer",
+      "evidence_digest",
+      "lease_id",
+      "issued_at",
+      "expires_at",
+      "consumed_at"
+    ],
+    "one_location_pkm_finalize_authorizations": [
+      "authorization_id",
+      "schema_version",
+      "token_sha256",
+      "user_id",
+      "run_id",
+      "workflow_version",
+      "run_revision",
+      "context_revision",
+      "lease_id",
+      "directive_id",
+      "draft_id",
+      "draft_digest",
+      "expected_commit_id",
+      "place_receipt_evidence_digest",
+      "interaction_result_digest",
+      "issued_at",
+      "expires_at",
+      "consumed_at",
+      "committed_request_fingerprint",
+      "result_content_revision",
+      "result_manifest_revision",
+      "result_archived_revision_id"
     ],
     "one_location_place_rating_aggregates": [
       "place_id",

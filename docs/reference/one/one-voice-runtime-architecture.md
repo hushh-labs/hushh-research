@@ -1,6 +1,7 @@
 # One Voice Runtime Architecture
 
-Status: current-state truth for the ADK-based One voice runtime.
+Status: current-state truth for One's legacy ADK conversation runtime and the
+transcript-first command runtime.
 
 ## Visual Map
 
@@ -389,9 +390,50 @@ runtime. A selected Search action is passed to `executeAgentGatewayAction` and s
 through the same correlated browser path as an Agent Bar directive. The browser never
 uses DOM state or a legacy client planner to make an action executable.
 
-One's voice runtime is Google ADK's `Runner.run_live` over Vertex AI by
-default. The browser is an audio pump and directive executor; every decision
-(conversation vs tool call vs navigation vs specialist delegation) is made
+### Transcript-first command runtime (Location first)
+
+The UAT-gated command lane is deliberately separate from the legacy
+conversation relay:
+
+```
+Tap Talk to One
+  → Listening
+  → provider speech end + final transcript
+  → semantic retrieval from the relevant compiled service brain
+  → constrained capability selection
+  → verified server execution, approved interaction card, or real route
+```
+
+`WS /api/one/adk/location-command/live` is the first implementation of that
+lane. It uses managed Gemini Live Transcribe for text-only recognition. It does
+not play model audio, accept model tool calls, or let Gemini decide a product
+action. The relay waits for its authenticated relay, provider, and redacted
+context readiness barriers before PCM; it waits for provider endpointing, a
+final transcript, and turn completion before it asks the Location runtime to
+act.
+
+The Location brain is a checked-in `ServiceKnowledgePackageV2` compiled into
+the capability graph. It declares each known feature's disposition:
+`EXECUTE_SERVER_VERIFIED`, `RENDER_INTERACTION`, `NAVIGATE`, or
+`BLOCKED_UNBOUND`. Semantic retrieval returns a bounded candidate set, and a
+constrained selector may return only a candidate id or `ASK`. Aliases remain
+compatibility/evaluation material; they are never an admission gate.
+
+Location onboarding fast-forwards informational content, then waits only for
+real facts: a card tap before the iOS permission prompt, a fresh location fix,
+an approved place card/form, Circle settlement, and final server verification.
+An awaiting-vault draft is not success. It must never show the verified
+Location-ready card until the server has re-read the required receipts.
+
+The command transport and compiled service-package interface are reusable.
+Location is the only service package enabled in this release; a future service
+becomes command-discoverable only after its package, bindings, card/route
+fallbacks, settlement proof, and evaluation corpus compile together. The UI
+never scans a screen or hard-codes phrases to invent an action.
+
+The legacy conversational lane remains Google ADK's `Runner.run_live` over
+Vertex AI by default. The browser is an audio pump and directive executor; its
+conversation, tool-call, navigation, and specialist-delegation decisions remain
 inside One's agent tree on the backend.
 
 What shipped:
@@ -407,10 +449,15 @@ What shipped:
   `us-central1`) with the full roster wired as tools: `google_search`,
   `open_screen`, `AgentTool(finance)`, `AgentTool(ria)`, and specialist-turn
   function wrappers.
-- `consent-protocol/api/routes/one/adk_live.py` is the only voice relay:
+- `consent-protocol/api/routes/one/adk_live.py` remains the legacy
+  conversational voice relay:
   `POST /api/one/adk/relay-session` mints a signed one-time ticket
   (`api/routes/one/relay_auth.py`), `WS /api/one/adk/live` bridges the
   browser wire envelope onto `run_live`.
+- `consent-protocol/api/routes/one/location_command_relay.py` exposes the
+  UAT-gated transcript-first Location command relay at
+  `WS /api/one/adk/location-command/live`; the same ticket authority is
+  required, but its transport never enters the ADK chat/tool path.
 - The legacy hand-rolled Vertex pump
   (`api/routes/kai/agent_realtime_gemini.py`), the client-side lexical
   planner (`lib/voice/one-voice-live-action-bridge.ts`), and the

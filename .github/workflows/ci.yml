@@ -350,6 +350,16 @@ jobs:
           cache: "npm"
           cache-dependency-path: hushh-webapp/package-lock.json
 
+      # The One Voice verification includes the checked-in CapabilityGraphV1
+      # compiler.  It is deliberately a source-of-truth check, so the
+      # frontend-targeted lane must use the same locked runtime dependencies
+      # rather than falling back to the runner's ambient Python installation.
+      - uses: ./consent-protocol/.github/actions/setup-python-uv
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          protocol-dir: ./consent-protocol
+          sync-dev-group: "false"
+
       # The browsers are the whole cost of this lane, and they only change when
       # the Playwright dependency does. Keying on the lockfile means a normal
       # PR restores them instead of re-downloading ~400MB per run.

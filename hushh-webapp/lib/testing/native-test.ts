@@ -29,7 +29,10 @@ declare global {
       switchPersona?: ((target: "investor" | "ria") => Promise<unknown>) | null;
       navigateToRoute?: ((route: string) => void) | null;
       dispatchAgentAction?:
-        | ((actionId: string, slots?: Record<string, unknown>) => Promise<unknown>)
+        | ((
+            actionId: string,
+            slots?: Record<string, unknown>,
+          ) => Promise<unknown>)
         | null;
       dispatchAgentActionStatus?: string;
       dispatchAgentActionError?: string;
@@ -59,6 +62,33 @@ declare global {
       portfolioStreamLastEvent?: string;
       portfolioStreamLastSeq?: string;
       portfolioStreamLastError?: string;
+      /**
+       * Physical Location evidence is exposed only by the DEBUG native test
+       * bridge after an explicit -HUSHHLocationDeviceGate launch. It contains
+       * aggregate durations/counts only; never coordinates, labels, routes,
+       * transcripts, or provider payloads.
+       */
+      locationDeviceGate?: boolean;
+      installedSourceSHA?: string;
+      locationPerformanceEvidence?: readonly {
+        metric:
+          | "directive_to_card_ms"
+          | "card_tap_to_permission_request_ms"
+          | "permission_result_to_position_capture_start_ms";
+        count: number;
+        minimumMs: number | null;
+        medianMs: number | null;
+        p95Ms: number | null;
+        maximumMs: number | null;
+      }[];
+      locationCachedProbeRepetitions?: number;
+      locationCachedProbeState?: "idle" | "running" | "complete" | "failed";
+      locationCachedProbeCount?: number;
+      /**
+       * Sanitized proof that the physical gate cancelled only its exact
+       * owner/revision-bound server run. This never contains a run or user ID.
+       */
+      locationExactRunCleanupState?: "idle" | "running" | "complete" | "failed";
     };
   }
 }
@@ -97,23 +127,22 @@ export function getNativeUiTestVaultPassphrase(): string | null {
   if (window.__HUSHH_NATIVE_TEST__?.enabled !== true) {
     return null;
   }
-  const value = String(window.__HUSHH_NATIVE_TEST__?.vaultPassphrase || "").trim();
+  const value = String(
+    window.__HUSHH_NATIVE_TEST__?.vaultPassphrase || "",
+  ).trim();
   return value || null;
 }
 
 /** Skip auto passkey/biometric prompts during native UITest or Playwright runs. */
 export function shouldSkipGeneratedVaultUnlockForAutomation(
-  config: NativeTestConfig = getNativeTestConfig()
+  config: NativeTestConfig = getNativeTestConfig(),
 ): boolean {
   if (typeof navigator !== "undefined" && navigator.webdriver) {
     return true;
   }
-  // A reviewer rehearsal first authenticates without supplying the passphrase
-  // so it can prove the locked-vault challenge is visible. That explicit test
-  // bridge must still select the passphrase surface; otherwise a generated
-  // passkey wrapper can hide the very challenge the rehearsal is intended to
-  // verify. This is constrained to the injected automation bridge and never
-  // changes a normal browser or native user's unlock preference.
+  // Reviewer rehearsal explicitly exercises the locked-vault challenge before
+  // it supplies a passphrase. Keep that harness path on the passphrase surface
+  // even when its bridge has not supplied the value yet.
   return isNativeUiTestSession(config);
 }
 
@@ -122,24 +151,21 @@ export function shouldSkipGeneratedVaultUnlockForAutomation(
  * Normal production users never hit this path.
  */
 export function isNativeUiTestSession(
-  config: NativeTestConfig = getNativeTestConfig()
+  config: NativeTestConfig = getNativeTestConfig(),
 ): boolean {
   return readNativeTestBridgeEnabled() && config.enabled;
 }
 
-/**
- * Reviewer automation must not perform background identity-shadow writes.
- * Feature flows that require verified contact information request it explicitly.
- */
+/** Reviewer automation must not perform background identity-shadow writes. */
 export function shouldSkipAmbientIdentityHydrationForAutomation(
-  config: NativeTestConfig = getNativeTestConfig()
+  config: NativeTestConfig = getNativeTestConfig(),
 ): boolean {
   return isAutomatedReviewerSession(config);
 }
 
 /** External telemetry must not leave an explicit shared reviewer session. */
 export function shouldDisableExternalTelemetryForAutomation(
-  config: NativeTestConfig = getNativeTestConfig()
+  config: NativeTestConfig = getNativeTestConfig(),
 ): boolean {
   return isAutomatedReviewerSession(config);
 }
@@ -153,14 +179,14 @@ function isAutomatedReviewerSession(config: NativeTestConfig): boolean {
  * Never changes unlock behavior for real users in production or UAT manual use.
  */
 export function preferPassphraseUnlockForAutomation(
-  config: NativeTestConfig = getNativeTestConfig()
+  config: NativeTestConfig = getNativeTestConfig(),
 ): boolean {
   return shouldSkipGeneratedVaultUnlockForAutomation(config);
 }
 
 /** Native UITest bootstrap owns auth + vault unlock; hide biometric dialog while it runs. */
 export function isNativeTestVaultBootstrapManaged(
-  config: NativeTestConfig = getNativeTestConfig()
+  config: NativeTestConfig = getNativeTestConfig(),
 ): boolean {
   return (
     isNativeUiTestSession(config) &&
@@ -173,9 +199,10 @@ export function isNativeTestVaultBootstrapManaged(
 const NATIVE_UI_FLOW_STORAGE_KEY_PREFIX = "__hushh_native_ui_flow_state_v1";
 
 function nativeUiFlowStorageKey(): string {
-  const runId = String(
-    window.__HUSHH_NATIVE_TEST__?.uiFlowRunId ?? "",
-  ).replace(/[^a-zA-Z0-9_-]/g, "");
+  const runId = String(window.__HUSHH_NATIVE_TEST__?.uiFlowRunId ?? "").replace(
+    /[^a-zA-Z0-9_-]/g,
+    "",
+  );
   return runId
     ? `${NATIVE_UI_FLOW_STORAGE_KEY_PREFIX}:${runId}`
     : NATIVE_UI_FLOW_STORAGE_KEY_PREFIX;
@@ -230,47 +257,55 @@ export function getNativeTestConfig(): NativeTestConfig {
     root.getAttribute("data-hushh-native-test-enabled") === "true";
   const autoReviewerLoginFromDataset =
     root.getAttribute("data-hushh-native-test-auto-reviewer-login") === "true";
-  const expectedMarkerFromDataset =
-    root.getAttribute("data-hushh-native-test-expected-marker");
-  const initialRouteFromDataset =
-    root.getAttribute("data-hushh-native-test-initial-route");
-  const expectedRouteFromDataset =
-    root.getAttribute("data-hushh-native-test-expected-route");
+  const expectedMarkerFromDataset = root.getAttribute(
+    "data-hushh-native-test-expected-marker",
+  );
+  const initialRouteFromDataset = root.getAttribute(
+    "data-hushh-native-test-initial-route",
+  );
+  const expectedRouteFromDataset = root.getAttribute(
+    "data-hushh-native-test-expected-route",
+  );
   return {
     enabled: raw.enabled === true || enabledFromDataset,
     autoReviewerLogin:
       raw.autoReviewerLogin === true || autoReviewerLoginFromDataset,
     vaultPassphrase:
-      typeof raw.vaultPassphrase === "string" && raw.vaultPassphrase.trim().length > 0
+      typeof raw.vaultPassphrase === "string" &&
+      raw.vaultPassphrase.trim().length > 0
         ? raw.vaultPassphrase
         : null,
     expectedUserId: sanitizeConfiguredValue(raw.expectedUserId),
     expectedMarker:
-      typeof raw.expectedMarker === "string" && raw.expectedMarker.trim().length > 0
+      typeof raw.expectedMarker === "string" &&
+      raw.expectedMarker.trim().length > 0
         ? raw.expectedMarker.trim()
         : typeof expectedMarkerFromDataset === "string" &&
             expectedMarkerFromDataset.trim().length > 0
           ? expectedMarkerFromDataset.trim()
-        : null,
+          : null,
     initialRoute:
       typeof raw.initialRoute === "string" && raw.initialRoute.trim().length > 0
         ? raw.initialRoute.trim()
         : typeof initialRouteFromDataset === "string" &&
             initialRouteFromDataset.trim().length > 0
           ? initialRouteFromDataset.trim()
-        : null,
+          : null,
     expectedRoute:
-      typeof raw.expectedRoute === "string" && raw.expectedRoute.trim().length > 0
+      typeof raw.expectedRoute === "string" &&
+      raw.expectedRoute.trim().length > 0
         ? raw.expectedRoute.trim()
         : typeof expectedRouteFromDataset === "string" &&
             expectedRouteFromDataset.trim().length > 0
           ? expectedRouteFromDataset.trim()
-        : null,
+          : null,
   };
 }
 
 export function useNativeTestConfig(): NativeTestConfig {
-  const [config, setConfig] = useState<NativeTestConfig>(() => getNativeTestConfig());
+  const [config, setConfig] = useState<NativeTestConfig>(() =>
+    getNativeTestConfig(),
+  );
 
   useEffect(() => {
     let attempts = 0;
@@ -293,7 +328,10 @@ export function useNativeTestConfig(): NativeTestConfig {
       sync();
     };
 
-    window.addEventListener("hushh:native-test-config-updated", handleConfigUpdate);
+    window.addEventListener(
+      "hushh:native-test-config-updated",
+      handleConfigUpdate,
+    );
 
     // The native bridge is injected incrementally. Keep the update listener even
     // when the first snapshot already says `enabled`; passphrase/expected-user
@@ -313,7 +351,10 @@ export function useNativeTestConfig(): NativeTestConfig {
       if (timer) {
         window.clearInterval(timer);
       }
-      window.removeEventListener("hushh:native-test-config-updated", handleConfigUpdate);
+      window.removeEventListener(
+        "hushh:native-test-config-updated",
+        handleConfigUpdate,
+      );
     };
   }, []);
 
@@ -327,7 +368,8 @@ type NativeTestBeaconPayload = {
   dataState: string;
   errorCode?: string | null;
   errorMessage?: string | null;
-  attachToBridge?: ((bridge: NonNullable<Window["__HUSHH_NATIVE_TEST__"]>) => void) | null;
+  attachToBridge?:
+    ((bridge: NonNullable<Window["__HUSHH_NATIVE_TEST__"]>) => void) | null;
 };
 
 export function useNativeTestBeacon(payload: NativeTestBeaconPayload) {

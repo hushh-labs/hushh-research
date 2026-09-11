@@ -6,6 +6,12 @@ status: experimental
 owner: backend
 parent: agent_one
 description: Payment-cards specialist that helps the owner store, list, and reveal vault-encrypted credit and debit cards without card secrets ever entering model context.
+one_exposure:
+  service_id: wallet
+  discovery_status: withheld
+  exposure_status: disabled
+  supported_entrypoints:
+    - typed
 model:
   provider: gemini
   name: gemini-default
