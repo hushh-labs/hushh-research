@@ -81,7 +81,6 @@ import { buildLoginRouteWithAuthSessionNotice } from "@/lib/auth/session-invalid
 import { VaultService } from "@/lib/services/vault-service";
 import { getKaiChromeState } from "@/lib/navigation/kai-chrome-state";
 import {
-  isOneSetupSurfaceRoute,
   KAI_MARKET_PATH,
   ROUTES,
 } from "@/lib/navigation/routes";
