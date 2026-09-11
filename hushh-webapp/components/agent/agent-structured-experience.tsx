@@ -2,7 +2,7 @@
 
 import type { ReactNode } from "react";
 import { ConsentScopeList } from "@/components/consent/consent-scope-list";
-import { domainLabelFor } from "@/lib/consent/consent-scope-items";
+import { domainLabelFor, scopePathSegments } from "@/lib/consent/consent-scope-items";
 import Link from "next/link";
 import {
   ArrowUpRight,
@@ -111,6 +111,9 @@ function ScopeDiscoveryView({
     label: scope.label,
     description: scope.description || null,
     domainKey: scope.domain || "other",
+    // The catalogue carries the full scope reference, so chat can nest exactly
+    // as deeply as the profile does.
+    pathSegments: scopePathSegments(scope.scopeRef),
     domainLabel: domainLabelFor(scope.domain),
     badge: sensitivityLabel(scope.sensitivity),
     searchText: `${scope.label} ${scope.description || ""} ${scope.domain || ""}`.toLowerCase(),
@@ -167,6 +170,12 @@ function InformationRequestReviewView({ experience }: { experience: InformationR
     label: field.label,
     description: null,
     domainKey: field.domain || "other",
+    // Flat on purpose, and not a shortcut: `ReviewField` carries only label,
+    // domain and sensitivity (lib/agent/agui-structured-experiences.ts:34-38).
+    // There is no scope reference in this payload, so there is no path to nest
+    // by, and inventing one from the label would name a scope that does not
+    // exist. This stays one level until the experience carries `scopeRef`.
+    pathSegments: [],
     domainLabel: domainLabelFor(field.domain),
     badge: sensitivityLabel(field.sensitivity),
     searchText: `${field.label} ${field.domain || ""}`.toLowerCase(),
