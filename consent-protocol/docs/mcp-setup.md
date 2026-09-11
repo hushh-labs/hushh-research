@@ -247,6 +247,21 @@ the bearer header. Do not work around either path with stdio, `?token=`, or an
 unauthenticated endpoint. OAuth authenticates the connector only; each read
 still follows the scoped consent lifecycle and encryption rules above.
 
+Resource-aware clients discover `/.well-known/oauth-protected-resource/mcp`
+(also available at the root well-known path). Configure
+`CONSENT_API_PUBLIC_ORIGIN` as the externally reachable HTTPS origin. Its
+`/mcp` resource identifier must be repeated exactly at authorization, code
+exchange and refresh; the trailing-slash transport redirect does not change
+that identifier. Resource discovery returns unavailable when the public origin
+is missing. A 401 includes the configured resource metadata challenge.
+
+OAuth preserves the authenticated person's identity separately from the
+registered application. This is connection identity only: it does not grant
+personal memory access or vault custody. Existing unbound developer credentials
+retain their existing permissions. Consumer onboarding and standing memory
+authorization are under implementation and are not available through this
+five-tool catalog yet.
+
 ### MuleSoft trusted connector for Salesforce and Agentforce
 
 > **Important current boundary.** Hussh preserves one canonical five-tool

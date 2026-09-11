@@ -14,6 +14,7 @@ from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from api.developer_auth import remote_mcp_disabled_error, remote_mcp_enabled
 from hushh_mcp.services.developer_oauth_service import DeveloperOAuthService
 from hushh_mcp.services.developer_registry_service import DeveloperRegistryService
+from hushh_mcp.services.mcp_oauth_resource import mcp_authentication_challenge
 from mcp_modules.agentforce_contract import AGENTFORCE_MAX_REQUEST_SECONDS, AGENTFORCE_PROFILE
 from mcp_modules.developer_context import (
     reset_current_developer_principal,
@@ -71,6 +72,9 @@ def _client_ip(scope: dict[str, Any]) -> str | None:
 async def _send_json(send, status_code: int, payload: dict[str, Any]) -> None:
     body = json.dumps(payload).encode("utf-8")
     headers = [(b"content-type", b"application/json"), (b"content-length", str(len(body)).encode())]
+    headers.append((b"cache-control", b"no-store"))
+    if status_code == 401:
+        headers.append((b"www-authenticate", mcp_authentication_challenge()))
     await send({"type": "http.response.start", "status": status_code, "headers": headers})
     await send({"type": "http.response.body", "body": body, "more_body": False})
 

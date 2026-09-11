@@ -25,6 +25,7 @@ from hushh_mcp.services.developer_registry_service import (
     DeveloperPrincipal,
     DeveloperRegistryService,
 )
+from hushh_mcp.services.mcp_oauth_resource import configured_mcp_resource
 
 _ACCESS_TOKEN_TTL_SECONDS = 60 * 60
 _REFRESH_TOKEN_TTL_SECONDS = 60 * 60 * 24 * 30
@@ -152,7 +153,7 @@ class DeveloperOAuthService:
                     redirect_uri TEXT NOT NULL, code_challenge TEXT NOT NULL,
                     subject_firebase_uid TEXT, requested_scope TEXT NOT NULL,
                     state TEXT, status TEXT NOT NULL, expires_at INTEGER NOT NULL,
-                    created_at INTEGER NOT NULL, consumed_at INTEGER)""",
+                    created_at INTEGER NOT NULL, consumed_at INTEGER, resource TEXT)""",
                 """CREATE TABLE IF NOT EXISTS developer_oauth_tokens (
                     id INTEGER PRIMARY KEY AUTOINCREMENT, token_hash TEXT NOT NULL UNIQUE,
                     token_prefix TEXT NOT NULL, token_kind TEXT NOT NULL, app_id TEXT NOT NULL,
@@ -182,7 +183,7 @@ class DeveloperOAuthService:
                     redirect_uri TEXT NOT NULL, code_challenge TEXT NOT NULL,
                     subject_firebase_uid TEXT, requested_scope TEXT NOT NULL,
                     state TEXT, status TEXT NOT NULL, expires_at BIGINT NOT NULL,
-                    created_at BIGINT NOT NULL, consumed_at BIGINT)""",
+                    created_at BIGINT NOT NULL, consumed_at BIGINT, resource TEXT)""",
                 """CREATE TABLE IF NOT EXISTS developer_oauth_tokens (
                     id BIGSERIAL PRIMARY KEY, token_hash TEXT NOT NULL UNIQUE,
                     token_prefix TEXT NOT NULL, token_kind TEXT NOT NULL,
@@ -202,6 +203,12 @@ class DeveloperOAuthService:
             ]
         for statement in statements:
             self._db.execute_raw(statement, {})
+        if str(os.getenv("DB_OFFLINE", "0")).strip().lower() in {"1", "true", "yes", "on"}:
+            columns = self._db.execute_raw("PRAGMA table_info(developer_oauth_authorizations)")
+            if "resource" not in {row["name"] for row in columns.data}:
+                self._db.execute_raw(
+                    "ALTER TABLE developer_oauth_authorizations ADD COLUMN resource TEXT"
+                )
         if str(os.getenv("DB_OFFLINE", "0")).strip().lower() not in {"1", "true", "yes", "on"}:
             # Migration 105 is authoritative. These additive statements keep a
             # newly booted service safe against a narrowly lagging database.
@@ -223,6 +230,10 @@ class DeveloperOAuthService:
             )
             self._db.execute_raw(
                 "ALTER TABLE developer_oauth_tokens ADD COLUMN IF NOT EXISTS mcp_execution_mode TEXT NOT NULL DEFAULT 'execute'",
+                {},
+            )
+            self._db.execute_raw(
+                "ALTER TABLE developer_oauth_authorizations ADD COLUMN IF NOT EXISTS resource TEXT",
                 {},
             )
         self.__class__._tables_ensured = True
@@ -464,6 +475,7 @@ class DeveloperOAuthService:
         code_challenge: str,
         state: str | None,
         scope: str | None,
+        resource: str | None = None,
     ) -> str:
         client = self.get_client(client_id)
         if client is None:
@@ -485,13 +497,14 @@ class DeveloperOAuthService:
         requested_scope = str(scope or _MCP_SCOPE).strip()
         if requested_scope != _MCP_SCOPE:
             raise OAuthValidationError("invalid_scope", "Only the mcp:tools scope is supported.")
+        self._validate_resource(resource)
         reference = f"oar_{secrets.token_hex(16)}"
         now = _now_ms()
         self.ensure_tables()
         self._db.execute_raw(
             """INSERT INTO developer_oauth_authorizations
-               (transaction_ref, app_id, client_id, redirect_uri, code_challenge, requested_scope, state, status, expires_at, created_at)
-               VALUES (:transaction_ref, :app_id, :client_id, :redirect_uri, :code_challenge, :requested_scope, :state, 'pending', :expires_at, :created_at)""",
+               (transaction_ref, app_id, client_id, redirect_uri, code_challenge, requested_scope, state, status, expires_at, created_at, resource)
+               VALUES (:transaction_ref, :app_id, :client_id, :redirect_uri, :code_challenge, :requested_scope, :state, 'pending', :expires_at, :created_at, :resource)""",
             {
                 "transaction_ref": reference,
                 "app_id": client.app_id,
@@ -502,6 +515,7 @@ class DeveloperOAuthService:
                 "state": str(state or "")[:512] or None,
                 "expires_at": now + _AUTHORIZATION_TTL_SECONDS * 1000,
                 "created_at": now,
+                "resource": resource,
             },
         )
         self._audit(
@@ -677,8 +691,28 @@ class DeveloperOAuthService:
         )
         return tokens
 
+    @staticmethod
+    def _validate_resource(resource: str | None, *, bound_resource: str | None = None) -> None:
+        # Legacy connections without an audience remain developer-only. Once
+        # bound, omission or changing audiences cannot downgrade a credential.
+        if resource is None and bound_resource is None:
+            return
+        expected = configured_mcp_resource()
+        if (
+            not expected
+            or resource != expected
+            or (bound_resource is not None and resource != bound_resource)
+        ):
+            raise OAuthValidationError("invalid_target", "The MCP resource does not match.")
+
     def exchange_authorization_code(
-        self, *, client: OAuthClient, code: str, redirect_uri: str, code_verifier: str
+        self,
+        *,
+        client: OAuthClient,
+        code: str,
+        redirect_uri: str,
+        code_verifier: str,
+        resource: str | None = None,
     ) -> dict[str, Any]:
         if "authorization_code" not in client.allowed_grant_types:
             raise OAuthValidationError(
@@ -688,7 +722,7 @@ class DeveloperOAuthService:
         if not _PKCE_VALUE_RE.fullmatch(verifier):
             raise OAuthValidationError("invalid_grant", "Authorization code validation failed.")
         result = self._db.execute_raw(
-            """SELECT id, app_id, client_id, redirect_uri, code_challenge, subject_firebase_uid, requested_scope
+            """SELECT id, app_id, client_id, redirect_uri, code_challenge, subject_firebase_uid, requested_scope, resource
                FROM developer_oauth_authorizations
                WHERE code_hash = :code_hash AND client_id = :client_id AND status = 'issued' AND expires_at > :now LIMIT 1""",
             {"code_hash": _hash_secret(code), "client_id": client.client_id, "now": _now_ms()},
@@ -696,6 +730,9 @@ class DeveloperOAuthService:
         if not result.data:
             raise OAuthValidationError("invalid_grant", "Authorization code validation failed.")
         row = result.data[0]
+        self._validate_resource(resource, bound_resource=row.get("resource"))
+        if resource is not None and row.get("resource") is None:
+            raise OAuthValidationError("invalid_target", "Restart authorization for this resource.")
         if normalize_redirect_uri(redirect_uri) != str(row["redirect_uri"]):
             raise OAuthValidationError("invalid_grant", "Authorization code validation failed.")
         challenge = (
@@ -728,20 +765,39 @@ class DeveloperOAuthService:
         )
         return tokens
 
-    def refresh(self, *, client: OAuthClient, refresh_token: str) -> dict[str, Any]:
+    def refresh(
+        self, *, client: OAuthClient, refresh_token: str, resource: str | None = None
+    ) -> dict[str, Any]:
         if "refresh_token" not in client.allowed_grant_types:
             raise OAuthValidationError(
                 "unauthorized_client", "This OAuth client cannot refresh tokens."
             )
         result = self._db.execute_raw(
-            """SELECT id, app_id, subject_firebase_uid, authorization_id, scopes
-               FROM developer_oauth_tokens WHERE token_hash = :token_hash AND token_kind = 'refresh'
-               AND app_id = :app_id AND revoked_at IS NULL AND expires_at > :now LIMIT 1""",
-            {"token_hash": _hash_secret(refresh_token), "app_id": client.app_id, "now": _now_ms()},
+            """SELECT tokens.id, tokens.app_id, tokens.subject_firebase_uid,
+                      tokens.authorization_id, tokens.scopes, authorizations.resource
+               FROM developer_oauth_tokens AS tokens
+               LEFT JOIN developer_oauth_authorizations AS authorizations
+                 ON authorizations.id = tokens.authorization_id
+               WHERE tokens.token_hash = :token_hash AND tokens.token_kind = 'refresh'
+               AND tokens.app_id = :app_id AND tokens.revoked_at IS NULL
+               AND tokens.expires_at > :now
+               AND authorizations.status = 'consumed'
+               AND authorizations.app_id = tokens.app_id
+               AND authorizations.client_id = :client_id
+               AND authorizations.subject_firebase_uid = tokens.subject_firebase_uid LIMIT 1""",
+            {
+                "token_hash": _hash_secret(refresh_token),
+                "app_id": client.app_id,
+                "client_id": client.client_id,
+                "now": _now_ms(),
+            },
         )
         if not result.data:
             raise OAuthValidationError("invalid_grant", "Refresh token validation failed.")
         row = result.data[0]
+        self._validate_resource(resource, bound_resource=row.get("resource"))
+        if resource is not None and row.get("resource") is None:
+            raise OAuthValidationError("invalid_target", "Restart authorization for this resource.")
         revoked = self._db.execute_raw(
             "UPDATE developer_oauth_tokens SET revoked_at = :now WHERE id = :id AND revoked_at IS NULL RETURNING id",
             {"id": row["id"], "now": _now_ms()},
@@ -787,16 +843,29 @@ class DeveloperOAuthService:
                       apps.allowed_capabilities, apps.support_url, apps.policy_url, apps.website_url,
                       apps.brand_image_url, apps.contact_email, apps.kind, apps.crm_id,
                       apps.schema_profile, apps.oauth_client_credentials_enabled,
-                      tokens.mcp_execution_mode, tokens.id AS token_id
+                      tokens.mcp_execution_mode, tokens.id AS token_id,
+                      tokens.subject_firebase_uid, tokens.authorization_id, tokens.grant_type,
+                      tokens.scopes, clients.client_id AS oauth_client_id, authorizations.resource
                FROM developer_oauth_tokens AS tokens
                INNER JOIN developer_apps AS apps ON apps.app_id = tokens.app_id
+               INNER JOIN developer_oauth_clients AS clients ON clients.app_id = tokens.app_id
+               LEFT JOIN developer_oauth_authorizations AS authorizations
+                 ON authorizations.id = tokens.authorization_id
                WHERE tokens.token_hash = :token_hash AND tokens.token_kind = 'access'
-                 AND tokens.revoked_at IS NULL AND tokens.expires_at > :now AND apps.status = 'active' LIMIT 1""",
+                 AND tokens.revoked_at IS NULL AND tokens.expires_at > :now
+                 AND clients.revoked_at IS NULL AND apps.status = 'active'
+                 AND ((tokens.grant_type = 'client_credentials' AND tokens.authorization_id IS NULL)
+                   OR (tokens.grant_type = 'authorization_code' AND authorizations.status = 'consumed'
+                     AND authorizations.app_id = tokens.app_id
+                     AND authorizations.client_id = clients.client_id
+                     AND authorizations.subject_firebase_uid = tokens.subject_firebase_uid)) LIMIT 1""",
             {"token_hash": _hash_secret(raw_token), "now": _now_ms()},
         )
         if not result.data:
             return None
         row = dict(result.data[0])
+        if row.get("resource") is not None and row["resource"] != configured_mcp_resource():
+            return None
         row["auth_source"] = "oauth"
         principal = self._registry._principal_from_row(row)
         self._db.execute_raw(

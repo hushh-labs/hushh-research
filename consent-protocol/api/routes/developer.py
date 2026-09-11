@@ -3324,6 +3324,24 @@ async def oauth_authorization_server_metadata(request: Request):
     }
 
 
+@router.get("/.well-known/oauth-protected-resource")
+@router.get("/.well-known/oauth-protected-resource/mcp")
+async def oauth_protected_resource_metadata(request: Request):
+    if not developer_api_enabled():
+        raise developer_api_disabled_error()
+    from hushh_mcp.services.mcp_oauth_resource import configured_mcp_origin
+
+    origin = configured_mcp_origin()
+    if origin is None:
+        raise HTTPException(status_code=503, detail="MCP authorization discovery is unavailable.")
+    return {
+        "resource": f"{origin}/mcp",
+        "authorization_servers": [origin],
+        "scopes_supported": ["mcp:tools"],
+        "bearer_methods_supported": ["header"],
+    }
+
+
 @oauth_router.get("/authorize")
 async def oauth_authorize(
     request: Request,
@@ -3334,6 +3352,7 @@ async def oauth_authorize(
     code_challenge_method: str = Query(..., max_length=16),
     state: str | None = Query(default=None, max_length=512),
     scope: str | None = Query(default=None, max_length=128),
+    resource: str | None = Query(default=None, max_length=2048),
 ):
     if not developer_api_enabled():
         raise developer_api_disabled_error()
@@ -3351,6 +3370,7 @@ async def oauth_authorize(
             code_challenge=code_challenge,
             state=state,
             scope=scope,
+            resource=resource,
         )
     except OAuthValidationError as error:
         raise _oauth_error(status.HTTP_400_BAD_REQUEST, error) from error
@@ -3421,10 +3441,13 @@ async def oauth_token(request: Request):
                 code=str(form.get("code") or ""),
                 redirect_uri=str(form.get("redirect_uri") or ""),
                 code_verifier=str(form.get("code_verifier") or ""),
+                resource=str(form["resource"]) if "resource" in form else None,
             )
         if grant_type == "refresh_token":
             return DeveloperOAuthService().refresh(
-                client=client, refresh_token=str(form.get("refresh_token") or "")
+                client=client,
+                refresh_token=str(form.get("refresh_token") or ""),
+                resource=str(form["resource"]) if "resource" in form else None,
             )
         if grant_type == "client_credentials":
             return DeveloperOAuthService().issue_client_credentials(

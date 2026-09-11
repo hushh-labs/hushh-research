@@ -146,6 +146,7 @@ def _build_app(
 
 @pytest.mark.asyncio
 async def test_missing_token_returns_401(monkeypatch):
+    monkeypatch.setenv("CONSENT_API_PUBLIC_ORIGIN", "https://mcp.example.test")
     app, _inner = _build_app()
 
     send = _CapturingSend()
@@ -153,6 +154,11 @@ async def test_missing_token_returns_401(monkeypatch):
 
     assert send.status == 401
     assert send.body_json["error_code"] == "DEVELOPER_TOKEN_REQUIRED"
+    headers = dict(send.messages[0]["headers"])
+    assert headers[b"cache-control"] == b"no-store"
+    assert headers[b"www-authenticate"] == (
+        b'Bearer resource_metadata="https://mcp.example.test/.well-known/oauth-protected-resource/mcp", scope="mcp:tools"'
+    )
 
 
 @pytest.mark.asyncio

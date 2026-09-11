@@ -284,6 +284,14 @@ class DeveloperPrincipal:
     schema_profile: str = SCHEMA_PROFILE_STANDARD
     oauth_client_credentials_enabled: bool = False
     mcp_execution_mode: str = "execute"
+    # Authenticated OAuth identity, not consent to access the owner's information.
+    # Registry tokens and client-credentials grants remain application-only.
+    subject_firebase_uid: str | None = None
+    oauth_client_id: str | None = None
+    authorization_id: int | None = None
+    oauth_grant_type: str | None = None
+    oauth_resource: str | None = None
+    oauth_scopes: tuple[str, ...] = ()
 
 
 def normalize_tool_groups(raw_groups: Any) -> tuple[str, ...]:
@@ -478,6 +486,17 @@ class DeveloperRegistryService:
             token_id=row.get("token_id"),
             auth_source=str(row.get("auth_source") or "registry"),
             is_internal_fallback=bool(row.get("is_internal_fallback")),
+            subject_firebase_uid=(
+                cls._sanitize_optional_text(row.get("subject_firebase_uid"))
+                if row.get("auth_source") == "oauth"
+                and row.get("grant_type") == "authorization_code"
+                else None
+            ),
+            oauth_client_id=cls._sanitize_optional_text(row.get("oauth_client_id")),
+            authorization_id=row.get("authorization_id"),
+            oauth_grant_type=cls._sanitize_optional_text(row.get("grant_type")),
+            oauth_resource=cls._sanitize_optional_text(row.get("resource")),
+            oauth_scopes=tuple(cls._parse_json_array(row.get("scopes"))),
             kind=str(row.get("kind") or "self_serve").strip() or "self_serve",
             crm_id=cls._sanitize_optional_text(row.get("crm_id")),
             schema_profile=normalize_schema_profile(row.get("schema_profile")),

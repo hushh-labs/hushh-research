@@ -123,6 +123,20 @@ def test_redirect_uri_validation_is_exact_and_safe():
             raise AssertionError("unsafe redirect URI was accepted")
 
 
+def test_resource_discovery_uses_configured_authority_not_host(monkeypatch):
+    monkeypatch.setenv("DEVELOPER_API_ENABLED", "true")
+    monkeypatch.setenv("CONSENT_API_PUBLIC_ORIGIN", "https://mcp.example.test")
+    client = TestClient(_app())
+    response = client.get(
+        "/.well-known/oauth-protected-resource/mcp", headers={"Host": "foreign.test"}
+    )
+    assert response.status_code == 200
+    assert response.json()["resource"] == "https://mcp.example.test/mcp"
+    assert response.json()["authorization_servers"] == ["https://mcp.example.test"]
+    monkeypatch.delenv("CONSENT_API_PUBLIC_ORIGIN")
+    assert client.get("/.well-known/oauth-protected-resource").status_code == 503
+
+
 def test_authorize_rejects_non_s256_and_unregistered_redirect(monkeypatch):
     monkeypatch.setenv("ENVIRONMENT", "development")
     monkeypatch.setenv("DEVELOPER_API_ENABLED", "true")
