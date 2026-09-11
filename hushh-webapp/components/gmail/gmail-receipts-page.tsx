@@ -1530,6 +1530,7 @@ export default function GmailReceiptsPage({
   }, [
     connectorState,
     gmail.presentation.badgeLabel,
+    gmail.statusError,
     gmail.status?.last_sync_error,
     gmail.syncRun,
     gmailActionBusy,
