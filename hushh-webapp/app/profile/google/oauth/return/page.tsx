@@ -13,6 +13,56 @@ import {
 import { ROUTES } from "@/lib/navigation/routes";
 import { GoogleCalendarService } from "@/lib/services/google-calendar-service";
 
+const CALENDAR_OAUTH_COMPLETION_TIMEOUT_MS = 35_000;
+const CALENDAR_OAUTH_RECONCILIATION_ATTEMPTS = 5;
+const CALENDAR_OAUTH_RECONCILIATION_DELAY_MS = 2_000;
+
+class CalendarOAuthCompletionPendingError extends Error {
+  constructor() {
+    super("Calendar connection is still being saved.");
+  }
+}
+
+async function completeCalendarOAuth(params: {
+  idToken: string;
+  userId: string;
+  code: string;
+  state: string;
+}) {
+  let timeout: ReturnType<typeof setTimeout> | null = null;
+  try {
+    return await Promise.race([
+      GoogleCalendarService.completeConnect(params),
+      new Promise<never>((_, reject) => {
+        timeout = globalThis.setTimeout(() => {
+          reject(new CalendarOAuthCompletionPendingError());
+        }, CALENDAR_OAUTH_COMPLETION_TIMEOUT_MS);
+      }),
+    ]);
+  } finally {
+    if (timeout !== null) globalThis.clearTimeout(timeout);
+  }
+}
+
+async function reconcileCalendarConnection(idToken: string, userId: string) {
+  for (
+    let attempt = 0;
+    attempt < CALENDAR_OAUTH_RECONCILIATION_ATTEMPTS;
+    attempt += 1
+  ) {
+    const status = await GoogleCalendarService.status(idToken, userId).catch(
+      () => null,
+    );
+    if (status?.connected) return true;
+    if (attempt + 1 < CALENDAR_OAUTH_RECONCILIATION_ATTEMPTS) {
+      await new Promise<void>((resolve) => {
+        globalThis.setTimeout(resolve, CALENDAR_OAUTH_RECONCILIATION_DELAY_MS);
+      });
+    }
+  }
+  return false;
+}
+
 function GoogleOAuthReturnContent() {
   const { user, loading } = useAuth();
   const router = useRouter();
@@ -27,7 +77,9 @@ function GoogleOAuthReturnContent() {
     const state = search.get("state");
     const oauthError = search.get("error") || search.get("error_description");
     const returnToSetup = consumeCalendarSetupOAuthReturn();
-    const destination = returnToSetup ? ROUTES.ONE_SETUP_CALENDAR : ROUTES.CALENDAR;
+    const destination = returnToSetup
+      ? ROUTES.ONE_SETUP_CALENDAR
+      : ROUTES.CALENDAR;
     const attempt = readGoogleOAuthPopupAttempt();
 
     const settle = (
@@ -43,7 +95,9 @@ function GoogleOAuthReturnContent() {
     };
 
     if (oauthError) {
-      const isDenied = String(oauthError).toLowerCase().includes("access_denied");
+      const isDenied = String(oauthError)
+        .toLowerCase()
+        .includes("access_denied");
       settle(
         isDenied ? "cancelled" : "failed",
         oauthError || "Google authorization was denied.",
@@ -59,17 +113,35 @@ function GoogleOAuthReturnContent() {
     void user
       .getIdToken()
       .then((idToken) =>
-        GoogleCalendarService.completeConnect({
+        completeCalendarOAuth({
           idToken,
           userId: user.uid,
           code,
           state,
         }),
       )
-      .then(() => {
-        settle("succeeded");
+      .then((completed) => {
+        settle(
+          completed.connected ? "succeeded" : "failed",
+          completed.connected
+            ? undefined
+            : "Calendar authorization did not create an active connection.",
+        );
       })
-      .catch((err) => {
+      .catch(async (err) => {
+        if (err instanceof CalendarOAuthCompletionPendingError) {
+          const connected = await reconcileCalendarConnection(
+            await user.getIdToken(),
+            user.uid,
+          );
+          settle(
+            connected ? "succeeded" : "failed",
+            connected
+              ? undefined
+              : "Calendar is still saving the connection. Please check Calendar and try again if needed.",
+          );
+          return;
+        }
         const msg =
           err instanceof Error && err.message
             ? err.message

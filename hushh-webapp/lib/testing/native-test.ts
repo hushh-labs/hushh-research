@@ -108,7 +108,13 @@ export function shouldSkipGeneratedVaultUnlockForAutomation(
   if (typeof navigator !== "undefined" && navigator.webdriver) {
     return true;
   }
-  return isNativeUiTestSession(config) && Boolean(getNativeUiTestVaultPassphrase());
+  // A reviewer rehearsal first authenticates without supplying the passphrase
+  // so it can prove the locked-vault challenge is visible. That explicit test
+  // bridge must still select the passphrase surface; otherwise a generated
+  // passkey wrapper can hide the very challenge the rehearsal is intended to
+  // verify. This is constrained to the injected automation bridge and never
+  // changes a normal browser or native user's unlock preference.
+  return isNativeUiTestSession(config);
 }
 
 /**
@@ -119,6 +125,27 @@ export function isNativeUiTestSession(
   config: NativeTestConfig = getNativeTestConfig()
 ): boolean {
   return readNativeTestBridgeEnabled() && config.enabled;
+}
+
+/**
+ * Reviewer automation must not perform background identity-shadow writes.
+ * Feature flows that require verified contact information request it explicitly.
+ */
+export function shouldSkipAmbientIdentityHydrationForAutomation(
+  config: NativeTestConfig = getNativeTestConfig()
+): boolean {
+  return isAutomatedReviewerSession(config);
+}
+
+/** External telemetry must not leave an explicit shared reviewer session. */
+export function shouldDisableExternalTelemetryForAutomation(
+  config: NativeTestConfig = getNativeTestConfig()
+): boolean {
+  return isAutomatedReviewerSession(config);
+}
+
+function isAutomatedReviewerSession(config: NativeTestConfig): boolean {
+  return isNativeUiTestSession(config) && config.autoReviewerLogin;
 }
 
 /**

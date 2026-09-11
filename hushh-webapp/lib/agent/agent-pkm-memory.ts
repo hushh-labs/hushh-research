@@ -12,7 +12,7 @@ import {
   type PkmWriteCoordinatorResult,
 } from "@/lib/services/pkm-write-coordinator";
 import {
-  isOwnerAutoSaveAuthorization,
+  isAutomaticPkmWriteAuthorization,
   type PkmUserConfirmation,
   type PkmWriteAuthorization,
 } from "@/lib/personal-knowledge-model/mutation-plan";
@@ -58,6 +58,15 @@ export type AgentPkmPreviewCard = {
   candidate_payload?: Record<string, unknown>;
   structure_decision?: Record<string, unknown>;
   manifest_draft?: DomainManifest | null;
+  canonical_field_id?: string;
+  confidence?: number;
+  source_disposition?: string;
+  retrieval_hints?: {
+    domain?: string;
+    path?: string;
+    aliases?: string[];
+    segment_ids?: string[];
+  };
   sharing_impact?: {
     active_recipient_count: number;
     recipient_labels: string[];
@@ -252,6 +261,7 @@ export async function previewAgentPkmMemory(params: {
   vaultOwnerToken: string;
   ingestionId?: string;
   chunkIndex?: number;
+  memoryProfile?: "general" | "kyc_identity_v1";
 }): Promise<AgentPkmPreviewResponse & { cards: AgentPkmPreviewCard[] }> {
   const response = await ApiService.apiFetch("/api/pkm/memory/proposals", {
     method: "POST",
@@ -270,6 +280,7 @@ export async function previewAgentPkmMemory(params: {
       message: params.message,
       current_domains: params.currentDomains,
       current_manifests: (params.currentManifests || []).filter(Boolean).slice(0, 256),
+      memory_profile: params.memoryProfile || "general",
     }),
   });
 
@@ -357,7 +368,7 @@ export async function addToPKM(params: {
   const maxParallelDomainWrites = 3;
   const results: Array<AgentPkmSaveResult["results"][number] | undefined> =
     new Array(params.cards.length);
-  const automatic = isOwnerAutoSaveAuthorization(params.confirmation);
+  const automatic = isAutomaticPkmWriteAuthorization(params.confirmation);
   if (!params.confirmation || (!automatic && params.confirmation.confirmedByUser !== true)) {
     return {
       attempted: params.cards.length,
@@ -565,7 +576,10 @@ export async function addToPKM(params: {
 
   const savedResults = completedResults.filter((result) => result.success);
   if (savedResults.length > 0) {
-    AgentPkmContextStore.invalidateUser(params.userId);
+    AgentPkmContextStore.invalidateUser(
+      params.userId,
+      savedResults.map((result) => result.domain),
+    );
   }
   return {
     attempted: completedResults.length,
@@ -742,11 +756,14 @@ export function warmAgentPkmContext(params: {
   const existing = agentPkmWarmups.get(params.userId);
   if (existing) return existing;
 
-  const warmup = loadAgentPkmContext({
-    ...params,
-    message: "",
-    requireDecrypted: true,
-  })
+  // Do not hydrate every encrypted PKM segment merely because the vault was
+  // unlocked. Targeted KYC/chat reads select manifest-backed segments on the
+  // first request; broad conversations still load their inventory on demand.
+  const warmup = PersonalKnowledgeModelService.getMetadata(
+    params.userId,
+    false,
+    params.vaultOwnerToken,
+  )
     .then(() => undefined)
     .finally(() => {
       if (agentPkmWarmups.get(params.userId) === warmup) {

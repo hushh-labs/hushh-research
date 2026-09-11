@@ -21,6 +21,65 @@ Description:
 USAGE
 }
 
+probe_vertex_prediction_access() {
+  local project="$1"
+  local location="$2"
+  local model="$3"
+  local token
+
+  if ! token="$(gcloud auth application-default print-access-token 2>/dev/null)"; then
+    printf '%s\n' "credential_unavailable"
+    return
+  fi
+
+  VERTEX_ADC_ACCESS_TOKEN="$token" python3 - "$project" "$location" "$model" <<'PY'
+from __future__ import annotations
+
+import os
+import sys
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
+
+project, location, model = sys.argv[1:]
+url = (
+    "https://aiplatform.googleapis.com/v1/projects/"
+    f"{project}/locations/{location}/publishers/google/models/{model}:generateContent"
+)
+# An empty contents array is intentionally invalid. Vertex authorizes the
+# caller before validating it, so 400/422 proves prediction access without
+# consuming a model generation or returning generated information.
+request = Request(
+    url,
+    data=b'{"contents":[]}',
+    method="POST",
+    headers={
+        "Authorization": f"Bearer {os.environ['VERTEX_ADC_ACCESS_TOKEN']}",
+        "Content-Type": "application/json",
+    },
+)
+try:
+    status = urlopen(request, timeout=8).status
+except HTTPError as exc:
+    status = exc.code
+except (URLError, OSError):
+    print("network_error")
+    raise SystemExit(0)
+
+if status in {200, 400, 422}:
+    print("authorized")
+elif status == 401:
+    print("unauthenticated")
+elif status == 403:
+    print("permission_denied")
+elif status == 404:
+    print("model_not_found")
+elif status == 429:
+    print("quota_exhausted")
+else:
+    print("temporary_unavailable")
+PY
+}
+
 if [ "$#" -lt 1 ]; then
   usage
   exit 1
@@ -116,6 +175,24 @@ elif resolved is None:
     print("")
 else:
     print(str(resolved))
+PY
+}
+
+read_fleet_text_model_default() {
+  python3 - "$REPO_ROOT/consent-protocol/hushh_mcp/constants.py" <<'PY'
+import ast
+import pathlib
+import sys
+
+tree = ast.parse(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+for node in tree.body:
+    if not isinstance(node, ast.Assign):
+        continue
+    if any(isinstance(target, ast.Name) and target.id == "FLEET_TEXT_MODEL_DEFAULT" for target in node.targets):
+        value = ast.literal_eval(node.value)
+        if isinstance(value, str) and value.strip():
+            print(value.strip())
+        break
 PY
 }
 
@@ -228,13 +305,22 @@ BACKEND_FIREBASE_JSON="$(read_env_value "$BACKEND_SOURCE" "FIREBASE_ADMIN_CREDEN
 BACKEND_GENAI_AUTH_MODE="$(read_env_value "$BACKEND_SOURCE" "HUSHH_GENAI_AUTH_MODE")"
 BACKEND_GOOGLE_GENAI_USE_VERTEXAI="$(read_env_value "$BACKEND_SOURCE" "GOOGLE_GENAI_USE_VERTEXAI")"
 BACKEND_GOOGLE_CLOUD_PROJECT="$(read_env_value "$BACKEND_SOURCE" "GOOGLE_CLOUD_PROJECT")"
+BACKEND_GENAI_GOOGLE_CLOUD_PROJECT="$(read_env_value "$BACKEND_SOURCE" "GENAI_GOOGLE_CLOUD_PROJECT")"
 BACKEND_GOOGLE_CLOUD_LOCATION="$(read_env_value "$BACKEND_SOURCE" "GOOGLE_CLOUD_LOCATION")"
+BACKEND_GEMINI_TEXT_MODEL="$(read_env_value "$BACKEND_SOURCE" "HUSHH_GEMINI_TEXT_MODEL")"
+if is_placeholder "$BACKEND_GEMINI_TEXT_MODEL"; then
+  BACKEND_GEMINI_TEXT_MODEL="$(read_fleet_text_model_default)"
+fi
 BACKEND_GEMINI_API_KEY="$(read_env_value "$BACKEND_SOURCE" "GEMINI_API_KEY")"
 BACKEND_GOOGLE_API_KEY="$(read_env_value "$BACKEND_SOURCE" "GOOGLE_API_KEY")"
 BACKEND_GMAIL_CLIENT_ID="$(read_env_value "$BACKEND_SOURCE" "GMAIL_OAUTH_CLIENT_ID")"
 BACKEND_GMAIL_CLIENT_SECRET="$(read_env_value "$BACKEND_SOURCE" "GMAIL_OAUTH_CLIENT_SECRET")"
 BACKEND_GMAIL_REDIRECT_URI="$(read_env_value "$BACKEND_SOURCE" "GMAIL_OAUTH_REDIRECT_URI")"
 BACKEND_GMAIL_TOKEN_KEY="$(read_env_value "$BACKEND_SOURCE" "GMAIL_OAUTH_TOKEN_KEY")"
+BACKEND_CALENDAR_CLIENT_ID="$(read_env_value "$BACKEND_SOURCE" "GOOGLE_OAUTH_CLIENT_ID")"
+BACKEND_CALENDAR_CLIENT_SECRET="$(read_env_value "$BACKEND_SOURCE" "GOOGLE_OAUTH_CLIENT_SECRET")"
+BACKEND_CALENDAR_REDIRECT_URI="$(read_env_value "$BACKEND_SOURCE" "GOOGLE_OAUTH_REDIRECT_URI")"
+BACKEND_CALENDAR_TOKEN_KEY="$(read_env_value "$BACKEND_SOURCE" "GOOGLE_OAUTH_TOKEN_KEY")"
 BACKEND_ONE_EMAIL_ADDRESS="$(read_env_value "$BACKEND_SOURCE" "ONE_EMAIL_ADDRESS")"
 BACKEND_ONE_EMAIL_DELEGATED_USER="$(read_env_value "$BACKEND_SOURCE" "ONE_EMAIL_DELEGATED_USER")"
 BACKEND_ONE_EMAIL_PUBSUB_TOPIC="$(read_env_value "$BACKEND_SOURCE" "ONE_EMAIL_PUBSUB_TOPIC")"
@@ -368,11 +454,39 @@ case "$PROFILE" in
         elif ! command -v gcloud >/dev/null 2>&1; then
           add_check "managed_vertex_adc" "fail" "gcloud is required to verify local Vertex ADC. Install Google Cloud CLI, then authenticate application-default credentials."
           SOURCE_READY=false
-        elif gcloud auth application-default print-access-token >/dev/null 2>&1; then
-          add_check "managed_vertex_adc" "pass" "Vertex ADC can refresh an access token"
-        else
-          add_check "managed_vertex_adc" "fail" "Vertex ADC cannot refresh. Run: gcloud auth application-default login"
+        elif is_placeholder "$BACKEND_GEMINI_TEXT_MODEL"; then
+          add_check "managed_vertex_adc" "fail" "HUSHH_GEMINI_TEXT_MODEL is required to verify local Vertex prediction access"
           SOURCE_READY=false
+        else
+          vertex_project="$BACKEND_GENAI_GOOGLE_CLOUD_PROJECT"
+          if is_placeholder "$vertex_project"; then
+            vertex_project="$BACKEND_GOOGLE_CLOUD_PROJECT"
+          fi
+          vertex_probe="$(probe_vertex_prediction_access "$vertex_project" "$BACKEND_GOOGLE_CLOUD_LOCATION" "$BACKEND_GEMINI_TEXT_MODEL")"
+          case "$vertex_probe" in
+            authorized)
+              add_check "managed_vertex_adc" "pass" "Vertex ADC can call the configured managed Gemini model"
+              ;;
+            credential_unavailable|unauthenticated)
+              add_check "managed_vertex_adc" "fail" "Vertex ADC cannot authenticate. Run: gcloud auth application-default login"
+              SOURCE_READY=false
+              ;;
+            permission_denied)
+              add_check "managed_vertex_adc" "fail" "Vertex ADC lacks aiplatform.endpoints.predict on ${vertex_project}. Ask an administrator to grant this local ADC principal roles/aiplatform.user, or authorize impersonation of the UAT runtime service account."
+              SOURCE_READY=false
+              ;;
+            model_not_found)
+              add_check "managed_vertex_adc" "fail" "Configured managed Gemini model is unavailable in ${vertex_project}/${BACKEND_GOOGLE_CLOUD_LOCATION}"
+              SOURCE_READY=false
+              ;;
+            quota_exhausted)
+              add_check "managed_vertex_adc" "fail" "Vertex ADC reached a managed Gemini quota limit"
+              SOURCE_READY=false
+              ;;
+            *)
+              add_check "managed_vertex_adc" "warn" "Could not verify Vertex prediction access (${vertex_probe}); retry after checking network and Vertex service health"
+              ;;
+          esac
         fi
         ;;
       developer_api_key)
@@ -398,6 +512,17 @@ case "$PROFILE" in
       add_check "gmail_runtime_readiness" "pass" "Gmail backend runtime keys are present"
     else
       add_check "gmail_runtime_readiness" "warn" "Missing Gmail backend keys: ${missing_gmail_keys[*]}. Run: bash scripts/env/bootstrap_profiles.sh"
+    fi
+
+    missing_calendar_keys=()
+    if is_placeholder "$BACKEND_CALENDAR_CLIENT_ID"; then missing_calendar_keys+=("GOOGLE_OAUTH_CLIENT_ID"); fi
+    if is_placeholder "$BACKEND_CALENDAR_CLIENT_SECRET"; then missing_calendar_keys+=("GOOGLE_OAUTH_CLIENT_SECRET"); fi
+    if is_placeholder "$BACKEND_CALENDAR_REDIRECT_URI"; then missing_calendar_keys+=("GOOGLE_OAUTH_REDIRECT_URI"); fi
+    if is_placeholder "$BACKEND_CALENDAR_TOKEN_KEY"; then missing_calendar_keys+=("GOOGLE_OAUTH_TOKEN_KEY"); fi
+    if [ "${#missing_calendar_keys[@]}" -eq 0 ]; then
+      add_check "calendar_runtime_readiness" "pass" "Calendar backend runtime keys are present"
+    else
+      add_check "calendar_runtime_readiness" "warn" "Missing Calendar backend keys: ${missing_calendar_keys[*]}. Run: bash scripts/env/bootstrap_profiles.sh"
     fi
 
     missing_one_email_keys=()

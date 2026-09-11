@@ -133,6 +133,21 @@ def test_reply_routes_bind_only_a_source_derived_envelope_to_the_owner():
     }
 
 
+def test_refresh_candidates_uses_only_the_authenticated_vault_owner():
+    service = type("Service", (), {})()
+    service.refresh_candidate_scopes = AsyncMock(
+        return_value={"workflow_id": "workflow-1", "candidate_scopes": []}
+    )
+    with patch.object(module, "_service", return_value=service):
+        response = _app().post("/api/one/email/information-requests/workflow-1/refresh-candidates")
+
+    assert response.status_code == 200
+    assert service.refresh_candidate_scopes.await_args.kwargs == {
+        "user_id": "owner",
+        "workflow_id": "workflow-1",
+    }
+
+
 def test_background_monitor_requires_oidc_token(monkeypatch):
     monkeypatch.setenv("GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_AUTH_ENABLED", "true")
     monkeypatch.setenv(

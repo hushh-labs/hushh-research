@@ -20,6 +20,7 @@ import {
   Check,
   ChevronRight,
   Copy,
+  FileText,
   KeyRound,
   Laptop,
   LogIn,
@@ -34,6 +35,7 @@ import {
   ThumbsDown,
   ThumbsUp,
   Trash2,
+  X,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -50,6 +52,7 @@ import {
   SelectTrigger,
 } from "@/components/ui/select";
 import { EmailDraftCard } from "@/components/agent/email-draft-card";
+import { richEmailPlainText } from "@/components/agent/email-rich-text";
 import {
   EmailDeliveryHistoryCard,
   type EmailDeliveryHistoryItem,
@@ -116,8 +119,6 @@ import {
   addToPKM,
   clearAgentPkmContext,
   formatAgentPkmSaveSummary,
-  // See the PKM auto-save note on `pkmAutoSavePolicy` below. Retained, not dead.
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   getPkmAutoSaveCards,
   getPkmConfirmationCards,
   getIgnoredPkmCards,
@@ -131,6 +132,7 @@ import {
 import { prepareNaturalLanguagePkm } from "@/lib/pkm/pkm-natural-language-ingestion";
 import {
   DEFAULT_AGENT_PKM_AUTO_SAVE_POLICY,
+  AGENT_PKM_PRODUCT_DEFAULT_EFFECTIVE_AT,
   loadAgentPkmAutoSavePolicy,
   type AgentPkmAutoSavePolicy,
 } from "@/lib/agent/agent-pkm-auto-save-policy";
@@ -198,6 +200,7 @@ import { useAgentRuntimeStateOptional } from "@/lib/agent/agent-runtime-context"
 import {
   useOneConversationSession,
   type AgentChatHandoff,
+  type GmailInformationRequestHandoff,
 } from "@/lib/agent/one-conversation-session";
 import { dedupeAdjacentAgentMessages } from "@/lib/agent/agent-chat-turn-safety";
 import {
@@ -214,6 +217,9 @@ import type {
   EmailDeliveryError,
   EmailDraft,
 } from "@/lib/services/email-delivery-service";
+import { KycIdentityProfilePkmService } from "@/lib/services/kyc-identity-profile-pkm-service";
+import { prepareScopedGmailInformationRequestDraft } from "@/lib/services/gmail-information-request-draft-service";
+import { GmailInformationRequestsService } from "@/lib/services/gmail-information-requests-service";
 
 type AgentMessage = {
   id: string;
@@ -232,6 +238,13 @@ type AgentMessage = {
   thought?: string;
   sources?: AgentSource[];
   structuredExperience?: AgentStructuredExperience | null;
+};
+
+const LONG_PROMPT_ATTACHMENT_CHARS = 8_000;
+
+type PendingLongPromptAttachment = {
+  text: string;
+  byteSize: number;
 };
 
 type EmailDeliveryTimelineItem = EmailDeliveryHistoryItem & {
@@ -402,6 +415,114 @@ function getGmailEmailDraftPayload(
   const instruction =
     typeof event.slots.request === "string" ? event.slots.request.trim() : "";
   return instruction ? { instruction } : null;
+}
+
+export function getCalendarDirectiveFromToolEvent(
+  event: AgentChatToolEvent | null,
+): SpecialistDirectiveEvent | null {
+  if (!event) return null;
+  const toolName = String(event.raw?.toolName || "");
+  const rawResult = event.raw?.result;
+  let parsed: Record<string, unknown> | null = null;
+  if (typeof rawResult === "string") {
+    try {
+      parsed = JSON.parse(rawResult) as Record<string, unknown>;
+    } catch {
+      parsed = null;
+    }
+  } else if (rawResult && typeof rawResult === "object") {
+    parsed = rawResult as Record<string, unknown>;
+  }
+
+  if (!parsed) return null;
+
+  // 1. Explicit directive in tool result
+  const rawDirective = parsed.directive as Record<string, unknown> | undefined;
+  if (
+    rawDirective &&
+    rawDirective.delegateAgentId === "agent_calendar" &&
+    rawDirective.payload &&
+    typeof rawDirective.payload === "object"
+  ) {
+    const payload = rawDirective.payload as Record<string, unknown>;
+    return {
+      delegateAgentId: "agent_calendar",
+      directive: {
+        kind: rawDirective.kind === "prompt" ? "prompt" : "action",
+        payload,
+      },
+      message: String(payload.summary || parsed.message || ""),
+      stateChanged: true,
+    };
+  }
+
+  // 2. Fallback: confirmation_required from calendar proposal tools
+  if (
+    (parsed.status === "confirmation_required" ||
+      toolName === "propose_calendar_event" ||
+      toolName === "propose_calendar_reschedule" ||
+      toolName === "propose_calendar_cancellation") &&
+    typeof parsed.proposal_id === "string" &&
+    parsed.proposal_id
+  ) {
+    const plan = (parsed.plan as Record<string, unknown>) || {};
+    const action =
+      toolName === "propose_calendar_cancellation"
+        ? "cancel"
+        : toolName === "propose_calendar_reschedule"
+          ? "reschedule"
+          : "create";
+    const verb =
+      action === "cancel"
+        ? "Cancel"
+        : action === "reschedule"
+          ? "Reschedule"
+          : "Schedule";
+    const conflicts = Array.isArray(parsed.conflicts) ? parsed.conflicts : [];
+    const confirmLabel = conflicts.length > 0 ? `${verb} anyway` : verb;
+    const title = String(plan.title || plan.event_id || "event");
+    const summary = `${verb} '${title}'`;
+
+    return {
+      delegateAgentId: "agent_calendar",
+      directive: {
+        kind: "action",
+        payload: {
+          type: "calendar.execute_proposal",
+          proposalId: parsed.proposal_id,
+          action,
+          summary,
+          confirmLabel,
+          expiresAt: String(parsed.expires_at || ""),
+        },
+      },
+      message: String(parsed.message || summary),
+      stateChanged: true,
+    };
+  }
+
+  // 3. Fallback: connection_required
+  if (
+    parsed.status === "connection_required" &&
+    (toolName.startsWith("calendar_") || toolName.startsWith("propose_calendar_"))
+  ) {
+    return {
+      delegateAgentId: "agent_calendar",
+      directive: {
+        kind: "action",
+        payload: {
+          type: "calendar.connect",
+          accessLevel: "manage",
+          summary: String(parsed.message || "Connect Google Calendar"),
+          confirmLabel: "Allow Calendar scheduling",
+        },
+      },
+      message: String(parsed.message || "Connect Google Calendar"),
+      stateChanged: true,
+    };
+  }
+
+  return null;
 }
 
 function getConsentActionsPayload(
@@ -1296,6 +1417,8 @@ export function AgentChatWorkspace({
   }, []);
 
   const [input, setInput] = useState("");
+  const [longPromptAttachment, setLongPromptAttachment] =
+    useState<PendingLongPromptAttachment | null>(null);
   // Which model runs this person's agent. The catalog is served, so a new
   // generation appears here without a client release.
   const [modelPreference, setModelPreference] = useState<ModelPreference | null>(null);
@@ -1347,6 +1470,15 @@ export function AgentChatWorkspace({
   const [emailDraftAnchorMessageId, setEmailDraftAnchorMessageId] = useState<
     string | null
   >(null);
+  const [gmailKycReplyRequest, setGmailKycReplyRequest] = useState<
+    GmailInformationRequestHandoff | null
+  >(null);
+  const [gmailKycEmailDraftWorkflowId, setGmailKycEmailDraftWorkflowId] =
+    useState<string | null>(null);
+  const [gmailKycMissingLabels, setGmailKycMissingLabels] = useState<string[]>(
+    [],
+  );
+  const [isGmailKycSaving, setIsGmailKycSaving] = useState(false);
   // This is intentionally session-only. The normal user prompt is stored by
   // the encrypted chat service, but raw email fields must not become durable
   // chat/workflow records.
@@ -1357,23 +1489,6 @@ export function AgentChatWorkspace({
   const [activePkmToolCount, setActivePkmToolCount] = useState(0);
   const [pkmReviews, setPkmReviews] = useState<AgentPkmReview[]>([]);
   const [walletWidgets, setWalletWidgets] = useState<AgentWalletWidget[]>([]);
-  /**
-   * PKM auto-save is landed but NOT WIRED, and this is the note that says so.
-   *
-   * `setPkmAutoSavePolicy` is called in four places, so the policy is kept
-   * up to date -- but nothing ever reads `pkmAutoSavePolicy`, because the one
-   * thing that would (`saveEligiblePkmCardsInBackground`, further down) is
-   * never invoked. So the whole lane is built and connected to nothing.
-   *
-   * That is a missing call, not dead code, which is why none of it is deleted
-   * here. It arrived with `30be4abcd feat(one): make AG-UI chat Morphy-native`
-   * and needs its author to finish the wiring or remove the lane deliberately.
-   *
-   * Suppressed rather than left failing because `npm run lint` runs only in the
-   * PR lanes -- Main Post-Merge Smoke does not -- so this sat on `main` red and
-   * blocked every open PR in the repo, none of which could fix it safely.
-   */
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [pkmAutoSavePolicy, setPkmAutoSavePolicy] =
     useState<AgentPkmAutoSavePolicy>(DEFAULT_AGENT_PKM_AUTO_SAVE_POLICY);
   // A specialist (e.g. agent_location) can return a directive that must be
@@ -1683,7 +1798,8 @@ export function AgentChatWorkspace({
     !isVoiceConnecting &&
     !voiceActive &&
     !emailDraftOpen &&
-    input.trim().length > 0;
+    !isGmailKycSaving &&
+    (input.trim().length > 0 || longPromptAttachment !== null);
   const canToggleVoice =
     agentVoiceEnabled && !isVoiceConnecting && !emailDraftOpen;
   const historyInteractionDisabled =
@@ -2028,6 +2144,10 @@ export function AgentChatWorkspace({
     setEmailDraftOpen(false);
     setEmailDraftInitialValue(null);
     setEmailDraftAnchorMessageId(null);
+    setGmailKycReplyRequest(null);
+    setGmailKycEmailDraftWorkflowId(null);
+    setGmailKycMissingLabels([]);
+    setIsGmailKycSaving(false);
     setEmailDeliveryHistory([]);
     setSpecialistBusy(false);
     operationQueueRef.current.replace([]);
@@ -2053,12 +2173,141 @@ export function AgentChatWorkspace({
     setMessages((current) => [...current, message]);
   };
 
+  const prepareGmailKycReply = useCallback(
+    async (
+      request: GmailInformationRequestHandoff,
+      assistantMessageId: string,
+    ) => {
+      if (!user?.uid || !vaultKey || !vaultOwnerToken) return;
+
+      setIsGmailKycSaving(true);
+      try {
+        const firebaseIdToken = await user.getIdToken();
+        const refreshed = await GmailInformationRequestsService.refreshCandidates({
+          firebaseIdToken,
+          vaultOwnerToken,
+          workflowId: request.workflow_id,
+        });
+        const workflow = {
+          ...request,
+          candidate_scopes: refreshed.candidate_scopes,
+        };
+        const draft = await prepareScopedGmailInformationRequestDraft({
+          workflow,
+          userId: user.uid,
+          vaultKey,
+          vaultOwnerToken,
+        });
+        const unavailableLabels = draft.unavailableLabels
+          .map((label) => label.trim())
+          .filter(Boolean);
+
+        if (!draft.body || unavailableLabels.length > 0) {
+          setEmailDraftOpen(false);
+          setGmailKycEmailDraftWorkflowId(null);
+          setGmailKycMissingLabels(
+            unavailableLabels.length > 0
+              ? unavailableLabels
+              : request.requested_field_labels,
+          );
+          updateMessage(assistantMessageId, (message) => ({
+            ...message,
+            text: `I couldn’t find ${(unavailableLabels.length > 0 ? unavailableLabels : request.requested_field_labels).join(", ")} in your private memory. Reply here with only the details you want to share, and I’ll save them privately before preparing the Gmail reply.`,
+            status: "done",
+          }));
+          return;
+        }
+
+        setGmailKycMissingLabels([]);
+        setEmailDraftInstruction("Reply to this Gmail KYC request");
+        setEmailDraftInitialValue({
+          to: "",
+          cc: "",
+          bcc: "",
+          subject: "",
+          body: draft.body,
+        });
+        setEmailDraftAutoDraft(false);
+        setGmailKycEmailDraftWorkflowId(request.workflow_id);
+        setEmailDraftAnchorMessageId(assistantMessageId);
+        setEmailDraftOpen(true);
+        updateMessage(assistantMessageId, (message) => ({
+          ...message,
+          text: "I found the matching private details. Your editable Gmail reply is ready below.",
+          status: "done",
+        }));
+      } catch {
+        setEmailDraftOpen(false);
+        setGmailKycEmailDraftWorkflowId(null);
+        updateMessage(assistantMessageId, (message) => ({
+          ...message,
+          text: "I couldn’t prepare the Gmail reply right now. Please try again.",
+          status: "error",
+        }));
+      } finally {
+        setIsGmailKycSaving(false);
+      }
+    },
+    [user, vaultKey, vaultOwnerToken],
+  );
+
+  const submitGmailKycDetails = async (details: string) => {
+    const request = gmailKycReplyRequest;
+    if (!request || !user?.uid || !vaultKey || !vaultOwnerToken) return;
+    const timestamp = formatNow();
+    const userMessageId = `gmail-kyc-details-${request.workflow_id}-${Date.now()}`;
+    const assistantMessageId = `${userMessageId}-assistant`;
+    appendMessage({
+      id: userMessageId,
+      role: "user",
+      text: details,
+      timestamp,
+      status: "done",
+      ephemeral: true,
+    });
+    appendMessage({
+      id: assistantMessageId,
+      role: "assistant",
+      text: "Saving those details privately and preparing the Gmail reply…",
+      timestamp,
+      status: "streaming",
+      ephemeral: true,
+      renderAsPlainAssistantMessage: true,
+    });
+    setIsGmailKycSaving(true);
+    try {
+      const saved = await KycIdentityProfilePkmService.saveProfile({
+        userId: user.uid,
+        vaultKey,
+        vaultOwnerToken,
+        profile: { aboutMe: details },
+      });
+      if (!saved.success) {
+        throw new Error(saved.message || "One could not save those private details.");
+      }
+      setGmailKycMissingLabels([]);
+      await prepareGmailKycReply(request, assistantMessageId);
+    } catch (error) {
+      updateMessage(assistantMessageId, (message) => ({
+        ...message,
+        text:
+          error instanceof Error
+            ? error.message
+            : "One could not save those private details. Edit them and try again.",
+        status: "error",
+      }));
+    } finally {
+      setIsGmailKycSaving(false);
+    }
+  };
+
   const closeEmailDraft = () => {
     setEmailDraftOpen(false);
     setEmailDraftInstruction("");
     setEmailDraftAutoDraft(false);
     setEmailDraftInitialValue(null);
     setEmailDraftAnchorMessageId(null);
+    setGmailKycEmailDraftWorkflowId(null);
   };
 
   const handleEmailSendStarted = (draft: EmailDraft): string => {
@@ -2070,6 +2319,7 @@ export function AgentChatWorkspace({
         instruction: emailDraftInstruction,
         draft,
         status: "sending",
+        sourceBoundWorkflowId: gmailKycEmailDraftWorkflowId,
         anchorMessageId:
           emailDraftAnchorMessageId ??
           [...messages].reverse().find((message) => message.role === "user")
@@ -2107,6 +2357,7 @@ export function AgentChatWorkspace({
                   ? "outcome_unknown"
                   : "failed",
               errorMessage: error.message,
+              errorCode: error.code,
             }
           : item,
       ),
@@ -2121,6 +2372,7 @@ export function AgentChatWorkspace({
     setEmailDraftInitialValue(item.draft);
     setEmailDraftAutoDraft(false);
     setEmailDraftAnchorMessageId(anchorMessageId);
+    setGmailKycEmailDraftWorkflowId(item.sourceBoundWorkflowId ?? null);
     setEmailDraftOpen(true);
   };
 
@@ -2180,6 +2432,41 @@ export function AgentChatWorkspace({
     const emailDraftInstruction = handoff.emailDraftInstruction?.trim();
     const assistantText = handoff.assistantText?.trim();
     const resultSummary = handoff.resultSummary?.trim();
+      const gmailInformationRequest = handoff.gmailInformationRequest ?? null;
+      if (handoff.reason === "user_requested" && gmailInformationRequest) {
+      if (!hasChatAccess || !user?.uid || !vaultKey || !vaultOwnerToken) {
+        consumedHandoffIdRef.current = null;
+        if (user) setVaultDialogOpen(true);
+        else router.push(ROUTES.LOGIN);
+        return;
+      }
+      const shouldSkipInitialHistoryLoad = historyLoadKeyRef.current === null;
+      handleCreateNewChat();
+      skipInitialHistoryLoadRef.current = shouldSkipInitialHistoryLoad;
+      const handoffMessageId = `handoff-${handoff.id}-assistant`;
+      setGmailKycReplyRequest(gmailInformationRequest);
+      setGmailKycEmailDraftWorkflowId(null);
+      setGmailKycMissingLabels([]);
+      const requestedFields = gmailInformationRequest.requested_field_labels
+        .map((label) => label.trim())
+        .filter(Boolean)
+        .join(", ");
+      setMessages((current) => [
+        ...current,
+        {
+          id: handoffMessageId,
+          role: "assistant",
+          text: `I reviewed a Gmail KYC request asking for ${requestedFields || "KYC details"}. I’ll check the matching private details and prepare a reply in the original Gmail thread.`,
+          timestamp,
+          status: "done",
+          ephemeral: true,
+          renderAsPlainAssistantMessage: true,
+        },
+      ]);
+      void prepareGmailKycReply(gmailInformationRequest, handoffMessageId);
+      consumeHandoff(handoff.id);
+      return;
+    }
     if (handoff.reason === "user_requested" && emailDraftInstruction) {
       if (!hasChatAccess) {
         consumedHandoffIdRef.current = null;
@@ -2237,9 +2524,12 @@ export function AgentChatWorkspace({
     handoff,
     handleCreateNewChat,
     hasChatAccess,
+    prepareGmailKycReply,
     router,
     localCrmEnabled,
     user,
+    vaultKey,
+    vaultOwnerToken,
   ]);
 
   useEffect(() => {
@@ -2844,12 +3134,9 @@ export function AgentChatWorkspace({
             setPkmReviews((current) =>
               current.filter((item) => item.id !== reviewId),
             );
-            void loadAgentPkmContext({
-              userId: user.uid,
-              vaultOwnerToken: token,
-              vaultKey,
-              forceRefresh: true,
-            }).catch(() => undefined);
+            // addToPKM invalidates the local PKM context. Do not rehydrate the
+            // entire encrypted vault here: the next KYC turn selects only its
+            // relevant identity segments.
             toast.success("Saved to Memory.");
             return;
           }
@@ -2896,9 +3183,11 @@ export function AgentChatWorkspace({
     [appendDebugEvent, getVaultOwnerToken, pkmReviews, user?.uid, vaultKey],
   );
 
-  /** Never called. The other half of the unwired PKM auto-save lane noted
-   *  on `pkmAutoSavePolicy` above -- kept intact for its author. */
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  /**
+   * Automatic writes are deliberately detached from the response stream. The
+   * chat remains responsive, while the receipt or a failure notification
+   * records the eventual outcome.
+   */
   const saveEligiblePkmCardsInBackground = useCallback(
     (params: {
       turnId: string;
@@ -2907,13 +3196,11 @@ export function AgentChatWorkspace({
       policy: AgentPkmAutoSavePolicy;
     }) => {
       const token = getVaultOwnerToken();
-      const autoSavePolicyEnabledAt = params.policy.enabledAt;
       if (
         !user?.uid ||
         !vaultKey ||
         !token ||
         !params.policy.enabled ||
-        !autoSavePolicyEnabledAt ||
         params.cards.length === 0
       ) {
         return;
@@ -2934,13 +3221,22 @@ export function AgentChatWorkspace({
               vaultKey,
               vaultOwnerToken: token,
               source: "agent_chat_auto_save",
-              confirmation: {
-                authorizationMode: "owner_auto_save_policy",
-                surface: "chat",
-                source: "agent_chat_auto_save_policy",
-                autoSavePolicyVersion: params.policy.version,
-                autoSavePolicyEnabledAt,
-              },
+              confirmation:
+                params.policy.source === "owner_choice" && params.policy.enabledAt
+                  ? {
+                      authorizationMode: "owner_auto_save_policy",
+                      surface: "chat",
+                      source: "agent_chat_auto_save_policy",
+                      autoSavePolicyVersion: params.policy.version,
+                      autoSavePolicyEnabledAt: params.policy.enabledAt,
+                    }
+                  : {
+                      authorizationMode: "product_default_auto_save_policy",
+                      surface: "chat",
+                      source: "agent_chat_product_default_auto_save",
+                      autoSavePolicyVersion: params.policy.version,
+                      productDefaultEffectiveAt: AGENT_PKM_PRODUCT_DEFAULT_EFFECTIVE_AT,
+                    },
             });
             appendDebugEvent(params.turnId, "pkm_auto_save_result", result);
             trackEvent("agent_pkm_save_confirmation_completed", {
@@ -2961,12 +3257,8 @@ export function AgentChatWorkspace({
                   status: "done",
                 },
               ]);
-              void loadAgentPkmContext({
-                userId: user.uid,
-                vaultOwnerToken: token,
-                vaultKey,
-                forceRefresh: true,
-              }).catch(() => undefined);
+              // addToPKM invalidates the local PKM context. A later targeted
+              // KYC lookup refreshes just the changed identity segments.
             }
             if (result.failed > 0) {
               const failedIds = new Set(
@@ -3021,6 +3313,67 @@ export function AgentChatWorkspace({
       }, 0);
     },
     [appendDebugEvent, getVaultOwnerToken, user?.uid, vaultKey],
+  );
+
+  const captureEligiblePkmFactsInBackground = useCallback(
+    (params: { turnId: string; sourceMessage: string; currentDomains: string[] }) => {
+      if (!pkmAutoSavePolicy.enabled || !user?.uid || !vaultKey) return;
+      const token = getVaultOwnerToken();
+      if (!token) return;
+      window.setTimeout(() => {
+        void (async () => {
+          try {
+            const labContext = await loadPkmAgentLabContext({
+              userId: user.uid,
+              vaultOwnerToken: token,
+            }).catch(() => null);
+            const prepared = await prepareNaturalLanguagePkm({
+              userId: user.uid,
+              message: params.sourceMessage,
+              currentDomains: params.currentDomains,
+              currentManifests: Object.values(labContext?.manifests || {}).filter(Boolean),
+              findDuplicate: (candidate) =>
+                AgentPkmContextStore.findLocalDuplicate({ userId: user.uid, candidate }),
+              vaultOwnerToken: token,
+              source: "agent_chat_auto_capture",
+              allowEmpty: true,
+            });
+            const autoSaveCards = getPkmAutoSaveCards(prepared.cards);
+            const reviewCards = getPkmConfirmationCards(prepared.cards);
+            if (reviewCards.length > 0) {
+              setPkmReviews((current) => [
+                ...current.filter((review) => review.turnId !== params.turnId),
+                {
+                  id: `${params.turnId}-pkm-review`,
+                  turnId: params.turnId,
+                  sourceMessage: params.sourceMessage,
+                  cards: reviewCards,
+                  saving: false,
+                },
+              ]);
+            }
+            saveEligiblePkmCardsInBackground({
+              turnId: params.turnId,
+              sourceMessage: params.sourceMessage,
+              cards: autoSaveCards,
+              policy: pkmAutoSavePolicy,
+            });
+          } catch (error) {
+            const message = error instanceof Error ? error.message : "Automatic memory saving failed.";
+            appendDebugEvent(params.turnId, "pkm_auto_capture_failed", { message });
+            toast.error("We couldn't save eligible details to Memory. Nothing new was added.");
+          }
+        })();
+      }, 0);
+    },
+    [
+      appendDebugEvent,
+      getVaultOwnerToken,
+      pkmAutoSavePolicy,
+      saveEligiblePkmCardsInBackground,
+      user?.uid,
+      vaultKey,
+    ],
   );
 
   const runAgentTurn = async (
@@ -3756,6 +4109,10 @@ export function AgentChatWorkspace({
             if (streamAbortController.signal.aborted) return;
             appendDebugEvent(debugTurnId, "tool_result", toolEvent);
             openGmailEmailDraftFromDirective(toolEvent, assistantMessageId);
+            const calendarDirective = getCalendarDirectiveFromToolEvent(toolEvent);
+            if (calendarDirective) {
+              setPendingSpecialistDirective(calendarDirective);
+            }
             const visibleEvent = agentToolEventToVisibleStreamEvent(
               "result",
               toolEvent,
@@ -3786,6 +4143,10 @@ export function AgentChatWorkspace({
               ...message,
               structuredExperience,
             }));
+          },
+          onSpecialistDirective: (directive) => {
+            if (streamAbortController.signal.aborted) return;
+            setPendingSpecialistDirective(directive);
           },
           onComplete: ({ conversationId: nextConversationId }) => {
             if (streamAbortController.signal.aborted) return;
@@ -3838,6 +4199,16 @@ export function AgentChatWorkspace({
           status: "done",
         };
       });
+      // Only facts deliberately typed into the normal composer are eligible
+      // for automatic capture. Assistant output, tool events, and Gmail
+      // content never enter this client-side proposal path.
+      if (options.source === "typed") {
+        captureEligiblePkmFactsInBackground({
+          turnId: debugTurnId,
+          sourceMessage: text,
+          currentDomains: turnPkmContext.domains,
+        });
+      }
       void loadConversationList(true).catch(() => undefined);
       setIsChatLoading(false);
       setIsStreaming(false);
@@ -4544,9 +4915,22 @@ export function AgentChatWorkspace({
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    const text = input.trim();
+    const draftText = input.trim();
+    const attachment = longPromptAttachment;
+    if (draftText.length >= LONG_PROMPT_ATTACHMENT_CHARS && !attachment) {
+      setLongPromptAttachment({
+        text: draftText,
+        byteSize: new TextEncoder().encode(draftText).byteLength,
+      });
+      setInput("");
+      setComposerPurpose(null);
+      setComposerExpanded(false);
+      return;
+    }
+    const text = attachment?.text ?? draftText;
     if (!text || isLoadingHistory || isVoiceConnecting || voiceActive) return;
     setInput("");
+    setLongPromptAttachment(null);
     setComposerExpanded(false);
     const purpose = composerPurpose;
     setComposerPurpose(null);
@@ -4574,6 +4958,10 @@ export function AgentChatWorkspace({
           { id: `pan-guard-${Date.now()}`, kind: "add" },
         ]);
       }
+      return;
+    }
+    if (gmailKycReplyRequest && gmailKycMissingLabels.length > 0) {
+      await submitGmailKycDetails(text);
       return;
     }
     if (purpose === "memory") {
@@ -4684,6 +5072,65 @@ export function AgentChatWorkspace({
       ),
     [emailDeliveryHistory, visibleMessages],
   );
+  const emailDraftIsAnchored = Boolean(
+    emailDraftOpen &&
+      emailDraftAnchorMessageId &&
+      visibleMessages.some(
+        (message) => message.id === emailDraftAnchorMessageId),
+  );
+  const renderEmailDraftCard = () => {
+    if (!emailDraftOpen) return null;
+    const workflowId = gmailKycEmailDraftWorkflowId;
+    return (
+      <div className="border-t border-border/70 pt-3">
+        <EmailDraftCard
+          initialInstruction={emailDraftInstruction}
+          initialDraft={emailDraftInitialValue}
+          autoDraft={emailDraftAutoDraft}
+          getAuth={getEmailDeliveryAuth}
+          onRequireVault={() => setVaultDialogOpen(true)}
+          onDismiss={closeEmailDraft}
+          onSendStarted={handleEmailSendStarted}
+          onSent={handleEmailSent}
+          onSendFailed={handleEmailSendFailed}
+          sourceBoundReply={
+            workflowId
+              ? {
+                  send: async ({
+                    firebaseIdToken,
+                    vaultOwnerToken,
+                    draft,
+                    idempotencyKey,
+                  }) => {
+                    const body = richEmailPlainText(draft.body);
+                    if (!body) {
+                      throw new Error("Write a reply before sending it.");
+                    }
+                    const prepared = await GmailInformationRequestsService.prepareReply({
+                      firebaseIdToken,
+                      vaultOwnerToken,
+                      workflowId,
+                      body,
+                      htmlBody: draft.htmlBody ?? draft.body,
+                      idempotencyKey,
+                    });
+                    const sent = await GmailInformationRequestsService.sendReply({
+                      firebaseIdToken,
+                      vaultOwnerToken,
+                      workflowId,
+                      actionId: prepared.actionId,
+                      body,
+                      htmlBody: draft.htmlBody ?? draft.body,
+                    });
+                    return { outcomeUnknown: sent.outcomeUnknown };
+                  },
+                }
+              : null
+          }
+        />
+      </div>
+    );
+  };
   const latestRetryableAssistantId =
     [...visibleMessages]
       .reverse()
@@ -5312,6 +5759,9 @@ export function AgentChatWorkspace({
                       onRetry={retryEmailDelivery}
                     />
                   ))}
+                  {message.id === emailDraftAnchorMessageId
+                    ? renderEmailDraftCard()
+                    : null}
                 </Fragment>
               ))}
 
@@ -5996,21 +6446,7 @@ export function AgentChatWorkspace({
                   retryDisabled={isChatLoading || isStreaming}
                 />
               ))}
-              {emailDraftOpen ? (
-                <div className="border-t border-border/70 pt-3">
-                  <EmailDraftCard
-                    initialInstruction={emailDraftInstruction}
-                    initialDraft={emailDraftInitialValue}
-                    autoDraft={emailDraftAutoDraft}
-                    getAuth={getEmailDeliveryAuth}
-                    onRequireVault={() => setVaultDialogOpen(true)}
-                    onDismiss={closeEmailDraft}
-                    onSendStarted={handleEmailSendStarted}
-                    onSent={handleEmailSent}
-                    onSendFailed={handleEmailSendFailed}
-                  />
-                </div>
-              ) : null}
+              {!emailDraftIsAnchored ? renderEmailDraftCard() : null}
               {emailDeliveryTimeline.trailingItems.map((item) => (
                 <EmailDeliveryHistoryCard
                   key={item.id}
@@ -6148,6 +6584,32 @@ export function AgentChatWorkspace({
                 </div>
               ) : (
                 <>
+                  {longPromptAttachment ? (
+                    <div
+                      className="mb-2 flex items-center justify-between gap-3 rounded-[18px] border border-[color:var(--app-accent-ring)] bg-[color:var(--app-accent-soft)] px-3 py-2 text-sm"
+                      data-testid="agent-chat-long-prompt-attachment"
+                    >
+                      <div className="flex min-w-0 items-center gap-2">
+                        <FileText className="h-4 w-4 shrink-0" aria-hidden="true" />
+                        <div className="min-w-0">
+                          <p className="truncate font-medium">long-prompt.txt</p>
+                          <p className="text-xs text-muted-foreground">
+                            {(longPromptAttachment.byteSize / 1024).toFixed(1)} KB · sent as one message
+                          </p>
+                        </div>
+                      </div>
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant="ghost"
+                        className="h-8 w-8 shrink-0"
+                        aria-label="Remove long prompt attachment"
+                        onClick={() => setLongPromptAttachment(null)}
+                      >
+                        <X className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  ) : null}
                   {composerPurpose ? (
                     <div
                       className="mb-2 flex flex-wrap items-center justify-between gap-2 rounded-[18px] bg-[color:var(--app-accent-soft)] px-3 py-2 text-xs shadow-[0_14px_34px_-28px_var(--app-accent-deep)]"
@@ -6214,9 +6676,15 @@ export function AgentChatWorkspace({
                         disabled={
                           isLoadingHistory ||
                           isVoiceConnecting ||
-                          emailDraftOpen
+                          emailDraftOpen ||
+                          isGmailKycSaving ||
+                          longPromptAttachment !== null
                         }
-                        placeholder="Write a longer message..."
+                        placeholder={
+                          gmailKycMissingLabels.length > 0
+                            ? `Reply with: ${gmailKycMissingLabels.join(", ")}`
+                            : "Write a longer message..."
+                        }
                         className="block h-[min(38dvh,18rem)] w-full resize-none overscroll-contain overflow-y-auto bg-transparent px-4 pb-14 pr-32 pt-4 text-[16px] leading-6 text-foreground outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-60 sm:h-[min(48dvh,30rem)] sm:px-5 sm:pb-16 sm:pr-36 sm:pt-5 sm:text-sm"
                       />
                       <Button
@@ -6264,9 +6732,15 @@ export function AgentChatWorkspace({
                           disabled={
                             isLoadingHistory ||
                             isVoiceConnecting ||
-                            emailDraftOpen
+                            emailDraftOpen ||
+                            isGmailKycSaving ||
+                            longPromptAttachment !== null
                           }
-                          placeholder="Message One..."
+                          placeholder={
+                            gmailKycMissingLabels.length > 0
+                              ? `Reply with: ${gmailKycMissingLabels.join(", ")}`
+                              : "Message One..."
+                          }
                           rows={1}
                           className="block min-h-10 max-h-28 w-full resize-none overscroll-contain overflow-y-auto bg-transparent px-7 py-3 pr-14 text-[16px] leading-6 text-foreground outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-60 sm:max-h-36 sm:px-8 sm:pr-14 sm:text-sm"
                         />

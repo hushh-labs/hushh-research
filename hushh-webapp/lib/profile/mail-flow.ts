@@ -174,7 +174,9 @@ function isBootstrapRunning(status: GmailConnectionStatus | null): boolean {
   if (latestRun) {
     return hasActiveRun(latestRun);
   }
-  return hasActiveStatus(status);
+  // OAuth completion can arrive just before the durable run is observable.
+  // The explicit bootstrap state remains authoritative in that interval.
+  return true;
 }
 
 function isBackfillRunning(status: GmailConnectionStatus | null): boolean {

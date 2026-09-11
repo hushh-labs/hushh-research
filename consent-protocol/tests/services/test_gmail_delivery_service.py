@@ -454,3 +454,51 @@ async def test_provider_timeout_becomes_outcome_unknown_without_retry(monkeypatc
         for query, args in conn.calls
         if "UPDATE gmail_owner_send_actions" in query and args
     )
+
+
+@pytest.mark.asyncio
+async def test_provider_transport_failure_becomes_outcome_unknown_without_retry(monkeypatch):
+    module = _signing_key(monkeypatch)
+
+    class _TransportFailureClient:
+        def __init__(self, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def post(self, *args, **kwargs):
+            raise httpx.ReadError("connection reset")
+
+    gmail = _Gmail()
+    gmail.get_send_access_token = AsyncMock(return_value="token")
+    service = GmailDeliveryService(gmail_service=gmail)
+    envelope_hmac = service._envelope_hmac(normalize_draft(_envelope()))
+    conn = _ActionConn(
+        [
+            {
+                "action_id": "action",
+                "state": "prepared",
+                "expires_at": "later",
+                "sent_at": None,
+                "envelope_hmac": envelope_hmac,
+            },
+            {"action_id": "action", "state": "sending", "expires_at": "later", "sent_at": None},
+        ]
+    )
+    monkeypatch.setattr(
+        module, "get_pool", lambda: __import__("asyncio").sleep(0, result=_Pool(conn))
+    )
+    monkeypatch.setattr(module.httpx, "AsyncClient", _TransportFailureClient)
+
+    result = await service.execute(user_id="owner", action_id="action", draft_payload=_envelope())
+
+    assert result == {"action_id": "action", "state": "outcome_unknown", "outcome_unknown": True}
+    assert any(
+        args[1] == "outcome_unknown"
+        for query, args in conn.calls
+        if "UPDATE gmail_owner_send_actions" in query and args
+    )

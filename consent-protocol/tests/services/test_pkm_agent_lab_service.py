@@ -88,6 +88,112 @@ def test_default_preview_budget_outlives_one_tail_contract_without_unbounded_wai
     )
 
 
+@pytest.mark.asyncio
+async def test_kyc_identity_profile_uses_one_constrained_extraction_call(monkeypatch) -> None:
+    service = PKMAgentLabService()
+    extraction = AsyncMock(
+        return_value={
+            "facts": [
+                {
+                    "field_id": "identity.identity_profile.full_name",
+                    "value": "Akshat Kumar",
+                    "source_text": "My full name is Akshat Kumar.",
+                    "confidence": 0.98,
+                },
+                {
+                    "field_id": "identity.identity_profile.declared_age",
+                    "value": "23",
+                    "source_text": "I am 23 years old.",
+                    "confidence": 0.96,
+                },
+            ],
+            "general_fallback_facts": [],
+        }
+    )
+    monkeypatch.setattr(service, "_run_agent_contract", extraction)
+
+    result = await service.generate_structure_preview(
+        user_id="owner",
+        message="My full name is Akshat Kumar. I am 23 years old.",
+        current_domains=["identity"],
+        memory_profile="kyc_identity_v1",
+        capture_execution_trace=True,
+    )
+
+    assert extraction.await_count == 1
+    assert result["performance"]["extraction_call_count"] == 1
+    assert result["performance"]["strategy"] == "single_constrained_kyc_identity_extraction"
+    assert [card["canonical_field_id"] for card in result["preview_cards"]] == [
+        "identity.identity_profile.full_name",
+        "identity.identity_profile.declared_age",
+    ]
+    assert result["preview_cards"][0]["candidate_payload"] == {
+        "identity_profile": {"full_name": "Akshat Kumar"}
+    }
+
+
+@pytest.mark.asyncio
+async def test_kyc_identity_profile_keeps_safe_unmapped_facts_on_general_pkm_path(
+    monkeypatch,
+) -> None:
+    service = PKMAgentLabService()
+    extraction = AsyncMock(
+        return_value={
+            "facts": [],
+            "general_fallback_facts": [
+                {
+                    "domain": "professional",
+                    "field": "primary_skill",
+                    "value": "machine learning",
+                    "source_text": "My primary skill is machine learning.",
+                    "confidence": 0.82,
+                }
+            ],
+        }
+    )
+    monkeypatch.setattr(service, "_run_agent_contract", extraction)
+
+    result = await service.generate_structure_preview(
+        user_id="owner",
+        message="My primary skill is machine learning.",
+        current_domains=["professional"],
+        memory_profile="kyc_identity_v1",
+    )
+
+    assert extraction.await_count == 1
+    assert result["performance"]["extraction_call_count"] == 1
+    assert len(result["preview_cards"]) == 1
+    card = result["preview_cards"][0]
+    assert card["target_domain"] == "professional"
+    assert card["primary_json_path"] == "profile.primary_skill"
+    assert card["write_mode"] == "confirm_first"
+    assert card["source_disposition"] == "general_pkm_fallback"
+    assert card["candidate_payload"] == {"profile": {"primary_skill": "machine learning"}}
+    assert "general_pkm_fallback" in card["validation_hints"]
+
+
+@pytest.mark.asyncio
+async def test_kyc_identity_profile_blocks_secret_input_before_model_extraction(
+    monkeypatch,
+) -> None:
+    service = PKMAgentLabService()
+    extraction = AsyncMock()
+    monkeypatch.setattr(service, "_run_agent_contract", extraction)
+
+    result = await service.generate_structure_preview(
+        user_id="owner",
+        message="My passport number is X12345678.",
+        current_domains=["identity"],
+        memory_profile="kyc_identity_v1",
+    )
+
+    extraction.assert_not_awaited()
+    assert result["preview_cards"] == []
+    assert result["write_mode"] == "do_not_save"
+    assert result["error"] == "sensitive_input_rejected"
+    assert "sensitive_government_id_rejected" in result["validation_hints"]
+
+
 def test_reserved_preview_target_is_rejected_without_a_fallback_domain() -> None:
     preview = PKMAgentLabService._normalize_structure_preview(
         message="Remember this only in the reserved area.",

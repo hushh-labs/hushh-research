@@ -7160,9 +7160,8 @@ export function OneLocationAgentPageContent({
         read: () => contactGraphReadRef.current(),
       }, fresh);
     } catch {
-      if (isCurrent()) toast.info("Contacts synced. Could not refresh connections.", {
+      if (isCurrent()) toast.info("Contacts synced. Matches are saved; refresh connections to update.", {
         id: "contact-sync-refresh",
-        description: "Your matches are saved. Retry to update the list.",
         action: { label: "Refresh connections", onClick: () => { void reconcileSyncedConnections(owner); } },
       });
     }

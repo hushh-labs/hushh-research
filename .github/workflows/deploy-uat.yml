@@ -1046,6 +1046,7 @@ jobs:
             --require-plaid \
             --require-market-data \
             --require-gmail \
+            --require-calendar \
             --require-one-email \
             --require-voice \
             --require-reviewer-smoke \
@@ -1069,6 +1070,7 @@ jobs:
             --require-plaid \
             --require-market-data \
             --require-gmail \
+            --require-calendar \
             --require-one-email \
             --require-voice \
             --require-reviewer-smoke \

@@ -166,6 +166,12 @@ When `--require-gmail` is set, it also checks without rendering values that
 `APP_FRONTEND_ORIGIN + /one/profile/gmail/oauth/return`. This blocks a deployment
 whose Gmail callback secret belongs to another environment.
 
+When `--require-calendar` is set, it requires the dedicated Calendar OAuth tuple
+(`GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET`,
+`GOOGLE_OAUTH_REDIRECT_URI`, and `GOOGLE_OAUTH_TOKEN_KEY`) and checks that its
+callback equals `APP_FRONTEND_ORIGIN + /one/profile/google/oauth/return`.
+Calendar must not rely on Gmail OAuth credentials in hosted environments.
+
 Deploy workflows add Gmail, One mailbox, and voice runtime checks with `--require-gmail --require-one-email --require-voice`. That enforcement stays in deploy/runtime verification and is not part of the default contributor PR CI lane.
 
 ### Runtime profile shape audit
@@ -322,6 +328,10 @@ Used by:
 | `GMAIL_OAUTH_CLIENT_SECRET` | `hushh_mcp/services/gmail_receipts_service.py` | Yes (Gmail sync) | Gmail OAuth client secret. Same key name across local, UAT, and production. |
 | `GMAIL_OAUTH_REDIRECT_URI` | `hushh_mcp/services/gmail_receipts_service.py` | Yes (Gmail receipts and owner-approved send) | Environment-owned Gmail OAuth callback. It must equal `APP_FRONTEND_ORIGIN + /one/profile/gmail/oauth/return`; register that exact URI in the Google OAuth client for each environment. |
 | `GMAIL_OAUTH_TOKEN_KEY` | `hushh_mcp/services/gmail_receipts_service.py` | Yes (Gmail sync) | Encryption key for persisted Gmail OAuth tokens. Same key name across local, UAT, and production. |
+| `GOOGLE_OAUTH_CLIENT_ID` | `hushh_mcp/services/google_connection_service.py` | Yes (Calendar) | Dedicated Google Calendar OAuth client id. |
+| `GOOGLE_OAUTH_CLIENT_SECRET` | `hushh_mcp/services/google_connection_service.py` | Yes (Calendar) | Dedicated Google Calendar OAuth client secret. |
+| `GOOGLE_OAUTH_REDIRECT_URI` | `hushh_mcp/services/google_connection_service.py` | Yes (Calendar) | Must equal `APP_FRONTEND_ORIGIN + /one/profile/google/oauth/return`; register that exact URI in the Calendar OAuth client. |
+| `GOOGLE_OAUTH_TOKEN_KEY` | `hushh_mcp/services/google_connection_service.py` | Yes (Calendar) | Encryption key for persisted Calendar OAuth tokens. |
 | `OPENAI_API_KEY` | `hushh_mcp/services/voice_intent_service.py` | Yes (voice) | Required for the Kai voice lane's realtime transcription, planning/composition, and TTS. |
 | `VOICE_RUNTIME_CONFIG_JSON` | `hushh_mcp/runtime_settings.py`, `api/routes/kai/voice.py`, `hushh_mcp/services/voice_intent_service.py` | Yes (voice) | Structured voice runtime config covering rollout, canary, allowlists, fail-fast policy, and model defaults. |
 | `HUSHH_LOCAL_RUNTIME_PACK_REGISTRY_SECRET` | `api/routes/kai/local_runtime.py` | Required when hosted local voice packs are enabled | Secret Manager registry name holding immutable model-object metadata and rollback entries, never a bearer URL or protected application information. |
@@ -409,6 +419,10 @@ Used by:
 | `GMAIL_OAUTH_CLIENT_SECRET` | Yes (Gmail sync) | Yes | Local: `.env`; Hosted: Secret Manager | Same key name across local, UAT, and production. |
 | `GMAIL_OAUTH_REDIRECT_URI` | Yes (Gmail receipts and owner-approved send) | Yes | Local: `.env`; Hosted: Secret Manager | Must equal the active environment origin plus `/one/profile/gmail/oauth/return`; local bootstrap explicitly restores the localhost callback after reading shared connector credentials. |
 | `GMAIL_OAUTH_TOKEN_KEY` | Yes (Gmail sync) | Yes | Local: `.env`; Hosted: Secret Manager | Same key name across local, UAT, and production. |
+| `GOOGLE_OAUTH_CLIENT_ID` | Yes (Calendar) | Yes | Local: `.env`; Hosted: Secret Manager | Dedicated Calendar OAuth client id. |
+| `GOOGLE_OAUTH_CLIENT_SECRET` | Yes (Calendar) | Yes | Local: `.env`; Hosted: Secret Manager | Dedicated Calendar OAuth client secret. |
+| `GOOGLE_OAUTH_REDIRECT_URI` | Yes (Calendar) | Yes | Local: `.env`; Hosted: Secret Manager | Must equal the active environment origin plus `/one/profile/google/oauth/return`. |
+| `GOOGLE_OAUTH_TOKEN_KEY` | Yes (Calendar) | Yes | Local: `.env`; Hosted: Secret Manager | Encryption key for persisted Calendar OAuth tokens. |
 | `OPENAI_API_KEY` | Yes (voice) | Yes | Local: `.env`; Hosted: Secret Manager | Required for voice runtime. |
 | `VOICE_RUNTIME_CONFIG_JSON` | Yes (voice) | Yes | Local: `.env`; Hosted: Secret Manager | Structured runtime config for voice rollout, fail-fast policy, and model selection. |
 | `FIREBASE_ADMIN_CREDENTIALS_JSON` | Yes (auth) | Yes | Local: `.env`; Prod: Secret Manager | JSON string. Also canonical Workspace DWD credential for `one@hushh.ai`. |
@@ -579,7 +593,7 @@ Secret Manager must hold **exactly** the keys the code uses. No extra secrets; n
 | `HUSHH_PROD_PHONE_TEST_NUMBERS` | `HUSHH_PROD_PHONE_TEST_NUMBERS` (`api/routes/account.py`) |
 | `HUSHH_PROD_PHONE_TEST_CODE` | `HUSHH_PROD_PHONE_TEST_CODE` (`api/routes/account.py`) |
 | `HUSHH_PROD_PHONE_TEST_CHALLENGE_SECRET` | `HUSHH_PROD_PHONE_TEST_CHALLENGE_SECRET` (`api/routes/account.py`) |
-**Literal Cloud Run env vars, not in Secret Manager:** `ENVIRONMENT`, `HUSHH_GENAI_AUTH_MODE`, `GOOGLE_GENAI_USE_VERTEXAI`, `GOOGLE_CLOUD_PROJECT`, `GOOGLE_CLOUD_LOCATION`, `HUSHH_VERTEX_LOCATIONS`.
+**Literal Cloud Run env vars, not in Secret Manager:** `ENVIRONMENT`, `HUSHH_GENAI_AUTH_MODE`, `GOOGLE_GENAI_USE_VERTEXAI`, `GOOGLE_CLOUD_PROJECT`, `GENAI_GOOGLE_CLOUD_PROJECT`, `GOOGLE_CLOUD_LOCATION`, `HUSHH_VERTEX_LOCATIONS`.
 
 **Sourced from the `BACKEND_RUNTIME_CONFIG_JSON` secret, not literal Cloud Run env vars:** `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_UNIX_SOCKET`, `CLOUDSQL_INSTANCE_CONNECTION_NAME`, `CONSENT_SSE_ENABLED`, `SYNC_REMOTE_ENABLED`, `DEVELOPER_API_ENABLED`, `REMOTE_MCP_ENABLED`, `CORS_ALLOWED_ORIGINS`, and the non-secret `HUSSH_TECH_*` policy keys. Each key is copied into `os.environ` at process start by `hydrate_runtime_environment()` (`hushh_mcp/runtime_settings.py`), so the actual Cloud Run service spec never shows these as plain env vars — only a `secretKeyRef` to `BACKEND_RUNTIME_CONFIG_JSON`. `HUSSH_TECH_LAUNCH_PEPPER` is the exception: it is a separate direct secret binding. A prior version of this doc claimed these were literal Cloud Run env vars; production ran with a stale Supabase `db_host` in this JSON for months as a direct result of that being untrue.
 
