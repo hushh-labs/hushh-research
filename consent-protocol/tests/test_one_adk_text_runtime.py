@@ -967,3 +967,142 @@ async def test_the_intro_turn_also_survives_a_second_model_step(monkeypatch):
     delivered = "".join(event.text for event in events if event.kind == "token")
     assert "Hussh keeps it on your own pod." in delivered, delivered
     assert delivered.count("One moment. ") == 1, delivered
+
+
+# --- The incarnation lease gate --------------------------------------------------
+#
+# `memory_commit_allowed` silently drops a whole turn's memory when this pod no
+# longer holds the fence. It is the right behaviour: the pod that replaced this
+# one owns the log, and two incarnations writing the same log is the corruption
+# the fence exists to prevent. But a control that discards information silently
+# is exactly the kind that must be tested, and a grep of the test tree for
+# either `memory_commit_allowed` or its log line returned nothing at all. Both
+# halves were untested: the runtime's gate here, and `_memory_commit_allowed`
+# in `api/routes/one/pod_turn.py` that supplies it.
+
+
+class _CountingRecorder:
+    def __init__(self) -> None:
+        self.writes = 0
+
+    async def add_session_to_memory(self, session):  # noqa: ANN001
+        self.writes += 1
+
+
+def _one_step_runner():
+    class _FakeRunner:
+        def __init__(self, *, app_name, agent, session_service, memory_service=None):
+            self.session_service = session_service
+
+        async def run_async(self, *, user_id, session_id, new_message, run_config):
+            yield Event(
+                author="one",
+                partial=False,
+                content=genai_types.Content(
+                    role="model", parts=[genai_types.Part.from_text(text="Your dog is called Bo.")]
+                ),
+            )
+
+    return _FakeRunner
+
+
+async def _run_turn_with_gate(monkeypatch, gate):
+    recorder = _CountingRecorder()
+    monkeypatch.setattr(text_runtime, "Runner", _one_step_runner())
+    monkeypatch.setattr(text_runtime, "build_one_text_agent", lambda *, model: ("one", model))
+    monkeypatch.setattr(text_runtime, "_resolve_pod_memory_service", lambda: recorder)
+
+    events = [
+        event
+        async for event in text_runtime.stream_one_text_turn(
+            user_id="u1",
+            consent_token="opaque-" + "token",
+            conversation_id="c1",
+            message="what is my dog called",
+            history=[],
+            timezone="America/Los_Angeles",
+            screen_context={"screen": "one_home"},
+            pkm_context="",
+            runtime_provider="puppy",
+            runtime_model="local",
+            runtime_mode="hushh_managed_vertex",
+            runtime_credential=None,
+            memory_commit_allowed=gate,
+        )
+    ]
+    return recorder, events
+
+
+@pytest.mark.asyncio
+async def test_a_held_lease_commits_the_turn_to_memory(monkeypatch):
+    """The negative control: a gate that refuses everything is not a gate."""
+
+    async def held() -> bool:
+        return True
+
+    recorder, events = await _run_turn_with_gate(monkeypatch, held)
+
+    assert recorder.writes == 1
+    assert "Your dog is called Bo." in "".join(e.text for e in events if e.kind == "token")
+
+
+@pytest.mark.asyncio
+async def test_a_fenced_incarnation_answers_but_writes_nothing(monkeypatch):
+    """The pod that replaced this one owns the log, so this one must not write.
+
+    The answer still has to be delivered: the person already asked, and taking a
+    delivered answer away to report a bookkeeping problem would be worse than
+    the missing write.
+    """
+
+    async def fenced() -> bool:
+        return False
+
+    recorder, events = await _run_turn_with_gate(monkeypatch, fenced)
+
+    assert recorder.writes == 0, "a fenced incarnation published to the shared log"
+    assert "Your dog is called Bo." in "".join(e.text for e in events if e.kind == "token")
+
+
+@pytest.mark.asyncio
+async def test_an_uncertain_lease_is_treated_as_fenced(monkeypatch):
+    """Anything that is not exactly True must not write.
+
+    `is_current()` can answer "uncertain", and the gate compares against True
+    rather than truthiness for that reason. A None or a truthy-but-not-True
+    value must fail closed.
+    """
+
+    async def uncertain():
+        return None
+
+    recorder, _ = await _run_turn_with_gate(monkeypatch, uncertain)
+
+    assert recorder.writes == 0
+
+
+@pytest.mark.asyncio
+async def test_a_fenced_turn_reports_no_memory_block_at_all(monkeypatch):
+    """Pinning a conflation worth knowing about, not endorsing it.
+
+    A fenced turn sets `memory_service = None`, which also suppresses the
+    `memory` event. So the response is shaped exactly like a pod whose memory is
+    switched off: the caller cannot tell "I deliberately did not write, because
+    I am fenced" from "I have no memory". If that distinction is ever wanted on
+    the turn response, this is the test that will fail and say why.
+    """
+
+    async def fenced() -> bool:
+        return False
+
+    _, events = await _run_turn_with_gate(monkeypatch, fenced)
+
+    assert [e for e in events if e.kind == "memory"] == []
+
+
+@pytest.mark.asyncio
+async def test_no_gate_means_allowed_hub_and_tests(monkeypatch):
+    """Absent is allowed: the hub has no incarnation and no fence to consult."""
+    recorder, _ = await _run_turn_with_gate(monkeypatch, None)
+
+    assert recorder.writes == 1

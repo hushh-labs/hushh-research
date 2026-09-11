@@ -1219,3 +1219,80 @@ async def test_the_turn_and_the_memory_doors_refuse_a_sessionless_local_token_al
             "message": "an app-role session is required",
         }
     )
+
+
+# --- The fence the memory gate consults ------------------------------------------
+#
+# `_memory_commit_allowed` is what the turn hands the runtime so a fenced
+# incarnation finishes its answer and publishes nothing. It was untested on both
+# sides: a grep of the whole test tree for its name returned nothing. It is a
+# fail-closed control over a shared durable log, so "untested" is the wrong
+# state for it to be in.
+
+
+class _Lease:
+    def __init__(self, answer):
+        self._answer = answer
+        self.asked = 0
+
+    async def is_current(self):
+        self.asked += 1
+        return self._answer
+
+
+class _Authority:
+    def __init__(self, lease):
+        self.lease = lease
+
+
+@pytest.mark.asyncio
+async def test_no_authority_means_allowed(monkeypatch):
+    """The hub and the tests hold no incarnation, so there is no fence to fail."""
+    from hushh_mcp.services import pod_session_authority
+
+    monkeypatch.setattr(pod_session_authority, "active_session_authority", lambda: None)
+
+    assert await pod_turn._memory_commit_allowed() is True
+
+
+@pytest.mark.asyncio
+async def test_a_held_fence_allows_the_commit(monkeypatch):
+    from hushh_mcp.services import pod_session_authority
+
+    lease = _Lease(True)
+    monkeypatch.setattr(
+        pod_session_authority, "active_session_authority", lambda: _Authority(lease)
+    )
+
+    assert await pod_turn._memory_commit_allowed() is True
+    assert lease.asked == 1, "the fence has to be consulted, not assumed"
+
+
+@pytest.mark.asyncio
+async def test_a_lost_fence_refuses_the_commit(monkeypatch):
+    from hushh_mcp.services import pod_session_authority
+
+    monkeypatch.setattr(
+        pod_session_authority, "active_session_authority", lambda: _Authority(_Lease(False))
+    )
+
+    assert await pod_turn._memory_commit_allowed() is False
+
+
+@pytest.mark.asyncio
+async def test_an_uncertain_fence_refuses_the_commit(monkeypatch):
+    """`is_current` has three answers and only one of them may write.
+
+    Uncertain means the CAS read did not resolve. Two incarnations writing the
+    same log is precisely what the fence exists to stop, so uncertainty fails
+    closed. The comparison is `is True` and not truthiness for this reason.
+    """
+    from hushh_mcp.services import pod_session_authority
+
+    for uncertain in (None, "yes", 1):
+        monkeypatch.setattr(
+            pod_session_authority,
+            "active_session_authority",
+            lambda lease=_Lease(uncertain): _Authority(lease),
+        )
+        assert await pod_turn._memory_commit_allowed() is False, uncertain
