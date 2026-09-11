@@ -7,7 +7,15 @@ about which side is the architecture. Resolve a conflict by recency -- or let a
 "take theirs" reflex win one file -- and modular pod deployment is gone, with a clean
 merge commit and a green diff to show for it.
 
-The concrete case, measured 2026-08-12 against `origin/main`:
+It has now happened twice. On 2026-09-11 a clean merge of `origin/main` landed and
+deleted the pod image build outright: 29 failures and 30 errors, and this file named the
+loss correctly. But it named it AFTER the merge commit existed, and only once somebody
+ran the full suite. So the same markers are now also checked by
+`scripts/git/check-pod-architecture-survives-merge.sh`, which `.githooks/pre-merge-commit`
+runs as a hard block, refusing the merge while undoing it is still free. Adding a marker
+below arms that hook too; it runs this file rather than repeating it.
+
+The concrete case, measured 2026-08-12 against `origin/main` and unchanged on 2026-09-11:
 
     token                     branch   main
     _BUILD_POD_IMAGE               5      0

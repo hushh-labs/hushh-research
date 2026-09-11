@@ -235,6 +235,27 @@ address an image nobody publishes.
 7. **UAT and PROD stay isolated** until the transition is explicitly approved. Preview on
    the **dev** lane only.
 
+**It happened again on 2026-09-11, and this time it landed.** A clean merge of
+`origin/main` took main's side of `deploy/backend.cloudbuild.yaml` and deleted the pod
+image build outright: `_BUILD_POD_IMAGE` 5 -> 0, `Dockerfile.pod` 3 -> 0,
+`consent-protocol-pod` 4 -> 0, with the backend suite at 29 failures and 30 errors. The
+guard below was red and correct, but only after the merge commit existed. Two things
+changed as a result:
+
+1. **`.githooks/pre-merge-commit` now BLOCKS such a merge**, through
+   `scripts/git/check-pod-architecture-survives-merge.sh`. Unlike the advisory
+   merge-regression heuristic beside it, this one counts tokens `main` does not contain
+   at all, so it cannot produce a false positive and it refuses rather than warns.
+   Override for one merge with `HUSHH_ALLOW_POD_ARCHITECTURE_LOSS=1`.
+2. **Do not gate a merge hook on `MERGE_HEAD`.** Measured on git 2.50.1: during
+   `pre-merge-commit` for a CLEAN merge it does not exist, so a hook that checks for it
+   is silent in exactly the case that matters. The hook running at all is the signal.
+   `.githooks/pre-merge-commit`'s own advisory check still carries that gate and is
+   therefore inert on clean merges; its heuristic is advisory anyway, but know it.
+
+`consent-protocol/tests/test_pod_architecture_merge_guard.py` runs the real script, both
+directions, and is registered in the CI manifest.
+
 **The guard:** `consent-protocol/tests/test_pod_architecture_is_authoritative.py` asserts the
 architectural direction — pod image build, relay mount, turn router, the pod-conditional
 memory guard, the specialist authority gate, carried grounding, and migration 141's
