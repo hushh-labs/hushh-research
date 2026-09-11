@@ -9,6 +9,7 @@ import {
   KAI_IMPORT_E2E_FLOW_ID,
   filterUiFlows,
 } from "../testing/signed-in-ui-flows.mjs";
+import { parseEnvFile } from "../testing/reviewer-test-identity.mjs";
 import { createNativeUiAuditManifest } from "./native-ui-audit-plan.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -31,7 +32,19 @@ const repoRoot = path.resolve(__dirname, "..", "..");
  * disagree again.
  */
 function webAssetDir() {
-  return process.env.NEXT_DIST_DIR?.trim() || "out";
+  // NEXT_DIST_DIR is NOT in this process's environment. with-ios-native-env.mjs
+  // injects it only into the child it spawns (the Next build and cap sync), so
+  // the parent that writes these artifacts never sees it and a plain
+  // process.env read silently falls back to "out" -- which is the exact bug
+  // this function exists to prevent. Read the same file that script reads.
+  const fromEnv = process.env.NEXT_DIST_DIR?.trim();
+  if (fromEnv) return fromEnv;
+  const nativeEnvPath = path.join(repoRoot, ".env.native.ios.local");
+  if (fs.existsSync(nativeEnvPath)) {
+    const fromFile = parseEnvFile(nativeEnvPath)?.NEXT_DIST_DIR?.trim();
+    if (fromFile) return fromFile;
+  }
+  return "out";
 }
 
 export function writeNativeUiFlowsManifest({
