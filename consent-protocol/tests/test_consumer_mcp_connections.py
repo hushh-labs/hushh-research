@@ -326,6 +326,12 @@ async def test_mcp_dispatch_returns_owner_handoff_without_granting_access(consum
     context = set_current_developer_principal(principal)
     try:
         assert "get_hussh_connection" in {tool.name for tool in await mcp_server.list_tools()}
+        assert {
+            "read_hussh_memory",
+            "save_hussh_memory",
+            "correct_hussh_memory",
+            "export_hussh_memory",
+        }.issubset({tool.name for tool in await mcp_server.list_tools()})
         result = await mcp_server.call_tool("get_hussh_connection", {})
         assert not result.isError
         assert result.structuredContent["state"] == "memory_approval_required"

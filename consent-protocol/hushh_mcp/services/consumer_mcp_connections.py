@@ -448,3 +448,25 @@ class ConsumerMcpConnections:
             if receipt is None:
                 raise ConsumerConnectionDenied("Personal memory approval required")
             yield tx, self._review(binding, authorization, receipt)
+
+    def admit_memory(self, principal: DeveloperPrincipal, *, operation: str) -> ConsumerConnection:
+        """Snapshot a grant before remote execution, without holding a DB lock."""
+        with self.memory_transaction(principal, operation=operation) as (_tx, connection):
+            return connection
+
+    def verify_memory_admission(
+        self,
+        principal: DeveloperPrincipal,
+        *,
+        operation: str,
+        admitted: ConsumerConnection,
+    ) -> ConsumerConnection:
+        """Recheck generation and grant after an owner-pod operation."""
+        with self.memory_transaction(principal, operation=operation) as (_tx, current):
+            if (
+                current.connection_id != admitted.connection_id
+                or current.generation != admitted.generation
+                or current.grant_receipt != admitted.grant_receipt
+            ):
+                raise ConsumerConnectionDenied("Memory approval changed while the pod worked")
+            return current

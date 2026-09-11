@@ -160,7 +160,14 @@ def get_current_visible_tool_names() -> tuple[str, ...]:
         return visible_tool_names_for_groups(DEFAULT_PUBLIC_TOOL_GROUPS)
     visible = visible_tool_names_for_groups(principal.allowed_tool_groups)
     if has_consumer_oauth_identity(principal):
-        visible = (*visible, "get_hussh_connection")
+        visible = (
+            *visible,
+            "get_hussh_connection",
+            "read_hussh_memory",
+            "save_hussh_memory",
+            "correct_hussh_memory",
+            "export_hussh_memory",
+        )
     return visible
 
 

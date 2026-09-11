@@ -6,7 +6,7 @@ from mcp.types import Tool
 
 from mcp_modules.canonical_contract import canonical_tool_name
 from mcp_modules.public_contract import get_public_contract
-from mcp_modules.tools.consumer_tools import ConsumerConnectionResult
+from mcp_modules.tools.consumer_tools import ConsumerConnectionResult, ConsumerMemoryResult
 
 
 def _private_tool_definitions() -> list[Tool]:
@@ -34,6 +34,84 @@ def _private_tool_definitions() -> list[Tool]:
             outputSchema=ConsumerConnectionResult.model_json_schema(),
             annotations={
                 "readOnlyHint": False,
+                "destructiveHint": False,
+                "idempotentHint": True,
+                "openWorldHint": False,
+            },
+        ),
+        Tool(
+            name="read_hussh_memory",
+            description="Read information from your owner pod after your standing Hussh memory approval. The pod is the execution target; unavailable pods fail closed.",
+            inputSchema=schema(
+                {
+                    "domain": {"type": "string", "minLength": 1, "maxLength": 64},
+                    "query": {"type": "string", "minLength": 1, "maxLength": 512},
+                    "limit": {"type": "integer", "minimum": 1, "maximum": 20},
+                },
+                ["domain", "query"],
+            ),
+            outputSchema=ConsumerMemoryResult.model_json_schema(),
+            annotations={
+                "readOnlyHint": True,
+                "destructiveHint": False,
+                "idempotentHint": True,
+                "openWorldHint": False,
+            },
+        ),
+        Tool(
+            name="save_hussh_memory",
+            description="Save an owner-approved personal memory through your owner pod. The canonical encrypted PKM commit must succeed; no plaintext fallback is used.",
+            inputSchema=schema(
+                {
+                    "domain": {"type": "string", "minLength": 1, "maxLength": 64},
+                    "content": {"type": "string", "minLength": 1, "maxLength": 4000},
+                    "idempotency_key": {"type": "string", "minLength": 1, "maxLength": 128},
+                    "expected_revision": {"type": "integer", "minimum": 0},
+                },
+                ["domain", "content", "idempotency_key"],
+            ),
+            outputSchema=ConsumerMemoryResult.model_json_schema(),
+            annotations={
+                "readOnlyHint": False,
+                "destructiveHint": False,
+                "idempotentHint": True,
+                "openWorldHint": False,
+            },
+        ),
+        Tool(
+            name="correct_hussh_memory",
+            description="Correct an existing owner-pod memory with compare-and-swap protection. Deletion and sharing changes require separate confirmation.",
+            inputSchema=schema(
+                {
+                    "domain": {"type": "string", "minLength": 1, "maxLength": 64},
+                    "memory_id": {"type": "string", "minLength": 1, "maxLength": 128},
+                    "content": {"type": "string", "minLength": 1, "maxLength": 4000},
+                    "idempotency_key": {"type": "string", "minLength": 1, "maxLength": 128},
+                    "expected_revision": {"type": "integer", "minimum": 0},
+                },
+                ["domain", "memory_id", "content", "idempotency_key"],
+            ),
+            outputSchema=ConsumerMemoryResult.model_json_schema(),
+            annotations={
+                "readOnlyHint": False,
+                "destructiveHint": False,
+                "idempotentHint": True,
+                "openWorldHint": False,
+            },
+        ),
+        Tool(
+            name="export_hussh_memory",
+            description="Request an owner-pod export of personal memory metadata. Credentials, keys and recovery secrets are excluded.",
+            inputSchema=schema(
+                {
+                    "domain": {"type": "string", "minLength": 1, "maxLength": 64},
+                    "format": {"type": "string", "maxLength": 32},
+                },
+                ["domain"],
+            ),
+            outputSchema=ConsumerMemoryResult.model_json_schema(),
+            annotations={
+                "readOnlyHint": True,
                 "destructiveHint": False,
                 "idempotentHint": True,
                 "openWorldHint": False,

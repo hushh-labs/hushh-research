@@ -432,3 +432,4 @@ tests/test_pod_vault_custody.py
 tests/test_pod_vault_enrollment.py
 
 tests/test_consumer_mcp_connections.py
+tests/test_consumer_mcp_memory.py
