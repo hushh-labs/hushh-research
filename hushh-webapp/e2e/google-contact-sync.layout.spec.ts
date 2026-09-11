@@ -136,8 +136,10 @@ test.beforeEach(async ({ page }) => {
       headers: { "access-control-allow-origin": "*" },
     }),
   );
+  // Match the app's device-width viewport. Without it, mobile emulation uses
+  // a 980px layout viewport and scales the fixture before any sheet renders.
   await page.setContent(
-    `<html><head><style>${css}</style></head><body><div id="root"></div></body></html>`,
+    `<html><head><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><style>${css}</style></head><body><div id="root"></div></body></html>`,
   );
   const startupErrors: string[] = [];
   page.on("pageerror", (error) => startupErrors.push(error.message));
