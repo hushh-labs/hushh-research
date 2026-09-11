@@ -25,6 +25,7 @@ import {
   RowLabel,
 } from "@/components/app-ui/typography";
 import { cn } from "@/lib/utils";
+import { SearchClearButton } from "@/components/app-ui/search-clear-button";
 import { MUTED_TEXT, SUBCARD_SURFACE } from "./tokens";
 import { DurationWheelPicker } from "./duration-wheel-picker";
 import { DurationPresetPicker } from "./duration-presets";
@@ -433,7 +434,13 @@ export function PersonSearchInput({
             field.scrollIntoView({ block: "center", behavior: "smooth" });
           }, 250);
         }}
-        className={LOCATION_SEARCH_INPUT_CLASSNAME}
+        className={cn(LOCATION_SEARCH_INPUT_CLASSNAME, "pr-12")}
+      />
+      <SearchClearButton
+        visible={value.length > 0}
+        label={`Clear ${placeholder.toLowerCase()}`}
+        onClear={() => onChange("")}
+        className="text-[color:var(--app-tertiary-label)]"
       />
     </div>
   );

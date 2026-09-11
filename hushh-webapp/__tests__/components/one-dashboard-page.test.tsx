@@ -356,6 +356,17 @@ describe("OneDashboardPage", () => {
     expect(screen.queryByTestId("one-agent-list-row-finance")).toBeNull();
   });
 
+  it("clears the roster query from the trailing touch affordance", () => {
+    render(<OneDashboardPage displayName="Kushal Trivedi" />);
+
+    const search = screen.getByTestId("one-agents-search");
+    fireEvent.change(search, { target: { value: "location" } });
+    fireEvent.click(screen.getByRole("button", { name: "Clear agent search" }));
+
+    expect(search).toHaveValue("");
+    expect(screen.getByTestId("one-agent-list-row-finance")).toBeTruthy();
+  });
+
   it("shows the finance mover as a concise green percentage without redundant winner copy", () => {
     render(
       <OneDashboardPage

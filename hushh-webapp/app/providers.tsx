@@ -12,7 +12,14 @@
  * CacheProvider enables data sharing across page navigations to reduce API calls.
  */
 
-import { CSSProperties, ReactNode, Suspense, useEffect, useMemo } from "react";
+import {
+  CSSProperties,
+  ReactNode,
+  Suspense,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import { AuthProvider } from "@/lib/firebase";
 import { VaultProvider } from "@/lib/vault/vault-context";
 import { StepProgressProvider } from "@/lib/progress/step-progress-context";
@@ -25,6 +32,8 @@ import { resolveTopShellRouteProfile } from "@/components/app-ui/top-shell-metri
 import { resolveAppRouteLayout } from "@/lib/navigation/app-route-layout";
 import { AppTopShell } from "@/components/app-ui/top-app-bar";
 import { AppEdgeBackGesture } from "@/components/app-ui/app-edge-back-gesture";
+import { AppProfileEdgeGesture } from "@/components/app-ui/app-profile-edge-gesture";
+import { ProfilePane } from "@/components/app-ui/profile-pane";
 import { TopShellRouteSwipe } from "@/components/app-ui/top-shell-route-swipe";
 import { AgentPopoverProvider } from "@/components/agent/agent-popover-provider";
 import { AgentRuntimeStateProvider } from "@/lib/agent/agent-runtime-context";
@@ -81,6 +90,7 @@ import {
   INTERNAL_APP_NAVIGATION_REQUEST_EVENT,
   type InternalAppNavigationRequest,
 } from "@/lib/utils/browser-navigation";
+import { PROFILE_PANE_OPEN_EVENT } from "@/lib/navigation/profile-pane";
 
 interface ProvidersProps {
   children: ReactNode;
@@ -119,6 +129,9 @@ function AppShellFrame({ children }: ProvidersProps) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const { isAuthenticated, loading: authLoading } = useAuth();
+  const [profilePaneOpen, setProfilePaneOpen] = useState(false);
+  const isProfileRoute =
+    pathname === ROUTES.PROFILE || pathname.startsWith(`${ROUTES.PROFILE}/`);
   // Destination crossings behind the shared back contract. Recorded here
   // because this frame renders for every route, including chrome-less ones,
   // and a screen with no top bar can still be where a destination was entered
@@ -211,6 +224,8 @@ function AppShellFrame({ children }: ProvidersProps) {
       : shellPathname;
   const hideGlobalChrome =
     !topShellMetrics.shellVisible || hidesPersistentChrome;
+  const profilePaneEnabled =
+    isAuthenticated && !authLoading && !hidesPersistentChrome && !isProfileRoute;
   const isFullscreenTopFlow = routeLayoutMode === "flow";
   const shouldLockFullscreenRoot = isFullscreenTopFlow || hidesPersistentChrome;
   const isFoundationRoute = isFoundationPublicRoute(pathname);
@@ -362,6 +377,26 @@ function AppShellFrame({ children }: ProvidersProps) {
   }, [topShellScrollResetKey]);
 
   useEffect(() => {
+    if (isProfileRoute || !profilePaneEnabled) {
+      setProfilePaneOpen(false);
+    }
+  }, [isProfileRoute, profilePaneEnabled]);
+
+  useEffect(() => {
+    const handleProfilePaneOpen = () => {
+      if (!profilePaneEnabled) return;
+      setProfilePaneOpen(true);
+    };
+    window.addEventListener(PROFILE_PANE_OPEN_EVENT, handleProfilePaneOpen);
+    return () => {
+      window.removeEventListener(
+        PROFILE_PANE_OPEN_EVENT,
+        handleProfilePaneOpen,
+      );
+    };
+  }, [profilePaneEnabled]);
+
+  useEffect(() => {
     const handleInternalNavigation = (event: Event) => {
       const customEvent = event as CustomEvent<InternalAppNavigationRequest>;
       acknowledgeInternalAppNavigation(customEvent.detail);
@@ -510,7 +545,12 @@ function AppShellFrame({ children }: ProvidersProps) {
                 route switch. Both are fixed overlays, so position is unaffected. */}
               {!hidesPersistentChrome ? <AgentVoiceEdgeGlow /> : null}
               {!hidesPersistentChrome ? <AppEdgeBackGesture /> : null}
+              <AppProfileEdgeGesture enabled={profilePaneEnabled} />
               <AppBottomShell model={bottomShellModel} />
+              <ProfilePane
+                open={profilePaneOpen}
+                onOpenChange={setProfilePaneOpen}
+              />
               {/* This bridge owns one post-unlock reconciliation for the whole
                 app. Keeping it outside the route Suspense boundary prevents
                 fallback/resolved remounts from launching the same sync twice. */}
