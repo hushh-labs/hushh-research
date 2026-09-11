@@ -2,7 +2,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ApiService } from "@/lib/services/api-service";
 
-import { ApiService } from "@/lib/services/api-service";
 import { GeminiLiveClient } from "@/lib/services/gemini-live-client";
 import type {
   OneVoiceSpeechAdapter,
