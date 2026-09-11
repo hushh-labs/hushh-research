@@ -18,7 +18,7 @@ GitHub action item: [#6719 Build consumer Hussh MCP with owner-pod memory and Pu
 ## Baseline and boundaries
 
 - Worktree: sibling `hushh-consumer-mcp`; branch `feat/consumer-mcp`.
-- Committed private baseline: `883327eaf57c3e78d62197d899811f5360262481` (11 September 2026).
+- Current branch candidate: `a171afbe8` (11 September 2026); the earlier private baseline remains recorded in git history.
 - Original workspace and ADK worktree are independently active and remain untouched.
 - No deployment, main promotion, production activation or marketplace submission has occurred in this workstream.
 - Working source is implementation evidence, not installed-runtime or host acceptance evidence.
@@ -39,9 +39,9 @@ Provisioning, recoverable owner-pod vault custody and client access are separate
 | Owner connection review and disconnect | Local checks pass | 34 backend and 8 frontend checks; typecheck, ESLint and surface-map generation passed |
 | Standing memory consent | Implemented; local checks pass | Durable binding, secure review, revoke/commit race and full erasure/rollback exercised in disposable PostgreSQL |
 | Resumable onboarding and provisioning | Pending | Compose existing setup jobs, custody approval and no duplicate infrastructure |
-| Pod custody and canonical memory | Pending | Authenticated enrollment, encrypted commit, CAS and replacement recovery |
-| Consumer tools and Puppy adapters | Pending | Typed operation execution, receipts and common records |
-| Direct/universal transport parity | Pending | Isolation, revocation races and non-persistence |
+| Pod custody and canonical memory | Local adapter implemented; live custody pending | Authenticated enrollment, encrypted commit, CAS and replacement recovery on an installed pod |
+| Consumer tools and Puppy adapters | Typed memory tools wired to owner-pod transport; Puppy parity pending | Common capability execution, receipts and Puppy device acceptance |
+| Direct/universal transport parity | Local relay adapter implemented; live parity pending | Isolation, revocation races and non-persistence across installed transports |
 | Host acceptance and submission packages | Pending | Real Claude and ChatGPT journeys, operational receipts |
 
 ## Verification and rollback
@@ -82,7 +82,7 @@ The topology generator remains the existing coverage join: `scripts/ops/generate
 - Existing unbound developer connections retain their five-tool consent/export behavior. Client-credentials and registry credentials never receive an owner identity.
 - Parked dev migration `937_consumer_mcp_oauth_resource.sql` adds the nullable resource column; old offline SQLite schemas also upgrade additively. No live migration applied.
 - Verification: 55 tests passed across `test_mcp_oauth_owner_binding.py`, `test_developer_oauth.py`, `test_mcp_remote_endpoint.py`, `test_mcp_public_contract_v030.py`, and `test_mcp_encrypted_scoped_export_tool.py`; Ruff and whitespace checks passed. Tests use synthetic local SQL, not live hosts.
-- Next: connect standing-consent admission to the existing consent ledger, then resumable setup and pod custody. OAuth identity is not an implementation of these pending authorities.
+- Next: connect standing-consent admission to resumable setup and pod custody. OAuth identity alone is not an implementation of those authorities.
 - Foundation commit: `7864eb92c`; existing entitled-tool dispatch fix: `f18fb5de0`. The dispatch defect was reproduced before correction: private RIA/Kai names were advertised but rejected as unknown. The fix retains exact-name, schema and entitlement checks; 19 affected tests passed.
 - OAuth session management uses the existing authorization identity. Owner-scoped session deletion atomically marks it denied, revokes its credentials and records the event. Late credentials cannot revive it. A standing assistant connection must survive a new authenticated OAuth session; it is a separate binding to the canonical consent ledger.
 - Approval UI shows the registered client and checks the existing authenticated-session generation after asynchronous work. Request changes abort pending requests; already accepted server-side approvals cannot be undone by browser cancellation.
@@ -108,14 +108,21 @@ The topology generator remains the existing coverage join: `scripts/ops/generate
 - Pod startup activates the custody writer before publishing readiness, only with configured KMS custody and durable identity. Authenticated enrollment binds owner, environment, deployment, subject/version, recipient key, incarnation, challenge, envelope digest and explicit recoverable-custody purpose. The caller must validate the key against canonical vault records.
 - Eighteen focused custody/enrollment tests pass, including actual startup replacement, generation races, altered ciphertext context, wrong-purpose signature, revoked subjects and key-validation failure. These are synthetic local tests, not installed runtime or browser/host acceptance.
 - Added paginated owner-scoped connection discovery through the existing OAuth API/proxy. Revoked connections remain discoverable without exposing credentials. Disconnect UI remains to be connected.
-- Added typed `read_hussh_memory`, `save_hussh_memory`, `correct_hussh_memory` and `export_hussh_memory` contracts. Each call is admitted through the existing standing-consent generation fence and carries only verified owner/deployment/connection metadata to an owner-pod transport. The gateway has no vault-key or shared-memory fallback; its default transport refuses until a verified pod adapter is installed. Three focused service tests and the 49-test custody/connection/session suite pass in the locked Python 3.13 environment.
-- Remaining critical integration: secure setup route/client ceremony, authoritative vault-key validation, canonical encrypted PKM transaction adapter, remote grant fencing and real memory journey. No public custody endpoint or complete memory execution is claimed.
+- Added typed `read_hussh_memory`, `save_hussh_memory`, `correct_hussh_memory` and `export_hussh_memory` contracts. Each call is admitted through the existing standing-consent generation fence and carries only verified owner/deployment/connection metadata to the owner pod. The default transport now resolves the owner registry row and reuses the existing authenticated pod relay; it refuses missing, mismatched or non-HTTPS deployments and never falls back to shared memory. The pod route revalidates the short-lived grant against the hub, recovers existing custody, and commits through `PodPkmStore` using AES-256-GCM, CAS and sealed-log persistence.
+- Added local executor, route-surface and transport tests. The focused consumer/pod slice has 86 passing tests in locked Python 3.13. This is source and synthetic evidence only: secure setup route/client ceremony, authoritative vault-key validation, installed-pod custody, live owner memory journey, Puppy parity and host acceptance remain incomplete.
 
 ## Runtime credential fence
 
 - Added dev-only parked migration `939_consumer_mcp_runtime_tokens.sql`. A standing `cap.consumer.memory` approval remains append-only until disconnect; each pod request receives a renewable 15-minute HCT credential recorded as `CONSUMER_TOKEN_ISSUED` under the same owner, connection and generation. The receipt remains a non-bearer identifier.
 - Renewal is serialized by the existing connection row/advisory fence. Revocation or generation replacement becomes the latest ledger decision, so old credentials fail the existing database-backed token check and late remote results are rejected by the post-operation generation/token comparison.
 - The typed transport now receives the verified short-lived credential separately from the receipt. No vault key, prompt body, or shared-memory fallback enters the gateway. Migration `939` must be present before enabling this slice in dev; no hosted migration has been applied.
-- Verification: 14 focused consumer memory/connection tests pass, including signed-token scope/agent binding, ledger receipt separation, revocation fencing and owner isolation; Ruff, formatting and whitespace checks pass. The owner-pod PKM adapter, live pod relay, secure setup ceremony and host acceptance remain incomplete.
+- Verification: 14 focused consumer memory/connection tests plus 5 executor/transport tests pass, including signed-token scope/agent binding, ledger receipt separation, revocation fencing, owner isolation, encrypted commit shape, CAS conflict handling and deployment binding. Pod route/server checks also pass (86 total in the focused slice); Ruff, repository pre-commit and whitespace checks pass. The live pod relay, secure setup ceremony, installed custody and host acceptance remain incomplete.
+
+## Owner-pod memory adapter
+
+- Commit `a171afbe8` adds the first executable owner-pod data-plane seam. `OwnerPodConsumerMemoryTransport` resolves the owner’s registry endpoint and forwards only typed operation arguments plus the renewable `cap.consumer.memory` token through the existing relay. The connection receipt remains non-bearer metadata.
+- `/api/one/pod/consumer/memory` is mounted in the allowlisted pod app surface. It rechecks the token and owner against the pod’s `HUSSH_ID`, requires active pod custody, recovers the owner key only inside the operation, and uses the existing rebuildable `PodPkmStore` rather than a hub database or new memory backend.
+- Save/correct use existing content revisions, idempotency commit IDs and sealed commit-log writes. Reads and exports are bounded to 20 records; provider, execution target and revision are returned without exposing the owner ID or vault material.
+- This adapter requires the pod’s existing local PKM/custody configuration and parked migration `939`; no hosted migration or deployment was applied in this branch. A missing or unhealthy pod returns an explicit unavailable result and cannot route to shared/cloud intelligence.
 
 - Subsequent validation: 47 focused backend checks passed before the recipient/async-validation additions; all eight enrollment checks then passed. Four frontend proxy tests, frontend typecheck and docs/runtime parity passed. No combined final release or live acceptance gate has run.
