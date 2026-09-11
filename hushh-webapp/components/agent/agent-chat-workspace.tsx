@@ -20,6 +20,7 @@ import {
   Check,
   ChevronRight,
   Copy,
+  FileText,
   KeyRound,
   Laptop,
   LogIn,
@@ -34,6 +35,7 @@ import {
   ThumbsDown,
   ThumbsUp,
   Trash2,
+  X,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -236,6 +238,13 @@ type AgentMessage = {
   thought?: string;
   sources?: AgentSource[];
   structuredExperience?: AgentStructuredExperience | null;
+};
+
+const LONG_PROMPT_ATTACHMENT_CHARS = 8_000;
+
+type PendingLongPromptAttachment = {
+  text: string;
+  byteSize: number;
 };
 
 type EmailDeliveryTimelineItem = EmailDeliveryHistoryItem & {
@@ -1408,6 +1417,8 @@ export function AgentChatWorkspace({
   }, []);
 
   const [input, setInput] = useState("");
+  const [longPromptAttachment, setLongPromptAttachment] =
+    useState<PendingLongPromptAttachment | null>(null);
   // Which model runs this person's agent. The catalog is served, so a new
   // generation appears here without a client release.
   const [modelPreference, setModelPreference] = useState<ModelPreference | null>(null);
@@ -1788,7 +1799,7 @@ export function AgentChatWorkspace({
     !voiceActive &&
     !emailDraftOpen &&
     !isGmailKycSaving &&
-    input.trim().length > 0;
+    (input.trim().length > 0 || longPromptAttachment !== null);
   const canToggleVoice =
     agentVoiceEnabled && !isVoiceConnecting && !emailDraftOpen;
   const historyInteractionDisabled =
@@ -4904,9 +4915,22 @@ export function AgentChatWorkspace({
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    const text = input.trim();
+    const draftText = input.trim();
+    const attachment = longPromptAttachment;
+    if (draftText.length >= LONG_PROMPT_ATTACHMENT_CHARS && !attachment) {
+      setLongPromptAttachment({
+        text: draftText,
+        byteSize: new TextEncoder().encode(draftText).byteLength,
+      });
+      setInput("");
+      setComposerPurpose(null);
+      setComposerExpanded(false);
+      return;
+    }
+    const text = attachment?.text ?? draftText;
     if (!text || isLoadingHistory || isVoiceConnecting || voiceActive) return;
     setInput("");
+    setLongPromptAttachment(null);
     setComposerExpanded(false);
     const purpose = composerPurpose;
     setComposerPurpose(null);
@@ -6560,6 +6584,32 @@ export function AgentChatWorkspace({
                 </div>
               ) : (
                 <>
+                  {longPromptAttachment ? (
+                    <div
+                      className="mb-2 flex items-center justify-between gap-3 rounded-[18px] border border-[color:var(--app-accent-ring)] bg-[color:var(--app-accent-soft)] px-3 py-2 text-sm"
+                      data-testid="agent-chat-long-prompt-attachment"
+                    >
+                      <div className="flex min-w-0 items-center gap-2">
+                        <FileText className="h-4 w-4 shrink-0" aria-hidden="true" />
+                        <div className="min-w-0">
+                          <p className="truncate font-medium">long-prompt.txt</p>
+                          <p className="text-xs text-muted-foreground">
+                            {(longPromptAttachment.byteSize / 1024).toFixed(1)} KB · sent as one message
+                          </p>
+                        </div>
+                      </div>
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant="ghost"
+                        className="h-8 w-8 shrink-0"
+                        aria-label="Remove long prompt attachment"
+                        onClick={() => setLongPromptAttachment(null)}
+                      >
+                        <X className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  ) : null}
                   {composerPurpose ? (
                     <div
                       className="mb-2 flex flex-wrap items-center justify-between gap-2 rounded-[18px] bg-[color:var(--app-accent-soft)] px-3 py-2 text-xs shadow-[0_14px_34px_-28px_var(--app-accent-deep)]"
@@ -6627,7 +6677,8 @@ export function AgentChatWorkspace({
                           isLoadingHistory ||
                           isVoiceConnecting ||
                           emailDraftOpen ||
-                          isGmailKycSaving
+                          isGmailKycSaving ||
+                          longPromptAttachment !== null
                         }
                         placeholder={
                           gmailKycMissingLabels.length > 0
@@ -6682,7 +6733,8 @@ export function AgentChatWorkspace({
                             isLoadingHistory ||
                             isVoiceConnecting ||
                             emailDraftOpen ||
-                            isGmailKycSaving
+                            isGmailKycSaving ||
+                            longPromptAttachment !== null
                           }
                           placeholder={
                             gmailKycMissingLabels.length > 0
