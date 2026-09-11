@@ -613,7 +613,7 @@ class DeveloperOAuthService:
                JOIN developer_oauth_clients AS clients ON clients.client_id = authorizations.client_id
                WHERE authorizations.subject_firebase_uid = :subject
                  AND authorizations.status = 'consumed' AND clients.revoked_at IS NULL
-                 AND apps.status = 'active'"""
+                 AND apps.status = 'active'"""  # nosec B608 - page_filter is a fixed internal clause selected from validated pagination state.
             + page_filter
             + " ORDER BY authorizations.id DESC LIMIT :limit",
             {"subject": subject_firebase_uid, "before_id": before_id, "limit": limit + 1},
@@ -646,7 +646,7 @@ class DeveloperOAuthService:
                 conn.execute(
                     text(
                         "SELECT id, app_id, client_id, status FROM developer_oauth_authorizations "
-                        "WHERE transaction_ref = :ref AND subject_firebase_uid = :subject" + lock
+                        "WHERE transaction_ref = :ref AND subject_firebase_uid = :subject" + lock  # nosec B608 - lock is a fixed dialect clause, never caller input.
                     ),
                     {"ref": transaction_ref, "subject": subject_firebase_uid},
                 )
