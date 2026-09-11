@@ -19,7 +19,7 @@ GitHub action item: [#6719 Build consumer Hussh MCP with owner-pod memory and Pu
 ## Baseline and boundaries
 
 - Worktree: sibling `hushh-consumer-mcp`; branch `feat/consumer-mcp`.
-- Current branch candidate: `700a58602` (11 September 2026); the earlier private baseline remains recorded in git history.
+- Current branch candidate: `360743aad` (11 September 2026); the earlier private baseline remains recorded in git history.
 - Original workspace and ADK worktree are independently active and remain untouched.
 - No deployment, main promotion, production activation or marketplace submission has occurred in this workstream.
 - Working source is implementation evidence, not installed-runtime or host acceptance evidence.
@@ -131,5 +131,6 @@ The topology generator remains the existing coverage join: `scripts/ops/generate
 - The consumer catalog also includes `list_hussh_capabilities`, derived from the existing tool definitions and labeled `owner_pod`, `consent_service`, or `secure_handoff`; it is discovery metadata, not a second routing authority.
 - `list_hussh_receipts` reads the existing `consent_audit` ledger through the owner-bound connection fence, returning only receipt reference, action, timing, and event class. Bearer token IDs and private payloads are excluded; the new receipt regression passes against disposable PostgreSQL.
 - Live evidence checkpoint: a read-only Cloud Run inspection of `hushh-pda-dev` could not run because the available `gcloud` session requires interactive reauthentication; the active CLI context is UAT. No impersonation, UAT change, deployment, or migration was attempted. Re-authenticate an authorized dev account before the installed-pod custody and owner-journey checks.
+- Current combined local gate: `251` owner/pod/custody/Puppy tests and `51` MCP protocol/contract tests passed under locked Python 3.13; `./bin/hushh docs verify` passed. Warnings are existing dependency deprecations/experimental notices, not test failures. This gate still does not substitute for installed-host or marketplace evidence.
 
 - Subsequent validation: 47 focused backend checks passed before the recipient/async-validation additions; all eight enrollment checks then passed. Four frontend proxy tests, frontend typecheck and docs/runtime parity passed. No combined final release or live acceptance gate has run.
