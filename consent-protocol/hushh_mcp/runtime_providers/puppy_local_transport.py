@@ -22,13 +22,38 @@ from typing import Any, AsyncIterator, Optional
 
 from .puppy_transport import (
     DEFAULT_TIMEOUT_SECONDS,
+    DEVICE_CAPABILITY_NAMES,
+    PuppyCapabilityUnsupported,
     PuppyRelayProtocolError,
     PuppyRelayTransport,
     PuppyRelayUnavailable,
+    missing_capability,
 )
 from .translate import NeutralRequest
 
 logger = logging.getLogger(__name__)
+
+
+def declared_capability_map(
+    names: Optional[tuple[str, ...]],
+) -> Optional[dict[str, bool]]:
+    """The in-pod LIST form rendered in the gate's name->bool vocabulary.
+
+    Two vocabularies met here and nobody translated between them. The device
+    spec and the in-pod door speak a list of SUPPORTED names; the hub path's
+    gate, `missing_capability`, speaks a dict of name->bool. Handed a list, its
+    reader returns None, and None is the gate's negative control, so it refuses
+    nothing. That is why "refuse an unsupported capability before dispatch"
+    -- which the hub transport does enforce, and which the handoff recorded as
+    enforced "on both sides" -- did not run on the owner-direct path at all.
+
+    None in, None out: a device that declared nothing is still judged by itself,
+    exactly as on the hub path.
+    """
+    if names is None:
+        return None
+    declared = set(names)
+    return {name: (name in declared) for name in DEVICE_CAPABILITY_NAMES}
 
 
 class PuppyLocalBrokerTransport(PuppyRelayTransport):
@@ -70,6 +95,18 @@ class PuppyLocalBrokerTransport(PuppyRelayTransport):
             PuppyBrokerFenced,
             PuppyBrokerOffline,
         )
+
+        # REFUSE BEFORE DISPATCH, the same contract the hub transport keeps. A
+        # declared capability gap is answered here, with nothing sent to the
+        # device, so it never spends a cold model load on a request it was going
+        # to drop a field from.
+        link = await self._broker.get(self.key)
+        if link is not None:
+            lacking = missing_capability(
+                request, declared_capability_map(getattr(link, "capabilities", None))
+            )
+            if lacking:
+                raise PuppyCapabilityUnsupported(lacking)
 
         request_id = uuid.uuid4().hex
         payload = self._payload(request, model, request_id)

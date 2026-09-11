@@ -63,7 +63,11 @@ class DeviceLink:
     generation: int
     epoch: int
     model: str = ""
-    capabilities: tuple[str, ...] = ()
+    # None means the device declared nothing, which the pre-dispatch gate reads
+    # as its negative control. An empty tuple means it declared an EMPTY list,
+    # which is a real declaration of no capabilities. Collapsing the two is how
+    # the gate was silently disabled on the owner-direct path.
+    capabilities: Optional[tuple[str, ...]] = None
     pending: dict[str, asyncio.Queue[dict[str, Any]]] = field(default_factory=dict)
     busy_request_id: Optional[str] = None
     last_seen_monotonic: float = field(default_factory=time.monotonic)
@@ -88,7 +92,7 @@ class PuppyBroker:
         close: Callable[[int, str], Awaitable[None]],
         epoch: int,
         model: str = "",
-        capabilities: tuple[str, ...] = (),
+        capabilities: Optional[tuple[str, ...]] = None,
     ) -> DeviceLink:
         async with self._lock:
             prior = self._links.get(key)
@@ -107,7 +111,9 @@ class PuppyBroker:
                 generation=self._generation,
                 epoch=int(epoch),
                 model=str(model or "")[:128],
-                capabilities=tuple(str(c)[:64] for c in capabilities)[:32],
+                capabilities=(
+                    None if capabilities is None else tuple(str(c)[:64] for c in capabilities)[:32]
+                ),
             )
             self._links[key] = link
         logger.info("puppy_broker.linked generation=%s epoch=%s", link.generation, link.epoch)
@@ -277,7 +283,7 @@ class PuppyBroker:
             "generation": link.generation,
             "epoch": link.epoch,
             "model": link.model or None,
-            "capabilities": list(link.capabilities),
+            "capabilities": (None if link.capabilities is None else list(link.capabilities)),
             "last_seen_age_seconds": round(
                 max(0.0, time.monotonic() - link.last_seen_monotonic), 3
             ),
@@ -294,7 +300,9 @@ class PuppyBroker:
                     "state": "busy" if link.busy_request_id else link.status,
                     "busy": link.busy_request_id is not None,
                     "model": link.model or None,
-                    "capabilities": list(link.capabilities),
+                    "capabilities": (
+                        None if link.capabilities is None else list(link.capabilities)
+                    ),
                     "generation": link.generation,
                     "epoch": link.epoch,
                 }

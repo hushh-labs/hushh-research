@@ -197,6 +197,8 @@ tests/test_pod_session_authority.py
 tests/test_pod_authority_store.py
 tests/test_pod_puppy_relay_route.py
 tests/test_puppy_broker.py
+tests/test_puppy_capability_seam.py
+tests/test_one_adk_text_runtime.py
 tests/test_puppy_envelope.py
 tests/test_puppy_local_transport.py
 tests/test_puppy_relay.py

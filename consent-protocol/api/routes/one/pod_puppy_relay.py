@@ -19,7 +19,7 @@ from __future__ import annotations
 import json
 import logging
 import re
-from typing import Any
+from typing import Any, Optional
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
@@ -72,9 +72,24 @@ def valid_model_name(value: Any) -> str:
     return name
 
 
-def valid_capabilities(value: Any) -> tuple[str, ...]:
+def valid_capabilities(value: Any) -> Optional[tuple[str, ...]]:
+    """The device's declared capability names, or None when it declared nothing.
+
+    THREE ANSWERS, NOT TWO, and that is the whole defect this closes. An absent
+    block and an unparseable one both used to return ``()``, which made them
+    indistinguishable downstream -- and downstream reads "declared nothing" as
+    the negative control that refuses nothing. So a device whose declaration
+    this door could not read had it silently discarded, and every capability
+    gate switched itself off without a word.
+
+    Absent is None. A well-formed list is a tuple. Anything else raises, and the
+    caller closes the socket: a control that cannot read its own input has to
+    say so rather than default to permitting everything.
+    """
+    if value is None:
+        return None
     if not isinstance(value, list):
-        return ()
+        raise ValueError("capabilities must be a list of names")
     out: list[str] = []
     for item in value[:_CAPABILITIES_MAX]:
         name = str(item or "").strip()
