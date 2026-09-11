@@ -1,4 +1,4 @@
-import profile from "../../../config/pkm/kyc-identity-profile.v1.json";
+import profile from "../../config/pkm/kyc-identity-profile.v1.json";
 
 export type KycIdentityField = {
   id: string;
