@@ -121,7 +121,17 @@ npx -y ${contract.packageName} --help
 
 ### One canonical catalog and authentication
 
-The same \`/mcp/\` endpoint publishes one generated v0.4 five-tool catalog to Codex, Claude, Agentforce, and the npm bridge. Bearer authentication remains first-class. OAuth PKCE and client credentials authenticate the same developer-app identity; they do not select a different consent product, endpoint, or lifecycle.
+The promoted UAT \`/mcp/\` endpoint currently publishes the application-only generated v0.4 five-tool catalog to Codex, Claude, Agentforce, and the npm bridge. Bearer authentication remains first-class. OAuth PKCE and client credentials authenticate the same developer-app identity; they do not select a different consent product, endpoint, or lifecycle.
+
+The private \`feat/consumer-mcp\` branch adds a separate owner-bound catalog for the consumer experience. It is not deployed to UAT, main, or production. Only an owner-authenticated OAuth session can discover these tools; developer tokens and client credentials do not receive personal-agent authority:
+
+- \`get_hussh_connection\` and \`get_hussh_setup_status\` — secure setup handoff and resumable status;
+- \`list_hussh_capabilities\` and \`list_hussh_receipts\` — bounded discovery and non-bearer audit metadata;
+- \`read_hussh_memory\`, \`save_hussh_memory\`, \`correct_hussh_memory\`, and \`export_hussh_memory\` — owner-pod PKM operations;
+- \`delegate_hussh_task\` — one bounded private-agent turn with a separate \`cap.one.invoke\` approval;
+- \`disconnect_hussh_connection\` — explicit self-disconnect for the current assistant generation.
+
+The consumer branch fails closed when the owner pod is unavailable and never substitutes shared or cloud memory. Puppy/Hermes uses the same capability contracts through its registered-device bridge; installed-device and marketplace acceptance remain pending. See the branch execution record at [CONSUMER-MCP-EXECUTION.md](../../docs/future/personal-agent/CONSUMER-MCP-EXECUTION.md).
 
 Self-serve applications may use a developer token or OAuth authorization code with S256 PKCE and rotating refresh tokens. Discover OAuth metadata at \`${contract.authentication.discoveryUrl}\`, request \`${contract.authentication.scope}\`, and send the resulting credential only as \`${contract.authentication.bearerHeader}\`. Query-string tokens are rejected. OAuth client credentials are reserved for operations-provisioned partner integrations and never grant vault or personal-information authority. The npm bridge exchanges \`${contract.authentication.clientIdEnvVar}\` and \`${contract.authentication.clientSecretEnvVar}\` locally at the token endpoint, retains the resulting Bearer token only in process memory, and renews it before expiry.
 

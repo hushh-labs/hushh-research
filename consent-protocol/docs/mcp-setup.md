@@ -295,7 +295,7 @@ assistant. `delegate_hussh_task` requires a separate approved
 `cap.one.invoke` grant and forwards one bounded task to the existing owner pod;
 it does not provide durable task status/cancellation, replay interrupted work,
 or fall back to shared intelligence.
-existing developer five-tool catalog remains unchanged for application-only
+The existing developer five-tool catalog remains unchanged for application-only
 credentials. Account creation, pod custody, installed owner-pod acceptance and
 full consumer coverage remain incomplete. On the isolated branch, typed memory
 tools forward through the existing authenticated relay to
