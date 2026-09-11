@@ -1,289 +1,316 @@
 .shell {
   position: relative;
   display: flex;
-  /* The outer app scroll root already reserves --app-scroll-bottom-pad of
-     clearance below this element for the fixed onboarding Agent Bar (see
-     app/providers.tsx), then adds it back as its own padding-bottom. Sizing
-     this element to a full 100dvh on top of that reservation made the total
-     scrollable content one full screen PLUS the bar clearance, forcing
-     scroll on every device and leaving a background seam in the reserved
-     strip (this element's own background stops at its own box, one dvh
-     tall, so the extra strip below showed the plain page background
-     instead). Subtracting the reservation here makes shell + reserved
-     padding equal exactly one viewport, so the page always fits without
-     scrolling and the background never runs out early. */
-  /* `dvh` can grow and shrink while mobile browser controls animate. The
-     welcome is a single-screen composition, so use the small viewport as its
-     stable upper bound. This prevents Safari's expanded browser chrome from
-     turning its transient top inset into extra hero whitespace. */
   block-size: calc(100svh - var(--app-scroll-bottom-pad, 0px));
   min-block-size: calc(100svh - var(--app-scroll-bottom-pad, 0px));
   width: 100%;
   flex-direction: column;
   overflow: hidden;
+  background: #f6f5fc;
+  color: #0a0a0a;
+}
+
+:global(.dark) .shell {
+  background: #000;
+  color: #fff;
 }
 
 .stage {
   position: relative;
   z-index: 10;
-  display: grid;
+  display: block;
   block-size: calc(100svh - var(--app-scroll-bottom-pad, 0px));
   min-height: 0;
   width: 100%;
-  max-width: 34rem;
+  max-width: 440px;
   margin: 0 auto;
-  grid-template-rows: auto minmax(0, 1fr) auto;
-  /* A hidden-shell route has no app top bar to clear. Native status areas are
-     normally 44–59px, so cap this defensive gutter at 64px. This contains a
-     stale browser/native inset without sacrificing the real status-bar
-     clearance needed by an edge-to-edge WebView. */
   padding: calc(clamp(28px, var(--app-safe-area-top-effective, 0px), 64px) + 12px)
-    24px 24px;
+    16px 10px;
   text-align: center;
 }
 
-.brand {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  animation: reveal 780ms cubic-bezier(0.16, 1, 0.3, 1) 80ms both;
+.composition {
+  display: contents;
 }
 
-.wordmark {
-  height: 34px;
-  width: auto;
+.brand {
+  position: absolute;
+  top: 102px;
+  left: 50%;
+  z-index: 2;
+  transform: translateX(-50%);
+}
+
+.illustration {
+  position: absolute;
+  top: 135px;
+  left: 50%;
+  z-index: 1;
+  transform: translateX(-50%);
 }
 
 .hero {
-  align-self: center;
-  display: flex;
-  width: 100%;
-  max-width: 30rem;
-  margin: 0 auto;
-  transform: translateY(-8px);
-  flex-direction: column;
-  align-items: center;
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
 }
 
-.eyebrow {
-  margin: 0;
-  color: var(--foundation-dim);
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.26em;
-  line-height: 1;
-  text-transform: uppercase;
-  animation: reveal 780ms cubic-bezier(0.16, 1, 0.3, 1) 220ms both;
-}
-
-.emoji {
-  margin-top: 16px;
-  font-size: 48px;
-  line-height: 1;
-  filter: drop-shadow(0 8px 18px rgba(109, 67, 26, 0.16));
-  animation: reveal 780ms cubic-bezier(0.16, 1, 0.3, 1) 280ms both;
+.quietMark {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
 }
 
 .title {
-  margin: 12px 0 0;
-  font-family: var(--font-app-display);
-  line-height: 1;
-  animation: reveal 780ms cubic-bezier(0.16, 1, 0.3, 1) 340ms both;
+  position: absolute;
+  top: 465px;
+  left: 50%;
+  width: 221px;
+  height: 91px;
+  margin: 0;
+  transform: translateX(-50%);
 }
 
-.molten {
-  display: inline-block;
-  margin: -0.05em -0.04em;
-  padding: 0.06em 0.08em;
-  /* Hero foil gradient follows the app accent (iOS Blue default, Molten
-     Gold under html[data-accent="gold"]) via the shared hero stops. */
-  background-image: linear-gradient(
-    98deg,
-    var(--app-accent-hero-from) 0%,
-    var(--app-accent-hero-mid) 40%,
-    var(--app-accent-hero-to) 50%,
-    var(--app-accent-hero-mid) 60%,
-    var(--app-accent-hero-from) 100%
-  );
-  background-size: 300% 100%;
-  background-position: 30% 50%;
-  background-clip: text;
-  color: transparent;
-  font-family: var(--font-app-display);
-  font-size: clamp(88px, 29vw, 118px);
-  font-weight: 800;
-  letter-spacing: -4px;
-  line-height: 1.04;
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-}
-
-.divider {
+.title :global(img) {
   width: 100%;
+  height: 100%;
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
   height: 1px;
-  margin-top: 36px;
-  background: linear-gradient(
-    90deg,
-    transparent,
-    color-mix(in oklab, var(--foundation-gold-deep) 34%, transparent),
-    transparent
-  );
-  animation: reveal 780ms cubic-bezier(0.16, 1, 0.3, 1) 370ms both;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 .tagline {
-  max-width: 22rem;
-  margin: 36px auto 0;
-  color: var(--foundation-ink);
-  font-size: 20px;
+  position: absolute;
+  top: 568px;
+  left: 16px;
+  right: 16px;
+  margin: 0;
+  color: inherit;
+  font-size: 19px;
   font-weight: 600;
   letter-spacing: -0.2px;
+  line-height: 1.25;
+}
+
+.subtitle {
+  position: absolute;
+  top: 595px;
+  left: 16px;
+  right: 16px;
+  margin: 0;
+  color: rgba(122, 122, 128, 0.92);
+  font-size: 12px;
   line-height: 1.35;
-  animation: reveal 780ms cubic-bezier(0.16, 1, 0.3, 1) 420ms both;
-}
-
-.motions {
-  display: flex;
-  flex-wrap: nowrap;
-  align-items: center;
-  justify-content: center;
-  gap: 7px;
-  margin-top: 26px;
-  color: var(--foundation-dim);
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.16em;
-  line-height: 1.2;
-  text-transform: uppercase;
-  white-space: nowrap;
-  animation: reveal 780ms cubic-bezier(0.16, 1, 0.3, 1) 500ms both;
-}
-
-.motionItem {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-}
-
-.motionDot {
-  opacity: 0.42;
-}
-
-.description {
-  max-width: 23rem;
-  margin: 30px auto 0;
-  color: var(--foundation-dim);
-  font-size: 16px;
-  line-height: 1.45;
-  animation: reveal 780ms cubic-bezier(0.16, 1, 0.3, 1) 580ms both;
 }
 
 .footer {
-  align-self: end;
+  position: absolute;
+  right: 16px;
+  bottom: max(18px, var(--app-safe-area-bottom-effective, 0px));
+  left: 16px;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 15px;
+}
+
+.privacy {
+  display: flex;
+  justify-content: center;
   width: 100%;
-  max-width: 30rem;
-  margin: 0 auto;
-  animation: reveal 780ms cubic-bezier(0.16, 1, 0.3, 1) 680ms both;
 }
 
 .cta {
   position: relative;
-  overflow: hidden;
   display: inline-flex;
-  min-height: 56px;
+  min-height: 60px;
   width: 100%;
+  max-width: 344px;
   align-items: center;
   justify-content: center;
-  gap: 10px;
+  overflow: hidden;
   border: 0;
   border-radius: 999px;
-  /* Accent morphy: flat accent fill that follows the accent preference
-     (iOS Blue default, Molten Gold opt-in). No gradient, no shadow. */
   background: var(--app-accent);
   color: var(--app-accent-fg);
   font-family: var(--font-app-body);
   font-size: 16px;
-  font-weight: 700;
+  font-weight: 600;
   line-height: 1;
   transition:
-    background-color var(--motion-duration-sm) var(--motion-ease-standard);
+    background-color var(--motion-duration-sm) var(--motion-ease-standard),
+    transform var(--motion-duration-sm) var(--motion-ease-standard);
 }
 
 .cta:hover {
   background: var(--app-accent-hover);
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .cta {
-    transition: none;
-  }
+.cta:active {
+  transform: scale(0.99);
 }
 
 .links {
+  position: absolute;
+  right: 16px;
+  bottom: 8px;
+  left: 16px;
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  margin-top: 16px;
-  border-top: 1px solid var(--foundation-hairline);
-  color: var(--foundation-dim);
+  color: rgba(122, 122, 128, 0.9);
   font-size: 12px;
   font-weight: 600;
+  opacity: 0;
+  pointer-events: none;
 }
 
 .link {
   display: flex;
-  min-height: 46px;
+  min-height: 30px;
   align-items: center;
   justify-content: center;
-  border-left: 1px solid var(--foundation-hairline);
+  border-left: 1px solid rgba(122, 122, 128, 0.18);
   text-align: center;
-  line-height: 1.1;
 }
 
 .link:first-child {
   border-left: 0;
 }
 
-@keyframes reveal {
-  from {
-    opacity: 0;
-    transform: translate3d(0, 14px, 0);
-    filter: blur(6px);
-  }
-  to {
+@media (min-width: 640px) and (min-height: 860px) {
+  .links {
     opacity: 1;
-    transform: translate3d(0, 0, 0);
-    filter: blur(0);
+    pointer-events: auto;
   }
 }
 
 @media (max-height: 740px) {
-  .hero {
-    transform: translateY(-4px);
+  .brand {
+    top: 78px;
   }
 
-  .emoji {
-    margin-top: 22px;
-    font-size: 42px;
+  .illustration {
+    top: 100px;
   }
 
-  .molten {
-    font-size: clamp(76px, 26vw, 104px);
-  }
-
-  .divider {
-    margin-top: 24px;
+  .title {
+    top: 360px;
+    width: 180px;
+    height: 74px;
   }
 
   .tagline {
-    margin-top: 24px;
+    top: 445px;
+    font-size: 17px;
   }
 
-  .motions {
-    margin-top: 18px;
+  .subtitle {
+    top: 470px;
   }
 
-  .description {
-    margin-top: 20px;
-    font-size: 14px;
+  .footer {
+    gap: 9px;
+  }
+}
+
+/* Figma's dark screen is a 402x874 composition. Keep its internal coordinates
+   intact at that reference size, then scale the complete composition as one
+   unit when a phone is narrower or shorter. This prevents the artwork, slogan,
+   privacy note, and CTA from drifting independently across viewports. */
+:global(.dark) .stage {
+  max-width: 402px;
+  padding: 0;
+  display: flex;
+  justify-content: center;
+  overflow: hidden;
+}
+
+:global(.dark) .composition {
+  position: relative;
+  display: block;
+  flex: none;
+  width: 402px;
+  height: 874px;
+  transform: scale(
+    min(
+      1,
+      calc(100vw / 402px),
+      calc((100svh - var(--app-scroll-bottom-pad, 0px)) / 874px)
+    )
+  );
+  transform-origin: top center;
+}
+
+:global(.dark) .brand {
+  top: 89px;
+}
+
+:global(.dark) .illustration {
+  top: 140px;
+  margin-left: 3.5px;
+}
+
+:global(.dark) .title {
+  top: 465px;
+}
+
+:global(.dark) .tagline {
+  top: 576px;
+  left: 76px;
+  right: auto;
+  width: 250px;
+}
+
+:global(.dark) .subtitle {
+  top: 602px;
+  left: 76px;
+  right: auto;
+  width: 250px;
+  font-size: 13px;
+}
+
+:global(.dark) .footer {
+  inset: 0;
+  display: block;
+}
+
+:global(.dark) .privacy {
+  position: absolute;
+  top: 716px;
+  left: 90px;
+  width: 233px;
+}
+
+:global(.dark) .cta {
+  position: absolute;
+  top: 759px;
+  left: 36px;
+  width: 330px;
+  max-width: none;
+  min-height: 52px;
+  height: 52px;
+}
+
+:global(.dark) .links {
+  bottom: 8px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cta {
+    transition: none;
   }
 }
