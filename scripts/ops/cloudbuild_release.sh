@@ -453,7 +453,7 @@ fi
 log "Verifying runtime env parity"
 PARITY_ARGS=(--project "$GCP_PROJECT_ID" --region "$GCP_REGION"
   --backend-service "$BACKEND_SERVICE" --frontend-service "$FRONTEND_SERVICE"
-  --require-plaid --require-market-data --require-gmail --require-voice
+  --require-plaid --require-market-data --require-gmail --require-calendar --require-voice
   --assert-runtime-env-contract
   --report-path "${ARTIFACT_DIR}/runtime-parity.json")
 [[ "$TARGET_ENV" == "production" ]] && PARITY_ARGS+=(--require-connected-systems --require-prod-phone-test)

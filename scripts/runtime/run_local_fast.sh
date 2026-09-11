@@ -153,6 +153,9 @@ echo "Starting local backend on :8000 without reload..."
   # Let the supervisor own shutdown ordering. The backend receives SIGTERM
   # from cleanup after the frontend is stopped, then closes the proxy last.
   export HUSHH_SUPERVISED_RUNTIME=1
+  # Local fast startup should prove the app, not exhaust shared market-provider
+  # quotas by warming a broad public-market baseline before anyone opens Kai.
+  export KAI_MARKET_BACKGROUND_REFRESH=false
   trap '' INT
   run_in_private_process_group "$REPO_ROOT/bin/hushh" "${backend_args[@]}"
 ) &

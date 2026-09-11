@@ -109,6 +109,7 @@ vi.mock("@/lib/services/cache-service", () => ({
 describe("PhoneMandateGuard", () => {
   beforeEach(() => {
     vi.stubEnv("NEXT_PUBLIC_APP_ENV", "uat");
+    delete window.__HUSHH_NATIVE_TEST__;
     replace.mockReset();
     checkVaultMock.mockReset();
     refreshCurrentUserIdentityMock.mockReset();
@@ -324,6 +325,30 @@ describe("PhoneMandateGuard", () => {
     await waitFor(() => {
       expect(screen.getByText("kai content")).toBeTruthy();
     });
+    expect(replace).not.toHaveBeenCalled();
+  });
+
+  it("does not refresh the identity shadow for an automated reviewer", async () => {
+    window.__HUSHH_NATIVE_TEST__ = {
+      enabled: true,
+      autoReviewerLogin: true,
+      expectedUserId: "reviewer-user",
+    };
+    bootstrapStateMock.mockResolvedValue({
+      hasVault: true,
+      phoneVerified: null,
+    });
+
+    render(
+      <PhoneMandateGuard>
+        <div>reviewer content</div>
+      </PhoneMandateGuard>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("reviewer content")).toBeTruthy();
+    });
+    expect(refreshCurrentUserIdentityMock).not.toHaveBeenCalled();
     expect(replace).not.toHaveBeenCalled();
   });
 

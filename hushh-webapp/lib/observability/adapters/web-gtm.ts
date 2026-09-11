@@ -4,6 +4,7 @@ import type {
   PrimitiveEventValue,
 } from "@/lib/observability/events";
 import { resolveAnalyticsMeasurementId } from "@/lib/observability/env";
+import { shouldDisableExternalTelemetryForAutomation } from "@/lib/testing/native-test";
 
 declare global {
   interface Window {
@@ -28,6 +29,7 @@ export const webGtmAdapter: ObservabilityAdapter = {
     payload: Record<string, PrimitiveEventValue>
   ): Promise<void> {
     if (typeof window === "undefined") return;
+    if (shouldDisableExternalTelemetryForAutomation()) return;
 
     window.dataLayer = window.dataLayer || [];
     const transportPayload = {

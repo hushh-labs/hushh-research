@@ -234,6 +234,8 @@ run_preflight() {
     PYTHONPATH=. "$BACKEND_VENV_PYTHON" -c \
       "from hushh_mcp.runtime_readiness import assert_pinned_google_adk; assert_pinned_google_adk()"
   )
+  echo "Verifying local managed Gemini authorization..."
+  bash "$REPO_ROOT/scripts/env/doctor.sh" "$profile"
   verify_iam_readiness "$profile"
 
   if port_is_listening 127.0.0.1 8000; then

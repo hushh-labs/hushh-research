@@ -49,7 +49,7 @@ describe("CalendarAgentPage", () => {
     );
   });
 
-  it("requests management access in the single initial Calendar authorization", async () => {
+  it("requests read-only access before an owner enables Calendar scheduling", async () => {
     mocks.status.mockResolvedValue({
       configured: true,
       connected: false,
@@ -69,10 +69,10 @@ describe("CalendarAgentPage", () => {
       expect(mocks.startConnect).toHaveBeenCalledWith({
         idToken: "firebase-token",
         userId: "calendar-user",
-        accessLevel: "manage",
+        accessLevel: "read",
       }),
     );
-    expect(screen.queryByRole("button", { name: "Connect with scheduling" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Enable scheduling" })).toBeNull();
   });
 
   it("keeps a healthy Calendar connection focused on chat and disconnect", async () => {
@@ -105,7 +105,7 @@ describe("CalendarAgentPage", () => {
     });
   });
 
-  it("does not offer reconnect for a connected read-only Calendar", async () => {
+  it("offers an explicit scheduling upgrade for a connected read-only Calendar", async () => {
     mocks.status.mockResolvedValue({
       configured: true,
       connected: true,
@@ -117,8 +117,9 @@ describe("CalendarAgentPage", () => {
 
     render(<CalendarAgentPage />);
 
-    await screen.findByText("View events and availability");
+    await screen.findByText(/View events and availability/);
     expect(screen.queryByRole("button", { name: /Reconnect/i })).toBeNull();
+    expect(screen.getByRole("button", { name: "Enable scheduling" })).toBeTruthy();
     expect(
       screen.getByRole("button", { name: "Try Calendar Agent with One" }),
     ).toBeTruthy();

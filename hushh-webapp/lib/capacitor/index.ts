@@ -97,7 +97,21 @@ export interface HushhAuthPlugin {
    * The result is a single-use server authorization code. It is handed to the
    * authenticated backend immediately and is never persisted by the app.
    */
-  connectGmail(options: { serverClientId: string }): Promise<{
+  connectGmail(options: {
+    serverClientId: string;
+    purpose: "read" | "send";
+  }): Promise<{
+    serverAuthCode: string;
+  }>;
+
+  /**
+   * Requests Calendar consent through the platform Google Sign-In SDK.
+   * The server authorization code is exchanged only by the authenticated API.
+   */
+  connectCalendar(options: {
+    serverClientId: string;
+    accessLevel: "read" | "manage";
+  }): Promise<{
     serverAuthCode: string;
   }>;
 
@@ -889,10 +903,13 @@ export interface HushhLocationPlugin {
   stopBackgroundShare(): Promise<void>;
 }
 
-
-export const HushhLocation = registerPlugin<HushhLocationPlugin>("HushhLocation", {
-  web: () => import("./plugins/location-web").then((m) => new m.HushhLocationWeb()),
-});
+export const HushhLocation = registerPlugin<HushhLocationPlugin>(
+  "HushhLocation",
+  {
+    web: () =>
+      import("./plugins/location-web").then((m) => new m.HushhLocationWeb()),
+  },
+);
 
 // ==================== HushhContactsPlugin ====================
 // Contact-book permission and read-only contact lookup for Connect matching.
@@ -905,12 +922,7 @@ export type HushhContactsPermissionState = {
    * route forward is `openAppSettings`.
    */
   state:
-    | "granted"
-    | "limited"
-    | "denied"
-    | "prompt"
-    | "restricted"
-    | "unavailable";
+    "granted" | "limited" | "denied" | "prompt" | "restricted" | "unavailable";
 };
 
 export type HushhContactRecord = {
@@ -962,9 +974,13 @@ export interface HushhContactsPlugin {
   readContacts(options?: { limit?: number }): Promise<HushhContactsReadResult>;
 }
 
-export const HushhContacts = registerPlugin<HushhContactsPlugin>("HushhContacts", {
-  web: () => import("./plugins/contacts-web").then((m) => new m.HushhContactsWeb()),
-});
+export const HushhContacts = registerPlugin<HushhContactsPlugin>(
+  "HushhContacts",
+  {
+    web: () =>
+      import("./plugins/contacts-web").then((m) => new m.HushhContactsWeb()),
+  },
+);
 
 // ==================== HushhPersonalKnowledgeModelPlugin ====================
 // PKM operations for dynamic domain/attribute management

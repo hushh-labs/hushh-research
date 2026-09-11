@@ -45,6 +45,7 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
     public let pluginMethods: [CAPPluginMethod] = [
         CAPPluginMethod(name: "signIn", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "connectGmail", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "connectCalendar", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "signInWithApple", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "signOut", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "getIdToken", returnType: CAPPluginReturnPromise),
@@ -419,10 +420,11 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
         )
         GIDSignIn.sharedInstance.configuration = configuration
 
-        let gmailScopes = [
-            "https://www.googleapis.com/auth/gmail.readonly",
-            "https://www.googleapis.com/auth/gmail.send"
-        ]
+        let purpose = call.getString("purpose")?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "read"
+        var gmailScopes = ["https://www.googleapis.com/auth/gmail.readonly"]
+        if purpose == "send" {
+            gmailScopes.append("https://www.googleapis.com/auth/gmail.send")
+        }
         GIDSignIn.sharedInstance.signIn(
             withPresenting: viewController,
             hint: nil,
@@ -445,6 +447,63 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
                 return
             }
 
+            call.resolve(["serverAuthCode": serverAuthCode])
+        }
+    }
+
+    /// Requests Calendar consent through the native Google SDK. The only value
+    /// returned to JavaScript is the single-use code exchanged by the backend.
+    @objc func connectCalendar(_ call: CAPPluginCall) {
+        guard ensureFirebaseConfigured() else {
+            call.reject("Missing GoogleService-Info.plist (Firebase not configured)")
+            return
+        }
+        guard let viewController = bridge?.viewController else {
+            call.reject("No view controller available")
+            return
+        }
+        guard let serverClientId = call.getString("serverClientId")?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !serverClientId.isEmpty else {
+            call.reject("Missing Google server client ID")
+            return
+        }
+        let accessLevel = call.getString("accessLevel")?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "read"
+        guard accessLevel == "read" || accessLevel == "manage" else {
+            call.reject("Unsupported Calendar access level")
+            return
+        }
+        guard let path = Bundle.main.path(forResource: "GoogleService-Info", ofType: "plist"),
+              let plist = NSDictionary(contentsOfFile: path),
+              let clientId = plist["CLIENT_ID"] as? String else {
+            call.reject("Missing GoogleService-Info.plist or CLIENT_ID")
+            return
+        }
+
+        GIDSignIn.sharedInstance.configuration = GIDConfiguration(
+            clientID: clientId,
+            serverClientID: serverClientId
+        )
+        let eventScope = accessLevel == "manage"
+            ? "https://www.googleapis.com/auth/calendar.events"
+            : "https://www.googleapis.com/auth/calendar.events.readonly"
+        GIDSignIn.sharedInstance.signIn(
+            withPresenting: viewController,
+            hint: nil,
+            additionalScopes: [eventScope, "https://www.googleapis.com/auth/calendar.freebusy"]
+        ) { result, error in
+            if let error = error {
+                let isCanceled = (error as NSError).code == -5
+                call.reject(
+                    isCanceled ? "Calendar connection was cancelled" : "Calendar sign-in failed: \(error.localizedDescription)",
+                    isCanceled ? "USER_CANCELLED" : nil
+                )
+                return
+            }
+            guard let serverAuthCode = result?.serverAuthCode,
+                  !serverAuthCode.isEmpty else {
+                call.reject("Google did not return a Calendar authorization code")
+                return
+            }
             call.resolve(["serverAuthCode": serverAuthCode])
         }
     }

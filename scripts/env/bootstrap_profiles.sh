@@ -981,6 +981,10 @@ hydrate_backend_cloud_reference() {
   set_secret_key_or_cached "$file" "$profile" "$project" "GMAIL_OAUTH_CLIENT_SECRET" "false" "$cache_file"
   set_secret_key_or_cached "$file" "$profile" "$project" "GMAIL_OAUTH_REDIRECT_URI" "false" "$cache_file"
   set_mapped_secret_key_or_cached "$file" "$profile" "$project" "GMAIL_OAUTH_TOKEN_KEY" "false" "$cache_file" GMAIL_OAUTH_TOKEN_KEY GMAIL_TOKEN_ENCRYPTION_KEY
+  set_secret_key_or_cached "$file" "$profile" "$project" "GOOGLE_OAUTH_CLIENT_ID" "false" "$cache_file"
+  set_secret_key_or_cached "$file" "$profile" "$project" "GOOGLE_OAUTH_CLIENT_SECRET" "false" "$cache_file"
+  set_secret_key_or_cached "$file" "$profile" "$project" "GOOGLE_OAUTH_REDIRECT_URI" "false" "$cache_file"
+  set_mapped_secret_key_or_cached "$file" "$profile" "$project" "GOOGLE_OAUTH_TOKEN_KEY" "false" "$cache_file" GOOGLE_OAUTH_TOKEN_KEY GMAIL_OAUTH_TOKEN_KEY
   set_secret_key_or_cached "$file" "$profile" "$project" "OPENAI_API_KEY" "false" "$cache_file"
   set_secret_key_or_cached "$file" "$profile" "$project" "VOICE_RUNTIME_CONFIG_JSON" "false" "$cache_file"
   # Managed Omni Gateway credentials are only materialized into the ignored,
@@ -1017,6 +1021,7 @@ hydrate_backend_local_uatdb() {
   upsert_env_value "$file" "APP_FRONTEND_ORIGIN" "http://localhost:3000"
   upsert_env_value "$file" "CORS_ALLOWED_ORIGINS" "http://localhost:3000"
   upsert_env_value "$file" "GMAIL_OAUTH_REDIRECT_URI" "http://localhost:3000/one/profile/gmail/oauth/return"
+  upsert_env_value "$file" "GOOGLE_OAUTH_REDIRECT_URI" "http://localhost:3000/one/profile/google/oauth/return"
   upsert_env_value "$file" "APP_RUNTIME_PROFILE" "local"
   upsert_env_value "$file" "ENVIRONMENT" "development"
   upsert_env_value "$file" "PORT" "8000"

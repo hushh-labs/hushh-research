@@ -64,12 +64,28 @@ import {
   type AuthSessionInvalidationCode,
 } from "@/lib/auth/session-invalidation";
 import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
+import { shouldSkipAmbientIdentityHydrationForAutomation } from "@/lib/testing/native-test";
+import { resolveSlowRequestTimeoutMs } from "@/lib/utils/request-timeouts";
 
 // Pre-compute platform check to avoid dynamic imports in callbacks
 const IS_NATIVE = typeof window !== "undefined" && Capacitor.isNativePlatform();
-const ACTIVE_SESSION_VALIDATION_DEBOUNCE_MS = 1_500;
+// A browser can emit focus and pageshow in quick succession (and some shells
+// also report a foreground lifecycle event). Keep ordinary rechecks bounded so
+// they do not repeatedly remount protected routes; an explicit retry or native
+// privacy generation always bypasses this window.
+const ACTIVE_SESSION_VALIDATION_DEBOUNCE_MS = 10_000;
 const WEB_AUTH_OBSERVER_WATCHDOG_MS = 10_000;
-const ACCOUNT_SESSION_VALIDATION_BUDGET_MS = 8_000;
+// A local backend can reach UAT through the Cloud SQL proxy, but a slow
+// liveness probe must not leave every protected route on an indefinite loader.
+// An unavailable result enters the existing locked recovery surface; it never
+// unlocks or publishes protected information.
+const ACCOUNT_SESSION_VALIDATION_BUDGET_MS = resolveSlowRequestTimeoutMs(
+  8_000,
+  {
+    developmentFloorMs: 8_000,
+    overrideEnvKey: "HUSHH_ACCOUNT_SESSION_VALIDATION_TIMEOUT_MS",
+  },
+);
 const NATIVE_SESSION_PRIVACY_READ_BUDGET_MS = 2_000;
 const ACCOUNT_DELETION_REPROBE_DEFAULT_DELAY_MS = 2_000;
 const ACCOUNT_DELETION_REPROBE_MAX_DELAY_MS = 2_000;
@@ -569,7 +585,11 @@ export function AuthProvider({ children }: AuthProviderProps) {
   }, []);
 
   useEffect(() => {
-    if (!user || phoneNumber) {
+    if (
+      !user ||
+      phoneNumber ||
+      shouldSkipAmbientIdentityHydrationForAutomation()
+    ) {
       return;
     }
 
@@ -1096,6 +1116,18 @@ export function AuthProvider({ children }: AuthProviderProps) {
           signOutPromiseRef.current ||
           terminalInvalidationLatchRef.current ||
           activePostAuthSettlementRef.current !== null)
+      ) {
+        return Promise.resolve();
+      }
+
+      // Do this before raising the protected-route loader. The old placement
+      // briefly hid the route even when the inner validation immediately
+      // returned because a focus/pageshow recheck was still fresh.
+      if (
+        !predecessor &&
+        !force &&
+        Date.now() - lastActiveSessionValidationAtRef.current <
+          ACTIVE_SESSION_VALIDATION_DEBOUNCE_MS
       ) {
         return Promise.resolve();
       }

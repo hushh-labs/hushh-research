@@ -179,7 +179,8 @@
     "204_feed_counterpart_indexed_lookup.sql",
     "205_contact_sync_disconnect_actor.sql",
     "206_contact_sync_disconnect_actor_upgrade.sql",
-    "207_pkm_manifest_display_segment.sql"
+    "207_pkm_manifest_display_segment.sql",
+    "208_gmail_authorized_send_enablement_backfill.sql"
   ],
   "environment_overlays": {
     "uat": [

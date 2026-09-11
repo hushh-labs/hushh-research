@@ -9,6 +9,6 @@ SET send_enabled = TRUE,
 WHERE status = 'connected'
   AND revoked = FALSE
   AND send_enabled = FALSE
-  AND scope_csv ~ '(^|[[:space:],])https://www.googleapis.com/auth/gmail\.send([[:space:],]|$)';
+  AND scope_csv ~ '(^|[[:space:],])https://www.googleapis.com/auth/gmail\\.send([[:space:],]|$)';
 
 COMMIT;

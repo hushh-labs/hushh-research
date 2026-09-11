@@ -707,8 +707,7 @@ export function useContactSync(options: UseContactSyncOptions): UseContactSync {
             return syncIsCurrent();
           } catch {
             if (syncIsCurrent()) {
-              toast.info("Contacts synced. Could not refresh connections.", {
-                description: "Your matches are saved. Refresh the list to see the latest connections.",
+              toast.info("Contacts synced. Matches are saved; refresh connections to update.", {
                 action: { label: "Refresh connections", onClick: () => { void refreshConnections(); } },
               });
             }

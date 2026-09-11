@@ -6,6 +6,7 @@ import { ArrowLeft, Shield } from "lucide-react";
 import { AuthService } from "@/lib/services/auth-service";
 import { ApiService } from "@/lib/services/api-service";
 import { useAuth } from "@/lib/firebase/auth-context";
+import { useVault } from "@/lib/vault/vault-context";
 import { HushhLoader } from "@/components/app-ui/hushh-loader";
 import { SessionVerificationRecovery } from "@/components/auth/session-verification-recovery";
 import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
@@ -141,10 +142,12 @@ export function AuthStep({
     beginPostAuthSettlement,
     completePostAuthSettlement,
   } = useAuth();
+  const { isVaultUnlocked } = useVault();
   const { registerSteps, completeStep, reset } = useStepProgress();
   const lastNavigationKeyRef = useRef<string | null>(null);
   const lastResolvedNavigationPathRef = useRef<string | null>(null);
   const autoReviewerLoginStartedRef = useRef(false);
+  const reviewerVaultChallengeNavigationKeyRef = useRef<string | null>(null);
   const [nativeReviewerVisible, setNativeReviewerVisible] = useState(
     nativeTestConfig.autoReviewerLogin,
   );
@@ -461,6 +464,51 @@ export function AuthStep({
     // Provider popup attempts own token verification and navigation while
     // active. The ordinary auth observer handles only restored sessions.
     if (user && !providerAttemptRef.current) {
+      // Native/reviewer automation with a supplied vault passphrase has a
+      // single bootstrap owner. It authenticates, reads the existing fixture,
+      // unlocks its memory-only key, then lands on the explicit internal
+      // target. Running ordinary post-auth resolution in parallel performs
+      // onboarding writes and races that bootstrap under the read-only
+      // reviewer guard.
+      const reviewerBootstrapOwnsNavigation =
+        shouldUseNativeTestBootstrap &&
+        nativeTestConfig.expectedUserId === user.uid;
+      if (reviewerBootstrapOwnsNavigation) {
+        if (!isVaultUnlocked) return;
+        const targetPath =
+          normalizeInternalRouteHref(redirectPath) ?? ROUTES.ONE_HOME;
+        const navigationKey = `${user.uid}:${targetPath}`;
+        if (
+          reviewerVaultChallengeNavigationKeyRef.current !== navigationKey
+        ) {
+          reviewerVaultChallengeNavigationKeyRef.current = navigationKey;
+          router.replace(targetPath);
+        }
+        return;
+      }
+      // The reviewer browser bridge authenticates its configured account before
+      // this page hydrates. When it intentionally withholds the vault
+      // passphrase, take the requested internal route directly so the real
+      // vault-lock guard can render its challenge. Do not run ordinary
+      // post-auth resolution here: that flow persists onboarding state and
+      // would violate the reviewer's read-only contract.
+      const reviewerNeedsVaultChallenge =
+        nativeTestConfig.enabled &&
+        nativeTestConfig.autoReviewerLogin &&
+        nativeTestConfig.expectedUserId === user.uid &&
+        !nativeTestConfig.vaultPassphrase;
+      if (reviewerNeedsVaultChallenge) {
+        const targetPath =
+          normalizeInternalRouteHref(redirectPath) ?? ROUTES.ONE_HOME;
+        const navigationKey = `${user.uid}:${targetPath}`;
+        if (
+          reviewerVaultChallengeNavigationKeyRef.current !== navigationKey
+        ) {
+          reviewerVaultChallengeNavigationKeyRef.current = navigationKey;
+          router.replace(targetPath);
+        }
+        return;
+      }
       if (growthJourney) {
         trackGrowthFunnelStepCompleted({
           journey: growthJourney,
@@ -482,8 +530,15 @@ export function AuthStep({
     completeStep,
     growthEntrySurface,
     growthJourney,
+    nativeTestConfig.autoReviewerLogin,
+    nativeTestConfig.enabled,
+    nativeTestConfig.expectedUserId,
+    nativeTestConfig.vaultPassphrase,
     providerAttempt?.id,
     resolveAndNavigate,
+    router,
+    isVaultUnlocked,
+    shouldUseNativeTestBootstrap,
   ]);
 
   useEffect(() => {
