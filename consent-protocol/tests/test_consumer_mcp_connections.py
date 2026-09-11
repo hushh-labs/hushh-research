@@ -437,6 +437,18 @@ async def test_consumer_mcp_reads_resumable_setup_status_without_starting_a_job(
     assert "bootstrap_sa" not in result.structuredContent["stages"][0]
 
 
+def test_receipts_are_bounded_non_bearer_owner_audit_records(consumer):
+    service, _, _ = consumer
+    principal, review, _ = connect(consumer)
+    receipt = approve(service, review)
+    rows = service.list_receipts(principal)
+    assert len(rows["items"]) == 2
+    assert rows["items"][0]["action"] == "CONSUMER_TOKEN_ISSUED"
+    assert rows["items"][1]["action"] == "CONSENT_GRANTED"
+    assert rows["items"][1]["receipt_id"] == receipt
+    assert all("token_id" not in item for item in rows["items"])
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize("fail_late", [False, True])
 async def test_full_account_erasure_preserves_other_owner_and_rolls_back_atomically(

@@ -339,6 +339,53 @@ class ConsumerMcpConnections:
                 "next_cursor": items[-1]["connection_id"] if len(rows) > limit else None,
             }
 
+    def list_receipts(self, principal: DeveloperPrincipal, *, limit: int = 25) -> dict:
+        """Return bounded, non-bearer audit receipts for this owner connection."""
+        if type(limit) is not int or limit < 1 or limit > 50:
+            raise ConsumerConnectionDenied("Invalid receipt page size")
+        owner = principal.subject_firebase_uid or ""
+        with self._transaction(owner) as tx:
+            authorization = self._oauth(tx, principal)
+            connection_id = str(authorization.get("consumer_connection_id") or "")
+            if not connection_id:
+                raise ConsumerConnectionDenied("Complete the assistant connection first")
+            binding = self._binding(tx, connection_id, owner)
+            self._match(binding, authorization, self._deployment(tx, owner))
+            agent = f"consumer_mcp:{connection_id}:{binding['generation']}"
+            rows = (
+                tx.execute(
+                    text("""
+                SELECT id, request_id, action, issued_at, expires_at, metadata
+                FROM consent_audit
+                WHERE user_id=:owner AND agent_id=:agent AND scope='cap.consumer.memory'
+                ORDER BY id DESC LIMIT :limit
+            """),
+                    {"owner": owner, "agent": agent, "limit": limit},
+                )
+                .mappings()
+                .all()
+            )
+            items: list[dict] = []
+            for row in rows:
+                metadata = row.get("metadata")
+                if isinstance(metadata, str):
+                    try:
+                        metadata = json.loads(metadata)
+                    except json.JSONDecodeError:
+                        metadata = {}
+                items.append(
+                    {
+                        "receipt_id": str(row.get("request_id") or "")[:128],
+                        "action": str(row.get("action") or "")[:32],
+                        "issued_at": int(row.get("issued_at") or 0),
+                        "expires_at": (
+                            int(row["expires_at"]) if row.get("expires_at") is not None else None
+                        ),
+                        "event_kind": str((metadata or {}).get("event_kind") or "")[:64],
+                    }
+                )
+            return {"items": items}
+
     def review(
         self, *, owner: str, connection_id: str, authorization_id: int
     ) -> ConsumerConnection:

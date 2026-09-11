@@ -281,12 +281,14 @@ execution seam, but no hosted migration, installed pod acceptance, or marketplac
 review has occurred.
 Owner-bound, resource-aware OAuth sessions additionally discover
 `get_hussh_connection`, `get_hussh_setup_status`, and
-`list_hussh_capabilities`. The connection tool returns
+`list_hussh_capabilities`, and `list_hussh_receipts`. The connection tool returns
 an authenticated setup or memory-approval link; the status tool reads the
 existing resumable setup job and exposes only sanitized stage state. Neither tool
 approves permission, reads memory or provisions infrastructure. The
 capability tool projects the authored catalog and labels owner-pod, consent
 service, and secure-handoff boundaries without claiming installed readiness.
+The receipts tool reads bounded non-bearer ledger references and never returns
+tokens or private payloads.
 existing developer five-tool catalog remains unchanged for application-only
 credentials. Account creation, pod custody, installed owner-pod acceptance and
 full consumer coverage remain incomplete. On the isolated branch, typed memory
@@ -313,6 +315,7 @@ The existing OAuth proxy and `/oauth/authorize` page also serve consumer review:
 |---|---|
 | `get_hussh_setup_status` (MCP) | Owner OAuth; read the existing setup job without provisioning or creating a second job |
 | `list_hussh_capabilities` (MCP) | Owner OAuth; read the authored consumer capability boundaries |
+| `list_hussh_receipts` (MCP) | Owner OAuth; read bounded consent receipt metadata without bearer tokens |
 | `POST /oauth/consumer-connections/prepare` | Current owner OAuth; resume a binding to the existing serving pod |
 | `GET /oauth/consumer-connections?limit=25&after=...` | Firebase owner; paginated permission metadata, including disconnected entries; no credentials |
 | `GET /oauth/consumer-connections/{id}?authorization_id=...` | Firebase owner; review the registered assistant and current binding |

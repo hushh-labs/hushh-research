@@ -60,6 +60,7 @@ from mcp_modules.tools.consumer_tools import (
     handle_get_hussh_connection,
     handle_get_hussh_setup_status,
     handle_list_hussh_capabilities,
+    handle_list_hussh_receipts,
     handle_read_hussh_memory,
     handle_save_hussh_memory,
 )
@@ -123,6 +124,7 @@ HANDLERS = {
     "get_hussh_connection": handle_get_hussh_connection,
     "get_hussh_setup_status": handle_get_hussh_setup_status,
     "list_hussh_capabilities": handle_list_hussh_capabilities,
+    "list_hussh_receipts": handle_list_hussh_receipts,
     "read_hussh_memory": handle_read_hussh_memory,
     "save_hussh_memory": handle_save_hussh_memory,
     "correct_hussh_memory": handle_correct_hussh_memory,

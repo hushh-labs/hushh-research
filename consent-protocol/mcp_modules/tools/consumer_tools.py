@@ -62,6 +62,22 @@ class ConsumerCapabilitiesResult(BaseModel):
     next_action: str
 
 
+class ConsumerReceipt(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    receipt_id: str
+    action: str
+    issued_at: int
+    expires_at: int | None = None
+    event_kind: str
+
+
+class ConsumerReceiptsResult(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    state: Literal["available"]
+    items: list[ConsumerReceipt]
+    next_action: str
+
+
 class ConsumerMemoryResult(BaseModel):
     model_config = ConfigDict(extra="allow")
     state: Literal["completed"]
@@ -251,6 +267,8 @@ async def handle_list_hussh_capabilities(arguments: dict) -> CallToolResult:
         "save_hussh_memory",
         "correct_hussh_memory",
         "export_hussh_memory",
+        "list_hussh_capabilities",
+        "list_hussh_receipts",
     }
     public_names = {
         "search-user-scopes",
@@ -294,6 +312,28 @@ async def handle_list_hussh_capabilities(arguments: dict) -> CallToolResult:
             state="available",
             capabilities=capabilities,
             next_action="Use the secure handoff for setup or approval-required owner-pod tools before attempting them.",
+        )
+    )
+
+
+async def handle_list_hussh_receipts(arguments: dict) -> CallToolResult:
+    """Read non-bearer consent receipts for the current owner connection."""
+    if arguments:
+        return _error("INVALID_ARGUMENTS", "This tool accepts no arguments.")
+    principal = get_current_developer_principal()
+    if not has_consumer_oauth_identity(principal):
+        return _error("OWNER_AUTH_REQUIRED", "Reconnect using your own Hussh account.")
+    try:
+        result = await asyncio.to_thread(ConsumerMcpConnections().list_receipts, principal)
+    except ConsumerConnectionDenied as error:
+        return _error("RECEIPTS_ACCESS_REFUSED", str(error))
+    except Exception:
+        return _error("RECEIPTS_UNAVAILABLE", "Consent receipts are temporarily unavailable.")
+    return _result(
+        ConsumerReceiptsResult(
+            state="available",
+            items=list(result.get("items") or []),
+            next_action="Receipt references are non-bearer audit records; reconnect or approve again when access is revoked.",
         )
     )
 

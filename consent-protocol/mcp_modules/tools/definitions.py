@@ -10,6 +10,7 @@ from mcp_modules.tools.consumer_tools import (
     ConsumerCapabilitiesResult,
     ConsumerConnectionResult,
     ConsumerMemoryResult,
+    ConsumerReceiptsResult,
     ConsumerSetupStatusResult,
 )
 
@@ -61,6 +62,18 @@ def _private_tool_definitions() -> list[Tool]:
             description="List the authored Hussh consumer capabilities and their execution boundary. This is read-only and does not claim pod readiness.",
             inputSchema=empty,
             outputSchema=ConsumerCapabilitiesResult.model_json_schema(),
+            annotations={
+                "readOnlyHint": True,
+                "destructiveHint": False,
+                "idempotentHint": True,
+                "openWorldHint": False,
+            },
+        ),
+        Tool(
+            name="list_hussh_receipts",
+            description="List bounded owner-scoped consent receipts without exposing bearer tokens or private information.",
+            inputSchema=empty,
+            outputSchema=ConsumerReceiptsResult.model_json_schema(),
             annotations={
                 "readOnlyHint": True,
                 "destructiveHint": False,
