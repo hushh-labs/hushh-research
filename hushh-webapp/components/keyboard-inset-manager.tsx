@@ -45,6 +45,16 @@ function setKeyboardHeight(px: number): void {
   root.classList.toggle("kb-open", clamped > 0);
 }
 
+function isEditableElement(element: HTMLElement | null): element is HTMLElement {
+  if (!element) return false;
+
+  return (
+    element.tagName === "INPUT" ||
+    element.tagName === "TEXTAREA" ||
+    element.isContentEditable
+  );
+}
+
 export function KeyboardInsetManager() {
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -64,29 +74,35 @@ export function KeyboardInsetManager() {
     let rafId = 0;
     const cleanups: Array<() => void> = [];
 
+    const scrollEditableIntoView = (element: HTMLElement | null) => {
+      if (!isEditableElement(element)) return;
+      // Fixed keyboard-anchored layers already track visualViewport through
+      // --kb-height. Scrolling their autofocus target feeds viewport movement
+      // back into that same measurement and makes the command palette jump.
+      if (element.closest('[data-keyboard-anchor="bottom"]')) return;
+
+      cancelAnimationFrame(rafId);
+      // A native keyboard event lands after focus. Wait for the inset style and
+      // the form's keyboard-reduced scroll area to commit, then reveal only the
+      // focused control. `nearest` preserves the Figma composition instead of
+      // re-centering the whole screen while someone types a phone number.
+      rafId = requestAnimationFrame(() => {
+        rafId = requestAnimationFrame(() => {
+          element.scrollIntoView({ block: "nearest" });
+        });
+      });
+    };
+
+    const scrollFocusedEditableIntoView = () => {
+      scrollEditableIntoView(document.activeElement as HTMLElement | null);
+    };
+
     // Focusin net — once the keyboard is up, center the focused field in its
     // nearest scroll container. Covers normal-flow forms (OTP, onboarding,
     // profile) with no per-screen code.
     const onFocusIn = (event: FocusEvent) => {
       if (!document.documentElement.classList.contains("kb-open")) return;
-      const el = event.target as HTMLElement | null;
-      if (!el) return;
-      const editable =
-        el.tagName === "INPUT" ||
-        el.tagName === "TEXTAREA" ||
-        el.isContentEditable;
-      if (!editable) return;
-      // Fixed keyboard-anchored layers already track visualViewport through
-      // --kb-height. Scrolling their autofocus target feeds viewport movement
-      // back into that same measurement and makes the command palette jump.
-      if (el.closest('[data-keyboard-anchor="bottom"]')) return;
-      cancelAnimationFrame(rafId);
-      // Defer past the layout that --kb-height triggers, then center.
-      rafId = requestAnimationFrame(() => {
-        rafId = requestAnimationFrame(() => {
-          el.scrollIntoView({ block: "center" });
-        });
-      });
+      scrollEditableIntoView(event.target as HTMLElement | null);
     };
     document.addEventListener("focusin", onFocusIn, true);
     cleanups.push(() =>
@@ -110,14 +126,22 @@ export function KeyboardInsetManager() {
           // iOS normally emits `will*`, but an interrupted animation/reopened
           // command palette can arrive only as `did*`. Subscribe to both so the
           // CSS inset always converges on the keyboard's final geometry.
+          const handleKeyboardShow = (height: number) => {
+            setKeyboardHeight(height);
+            // `focusin` fires before iOS publishes keyboard visibility, so it
+            // intentionally does nothing on a first focus. The native event is
+            // the authoritative second chance that keeps the active phone/OTP
+            // field above the keyboard without moving the whole viewport.
+            scrollFocusedEditableIntoView();
+          };
           register(
             Keyboard.addListener("keyboardWillShow", (info) =>
-              setKeyboardHeight(info.keyboardHeight ?? 0),
+              handleKeyboardShow(info.keyboardHeight ?? 0),
             ),
           );
           register(
             Keyboard.addListener("keyboardDidShow", (info) =>
-              setKeyboardHeight(info.keyboardHeight ?? 0),
+              handleKeyboardShow(info.keyboardHeight ?? 0),
             ),
           );
           register(
