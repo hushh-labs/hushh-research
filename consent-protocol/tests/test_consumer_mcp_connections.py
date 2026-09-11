@@ -168,6 +168,15 @@ def test_renewal_reuses_consent_but_disconnect_fences_every_session(consumer):
     assert db.execute_raw("SELECT count(*) AS n FROM consumer_mcp_connections").data[0]["n"] == 1
 
 
+def test_current_requires_active_consumer_connection_grant(consumer):
+    service, _, _ = consumer
+    principal, review, _ = connect(consumer)
+    with pytest.raises(ConsumerConnectionDenied, match="approval required"):
+        service.current(principal)
+    approve(service, review)
+    assert service.current(principal).connection_id == review.connection_id
+
+
 def test_full_identity_binding_and_operation_boundaries(consumer, monkeypatch):
     service, _, db = consumer
     principal, review, _ = connect(consumer)
@@ -360,6 +369,8 @@ async def test_mcp_dispatch_returns_owner_handoff_without_granting_access(consum
         assert not capabilities.isError
         projected = {item["name"]: item for item in capabilities.structuredContent["capabilities"]}
         assert projected["read_hussh_memory"]["execution"] == "owner_pod"
+        assert projected["delegate_hussh_task"]["execution"] == "owner_pod"
+        assert projected["delegate_hussh_task"]["availability"] == "approval_required"
         assert projected["request-consent"]["execution"] == "consent_service"
         assert projected["get_hussh_connection"]["execution"] == "secure_handoff"
         result = await mcp_server.call_tool("get_hussh_connection", {})

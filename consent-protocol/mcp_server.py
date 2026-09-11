@@ -56,6 +56,7 @@ from mcp_modules.public_contract import (
 from mcp_modules.tools.campaign_context_tools import handle_prepare_campaign_context
 from mcp_modules.tools.consumer_tools import (
     handle_correct_hussh_memory,
+    handle_delegate_hussh_task,
     handle_disconnect_hussh_connection,
     handle_export_hussh_memory,
     handle_get_hussh_connection,
@@ -127,6 +128,7 @@ HANDLERS = {
     "list_hussh_capabilities": handle_list_hussh_capabilities,
     "list_hussh_receipts": handle_list_hussh_receipts,
     "disconnect_hussh_connection": handle_disconnect_hussh_connection,
+    "delegate_hussh_task": handle_delegate_hussh_task,
     "read_hussh_memory": handle_read_hussh_memory,
     "save_hussh_memory": handle_save_hussh_memory,
     "correct_hussh_memory": handle_correct_hussh_memory,

@@ -398,6 +398,38 @@ class ConsumerMcpConnections:
             self._match(binding, authorization, self._deployment(tx, owner))
             return self._review(binding, authorization, self._grant_state(tx, binding))
 
+    def current(self, principal: DeveloperPrincipal) -> ConsumerConnection:
+        """Return the connection represented by the current owner OAuth session.
+
+        This is intentionally narrower than the owner portal's ``review``
+        operation: the caller cannot choose another connection or owner.  The
+        authorization row supplies the binding, and all deployment, resource,
+        generation, and standing-grant checks are repeated under the existing
+        transaction fence before a remote task is admitted.
+        """
+        owner = principal.subject_firebase_uid or ""
+        with self._transaction(owner) as tx:
+            authorization = self._oauth(tx, principal)
+            connection_id = str(authorization.get("consumer_connection_id") or "")
+            if not connection_id:
+                raise ConsumerConnectionDenied("Complete the assistant connection first")
+            binding = self._binding(tx, connection_id, owner)
+            self._match(binding, authorization, self._deployment(tx, owner))
+            grant = self._grant_state(tx, binding)
+            if grant is None:
+                raise ConsumerConnectionDenied("Personal memory approval required")
+            if grant.token is None:
+                self._issue_grant_token(
+                    tx,
+                    binding=binding,
+                    receipt=grant.receipt,
+                    authorization_id=authorization["id"],
+                )
+                grant = self._grant_state(tx, binding)
+            if grant is None or grant.token is None:
+                raise ConsumerConnectionDenied("Personal memory approval required")
+            return self._review(binding, authorization, grant)
+
     def prepare(self, principal: DeveloperPrincipal) -> ConsumerConnection:
         """Resume one binding; never provision infrastructure or manufacture consent."""
         owner = principal.subject_firebase_uid or ""

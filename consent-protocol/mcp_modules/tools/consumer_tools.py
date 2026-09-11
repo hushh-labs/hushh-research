@@ -6,7 +6,7 @@ from typing import Literal
 from urllib.parse import urlencode, urlsplit
 
 from mcp.types import CallToolResult, TextContent
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from hushh_mcp.runtime_settings import get_app_runtime_settings
 from hushh_mcp.services.consumer_mcp_connections import (
@@ -20,6 +20,11 @@ from hushh_mcp.services.consumer_mcp_memory import (
     ConsumerMemoryConflict,
     ConsumerMemoryInvalid,
     ConsumerMemoryUnavailable,
+)
+from hushh_mcp.services.consumer_mcp_tasks import (
+    ConsumerMcpTask,
+    ConsumerTaskApprovalRequired,
+    ConsumerTaskUnavailable,
 )
 from mcp_modules.developer_context import get_current_developer_principal
 
@@ -92,6 +97,20 @@ class ConsumerMemoryResult(BaseModel):
     operation: str
     execution_target: Literal["owner_pod"]
     deployment_id: str
+    next_action: str
+
+
+class ConsumerTaskResult(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    state: Literal["completed"]
+    execution_target: Literal["owner_pod"]
+    deployment_id: str = Field(..., max_length=128)
+    conversation_id: str = Field(..., max_length=128)
+    response: str = Field(..., max_length=16_000)
+    runtime_mode: str = Field(..., max_length=64)
+    provider: str | None = Field(default=None, max_length=64)
+    model: str | None = Field(default=None, max_length=128)
+    delegation: dict[str, bool] | None = None
     next_action: str
 
 
@@ -278,6 +297,7 @@ async def handle_list_hussh_capabilities(arguments: dict) -> CallToolResult:
         "list_hussh_capabilities",
         "list_hussh_receipts",
         "disconnect_hussh_connection",
+        "delegate_hussh_task",
     }
     public_names = {
         "search-user-scopes",
@@ -308,6 +328,9 @@ async def handle_list_hussh_capabilities(arguments: dict) -> CallToolResult:
         elif name == "disconnect_hussh_connection":
             execution = "consent_service"
             availability = "contract_available"
+        elif name == "delegate_hussh_task":
+            execution = "owner_pod"
+            availability = "approval_required"
         else:
             execution = "consent_service"
             availability = "contract_available"
@@ -385,6 +408,31 @@ async def handle_disconnect_hussh_connection(arguments: dict) -> CallToolResult:
             connection_id=str(result["connection_id"]),
             generation=int(result["generation"]),
             next_action="This assistant is disconnected. The private agent and its information remain available to you.",
+        )
+    )
+
+
+async def handle_delegate_hussh_task(arguments: dict) -> CallToolResult:
+    """Delegate one bounded task to the owner's existing private-agent turn."""
+    principal = get_current_developer_principal()
+    if not has_consumer_oauth_identity(principal):
+        return _error("OWNER_AUTH_REQUIRED", "Reconnect using your own Hussh account.")
+    try:
+        result = await ConsumerMcpTask().execute(principal, arguments=arguments)
+    except ValueError as error:
+        return _error("INVALID_TASK_REQUEST", str(error))
+    except ConsumerTaskApprovalRequired as error:
+        return _error("ONE_APPROVAL_REQUIRED", str(error))
+    except ConsumerTaskUnavailable as error:
+        return _error("OWNER_POD_UNAVAILABLE", str(error))
+    except ConsumerConnectionDenied as error:
+        return _error("TASK_ACCESS_REFUSED", str(error))
+    except Exception:
+        return _error("TASK_UNAVAILABLE", "The owner-pod task could not be completed.")
+    return _result(
+        ConsumerTaskResult(
+            **result,
+            next_action="The owner pod completed the task; interrupted work is never replayed automatically.",
         )
     )
 

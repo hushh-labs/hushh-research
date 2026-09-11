@@ -13,6 +13,7 @@ from mcp_modules.tools.consumer_tools import (
     ConsumerMemoryResult,
     ConsumerReceiptsResult,
     ConsumerSetupStatusResult,
+    ConsumerTaskResult,
 )
 
 
@@ -97,6 +98,25 @@ def _private_tool_definitions() -> list[Tool]:
                 "readOnlyHint": False,
                 "destructiveHint": True,
                 "idempotentHint": True,
+                "openWorldHint": False,
+            },
+        ),
+        Tool(
+            name="delegate_hussh_task",
+            description="Delegate one bounded task to your existing private agent in its owner pod. Requires a separate approved cap.one.invoke grant; the MCP gateway does not run a second router or replay interrupted work.",
+            inputSchema=schema(
+                {
+                    "message": {"type": "string", "minLength": 1, "maxLength": 8000},
+                    "conversation_id": {"type": "string", "minLength": 1, "maxLength": 128},
+                    "timezone": {"type": "string", "maxLength": 64},
+                },
+                ["message"],
+            ),
+            outputSchema=ConsumerTaskResult.model_json_schema(),
+            annotations={
+                "readOnlyHint": False,
+                "destructiveHint": False,
+                "idempotentHint": False,
                 "openWorldHint": False,
             },
         ),
