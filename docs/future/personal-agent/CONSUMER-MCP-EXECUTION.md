@@ -19,7 +19,7 @@ GitHub action item: [#6719 Build consumer Hussh MCP with owner-pod memory and Pu
 ## Baseline and boundaries
 
 - Worktree: sibling `hushh-consumer-mcp`; branch `feat/consumer-mcp`.
-- Latest implementation candidate: `9a028feb5` (11 September 2026); this execution record may receive later documentation-only updates.
+- Latest implementation candidate: `9a028feb5` (11 September 2026); current branch head is `7e8b925ef` after branch-only governance and security-scan corrections. This execution record may receive later documentation-only updates.
 - Original workspace and ADK worktree are independently active and remain untouched.
 - No deployment, main promotion, production activation or marketplace submission has occurred in this workstream.
 - Working source is implementation evidence, not installed-runtime or host acceptance evidence.
@@ -141,3 +141,10 @@ The topology generator remains the existing coverage join: `scripts/ops/generate
 - Repository-wide `./bin/hushh protocol test-ci` also ran to completion on this candidate: `6,720` passed, `79` skipped, `30` failed and `30` errored. The failures cluster outside this consumer slice in branch-freshness-sensitive deploy/build contracts, ADK tree expectations, relay identity, and environment-dependent hooks; the command was not used as a release pass. The branch remains intentionally separate and `130` commits behind `origin/main` at the latest evidence refresh, so those failures are recorded rather than fixed by importing main or changing UAT/production behavior.
 
 - Subsequent validation: 47 focused backend checks passed before the recipient/async-validation additions; all eight enrollment checks then passed. Four frontend proxy tests, frontend typecheck and docs/runtime parity passed. No combined final release or live acceptance gate has run.
+
+## Current branch gate evidence
+
+- Branch head `7e8b925ef5a58a3ffb4a2a1c02ec609c6309da7f` is pushed to `origin/feat/consumer-mcp`; the original workspace, ADK worktree, Hermes worktree, `main`, UAT and production remain untouched. The branch is intentionally separate and currently behind the moving `origin/main`; no main merge was performed.
+- Governance correction `1637a0e9c` aligned the planning-board manifest with its canonical unittest check and refreshed the platform-source inventory hash. Governance correction `b5ec94aeb` made the canonical client-env parity checker follow the shared iOS UAT materializer. Both fixes pass the local governance gate.
+- Security correction `7e8b925ef` documents the two fixed internal SQL fragments used by owner connection pagination and disconnect. `uv run bandit -r hushh_mcp -ll` reports no issues, and the focused MCP/OAuth/connection/memory/task suite passes `89` tests with `9` known dependency warnings.
+- Branch CI run [`34654410698`](https://github.com/hushh-labs/hushh-research/actions/runs/34654410698) passed governance, secret scan, upstream sync, preflight, MCP package and integration lanes, but `Protocol (Python)` failed in unrelated branch-freshness/deployment and ADK contract tests (29 failed, 30 errors, 6,723 passed, 79 skipped). The failures include missing current pod-image build markers, deployment-script test fixtures, duplicated Vertex-region contract text and ADK scope fixtures; they are outside the consumer-MCP slice and were not fixed by importing `main`. The governed deploy preflight therefore refuses this SHA because `CI Status Gate=failure`; no dev credentials, candidate image or migration have been installed.
