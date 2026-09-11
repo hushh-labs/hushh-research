@@ -47,6 +47,21 @@ class ConsumerSetupStatusResult(BaseModel):
     next_action: str
 
 
+class ConsumerCapability(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: str
+    description: str
+    execution: Literal["owner_pod", "consent_service", "secure_handoff"]
+    availability: Literal["approval_required", "contract_available", "secure_handoff"]
+
+
+class ConsumerCapabilitiesResult(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    state: Literal["available"]
+    capabilities: list[ConsumerCapability]
+    next_action: str
+
+
 class ConsumerMemoryResult(BaseModel):
     model_config = ConfigDict(extra="allow")
     state: Literal["completed"]
@@ -214,6 +229,71 @@ async def handle_get_hussh_setup_status(arguments: dict) -> CallToolResult:
             stages=safe_stages,
             error_code=str(row.get("error_code") or "")[:64] or None,
             next_action=next_action,
+        )
+    )
+
+
+async def handle_list_hussh_capabilities(arguments: dict) -> CallToolResult:
+    """Project the authored MCP catalog for an owner-authenticated client."""
+    if arguments:
+        return _error("INVALID_ARGUMENTS", "This tool accepts no arguments.")
+    principal = get_current_developer_principal()
+    if not has_consumer_oauth_identity(principal):
+        return _error("OWNER_AUTH_REQUIRED", "Reconnect using your own Hussh account.")
+
+    from mcp_modules.developer_context import get_current_visible_tool_names  # noqa: PLC0415
+    from mcp_modules.tools.definitions import get_tool_definitions  # noqa: PLC0415
+
+    consumer_names = {
+        "get_hussh_connection",
+        "get_hussh_setup_status",
+        "read_hussh_memory",
+        "save_hussh_memory",
+        "correct_hussh_memory",
+        "export_hussh_memory",
+    }
+    public_names = {
+        "search-user-scopes",
+        "prepare-campaign-context",
+        "request-consent",
+        "check-consent-status",
+        "get-encrypted-scoped-export",
+    }
+    definitions = get_tool_definitions(
+        allowed_tool_names=set(get_current_visible_tool_names()), schema_profile="standard"
+    )
+    capabilities: list[ConsumerCapability] = []
+    for tool in definitions:
+        name = str(tool.name)
+        if name not in consumer_names and name not in public_names:
+            continue
+        if name in {"get_hussh_connection", "get_hussh_setup_status"}:
+            execution = "secure_handoff"
+            availability = "secure_handoff"
+        elif name in {
+            "read_hussh_memory",
+            "save_hussh_memory",
+            "correct_hussh_memory",
+            "export_hussh_memory",
+        }:
+            execution = "owner_pod"
+            availability = "approval_required"
+        else:
+            execution = "consent_service"
+            availability = "contract_available"
+        capabilities.append(
+            ConsumerCapability(
+                name=name,
+                description=str(tool.description or "")[:240],
+                execution=execution,
+                availability=availability,
+            )
+        )
+    return _result(
+        ConsumerCapabilitiesResult(
+            state="available",
+            capabilities=capabilities,
+            next_action="Use the secure handoff for setup or approval-required owner-pod tools before attempting them.",
         )
     )
 

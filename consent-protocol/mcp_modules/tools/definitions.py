@@ -7,6 +7,7 @@ from mcp.types import Tool
 from mcp_modules.canonical_contract import canonical_tool_name
 from mcp_modules.public_contract import get_public_contract
 from mcp_modules.tools.consumer_tools import (
+    ConsumerCapabilitiesResult,
     ConsumerConnectionResult,
     ConsumerMemoryResult,
     ConsumerSetupStatusResult,
@@ -48,6 +49,18 @@ def _private_tool_definitions() -> list[Tool]:
             description="Read the current resumable private-agent setup job. This is read-only and never provisions infrastructure.",
             inputSchema=empty,
             outputSchema=ConsumerSetupStatusResult.model_json_schema(),
+            annotations={
+                "readOnlyHint": True,
+                "destructiveHint": False,
+                "idempotentHint": True,
+                "openWorldHint": False,
+            },
+        ),
+        Tool(
+            name="list_hussh_capabilities",
+            description="List the authored Hussh consumer capabilities and their execution boundary. This is read-only and does not claim pod readiness.",
+            inputSchema=empty,
+            outputSchema=ConsumerCapabilitiesResult.model_json_schema(),
             annotations={
                 "readOnlyHint": True,
                 "destructiveHint": False,
