@@ -176,7 +176,23 @@ async def test_outbound_forgery_and_replay_refused(authority):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("tap", [False, True])
-async def test_direct_policy_preserves_browser_tap_preference(authority, tap):
+async def test_a_preference_cannot_switch_off_a_required_confirmation(authority, tap):
+    """A person's tap preference decides HOW a confirmation is completed, never
+    WHETHER one is owed.
+
+    This test previously asserted the opposite, that `needsConfirmation`
+    followed `require_tap_confirmation`, which let a preference disable a
+    confirmation the generated contract marked `confirm_required`. The
+    confirmation rule on `main` refuses that by construction and says so in its
+    own comment, and it is the safer of the two, so the 2026-09-11 sync keeps
+    `main`'s rule and this test moves to it.
+
+    Nothing varies with the preference here any more, and that is the finding
+    rather than a weakening: once a confirmation is always owed for this
+    policy, the direct settlement path is always refused too. The preference
+    still has a job, deciding how an owed confirmation is completed, and that
+    job is exercised where the confirmation actually happens.
+    """
     broker, store, _, action = authority
     action["activation_policy"] = "none"
     broker.observe_browser(
@@ -190,19 +206,20 @@ async def test_direct_policy_preserves_browser_tap_preference(authority, tap):
         }
     )
     await broker.invoke("issue", issue_args())
+    # `confirm_required` in the generated contract, so a confirmation is owed
+    # whichever way the preference is set.
     assert (
         broker.validate_outbound(directive())["clientDirective"]["payload"]["needsConfirmation"]
-        is tap
+        is True
     )
     broker.observe_browser(browser("action_settled", status="succeeded"))
     args = dict(binding_args(), status="succeeded", reason_code="succeeded")
-    if tap:
-        with pytest.raises(ActionDirectiveAuthorityError):
-            await broker.invoke("settle_direct", args)
-        store.settle_direct.assert_not_called()
-    else:
+    # A confirmation is owed, so the direct settlement path is refused either
+    # way. A preference that could open it would be the same hole by another
+    # door.
+    with pytest.raises(ActionDirectiveAuthorityError):
         await broker.invoke("settle_direct", args)
-        store.settle_direct.assert_awaited_once()
+    store.settle_direct.assert_not_called()
 
 
 @pytest.mark.asyncio

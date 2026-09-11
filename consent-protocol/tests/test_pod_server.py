@@ -207,6 +207,12 @@ def _hub_identity(email="hub@example.iam.gserviceaccount.com", aud=None):
 def walled(monkeypatch):
     from api.middlewares import pod_ingress
 
+    # These are the POD's wall, so say so rather than inheriting it. The value
+    # used to arrive by accident: `pod_server` asserts pod mode at import and
+    # nothing put it back, so whichever test imported the pod application first
+    # left it set for the rest of the session. Once that leak was closed these
+    # tests were the ones standing on it.
+    monkeypatch.setenv("HUSSH_POD_MODE", "1")
     monkeypatch.setenv("HUSSH_POD_HUB_CALLER_EMAILS", "hub@example.iam.gserviceaccount.com")
     monkeypatch.delenv("HUSSH_POD_TICK_ALLOWED_EMAILS", raising=False)
     monkeypatch.delenv("HUSSH_POD_TICK_AUDIENCE", raising=False)

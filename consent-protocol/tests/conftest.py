@@ -32,6 +32,58 @@ os.environ.setdefault(
 )
 
 
+#: The value before any test module is imported. See the fixture below.
+_POD_MODE_AT_IMPORT = os.environ.get("HUSSH_POD_MODE")
+
+
+@pytest.fixture(autouse=True)
+def restore_pod_process_state_after_every_test():
+    """Pod-shaped process state must not survive the test that set it.
+
+    `pod_server.py` asserts pod mode at IMPORT time, before importing app code
+    that reads it, which is correct for a pod and wrong inside one pytest
+    process: the first test that imports the pod application, directly or
+    through any transitive import, flips a global runtime switch for every
+    test that runs after it. `pod_mode()` reads the environment on each call
+    and never caches, so the effect is immediate and total.
+
+    Measured: running `tests/test_pod_lifecycle_log.py` before
+    `tests/test_one_adk_agent_tree.py` left `HUSSH_POD_MODE='1'` set, which
+    sent `validate_a2a_consent_token_with_db` down its pod branch, so every
+    specialist dispatch answered `scope_required` and thirteen tests failed.
+    Each file passed alone. The pair reproduced it in eight seconds.
+
+    Production behaviour is untouched: the image sets the variable itself
+    (`Dockerfile.pod`), and the import-time assertion stays for a pod started
+    outside the image.
+    """
+    import os
+
+    # Restore to the value this conftest saw when it was imported, NOT to the
+    # value at the start of each test. Collection imports every test module
+    # before any test runs, so a module that pulls in the pod application has
+    # already set the variable by the time the first test starts. Snapshotting
+    # per test would therefore adopt the leak as the baseline and preserve it
+    # for the whole session, which is exactly what a first attempt at this
+    # fixture did.
+    try:
+        yield
+    finally:
+        if _POD_MODE_AT_IMPORT is None:
+            os.environ.pop("HUSSH_POD_MODE", None)
+        else:
+            os.environ["HUSSH_POD_MODE"] = _POD_MODE_AT_IMPORT
+        # The sealed pod configuration is cached in a process-wide slot with a
+        # setter and no reset, so a test that installs one hands it to every
+        # test that follows. Measured: a config left behind by
+        # tests/test_pod_live_authority.py made the ingress wall answer 404 for
+        # the app surface in tests/test_pod_server.py, which passed alone.
+        # Clearing returns the documented default rather than a remembered one.
+        from hushh_mcp.services.pod_config import set_active_pod_config
+
+        set_active_pod_config(None)
+
+
 @pytest.fixture(autouse=True)
 def isolate_runtime_env(monkeypatch: pytest.MonkeyPatch):
     # Local import: hushh_mcp.config resolves APP_SIGNING_KEY at import time,
