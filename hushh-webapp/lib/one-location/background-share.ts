@@ -26,6 +26,8 @@ export function buildBackgroundShareSession(params: {
   const grants: BackgroundShareGrant[] = [];
   for (const grant of params.activeGrants) {
     if (grant.status !== "active") continue;
+    const expiresAtMs = grant.expiresAt ? Date.parse(grant.expiresAt) : undefined;
+    if (expiresAtMs !== undefined && (!Number.isFinite(expiresAtMs) || expiresAtMs <= Date.now())) continue;
     const recipient = params.recipients.find(
       (candidate) =>
         candidate.userId === grant.recipientUserId &&
@@ -34,6 +36,7 @@ export function buildBackgroundShareSession(params: {
     if (!recipient?.keyId || !recipient.publicKeyJwk) continue;
     grants.push({
       grantId: grant.id,
+      ...(expiresAtMs !== undefined ? { expiresAtMs } : {}),
       recipientKeyId: recipient.keyId,
       recipientPublicKeyJwk: recipient.publicKeyJwk,
     });

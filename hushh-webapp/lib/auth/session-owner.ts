@@ -9,10 +9,12 @@
  * never become an identity channel between requests.
  */
 
-export type AuthSessionOwnerSnapshot = Readonly<{
-  userId: string;
+export type AuthSessionGenerationSnapshot = Readonly<{
+  userId: string | null;
   generation: number;
 }>;
+
+export type AuthSessionOwnerSnapshot = AuthSessionGenerationSnapshot & Readonly<{ userId: string }>;
 
 let browserUserId: string | null = null;
 let browserGeneration = 0;
@@ -25,13 +27,19 @@ export function publishValidatedAuthSessionOwner(userId: string | null): void {
   browserGeneration += 1;
 }
 
+/** Includes anonymous transitions so a prior guest session cannot become current again. */
+export function snapshotAuthSessionGeneration(): AuthSessionGenerationSnapshot | null {
+  if (typeof window === "undefined") return null;
+  return { userId: browserUserId, generation: browserGeneration };
+}
+
 export function snapshotValidatedAuthSessionOwner(): AuthSessionOwnerSnapshot | null {
   if (typeof window === "undefined" || !browserUserId) return null;
   return { userId: browserUserId, generation: browserGeneration };
 }
 
 export function isValidatedAuthSessionOwnerCurrent(
-  snapshot: AuthSessionOwnerSnapshot,
+  snapshot: AuthSessionGenerationSnapshot,
 ): boolean {
   return (
     typeof window !== "undefined" &&

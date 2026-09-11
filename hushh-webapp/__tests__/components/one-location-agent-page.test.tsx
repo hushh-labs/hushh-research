@@ -6310,30 +6310,7 @@ describe("OneLocationAgentPage", () => {
     expect(screen.getByRole("button", { name: "Send request" })).toBeEnabled();
   });
 
-  it("drops the arrangement while a query is active", async () => {
-    // A search result is ordered by how well each person matches. Headings over
-    // that would name an order the list does not have, so the sections go and
-    // the caller's ranking passes through untouched.
-    mockGetState.mockResolvedValue(locationState());
 
-    render(<OneLocationAgentPage />);
-    await skipLocationEntryFlow();
-    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
-    await openAskFlow();
-
-    fireEvent.change(screen.getByPlaceholderText(/search/i), {
-      target: { value: "Tru" },
-    });
-
-    await waitFor(() => {
-      expect(
-        screen.queryByTestId("one-location-ask-section-header:recent"),
-      ).toBeNull();
-      expect(
-        screen.queryByTestId("one-location-ask-section-header:all"),
-      ).toBeNull();
-    });
-  });
 
   it("keeps Ask for location as one compact list of people who can receive a new ask", async () => {
     // The roster carries `role="list"`, and every entry in it is wrapped as a

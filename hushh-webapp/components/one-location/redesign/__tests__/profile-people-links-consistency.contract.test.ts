@@ -41,7 +41,7 @@ describe("Profile, Location People, and Location Links consistency contract", ()
     expect(source).toContain("accuracyLimited: vm.locationAccuracyLimited");
   });
 
-  it("uses shared SectionLabel for People and Links section headings", () => {
+  it("keeps accessible People, Circle, and Links section headings", () => {
     const hubSource = readSource(
       "components/one-location/redesign/location-redesign-hub.tsx",
     );
@@ -50,7 +50,7 @@ describe("Profile, Location People, and Location Links consistency contract", ()
     );
 
     expect(circleSource).toMatch(
-      /<SectionLabel\s+as="div"\s+compact\s+role="heading"\s+aria-level=\{2\}/,
+      /<SectionLabel\s+as="div"\s+compact\s+role="heading"\s+aria-level=\{2\}\s+id=\{CIRCLE_MEMBERS_HEADING_ID\}/,
     );
     expect(hubSource).toContain('id="one-location-people-heading"');
     expect(hubSource).toContain(

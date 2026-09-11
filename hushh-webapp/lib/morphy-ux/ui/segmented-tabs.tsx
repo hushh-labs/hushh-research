@@ -1,6 +1,6 @@
 "use client";
 
-import type { CSSProperties } from "react";
+import { useRef, type CSSProperties, type KeyboardEvent } from "react";
 
 import { cn } from "@/lib/utils";
 
@@ -37,6 +37,7 @@ export function SegmentedTabs({
   /** Opt into the compact Location-style navigation presentation. */
   variant?: SegmentedTabsVariant;
 }) {
+  const tabRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const resolvedDesktopColumns = Math.max(options.length, 1);
   const resolvedMobileColumns = Math.max(
     mobileColumns ?? resolvedDesktopColumns,
@@ -75,7 +76,7 @@ export function SegmentedTabs({
         } as CSSProperties
       }
     >
-      {options.map((option) => {
+      {options.map((option, index) => {
         const isActive = option.value === value;
 
         return (
@@ -90,6 +91,23 @@ export function SegmentedTabs({
             data-state={isActive ? "active" : "inactive"}
             onClick={() => {
               if (!disabled && !isActive) onValueChange(option.value);
+            }}
+            ref={(node) => {
+              tabRefs.current[index] = node;
+            }}
+            onKeyDown={(event: KeyboardEvent<HTMLButtonElement>) => {
+              if (disabled || options.length < 2) return;
+              let nextIndex: number | null = null;
+              if (event.key === "ArrowRight") nextIndex = (index + 1) % options.length;
+              else if (event.key === "ArrowLeft") nextIndex = (index - 1 + options.length) % options.length;
+              else if (event.key === "Home") nextIndex = 0;
+              else if (event.key === "End") nextIndex = options.length - 1;
+              if (nextIndex === null) return;
+              event.preventDefault();
+              const next = options[nextIndex];
+              if (!next) return;
+              tabRefs.current[nextIndex]?.focus();
+              if (next.value !== value) onValueChange(next.value);
             }}
               className={cn(
                 "relative isolate flex min-w-0 items-center justify-center overflow-hidden border text-center transition-[background-color,border-color,box-shadow,color] duration-150 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]",

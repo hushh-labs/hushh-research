@@ -3,13 +3,13 @@
 import base64
 import binascii
 import hashlib
-import hmac
 import logging
 import threading
 import time
 from typing import Optional, Tuple, Union
 
 from hushh_mcp.config import APP_SIGNING_KEY, DEFAULT_CONSENT_TOKEN_EXPIRY_MS
+from hushh_mcp.consent.token_signing import sign_payload, verify_payload
 from hushh_mcp.constants import CONSENT_TOKEN_PREFIX, ConsentScope
 from hushh_mcp.types import AgentID, HushhConsentToken, UserID
 
@@ -253,9 +253,11 @@ def validate_token(
             raw = f"{user_id}|{agent_id}|{scope_str}|{issued_at_str}|{expires_at_str}|commercial"
         else:
             raw = f"{user_id}|{agent_id}|{scope_str}|{issued_at_str}|{expires_at_str}"
-        expected_sig = _sign(raw)
 
-        if not hmac.compare_digest(signature, expected_sig):
+        # Alg-tagged dispatch (token_signing): HMAC signatures verify exactly as
+        # before; `ed25519.<kid>.<sig>` verifies against a PUBLIC key, which is
+        # what lets a pod check authenticity without the power to forge.
+        if not verify_payload(raw, signature, hmac_key=APP_SIGNING_KEY):
             return False, "Invalid signature", None
 
         # Check expiry BEFORE scope so that an expired token with the wrong
@@ -376,14 +378,7 @@ async def validate_token_with_db(
         return valid, reason, token_obj
 
     agent_id = str(token_obj.agent_id) if token_obj is not None else ""
-    is_device_bound_owner = (
-        token_obj is not None
-        and agent_id.startswith("device:")
-        and (
-            token_obj.scope_str == ConsentScope.VAULT_OWNER.value
-            or token_obj.scope == ConsentScope.VAULT_OWNER
-        )
-    )
+    is_device_bound_token = token_obj is not None and agent_id.startswith("device:")
 
     # Additional DB check for revocation status
     # This catches tokens revoked on other Cloud Run instances
@@ -408,7 +403,7 @@ async def validate_token_with_db(
                     _token_fingerprint(token_str),
                 )
                 return False, "Token has been revoked (DB check)", None
-            if is_device_bound_owner:
+            if is_device_bound_token:
                 device_id = agent_id.removeprefix("device:")
                 if not device_id or not await service.is_trusted_device_active(
                     str(token_obj.user_id), device_id
@@ -429,7 +424,7 @@ async def validate_token_with_db(
         is_vault_owner = token_obj is not None and (
             token_obj.scope_str == "vault.owner" or token_obj.scope == ConsentScope.VAULT_OWNER
         )
-        if is_device_bound_owner:
+        if is_device_bound_token:
             logger.error(
                 "Device-bound owner revocation status could not be confirmed; failing closed: %s",
                 e,
@@ -477,4 +472,6 @@ def _token_fingerprint(token_str: str) -> str:
 
 
 def _sign(input_string: str) -> str:
-    return hmac.new(APP_SIGNING_KEY.encode(), input_string.encode(), hashlib.sha256).hexdigest()
+    # Issuance routes through token_signing: HMAC by default (byte-identical to
+    # the historic signer), Ed25519 when CONSENT_TOKEN_SIGNING_ALG selects it.
+    return sign_payload(input_string, hmac_key=APP_SIGNING_KEY)

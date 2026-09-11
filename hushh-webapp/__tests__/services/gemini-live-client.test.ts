@@ -1,6 +1,7 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ApiService } from "@/lib/services/api-service";
+
 import { GeminiLiveClient } from "@/lib/services/gemini-live-client";
 import type {
   OneVoiceSpeechAdapter,
@@ -558,5 +559,76 @@ describe("GeminiLiveClient session resumption", () => {
       global.WebSocket = OriginalWebSocket;
       vi.useRealTimers();
     }
+  });
+});
+
+
+describe("GeminiLiveClient cancellation during startup", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it("releases a permission result arriving after stop without opening audio or a socket", async () => {
+    let allow!: (stream: MediaStream) => void;
+    const trackStop = vi.fn();
+    const getUserMedia = vi.fn(() => new Promise<MediaStream>((resolve) => { allow = resolve; }));
+    const audio = vi.fn();
+    const socket = vi.fn();
+    vi.stubGlobal("navigator", { mediaDevices: { getUserMedia } });
+    vi.stubGlobal("AudioContext", audio);
+    vi.stubGlobal("WebSocket", socket);
+    const transport = new GeminiLiveClient();
+    const started = transport.start({ relayUrl: "wss://synthetic.example" });
+    expect(getUserMedia).toHaveBeenCalledOnce();
+    transport.stop();
+    allow({ getTracks: () => [{ stop: trackStop }] } as unknown as MediaStream);
+    await started;
+    expect(trackStop).toHaveBeenCalledOnce();
+    expect(audio).not.toHaveBeenCalled();
+    expect(socket).not.toHaveBeenCalled();
+  });
+
+  it("does not request a relay ticket after stop during microphone startup", async () => {
+    let allow!: (stream: MediaStream) => void;
+    const trackStop = vi.fn();
+    const getUserMedia = vi.fn(() => new Promise<MediaStream>((resolve) => { allow = resolve; }));
+    const relayLookup = vi.spyOn(ApiService, "getOneAdkLiveRelayUrl").mockResolvedValue(
+      "wss://synthetic.example",
+    );
+    vi.stubGlobal("navigator", { mediaDevices: { getUserMedia } });
+    vi.stubGlobal("WebSocket", vi.fn());
+    const transport = new GeminiLiveClient();
+    const started = transport.start();
+    expect(getUserMedia).toHaveBeenCalledOnce();
+    transport.stop();
+    allow({ getTracks: () => [{ stop: trackStop }] } as unknown as MediaStream);
+    await started;
+    expect(trackStop).toHaveBeenCalledOnce();
+    expect(relayLookup).not.toHaveBeenCalled();
+  });
+
+  it("stops audio resources during resume and does not load a worklet afterward", async () => {
+    let resume!: () => void;
+    const trackStop = vi.fn();
+    const close = vi.fn().mockResolvedValue(undefined);
+    const addModule = vi.fn();
+    vi.stubGlobal("navigator", { mediaDevices: { getUserMedia: vi.fn().mockResolvedValue({ getTracks: () => [{ stop: trackStop }] }) } });
+    class FakeAudioContext {
+      state = "suspended";
+      close = close;
+      audioWorklet = { addModule };
+      resume = () => new Promise<void>((resolve) => { resume = resolve; });
+    }
+    vi.stubGlobal("AudioContext", FakeAudioContext);
+    const transport = new GeminiLiveClient();
+    const started = transport.start({ relayUrl: "wss://synthetic.example" });
+    await Promise.resolve();
+    transport.stop();
+    resume();
+    await started;
+    expect(trackStop).toHaveBeenCalledOnce();
+    expect(close).toHaveBeenCalledOnce();
+    expect(addModule).not.toHaveBeenCalled();
   });
 });

@@ -31,9 +31,20 @@ export type DeleteAccountAuthResolution =
  * whether its entry point is Profile or the onboarding shell. Keep the copy
  * and confirmed mutation here so route-local affordances cannot drift.
  */
-export const DELETE_ACCOUNT_DIALOG_TITLE = "Delete One account?";
+export const DELETE_ACCOUNT_DIALOG_TITLE = "Delete your One account?";
+// Names BOTH sides of the boundary: what is removed (including everything
+// Hussh created inside the person's own Google Cloud project: their agent,
+// its storage, its keys) and what is deliberately never touched (the project
+// itself, which is theirs). Deletion that is silent about the second half
+// reads as either over-deleting or under-cleaning (founder finding,
+// 2026-08-21).
 export const DELETE_ACCOUNT_DIALOG_DESCRIPTION =
-  "Deletes your account, Vault, saved details, and connected-service access. Required security or legal records may be retained under our policy. This cannot be undone.";
+  "This action cannot be undone. This permanently deletes your One account, " +
+  "your encrypted vault and saved details, every connected service, your " +
+  "cloud-linked identity, and your private agent with everything we created " +
+  "inside your Google Cloud project (its service, storage, and keys). Your " +
+  "Google Cloud project itself is yours and is never deleted by us. " +
+  "Required security or legal records may be retained under our policy.";
 
 type AccountDeletionSessionUser = Pick<User, "uid" | "getIdToken">;
 type DeletionStatusProbe = "active" | "deleted" | "unavailable";

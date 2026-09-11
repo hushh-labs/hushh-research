@@ -60,6 +60,16 @@ async def validate_a2a_consent_token_with_db(
     status cannot be confirmed.
     """
     required_scope = get_a2a_required_scope(agent_id)
+    from hushh_mcp.runtime_settings import pod_mode
+
+    if pod_mode():
+        from hushh_mcp.services.pod_consent_client import require_owner_scope
+
+        try:
+            verdict = await require_owner_scope(consent_token, expected_scope=required_scope.value)
+        except PermissionError:
+            return A2AConsentValidation(False, "consent denied", None, required_scope)
+        return A2AConsentValidation(True, "verified by hub", verdict.user_id, required_scope)
     valid, reason, payload = await validate_token_with_db(consent_token, required_scope)
     return A2AConsentValidation(
         ok=bool(valid and payload),

@@ -357,3 +357,97 @@ def test_nav_never_lexically_routes_to_connections() -> None:
     source = inspect.getsource(NavAgent.handle)
     assert "get_connections_a2a" not in source
     assert "_is_connections_query" not in source
+
+
+async def test_pod_nav_reuses_shared_handler_with_scoped_control_plane_read(monkeypatch):
+    from hushh_mcp.adk_bridge.contract import A2AAuthorityContext
+    from hushh_mcp.adk_bridge.dispatch import bind_specialist_runtime
+    from hushh_mcp.services import pod_consent_client
+    from hushh_mcp.services.pod_consent_client import ConsentVerdict
+    from hushh_mcp.services.pod_data_door import project_nav_state
+    from hushh_mcp.services.pod_hub_client import PodHubClient
+    from hushh_mcp.services.pod_specialist_runtime import build_pod_specialist_runtime
+
+    monkeypatch.setenv("HUSSH_POD_MODE", "1")
+    monkeypatch.setenv("HUSSH_ID", "pod-owner")
+
+    async def verify(token, *, expected_scope):
+        scopes = {"read": "pkm.read", "nav": "agent.nav.review"}
+        return ConsentVerdict(scopes.get(token) == expected_scope, True, "owner", "pod-owner")
+
+    monkeypatch.setattr(pod_consent_client, "verify_consent", verify)
+    raw = {
+        "active": {
+            "total": 1,
+            "items": [
+                {
+                    "id": "must-drop",
+                    "scope": "cap.location.live.view",
+                    "counterpart_label": "Example",
+                    "consent_token": "must-drop",
+                    "metadata": {"request_source": "test", "secret": "must-drop"},
+                }
+            ],
+        },
+        "previous": {"total": 0, "items": []},
+        "credential": "must-drop",
+    }
+    projected = project_nav_state(raw)
+    assert "must-drop" not in str(projected)
+    reads = []
+
+    def read(_self, name, scope_token):
+        reads.append((name, scope_token))
+        return projected
+
+    monkeypatch.setattr(PodHubClient, "read_specialist", read)
+    runtime = build_pod_specialist_runtime(
+        user_id="owner",
+        hushh_id="pod-owner",
+        consent_token="read",  # noqa: S106
+        provider="gemini",
+        model="synthetic",
+        runtime_mode="user_adc",
+        credential=None,
+        credential_transport="developer_api",
+        vertex_project=None,
+        vertex_location=None,
+        data_door_grants={"nav": "nav"},
+    )
+    with bind_specialist_runtime(runtime):
+        result = await dispatch(
+            "agent_nav",
+            A2ATask(
+                user_id="owner",
+                consent_token="nav",  # noqa: S106 -- inert scoped test token
+                conversation_id="thread",
+                message="Show all active consent grants",
+                authority=A2AAuthorityContext(
+                    "owner",
+                    "owner",
+                    "thread",
+                    "first_party",
+                    invocation_capabilities=("cap.one.invoke",),
+                ),
+            ),
+        )
+    assert "Example can view your live location" in result.text
+    assert reads == [("nav", "nav")]
+
+
+async def test_nav_read_only_view_does_not_refresh_identities_or_expire_location():
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock, Mock
+
+    from hushh_mcp.services.one_location_center_contributor import OneLocationCenterContributor
+
+    service = ConsentCenterService(read_only=True)
+    identity = SimpleNamespace(get_many=AsyncMock(return_value={}), ensure_many=AsyncMock())
+    service._identity = identity
+    assert await service._hydrate_entry_identities([]) == []
+    identity.get_many.assert_awaited_once_with([])
+    identity.ensure_many.assert_not_called()
+
+    location = SimpleNamespace(list_state=Mock(return_value={}))
+    OneLocationCenterContributor(location, read_only=True).collect("owner")
+    location.list_state.assert_called_once_with(user_id="owner", read_only=True)

@@ -43,17 +43,24 @@ class NormalizedCandidate:
 
 @dataclass(frozen=True)
 class NormalizedChunk:
-    """A streaming delta. ``text`` mirrors genai's top-level chunk text."""
+    """A streaming delta with optional typed function calls."""
 
     text: str = ""
+    function_calls: tuple[NormalizedFunctionCall, ...] = field(default_factory=tuple)
+    # The model the provider says answered, when it says. Empty means "not
+    # reported", which the ADK adapter turns into the requested id and the turn
+    # response reports as ``modelReported: false`` rather than as a guess.
+    model_version: str = ""
 
     @property
     def candidates(self) -> tuple[NormalizedCandidate, ...]:
-        if not self.text:
+        parts: list[NormalizedPart] = []
+        if self.text:
+            parts.append(NormalizedPart(text=self.text))
+        parts.extend(NormalizedPart(function_call=call) for call in self.function_calls)
+        if not parts:
             return ()
-        return (
-            NormalizedCandidate(content=NormalizedContent(parts=(NormalizedPart(text=self.text),))),
-        )
+        return (NormalizedCandidate(content=NormalizedContent(parts=tuple(parts))),)
 
 
 @dataclass(frozen=True)
@@ -62,6 +69,7 @@ class NormalizedResponse:
 
     text: str = ""
     function_calls: tuple[NormalizedFunctionCall, ...] = field(default_factory=tuple)
+    model_version: str = ""
 
     @property
     def candidates(self) -> tuple[NormalizedCandidate, ...]:

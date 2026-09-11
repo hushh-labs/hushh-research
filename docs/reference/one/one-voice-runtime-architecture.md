@@ -6,136 +6,36 @@ Status: current-state truth for the ADK-based One voice runtime.
 
 ```mermaid
 flowchart TD
-  shell["One Voice shell<br/>Agent Bar + Agent Chat"]
-  fsm["Shared One Voice FSM<br/>accessible transitions"]
-  context["OneVoiceContextSnapshot<br/>redacted active state"]
-  transport["RealtimeVoiceTransport<br/>provider adapter seam"]
-  speech["Platform speech adapters<br/>shared TranscriptEvent"]
-  local["Local bounded intent resolver<br/>generated catalog"]
-  gemini["GeminiLiveClient<br/>audio pump + wire envelope"]
-  settlement["Correlated action settlement<br/>browser-observed outcome"]
-  relay["/api/one/adk/live<br/>ADK live relay"]
-  runner["ADK Runner (run_live)<br/>single ordered event stream"]
-  one["One root LlmAgent<br/>gemini-live model"]
-  onboarding["agent_onboarding<br/>deterministic, redacted goal resolver"]
-  search["google_search<br/>web grounding"]
-  nav["open_screen<br/>governed navigation allowlist"]
-  agenttools["AgentTool specialists<br/>Finance, RIA"]
-  fntools["Specialist turn tools<br/>Email, Location, Connections,<br/>Connected Systems, Consent"]
-  a2a["adk_bridge dispatch<br/>A2A scope-gated specialists"]
-
-  shell --> fsm
-  shell --> context
-  shell --> transport
-  shell --> speech
-  speech --> local
-  local --> agenttools
-  local --> fntools
-  transport --> gemini
-  gemini -- "relay ticket ws" --> relay
-  relay --> runner
-  runner --> one
-  one --> onboarding
-  one --> search
-  one --> nav
-  one --> agenttools
-  one --> fntools
-  fntools --> a2a
-  shell --> settlement
-  settlement --> relay
+  shell["One Voice shell / Agent Bar"]
+  transport["Existing Gemini Live transport"]
+  admission["Relay ticket admission"]
+  refusal["Private voice unavailable"]
+  owner["Current owner, serving pod and scoped consent"]
+  courier["Hub courier and directive authority<br/>IAM, no redirects"]
+  intro["Public onboarding runner<br/>ephemeral session"]
+  navigation["Existing intro navigation tools<br/>generated public actions"]
+  context["Bounded public context<br/>owner credentials rejected"]
+  chat["Personal typed chat"]
+  pod["Owner-authorized active pod"]
+  shell --> transport --> admission
+  admission -- "signed-in" --> owner
+  owner -- "refused or unavailable" --> refusal
+  owner -- "authorized" --> courier --> pod
+  admission -- "anonymous" --> intro
+  context --> intro --> navigation
+  chat --> pod
 ```
-
-### Cross-platform speech and local intent boundary
-
-The voice product is cross-platform. iOS native speech and browser speech are
-adapters behind the same `TranscriptEvent` contract; neither adapter selects an
-action. The browser local-first adapter, verified model-pack store, pinned
-sherpa-onnx WASM runtime, and ONNX-ranker worker are wired behind this
-boundary. They fail closed until deployment supplies an approved
-signed/expiring model pack; provider-backed fallback remains explicitly
-labelled `onDevice: false`. The iOS adapter
-requests on-device `SFSpeechRecognizer` when available and refuses network
-recognition unless the caller explicitly allows it. FluidAudio `v0.15.6` is
-linked behind the same optional, benchmark-gated provider seam, not a second
-transcript authority. The app, test, and Capacitor deployment targets are iOS
-17. The generated Capacitor package manifest may retain its upstream iOS 15
-minimum because it is overwritten during sync; the app target is the shipping
-compatibility boundary.
-
-Shipping configuration leaves FluidAudio disabled until three independent
-conditions are true: the exact NVIDIA-licensed streaming-model notice has a
-recorded legal approval, an immutable checksum-verified on-demand pack is
-active, and automated physical-device evidence qualifies the provider. Apple
-on-device Speech remains the default/fallback. A backend assertion or a web
-feature flag alone cannot enable the FluidAudio model.
-
-For iOS, the adapter derives a bounded list of short `contextualStrings` from
-the generated action catalog and passes it to the speech request. This improves
-recognition of product vocabulary such as “Agent One”, “Circle”, and “location
-sharing”; it is only an ASR hint and cannot select or authorize an action.
-
-`GeminiLiveClient` starts the selected speech adapter before relay setup. Final
-adapter transcripts wait for the initial redacted context acknowledgement, then
-enter the same local resolver used by Siri Ask. A known, currently executable
-action becomes a typed `action_propose`; a governed read or clarification is
-handled in-app; only unresolved/open conversation is sent as a real `user_text`
-turn to Gemini. If the adapter is unavailable, the client emits a
-metadata-only fallback event and uses the existing PCM Live transport. That
-fallback is intentionally provider-backed until a verified local ASR runtime
-pack is activated, so the boundary never claims that browser speech is
-on-device merely because local mode was requested.
-
-Known Hussh requests can enter the app-owned local resolver first. It generates
-and ranks candidates from the generated action gateway, applies bounded slot
-extraction, and returns `action`, `read_answer`, `clarify`, or `unsupported`.
-The resolver never calls a backend and cannot mint consent, confirmation, or
-settlement. For an actionable result, the existing live transport submits a
-typed `action_propose` frame after the context barrier; the relay revalidates
-the generated contract and issues the normal directive-ledger record. Thus
-`executeAgentGatewayAction`, the directive ledger, and verified backend
-settlement remain the only mutation authority. Gemini is a fallback for
-open-ended or low-confidence conversation, not the source of Hussh capability
-truth.
-
-The generated local fixtures cover Circle creation, location enable/disable,
-Circle counts, ambiguity, off-screen rejection, and SOS-send prevention. The
-async resolver contract, bounded entity/duration ports, and ONNX worker only
-return generated action ids from the current executable inventory. They run in
-`npm run verify:one-voice`, which is also part of the full and targeted web CI
-gates. Deployment model packs and physical-device latency evidence remain
-release gates rather than being implied by source-level checks.
 
 ## Current Truth
 
 ### Siri/App Shortcut entry adapter
 
 On iOS 16 and later, Siri is a structured entry adapter into the existing One
-runtime, not a second voice runtime or action engine. There are two modes:
-
-The conversational handshake has the same boundary. `TalkToHusshOneIntent`
-queues `start_one_voice`; `AskOneRequestIntent` queues
-`interpret_one_request` with raw, bounded request text held only in the
-device-only native handoff record. The visible Agent One runtime performs the
-owner, expiry, deadline, and exactly-once claim, then passes the text once to
-the existing Agent Bar as `initialRequestText`. The voice owner sends it as a
-real `user_text` turn only after the relay setup and redacted context have been
-acknowledged. Siri never sees the current screen, Vault state, consent state,
-private-agent information, or generated action inventory, and it never selects
-or executes an action.
-
-The supported spoken contract is “talk to Agent One” for live voice, “ask Agent
-One to …” for a raw one-shot request, and “open Agent One” for app opening
-without automatic listening. Phrase aliases improve discoverability but are
-not a guarantee of arbitrary paraphrase recognition. Ambiguous requests remain
-inside Agent One and require clarification. If Siri detaches before app
-ownership, the request is cancelled with no mutation; after ownership, the
-in-app session continues independently. Voice SOS can open the existing review
-surface but cannot send an alert.
+runtime. Two structured adapters are connected:
 
 1. `TalkToHusshOneIntent` foregrounds the UIKit/Capacitor app and enqueues the
-   metadata-only voice invocation. Native and web enforce the same 25-second
-   app-acceptance deadline; the five-minute TTL is cleanup only. The Agent Bar
-   remains the only owner of the microphone, Gemini Live transport, relay, context,
+   existing five-minute, metadata-only voice invocation. The Agent Bar remains
+   the only owner of the microphone, Gemini Live transport, relay, context,
    consent, capture, and playback.
 2. Location App Intents resolve typed Apple parameters, enqueue one bounded
    `execute_one_action` request, and hand the exact generated `action_id` and
@@ -147,7 +47,7 @@ Both native envelopes use latest-request-wins and exact claim/completion. They
 survive ordinary cold launch and HUSSH sign-in for five minutes and clear on
 completion, failure, expiry, replacement, cancellation, or sign-out. The
 action envelope is stored in this-device-only Keychain storage and is closed
-to seventeen allowlisted generated action identifiers and per-action slot names.
+to eighteen allowlisted generated action identifiers and per-action slot names.
 The App Entity index is owner-bound and contains only existing HUSSH ids and
 display names; it contains no phone numbers, credentials, coordinates, routes,
 tokens, speech, or contact-book records.
@@ -181,8 +81,8 @@ duplicate authority-bearing logic. A future background intent is acceptable
 only after that same executor is available behind a shared non-UI port with
 identical guards and settlement.
 
-The authoritative Location contract currently contains 50 generated actions.
-Seventeen are Siri-exposed as either `direct` or `review_ui`. The sole
+The authoritative Location contract currently contains 51 generated actions.
+Eighteen are Siri-exposed as either `direct` or `review_ui`. The sole
 `conversation_only` action is `location.chat.turn`; it is reached only through
 the explicit conversation intent. The Siri surface exposes this useful,
 bounded Location subset:
@@ -198,6 +98,7 @@ bounded Location subset:
 | Open temporary-link composer | `location.open_temporary_link` | No | No |
 | Open Check-In composer | `location.open_check_in` | No | No |
 | Open SOS review | `location.open_sos` | No; does not send | No |
+| Send SOS after local device authentication | `location.trigger_sos` | No additional dialog | Yes |
 | Open emergency SMS contacts | `location.open_sms_contacts` | No | No |
 | Share with a resolved contact | `location.share_selected` | Yes | Yes |
 | Ask a resolved contact for location | `location.send_request` | Yes | Yes |
@@ -207,7 +108,7 @@ bounded Location subset:
 | Create a named Circle | `location.create_circle` | Yes | Yes |
 | Rename a resolved Circle | `location.rename_circle` | Yes | Yes |
 
-The other 33 Location contract actions default to `unsupported` for Siri and
+Thirty-two Location contract actions default to `unsupported` for Siri and
 remain available through the existing One Voice and visible Location
 experience:
 
@@ -223,10 +124,11 @@ experience:
   place, and active Check-In mutations require a typed current-state entity or
   an already prepared in-app composer. Exposing them by spoken name alone would
   guess at authority-bearing records or change the meaning of the contract.
-- `trigger_sos` and `sos_default` are intentionally excluded from direct Siri
-  execution because the current generated contract can send an alert without
-  a confirmation gate. Siri may open the existing SOS review surface, but it
-  cannot send the alert in this release.
+- `sos_default` remains unsupported. The authored explicit SOS-send intent now
+  exposes `trigger_sos`, requires local device authentication and vault access,
+  and deliberately adds no further confirmation dialog. `open_sos` still opens
+  the review surface without sending. These are source contracts; successful
+  alert delivery and simulator/device journey evidence must be recorded separately.
 
 The internal iOS bundle name remains the unique, previously accepted
 `Hussh One`. The installed display name and `CFBundleSpokenName` are `Agent One`, so
@@ -262,25 +164,36 @@ prompt instead of a phrase slot.
 
 `verify-siri-action-contract.mjs` enforces both, and runs those two structural
 checks before the phrase-fragment assertions so an earlier throw cannot mask
-them. Neither is caught by a green CI job: the Xcode that built build 99 wrote
+them. Earlier CI did not validate the extracted contents: the Xcode that built build 99 wrote
 `Metadata.appintents` without complaint, so the file existing is not evidence
 the shortcuts are in it. Only inspecting `extract.actionsdata` from a real build
 proves that.
 
-Mutation intents keep Apple's parameter follow-ups and native confirmation,
-then hand the exact generated action to the existing browser executor. The
+Ordinary mutation intents retain Apple's parameter follow-ups and authored
+native confirmation. The explicit SOS-send exception is described above. Exact
+generated actions reach the existing browser executor. The
 other App Intents remain discoverable in the Shortcuts app. Android and web
 deliberately report this Apple system surface as unsupported/no pending
 invocation.
 
 The deterministic shortcuts advertise typed `Ask Agent One to…`, `Tell Agent
 One to…`, and `Talk to Agent One and…` phrase families. The conversation
-shortcut advertises only `Talk to Agent One` and `Start a conversation with
-Agent One`; it does not advertise bare `Ask Agent One`. There is no free-form
-command slot, keyword router, or model classifier. Direct intents can create
-only `execute_one_action`, while the conversation intent can create only
-`start_one_voice`. Unsupported or incomplete requests remain with Siri for
-system clarification and cannot fall through to the internal voice surface.
+shortcut advertises `Talk to Agent One` and `Start a conversation with Agent One`.
+Direct intents create `execute_one_action`; the conversation intent creates
+`start_one_voice`.
+
+The incoming `AskOneRequestIntent` separately authors bounded free-text capture
+under `one.request.v1`. Its foreground journey is incomplete: `SiriOneRequestHandoff`
+is unmounted and contains a placeholder executor. Capture must not be described as
+successful private-agent execution. Completing this journey requires owner-bound,
+vault-gated delivery into the existing private chat, cancellation across account
+changes, and truthful settlement. It remains a release gap.
+
+On the private branch, the authenticated action-search and proposal HTTP entrypoints
+return the existing `AGENT_PRIVATE_RUNTIME_REQUIRED` refusal before retrieval,
+provider calls, session creation or proposal storage. They preserve discovery and
+request contracts while the private transport is incomplete. Personal requests
+must use the owner's active pod; these endpoints do not enable shared-hub fallback.
 
 ### Route orchestration index
 
@@ -394,7 +307,7 @@ default. The browser is an audio pump and directive executor; every decision
 (conversation vs tool call vs navigation vs specialist delegation) is made
 inside One's agent tree on the backend.
 
-What shipped:
+Reusable full-agent factory (separate from public relay admission):
 
 - `consent-protocol/hushh_mcp/one_adk/agent_tree.py` builds One as the root
   `LlmAgent` (name `one`, model `gemini-3.1-flash-live-preview` via
@@ -411,23 +324,46 @@ What shipped:
   `POST /api/one/adk/relay-session` mints a signed one-time ticket
   (`api/routes/one/relay_auth.py`), `WS /api/one/adk/live` bridges the
   browser wire envelope onto `run_live`.
+- On the private-agent branch, anonymous voice executes only the restricted
+  public onboarding runner on the hub, without owner memory or private context.
+  Signed-in ticket issuance checks current serving ownership and scoped consent;
+  consuming the existing one-use ticket rechecks admission and opens an
+  audience-bound IAM connection to the registered pod. Redirects and ambient
+  proxies are disabled. Failure returns unavailability, never shared execution.
+  The hub retains the existing directive ledger. Confirmation and settlement
+  require matching browser frames, generated action policy and current context. Specialist
+  proposals reuse `one_directive_frames` and the existing owner-confirmed chat
+  handoff, including One-owned Gmail drafts. This translation grants no execution
+  authority. A payload carrying `actionId` still requires the directive ledger;
+  unverified `action_result`, automatic location publication and legacy navigation
+  frames are refused.
+  The pod rechecks consent and its sealed-log fence before bootstrap and while
+  connected. ADK memory/session identity is the HusshID; tools and directive
+  authority retain the verified Firebase UID. Completed transcriptions reach
+  the existing memory service at graceful shutdown, without audio or session
+  secrets. Private provider-resumption handles remain disabled.
+  Source and synthetic transport checks establish this wiring, not deployed
+  readiness. Periodic revocation checks are not instantaneous enforcement;
+  cancellation-resistant work is reported as incomplete shutdown. Specialist
+  scope completion, provider drainage, crash durability and actual owner-project
+  recall remain required operational evidence.
 - The legacy hand-rolled Vertex pump
   (`api/routes/kai/agent_realtime_gemini.py`), the client-side lexical
   planner (`lib/voice/one-voice-live-action-bridge.ts`), and the
   `action_proposal` transport event were deleted. There is no second
   decision-maker anywhere in the voice path.
 
-Voice responder contract (who makes LLM calls, who speaks):
+Voice responder contract (public admission uses the restricted intro head):
 
 - The root Live model is the ONLY audio producer. Specialists never speak.
 - Agent Chat has no microphone transport, STT adapter, TTS queue, or browser
   speech fallback. Its microphone affordance requests the persistent Agent
   Bar's existing One Live owner, so a chat surface can never overlap or replace
   native-audio playback.
-- `AgentTool(finance)` / `AgentTool(ria)` consults run ONE nested text-mode
+- In the full-agent factory, `AgentTool(finance)` / `AgentTool(ria)` consults run ONE nested text-mode
   `run_async` call on the specialist model inside the live turn; the root
   model folds the result into its spoken answer.
-- The deterministic `ask_*` specialist turn tools and `open_screen` make ZERO extra
+- In that factory, the deterministic `ask_*` specialist turn tools and `open_screen` make ZERO extra
   LLM calls: they are deterministic handlers (A2A dispatch / directive
   parking) whose structured results return to the root model.
 - `resolve_onboarding_goal` is likewise deterministic but intentionally is not
@@ -503,10 +439,9 @@ known capability gap, not a permission bypass.
 
 Why this fixes the "random commands" class of bugs by construction:
 
-- ONE decision-maker: One's root agent or the bounded local resolver selects
-  only generated action ids. Local proposals wait for the context barrier and
-  are revalidated by the relay; there is no browser-created authorization or
-  second action registry.
+- ONE decision-maker: One's root agent decides inside ADK's own flow. There
+  is no client-side re-ranker and no separately-timed proposal frame to race
+  the transcript.
 - Turn correlation: `run_live` yields a single ordered `Event` stream per
   invocation; audio, transcriptions, function calls, and directives share the
   same ordered channel.
@@ -522,7 +457,6 @@ Browser to relay:
 | `{"type": "runtime_bootstrap", "runtime_credential_mode": "hushh_managed_vertex"\|"byok", "runtime_credential_transport": "developer_api"\|"vertex_api_key", "runtime_vertex_project"?: "…", "runtime_vertex_location"?: "…", "runtime_credential"?: "…"}` | **First authenticated frame only.** Selects the connection-local runner; Vertex metadata is required only for a Vertex key. The optional BYOK key is cleared after runner creation and never enters `app_context`. |
 | `{"realtimeInput": {"audio": {"data": b64, "mimeType"}}}` | 16 kHz mono PCM16 mic audio |
 | `{"type": "app_context", "appContext": {...}}` | redacted screen context + governed `consent_token` (explicit `null` clears it) + `timezone` |
-| `{"type": "action_propose", "actionProposal": {...}}` | local generated-catalog proposal; accepted only after the current context is acknowledged |
 | `{"type": "action_settled", "actionSettlement": {...}}` | correlated browser-observed outcome of an action directive |
 | `{"type": "app_speech", "text"}` | app-composed response for One to speak verbatim |
 | `{"type": "user_text", "text"}` | typed user turn (chat parity / accessibility) |
@@ -538,11 +472,19 @@ Relay to browser:
 | `{"serverContent": {"turnComplete": true}}` | model turn closed |
 | `{"inputTranscription": {"text"}}` | final user transcript |
 | `{"outputTranscription": {"text"}}` | final assistant transcript |
-| `{"localActionProposalAccepted": {"proposalId"}}` / `{"localActionProposalRejected": {"proposalId", "code"}}` | typed local proposal admission result |
 | `{"clientDirective": {"kind", "payload"}}` | tool-decided client action (e.g. navigate) |
 
 ## Auth and Consent Boundary
 
+- An absent bearer is anonymous. A supplied invalid or revoked bearer remains
+  an authentication failure; an unavailable verifier remains retryable failure.
+  Signed ticket consumption requires the shared nonce registry and refuses
+  admission if its acknowledgement is unavailable or the ticket expires while
+  waiting. A consumed nonce is never recovered through a process-local fallback.
+- Browser relay tickets, continuation handles, callbacks and queued reconnects
+  follow the validated auth-session owner generation. Account replacement
+  cancels the voice lease and clears continuation state. Stopping during pending
+  microphone permission releases a late stream without opening a new socket.
 - The ws URL carries ONLY the opaque relay ticket. No hints, no bearer, no
   consent token in any URL.
 - A BYOK credential may exist only in the first TLS-protected
@@ -552,14 +494,19 @@ Relay to browser:
 - Vault lock, key removal, mode change, app backgrounding, and reconnect end
   the current BYOK voice connection. A later voice session resolves the current
   encrypted configuration again; no durable relay credential reference exists.
-- The vault owner consent token rides in the post-connect `app_context` frame
-  and lands in ADK session state (`hussh:consent_token`). It is read by
-  specialist turn tools only; it never reaches the model prompt.
-- Locking the vault or revoking consent sends `consent_token: null`, which
-  clears the token from the active ADK session before any later specialist
-  call. A live session never retains its former authority after that update.
-- Specialist tools fail closed: without `hussh:user_id` + consent token in
-  session state they return `needs_auth` instead of calling the specialist.
+- On the private branch, the hub strips browser-supplied consent and specialist
+  grants from `app_context`. The pod receives server-issued `pkm.read` authority
+  and independent location, email and calendar read grants in authenticated
+  connection headers. These remain transient session state, excluded from the
+  memory projection. The specialist broker checks current owner, scope and
+  revocation at each read; a browser context update cannot grant access.
+- Text and Live use the same read-grant issuer. Email's scoped read path cannot
+  fall through to full A2A dispatch if the broker refuses it. Calendar retains
+  its existing calendar tools rather than adding another specialist. These are
+  read summaries, not proof of all specialist actions or calendar query windows.
+- Private consent and erasure admission are checked during the connection.
+  A detected refusal closes it; periodic detection and cancellation do not
+  establish instantaneous revocation or completed underlying provider drainage.
 - Session state writes go through `session_service.append_event` with a
   `state_delta` (the relay's session object is a service copy; direct
   mutation does not persist).
@@ -719,9 +666,18 @@ execution by `action_id` is unaffected either way.
 
 ## Chat Runtime (parity path)
 
-Typed private-agent chat (`api/routes/one/agent_chat.py`) accepts standard
-AG-UI runs, sends natural-language turns to One's ADK semantic head, and
-retains encrypted history plus explicit specialist continuity. It does not run a client lexical action planner. The
+The private branch executes personal turns through the owner-authorized pod
+relay. `api/routes/one/agent_chat.py` now admits only the existing restricted
+public intro, including valid Firebase-only onboarding. A supplied owner token
+is verified and then refused with `AGENT_PRIVATE_RUNTIME_REQUIRED` before any
+private context or shared session is retained. The unused full shared agent
+instance was retired; protected encrypted-history routes remain available.
+Invalid, revoked, mismatched or unavailable credentials never become intro
+authority. Intro accepts no client tools, private context or PKM projection.
+
+The retained AG-UI intro transport accepts standard
+AG-UI runs for ephemeral public conversation and governed public navigation.
+It does not retain private history or grant specialist authority. The
 Information Marketplace is intentionally rejected at this boundary; its
 standalone consent-first chat and routes remain separate.
 
@@ -729,8 +685,7 @@ standalone consent-first chat and routes remain separate.
 
 `OneVoiceContextSnapshot` stays intentionally lossy:
 
-- keeps redacted sign-in state, screen id, route family, visible modules, ranked
-  available action ids, and a separate bounded executable action inventory,
+- keeps redacted sign-in state, screen id, route family, visible modules, available action ids,
   cache posture, vault readiness, portfolio readiness, persona, voice state,
   and the top redacted interaction-layer posture
 - redacts user ids, vault keys, raw PKM, transcript history, private
@@ -742,9 +697,7 @@ relay keeps a bounded allowlist of this redacted state in ADK session state for
 tools only: `run_app_action` and `list_app_actions` use the supplied action ids
 to avoid proposing controls that are not available on the current surface.
 Raw snapshot fields never enter a model prompt. Screen changes alone surface to
-the model as bracketed non-speech user content. The ranked inventory supports
-discovery; the executable inventory is the only browser-authorized set used for
-action execution and is filtered again by the relay.
+the model as bracketed non-speech user content.
 
 Only the active playbook, top-layer inventory, visible generated actions and bounded
 options, and pending-settlement posture are composed into One's runtime instruction.
@@ -757,6 +710,9 @@ vault, consent, confirmation, and settlement boundaries.
 ```bash
 cd consent-protocol && ./bin/consent-protocol test-ci
 cd consent-protocol && python3 -m pytest tests/test_one_adk_agent_tree.py -q
+# After preparing the pinned embedding model cache, and only when the model,
+# dependencies, retrieval or generated catalog changes:
+cd consent-protocol && HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 uv run pytest tests/integration/test_action_retrieval_embeddings.py -q
 cd hushh-webapp && npx vitest run __tests__/voice
 cd hushh-webapp && npm run typecheck && npm run verify:design-system
 ```

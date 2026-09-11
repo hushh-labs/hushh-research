@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { PlugZap } from "lucide-react";
+import { Cloud, PlugZap } from "lucide-react";
 import { toast } from "sonner";
 
 import {
@@ -15,17 +15,25 @@ import {
   CapabilitySetupTile,
   SetupNavigationTile,
 } from "@/components/onboarding/setup/capability-setup-tile";
+import {
+  BufferHandoffScreen,
+  GuidedConnectionScreen,
+  VaultExplainerScreens,
+} from "@/components/onboarding/setup/local-first-vault-sequence";
 import { SetupCompletionFooter } from "@/components/onboarding/setup/setup-completion-footer";
 import { SettingsGroup } from "@/components/app-ui/settings-ui";
+import { AccountIdentityService } from "@/lib/services/account-identity-service";
 import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
 import { Button } from "@/lib/morphy-ux/button";
 import styles from "./one-setup-hub.module.css";
 import { useAuth } from "@/lib/firebase/auth-context";
+import { isPersonalAgentReadyFromCachedFeed } from "@/lib/feed/personal-agent-readiness";
 import { useVault } from "@/lib/vault/vault-context";
 import {
   isOneSetupSurfaceRoute,
   normalizeInternalRouteHref,
   ROUTES,
+  buildPhoneMandateRoute,
 } from "@/lib/navigation/routes";
 import { acknowledgeOneSetupExit } from "@/lib/services/one-setup-exit-service";
 import {
@@ -47,6 +55,10 @@ import {
   type CapabilityStatus,
 } from "@/lib/services/capability-setup-state-service";
 import { getCapabilityStatusDisplay } from "@/lib/onboarding/capability-status-display";
+import { isLocalFirstOnboardingEnabled } from "@/lib/onboarding/local-first-flags";
+import { migrateOnboardingBuffer } from "@/lib/services/onboarding-buffer-migration-service";
+import { OneAgentPresence } from "@/components/dashboard/one-agent-presence";
+import { ApiService } from "@/lib/services/api-service";
 import { PreVaultUserStateService } from "@/lib/services/pre-vault-user-state-service";
 import { PreVaultSensitiveDraftService } from "@/lib/services/pre-vault-sensitive-draft-service";
 import { FinanceSetupDraftService } from "@/lib/services/finance-setup-draft-service";
@@ -79,18 +91,78 @@ export function OneSetupHub() {
     enrichRia: true,
   });
   const [dismissing, setDismissing] = useState(false);
-  const [finalizationError, setFinalizationError] = useState<string | null>(null);
+  const [finalizationError, setFinalizationError] = useState<string | null>(
+    null,
+  );
   const [vaultInvitationOpen, setVaultInvitationOpen] = useState(false);
   const [vaultDialogOpen, setVaultDialogOpen] = useState(false);
+  /**
+   * Local-first sequencing (Workstream D4), OFF by default.
+   *
+   * This changes only WHEN the vault flow is entered — guided connection, then
+   * the buffer migration, then the explainers, then the same unmodified vault
+   * dialog. With the flag off, `localFirstStage` never leaves "idle" and every
+   * branch below falls through to today's behaviour.
+   */
+  const localFirstEnabled = isLocalFirstOnboardingEnabled();
+  const [localFirstStage, setLocalFirstStage] = useState<
+    "idle" | "guided_connection" | "migrating" | "explainer" | "draining"
+  >("idle");
   const finalizationInFlightRef = useRef<Promise<void> | null>(null);
-  const [runtimeChoiceSnapshot, setRuntimeChoiceSnapshot] = useState<{
+  // Both root prerequisites come from ONE PreVaultUserState read. They are two facts
+  // on the same record, so splitting them into two snapshots would mean two fetches,
+  // two caches and two chances for the hub to show a person a half-updated checklist.
+  const [prereqSnapshot, setPrereqSnapshot] = useState<{
     userId: string | null;
-    state: "loading" | "required" | "complete";
-  }>({ userId: null, state: "loading" });
-  const runtimeChoiceState =
-    runtimeChoiceSnapshot.userId === (user?.uid ?? null)
-      ? runtimeChoiceSnapshot.state
-      : "loading";
+    cloud: "loading" | "required" | "complete";
+    runtime: "loading" | "required" | "complete";
+  }>({ userId: null, cloud: "loading", runtime: "loading" });
+  const prereqMatchesUser = prereqSnapshot.userId === (user?.uid ?? null);
+  const cloudState = prereqMatchesUser ? prereqSnapshot.cloud : "loading";
+  const runtimeChoiceState = prereqMatchesUser
+    ? prereqSnapshot.runtime
+    : "loading";
+  // The third root prerequisite. The agent's record (its HusshID) is minted from
+  // a VERIFIED phone, so without one no pod can exist: a person could finish the
+  // wizard with a cloud and an AI and still have no agent (founder-hit,
+  // 2026-09-02). It is read from the identity shadow, not from a client claim.
+  const [phoneState, setPhoneState] = useState<{
+    userId: string | null;
+    phone: "loading" | "required" | "complete";
+  }>({ userId: null, phone: "loading" });
+  const phoneVerified =
+    phoneState.userId === (user?.uid ?? null) &&
+    phoneState.phone === "complete";
+  useEffect(() => {
+    if (!user?.uid) {
+      setPhoneState({ userId: null, phone: "required" });
+      return;
+    }
+    let active = true;
+    const cached = AccountIdentityService.peekCachedIdentity(user.uid)?.data;
+    setPhoneState({
+      userId: user.uid,
+      phone: AccountIdentityService.hasVerifiedPhone(cached)
+        ? "complete"
+        : "loading",
+    });
+    void AccountIdentityService.refreshCurrentUserIdentity(user)
+      .then((identity) => {
+        if (!active) return;
+        setPhoneState({
+          userId: user.uid,
+          phone: AccountIdentityService.hasVerifiedPhone(identity)
+            ? "complete"
+            : "required",
+        });
+      })
+      .catch(() => {
+        if (active) setPhoneState({ userId: user.uid, phone: "required" });
+      });
+    return () => {
+      active = false;
+    };
+  }, [user]);
   const returnTo = useMemo(() => {
     const raw = normalizeInternalRouteHref(searchParams.get("return_to"));
     if (!raw) return null;
@@ -105,40 +177,131 @@ export function OneSetupHub() {
 
   useEffect(() => {
     if (!user?.uid) {
-      setRuntimeChoiceSnapshot({ userId: null, state: "required" });
-      return;
-    }
-    let active = true;
-    const cached = PreVaultUserStateService.getCachedBootstrapState(user.uid);
-    if (cached) {
-      setRuntimeChoiceSnapshot({
-        userId: user.uid,
-        state: PreVaultUserStateService.hasOneRuntimeChoice(cached)
-          ? "complete"
-          : "required",
+      setPrereqSnapshot({
+        userId: null,
+        cloud: "required",
+        runtime: "required",
       });
       return;
     }
-    setRuntimeChoiceSnapshot({ userId: user.uid, state: "loading" });
+    let active = true;
+    const project = (
+      state: Parameters<typeof PreVaultUserStateService.hasOneCloudProject>[0],
+    ) => ({
+      userId: user.uid,
+      cloud: PreVaultUserStateService.hasOneCloudProject(state)
+        ? ("complete" as const)
+        : ("required" as const),
+      runtime: PreVaultUserStateService.hasOneRuntimeChoice(state)
+        ? ("complete" as const)
+        : ("required" as const),
+    });
+    const cached = PreVaultUserStateService.getCachedBootstrapState(user.uid);
+    if (cached) {
+      setPrereqSnapshot(project(cached));
+      // Stale-while-revalidate: the cached record can predate a prerequisite
+      // completed on another surface. The founder-hit case (2026-08-21): the
+      // one-click cloud flow finished and this checklist kept demanding
+      // "Connect your cloud first" from a cache written before the save.
+      // Render the cache instantly, confirm it in the background, and update
+      // only when the truth differs.
+      void PreVaultUserStateService.bootstrapState(user.uid, { force: true })
+        .then((state) => {
+          if (active) setPrereqSnapshot(project(state));
+        })
+        .catch(() => undefined);
+      return () => {
+        active = false;
+      };
+    }
+    setPrereqSnapshot({
+      userId: user.uid,
+      cloud: "loading",
+      runtime: "loading",
+    });
     void PreVaultUserStateService.bootstrapState(user.uid)
       .then((state) => {
         if (!active) return;
-        setRuntimeChoiceSnapshot({
-          userId: user.uid,
-          state: PreVaultUserStateService.hasOneRuntimeChoice(state)
-            ? "complete"
-            : "required",
-        });
+        setPrereqSnapshot(project(state));
       })
       .catch(() => {
         if (active) {
-          setRuntimeChoiceSnapshot({ userId: user.uid, state: "required" });
+          setPrereqSnapshot({
+            userId: user.uid,
+            cloud: "required",
+            runtime: "required",
+          });
         }
       });
     return () => {
       active = false;
     };
   }, [user?.uid]);
+
+  // The cloud setup runs as a background job; while it does, the row says so
+  // ("step N of 6") instead of "Required", and the person keeps onboarding.
+  // Slow poll: the cloud page owns the live checklist, this row only needs the
+  // headline. When the job records, the marker flips and stale-while-revalidate
+  // above turns the row Connected.
+  const [cloudSetupJob, setCloudSetupJob] = useState<{
+    stage: string;
+    stagesReached: number;
+  } | null>(null);
+  const cloudComplete_forJob =
+    prereqMatchesUser && prereqSnapshot.cloud === "complete";
+  useEffect(() => {
+    if (!user?.uid || cloudComplete_forJob) {
+      setCloudSetupJob(null);
+      return;
+    }
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const poll = async () => {
+      try {
+        const status = await ApiService.getByocSetupStatus();
+        if (cancelled) return;
+        if (status.status === "running" && !status.stale) {
+          setCloudSetupJob({
+            stage: status.stage,
+            stagesReached: status.stages.length,
+          });
+          timer = setTimeout(() => void poll(), 10_000);
+          return;
+        }
+        setCloudSetupJob(null);
+        if (status.status === "recorded") {
+          void PreVaultUserStateService.bootstrapState(user.uid, {
+            force: true,
+          })
+            .then((state) => {
+              if (!cancelled) {
+                setPrereqSnapshot({
+                  userId: user.uid,
+                  cloud: PreVaultUserStateService.hasOneCloudProject(state)
+                    ? "complete"
+                    : "required",
+                  runtime: PreVaultUserStateService.hasOneRuntimeChoice(state)
+                    ? "complete"
+                    : "required",
+                });
+              }
+            })
+            .catch(() => undefined);
+        }
+      } catch {
+        if (!cancelled) setCloudSetupJob(null);
+      }
+    };
+    void poll();
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [user?.uid, cloudComplete_forJob]);
+  const cloudSetupRunning = cloudSetupJob !== null;
+  const cloudSetupStageLabel = cloudSetupJob
+    ? `Setting up (step ${Math.min(Math.max(cloudSetupJob.stagesReached, 1), 6)} of 6)`
+    : "Required";
 
   const items = useMemo(() => buildSetupItems(byId), [byId]);
   const groupedItems = groupSetupCapabilities(items, (item) =>
@@ -148,7 +311,12 @@ export function OneSetupHub() {
   const completeItems = groupedItems.complete;
   const visibleItems = groupedItems.visible;
 
+  const cloudComplete = cloudState === "complete";
   const runtimeChoiceComplete = runtimeChoiceState === "complete";
+  // Both root prerequisites, in product order. The footer and the master exit read
+  // this rather than either half, so a person cannot leave the hub having done one.
+  const setupPrerequisitesComplete =
+    cloudComplete && phoneVerified && runtimeChoiceComplete;
   // "Ready" counts only GENUINELY set-up capabilities (completed/skipped). A
   // tile that still needs a connection or an unlock (blocked/unknown) is NOT
   // ready, even though it is not directly tappable-into-setup — so we never
@@ -156,6 +324,8 @@ export function OneSetupHub() {
   // rendered alongside these capability rows, so it must participate in the
   // same progress projection instead of being omitted from the denominator.
   const progressSteps = [
+    { id: "cloud", complete: cloudComplete },
+    { id: "phone", complete: phoneVerified },
     { id: "connections", complete: runtimeChoiceComplete },
     ...items.map((item) => ({
       id: item.id,
@@ -193,7 +363,7 @@ export function OneSetupHub() {
                 : "This setup is still remaining."
             }`,
           })),
-          ...(dismissing || !runtimeChoiceComplete
+          ...(dismissing || !setupPrerequisitesComplete
             ? []
             : [
                 {
@@ -205,6 +375,14 @@ export function OneSetupHub() {
               ]),
         ],
   });
+
+  const resolveFinalizedSetupTarget = useCallback(
+    () =>
+      user?.uid && PreVaultSensitiveDraftService.hasFinanceIntent(user.uid)
+        ? ROUTES.ONE_SETUP_FINANCE_IMPORT
+        : completionTarget,
+    [completionTarget, user?.uid],
+  );
 
   const completeSetupAfterVault = useCallback(async (): Promise<void> => {
     if (!user?.uid) {
@@ -249,14 +427,24 @@ export function OneSetupHub() {
       });
       setVaultDialogOpen(false);
       setVaultInvitationOpen(false);
+      if (localFirstEnabled) {
+        // The vault key reaches this component on the NEXT render (VaultFlow
+        // calls unlockVault then onSuccess in the same tick), so the final drain
+        // cannot run inside this callback. Stay mounted one more beat; the effect
+        // below runs it and then routes home.
+        //
+        // This sits INSIDE the finalization promise rather than after it (where
+        // it lived before main restructured this into an in-flight-guarded
+        // IIFE), so the drain is only entered once every encrypted write above
+        // has actually succeeded. Returning here skips the routing below; the
+        // draining effect owns the final navigation.
+        setLocalFirstStage("draining");
+        return;
+      }
       // Finance source intents intentionally remain process-memory-only until
       // this encryption boundary completes. Resume the canonical source flow
       // once, now that it has a valid vault session.
-      router.replace(
-        PreVaultSensitiveDraftService.hasFinanceIntent(user.uid)
-          ? ROUTES.ONE_SETUP_FINANCE_IMPORT
-          : completionTarget,
-      );
+      router.replace(resolveFinalizedSetupTarget());
     })();
     finalizationInFlightRef.current = finalize;
     try {
@@ -273,7 +461,15 @@ export function OneSetupHub() {
         finalizationInFlightRef.current = null;
       }
     }
-  }, [completionTarget, router, user?.uid, vaultKey, vaultOwnerToken]);
+  }, [
+    completionTarget,
+    resolveFinalizedSetupTarget,
+    localFirstEnabled,
+    router,
+    user?.uid,
+    vaultKey,
+    vaultOwnerToken,
+  ]);
 
   useEffect(() => {
     if (
@@ -299,6 +495,75 @@ export function OneSetupHub() {
     user?.uid,
   ]);
 
+  // Final drain, after the vault exists. Idempotent: anything already
+  // acknowledged is skipped, anything still buffered is retried on the next
+  // signed-in pass. A stalled vault key must not strand the person on this
+  // screen, so the watchdog routes home regardless.
+  useEffect(() => {
+    if (!localFirstEnabled || localFirstStage !== "draining") return;
+
+    let active = true;
+    const watchdog = setTimeout(() => {
+      if (active) router.replace(resolveFinalizedSetupTarget());
+    }, 8000);
+
+    if (!user?.uid || !vaultKey || !vaultOwnerToken) {
+      // Wait for the render that carries the freshly unlocked key.
+      return () => {
+        active = false;
+        clearTimeout(watchdog);
+      };
+    }
+
+    void migrateOnboardingBuffer({
+      userId: user.uid,
+      vaultKey,
+      vaultOwnerToken,
+    })
+      .catch((error) => {
+        console.warn(
+          "[OneSetupHub] Could not finish moving buffered details into the private agent:",
+          error instanceof Error ? error.name : "UnknownError",
+        );
+      })
+      .finally(() => {
+        if (active) router.replace(resolveFinalizedSetupTarget());
+      });
+
+    return () => {
+      active = false;
+      clearTimeout(watchdog);
+    };
+  }, [
+    resolveFinalizedSetupTarget,
+    localFirstEnabled,
+    localFirstStage,
+    router,
+    user?.uid,
+    vaultKey,
+    vaultOwnerToken,
+  ]);
+
+  // The pre-vault pass. It writes nothing (there is no vault key yet) and
+  // reports what is still waiting — but it runs BEFORE any vault surface opens,
+  // so the vault is genuinely the last thing the person is asked for.
+  const runGuidedConnection = async () => {
+    setLocalFirstStage("migrating");
+    if (user?.uid) {
+      await migrateOnboardingBuffer({
+        userId: user.uid,
+        vaultKey,
+        vaultOwnerToken,
+      }).catch((error) => {
+        console.warn(
+          "[OneSetupHub] Pre-vault buffer pass failed; continuing to vault setup:",
+          error,
+        );
+      });
+    }
+    setLocalFirstStage("explainer");
+  };
+
   const handleMasterAck = async () => {
     if (dismissing) {
       return {
@@ -312,31 +577,69 @@ export function OneSetupHub() {
     }
     setDismissing(true);
     try {
-      // AI access gate: a runtime choice is mandatory before leaving the hub.
-      // When the client already knows the choice is made (the footer stays
-      // disabled until runtimeChoiceComplete) trust it and skip the network
-      // round-trip. Only re-verify against fresh server state when the client
-      // is unsure — and even then a failed probe must not trap the person, so
-      // fall back to the resolved client gate rather than stranding them.
+      // Root-setup gate: BOTH prerequisites are mandatory before leaving the hub.
+      // When the client already knows they are satisfied (the footer stays disabled
+      // until then) trust it and skip the network round-trip. Only re-verify against
+      // fresh server state when the client is unsure — and even then a failed probe
+      // must not trap the person, so fall back to the resolved client gate rather
+      // than stranding them.
+      let cloudConfirmed = cloudComplete;
       let runtimeChoiceConfirmed = runtimeChoiceComplete;
-      if (!runtimeChoiceConfirmed) {
+      let phoneConfirmed = phoneVerified;
+      if (!phoneConfirmed) {
+        const identity =
+          await AccountIdentityService.refreshCurrentUserIdentity(user, {
+            force: true,
+          }).catch(() => null);
+        phoneConfirmed = AccountIdentityService.hasVerifiedPhone(identity);
+        setPhoneState({
+          userId: user.uid,
+          phone: phoneConfirmed ? "complete" : "required",
+        });
+      }
+      if (!cloudConfirmed || !runtimeChoiceConfirmed) {
         try {
           const currentState = await PreVaultUserStateService.bootstrapState(
             user.uid,
             { force: true },
           );
+          cloudConfirmed =
+            PreVaultUserStateService.hasOneCloudProject(currentState);
           runtimeChoiceConfirmed =
             PreVaultUserStateService.hasOneRuntimeChoice(currentState);
-          setRuntimeChoiceSnapshot({
+          setPrereqSnapshot({
             userId: user.uid,
-            state: runtimeChoiceConfirmed ? "complete" : "required",
+            cloud: cloudConfirmed ? "complete" : "required",
+            runtime: runtimeChoiceConfirmed ? "complete" : "required",
           });
         } catch (error) {
           console.warn(
-            "[OneSetupHub] Could not verify the AI access choice:",
+            "[OneSetupHub] Could not verify the root setup prerequisites:",
             error,
           );
         }
+      }
+      // Distinct messages per missing step, deliberately. "Set up your cloud" and
+      // "Choose AI access" are different next actions, and one string covering both
+      // is how a gate stops telling a person what to do and becomes noise.
+      if (!cloudConfirmed) {
+        return {
+          status: "blocked" as const,
+          summary: "Connect your own cloud before continuing.",
+        };
+      }
+      if (!phoneConfirmed) {
+        toast.info("Verify your phone first.", {
+          action: {
+            label: "Verify",
+            onClick: () =>
+              router.push(buildPhoneMandateRoute(ROUTES.ONE_SETUP)),
+          },
+        });
+        return {
+          status: "blocked" as const,
+          summary: "Verify your phone first.",
+        };
       }
       if (!runtimeChoiceConfirmed) {
         // The action stays tappable precisely so this can fire. A permanent
@@ -360,6 +663,13 @@ export function OneSetupHub() {
       }
 
       if (!isVaultUnlocked) {
+        if (localFirstEnabled) {
+          setLocalFirstStage("guided_connection");
+          return {
+            status: "succeeded" as const,
+            summary: "Continue to connect your private agent.",
+          };
+        }
         // No screen in between. Finish setup opens the lock step itself; the
         // reassurance the old invitation screen carried ("only you can open
         // what you save") now lives on the lock step's own first screen, so
@@ -374,8 +684,15 @@ export function OneSetupHub() {
       await completeSetupAfterVault();
       return {
         status: "succeeded" as const,
-        summary: "Setup complete. Opening home.",
-        routeAfter: completionTarget,
+        summary: "Setup complete. Continuing.",
+        routeAfter: resolveFinalizedSetupTarget(),
+      };
+    } catch {
+      // The finalizer retains its visible failure state. Return a terminal
+      // action result so button and voice callers do not leak a rejected promise.
+      return {
+        status: "failed" as const,
+        summary: "Could not save your setup. Try again.",
       };
     } finally {
       setDismissing(false);
@@ -400,9 +717,18 @@ export function OneSetupHub() {
     ? "One moment…"
     : allReady
       ? "Add more any time."
-      : !runtimeChoiceComplete
-        ? "Choose your AI first."
-        : `${remaining} left.`;
+      : !cloudComplete
+        ? "Connect your cloud first."
+        : !runtimeChoiceComplete
+          ? "Choose your AI first."
+          : `${remaining} left.`;
+  const localFirstSequenceActive =
+    localFirstEnabled && localFirstStage !== "idle" && Boolean(user);
+  // A centered story-screen takeover (the local-first sequence) is a full screen
+  // with its own single title, icon, and action. The hub therefore suppresses its
+  // own PageHeader while one is showing: rendering both stacked two competing
+  // titles over one centered screen (Restraint Charter: one title per screen).
+  const storyTakeoverActive = localFirstSequenceActive;
 
   return (
     <AppPageShell
@@ -417,7 +743,15 @@ export function OneSetupHub() {
         dataState: hubStateLoading ? "loading" : "loaded",
       }}
     >
-      <AppPageHeaderRegion>
+      {/* Suppressed during the local-first story takeover: that centered screen
+          owns the one title, so the hub must not render a second one above it
+          (Restraint Charter: one title per screen). The master Skip/Finish
+          action now lives solely in the in-flow footer below, shown on every
+          viewport, so the header carries only the title -- the old top-right
+          mobile action was retired (its terminal-action contract asserts it is
+          gone). */}
+      {!storyTakeoverActive ? (
+        <AppPageHeaderRegion>
           <PageHeader
             title={
               !hubStateLoading && allReady ? "You're all set" : "Set up One"
@@ -426,10 +760,35 @@ export function OneSetupHub() {
             accent="neutral"
             className={styles.setupHeader}
           />
-      </AppPageHeaderRegion>
+        </AppPageHeaderRegion>
+      ) : null}
 
       <AppPageContentRegion>
-        {hubStateLoading ? (
+        {localFirstSequenceActive ? (
+          localFirstStage === "guided_connection" ||
+          localFirstStage === "migrating" ? (
+            <GuidedConnectionScreen
+              agentReady={
+                user?.uid ? isPersonalAgentReadyFromCachedFeed(user.uid) : false
+              }
+              busy={localFirstStage === "migrating"}
+              onContinue={() => void runGuidedConnection()}
+            />
+          ) : localFirstStage === "explainer" ? (
+            <VaultExplainerScreens
+              // Arm the completion effect the same way the flag-off path does at
+              // handleMasterAck: it is gated on vaultInvitationOpen, so without this
+              // the local-first (flag-on) user sets their lock and is stranded on the
+              // explainer -- the buffer never drains and the hub never routes home.
+              onComplete={() => {
+                setVaultInvitationOpen(true);
+                setVaultDialogOpen(true);
+              }}
+            />
+          ) : (
+            <BufferHandoffScreen />
+          )
+        ) : hubStateLoading ? (
           <SetupHubLoadingState />
         ) : (
           <>
@@ -450,72 +809,165 @@ export function OneSetupHub() {
                     className={styles.setupProgressFill}
                     style={{
                       width:
-                        total > 0 ? `${Math.round((done / total) * 100)}%` : "0%",
+                        total > 0
+                          ? `${Math.round((done / total) * 100)}%`
+                          : "0%",
                     }}
                   />
                 </div>
               </div>
             ) : null}
             <div className={styles.flatChecklist}>
+              {/* The cloud comes first and stays first. Where the agent lives
+                  decides everything after it (which AI can be chosen, where
+                  records go), so this group is pinned at the top in both
+                  states instead of sinking into "Complete" once connected, and
+                  the capability lists below appear only once the cloud is in
+                  place (founder direction, 2026-09-02). */}
               <SettingsGroup
-                title="Remaining"
-                testId="one-setup-capabilities-remaining"
+                title="Start here"
+                testId="one-setup-foundation"
                 separatorInset
               >
-                {!runtimeChoiceComplete ? (
-                  <SetupNavigationTile
-                    id="connections"
-                    title="Choose your AI"
-                    description="Use ours, or bring your own."
-                    href={ROUTES.ONE_SETUP_CONNECTIONS}
-                    voiceControlId="one_setup_tile_connections"
-                    icon={lucideCapabilityIcon(PlugZap)}
-                    tone="connected"
-                    statusLabel="Required"
-                    // The one row that blocks the exit. A muted grey "Required"
-                    // reads like every other trailing label, so it gets the
-                    // accent pill and the current-step role instead.
-                    statusTone="required"
-                    isCurrent
-                  />
-                ) : null}
-                {remainingItems.map((item) => (
-                  <CapabilitySetupTile
-                    key={item.id}
-                    capabilityId={item.id}
-                    title={item.copy.setupTitle}
-                    description={item.copy.setupBlurb}
-                    actionLabel={item.copy.actionLabel}
-                    resumeActionLabel={item.copy.resumeActionLabel}
-                    href={item.copy.href}
-                    voiceControlId={item.voiceControlId}
-                    icon={item.icon}
-                    tone={item.tone}
-                    status={item.status}
-                    isExploreOnly={item.isExploreOnly}
-                    isCurrent={item.isCurrent}
-                  />
-                ))}
+                <SetupNavigationTile
+                  id="cloud"
+                  title={
+                    cloudComplete ? "Your cloud" : "Where your agent lives"
+                  }
+                  description={
+                    cloudComplete
+                      ? "Your private agent runs in your own Google Cloud project."
+                      : cloudSetupRunning
+                        ? "Being set up in the background. Keep going; this finishes on its own."
+                        : "Your own Google Cloud project, or hosted by hussh for now. You can move it later."
+                  }
+                  href={ROUTES.ONE_SETUP_CLOUD}
+                  voiceControlId="one_setup_tile_cloud"
+                  icon={lucideCapabilityIcon(Cloud)}
+                  tone="connected"
+                  statusLabel={
+                    cloudComplete
+                      ? "Connected"
+                      : cloudSetupRunning
+                        ? cloudSetupStageLabel
+                        : "Required"
+                  }
+                  statusTone={cloudComplete ? undefined : "required"}
+                  isCurrent={!cloudComplete}
+                  isComplete={cloudComplete}
+                />
+                <SetupNavigationTile
+                  id="phone"
+                  title="Verify your phone"
+                  description={
+                    phoneVerified
+                      ? "Verified. Your agent's record is minted from this number."
+                      : cloudComplete
+                        ? "Your agent's record is minted from your verified number."
+                        : "After your cloud."
+                  }
+                  href={buildPhoneMandateRoute(ROUTES.ONE_SETUP)}
+                  voiceControlId="one_setup_tile_phone"
+                  icon={lucideCapabilityIcon(Cloud)}
+                  tone="connected"
+                  statusLabel={
+                    phoneVerified
+                      ? "Verified"
+                      : cloudComplete
+                        ? "Required"
+                        : "After your cloud"
+                  }
+                  statusTone={
+                    phoneVerified
+                      ? undefined
+                      : cloudComplete
+                        ? "required"
+                        : "muted"
+                  }
+                  isCurrent={cloudComplete && !phoneVerified}
+                  isComplete={phoneVerified}
+                />
+                <SetupNavigationTile
+                  id="connections"
+                  title="Choose your AI"
+                  description={
+                    runtimeChoiceComplete
+                      ? "Change this any time."
+                      : cloudComplete && phoneVerified
+                        ? "Your pod's AI, or your own key."
+                        : cloudComplete
+                          ? "Verify your phone first, then choose."
+                          : "Connect your cloud first, then choose."
+                  }
+                  href={ROUTES.ONE_SETUP_CONNECTIONS}
+                  voiceControlId="one_setup_tile_connections"
+                  icon={lucideCapabilityIcon(PlugZap)}
+                  tone="connected"
+                  statusLabel={
+                    runtimeChoiceComplete
+                      ? "Selected"
+                      : cloudComplete && phoneVerified
+                        ? "Required"
+                        : cloudComplete
+                          ? "After your phone"
+                          : "After your cloud"
+                  }
+                  // The one row that blocks the exit. A muted grey "Required"
+                  // reads like every other trailing label, so it gets the
+                  // accent pill and the current-step role — but only once the
+                  // cloud step ahead of it is done; before that the cloud row
+                  // is the current step, not this one.
+                  statusTone={
+                    runtimeChoiceComplete
+                      ? undefined
+                      : cloudComplete && phoneVerified
+                        ? "required"
+                        : "muted"
+                  }
+                  isCurrent={
+                    cloudComplete && phoneVerified && !runtimeChoiceComplete
+                  }
+                  isComplete={runtimeChoiceComplete}
+                />
+                {/* The agent's live build status, IN the journey where it
+                    started. The honest presence surface existed only on the
+                    home screen, so the person who just pressed "Use Hussh's
+                    AI" had to leave setup to learn whether anything was
+                    happening (audit finding, 2026-08-21). It renders nothing
+                    until there is an agent state to report. */}
+                {runtimeChoiceComplete ? <OneAgentPresence /> : null}
               </SettingsGroup>
-              {completeItems.length > 0 || runtimeChoiceComplete ? (
+              {cloudComplete && remainingItems.length > 0 ? (
+                <SettingsGroup
+                  title="Remaining"
+                  testId="one-setup-capabilities-remaining"
+                  separatorInset
+                >
+                  {remainingItems.map((item) => (
+                    <CapabilitySetupTile
+                      key={item.id}
+                      capabilityId={item.id}
+                      title={item.copy.setupTitle}
+                      description={item.copy.setupBlurb}
+                      actionLabel={item.copy.actionLabel}
+                      resumeActionLabel={item.copy.resumeActionLabel}
+                      href={item.copy.href}
+                      voiceControlId={item.voiceControlId}
+                      icon={item.icon}
+                      tone={item.tone}
+                      status={item.status}
+                      isExploreOnly={item.isExploreOnly}
+                      isCurrent={item.isCurrent}
+                    />
+                  ))}
+                </SettingsGroup>
+              ) : null}
+              {cloudComplete && completeItems.length > 0 ? (
                 <SettingsGroup
                   title="Complete"
                   testId="one-setup-capabilities-complete"
                   separatorInset
                 >
-                  {runtimeChoiceComplete ? (
-                    <SetupNavigationTile
-                      id="connections"
-                      title="Choose your AI"
-                      description="Change this any time."
-                      href={ROUTES.ONE_SETUP_CONNECTIONS}
-                      voiceControlId="one_setup_tile_connections"
-                      icon={lucideCapabilityIcon(PlugZap)}
-                      tone="connected"
-                      statusLabel="Selected"
-                      isComplete
-                    />
-                  ) : null}
                   {completeItems.map((item) => (
                     <CapabilitySetupTile
                       key={item.id}
@@ -541,18 +993,18 @@ export function OneSetupHub() {
                 label={masterActionLabel}
                 onComplete={() => void handleMasterAck()}
                 busy={dismissing}
-                blocked={!runtimeChoiceComplete}
+                disabled={!setupPrerequisitesComplete}
                 controlId="one-setup-master-ack"
                 actionId="setup.hub_master_ack"
                 testId="one-setup-master-ack"
-                purpose={
-                  "Finish setup and protect what you save."
+                purpose={"Finish setup and protect what you save."}
+                supportingText={
+                  !cloudComplete
+                    ? "Connect your cloud first."
+                    : !runtimeChoiceComplete
+                      ? "Choose your AI first."
+                      : "Set up the rest later."
                 }
-                // The blocker is no longer named here. It was permanent copy
-                // that had to be read before the tap to be any use, and the
-                // tap is exactly when people want the answer -- so it moved
-                // into the toast the blocked tap now raises.
-                supportingText="Set up the rest later."
                 variant="blue-gradient"
                 effect="fill"
               />

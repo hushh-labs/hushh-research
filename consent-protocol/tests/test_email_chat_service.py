@@ -162,3 +162,115 @@ async def test_unavailable_when_model_not_ready():
     assert result["response"] == _UNAVAILABLE_MESSAGE
     assert result["isComplete"] is False
     assert gmail.calls == []
+
+
+async def test_private_email_runs_shared_loop_with_scoped_broker_and_owner_store(monkeypatch):
+    from unittest.mock import AsyncMock
+
+    import pytest
+
+    from hushh_mcp.adk_bridge import _register_builtin_specialists
+    from hushh_mcp.adk_bridge.contract import A2AAuthorityContext, A2ATask
+    from hushh_mcp.adk_bridge.dispatch import bind_specialist_runtime, dispatch
+    from hushh_mcp.runtime_providers import factory
+    from hushh_mcp.services import pod_consent_client, pod_memory_service, pod_specialist_runtime
+    from hushh_mcp.services.pod_consent_client import ConsentVerdict
+    from hushh_mcp.services.pod_hub_client import PodHubClient
+
+    monkeypatch.setenv("HUSSH_POD_MODE", "1")
+    monkeypatch.setenv("HUSSH_ID", "pod-owner")
+    revoked = False
+
+    async def verify(token, *, expected_scope):
+        scopes = {"read": "pkm.read", "email-view": "cap.email.inbox.view"}
+        valid = scopes.get(token) == expected_scope and not (revoked and token == "email-view")
+        return ConsentVerdict(valid, True, "owner", "pod-owner")
+
+    monkeypatch.setattr(pod_consent_client, "verify_consent", verify)
+    log = SimpleNamespace(_owner_id="pod-owner", require_open=AsyncMock())
+    monkeypatch.setattr(pod_memory_service, "_resolve_log", lambda: log)
+    store = _FakeStore()
+    stores = []
+
+    def local_store(**kwargs):
+        stores.append(kwargs)
+        return store
+
+    monkeypatch.setattr(pod_specialist_runtime, "PodAgentChatStore", local_store)
+    responses = iter(
+        [
+            _fc_response("search_inbox", {"query": "subject:invoice", "limit": 2}),
+            _text_response("One invoice from Billing."),
+        ]
+    )
+    calls = []
+
+    async def generate(**kwargs):
+        calls.append(True)
+        return next(responses)
+
+    client = SimpleNamespace(aio=SimpleNamespace(models=SimpleNamespace(generate_content=generate)))
+    monkeypatch.setattr(factory, "build_managed_runtime_client", lambda provider: client)
+    reads = []
+
+    def read(_self, name, token, **kwargs):
+        reads.append((name, token, kwargs))
+        return {"results": [{"subject": "Invoice", "from": "Billing", "snippet": "Ready"}]}
+
+    monkeypatch.setattr(PodHubClient, "read_specialist", read)
+    runtime = pod_specialist_runtime.build_pod_specialist_runtime(
+        user_id="owner",
+        hushh_id="pod-owner",
+        consent_token="read",  # noqa: S106
+        provider="gemini",
+        model="synthetic",
+        runtime_mode="user_adc",
+        credential=None,
+        credential_transport="developer_api",
+        vertex_project=None,
+        vertex_location=None,
+        data_door_grants={"email": "email-view"},
+    )
+    task = A2ATask(
+        user_id="owner",
+        consent_token="read",  # noqa: S106 -- synthetic scope token
+        conversation_id="thread",
+        message="Find my invoice",
+        authority=A2AAuthorityContext(
+            "owner",
+            "owner",
+            "thread",
+            "first_party",
+            invocation_capabilities=("cap.one.invoke",),
+        ),
+    )
+    _register_builtin_specialists()
+    with bind_specialist_runtime(runtime):
+        result = await dispatch("agent_email", task)
+        assert result.text == "One invoice from Billing."
+        assert result.directive is None and not result.state_changed
+        assert stores[0]["log"] is log and stores[0]["agent_id"] == "agent_email"
+        assert reads == [
+            (
+                "email",
+                "email-view",
+                {
+                    "email_read": {
+                        "operation": "search",
+                        "query": "subject:invoice",
+                        "limit": 2,
+                    }
+                },
+            )
+        ]
+        assert len(calls) == 2
+        revoked = True
+        with pytest.raises(PermissionError):
+            await dispatch("agent_email", task)
+        assert len(calls) == 2 and len(reads) == 1
+    with pytest.raises(PermissionError):
+        await pod_specialist_runtime.PodEmailReadPort("owner", "email-view").search_inbox(
+            user_id="foreign",
+            query="invoice",
+        )
+    assert len(reads) == 1

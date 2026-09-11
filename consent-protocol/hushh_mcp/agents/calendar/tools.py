@@ -90,8 +90,41 @@ def _handle_connection_error(
     )
 
 
+async def _serve_via_door(
+    tool_context: ToolContext, calendar_read: dict[str, Any] | None = None
+) -> dict[str, Any] | None:
+    """Read the requested calendar operation through the existing consented door."""
+    from hushh_mcp.runtime_settings import pod_mode  # noqa: PLC0415
+
+    if not pod_mode():
+        return None
+    if calendar_read is not None:
+        from hushh_mcp.services.pod_data_door import CalendarReadOptions
+
+        calendar_read = CalendarReadOptions.model_validate(calendar_read).model_dump(mode="json")
+    from hushh_mcp.one_adk.pod_data_door_specialist import (  # noqa: PLC0415
+        serve_specialist_via_data_door,
+    )
+
+    options = {"calendar_read": calendar_read} if calendar_read is not None else {}
+    payload = await serve_specialist_via_data_door("agent_calendar", tool_context, **options)
+    if payload is None:
+        return {"status": "failed", "message": _CALENDAR_UNAVAILABLE_MESSAGE}
+    if calendar_read is not None:
+        return {
+            **payload.get("state", {}),
+            "status": payload.get("status", "failed"),
+            "source": "data_door",
+        }
+    text = str(payload.get("text") or "").strip()
+    return {"status": "ok", "source": "data_door", "summary": text, "message": text}
+
+
 async def _run_calendar_read(
-    tool_context: ToolContext, call: Callable[[str], Awaitable[dict[str, Any]]]
+    tool_context: ToolContext,
+    call: Callable[[str], Awaitable[dict[str, Any]]],
+    *,
+    calendar_read: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Resolve the user id and run a Calendar read call inside one error
     boundary, converting any failure into a clean result instead of letting
@@ -109,6 +142,9 @@ async def _run_calendar_read(
     """
     try:
         user_id = _user_id(tool_context)
+        served = await _serve_via_door(tool_context, calendar_read)
+        if served is not None:
+            return served
         return await call(user_id)
     except GoogleConnectionError as exc:
         directive = _handle_connection_error(tool_context, exc, access_level="read")
@@ -116,8 +152,8 @@ async def _run_calendar_read(
             return directive
         logger.warning("one_adk_calendar_call_failed status=%s", exc.status_code)
         return {"status": "failed", "message": _CALENDAR_UNAVAILABLE_MESSAGE}
-    except Exception:  # noqa: BLE001 - the model must be told something failed, not why internally
-        logger.exception("one_adk_calendar_call_failed reason=unexpected")
+    except Exception as exc:  # noqa: BLE001 - keep provider information out of diagnostics
+        logger.warning("one_adk_calendar_call_failed error_type=%s", type(exc).__name__)
         return {"status": "failed", "message": _CALENDAR_UNAVAILABLE_MESSAGE}
 
 
@@ -152,7 +188,11 @@ async def calendar_summary(tool_context: ToolContext, days: int = 7) -> dict[str
         )
         return {"status": "ok", "range_start": start_at, "range_end": end_at, **result}
 
-    return await _run_calendar_read(tool_context, _call)
+    return await _run_calendar_read(
+        tool_context,
+        _call,
+        calendar_read={"operation": "events", "start_at": start_at, "end_at": end_at},
+    )
 
 
 async def calendar_events(
@@ -176,7 +216,15 @@ async def calendar_events(
             ),
         }
 
-    return await _run_calendar_read(tool_context, _call)
+    return await _run_calendar_read(
+        tool_context,
+        _call,
+        calendar_read={
+            "operation": "events",
+            "start_at": _calendar_iso(start_at, tool_context),
+            "end_at": _calendar_iso(end_at, tool_context),
+        },
+    )
 
 
 async def calendar_availability(
@@ -196,7 +244,15 @@ async def calendar_availability(
             ),
         }
 
-    return await _run_calendar_read(tool_context, _call)
+    return await _run_calendar_read(
+        tool_context,
+        _call,
+        calendar_read={
+            "operation": "availability",
+            "start_at": _calendar_iso(start_at, tool_context),
+            "end_at": _calendar_iso(end_at, tool_context),
+        },
+    )
 
 
 async def calendar_free_slots(
@@ -226,7 +282,17 @@ async def calendar_free_slots(
             ),
         }
 
-    return await _run_calendar_read(tool_context, _call)
+    return await _run_calendar_read(
+        tool_context,
+        _call,
+        calendar_read={
+            "operation": "openings",
+            "start_at": _calendar_iso(start_at, tool_context),
+            "end_at": _calendar_iso(end_at, tool_context),
+            "duration_minutes": duration_minutes,
+            "limit": limit,
+        },
+    )
 
 
 async def propose_calendar_event(
@@ -311,8 +377,8 @@ async def _propose(
             return directive
         logger.warning("one_adk_calendar_call_failed status=%s", exc.status_code)
         return {"status": "failed", "message": _CALENDAR_UNAVAILABLE_MESSAGE}
-    except Exception:  # noqa: BLE001 - the model must be told something failed, not why internally
-        logger.exception("one_adk_calendar_call_failed reason=unexpected")
+    except Exception as exc:  # noqa: BLE001 - keep provider information out of diagnostics
+        logger.warning("one_adk_calendar_call_failed error_type=%s", type(exc).__name__)
         return {"status": "failed", "message": _CALENDAR_UNAVAILABLE_MESSAGE}
     plan = proposal.get("plan")
     proposal_id = proposal.get("proposal_id")

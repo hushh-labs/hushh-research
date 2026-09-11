@@ -11,6 +11,9 @@ steps:
       - "-c"
       - |
         set -euo pipefail
+        # Include root-generated contracts in the backend build context.
+        rm -rf consent-protocol/contracts
+        cp -R contracts consent-protocol/contracts
         gcloud auth configure-docker gcr.io --quiet || true
         docker buildx create --use --name hushh-builder --driver docker-container \
           >/dev/null 2>&1 || docker buildx use hushh-builder

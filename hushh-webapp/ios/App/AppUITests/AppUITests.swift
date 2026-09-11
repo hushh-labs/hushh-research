@@ -35,10 +35,15 @@ final class AppUITests: XCTestCase {
             allowedDataStates: ["loaded"]
         )
         let app = launchApp(route)
-        defer { app.terminate() }
-        let notice = app.staticTexts["Account not found. Redirecting you to login screen."]
-        XCTAssertTrue(notice.waitForExistence(timeout: 45))
-        _ = try waitForSatisfiedStatus(app, route: route, timeout: 45)
+        // The CI host owns bounded cleanup and verifies app-process absence.
+        // XCTest can miss a successful SIGTERM acknowledgement and fail here
+        // after every recovery assertion passed; retain that independent proof.
+        // Login's component contract verifies notice emission and query cleanup.
+        // Its 3.6-second toast can expire while XCTest waits for launch idleness;
+        // this rehearsal proves the persistent recovery state and usable controls.
+        // Fresh CI simulators can spend over 50 seconds launching WebKit.
+        // Bound cold startup separately; warm recovery below keeps its 30s limit.
+        _ = try waitForSatisfiedStatus(app, route: route, timeout: 90)
         XCTAssertTrue(app.buttons["Continue with Apple"].waitForExistence(timeout: 15))
         XCTAssertFalse(app.staticTexts["Unable to verify setup progress. Please retry."].exists)
         XCTAssertFalse(app.secureTextFields["Enter vault key"].exists)
@@ -156,11 +161,11 @@ final class AppUITests: XCTestCase {
         ]
         if let reviewerUid = environment["HUSHH_UI_TEST_REVIEWER_UID"] ?? environment["REVIEWER_UID"],
            !reviewerUid.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            app.launchArguments += ["-UITestExpectedUserId", reviewerUid]
+            app.launchEnvironment["HUSHH_UI_TEST_REVIEWER_UID"] = reviewerUid
         }
         if let vaultPassphrase = environment["HUSHH_UI_TEST_REVIEWER_VAULT_PASSPHRASE"] ?? environment["REVIEWER_VAULT_PASSPHRASE"],
            !vaultPassphrase.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            app.launchArguments += ["-UITestVaultPassphrase", vaultPassphrase]
+            app.launchEnvironment["HUSHH_UI_TEST_REVIEWER_VAULT_PASSPHRASE"] = vaultPassphrase
         }
         app.launch()
         defer { app.terminate() }
@@ -700,11 +705,11 @@ final class AppUITests: XCTestCase {
         ]
         if let reviewerUid = environment["HUSHH_UI_TEST_REVIEWER_UID"] ?? environment["REVIEWER_UID"],
            !reviewerUid.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            app.launchArguments += ["-UITestExpectedUserId", reviewerUid]
+            app.launchEnvironment["HUSHH_UI_TEST_REVIEWER_UID"] = reviewerUid
         }
         if let vaultPassphrase = environment["HUSHH_UI_TEST_REVIEWER_VAULT_PASSPHRASE"] ?? environment["REVIEWER_VAULT_PASSPHRASE"],
            !vaultPassphrase.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            app.launchArguments += ["-UITestVaultPassphrase", vaultPassphrase]
+            app.launchEnvironment["HUSHH_UI_TEST_REVIEWER_VAULT_PASSPHRASE"] = vaultPassphrase
         }
         app.launch()
         return app
@@ -980,11 +985,11 @@ final class AppUITests: XCTestCase {
         let environment = ProcessInfo.processInfo.environment
         if let reviewerUid = environment["HUSHH_UI_TEST_REVIEWER_UID"] ?? environment["REVIEWER_UID"],
            !reviewerUid.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            app.launchArguments += ["-UITestExpectedUserId", reviewerUid]
+            app.launchEnvironment["HUSHH_UI_TEST_REVIEWER_UID"] = reviewerUid
         }
         if let vaultPassphrase = environment["HUSHH_UI_TEST_REVIEWER_VAULT_PASSPHRASE"] ?? environment["REVIEWER_VAULT_PASSPHRASE"],
            !vaultPassphrase.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            app.launchArguments += ["-UITestVaultPassphrase", vaultPassphrase]
+            app.launchEnvironment["HUSHH_UI_TEST_REVIEWER_VAULT_PASSPHRASE"] = vaultPassphrase
         }
         app.launch()
         return app

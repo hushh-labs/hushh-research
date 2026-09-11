@@ -29,11 +29,11 @@
     "verify:one-gateway": "npm run verify:voice-gateway",
     "verify:one-voice": "npm run verify:voice-gateway && node ./scripts/voice/verify-one-voice-evals.mjs && node ./scripts/voice/verify-local-runtime-assets.mjs && node ./scripts/voice/generate-one-voice-local-intent-data.mjs --check && vitest run __tests__/agent/agent-web-local-intent.test.ts __tests__/services/gemini-live-client.test.ts __tests__/voice/kai-action-gateway.test.ts __tests__/voice/capability-projection.test.ts __tests__/voice/one-voice-transport.test.ts __tests__/voice/local-intent-resolver.test.ts __tests__/voice/local-intent-ranker.test.ts __tests__/voice/local-entity-resolvers.test.ts __tests__/voice/local-runtime-capability.test.ts __tests__/voice/local-runtime-model-store.test.ts __tests__/voice/browser-local-speech-adapter.test.ts __tests__/voice/screen-context-builder.test.ts __tests__/voice/transcript-events.test.ts",
     "verify:agent-chat-protocol": "python3 ../scripts/ops/verify_agui_agent_chat_contract.py && vitest run __tests__/services/agent-chat-client.test.ts",
-    "verify:morphy-ax": "vitest run __tests__/morphy-ax/morphy-ax-contract.test.ts __tests__/lib/agent-runtime-context.test.tsx __tests__/voice/voice-feature-flags.test.ts",
+    "verify:morphy-ax": "vitest run __tests__/morphy-ax/pdf-theme-canon.test.ts __tests__/morphy-ax/pdf-report-table-rendering.test.ts __tests__/morphy-ax/morphy-ax-contract.test.ts __tests__/lib/agent-runtime-context.test.tsx __tests__/voice/voice-feature-flags.test.ts",
     "verify:analytics": "vitest run __tests__/services/observability-schema.test.ts __tests__/services/observability-route-map.test.ts __tests__/services/observability-growth.test.ts __tests__/services/observability-native-firebase.test.ts __tests__/services/observability-web-transport.test.ts __tests__/services/consent-pending-count.test.ts",
     "verify:analytics:governed": "npm run verify:analytics && npm run audit:analytics-sandbox && npm run smoke:analytics:uat && cd .. && python3 .codex/skills/analytics-observability-governance/scripts/inspect_analytics_surface.py health && ./bin/hushh docs verify",
     "verify:service-boundary": "node ./scripts/architecture/verify-service-layer-boundary.mjs",
-    "verify:design-system": "node ./scripts/architecture/verify-design-system.mjs && node ./scripts/design/verify-accent-tokens.mjs && node ./scripts/design/verify-apple-hierarchy.mjs",
+    "verify:design-system": "node ./scripts/architecture/verify-design-system.mjs && node ./scripts/design/verify-accent-tokens.mjs && node ./scripts/design/verify-apple-hierarchy.mjs && node ./scripts/design/verify-restraint-charter.mjs",
     "verify:accent-tokens": "node ./scripts/design/verify-accent-tokens.mjs",
     "verify:docs": "node ./scripts/architecture/verify-docs.mjs",
     "verify:surface-map": "node ./scripts/architecture/generate-surface-map.mjs --check",
@@ -84,7 +84,9 @@
     "ios:test": "node ./scripts/native/assert-destructive-native-audit.mjs && npm run sync:native-firebase-configs && npm run ios:prepare:uat && ./scripts/native/ios-test.sh",
     "ios:cold:audit": "HUSHH_ALLOW_DESTRUCTIVE_NATIVE_AUDIT=true npm run ios:test",
     "android:test": "node ./scripts/native/assert-destructive-native-audit.mjs && npm run sync:native-firebase-configs && node ./scripts/native/android-route-audit.mjs",
-    "android:cold:audit": "HUSHH_ALLOW_DESTRUCTIVE_NATIVE_AUDIT=true npm run android:test"
+    "android:cold:audit": "HUSHH_ALLOW_DESTRUCTIVE_NATIVE_AUDIT=true npm run android:test",
+    "ios:background-share:test": "bash ./scripts/native/test-background-location-publisher.sh",
+    "verify:first-run-admission": "vitest run __tests__/components/onboarding-journey-guard.test.tsx __tests__/components/session-chrome-quiescence.test.tsx __tests__/app/one/one-auth-gate.test.tsx"
   },
   "dependencies": {
     "@ag-ui/client": "0.0.59",
@@ -95,6 +97,7 @@
     "@capacitor-firebase/messaging": "^8.2.0",
     "@capacitor/android": "^8.3.1",
     "@capacitor/app": "^8.1.0",
+    "@capacitor/browser": "8.0.4",
     "@capacitor/camera": "^8.2.1",
     "@capacitor/cli": "^8.3.1",
     "@capacitor/core": "^8.2.0",

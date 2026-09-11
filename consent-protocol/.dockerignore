@@ -26,10 +26,14 @@ test.py
 # Docs
 docs/
 
-# Local env
-.env
-.env.local
+# Local environment files must never enter application image layers.
+.env*
+**/.env*
 
 # Misc
 *.md
 submissions/
+
+# GitHub Actions authentication files are never source or image inputs.
+gha-creds-*.json
+**/gha-creds-*.json

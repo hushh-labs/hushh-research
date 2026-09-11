@@ -2,6 +2,13 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { OneDashboardPage } from "@/components/dashboard/one-dashboard-page";
+
+// The dashboard renders the live agent-presence chip, which reaches for VaultProvider,
+// the Next.js router, and best-effort pod-status polling. This suite asserts nothing
+// about the chip, so stub it out rather than standing up all three dependencies.
+vi.mock("@/components/dashboard/one-agent-presence", () => ({
+  OneAgentPresence: () => null,
+}));
 import { buildOneSetupCapabilityRoute, ROUTES } from "@/lib/navigation/routes";
 import type { CapabilityStatus } from "@/lib/services/capability-setup-state-service";
 import { OneSetupCompletionHintService } from "@/lib/services/one-setup-completion-hint-service";
@@ -55,7 +62,6 @@ describe("OneDashboardPage", () => {
 
     render(
       <OneDashboardPage
-        displayName="Dismissed User"
         userId={userId}
         capabilityStatusById={buildStatusMap({
           finance: { state: "not-started", requiresUnlock: true },
@@ -74,7 +80,6 @@ describe("OneDashboardPage", () => {
   it("renders the primary One agent modes with route targets", () => {
     const { container } = render(
       <OneDashboardPage
-        displayName="Kushal Trivedi"
         capabilityStatusById={buildStatusMap({
           finance: { state: "not-started", requiresUnlock: true },
           gmail: { state: "blocked", prerequisite: "oauth" },
@@ -86,7 +91,9 @@ describe("OneDashboardPage", () => {
       />,
     );
 
-    expect(screen.queryByText("Good to see you, Kushal.")).toBeNull();
+    // The greeting is gone entirely (founder, 2026-09-02: "I still have the greeting
+    // message on the /one route for some reason added, we don't need that").
+    expect(screen.queryByText(/Good (morning|afternoon|evening), /)).toBeNull();
     expect(screen.queryByText("Your private agent")).toBeNull();
     expect(screen.getByTestId("one-agents-section")).toBeTruthy();
     expect(screen.getByTestId("one-agents-list")).toBeTruthy();
@@ -127,6 +134,10 @@ describe("OneDashboardPage", () => {
     // distinguishable, and that property is preserved.
     const rosterPaletteOrder = [
       "finance",
+      // Wallet joined ONE_CAPABILITIES in second place during the 2026-09-02 main
+      // sync, which is why the roster now reads nine. Listing it here keeps the
+      // assertion contiguous and keeps this test about the PROPERTY (slots follow
+      // roster position) rather than about a frozen set of eight agents.
       "wallet",
       "location",
       "ria",
@@ -228,7 +239,6 @@ describe("OneDashboardPage", () => {
   it("reflects completed setup across all capabilities", () => {
     const { container } = render(
       <OneDashboardPage
-        displayName="Kushal Trivedi"
         capabilityStatusById={buildStatusMap({
           finance: { state: "completed" },
           gmail: { state: "completed" },
@@ -332,10 +342,20 @@ describe("OneDashboardPage", () => {
     expect(screen.queryByTestId("one-agent-list-row-finance")).toBeNull();
   });
 
+  it("clears the roster query from the trailing touch affordance", () => {
+    render(<OneDashboardPage displayName="Kushal Trivedi" />);
+
+    const search = screen.getByTestId("one-agents-search");
+    fireEvent.change(search, { target: { value: "location" } });
+    fireEvent.click(screen.getByRole("button", { name: "Clear agent search" }));
+
+    expect(search).toHaveValue("");
+    expect(screen.getByTestId("one-agent-list-row-finance")).toBeTruthy();
+  });
+
   it("shows the finance mover as a concise green percentage without redundant winner copy", () => {
     render(
       <OneDashboardPage
-        displayName="Kushal Trivedi"
         userId="roster-finance-metric"
       />,
     );

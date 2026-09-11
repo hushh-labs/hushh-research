@@ -1,6 +1,6 @@
 /**
  * Hussh Local Agent - Web Implementation
- * 
+ *
  * DEV: Routes to remote API by default (useRemoteLLM: true).
  * When set to local, uses on-device intent classification and agents.
  */
@@ -26,7 +26,7 @@ const AGENT_PORTS = {
 };
 
 export class HushhAgentWeb implements HushhAgentPlugin {
-  
+
   async handleMessage(options: {
     message: string;
     userId: string;
@@ -34,7 +34,7 @@ export class HushhAgentWeb implements HushhAgentPlugin {
     sessionState?: Record<string, unknown>;
   }): Promise<AgentResponse> {
     const { message, userId, agentId, sessionState } = options;
-    
+
     // DEV default: use remote API
     const useLocal = await SettingsService.shouldUseLocalAgents();
     if (!useLocal) {
@@ -45,7 +45,7 @@ export class HushhAgentWeb implements HushhAgentPlugin {
         needsConsent: false,
       };
     }
-    
+
     // Local mode: use on-device agents
     if (agentId && agentId !== AGENT_IDS.orchestrator) {
       return this.routeToAgent(agentId, message, userId, sessionState || {});
@@ -67,7 +67,7 @@ export class HushhAgentWeb implements HushhAgentPlugin {
     });
     return this.responseForIntent(intent);
   }
-  
+
   async classifyIntent(options: { message: string }): Promise<{
     hasDelegate: boolean;
     targetAgent: string;
@@ -76,7 +76,7 @@ export class HushhAgentWeb implements HushhAgentPlugin {
   }> {
     return this.classifyIntentSync(options.message);
   }
-  
+
   async getAgentInfo(): Promise<{
     agents: AgentInfo[];
     version: string;
@@ -92,7 +92,7 @@ export class HushhAgentWeb implements HushhAgentPlugin {
       protocolVersion: 'HCT-1.0',
     };
   }
-  
+
   private classifyIntentSync(_message: string): {
     hasDelegate: boolean;
     targetAgent: string;
@@ -188,7 +188,7 @@ export class HushhAgentWeb implements HushhAgentPlugin {
       intent,
     };
   }
-  
+
   private routeToAgent(
     agentId: string,
     message: string,
@@ -198,7 +198,7 @@ export class HushhAgentWeb implements HushhAgentPlugin {
     // For now, return a message indicating local mode is available
     // Full agent logic is in the Swift implementation
     const step = (sessionState.step as string) || 'greeting';
-    
+
     if (agentId === AGENT_IDS.identity && step === 'greeting') {
       return {
         response: `👋 Hi! I'm your Identity assistant.`,
@@ -207,7 +207,7 @@ export class HushhAgentWeb implements HushhAgentPlugin {
         needsConsent: false,
       };
     }
-    
+
     return {
       response: 'This agent conversation is in progress.',
       sessionState,

@@ -102,6 +102,21 @@ Codex-first RCA surface:
 
 Use this command when the failure is already on a core authority surface and the next step is classification, not generic monitoring. It preserves structured artifacts and keeps helper-only drift advisory unless it masks a runtime, deploy, DB, or semantic verification failure.
 
+**Read `unevaluable_checks` before any blocking classification.** The runner reports three
+states, not two: `healthy`, `blocked`, and `unevaluable` (exit `0`, `1`, `2`). An entry under
+`unevaluable_checks` means a check could not run at all, so nothing was verified either way, and
+it names the domain class it would otherwise have been blamed for. Never remediate a domain class
+that came from an unevaluable check.
+
+Why this matters, measured 2026-08-29: the uat surface reported `db_contract_drift` and
+"Resolve DB release-contract drift before treating the surface as deployable" because
+`verify_runtime_db_contract.sh` died at `import asyncpg`. The database contract was fine. In the
+same run the semantic verifier died at `import dotenv` and produced *no* classification, so a
+crashed release check read as a clean one, and the `ci` surface reported `core_ci_failed` for an
+exit code of 143, which is SIGTERM: CI had not failed, CI had been killed. (The check it killed, `verify-runtime-config-contract.py`, was measured at 486s under heavy load; it scans every tracked file against 23 patterns.) Sub-reports now land
+in `tmp/rca/<surface>/` (gitignored) instead of a temp directory that evaporated before anyone
+could open the path the runner printed.
+
 Canonical watcher:
 
 ```bash

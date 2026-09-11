@@ -34,7 +34,7 @@ export function trustedDeviceVaultHandoffAad(params: {
   vaultKeyHash: string;
   wrapperId: string;
   rpId: string;
-  environment: "uat" | "production";
+  environment: "dev" | "uat" | "production";
   recipientPublicKey: string;
 }): string {
   return [
@@ -88,7 +88,7 @@ export async function buildTrustedDevicePasskeyHandoff(params: {
   expiresAt: number;
   recipientPublicKey: string;
   hostname: string;
-  environment: "uat" | "production";
+  environment: "dev" | "uat" | "production";
 }): Promise<TrustedDeviceVaultHandoff | null> {
   const vaultState = await VaultService.getVaultState(params.userId);
   const wrapper = compatiblePasskeyWrapper(

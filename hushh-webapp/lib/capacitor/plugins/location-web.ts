@@ -1,3 +1,4 @@
+import { WebPlugin } from "@capacitor/core";
 import type {
   BackgroundShareSession,
   HushhLocationPermissionState,
@@ -8,7 +9,7 @@ function geolocationAvailable(): boolean {
   return typeof navigator !== "undefined" && "geolocation" in navigator;
 }
 
-export class HushhLocationWeb implements HushhLocationPlugin {
+export class HushhLocationWeb extends WebPlugin implements HushhLocationPlugin {
   async getPermissionState(): Promise<HushhLocationPermissionState> {
     if (!geolocationAvailable()) {
       return {
@@ -482,4 +483,3 @@ export class HushhLocationWeb implements HushhLocationPlugin {
     // No-op on web; nothing was started.
   }
 }
-

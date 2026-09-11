@@ -1481,3 +1481,34 @@ def test_reset_account_maps_failure_to_500(monkeypatch):
 
     assert response.status_code == 500
     assert response.json()["detail"] == "Account reset failed"
+
+
+# --- Delete-order V2: the pod is deprovisioned FIRST, the row deleted LAST --------
+# Directive: "delete account also first deprovisions the pod." The guard is call
+# ORDER: host teardown must precede the data cascade, and the recovery-anchor row
+# delete must follow it, so a mid-delete failure never leaves a billing orphan the
+# system cannot name.
+
+
+@pytest.mark.parametrize("delete_order_v2", ["0", "1"])
+def test_external_resource_guard_preserves_pod_and_identity(monkeypatch, delete_order_v2):
+    from unittest.mock import AsyncMock
+
+    monkeypatch.setenv("PERSONAL_AGENT_DELETE_ORDER_V2", delete_order_v2)
+    app = _build_app()
+    app.dependency_overrides[require_vault_owner_token] = lambda: {"user_id": "user_123"}
+    delete = AsyncMock(
+        return_value={
+            "success": False,
+            "error_code": account.PERSONAL_AGENT_DEPROVISION_REQUIRED_CODE,
+        }
+    )
+    firebase = AsyncMock()
+    monkeypatch.setattr(AccountService, "delete_account", delete)
+    monkeypatch.setattr(account, "_delete_firebase_auth_user", firebase)
+
+    response = TestClient(app).delete("/api/account/delete")
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == account.PERSONAL_AGENT_DEPROVISION_REQUIRED_CODE
+    delete.assert_awaited_once_with("user_123", target="both")
+    firebase.assert_not_awaited()

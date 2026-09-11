@@ -1,0 +1,717 @@
+"""Does a pod's agent memory actually survive the pod?
+
+The economy tier scales to zero, so "between turns" and "after a restart" are the
+same event. Before this, `PodMemoryStore._records` was an in-process list that
+nothing persisted -- the module said so itself -- which meant a pod configured for
+durability still woke up with no memory of its owner. These tests are the ones that
+would have caught that: they do not check that persistence is *configured*, they
+destroy the store and ask whether anything comes back.
+
+The model of pod death is deliberate: build a service, use it, DROP every reference,
+then build a second service from nothing but the owner id and key. Nothing is carried
+across in Python; only the log is.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import base64
+import sys
+from pathlib import Path
+
+import pytest
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from hushh_mcp.services.pod_commit_log import (  # noqa: E402
+    LocalObjectStore,
+    PodCommitLog,
+    PodLogFenced,
+    PodLogTampered,
+)
+from hushh_mcp.services.pod_memory_service import (  # noqa: E402
+    PodMemoryError,
+    PodMemoryStore,
+    SealedMemory,
+    build_pod_memory_service,
+)
+
+pytest.importorskip("google.adk.memory.base_memory_service")
+
+OWNER = "HA1MEMDURABLE001"
+OTHER = "HA1MEMDURABLE002"
+KEY = b"\x11" * 32
+OTHER_KEY = b"\x22" * 32
+
+
+class _Event:
+    """The shape `add_session_to_memory` reads: an author and part-shaped content."""
+
+    def __init__(self, text: str, author: str = "user") -> None:
+        self.author = author
+        self.content = _Content(text)
+
+
+class _Content:
+    def __init__(self, text: str) -> None:
+        self.parts = [_Part(text)]
+
+
+class _Part:
+    def __init__(self, text: str) -> None:
+        self.text = text
+
+
+class _Session:
+    user_id = OWNER
+
+    def __init__(self, *texts: str) -> None:
+        self.events = [_Event(t) for t in texts]
+
+
+def _log(tmp_path: Path, key: bytes = KEY) -> PodCommitLog:
+    return PodCommitLog(LocalObjectStore(str(tmp_path / "store")), key, owner_id=OWNER)
+
+
+def test_memory_survives_the_death_of_the_pod(tmp_path: Path) -> None:
+    """The whole point: a second generation recalls what the first was told."""
+
+    async def run() -> None:
+        first = build_pod_memory_service(hushh_id=OWNER, pod_key=KEY, log=_log(tmp_path))
+        await first.add_session_to_memory(_Session("the guest room radiator leaks"))
+
+        # The pod dies. Nothing survives in-process.
+        del first
+
+        second = build_pod_memory_service(hushh_id=OWNER, pod_key=KEY, log=_log(tmp_path))
+        hits = await second.search_memory(app_name="one", user_id=OWNER, query="radiator")
+        assert [m.content.parts[0].text for m in hits.memories] == ["the guest room radiator leaks"]
+
+    asyncio.run(run())
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("hydrated", [False, True])
+async def test_erasure_fence_blocks_cached_memory_and_provider_before_access(tmp_path, hydrated):
+    from unittest.mock import AsyncMock
+
+    log = _log(tmp_path)
+    seed = build_pod_memory_service(hushh_id=OWNER, pod_key=KEY, log=log)
+    await seed.add_session_to_memory(_Session("the synthetic violet radiator"))
+    bank = type("Bank", (), {"search_memory": AsyncMock(), "add_session_to_memory": AsyncMock()})()
+    service = (
+        seed
+        if hydrated
+        else build_pod_memory_service(hushh_id=OWNER, pod_key=KEY, log=_log(tmp_path))
+    )
+    service.bank = bank
+    await log.fence_for_erasure(owner_id=OWNER, attempt_id="synthetic-attempt")
+    with pytest.raises(PodLogFenced):
+        await service.search_memory(app_name="one", user_id=OWNER, query="violet")
+
+    class UnreadSession:
+        user_id = OWNER
+
+        @property
+        def events(self):
+            pytest.fail("fenced memory must refuse before inspecting events")
+
+    with pytest.raises(PodLogFenced):
+        await service.add_session_to_memory(UnreadSession())
+    bank.search_memory.assert_not_awaited()
+    bank.add_session_to_memory.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("provider_fails", [False, True])
+async def test_fence_during_provider_recall_blocks_result_and_local_fallback(
+    tmp_path, provider_fails
+):
+    from types import SimpleNamespace
+
+    log = _log(tmp_path)
+    service = build_pod_memory_service(hushh_id=OWNER, pod_key=KEY, log=log, provider_consent=True)
+    await service.add_session_to_memory(_Session("the synthetic violet radiator"))
+
+    class Bank:
+        async def search_memory(self, **kwargs):
+            await log.fence_for_erasure(owner_id=OWNER, attempt_id="synthetic-attempt")
+            if provider_fails:
+                raise RuntimeError("synthetic unavailable provider")
+            return SimpleNamespace(memories=[SimpleNamespace(content="synthetic fact")])
+
+    service.bank = Bank()
+    with pytest.raises(PodLogFenced):
+        await service.search_memory(app_name="one", user_id=OWNER, query="violet")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("provider_fails", [False, True])
+async def test_memory_telemetry_keeps_counts_without_owner_or_private_text(
+    tmp_path, caplog, provider_fails
+):
+    from types import SimpleNamespace
+
+    class Bank:
+        async def add_session_to_memory(self, session):
+            if provider_fails:
+                raise RuntimeError("private-provider-error-sentinel")
+
+        async def search_memory(self, **kwargs):
+            if provider_fails:
+                raise RuntimeError("private-provider-error-sentinel")
+            return SimpleNamespace(memories=[SimpleNamespace(content="synthetic bank recall")])
+
+    caplog.set_level("INFO")
+    service = build_pod_memory_service(
+        hushh_id=OWNER, pod_key=KEY, log=_log(tmp_path), bank=Bank(), provider_consent=True
+    )
+    await service.add_session_to_memory(_Session("private-memory-content-sentinel"))
+    assert (
+        await service.search_memory(
+            app_name="one", user_id=OWNER, query="private-memory-content-sentinel"
+        )
+    ).memories
+    assert "pod_memory.hydrated records=" in caplog.text
+    assert "pod_memory.recall" in caplog.text
+    for private in (OWNER, "private-memory-content-sentinel", "private-provider-error-sentinel"):
+        assert private not in caplog.text
+    assert all(record.exc_info is None for record in caplog.records)
+
+
+def test_without_a_log_memory_does_not_survive(tmp_path: Path) -> None:
+    """The honest negative. No durable state configured means forgetful, not broken."""
+
+    async def run() -> None:
+        first = build_pod_memory_service(hushh_id=OWNER, pod_key=KEY, log=None)
+        await first.add_session_to_memory(_Session("the guest room radiator leaks"))
+        del first
+
+        second = build_pod_memory_service(hushh_id=OWNER, pod_key=KEY, log=None)
+        hits = await second.search_memory(app_name="one", user_id=OWNER, query="radiator")
+        assert list(hits.memories) == []
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("fail_at", [1, 2])
+def test_failed_append_never_exposes_uncommitted_memory(tmp_path: Path, fail_at: int) -> None:
+    """A live process and a restarted pod see exactly the committed prefix."""
+
+    async def run() -> None:
+        durable = _log(tmp_path)
+
+        class FailingLog:
+            calls = 0
+
+            async def require_open(self):
+                await durable.require_open()
+
+            async def replay(self):
+                return await durable.replay()
+
+            async def append(self, kind, payload):
+                self.calls += 1
+                if self.calls == fail_at:
+                    raise OSError("synthetic append refusal")
+                return await durable.append(kind, payload)
+
+        live = build_pod_memory_service(hushh_id=OWNER, pod_key=KEY, log=FailingLog())
+        with pytest.raises(OSError, match="synthetic append refusal"):
+            await live.add_session_to_memory(
+                _Session("radiator in guest room", "radiator in study")
+            )
+        restored = build_pod_memory_service(hushh_id=OWNER, pod_key=KEY, log=_log(tmp_path))
+        for service in (live, restored):
+            hits = await service.search_memory(app_name="one", user_id=OWNER, query="radiator")
+            assert [m.content.parts[0].text for m in hits.memories] == (
+                [] if fail_at == 1 else ["radiator in guest room"]
+            )
+
+    asyncio.run(run())
+
+
+def test_a_neighbours_key_cannot_open_this_pods_memory(tmp_path: Path) -> None:
+    """Custody, not just configuration: the same log under a different key is unreadable."""
+
+    async def run() -> None:
+        first = build_pod_memory_service(hushh_id=OWNER, pod_key=KEY, log=_log(tmp_path))
+        await first.add_session_to_memory(_Session("the guest room radiator leaks"))
+        del first
+
+        # A pod holding a different derived key, pointed at the same objects. The
+        # commit log seals every record under its own key, so this fails at the log
+        # -- and specifically as TAMPERING, not as an empty history. The distinction
+        # is the point: a wrong key must be loud, because "I have no memories" is a
+        # plausible-looking answer that would hide a custody failure completely.
+        impostor = build_pod_memory_service(
+            hushh_id=OWNER, pod_key=OTHER_KEY, log=_log(tmp_path, OTHER_KEY)
+        )
+        with pytest.raises(PodLogTampered):
+            await impostor.search_memory(app_name="one", user_id=OWNER, query="radiator")
+
+    asyncio.run(run())
+
+
+def test_replaying_another_owners_record_is_refused_not_skipped() -> None:
+    """Invariant 1 at the replay boundary.
+
+    Silently dropping a foreign record would make a wrong prefix look exactly like a
+    first boot -- an empty history is indistinguishable from a misconfigured one, so
+    it must raise.
+    """
+    store = PodMemoryStore(hushh_id=OWNER, pod_key=KEY)
+    foreign = SealedMemory(
+        memory_id="deadbeef",
+        hushh_id=OTHER,
+        created_at_ms=1,
+        ciphertext="v2.irrelevant",
+        token_digests=(),
+    )
+    with pytest.raises(PodMemoryError):
+        store.hydrate([foreign])
+
+
+def test_hydrate_is_bounded_and_keeps_the_newest() -> None:
+    """A pod waking with more history than it can hold keeps the recent end."""
+    from hushh_mcp.services.pod_memory_service import _MAX_ENTRIES_PER_OWNER
+
+    store = PodMemoryStore(hushh_id=OWNER, pod_key=KEY)
+    overflow = _MAX_ENTRIES_PER_OWNER + 10
+    store.hydrate(
+        SealedMemory(
+            memory_id=f"id{i}",
+            hushh_id=OWNER,
+            created_at_ms=i,
+            ciphertext="v2.x",
+            token_digests=(),
+        )
+        for i in range(overflow)
+    )
+    assert len(store) == _MAX_ENTRIES_PER_OWNER
+    # Oldest evicted: the first record kept is the one at the truncation boundary.
+    assert store.export().find(f'"id{overflow - 1}"') != -1
+    assert store.export().find('"id0"') == -1
+
+
+def test_the_persisted_envelope_carries_no_plaintext_metadata() -> None:
+    """Invariant 2 applies to the envelope, not only the message.
+
+    `custom_metadata` is caller-supplied. Storing it beside the ciphertext would make
+    the invariant true of the text and false of everything around it.
+    """
+    store = PodMemoryStore(hushh_id=OWNER, pod_key=KEY)
+    rec = store.add(
+        text="the guest room radiator leaks",
+        author="user",
+        custom_metadata={"note": "SENSITIVE-MARKER"},
+    )
+    assert rec is not None
+    payload = rec.as_payload(KEY)
+    blob = str(payload)
+    assert "SENSITIVE-MARKER" not in blob
+    assert "radiator" not in blob
+    # And it round-trips.
+    back = SealedMemory.from_payload(KEY, payload)
+    assert back.author == "user"
+    assert back.custom_metadata == {"note": "SENSITIVE-MARKER"}
+
+
+def test_an_envelope_cannot_be_replayed_into_another_owners_pod() -> None:
+    """The envelope is owner-bound, so lifting a record between pods fails."""
+    store = PodMemoryStore(hushh_id=OWNER, pod_key=KEY)
+    rec = store.add(text="the guest room radiator leaks", author="user")
+    assert rec is not None
+    payload = rec.as_payload(KEY)
+    payload["hushh_id"] = OTHER  # pretend it belongs to the neighbour
+    with pytest.raises(PodMemoryError):
+        SealedMemory.from_payload(KEY, payload)
+
+
+def test_hydration_happens_once_not_per_turn(tmp_path: Path) -> None:
+    """Replay is serial and unparallelisable; paying it twice would be a real cost."""
+
+    async def run() -> None:
+        log = _log(tmp_path)
+        seed = build_pod_memory_service(hushh_id=OWNER, pod_key=KEY, log=log)
+        await seed.add_session_to_memory(_Session("the guest room radiator leaks"))
+        del seed
+
+        counting = _log(tmp_path)
+        calls = {"n": 0}
+        real_replay = counting.replay
+
+        async def counted():
+            calls["n"] += 1
+            return await real_replay()
+
+        counting.replay = counted  # type: ignore[method-assign]
+
+        svc = build_pod_memory_service(hushh_id=OWNER, pod_key=KEY, log=counting)
+        await svc.search_memory(app_name="one", user_id=OWNER, query="radiator")
+        await svc.search_memory(app_name="one", user_id=OWNER, query="radiator")
+        await svc.add_session_to_memory(_Session("and the window sticks"))
+        assert calls["n"] == 1
+
+    asyncio.run(run())
+
+
+def test_a_failed_replay_stays_retryable(tmp_path: Path) -> None:
+    """A transient read failure must not latch the pod into a memoryless state."""
+
+    async def run() -> None:
+        log = _log(tmp_path)
+        seed = build_pod_memory_service(hushh_id=OWNER, pod_key=KEY, log=log)
+        await seed.add_session_to_memory(_Session("the guest room radiator leaks"))
+        del seed
+
+        flaky = _log(tmp_path)
+        real_replay = flaky.replay
+        state = {"fail": True}
+
+        async def sometimes():
+            if state["fail"]:
+                state["fail"] = False
+                raise RuntimeError("transient GCS read failure")
+            return await real_replay()
+
+        flaky.replay = sometimes  # type: ignore[method-assign]
+
+        svc = build_pod_memory_service(hushh_id=OWNER, pod_key=KEY, log=flaky)
+        with pytest.raises(RuntimeError):
+            await svc.search_memory(app_name="one", user_id=OWNER, query="radiator")
+        # The second attempt must actually replay rather than report an empty history.
+        hits = await svc.search_memory(app_name="one", user_id=OWNER, query="radiator")
+        assert [m.content.parts[0].text for m in hits.memories] == ["the guest room radiator leaks"]
+
+    asyncio.run(run())
+
+
+def test_memory_records_do_not_disturb_other_log_kinds(tmp_path: Path) -> None:
+    """The log is shared with the PKM path, so replay must filter on kind."""
+
+    async def run() -> None:
+        log = _log(tmp_path)
+        await log.append("storage_pointer", {"hushh_id": OWNER, "ref": "blob://x"})
+        svc = build_pod_memory_service(hushh_id=OWNER, pod_key=KEY, log=log)
+        await svc.add_session_to_memory(_Session("the guest room radiator leaks"))
+        await log.append("storage_pointer", {"hushh_id": OWNER, "ref": "blob://y"})
+        del svc
+
+        second = build_pod_memory_service(hushh_id=OWNER, pod_key=KEY, log=_log(tmp_path))
+        hits = await second.search_memory(app_name="one", user_id=OWNER, query="radiator")
+        assert len(hits.memories) == 1
+
+    asyncio.run(run())
+
+
+# -- the caller that did not exist -----------------------------------------------------
+
+
+def test_the_pods_turn_constructs_its_runner_with_a_memory_service() -> None:
+    """Everything below this line was real, and a pod still remembered nothing.
+
+    The sealed commit log, the per-owner derived key, hydrate-on-first-use replay, the
+    env that carries them — all built, all tested, all deployed. And
+    `resolve_pod_memory_service` had exactly one caller, `get_one_runner`, reached only
+    from `adk_live`, which `pod_server` does not mount. The pod's own turn path built a
+    `Runner` without a `memory_service` argument at all.
+
+    Asserted structurally rather than behaviourally on purpose: the defect was a missing
+    keyword argument, so the assertion that catches it is about the call, and driving a
+    full ADK turn to observe the same fact would test the model, not the wiring.
+
+    The intro runtime is checked too, in the opposite direction. It serves an
+    unauthenticated visitor with no owner, so giving it a memory service would be a
+    defect of its own — and this test failing on it would mean somebody had.
+    """
+    import ast
+    import inspect
+
+    from hushh_mcp.one_adk import text_runtime
+
+    tree = ast.parse(inspect.getsource(text_runtime))
+    by_function = {}
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            for call in ast.walk(node):
+                if isinstance(call, ast.Call) and getattr(call.func, "id", "") == "Runner":
+                    by_function.setdefault(node.name, []).append({kw.arg for kw in call.keywords})
+
+    owner_bound = by_function.get("_stream_one_text_turn_once")
+    assert owner_bound, "the owner-bound turn must construct a Runner"
+    for kwargs in owner_bound:
+        assert "memory_service" in kwargs, (
+            "the pod's only turn path builds a Runner without memory_service — "
+            "a pod that writes no memory and recalls none"
+        )
+
+    for kwargs in by_function.get("stream_one_intro_text_turn", []):
+        assert "memory_service" not in kwargs, (
+            "the intro runtime serves an anonymous visitor; it has no owner to remember"
+        )
+
+
+def test_resolving_pod_memory_never_breaks_a_turn(monkeypatch) -> None:
+    """A pod that cannot resolve memory must still answer.
+
+    Memory is an enhancement to a turn; refusing the turn because the enhancement is
+    unavailable trades a degraded answer for no answer.
+    """
+    from hushh_mcp.one_adk import text_runtime
+
+    def explode():
+        raise RuntimeError("storage unreachable")
+
+    monkeypatch.setattr("hushh_mcp.services.pod_memory_service.resolve_pod_memory_service", explode)
+    assert text_runtime._resolve_pod_memory_service() is None
+
+
+def test_the_hub_never_receives_a_memory_service(monkeypatch) -> None:
+    """The property that actually protects Agent Chat, pinned.
+
+    The guard above asserts the CALL passes memory_service. It would pass unchanged if the
+    hub started receiving a live memory service — which is the one outcome that would
+    matter, because the hub is multi-tenant and a PodMemoryService is keyed to a single
+    HUSSH_ID. Set HUSSH_POD_MODE on a hub revision and every person's Agent Chat turn would
+    share one owner's memory.
+
+    Nothing else in the suite covers this: tests/test_one_memory_service.py exercises the
+    VOICE runner's _build_one_memory_service, not the text runtime's resolver.
+    """
+    from hushh_mcp.one_adk import text_runtime
+
+    monkeypatch.delenv("HUSSH_POD_MODE", raising=False)
+    # Deliberately hostile: every OTHER pod variable set, so only the pod_mode gate is
+    # standing between the hub and a memory service.
+    monkeypatch.setenv("POD_AGENT_MEMORY_ENABLED", "1")
+    monkeypatch.setenv("HUSSH_ID", "HA1HUBLEAKPROBE1")
+    monkeypatch.setenv("HUSSH_POD_MEMORY_KEY", base64.b64encode(b"\x05" * 32).decode())
+
+    assert text_runtime._resolve_pod_memory_service() is None, (
+        "the hub resolved a memory service — a multi-tenant process would then hold one "
+        "person's memory and serve it to everyone"
+    )
+
+
+def test_concurrent_readers_wait_for_one_complete_replay(tmp_path: Path) -> None:
+    async def run() -> None:
+        seed = build_pod_memory_service(hushh_id=OWNER, pod_key=KEY, log=_log(tmp_path))
+        await seed.add_session_to_memory(_Session("the guest room radiator leaks"))
+        log = _log(tmp_path)
+        replay = log.replay
+        started, release = asyncio.Event(), asyncio.Event()
+        calls = 0
+
+        async def blocked_replay():
+            nonlocal calls
+            calls += 1
+            started.set()
+            await release.wait()
+            return await replay()
+
+        log.replay = blocked_replay
+        service = build_pod_memory_service(hushh_id=OWNER, pod_key=KEY, log=log)
+        first = asyncio.create_task(
+            service.search_memory(app_name="one", user_id=OWNER, query="radiator")
+        )
+        await started.wait()
+        second = asyncio.create_task(
+            service.search_memory(app_name="one", user_id=OWNER, query="radiator")
+        )
+        await asyncio.sleep(0)
+        assert not first.done() and not second.done()
+        release.set()
+        for result in await asyncio.gather(first, second):
+            assert [m.content.parts[0].text for m in result.memories] == [
+                "the guest room radiator leaks"
+            ]
+        assert calls == 1
+
+    asyncio.run(run())
+
+
+# -- schema 2: tombstones survive replay, corrections win, order is the law -------
+
+
+def _texts(response) -> list[str]:
+    return [m.content.parts[0].text for m in response.memories]
+
+
+async def test_a_revoked_fact_is_not_resurrected_by_replay(tmp_path: Path) -> None:
+    """K10, stated directly: replay used to return everything ever written, so a
+    fact the owner removed came back on the next cold start. The revocation is a
+    later log record, and hydration applies records in log order, so it lands
+    after the fact it kills every time."""
+    first = build_pod_memory_service(hushh_id=OWNER, pod_key=KEY, log=_log(tmp_path))
+    memory_id = await first.remember("the dachshund is named Pushkin")
+    assert memory_id
+    assert _texts(await first.search_memory(app_name="one", user_id=OWNER, query="dachshund"))
+    assert await first.revoke([memory_id], reason_code="owner_request") == 1
+    assert _texts(await first.search_memory(app_name="one", user_id=OWNER, query="dachshund")) == []
+    del first
+
+    reborn = build_pod_memory_service(hushh_id=OWNER, pod_key=KEY, log=_log(tmp_path))
+    assert (
+        _texts(await reborn.search_memory(app_name="one", user_id=OWNER, query="dachshund")) == []
+    )
+    status = await reborn.memory_status()
+    assert status["tombstones"] == 1
+    assert status["facts"] == 0
+    assert status["schema"] == 2
+
+
+async def test_a_correction_supersedes_across_a_restart(tmp_path: Path) -> None:
+    """The old value is gone, the new one answers, on a pod that was rebuilt from
+    nothing but the log."""
+    first = build_pod_memory_service(hushh_id=OWNER, pod_key=KEY, log=_log(tmp_path))
+    old_id = await first.remember("the sailboat berths at slip twelve")
+    new_id = await first.supersede(old_id, "the sailboat berths at slip forty")
+    assert new_id and new_id != old_id
+    del first
+
+    reborn = build_pod_memory_service(hushh_id=OWNER, pod_key=KEY, log=_log(tmp_path))
+    texts = _texts(await reborn.search_memory(app_name="one", user_id=OWNER, query="sailboat slip"))
+    assert texts == ["the sailboat berths at slip forty"]
+    assert "twelve" not in " ".join(texts)
+    with pytest.raises(PodMemoryError):
+        await reborn.supersede(old_id, "a dead fact cannot be corrected again")
+
+
+async def test_a_revoked_transcript_line_is_ranked_below_nothing(tmp_path: Path) -> None:
+    """Raw transcript records can be tombstoned too; a revoked line never matches."""
+    service = build_pod_memory_service(hushh_id=OWNER, pod_key=KEY, log=_log(tmp_path))
+    await service.add_session_to_memory(_Session("my kintsugi bowl sits on the third shelf"))
+    pending = await service.unreviewed(limit=5)
+    assert len(pending) == 1
+    raw_id = next(iter(service.store._by_id))
+    await service.revoke([raw_id], reason_code="owner_request")
+    assert (
+        _texts(await service.search_memory(app_name="one", user_id=OWNER, query="kintsugi")) == []
+    )
+    # A revoked raw line is also out of the review's reach.
+    assert await service.unreviewed(limit=5) == []
+
+
+def test_tombstones_survive_the_working_set_bound() -> None:
+    """The 5,000-record bound evicts the oldest RECORDS. It must never evict a
+    tombstone, or a replay that reloads the evicted fact would resurrect it."""
+    from hushh_mcp.services.pod_memory_service import _MAX_ENTRIES_PER_OWNER
+
+    store = PodMemoryStore(hushh_id=OWNER, pod_key=KEY)
+    victim = store.add(text="the very first fact", kind="fact")
+    assert victim is not None
+    assert store.apply_revoke(owner=OWNER, memory_ids=[victim.memory_id]) == 1
+    store.hydrate(
+        SealedMemory(
+            memory_id=f"id{i}",
+            hushh_id=OWNER,
+            created_at_ms=i,
+            ciphertext="v2.x",
+            token_digests=(),
+        )
+        for i in range(_MAX_ENTRIES_PER_OWNER + 5)
+    )
+    assert len(store) == _MAX_ENTRIES_PER_OWNER
+    assert store.is_dead(victim.memory_id), "the tombstone was evicted with its record"
+    # Reloading the evicted fact (a later replay window) keeps it dead.
+    store.hydrate([victim])
+    assert store.search(hushh_id=OWNER, query="first fact") == []
+    assert store.tombstones() == [{"memory_id": victim.memory_id, "kind": "revoke"}]
+
+
+def test_export_reflects_tombstones_and_carries_no_plaintext() -> None:
+    store = PodMemoryStore(hushh_id=OWNER, pod_key=KEY)
+    keep = store.add(text="almond allergy but other nuts are fine", kind="fact")
+    drop = store.add(text="the meridian account ends in 4269", kind="fact")
+    assert keep is not None and drop is not None
+    store.apply_revoke(owner=OWNER, memory_ids=[drop.memory_id])
+    exported = store.export()
+    assert keep.memory_id in exported
+    assert drop.memory_id not in exported
+    for private in ("almond", "meridian", "4269"):
+        assert private not in exported
+    assert '"kind": "fact"' in exported
+
+
+def test_a_foreign_tombstone_is_refused_like_a_foreign_record() -> None:
+    """Invariant 1 at the tombstone boundary: a revocation lifted from another
+    pod's log must raise, never quietly kill (or quietly skip) this owner's facts."""
+    store = PodMemoryStore(hushh_id=OWNER, pod_key=KEY)
+    mine = store.add(text="the guest room radiator leaks", kind="fact")
+    assert mine is not None
+    with pytest.raises(PodMemoryError):
+        store.apply_revoke(owner=OTHER, memory_ids=[mine.memory_id])
+    with pytest.raises(PodMemoryError):
+        store.apply_supersede(owner=OTHER, old_memory_id=mine.memory_id, new_record=mine)
+    assert not store.is_dead(mine.memory_id)
+
+
+async def test_records_are_applied_strictly_in_log_order(tmp_path: Path) -> None:
+    """A revoke that precedes a fact in the log (an impossible history unless the
+    chain was reordered) must not kill the later fact, and a fact followed by its
+    revoke must die. The order in the log is the only order there is."""
+    from hushh_mcp.services.pod_memory_service import (
+        MEMORY_KIND_FACT,
+        MEMORY_KIND_REVOKE,
+    )
+
+    log = _log(tmp_path)
+    store = PodMemoryStore(hushh_id=OWNER, pod_key=KEY)
+    early = store.prepare(text="zephyr berths at slip twelve", kind="fact")
+    late = store.prepare(text="pushkin is a dachshund", kind="fact")
+    assert early is not None and late is not None
+    # fact(early) -> revoke(early) -> revoke(late) -> fact(late)
+    await log.append(MEMORY_KIND_FACT, early.as_payload(KEY))
+    await log.append(
+        MEMORY_KIND_REVOKE,
+        {"hushh_id": OWNER, "memory_ids": [early.memory_id], "reason_code": "owner_request"},
+    )
+    await log.append(
+        MEMORY_KIND_REVOKE,
+        {"hushh_id": OWNER, "memory_ids": [late.memory_id], "reason_code": "owner_request"},
+    )
+    await log.append(MEMORY_KIND_FACT, late.as_payload(KEY))
+
+    service = build_pod_memory_service(hushh_id=OWNER, pod_key=KEY, log=_log(tmp_path))
+    assert _texts(await service.search_memory(app_name="one", user_id=OWNER, query="zephyr")) == []
+    # The late fact's tombstone came BEFORE the fact: in log order it is dead too,
+    # because a tombstone is final for its id regardless of when the id appears.
+    assert _texts(await service.search_memory(app_name="one", user_id=OWNER, query="pushkin")) == []
+    status = await service.memory_status()
+    assert status["tombstones"] == 2
+    assert status["lastSeq"] == 4
+
+
+async def test_review_checkpoints_bound_the_unreviewed_set(tmp_path: Path) -> None:
+    service = build_pod_memory_service(hushh_id=OWNER, pod_key=KEY, log=_log(tmp_path))
+    await service.add_session_to_memory(_Session("first thing said", "second thing said"))
+    assert service.unreviewed_count() == 2
+    pending = await service.unreviewed(limit=1)
+    assert [p["text"] for p in pending] == ["first thing said"]
+    await service.record_review_checkpoint(
+        through_seq=pending[-1]["seq"],
+        ops={"remember": 0},
+        provider="gemini",
+        model="test",
+        outcome="nothing_to_save",
+    )
+    assert service.unreviewed_count() == 1
+    del service
+    reborn = build_pod_memory_service(hushh_id=OWNER, pod_key=KEY, log=_log(tmp_path))
+    assert [p["text"] for p in await reborn.unreviewed(limit=5)] == ["second thing said"]
+
+
+async def test_provider_consent_is_durable_and_the_record_wins(tmp_path: Path) -> None:
+    """The log is the owner's durable answer; a constructor default is only a start."""
+    first = build_pod_memory_service(hushh_id=OWNER, pod_key=KEY, log=_log(tmp_path))
+    assert (await first.memory_status())["provider"]["consent"] == "absent"
+    await first.set_provider_consent(True)
+    del first
+    reborn = build_pod_memory_service(
+        hushh_id=OWNER, pod_key=KEY, log=_log(tmp_path), provider_consent=False
+    )
+    assert (await reborn.memory_status())["provider"]["consent"] == "granted"
+    assert reborn.provider_consent is True
+    await reborn.set_provider_consent(False)
+    assert (await reborn.memory_status())["provider"]["consent"] == "revoked"

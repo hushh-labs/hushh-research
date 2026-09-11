@@ -1,5 +1,11 @@
 # One Agent Hierarchy
 
+Current private-branch admission is documented in
+[One Voice Runtime Architecture](./one-voice-runtime-architecture.md): personal
+text executes in the owner's pod; signed-in Live remains unavailable pending
+pod transport. The factory/delegation graph below is not a claim that the public
+onboarding relay can access the full agent roster.
+
 ## Visual Map
 
 ```mermaid

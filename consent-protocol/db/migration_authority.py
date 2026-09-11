@@ -405,6 +405,8 @@ async def apply_manifest_entries(
                     # contention SQLSTATE gets this; a constraint violation or a
                     # syntax error still fails on the first attempt.
                     delay = _lock_retry_delay_seconds(attempt)
+                    if _is_lock_contention(exc):
+                        retry_spent_s += time.perf_counter() - started
                     if (
                         _is_lock_contention(exc)
                         and attempt < _LOCK_RETRY_ATTEMPTS
@@ -489,12 +491,15 @@ async def apply_manifest_entries(
                 }
         return tuple(applied)
     finally:
+        preserving_error = sys.exc_info()[0] is not None
         # Releasing the advisory lock must never replace the error that brought
         # us here. On an aborted connection this call itself raises, and that
         # exception would propagate instead of the migration's own.
         try:
             await _unlock(conn)
         except Exception as unlock_exc:  # noqa: BLE001 - diagnostic only
+            if not preserving_error:
+                raise
             print(
                 f"advisory unlock failed [{_failure_signature(unlock_exc)}]",
                 file=sys.stderr,

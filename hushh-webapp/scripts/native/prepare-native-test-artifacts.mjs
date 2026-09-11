@@ -14,13 +14,18 @@ import { createNativeUiAuditManifest } from "./native-ui-audit-plan.mjs";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "..", "..");
 
+function nativeWebOutput(root) {
+  // Match Capacitor webDir, including isolated absolute build directories.
+  return path.resolve(root, process.env.NEXT_DIST_DIR?.trim() || "out");
+}
+
 export function writeNativeUiFlowsManifest({
   repoRoot: root = repoRoot,
   flowFilter = "",
   routeFilter = "",
 } = {}) {
   const flows = filterUiFlows({ flowFilter, routeFilter });
-  const flowsPublicPath = path.join(root, "out", "native-ui-flows.json");
+  const flowsPublicPath = path.join(nativeWebOutput(root), "native-ui-flows.json");
   const nativeAuditManifest = createNativeUiAuditManifest(flows);
   fs.mkdirSync(path.dirname(flowsPublicPath), { recursive: true });
   fs.writeFileSync(
@@ -57,7 +62,7 @@ export function copyNativeImportE2eAsset({
   }
 
   const relativeAssetPath = KAI_IMPORT_E2E_ASSET_PATH.replace(/^\/+/, "");
-  const destination = path.join(root, "out", relativeAssetPath);
+  const destination = path.join(nativeWebOutput(root), relativeAssetPath);
   fs.mkdirSync(path.dirname(destination), { recursive: true });
   fs.copyFileSync(source, destination);
   console.log(
@@ -68,7 +73,7 @@ export function copyNativeImportE2eAsset({
 
 export function syncNativeUiTestRunner({ repoRoot: root = repoRoot } = {}) {
   const sourcePath = path.join(root, "scripts/native/native-ui-test-runner-source.js");
-  const publicRunnerPath = path.join(root, "out", "native-ui-test-runner.js");
+  const publicRunnerPath = path.join(nativeWebOutput(root), "native-ui-test-runner.js");
   fs.mkdirSync(path.dirname(publicRunnerPath), { recursive: true });
   fs.copyFileSync(sourcePath, publicRunnerPath);
 

@@ -2,6 +2,30 @@ import XCTest
 @testable import App
 
 final class NativeSupportTests: XCTestCase {
+    func testReviewerCredentialsRequireExplicitTestModeAndEnvironment() {
+        let environment = [
+            "HUSHH_UI_TEST_REVIEWER_VAULT_PASSPHRASE": "synthetic-passphrase",
+            "HUSHH_UI_TEST_REVIEWER_UID": "synthetic-reviewer",
+        ]
+        let ordinary = NativeTestConfiguration(arguments: ["App"], environment: environment)
+        XCTAssertNil(ordinary.vaultPassphrase)
+        XCTAssertNil(ordinary.expectedUserId)
+
+        let legacy = NativeTestConfiguration(arguments: [
+            "App", "-UITestMode",
+            "-UITestVaultPassphrase", "legacy-secret",
+            "-UITestExpectedUserId", "legacy-reviewer",
+        ], environment: [:])
+        XCTAssertNil(legacy.vaultPassphrase)
+        XCTAssertNil(legacy.expectedUserId)
+
+        let audit = NativeTestConfiguration(
+            arguments: ["App", "-UITestMode"], environment: environment
+        )
+        XCTAssertEqual(audit.vaultPassphrase, "synthetic-passphrase")
+        XCTAssertEqual(audit.expectedUserId, "synthetic-reviewer")
+    }
+
     func testNativeTestConfigurationParsesArguments() {
         let config = NativeTestConfiguration(arguments: [
             "App",

@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Loader2, Lock, ShieldAlert } from "lucide-react";
+import { SearchClearButton } from "@/components/app-ui/search-clear-button";
 
 import { PkmMemoryRow } from "@/components/profile/pkm-memory-row";
 import { ROUTES } from "@/lib/navigation/routes";
@@ -1096,17 +1097,24 @@ export function PkmNaturalPanel({
           heightMode="active"
         >
           <div className="space-y-5 pb-1 pr-px" data-pkm-saved-panel="true">
-          <Input
-            type="search"
-            value={homeSearchQuery}
-            onChange={(event) => setHomeSearchQuery(event.target.value)}
-            placeholder="Search Memory"
-            aria-label="Search Memory"
-            autoComplete="off"
-            autoCorrect="off"
-            spellCheck={false}
-            className="h-11"
-          />
+          <div className="relative">
+            <Input
+              type="search"
+              value={homeSearchQuery}
+              onChange={(event) => setHomeSearchQuery(event.target.value)}
+              placeholder="Search Memory"
+              aria-label="Search Memory"
+              autoComplete="off"
+              autoCorrect="off"
+              spellCheck={false}
+              className="h-11 pr-11"
+            />
+            <SearchClearButton
+              visible={homeSearchQuery.length > 0}
+              label="Clear Memory search"
+              onClear={() => setHomeSearchQuery("")}
+            />
+          </div>
 
           {memoryCardsLoading && memoryCards.length === 0 ? (
             <SurfaceInset className="flex items-center gap-2 p-4 text-sm text-muted-foreground">

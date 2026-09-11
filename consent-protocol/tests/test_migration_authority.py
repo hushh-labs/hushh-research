@@ -396,6 +396,18 @@ async def test_failure_log_never_quotes_the_database_message(tmp_path: Path, cap
     assert "RuntimeError" in stderr
 
 
+@pytest.mark.asyncio
+async def test_successful_migration_does_not_hide_unlock_failure():
+    class UnlockFailure(FakeConnection):
+        async def fetchval(self, sql, *args):
+            if "pg_advisory_unlock" in sql:
+                raise RuntimeError("synthetic unlock failure")
+            return await super().fetchval(sql, *args)
+
+    with pytest.raises(RuntimeError, match="synthetic unlock failure"):
+        await apply_manifest_entries(UnlockFailure(), (), mode=MigrationMode.REPLAY)
+
+
 class _LockTimeout(Exception):
     """Stands in for asyncpg.exceptions.LockNotAvailableError.
 
@@ -440,6 +452,7 @@ def no_sleep(monkeypatch):
         slept.append(seconds)
 
     monkeypatch.setattr("db.migration_authority.asyncio.sleep", _fake_sleep)
+    monkeypatch.setattr("db.migration_authority.time.perf_counter", lambda: 0.0)
     return slept
 
 
@@ -549,3 +562,22 @@ async def test_run_wide_retry_budget_stops_a_long_contended_run(
     assert no_sleep == [1.0], "budget of 1.0s affords exactly the first 1s backoff"
     assert conn.attempts == 2, "then it reports instead of retrying"
     assert conn.locked is False
+
+
+@pytest.mark.asyncio
+async def test_failed_attempt_duration_consumes_run_retry_budget(tmp_path, no_sleep, monkeypatch):
+    monkeypatch.setattr("db.migration_authority._LOCK_RETRY_RUN_BUDGET_S", 5.0)
+    clock = [0.0]
+    monkeypatch.setattr("db.migration_authority.time.perf_counter", lambda: clock[0])
+
+    class SlowContention(ContendingConnection):
+        async def execute(self, sql, *args):
+            if "SELECT 115" in sql:
+                clock[0] += 5.0
+            return await super().execute(sql, *args)
+
+    conn = SlowContention("SELECT 115", fail_times=99)
+    with pytest.raises(_LockTimeout):
+        await apply_manifest_entries(conn, _entries(tmp_path), mode=MigrationMode.REPLAY)
+    assert conn.attempts == 1
+    assert no_sleep == []

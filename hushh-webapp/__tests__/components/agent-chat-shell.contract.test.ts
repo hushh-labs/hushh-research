@@ -63,10 +63,12 @@ describe("private-agent chat shell contract", () => {
     expect(workspace).toContain("rounded-[24px] bg-foreground/[0.045]");
     expect(workspace).not.toContain("agent-chat-composer\"\n                      className=\"flex min-h-16 items-end gap-2 rounded-2xl border");
     expect(workspace).toContain('className="flex shrink-0 items-center gap-2"');
+    expect(workspace).not.toContain('className="flex shrink-0 self-end items-center gap-2"');
     expect(workspace).toContain("max-h-28");
     expect(workspace).toContain("sm:max-h-36");
     expect(workspace).toContain("h-[min(38dvh,18rem)]");
     expect(workspace).toContain("sm:h-[min(48dvh,30rem)]");
+    expect(workspace).not.toContain("composerLong ?");
     expect(workspace).toContain("composerExpanded ?");
     expect(workspace).not.toContain("Expanded message</span>");
     expect(workspace).not.toContain("Writing in expanded composer");
@@ -90,7 +92,12 @@ describe("private-agent chat shell contract", () => {
     expect(workspace).toContain('data-testid="agent-chat-self-avatar"');
     expect(workspace).toContain("<AvatarBubble");
     expect(workspace).not.toContain('return "Ready";');
+    // Reserve the status slot so a transition cannot move the header controls.
+    expect(workspace).toContain('className="hidden w-28 shrink-0 truncate text-right');
     expect(workspace).toContain('role="status"');
+    expect(workspace).toContain('aria-live="polite"');
+    expect(workspace).toContain("title={statusText || undefined}");
+    expect(workspace).not.toContain("{statusText ? (");
     expect(workspace).toContain("{statusText}");
   });
 

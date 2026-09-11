@@ -1,0 +1,641 @@
+{
+  "agents": [
+    {
+      "a2a_surface": false,
+      "declared": {
+        "confirmation_owner": "hub",
+        "executes_in_pod": false,
+        "information_source": "hub_door",
+        "why": "Not dispatched in the pod: One's calendar tools render upcoming events deterministically through the calendar door; proposals need the hub.",
+        "write_scope": "none"
+      },
+      "derived": {
+        "a2a_scope": null,
+        "door": "calendar",
+        "door_required_scope": "cap.calendar.events.view",
+        "hub_doors": [],
+        "one_tool_names": [
+          "calendar_availability",
+          "calendar_events",
+          "calendar_free_slots",
+          "calendar_summary",
+          "propose_calendar_cancellation",
+          "propose_calendar_event",
+          "propose_calendar_reschedule"
+        ],
+        "pod_dispatchable": false,
+        "registered_specialist": false
+      },
+      "id": "agent_calendar",
+      "manifest_path": "consent-protocol/hushh_mcp/agents/calendar/agent.yaml",
+      "parent": "agent_one",
+      "required_scopes": [
+        "cap.one.invoke"
+      ],
+      "status": "active"
+    },
+    {
+      "a2a_surface": false,
+      "declared": {
+        "confirmation_owner": "hub",
+        "executes_in_pod": true,
+        "information_source": "none",
+        "why": "The A2A wrapper is constructed in the pod but refuses without task-specific authority; CRM connections and records stay on the hub.",
+        "write_scope": "none"
+      },
+      "derived": {
+        "a2a_scope": null,
+        "door": null,
+        "door_required_scope": null,
+        "hub_doors": [],
+        "one_tool_names": [
+          "ask_connected_systems_agent"
+        ],
+        "pod_dispatchable": true,
+        "registered_specialist": true
+      },
+      "id": "agent_connected_systems",
+      "manifest_path": "consent-protocol/hushh_mcp/agents/connected_systems/agent.yaml",
+      "parent": "agent_one",
+      "required_scopes": [],
+      "status": "experimental"
+    },
+    {
+      "a2a_surface": false,
+      "declared": {
+        "confirmation_owner": "hub",
+        "executes_in_pod": false,
+        "information_source": "hub",
+        "why": "Registered on the hub with no owner adapter; service_for refuses it in the pod.",
+        "write_scope": "none"
+      },
+      "derived": {
+        "a2a_scope": null,
+        "door": null,
+        "door_required_scope": null,
+        "hub_doors": [],
+        "one_tool_names": [],
+        "pod_dispatchable": false,
+        "registered_specialist": true
+      },
+      "id": "agent_connections",
+      "manifest_path": "consent-protocol/hushh_mcp/agents/connections/agent.yaml",
+      "parent": "agent_nav",
+      "required_scopes": [
+        "agent.one.orchestrate"
+      ],
+      "status": "experimental"
+    },
+    {
+      "a2a_surface": false,
+      "declared": {
+        "confirmation_owner": "none",
+        "executes_in_pod": true,
+        "information_source": "hub_door",
+        "why": "Read-only nudges and inbox search through the email door; no send authority.",
+        "write_scope": "none"
+      },
+      "derived": {
+        "a2a_scope": null,
+        "door": "email",
+        "door_required_scope": "cap.email.inbox.view",
+        "hub_doors": [
+          "email"
+        ],
+        "one_tool_names": [
+          "ask_email_agent"
+        ],
+        "pod_dispatchable": true,
+        "registered_specialist": true
+      },
+      "id": "agent_email",
+      "manifest_path": "consent-protocol/hushh_mcp/agents/email/agent.yaml",
+      "parent": "agent_one",
+      "required_scopes": [],
+      "status": "experimental"
+    },
+    {
+      "a2a_surface": false,
+      "declared": {
+        "confirmation_owner": "hub",
+        "executes_in_pod": false,
+        "information_source": "hub",
+        "why": "Registered on the hub with no owner adapter; service_for refuses it in the pod.",
+        "write_scope": "none"
+      },
+      "derived": {
+        "a2a_scope": null,
+        "door": null,
+        "door_required_scope": null,
+        "hub_doors": [],
+        "one_tool_names": [],
+        "pod_dispatchable": false,
+        "registered_specialist": false
+      },
+      "id": "agent_financial_guard",
+      "manifest_path": "consent-protocol/hushh_mcp/agents/financial_guard/agent.yaml",
+      "parent": "agent_one",
+      "required_scopes": [
+        "attr.financial.*"
+      ],
+      "status": "experimental"
+    },
+    {
+      "a2a_surface": false,
+      "declared": {
+        "confirmation_owner": "hub",
+        "executes_in_pod": false,
+        "information_source": "hub",
+        "why": "Connected-account OAuth tokens live on the hub; the pod holds no credential.",
+        "write_scope": "none"
+      },
+      "derived": {
+        "a2a_scope": null,
+        "door": null,
+        "door_required_scope": null,
+        "hub_doors": [],
+        "one_tool_names": [],
+        "pod_dispatchable": false,
+        "registered_specialist": false
+      },
+      "id": "agent_gmail",
+      "manifest_path": "consent-protocol/hushh_mcp/agents/gmail/agent.yaml",
+      "parent": "agent_one",
+      "required_scopes": [],
+      "status": "active"
+    },
+    {
+      "a2a_surface": false,
+      "declared": {
+        "confirmation_owner": "hub",
+        "executes_in_pod": false,
+        "information_source": "hub",
+        "why": "Financial analysis needs the consented projection service; hub only today.",
+        "write_scope": "none"
+      },
+      "derived": {
+        "a2a_scope": "agent.kai.analyze",
+        "door": null,
+        "door_required_scope": null,
+        "hub_doors": [],
+        "one_tool_names": [
+          "finance"
+        ],
+        "pod_dispatchable": false,
+        "registered_specialist": false
+      },
+      "id": "agent_kai",
+      "manifest_path": "consent-protocol/hushh_mcp/agents/kai/agent.yaml",
+      "parent": "agent_one",
+      "required_scopes": [
+        "agent.kai.analyze"
+      ],
+      "status": "experimental"
+    },
+    {
+      "a2a_surface": false,
+      "declared": {
+        "confirmation_owner": "hub",
+        "executes_in_pod": false,
+        "information_source": "hub",
+        "why": "Identity verification writes vault records through the hub; not in the pod.",
+        "write_scope": "none"
+      },
+      "derived": {
+        "a2a_scope": "agent.kyc.process",
+        "door": null,
+        "door_required_scope": null,
+        "hub_doors": [],
+        "one_tool_names": [],
+        "pod_dispatchable": false,
+        "registered_specialist": false
+      },
+      "id": "agent_kyc",
+      "manifest_path": "consent-protocol/hushh_mcp/agents/kyc/agent.yaml",
+      "parent": "agent_one",
+      "required_scopes": [
+        "agent.kyc.process"
+      ],
+      "status": "active"
+    },
+    {
+      "a2a_surface": false,
+      "declared": {
+        "confirmation_owner": "owner_browser",
+        "executes_in_pod": true,
+        "information_source": "hub_door",
+        "why": "The shared LocationChatService runs in the pod with pod ports; sharing state is read through the location door, and a public link is only proposed for the browser's owner-confirmation card.",
+        "write_scope": "proposal_only"
+      },
+      "derived": {
+        "a2a_scope": null,
+        "door": "location",
+        "door_required_scope": "cap.location.live.view",
+        "hub_doors": [
+          "location"
+        ],
+        "one_tool_names": [
+          "ask_location_agent"
+        ],
+        "pod_dispatchable": true,
+        "registered_specialist": true
+      },
+      "id": "agent_location",
+      "manifest_path": "consent-protocol/hushh_mcp/agents/location/agent.yaml",
+      "parent": "agent_one",
+      "required_scopes": [
+        "cap.location.live.share",
+        "cap.location.live.refer_request",
+        "cap.location.live.view"
+      ],
+      "status": "experimental"
+    },
+    {
+      "a2a_surface": false,
+      "declared": {
+        "confirmation_owner": "hub",
+        "executes_in_pod": false,
+        "information_source": "hub",
+        "why": "PKM structuring sub-chain; hub-only and browser-gated today.",
+        "write_scope": "none"
+      },
+      "derived": {
+        "a2a_scope": null,
+        "door": null,
+        "door_required_scope": null,
+        "hub_doors": [],
+        "one_tool_names": [],
+        "pod_dispatchable": false,
+        "registered_specialist": false
+      },
+      "id": "agent_memory_intent",
+      "manifest_path": "consent-protocol/hushh_mcp/agents/memory_intent/agent.yaml",
+      "parent": "agent_one",
+      "required_scopes": [],
+      "status": "experimental"
+    },
+    {
+      "a2a_surface": false,
+      "declared": {
+        "confirmation_owner": "hub",
+        "executes_in_pod": false,
+        "information_source": "hub",
+        "why": "PKM structuring sub-chain; hub-only and browser-gated today.",
+        "write_scope": "none"
+      },
+      "derived": {
+        "a2a_scope": null,
+        "door": null,
+        "door_required_scope": null,
+        "hub_doors": [],
+        "one_tool_names": [],
+        "pod_dispatchable": false,
+        "registered_specialist": false
+      },
+      "id": "agent_memory_merge",
+      "manifest_path": "consent-protocol/hushh_mcp/agents/memory_merge/agent.yaml",
+      "parent": "agent_one",
+      "required_scopes": [],
+      "status": "experimental"
+    },
+    {
+      "a2a_surface": false,
+      "declared": {
+        "confirmation_owner": "hub",
+        "executes_in_pod": false,
+        "information_source": "hub",
+        "why": "PKM structuring sub-chain; hub-only and browser-gated today.",
+        "write_scope": "none"
+      },
+      "derived": {
+        "a2a_scope": null,
+        "door": null,
+        "door_required_scope": null,
+        "hub_doors": [],
+        "one_tool_names": [],
+        "pod_dispatchable": false,
+        "registered_specialist": false
+      },
+      "id": "agent_memory_segmentation",
+      "manifest_path": "consent-protocol/hushh_mcp/agents/memory_segmentation/agent.yaml",
+      "parent": "agent_one",
+      "required_scopes": [],
+      "status": "experimental"
+    },
+    {
+      "a2a_surface": false,
+      "declared": {
+        "confirmation_owner": "none",
+        "executes_in_pod": true,
+        "information_source": "hub_door",
+        "why": "Consent Center pages are read through the nav door; no mutation in the pod.",
+        "write_scope": "none"
+      },
+      "derived": {
+        "a2a_scope": "agent.nav.review",
+        "door": null,
+        "door_required_scope": null,
+        "hub_doors": [
+          "nav"
+        ],
+        "one_tool_names": [
+          "ask_consent_agent"
+        ],
+        "pod_dispatchable": true,
+        "registered_specialist": true
+      },
+      "id": "agent_nav",
+      "manifest_path": "consent-protocol/hushh_mcp/agents/nav/agent.yaml",
+      "parent": "agent_one",
+      "required_scopes": [
+        "agent.nav.review"
+      ],
+      "status": "experimental"
+    },
+    {
+      "a2a_surface": false,
+      "declared": {
+        "confirmation_owner": "hub",
+        "executes_in_pod": false,
+        "information_source": "hub",
+        "why": "First-run guidance runs on the hub before a pod exists.",
+        "write_scope": "none"
+      },
+      "derived": {
+        "a2a_scope": null,
+        "door": null,
+        "door_required_scope": null,
+        "hub_doors": [],
+        "one_tool_names": [],
+        "pod_dispatchable": false,
+        "registered_specialist": false
+      },
+      "id": "agent_onboarding",
+      "manifest_path": "consent-protocol/hushh_mcp/agents/onboarding/agent.yaml",
+      "parent": "agent_one",
+      "required_scopes": [],
+      "status": "active"
+    },
+    {
+      "a2a_surface": true,
+      "declared": {
+        "confirmation_owner": "owner_browser",
+        "executes_in_pod": true,
+        "information_source": "pkm_projection",
+        "why": "The routing head runs in the pod turn route, grounded on the couriered PKM projection or the pod replica; it proposes directives the hub relay re-validates before any card renders.",
+        "write_scope": "proposal_only"
+      },
+      "derived": {
+        "a2a_scope": "cap.one.invoke",
+        "door": null,
+        "door_required_scope": null,
+        "hub_doors": [],
+        "one_tool_names": [],
+        "pod_dispatchable": false,
+        "registered_specialist": false
+      },
+      "id": "agent_one",
+      "manifest_path": "consent-protocol/hushh_mcp/agents/one/agent.yaml",
+      "parent": null,
+      "required_scopes": [
+        "cap.one.invoke"
+      ],
+      "status": "active"
+    },
+    {
+      "a2a_surface": false,
+      "declared": {
+        "confirmation_owner": "none",
+        "executes_in_pod": true,
+        "information_source": "hub_door",
+        "why": "Publication metadata and earnings are read through the marketplace door; the PKM replica has no production feed yet, so no owner-local read exists.",
+        "write_scope": "none"
+      },
+      "derived": {
+        "a2a_scope": "cap.pkm.marketplace.view",
+        "door": null,
+        "door_required_scope": null,
+        "hub_doors": [
+          "marketplace"
+        ],
+        "one_tool_names": [],
+        "pod_dispatchable": true,
+        "registered_specialist": true
+      },
+      "id": "agent_personal_information",
+      "manifest_path": "consent-protocol/hushh_mcp/agents/personal_information/agent.yaml",
+      "parent": "agent_one",
+      "required_scopes": [
+        "cap.pkm.marketplace.view",
+        "cap.pkm.marketplace.manage"
+      ],
+      "status": "experimental"
+    },
+    {
+      "a2a_surface": false,
+      "declared": {
+        "confirmation_owner": "hub",
+        "executes_in_pod": false,
+        "information_source": "hub",
+        "why": "PKM structuring sub-chain; hub-only and browser-gated today.",
+        "write_scope": "none"
+      },
+      "derived": {
+        "a2a_scope": null,
+        "door": null,
+        "door_required_scope": null,
+        "hub_doors": [],
+        "one_tool_names": [],
+        "pod_dispatchable": false,
+        "registered_specialist": false
+      },
+      "id": "agent_pkm_structure",
+      "manifest_path": "consent-protocol/hushh_mcp/agents/pkm_structure/agent.yaml",
+      "parent": "agent_one",
+      "required_scopes": [],
+      "status": "experimental"
+    },
+    {
+      "a2a_surface": false,
+      "declared": {
+        "confirmation_owner": "hub",
+        "executes_in_pod": false,
+        "information_source": "hub",
+        "why": "Portfolio import writes holdings through the hub; not in the pod.",
+        "write_scope": "none"
+      },
+      "derived": {
+        "a2a_scope": null,
+        "door": null,
+        "door_required_scope": null,
+        "hub_doors": [],
+        "one_tool_names": [],
+        "pod_dispatchable": false,
+        "registered_specialist": false
+      },
+      "id": "agent_portfolio_import",
+      "manifest_path": "consent-protocol/hushh_mcp/agents/portfolio_import/agent.yaml",
+      "parent": "agent_one",
+      "required_scopes": [
+        "portfolio.import",
+        "attr.financial.*"
+      ],
+      "status": "experimental"
+    },
+    {
+      "a2a_surface": false,
+      "declared": {
+        "confirmation_owner": "hub",
+        "executes_in_pod": false,
+        "information_source": "hub",
+        "why": "PKM structuring sub-chain; hub-only and browser-gated today.",
+        "write_scope": "none"
+      },
+      "derived": {
+        "a2a_scope": null,
+        "door": null,
+        "door_required_scope": null,
+        "hub_doors": [],
+        "one_tool_names": [],
+        "pod_dispatchable": false,
+        "registered_specialist": false
+      },
+      "id": "agent_summary_reducer",
+      "manifest_path": "consent-protocol/hushh_mcp/agents/summary_reducer/agent.yaml",
+      "parent": "agent_one",
+      "required_scopes": [],
+      "status": "experimental"
+    },
+    {
+      "a2a_surface": false,
+      "declared": {
+        "confirmation_owner": "hub",
+        "executes_in_pod": false,
+        "information_source": "hub",
+        "why": "Wallet vault records and reveals are hub-confirmed actions; not in the pod.",
+        "write_scope": "none"
+      },
+      "derived": {
+        "a2a_scope": null,
+        "door": null,
+        "door_required_scope": null,
+        "hub_doors": [],
+        "one_tool_names": [],
+        "pod_dispatchable": false,
+        "registered_specialist": false
+      },
+      "id": "agent_wallet",
+      "manifest_path": "consent-protocol/hushh_mcp/agents/wallet/agent.yaml",
+      "parent": "agent_one",
+      "required_scopes": [
+        "agent.wallet.manage"
+      ],
+      "status": "experimental"
+    }
+  ],
+  "disagreements": [],
+  "fleet": {
+    "door_agents": {
+      "calendar": "agent_calendar",
+      "email": "agent_email",
+      "location": "agent_location",
+      "marketplace": "agent_personal_information",
+      "nav": "agent_nav"
+    },
+    "door_required_scopes": {
+      "calendar": "cap.calendar.events.view",
+      "email": "cap.email.inbox.view",
+      "location": "cap.location.live.view",
+      "marketplace": "cap.pkm.marketplace.view",
+      "nav": "agent.nav.review"
+    },
+    "pod_data_door_names": [
+      "invoke",
+      "marketplace",
+      "nav",
+      "location",
+      "email",
+      "calendar"
+    ],
+    "pod_dispatchable": [
+      "agent_connected_systems",
+      "agent_email",
+      "agent_location",
+      "agent_nav",
+      "agent_personal_information"
+    ],
+    "pod_ports": {
+      "PodConsentCenterReadPort": {
+        "doors": [
+          "nav"
+        ],
+        "reads_hub": true
+      },
+      "PodEmailReadPort": {
+        "doors": [
+          "email"
+        ],
+        "reads_hub": true
+      },
+      "PodLocationReadPort": {
+        "doors": [
+          "location"
+        ],
+        "reads_hub": true
+      },
+      "PodMarketplaceReadPort": {
+        "doors": [
+          "marketplace"
+        ],
+        "reads_hub": true
+      }
+    },
+    "registered_specialists": [
+      "agent_connected_systems",
+      "agent_connections",
+      "agent_email",
+      "agent_location",
+      "agent_nav",
+      "agent_personal_information"
+    ],
+    "specialist_doors": {
+      "agent_calendar": "calendar",
+      "agent_email": "email",
+      "agent_location": "location"
+    }
+  },
+  "live_evidence": null,
+  "schema_version": "1.0.0",
+  "source": {
+    "declaration_table": "consent-protocol/hushh_mcp/services/pod_specialist_runtime.py::POD_SPECIALIST_EXECUTION",
+    "derived_from": [
+      "consent-protocol/api/routes/one/pod_relay.py",
+      "consent-protocol/api/routes/one/pod_specialist.py",
+      "consent-protocol/hushh_mcp/adk_bridge/__init__.py",
+      "consent-protocol/hushh_mcp/adk_bridge/delegation.py",
+      "consent-protocol/hushh_mcp/one_adk/pod_data_door_specialist.py",
+      "consent-protocol/hushh_mcp/one_adk/text_runtime.py",
+      "consent-protocol/hushh_mcp/services/pod_specialist_runtime.py"
+    ],
+    "manifests": "consent-protocol/hushh_mcp/agents/*/agent.yaml"
+  },
+  "vocabulary": {
+    "confirmation_owner": [
+      "owner_browser",
+      "owner",
+      "none",
+      "hub"
+    ],
+    "information_source": [
+      "pkm_projection",
+      "hub_door",
+      "none",
+      "hub"
+    ],
+    "write_scope": [
+      "none",
+      "proposal_only",
+      "confirmed_action"
+    ]
+  }
+}

@@ -73,16 +73,28 @@ Every founder-facing PDF or print-style artifact must pass these checks before i
 7. Current-state, future-state, and partner-confirmation-needed claims are visually distinguishable in the rendered PDF, not only in source prose.
 8. Shareable artifacts contain no machine-local links such as `/Users/...`, `file://`, or local checkout paths.
 
-## Hussh Wiki Palette
+## Palette — the single source, never a local copy
 
-When the artifact is intended to align with the private Hussh wiki visual language, use this restrained palette unless the user gives a newer canonical source:
+Color, accent, and ground come from ONE place: `hushh-webapp/app/globals.css`, resolved
+through the canonical formatter (`hushh-webapp/lib/morphy-ux/pdf-document-formatter.mjs`,
+driven by `scripts/reports/export-markdown-pdf.mjs`) for PDFs, and reproduced from the same
+token values for a bespoke HTML artifact. Do not hardcode a parallel palette here; a frozen
+hex list drifts from the source the moment `globals.css` changes, and that is exactly the
+defect this section used to be.
 
-1. `#6B1F2C` oxblood for primary accents, trust boundaries, and high-signal callouts.
-2. `#1A1A1A` ink for body text and major headings.
-3. `#FAFAF5` paper for page background and figure canvas.
-4. `#E5E1D8` rule for borders and table lines.
-5. `#5C5650` secondary for captions, support copy, and muted labels.
-6. `#788C5D` sage for current-state, product lanes, and positive allowed-flow markers.
-7. `#D4A847` gold for partial, transition, or roadmap-progress lanes.
+- **Default accent is iOS Blue**: `--app-accent` / `--app-accent-deep` `#007aff` (deep is
+  the same blue, used for text), `--app-accent-bright` `#4a9eff`, `--app-accent-surface`
+  `#e6f0ff`, `--app-accent-border` `rgba(0,122,255,0.32)`; hero gradient
+  `#0a2f5e → #007aff → #4a9eff`.
+- **Molten Gold is a VARIANT** (`html[data-accent="gold"]`), not the default: `#d4a574`,
+  deep `#b8894d` (light) / `#e6b366` (dark); hero `#6d431a → #b8894d → #eccb7f` (light),
+  `#8a5a24 → #d4a574 → #fff8ea` (dark). Use it only when the user asks for the gold variant.
+- **Foundation grounds**, both themes: light — ink `#1d1d1f`, off `#f5f5f7`, surface
+  `#ffffff`, hairline `#e5e5ea`; dark — ink `#f5f5f7`, off `#0a0a0c`, surface `#15151c`,
+  hairline `#2a2a36`.
+- **Semantic colours are accent-invariant** (never repainted with the accent): success
+  `#34c759`, warning `#ff9500`, danger `#ff3b30`, indigo `#5856d6`.
 
-Do not make the artifact a dark brochure. Keep the palette paper-like, with color used for boundary meaning and navigation rather than decoration.
+There is no oxblood/sage/parchment palette. Colour marks boundary and meaning, never
+decoration. For anything beyond a paper report — a founder-facing web artifact — follow
+`world-class-artifact-standard.md`.

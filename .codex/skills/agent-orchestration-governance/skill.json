@@ -5,7 +5,7 @@
   "primary_scope": "agent-orchestration-governance-intake",
   "description": "Use when changing repo-scoped Codex custom agents, subagent concurrency or depth, delegation policy, or handoff verification rules in hushh-research.",
   "owned_paths": [
-    ".codex/agents",
+    "agents",
     ".claude/agents",
     ".codex/config.toml",
     ".codex/skills/agent-orchestration-governance",

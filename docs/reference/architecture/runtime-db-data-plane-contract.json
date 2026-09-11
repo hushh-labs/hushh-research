@@ -151,17 +151,15 @@
       "data_class": "workflow_state",
       "lifecycle_status": "parked_flag_off_with_live_environment_drift",
       "exact_tables": [
-        "personal_agent_registry",
         "byoc_setup_jobs",
-        "pod_lifecycle_events",
-        "personal_agent_deletion_tombstones"
+        "pod_lifecycle_events"
       ],
       "primary_access_path": "Feature-flagged personal-agent reservation, BYOC setup, provider provisioning, lifecycle replay, and the parked provider-deprovision intent design",
-      "retention_policy": "Registry and current setup rows exist only while the account exists. Lifecycle events have a 30-day operational TTL and account deletion removes them immediately only when the registry proves status=unprovisioned with no external coordinates, BYOC job, or pending deprovision intent. A lifecycle row without its registry cannot establish that absence and therefore fails closed. The parked personal_agent_deletion_tombstones design has no in-repo consumer, so an existing intent remains a no-ship operational state rather than evidence that provider cleanup will happen.",
+      "retention_policy": "Retain current setup rows while they may own provider work. Lifecycle events use the existing 30-day operational TTL. Registry and deletion-intent retention is owned by the personal_agent_registry family. Orphaned lifecycle state cannot prove resource absence. Dev-only migration928 retains authorization intents and verified bootstrap grant acknowledgements in the existing setup row across retries and attachment; unresolved entries cannot be discarded or rolled back.",
       "deletion_behavior": "AccountService locks all present personal-agent rows and directly deletes only demonstrably unprovisioned state with no provider coordinates. Any BYOC job, orphaned lifecycle row, non-unprovisioned status, external coordinate, or existing personal_agent_deletion_tombstone returns ACCOUNT_DELETION_EXTERNAL_RESOURCES_REQUIRE_DEPROVISIONING and rolls back the entire account-deletion transaction. Account deletion cannot report success until an owned provider deprovisioner exists and the external or billable resource is independently proven absent.",
-      "trust_boundary": "OAuth tokens remain request-memory-only. Account deletion neither copies arbitrary backend_metadata nor discards provider coordinates that may be required for teardown; those rows stay intact behind the fail-closed response until an approved deprovision path exists.",
+      "trust_boundary": "OAuth tokens remain request-memory-only. Account deletion neither copies arbitrary backend_metadata nor discards provider coordinates that may be required for teardown; those rows stay intact behind the fail-closed response until an approved deprovision path exists. Authorization receipts contain exact owner/job/project, bootstrap account identity, grantee and bounded policy etags, never OAuth tokens. Public setup status does not expose the internal authorization_attempts column. Late acknowledgements remain bound to their original admitted intent; historical project dependencies participate in grant-release fencing.",
       "plaintext_posture": "provider_teardown_metadata_only",
-      "expected_row_growth": "one mutable registry and setup row per opted-in user, bounded 30-day lifecycle events, and parked deprovision intents that must not be activated without an owned consumer and compaction policy"
+      "expected_row_growth": "one current setup row per opted-in owner and bounded lifecycle events; no new per-attempt table"
     },
     {
       "id": "consent_authority_audit",
@@ -418,10 +416,10 @@
         "kai_receipt_memory_artifacts"
       ],
       "primary_access_path": "user-consented Gmail receipt sync and receipt-memory preview services",
-      "retention_policy": "Short-lived sync and preview cache; durable memory requires explicit PKM write through consent/vault path.",
-      "deletion_behavior": "Delete on Gmail disconnect/account deletion; compact sync runs and preview artifacts.",
+      "retention_policy": "Terminal sync-run reads expire after 30 days from completed_at, with updated_at as a conservative fallback only for legacy terminal runs without completed_at. Preview reads expire seven days after created_at; cache updates and PKM-persist acknowledgement do not renew that window. Owner-scoped manual reporting and bounded compaction use scripts/ops/gmail_cache_retention.py; no automatic schedule exists. Physical expired rows can remain until an authorized maintenance run. Durable information requires explicit encrypted PKM write through the consent/vault path.",
+      "deletion_behavior": "Required policy: delete provider cache on Gmail disconnect/account deletion. Account cleanup explicitly deletes sync runs and preview artifacts; disconnect currently cancels active runs and clears provider credentials but retains cache rows. Manual compaction deletes only expired terminal sync runs and preview artifacts for one owner, preserving active runs and PKM. Disconnect cleanup and publication fencing remain implementation gaps.",
       "trust_boundary": "Encrypted OAuth tokens, receipt summaries, hashes, and preview artifacts; no raw mailbox memory.",
-      "plaintext_posture": "provider_cache_metadata",
+      "plaintext_posture": "encrypted_oauth_tokens_and_sensitive_derived_receipt_cache",
       "expected_row_growth": "high_provider_sync"
     },
     {
@@ -434,8 +432,8 @@
         "google_email_send_actions"
       ],
       "primary_access_path": "One owner-approved Gmail delivery prepare and final-send services",
-      "retention_policy": "Prepared actions expire after ten minutes and are single-use. Terminal action metadata is retained only for bounded delivery-state reconciliation and compacted by the owner-approved delivery retention process.",
-      "deletion_behavior": "Cascade-delete with the account owner; expired prepared actions are marked expired before reuse and terminal metadata is compacted without retaining email content.",
+      "retention_policy": "Prepared actions expire after ten minutes and are single-use. Required policy: retain terminal action metadata only for bounded delivery-state reconciliation, then compact it. A numeric terminal retention window and executable compaction process are not established by the current report-only registration.",
+      "deletion_behavior": "Cascade-delete with the account owner; expired prepared actions are marked expired before reuse. Terminal metadata compaction without email-content retention remains required policy, not verified current enforcement.",
       "trust_boundary": "Stores only action identifiers, user identifiers, HMACs of normalized envelopes and idempotency keys, recipient counts, lifecycle timestamps, Gmail message/thread identifiers, and safe error codes. It never stores recipient addresses, subject, body, OAuth tokens, vault credentials, PKM values, or One Email KYC mailbox information.",
       "plaintext_posture": "short_lived_hmac_and_delivery_metadata_only",
       "expected_row_growth": "low_per_user_action"
@@ -1065,6 +1063,21 @@
       "expected_row_growth": "medium_append_only"
     },
     {
+      "id": "consent_audit_receipts",
+      "owner": "iam-consent-governance",
+      "data_class": "audit_regulated",
+      "lifecycle_status": "dev_only",
+      "exact_tables": [
+        "consent_audit_receipts"
+      ],
+      "primary_access_path": "tamper-evident hash-chained mirror of the primary consent_audit ledger (NIST 800-53 AU-9/AU-10); written fail-safe behind CONSENT_AUDIT_CHAIN_ENABLED, verified via ConsentAuditChainService.verify_chain",
+      "retention_policy": "Long-retention append-only audit chain; redact payload detail rather than deleting chain rows.",
+      "deletion_behavior": "Account export may include safe receipt metadata; deletion redacts user linkage only if legally required, preserving chain integrity.",
+      "trust_boundary": "Signed, hash-chained consent-event metadata only (hashes, signatures, scope/agent/request labels); never token secrets or PKM values.",
+      "plaintext_posture": "metadata_only",
+      "expected_row_growth": "medium_append_only"
+    },
+    {
       "id": "subscription_fabric_requests",
       "owner": "iam-consent-governance",
       "data_class": "workflow_state",
@@ -1093,6 +1106,67 @@
       "trust_boundary": "Model identifier only, validated against the server-side catalog on write; carries no user information and grants no access.",
       "plaintext_posture": "metadata_only_with_keyed_source_fingerprints",
       "expected_row_growth": "one row per person who chooses a model"
+    },
+    {
+      "id": "personal_agent_registry",
+      "owner": "iam-consent-governance",
+      "data_class": "personal_metadata",
+      "lifecycle_status": "dev_only",
+      "exact_tables": [
+        "personal_agent_registry",
+        "personal_agent_deletion_tombstones"
+      ],
+      "primary_access_path": "Existing owner-scoped private-agent registry, provisioning, key attachment, upgrade and erasure services; dev-only migrations900-917 and PERSONAL_AGENT_ENABLED",
+      "retention_policy": "Retain the registry, operation attempts and resource evidence while provisioning, recovery, upgrade or erasure remains unresolved; elapsed time does not release admission. Completed provision metadata stays with the registry. Retain existing deletion tombstones for identity-generation suppression and unresolved resource recovery; no in-repo consumer establishes their cleanup.",
+      "deletion_behavior": "Account deletion refuses retained registry metadata and external resources. Erasure admission suspends ordinary access and preserves retry authority; it is not successful cleanup. Only the existing transactional absence guard permits empty-state removal. New provisioning attempts cannot remove or overwrite unresolved operation evidence.",
+      "trust_boundary": "Stores opaque owner/HusshID bindings, keyed phone hashes, public keys, provider coordinates and bounded lifecycle evidence. No raw phone, private key, OAuth token or provider payload belongs in registry metadata. Owner locks and exact-attempt publication govern provisioning; PKM and agent memory remain separate authorities.",
+      "plaintext_posture": "metadata_only",
+      "expected_row_growth": "one registry row per owner; bounded nested attempt/evidence objects, plus deliberately retained deletion intents"
+    },
+    {
+      "id": "agent_prompt_registry",
+      "owner": "backend-agents-operons",
+      "data_class": "reference",
+      "lifecycle_status": "dev_only",
+      "exact_tables": [
+        "agent_prompt_versions"
+      ],
+      "primary_access_path": "agent prompt-sync read path (GET /api/one/agent-prompt), flag-off",
+      "retention_policy": "Retain active and superseded system-prompt versions for rollback and audit; no per-user rows.",
+      "deletion_behavior": "No per-user deletion; system-prompt configuration is pruned only by admin policy.",
+      "trust_boundary": "System-prompt configuration and version hashes only; contains no personal data.",
+      "plaintext_posture": "reference_metadata",
+      "expected_row_growth": "low_reference"
+    },
+    {
+      "id": "webauthn_authenticators",
+      "owner": "iam-consent-governance",
+      "data_class": "personal_metadata",
+      "lifecycle_status": "dev_only",
+      "exact_tables": [
+        "webauthn_credentials"
+      ],
+      "primary_access_path": "server-side WebAuthn/FIDO2 registration and authentication ceremony (flag-off, WEBAUTHN_ENABLED; migration parked)",
+      "retention_policy": "Retain a user's registered authenticators while the account exists.",
+      "deletion_behavior": "Hard-delete with account deletion; a user may remove an individual authenticator.",
+      "trust_boundary": "Stores the credential id, COSE public key, and sign count only; a public key is not a secret and no private key material is ever held.",
+      "plaintext_posture": "metadata_and_token_hashes",
+      "expected_row_growth": "low_per_user"
+    },
+    {
+      "id": "webauthn_ceremony_state",
+      "owner": "iam-consent-governance",
+      "data_class": "workflow_state",
+      "lifecycle_status": "dev_only",
+      "exact_tables": [
+        "webauthn_challenges"
+      ],
+      "primary_access_path": "transient WebAuthn challenge issue/consume during a registration or authentication ceremony (flag-off; migration parked)",
+      "retention_policy": "Short-lived security nonces: challenges expire in minutes (5-minute TTL) and are single-use.",
+      "deletion_behavior": "Deleted on consume (before validation, so a challenge can never be replayed) or on expiry; user_id may be null for usernameless auth.",
+      "trust_boundary": "Ephemeral ceremony state (a random challenge, RP id, ceremony kind) only; no personal data or credential material.",
+      "plaintext_posture": "metadata_only",
+      "expected_row_growth": "low_transient_security_nonces"
     },
     {
       "id": "one_agent_message_feedback",

@@ -168,8 +168,8 @@ class EmailChatService:
 
         try:
             reply, errored = await self._run_tool_loop(user_id=user_id, contents=contents)
-        except Exception:
-            logger.exception("Email chat turn failed")
+        except Exception as exc:
+            logger.warning("Email chat turn failed type=%s", type(exc).__name__)
             return await self._finish(turn, _UNAVAILABLE_MESSAGE, user_id, errored=True)
 
         return await self._finish(turn, reply or "Done.", user_id, errored=errored)
@@ -215,7 +215,7 @@ class EmailChatService:
         try:
             result = await tool(**args)
         except Exception as exc:  # noqa: BLE001
-            logger.warning("email_chat.tool_failed name=%s err=%s", name, exc, exc_info=True)
+            logger.warning("email_chat.tool_failed name=%s type=%s", name, type(exc).__name__)
             return {"error": "tool_failed"}
         return _as_response_dict(result)
 

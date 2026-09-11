@@ -1,6 +1,6 @@
 "use client";
 
-import { HermesChatPanel } from "@/components/agent/hermes-chat-panel";
+import { PrivatePuppyInferencePanel } from "@/components/agent/private-puppy-inference-panel";
 import { PuppyMachineSheet } from "@/components/agent/puppy-resource-monitor";
 import { cn } from "@/lib/utils";
 
@@ -31,7 +31,7 @@ export function PuppyOneSurface({ className }: { className?: string }) {
     >
       <PuppyMachineSheet className="shrink-0" />
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-border/60 bg-background">
-        <HermesChatPanel />
+        <PrivatePuppyInferencePanel />
       </div>
     </div>
   );

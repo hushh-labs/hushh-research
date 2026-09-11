@@ -38,8 +38,24 @@ must not recreate shell chrome, safe-area math, an icon well, or a list row.
 
 ## Visual Language
 
-1. One is quiet, direct, and information-first. A screen has one primary
-   heading, one next action, and only supporting copy that changes a decision.
+1. **Restraint is the first law (the Restraint Charter).** One is quiet, direct,
+   and information-first; clutter is a defect, not a matter of taste. Five rules,
+   in precedence order, apply to every screen:
+   1. **One title per screen.** The page header owns the heading. A single card
+      below it must not restate the screen's title or description; a card title
+      exists only to disambiguate *several* cards on one screen.
+   2. **One primary action.** Exactly one control reads as primary; every other
+      action is visibly demoted (secondary, ghost, or a quiet text link). Never
+      two primary buttons, and never the same action rendered as two buttons.
+   3. **Earn every element.** The default is removal. A heading, badge, paragraph,
+      or control that does not change the decision the person is about to make is
+      deleted.
+   4. **Progressive disclosure.** Show only what the next decision needs; defer
+      the rare or advanced path (create-it-yourself commands, delegated grants,
+      advanced options) behind a quiet toggle or a detail surface.
+   5. **No decorative badges.** A badge or pill must encode actionable,
+      decision-relevant state. A badge that restates a button's enabled state or
+      fills quiet space is deleted.
 2. The Foundation `--app-accent-*` family is the only accent authority. Blue is
    the default; Molten Gold is the user-selected variant. Dark surfaces derive
    from `--background` with `color-mix`, never a hard-coded near-black.

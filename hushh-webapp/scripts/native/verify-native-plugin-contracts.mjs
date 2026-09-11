@@ -34,12 +34,13 @@ const iosMicrophoneCapturePath = path.join(
   "ios/App/App/Plugins/OneVoiceMicrophoneCapture.swift",
 );
 
-const webOnlyPlugins = new Set(["HushhDatabase", "HushhAgent"]);
+const webOnlyPlugins = new Set();
 // App Shortcuts are an Apple system surface, not an Android route-parity lane.
 // The TypeScript adapter returns unsupported/no pending invocation elsewhere.
 const iosOnlyPlugins = new Set(["HushhVoiceInvocation"]);
 const ignoredTsMethodsByPlugin = new Map([
   ["Kai", new Set(["addListener"])],
+  ["HushhLocation", new Set(["addListener"])],
   ["HushhVoiceInvocation", new Set(["addListener"])],
 ]);
 

@@ -14,7 +14,7 @@ from typing import Literal
 
 from hushh_mcp.constants import GEMINI_MODEL
 
-ProviderId = Literal["gemini", "anthropic", "openai", "grok"]
+ProviderId = Literal["gemini", "anthropic", "openai", "grok", "puppy"]
 
 _PROVIDER_ALIASES: dict[str, ProviderId] = {
     "gemini": "gemini",
@@ -28,6 +28,10 @@ _PROVIDER_ALIASES: dict[str, ProviderId] = {
     "grok": "grok",
     "xai": "grok",
     "x.ai": "grok",
+    # Puppy is an owner-linked local inference endpoint. It is intentionally
+    # a provider id, not a second agent or routing authority.
+    "puppy": "puppy",
+    "puppy-one": "puppy",
 }
 
 
@@ -126,6 +130,13 @@ _MODELS: tuple[ModelEntry, ...] = (
         aliases=("grok-default", "grok"),
     ),
     ModelEntry(provider="grok", model="grok-4-fast"),
+    ModelEntry(
+        provider="puppy",
+        model="local",
+        supports_streaming=True,
+        supports_function_calling=True,
+        aliases=("puppy-default",),
+    ),
 )
 
 _DEFAULT_MODEL_BY_PROVIDER: dict[ProviderId, ModelEntry] = {}

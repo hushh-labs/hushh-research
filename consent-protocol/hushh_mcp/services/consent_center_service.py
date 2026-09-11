@@ -80,7 +80,8 @@ class ConsentCenterService:
     _PENDING_STATUSES = {"pending", "request_pending", "sent"}
     _ACTIVE_STATUSES = {"active"}
 
-    def __init__(self) -> None:
+    def __init__(self, *, read_only: bool = False) -> None:
+        self._read_only = read_only
         self._consent_db = ConsentDBService()
         self._identity = ActorIdentityService()
         self._ria = RIAIAMService()
@@ -92,7 +93,7 @@ class ConsentCenterService:
                     OneLocationCenterContributor,
                 )
 
-                self._location_center = OneLocationCenterContributor()
+                self._location_center = OneLocationCenterContributor(read_only=read_only)
             except Exception as exc:  # never block the consent surface
                 logger.warning(
                     "consent_center.one_location_contributor_init_failed error=%s",
@@ -370,7 +371,11 @@ class ConsentCenterService:
             if str(entry.get("counterpart_type") or "").strip() in {"investor", "ria", "self"}
             and str(entry.get("counterpart_id") or "").strip()
         ]
-        identities = await self._identity.ensure_many(identity_ids)
+        identities = (
+            await self._identity.get_many(identity_ids)
+            if self._read_only
+            else await self._identity.ensure_many(identity_ids)
+        )
 
         hydrated: list[dict[str, Any]] = []
         for entry in entries:

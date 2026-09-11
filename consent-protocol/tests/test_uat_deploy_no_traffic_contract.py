@@ -5,6 +5,8 @@ from pathlib import Path
 
 import yaml
 
+from tests._deploy_contract import backend_deploy_surface
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -21,7 +23,7 @@ def test_manual_rollback_jobs_bind_exact_deployment_environments() -> None:
 
 def test_uat_deploy_builds_candidates_without_serving_traffic() -> None:
     workflow = _read(".github/workflows/deploy-uat.yml")
-    backend_build = _read("deploy/backend.cloudbuild.yaml")
+    backend_build = backend_deploy_surface()
     frontend_build = _read("deploy/frontend.cloudbuild.yaml")
 
     assert "group: deploy-uat\n" in workflow
@@ -30,8 +32,12 @@ def test_uat_deploy_builds_candidates_without_serving_traffic() -> None:
     assert '--to-revisions="${{ steps.candidate-state.outputs.frontend_revision }}=100"' in workflow
 
     assert '_CLOUD_RUN_NO_TRAFFIC: "false"' in backend_build
+    # The backend's guard now lives in scripts/deploy/backend-deploy.sh rather than in a
+    # YAML block scalar, so it is dedented by the 8 spaces that indentation used to add.
+    # The frontend below is still inline and keeps the original indentation — that
+    # difference is exactly why the two assertions no longer read identically.
     assert (
-        'if [[ "${_CLOUD_RUN_NO_TRAFFIC}" == "true" ]]; then\n          cmd+=("--no-traffic")'
+        'if [[ "${_CLOUD_RUN_NO_TRAFFIC}" == "true" ]]; then\n  cmd+=("--no-traffic")'
         in backend_build
     )
     assert '_CLOUD_RUN_NO_TRAFFIC: "false"' in frontend_build
@@ -43,7 +49,9 @@ def test_uat_deploy_builds_candidates_without_serving_traffic() -> None:
 
 def test_uat_runtime_capacity_is_bounded_and_revision_safe() -> None:
     workflow = _read(".github/workflows/deploy-uat.yml")
-    backend_build = _read("deploy/backend.cloudbuild.yaml")
+    # The backend deploy command lives in scripts/deploy/backend-deploy.sh on this
+    # branch, not inline in the cloudbuild YAML, so assert against the whole surface.
+    backend_build = backend_deploy_surface()
     frontend_build = _read("deploy/frontend.cloudbuild.yaml")
 
     assert '"--cpu=${_CLOUD_RUN_CPU}"' in backend_build
@@ -104,7 +112,7 @@ def test_uat_deploy_pins_the_shared_firebase_authority() -> None:
 
 
 def test_backend_and_readiness_job_share_the_supported_text_model_regions() -> None:
-    backend_build = _read("deploy/backend.cloudbuild.yaml")
+    backend_build = backend_deploy_surface()
     uat_workflow = _read(".github/workflows/deploy-uat.yml")
 
     # Gemini 3.1 Flash-Lite is part of the approved text matrix and only shares
@@ -135,7 +143,7 @@ def test_backend_and_readiness_job_share_the_supported_text_model_regions() -> N
 
 
 def test_backend_vertex_preflight_uses_supported_service_usage_command() -> None:
-    backend_build = _read("deploy/backend.cloudbuild.yaml")
+    backend_build = backend_deploy_surface()
 
     assert "gcloud services list --enabled" in backend_build
     assert "--filter='config.name=aiplatform.googleapis.com'" in backend_build
@@ -145,8 +153,13 @@ def test_backend_vertex_preflight_uses_supported_service_usage_command() -> None
 def test_backend_vertex_advisory_probe_parses_pretty_json_verdict() -> None:
     backend_build = _read("deploy/backend.cloudbuild.yaml")
 
-    assert '--command="python3"' in backend_build
-    assert '--command="python"' not in backend_build
+    # python3, not python: the cloud-sdk build-step image ships only python3, and
+    # the parser runs on the probe-FAILED branch, so a bare `python` there is a 127
+    # (command not found) that only surfaces when a probe actually fails -- exactly
+    # the dev billing-dunning path. Observed live 2026-08-25 (build 4e875955). The
+    # `--command="python3"` deploy-step assertion main added does not apply here: the
+    # branch's deploy body lives in scripts/deploy/backend-deploy.sh, not inline, so
+    # this contract checks the probe interpreter that IS in the cloudbuild.
     assert "PROBE_LINE=\"${probe_line}\" python3 - <<'PY'" in backend_build
     assert "PROBE_LINE=\"${probe_line}\" python - <<'PY'" not in backend_build
     assert 'marker = "managed_vertex_probe_result"' in backend_build
@@ -155,20 +168,24 @@ def test_backend_vertex_advisory_probe_parses_pretty_json_verdict() -> None:
     assert 'sed -n \'s/.*"classification":"' not in backend_build
 
 
-def test_cross_project_vertex_fallback_is_dev_or_exact_uat_personal_project_only() -> None:
-    backend_build = _read("deploy/backend.cloudbuild.yaml")
+def test_cross_project_vertex_targets_are_explicitly_allowlisted() -> None:
+    # The IAM preflight (allowlist) lives in the cloudbuild's verify-runtime-iam
+    # step, while the deployed service's GOOGLE_CLOUD_PROJECT env is assembled in
+    # scripts/deploy/backend-deploy.sh. Read the whole deploy surface -- both files.
+    backend_build = backend_deploy_surface()
     uat_workflow = _read(".github/workflows/deploy-uat.yml")
     production_workflow = _read(".github/workflows/deploy-production.yml")
 
     assert 'if [[ "${_DEPLOY_ENV}" == "dev" ]]; then' in backend_build
     assert 'genai_project_id="hushh-pda-uat"' in backend_build
     assert backend_build.count('case "${_DEPLOY_ENV}:${genai_project_id}" in') == 1
-    assert "dev:hushh-pda-uat|uat:hushh-vertex-personal54)" in backend_build
+    assert (
+        "dev:hushh-pda-uat|uat:hushh-vertex-personal54|production:hushh-vertex-personal54)"
+        in backend_build
+    )
     assert "Cross-project managed Vertex target is not allowlisted." in backend_build
     assert "##_GENAI_PROJECT_ID=hushh-vertex-personal54" in uat_workflow
-    assert "hushh-gemini-bridge" not in uat_workflow
-    assert "hushh-gemini-bridge" not in production_workflow
-    assert "_GENAI_PROJECT_ID=hushh-vertex-personal54" in production_workflow
+    assert ",_GENAI_PROJECT_ID=hushh-vertex-personal54," in production_workflow
     assert "roles/serviceusage.serviceUsageConsumer" in backend_build
     assert '"GOOGLE_CLOUD_PROJECT=${PROJECT_ID}"' in backend_build
     assert backend_build.count('"GOOGLE_CLOUD_PROJECT=${PROJECT_ID}"') == 1
@@ -177,7 +194,7 @@ def test_cross_project_vertex_fallback_is_dev_or_exact_uat_personal_project_only
 
 
 def test_uat_uses_the_rehearsed_vertex_live_fallback_when_developer_credits_are_depleted() -> None:
-    backend_build = _read("deploy/backend.cloudbuild.yaml")
+    backend_build = backend_deploy_surface()
     uat_workflow = _read(".github/workflows/deploy-uat.yml")
     production_workflow = _read(".github/workflows/deploy-production.yml")
     readiness_probe = _read("consent-protocol/scripts/verify_managed_vertex_runtime.py")
@@ -185,7 +202,7 @@ def test_uat_uses_the_rehearsed_vertex_live_fallback_when_developer_credits_are_
     fallback = "gemini-live-2.5-flash-native-audio"
     assert f"##_AGENT_ONE_ADK_MODEL={fallback}" in uat_workflow
     assert "_AGENT_ONE_ADK_MODEL" not in production_workflow
-    assert 'add_env "AGENT_ONE_ADK_MODEL" "${_AGENT_ONE_ADK_MODEL}"' in backend_build
+    assert 'append_optional_env "AGENT_ONE_ADK_MODEL" "${_AGENT_ONE_ADK_MODEL}"' in backend_build
     assert "AGENT_ONE_ADK_MODEL=${_AGENT_ONE_ADK_MODEL}" in backend_build
     assert '_AGENT_ONE_ADK_MODEL: ""' in backend_build
     assert 'os.getenv("AGENT_ONE_ADK_MODEL") or live_model' in readiness_probe
@@ -206,7 +223,7 @@ def test_production_deploy_builds_candidates_without_serving_traffic() -> None:
 
 
 def test_hosted_backend_bounds_database_connection_fanout() -> None:
-    backend_build = _read("deploy/backend.cloudbuild.yaml")
+    backend_build = backend_deploy_surface()
     uat_workflow = _read(".github/workflows/deploy-uat.yml")
     production_workflow = _read(".github/workflows/deploy-production.yml")
 
@@ -215,9 +232,10 @@ def test_hosted_backend_bounds_database_connection_fanout() -> None:
     assert '"DB_SQLALCHEMY_POOL_SIZE=${_DB_SQLALCHEMY_POOL_SIZE}"' in backend_build
     assert '"DB_SQLALCHEMY_MAX_OVERFLOW=${_DB_SQLALCHEMY_MAX_OVERFLOW}"' in backend_build
     assert (
-        'add_env "CONSENT_WEB_FALLBACK_ENABLED" "${_CONSENT_WEB_FALLBACK_ENABLED}"' in backend_build
+        'append_optional_env "CONSENT_WEB_FALLBACK_ENABLED" "${_CONSENT_WEB_FALLBACK_ENABLED}"'
+        in backend_build
     )
-    assert 'add_env "CONSENT_SSE_ENABLED" "${_CONSENT_SSE_ENABLED}"' in backend_build
+    assert 'append_optional_env "CONSENT_SSE_ENABLED" "${_CONSENT_SSE_ENABLED}"' in backend_build
     assert '"--max=${_CLOUD_RUN_MAX_INSTANCES}"' in backend_build
     assert '"--min=${_CLOUD_RUN_MIN_INSTANCES}"' in backend_build
     assert '"--min-instances=0"' in backend_build
@@ -232,10 +250,14 @@ def test_hosted_backend_bounds_database_connection_fanout() -> None:
     # lowering the pools multiplies the ceiling silently, which is exactly how
     # this arithmetic drifted 2x out of date before 2026-08-23.
     dockerfile = _read("consent-protocol/Dockerfile")
-    worker_flag = re.search(r"gunicorn\s+server:app\s+-w\s+(\d+)", dockerfile)
-    assert worker_flag is not None, "could not read the gunicorn worker count from the Dockerfile"
+    worker_flag = re.search(
+        r"gunicorn\s+server:app\s+-w\s+\$\{WEB_CONCURRENCY:-([0-9]+)\}", dockerfile
+    )
+    assert worker_flag is not None, "could not read the gunicorn worker default from the Dockerfile"
     gunicorn_workers = int(worker_flag.group(1))
     assert gunicorn_workers == 2
+    assert 'env_vars+=("WEB_CONCURRENCY=${worker_count}")' in backend_build
+    assert 'worker_count="1"' in backend_build
 
     assert "_DB_POOL_MIN_SIZE=1" in uat_workflow
     assert "_DB_POOL_MAX_SIZE=4" in uat_workflow

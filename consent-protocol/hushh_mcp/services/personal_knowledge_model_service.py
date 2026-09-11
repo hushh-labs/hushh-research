@@ -44,6 +44,10 @@ from hushh_mcp.services.pkm_mutation_contracts import (
     PkmMutationPlanV2,
     validate_mutation_plan_for_write,
 )
+from hushh_mcp.services.pkm_write_engine import (
+    PkmWriteEngine,
+    resolve_pkm_write_engine,
+)
 
 logger = logging.getLogger(__name__)
 _PKM_MUTATION_COMMIT_NAMESPACE = uuid.uuid5(
@@ -205,11 +209,25 @@ class PersonalKnowledgeModelService:
         with the user's vault key before storage.
     """
 
-    def __init__(self):
+    def __init__(
+        self, write_engine: Optional["PkmWriteEngine"] = None, *, strict_reads: bool = False
+    ):
+        self._strict_reads = strict_reads
         self._db = None
         self._domain_registry = None
         self._scope_generator = None
         self._blob_upsert_rpc_supported: Optional[bool] = None
+        # The write-engine seam (pkm_write_engine.py): WHAT the data plane does,
+        # apart from WHERE it runs. Resolved lazily so environment selection and
+        # the injected fake both work; defaults to the Postgres stored procedures
+        # through this service's own _run_rpc, which is byte-identical behaviour.
+        self._write_engine: Optional["PkmWriteEngine"] = write_engine
+
+    @property
+    def write_engine(self) -> "PkmWriteEngine":
+        if self._write_engine is None:
+            self._write_engine = resolve_pkm_write_engine(self._run_rpc)
+        return self._write_engine
 
     _SUMMARY_BLOCKLIST = {"holdings", "total_value", "vault_key", "password"}
     # Manifest/structure projections are plaintext discovery metadata. Keep
@@ -1773,7 +1791,9 @@ class PersonalKnowledgeModelService:
                 last_upgraded_at=last_upgraded_at,
             )
         except Exception as e:
-            logger.error("pkm.get_index.error: %s", e)
+            logger.error("pkm.get_index.error: %s", type(e).__name__)
+            if self._strict_reads:
+                raise RuntimeError("PKM discovery unavailable") from None
             return None
 
     async def upsert_index_v2(self, index: PersonalKnowledgeModelIndex) -> bool:
@@ -1866,8 +1886,7 @@ class PersonalKnowledgeModelService:
         )
 
         try:
-            await self._run_rpc(
-                "merge_pkm_domain_summary",
+            await self.write_engine.merge_domain_summary(
                 {
                     "p_user_id": user_id,
                     "p_domain": domain,
@@ -2033,12 +2052,9 @@ class PersonalKnowledgeModelService:
             )
             return manifest_row
         except Exception as e:
-            logger.error(
-                "Error getting domain manifest for user=%s domain=%s: %s",
-                user_id,
-                domain,
-                e,
-            )
+            logger.error("pkm.domain_manifest.error: %s", type(e).__name__)
+            if self._strict_reads:
+                raise RuntimeError("PKM manifest unavailable") from None
             return None
 
     async def record_mutation_event(
@@ -2616,8 +2632,7 @@ class PersonalKnowledgeModelService:
                 sort_keys=True,
             ).encode("utf-8")
         ).hexdigest()
-        rpc_result = await self._run_rpc(
-            "commit_pkm_domain_mutation_v4",
+        rpc_result = await self.write_engine.commit_domain_mutation(
             {
                 "p_user_id": user_id,
                 "p_domain": domain,
@@ -3362,7 +3377,9 @@ class PersonalKnowledgeModelService:
                 .order("updated_at", desc=True)
             )
         except Exception as exc:
-            logger.warning("Public-profile projection status lookup failed: %s", exc)
+            logger.warning("Public-profile projection status lookup failed: %s", type(exc).__name__)
+            if self._strict_reads:
+                raise RuntimeError("PKM publication status unavailable") from None
             return []
         return [dict(row) for row in (result.data or []) if isinstance(row, dict)]
 
@@ -4313,8 +4330,7 @@ class PersonalKnowledgeModelService:
                 if str(segment_id or "").strip()
             }
         )
-        rpc_result = await self._run_rpc(
-            "get_pkm_domain_snapshot_v1",
+        rpc_result = await self.write_engine.get_domain_snapshot(
             {
                 "p_user_id": user_id,
                 "p_domain": canonical_domain,
@@ -4488,8 +4504,7 @@ class PersonalKnowledgeModelService:
                 logger.warning("Empty domain requested for delete_domain_data user=%s", user_id)
                 return True
             if expected_data_version is None or mutation_plan is None:
-                rpc_result = await self._run_rpc(
-                    "delete_pkm_domain_v2",
+                rpc_result = await self.write_engine.delete_domain_legacy(
                     {"p_user_id": user_id, "p_domain": domain},
                 )
                 payload = self._unwrap_rpc_payload(rpc_result, "delete_pkm_domain_v2")
@@ -4528,8 +4543,7 @@ class PersonalKnowledgeModelService:
             trigger_paths = sorted(
                 set(manifest.top_level_scope_paths + manifest.externalizable_paths)
             )
-            rpc_result = await self._run_rpc(
-                "delete_pkm_domain_v3",
+            rpc_result = await self.write_engine.delete_domain(
                 {
                     "p_user_id": user_id,
                     "p_domain": domain,

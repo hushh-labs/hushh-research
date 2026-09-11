@@ -68,6 +68,11 @@ const OUTPUT_RESUME_FADE_SECONDS = 0.006;
 const CAPTURE_FRAME_SIZE = 2048;
 const VISITOR_ACTIVITY_LEVEL = 0.08;
 const VISITOR_ACTIVITY_FRAMES = 8;
+// The first cue is idle-only on the relay. A quiet device fan or room tone can
+// otherwise look like speech during that short window and cancel the welcome
+// before the owner has said anything. Once the first model audio arrives,
+// normal sensitivity resumes for natural barge-in behavior.
+const INITIAL_VISITOR_ACTIVITY_LEVEL = 0.14;
 
 export type GeminiLiveVoiceState =
   "idle" | "connecting" | "listening" | "thinking" | "speaking";
@@ -345,6 +350,7 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
   /** Consent token for One's specialist tools; rides only in app_context frames. */
   private consentToken: string | null = null;
   private visitorActivitySent = false;
+  private initialGreetingPending = false;
   /** Real-time pacing guard for outbound audio; see sendRealtimeAudio. */
   private lastRealtimeAudioSentAt = 0;
   /** Frames discarded as backlog. Non-zero means the main thread stalled. */
@@ -614,12 +620,13 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
   }
 
   async start(options?: OneVoiceTransportStartOptions): Promise<void> {
-    if (this.ws) return;
+    if (this.ws || this.closed) return;
     this.captureStartedAt = performance.now();
     this.captureMetricLogged = false;
     this.sessionId = createGeminiLiveSessionId();
     this.sourceSeq = 0;
     this.visitorActivitySent = false;
+    this.initialGreetingPending = true;
     this.lastRealtimeAudioSentAt = 0;
     this.droppedBacklogFrames = 0;
     this.consecutiveSpeechFrames = 0;
@@ -694,8 +701,11 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
     let relayUrl: string;
     try {
       relayUrl =
-        options?.relayUrl || (await ApiService.getOneAdkLiveRelayUrl());
+        options?.relayUrl || (await ApiService.getOneAdkLiveRelayUrl({
+          requireAuthenticated: options?.accessTier === "signed_locked" || options?.accessTier === "signed_unlocked",
+        }));
     } catch (error) {
+      if (this.closed) return;
       this.fail(
         error instanceof Error ? error.message : "Could not start One voice.",
       );
@@ -713,7 +723,7 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
         "NotSupportedError",
       );
     }
-    this.mediaStream = await navigator.mediaDevices.getUserMedia({
+    const mediaStream = await navigator.mediaDevices.getUserMedia({
       audio: {
         channelCount: 1,
         echoCancellation: true,
@@ -721,21 +731,30 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
         autoGainControl: true,
       },
     });
+    // Permission can resolve after stop/account replacement. A late stream
+    // was never owned by stop(), so release it before constructing audio nodes.
+    if (this.closed) {
+      for (const track of mediaStream.getTracks()) track.stop();
+      return;
+    }
+    this.mediaStream = mediaStream;
     const AudioCtx =
       window.AudioContext ||
       (window as unknown as { webkitAudioContext: typeof AudioContext })
         .webkitAudioContext;
-    this.inputContext = new AudioCtx();
+    const inputContext = new AudioCtx();
+    this.inputContext = inputContext;
     // Some browsers create the context in a "suspended" state until a user
     // gesture resumes it; the conversation button click is that gesture.
-    if (this.inputContext.state === "suspended") {
-      await this.inputContext.resume().catch(() => undefined);
+    if (inputContext.state === "suspended") {
+      await inputContext.resume().catch(() => undefined);
     }
+    if (this.closed) return;
 
     // Modern, non-deprecated capture path: an AudioWorklet running off the main
     // thread posts fixed-size mono frames back to us. Falls back gracefully if
     // the worklet module cannot load.
-    await this.inputContext.audioWorklet.addModule(
+    await inputContext.audioWorklet.addModule(
       "/audio/gemini-live-capture.worklet.js",
     );
     if (this.closed) return;
@@ -865,7 +884,10 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
    */
   private sendVisitorActivityStart(level: number, pcm: Uint8Array): boolean {
     if (this.visitorActivitySent) return true;
-    if (level >= VISITOR_ACTIVITY_LEVEL) {
+    const activityLevel = this.initialGreetingPending
+      ? INITIAL_VISITOR_ACTIVITY_LEVEL
+      : VISITOR_ACTIVITY_LEVEL;
+    if (level >= activityLevel) {
       this.consecutiveSpeechFrames += 1;
       const maxFrames = 24;
       if (this.bufferedVisitorSpeechFrames.length >= maxFrames) {
@@ -893,6 +915,10 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
     )
       return false;
     this.visitorActivitySent = true;
+    // This is a real first-turn onset, so the idle greeting is no longer
+    // owed. Return to normal sensitivity for the next utterance even if the
+    // provider ultimately chooses not to emit audio for this turn.
+    this.initialGreetingPending = false;
     this.ws.send(JSON.stringify({ type: "voice_activity_start" }));
     for (const bufferedFrame of this.bufferedVisitorSpeechFrames) {
       this.sendRealtimeAudio(bufferedFrame, false);
@@ -1239,6 +1265,7 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
       outputTranscription?.text ?? outputTranscription?.transcript,
     );
     if (outputText) {
+      this.initialGreetingPending = false;
       this.handlers.onEvent?.({
         type: "assistant_text",
         provider: this.provider,
@@ -1319,6 +1346,7 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
         inlineData?.data &&
         (inlineData.mimeType ?? "").startsWith("audio/")
       ) {
+        this.initialGreetingPending = false;
         if (!this.suppressModelAudio) {
           this.enqueueAudio(bytesFromBase64(inlineData.data));
         }

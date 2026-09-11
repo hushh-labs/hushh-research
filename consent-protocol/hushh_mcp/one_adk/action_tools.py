@@ -4217,7 +4217,7 @@ async def report_no_app_action(reason: str, spoken_reply: str) -> dict[str, Any]
     """
     clean_reason = str(reason or "").strip()[:120] or "no_matching_action"
     clean_reply = str(spoken_reply or "").strip()[:600]
-    logger.info("one_adk_action_decision status=no_app_action reason=%s", clean_reason)
+    logger.info("one_adk_action_decision status=no_app_action")
     return {
         "status": "no_app_action",
         "reason": clean_reason,

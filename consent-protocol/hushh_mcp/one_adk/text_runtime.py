@@ -18,7 +18,7 @@ import time
 import uuid
 from collections.abc import AsyncGenerator, Sequence
 from dataclasses import dataclass
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from google.adk.agents.run_config import RunConfig, StreamingMode
 from google.adk.events import Event
@@ -31,6 +31,10 @@ from hushh_mcp.one_adk.agent_tree import (
     ONE_APP_NAME,
     STATE_CONSENT_TOKEN,
     STATE_CONVERSATION_ID,
+    STATE_DATA_DOOR_GRANTS,
+    STATE_GROUNDING_REASON,
+    STATE_MEMORY_AVAILABLE,
+    STATE_MEMORY_DIGEST,
     STATE_PKM_CONTEXT,
     STATE_SCREEN,
     STATE_TIMEZONE,
@@ -47,12 +51,31 @@ from hushh_mcp.runtime_providers import (
 from hushh_mcp.runtime_providers.vertex_failover import is_retryable_vertex_error
 from hushh_mcp.services.action_gateway import get_action_gateway_action
 
+if TYPE_CHECKING:
+    # A TYPE ONLY. Importing `memory_review` at module scope would pull
+    # `pod_memory_service` into this module's import, which
+    # `_resolve_pod_memory_service` deliberately keeps behind a guarded lazy
+    # import so a pod whose memory cannot be resolved still answers.
+    from hushh_mcp.one_adk.memory_review import MemoryReviewPolicy
+
 logger = logging.getLogger(__name__)
 
-OneTextEventKind = Literal["token", "thought", "source", "directive", "boundary"]
+OneTextEventKind = Literal[
+    "token", "thought", "source", "directive", "specialist", "boundary", "memory"
+]
 _FIRST_EVENT_TIMEOUT_SECONDS = 20.0
 _BETWEEN_EVENT_TIMEOUT_SECONDS = 30.0
 _TOTAL_TURN_TIMEOUT_SECONDS = 90.0
+# The Puppy budgets, one rung of the timeout ladder (innermost first, each outer
+# bound above the inner one plus a margin): Hermes local model 110 s per request,
+# the pod broker 120 s per request, a specialist model call 60 s, then these three,
+# then the pod route at 155 s, the hub proxy at 160 s. A local model's cold first
+# token measured 32.9 s and a specialist call may take its full 60 s between two
+# events One sees, so the between-event budget is the one that had to grow.
+# Gemini keeps 20 / 30 / 90 untouched; `tests/test_timeout_ladder.py` pins the order.
+_PUPPY_FIRST_EVENT_TIMEOUT_SECONDS = 70.0
+_PUPPY_BETWEEN_EVENT_TIMEOUT_SECONDS = 70.0
+_PUPPY_TOTAL_TURN_TIMEOUT_SECONDS = 150.0
 
 
 @dataclass(frozen=True)
@@ -72,22 +95,75 @@ class OneTextSource:
 
 
 @dataclass(frozen=True)
+class OneTextSpecialistOutcome:
+    """WHICH specialist ran, and WHAT it decided. A source says "consulted"; this
+    says "and here is what came back", which is the difference between knowing a
+    door was knocked on and knowing whether it opened.
+
+    It exists because the parity ruler could not see specialists at all. The hub
+    emits a ``specialist_status`` SSE frame and the oracle reads it; the pod
+    returned nothing of the kind, so ``observe_pod`` saw an empty specialist
+    tuple on every real turn and no live run could ever certify a re-homing --
+    the measurement was structurally incapable of registering the thing it was
+    built to measure.
+
+    Shape, never content: an agent id and a state word. No text, no arguments,
+    no payload.
+
+    The dependency fields say what the specialist leaned on: ``execution`` is
+    where it ran (``pod``, ``hub_door`` for a rendered door read, empty when the
+    payload predates the trace), ``information_source`` names where its facts came
+    from (``none``, ``hub_door``, ``unavailable``, ``unsupported``), ``hub_reads``
+    counts hub information reads, and ``reason`` names the refusal or gap. These
+    are what let a turn say "the Location tool could not reach the hub" while
+    owner-local chat continues, instead of a bare ``ok`` that hides the read.
+    """
+
+    agent_id: str
+    status: str
+    execution: str = ""
+    information_source: str = ""
+    hub_reads: int = 0
+    reason: str = ""
+
+
+@dataclass(frozen=True)
 class OneTextStreamEvent:
     kind: OneTextEventKind
     text: str = ""
     directive: OneTextDirective | None = None
     source: OneTextSource | None = None
+    specialist: OneTextSpecialistOutcome | None = None
+    # The model the provider said produced this token, when it said. Empty means
+    # unreported; the pod turn route turns that into ``modelReported: false``.
+    model_version: str = ""
+    # ONE report per turn, emitted after the memory commit: observed `load_memory`
+    # recalls ({queryChars, hits, backend}), the catch-up review (counts), how many
+    # records the turn wrote, and the provider outcome vocabulary. Shape only.
+    memory: dict[str, Any] | None = None
 
 
 class OneTextEmptyResponseError(RuntimeError):
     """Raised when the model turn produces neither user-visible text nor a directive."""
 
 
-async def _bounded_adk_events(source: Any) -> AsyncGenerator[Any, None]:
+async def _bounded_adk_events(
+    source: Any,
+    *,
+    first_event_timeout: float | None = None,
+    between_event_timeout: float | None = None,
+    total_timeout: float | None = None,
+) -> AsyncGenerator[Any, None]:
     """Bound ADK startup, idle gaps, and total turn time without changing events."""
+    if first_event_timeout is None:
+        first_event_timeout = _FIRST_EVENT_TIMEOUT_SECONDS
+    if between_event_timeout is None:
+        between_event_timeout = _BETWEEN_EVENT_TIMEOUT_SECONDS
+    if total_timeout is None:
+        total_timeout = _TOTAL_TURN_TIMEOUT_SECONDS
     iterator = source.__aiter__()
     loop = asyncio.get_running_loop()
-    deadline = loop.time() + _TOTAL_TURN_TIMEOUT_SECONDS
+    deadline = loop.time() + total_timeout
     saw_event = False
     try:
         while True:
@@ -95,7 +171,7 @@ async def _bounded_adk_events(source: Any) -> AsyncGenerator[Any, None]:
             if remaining <= 0:
                 raise asyncio.TimeoutError
             timeout = min(
-                _BETWEEN_EVENT_TIMEOUT_SECONDS if saw_event else _FIRST_EVENT_TIMEOUT_SECONDS,
+                between_event_timeout if saw_event else first_event_timeout,
                 remaining,
             )
             try:
@@ -118,6 +194,8 @@ def _runtime_model(
     runtime_model: str,
     runtime_mode: str,
     runtime_credential: str | None,
+    runtime_provider: str = "gemini",
+    puppy_device_id: str | None = None,
     runtime_credential_transport: Literal["developer_api", "vertex_api_key"] = "developer_api",
     runtime_vertex_project: str | None = None,
     runtime_vertex_location: str | None = None,
@@ -130,6 +208,17 @@ def _runtime_model(
     if not model:
         raise ValueError("One text runtime model is missing")
     credential = str(runtime_credential or "").strip()
+    if runtime_mode == "puppy_relay":
+        if not credential or not str(puppy_device_id or "").strip():
+            raise ValueError("Puppy relay authority is missing")
+        from hushh_mcp.runtime_providers.adk_model import ProviderAdkModel
+
+        return ProviderAdkModel(
+            model=model,
+            provider=runtime_provider,
+            credential=credential,
+            device_id=puppy_device_id,
+        )
     if runtime_mode == "byok" and not credential:
         raise ValueError("One text BYOK credential is missing")
     if runtime_mode == "byok":
@@ -140,6 +229,34 @@ def _runtime_model(
             vertex_project=runtime_vertex_project,
             vertex_location=runtime_vertex_location,
         )
+    if runtime_mode == "user_adc":
+        # The person's OWN Vertex, reached from their OWN pod's service account in
+        # their OWN project. A named third member of this set, never a fallthrough.
+        #
+        # It reaches the same builder as the managed branch on purpose: what differs
+        # is not how the client is built but WHOSE identity ambient ADC resolves to.
+        # Inside a BYOC pod `GOOGLE_CLOUD_PROJECT` is the person's project and the
+        # runtime identity is their pod's service account, so
+        # `ManagedGeminiRuntimeBinding.from_environment()` already resolves to them.
+        # A second builder doing the same work is the drift `factory.py` argues
+        # against.
+        #
+        # The NAME is the point. Reporting `hushh_managed_vertex` in a BYOC pod's log
+        # line would be a false statement about who paid for the turn, and that line
+        # is the evidence the tier is sold on.
+        if credential:
+            raise ValueError("user ADC cannot be constructed from an API key")
+        return build_managed_gemini_adk_model(model, vertex_location=managed_location)
+    if runtime_mode != "hushh_managed_vertex":
+        # Closed set, and closed is the point. hussh's own Vertex identity used to
+        # be the DEFAULT branch: any mode string that was not exactly "byok" landed
+        # here. That is how a vocabulary drift between two files turned into "route
+        # this person's prompts and their grounded holdings through hussh's
+        # identity, billed to hussh" rather than into an error.
+        #
+        # A credential mode nobody recognises must refuse, never fall back to the
+        # most privileged option available.
+        raise ValueError(f"One text runtime mode is not recognised: {runtime_mode!r}")
     if credential:
         # Mirror the existing managed Agent Chat transport: Vertex mode with
         # the platform-managed key, held only by this turn-local model object.
@@ -158,6 +275,10 @@ def _history_content(message: Any) -> genai_types.Content | None:
         role="user" if role == "user" else "model",
         parts=[genai_types.Part.from_text(text=text)],
     )
+
+
+def _event_model_version(event: Any) -> str:
+    return str(getattr(event, "model_version", "") or "").strip()
 
 
 def _event_text(event: Any) -> str:
@@ -234,6 +355,131 @@ def _event_sources(event: Any) -> list[OneTextSource]:
     return sources
 
 
+def _event_specialists(event: Any) -> list[OneTextSpecialistOutcome]:
+    """Read specialist OUTCOMES off the tool responses One received this turn.
+
+    `_specialist_turn` already returns `{"status": ..., "availability": {...}}`
+    from every one of its branches -- ready, refused, blocked, or served through
+    the data door -- so the outcome is present in the event stream and was simply
+    never read. The agent id comes from `availability.specialist_id`, which the
+    availability resolver stamps, and falls back to the tool-name map so a
+    response that predates the availability payload is still observed rather than
+    silently dropped.
+
+    An unmapped tool with a `status` is deliberately NOT reported: app-action
+    tools return statuses too, and counting those as specialists would inflate
+    the ruler's reading, which is a worse failure than under-reporting because it
+    would look like progress.
+    """
+    if str(getattr(event, "author", "") or "") != "one":
+        return []
+    get_responses = getattr(event, "get_function_responses", None)
+    if not callable(get_responses):
+        return []
+    outcomes: list[OneTextSpecialistOutcome] = []
+    for reply in get_responses() or []:
+        response = getattr(reply, "response", None)
+        if not isinstance(response, dict):
+            continue
+        status = str(response.get("status") or "").strip()
+        if not status:
+            continue
+        availability = response.get("availability")
+        agent_id = ""
+        if isinstance(availability, dict):
+            agent_id = str(availability.get("specialist_id") or "").strip()
+        if not agent_id:
+            mapped = _SPECIALIST_TOOL_SOURCES.get(str(getattr(reply, "name", "") or ""))
+            agent_id = mapped[0] if mapped else ""
+        if not agent_id:
+            continue
+        dependency = response.get("dependency")
+        if not isinstance(dependency, dict):
+            dependency = {}
+        hub_reads = dependency.get("hub_reads")
+        outcomes.append(
+            OneTextSpecialistOutcome(
+                agent_id=agent_id,
+                status=status,
+                execution=str(dependency.get("execution") or ""),
+                information_source=str(dependency.get("information_source") or ""),
+                hub_reads=hub_reads if isinstance(hub_reads, int) and hub_reads >= 0 else 0,
+                reason=str(dependency.get("reason") or response.get("reason") or ""),
+            )
+        )
+    return outcomes
+
+
+_LOAD_MEMORY_TOOL = "load_memory"
+
+
+def _event_memory_recalls(event: Any, *, backend: str | None = None) -> list[dict[str, Any]]:
+    """Read observed ``load_memory`` calls and responses off One's events.
+
+    The north star credits recall only as an OBSERVED tool call, so the report
+    is built from the function-call and function-response parts ADK appends,
+    never from the answer text. Two shapes per event, both counted:
+
+    * a call: ``{"queryChars": n, "hits": None, "backend": ...}`` (the query is the
+      person's own words; only its length is kept);
+    * a response: ``{"queryChars": None, "hits": k, "backend": ...}`` where ``k`` is
+      the number of memories returned (ADK wraps a ``LoadMemoryResponse`` as
+      ``{"result": {"memories": [...]}}``; a bare ``{"memories": [...]}`` is read too).
+
+    The caller pairs a response with the call before it. Text never leaves here.
+    """
+    if str(getattr(event, "author", "") or "") != "one":
+        return []
+    out: list[dict[str, Any]] = []
+    get_calls = getattr(event, "get_function_calls", None)
+    for call in (get_calls() if callable(get_calls) else None) or []:
+        if str(getattr(call, "name", "") or "") != _LOAD_MEMORY_TOOL:
+            continue
+        args = getattr(call, "args", None)
+        query = args.get("query") if isinstance(args, dict) else None
+        out.append(
+            {
+                "queryChars": len(str(query)) if isinstance(query, str) else 0,
+                "hits": None,
+                "backend": backend,
+            }
+        )
+    get_responses = getattr(event, "get_function_responses", None)
+    for reply in (get_responses() if callable(get_responses) else None) or []:
+        if str(getattr(reply, "name", "") or "") != _LOAD_MEMORY_TOOL:
+            continue
+        response = getattr(reply, "response", None)
+        memories: Any = None
+        if isinstance(response, dict):
+            memories = response.get("memories")
+            if memories is None and isinstance(response.get("result"), dict):
+                memories = response["result"].get("memories")
+        out.append(
+            {
+                "queryChars": None,
+                "hits": len(memories) if isinstance(memories, list) else 0,
+                "backend": backend,
+            }
+        )
+    return out
+
+
+def _pair_memory_recalls(observed: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Fold call/response halves into one record per recall, in order."""
+    recalls: list[dict[str, Any]] = []
+    pending: list[dict[str, Any]] = []
+    for item in observed:
+        if item.get("hits") is None:
+            pending.append({"queryChars": item.get("queryChars") or 0, "hits": 0, "backend": None})
+            continue
+        target = pending.pop(0) if pending else {"queryChars": 0, "hits": 0, "backend": None}
+        target["hits"] = int(item.get("hits") or 0)
+        target["backend"] = item.get("backend")
+        recalls.append(target)
+    recalls.extend(pending)  # a call with no response yet is still an observed call
+    return recalls
+
+
 def _directive_from_value(value: Any) -> OneTextDirective | None:
     if not isinstance(value, dict):
         return None
@@ -305,6 +551,7 @@ def _directive_fingerprint(directive: OneTextDirective) -> str:
 async def _stream_one_text_turn_once(
     *,
     user_id: str,
+    session_owner_id: str | None = None,
     consent_token: str,
     conversation_id: str,
     message: str,
@@ -312,46 +559,95 @@ async def _stream_one_text_turn_once(
     timezone: str | None,
     screen_context: dict[str, Any] | None,
     pkm_context: str | None,
+    grounding_reason: str | None = None,
     runtime_provider: str,
     runtime_model: str,
     runtime_mode: str,
     runtime_credential: str | None,
+    puppy_device_id: str | None = None,
     runtime_credential_transport: Literal["developer_api", "vertex_api_key"] = "developer_api",
     runtime_vertex_project: str | None = None,
     runtime_vertex_location: str | None = None,
+    data_door_grants: dict[str, str] | None = None,
     managed_location: str | None = None,
+    memory_commit_allowed: Any = None,
+    memory_review_policy: "MemoryReviewPolicy | None" = None,
 ) -> AsyncGenerator[OneTextStreamEvent, None]:
     """Run one typed turn in one endpoint and expose replay boundaries."""
-    if str(runtime_provider or "").strip().lower() != "gemini":
-        raise ValueError("One text ADK currently requires the Gemini provider")
+    if str(runtime_provider or "").strip().lower() not in {"gemini", "puppy"}:
+        raise ValueError("One text ADK provider is unavailable")
 
     clean_user_id = str(user_id or "").strip()
     clean_conversation_id = str(conversation_id or "").strip()
     if not clean_user_id or not clean_conversation_id:
         raise ValueError("One text session identity is missing")
+    # The SESSION key, distinct from the person's uid. A single-owner pod's memory
+    # is owner-scoped to its HusshID, and ADK hands the session's user_id to
+    # `search_memory` -- so a pod session keyed by the person's Firebase uid trips
+    # the memory isolation guard on the first recall (observed live, 2026-08-25:
+    # "pod memory is owner-scoped: this pod serves 'ha1_…', asked for 'NH2O…'").
+    # The pod therefore keys its sessions by the AGENT's identity while
+    # STATE_USER_ID keeps carrying the person's uid to tools. Hub callers pass
+    # nothing and keep the person-keyed session exactly as before.
+    session_key = str(session_owner_id or "").strip() or clean_user_id
 
     session_service = InMemorySessionService()
+    memory_service = _resolve_pod_memory_service()
+    # Built once and shared: the memory review (catch-up below) runs on the SAME
+    # model object as the conversation, never on a credential path of its own.
+    model_object = _runtime_model(
+        runtime_model=runtime_model,
+        runtime_mode=runtime_mode,
+        runtime_credential=runtime_credential,
+        runtime_provider=runtime_provider,
+        puppy_device_id=puppy_device_id,
+        runtime_credential_transport=runtime_credential_transport,
+        runtime_vertex_project=runtime_vertex_project,
+        runtime_vertex_location=runtime_vertex_location,
+        managed_location=managed_location,
+    )
     runner = Runner(
         app_name=ONE_APP_NAME,
-        agent=build_one_text_agent(
-            model=_runtime_model(
-                runtime_model=runtime_model,
-                runtime_mode=runtime_mode,
-                runtime_credential=runtime_credential,
-                runtime_credential_transport=runtime_credential_transport,
-                runtime_vertex_project=runtime_vertex_project,
-                runtime_vertex_location=runtime_vertex_location,
-                managed_location=managed_location,
-            )
-        ),
+        agent=build_one_text_agent(model=model_object),
         session_service=session_service,
+        # The pod's ONLY turn path runs through here, and this argument was absent --
+        # so `resolve_pod_memory_service` had no caller inside a pod at all. Its only
+        # other caller is `get_one_runner`, reached from `adk_live`, which
+        # `pod_server` does not mount. The sealed commit log, the per-owner key, the
+        # hydrate-on-first-use replay were all real and all reachable by nothing: a pod
+        # wrote no memory and recalled none, while every part of the machinery for it
+        # passed its tests.
+        #
+        # Unconditional on purpose. `resolve_pod_memory_service` checks `pod_mode()`
+        # first and returns None in the hub, which is exactly today's hub behaviour --
+        # so this changes the pod and provably nothing else.
+        memory_service=memory_service,
     )
     sanitized_context = dict(screen_context or {})
+    # CATCH-UP REVIEW, before this answer. A conversation that never sent its
+    # close still gets reviewed: bounded by the pod's own configuration record
+    # (budget, record cap), on the same model object, and never able to fail
+    # the turn. Ordinary replies with nothing un-reviewed pay nothing (K14).
+    catch_up_review = await _catch_up_memory_review(
+        memory_service=memory_service,
+        model=model_object,
+        runtime_provider=runtime_provider,
+        runtime_model=runtime_model,
+        session_owner_id=session_key,
+        # The verdict the TURN'S door reached about this caller, carried, never
+        # recomputed here (`pod_turn.run_pod_turn`). Absent means absent: the
+        # review then retires nothing.
+        review_policy=memory_review_policy,
+    )
+    # The always-on curated digest (pod only; empty string and False on the hub).
+    memory_digest = await _memory_digest(memory_service)
     session = await session_service.create_session(
         app_name=ONE_APP_NAME,
-        user_id=clean_user_id,
+        user_id=session_key,
         session_id=f"chat_{uuid.uuid4().hex}",
         state={
+            STATE_MEMORY_AVAILABLE: memory_service is not None,
+            STATE_MEMORY_DIGEST: memory_digest,
             STATE_USER_ID: clean_user_id,
             STATE_CONSENT_TOKEN: str(consent_token or "").strip(),
             STATE_CONVERSATION_ID: clean_conversation_id,
@@ -359,6 +655,14 @@ async def _stream_one_text_turn_once(
             STATE_SCREEN: str(sanitized_context.get("screen") or "").strip()[:64],
             STATE_VOICE_CONTEXT: sanitized_context,
             STATE_PKM_CONTEXT: str(pkm_context or "").strip()[:20000],
+            # Only meaningful when the projection is empty; the instruction reads it
+            # solely on that branch. Carried rather than recomputed because the
+            # grounding service is the only thing that knows WHY.
+            STATE_GROUNDING_REASON: str(grounding_reason or "").strip()[:200],
+            # The couriered per-specialist read scopes, threaded exactly like the
+            # consent token: state-only, so a DB-backed specialist reads through
+            # the hub broker and the model never sees the tokens themselves.
+            STATE_DATA_DOOR_GRANTS: dict(data_door_grants or {}),
         },
     )
 
@@ -380,17 +684,35 @@ async def _stream_one_text_turn_once(
         parts=[genai_types.Part.from_text(text=str(message or "").strip()[:8000])],
     )
     emitted_directives: set[str] = set()
+    observed_recalls: list[dict[str, Any]] = []
     saw_partial_text = False
     emitted_visible_output = False
     started_at = time.perf_counter()
     first_visible_at: float | None = None
     source = runner.run_async(
-        user_id=clean_user_id,
+        user_id=session_key,
         session_id=session.id,
         new_message=new_message,
         run_config=RunConfig(streaming_mode=StreamingMode.SSE),
     )
-    async for event in _bounded_adk_events(source):
+    first_event_timeout = _FIRST_EVENT_TIMEOUT_SECONDS
+    between_event_timeout = _BETWEEN_EVENT_TIMEOUT_SECONDS
+    total_timeout = _TOTAL_TURN_TIMEOUT_SECONDS
+    if str(runtime_provider or "").strip().lower() == "puppy":
+        # A local Puppy model receives One's full instruction and tool schema.
+        # Its measured cold first-token time is longer than the generic cloud
+        # provider budget, and a specialist call in the middle of a turn may take
+        # its full 60 s between two events One sees; all three Puppy budgets sit
+        # inside the pod broker's 120 s request deadline and the route's 155 s.
+        first_event_timeout = _PUPPY_FIRST_EVENT_TIMEOUT_SECONDS
+        between_event_timeout = _PUPPY_BETWEEN_EVENT_TIMEOUT_SECONDS
+        total_timeout = _PUPPY_TOTAL_TURN_TIMEOUT_SECONDS
+    async for event in _bounded_adk_events(
+        source,
+        first_event_timeout=first_event_timeout,
+        between_event_timeout=between_event_timeout,
+        total_timeout=total_timeout,
+    ):
         if _event_crosses_replay_boundary(event):
             yield OneTextStreamEvent(kind="boundary")
         for directive in _event_directives(event):
@@ -410,6 +732,17 @@ async def _stream_one_text_turn_once(
         for text_source in _event_sources(event):
             yield OneTextStreamEvent(kind="source", source=text_source)
 
+        for outcome in _event_specialists(event):
+            yield OneTextStreamEvent(kind="specialist", specialist=outcome)
+
+        # Observed recall, the only credited proof the agent remembered (north
+        # star). Read off the tool call and its response, never off the answer.
+        observed_recalls.extend(
+            _event_memory_recalls(
+                event, backend=getattr(memory_service, "last_recall_backend", None)
+            )
+        )
+
         text = _event_text(event)
         if not text:
             continue
@@ -418,31 +751,195 @@ async def _stream_one_text_turn_once(
             emitted_visible_output = True
             if first_visible_at is None:
                 first_visible_at = time.perf_counter()
-            yield OneTextStreamEvent(kind="token", text=text)
+            yield OneTextStreamEvent(
+                kind="token", text=text, model_version=_event_model_version(event)
+            )
             continue
         is_final_response = getattr(event, "is_final_response", None)
         if not saw_partial_text and callable(is_final_response) and is_final_response():
             emitted_visible_output = True
             if first_visible_at is None:
                 first_visible_at = time.perf_counter()
-            yield OneTextStreamEvent(kind="token", text=text)
+            yield OneTextStreamEvent(
+                kind="token", text=text, model_version=_event_model_version(event)
+            )
 
     if not emitted_visible_output:
         raise OneTextEmptyResponseError(
             "One text runtime completed without visible text or a directive"
         )
+
+    # COMMIT THE TURN TO MEMORY. Without this the whole persistence stack was
+    # reachable by nothing.
+    #
+    # `memory_service` was already resolved and handed to the Runner, and that was
+    # mistaken for working memory -- including by me. ADK does NOT auto-populate a
+    # memory service; something has to write to it. Nothing did. So the sealed commit
+    # log, the per-owner derived key and the hydrate-on-first-use replay were all real,
+    # all tested, and a pod forgot everything anyway.
+    #
+    # Deliberately AFTER the empty-response guard: a turn that produced nothing
+    # visible is not an interaction worth remembering, and writing it would fill an
+    # owner's log with failures that never reached them.
+    #
+    # Failure here degrades to a memoryless turn, never a failed one. The person
+    # already has their answer by this point -- raising now would take a delivered
+    # answer away to report a bookkeeping problem.
+    # A fenced incarnation finishes the answer but publishes nothing: the pod that
+    # replaced it owns the log now. ``memory_commit_allowed`` is the owner pod's
+    # lease check; absent (the hub, tests) means allowed.
+    if memory_service is not None and memory_commit_allowed is not None:
+        allowed = memory_commit_allowed()
+        if asyncio.iscoroutine(allowed):
+            allowed = await allowed
+        if allowed is not True:
+            logger.warning("one_text_turn.memory_commit_skipped reason=fenced_or_uncertain")
+            memory_service = None
+    if memory_service is not None:
+        try:
+            await memory_service.add_session_to_memory(
+                await session_service.get_session(
+                    app_name=ONE_APP_NAME,
+                    user_id=session_key,
+                    session_id=session.id,
+                )
+            )
+        except Exception as error:  # noqa: BLE001 - answer is already delivered
+            logger.warning("one_text_turn.memory_write_failed error=%s", type(error).__name__)
+
+    # THE MEMORY REPORT: one event, after the answer and the commit, so the pod
+    # turn can return `memory: {recalls, review, written, provider}` beside
+    # `specialists`. Only where a memory service exists: the hub's event stream
+    # is unchanged, and a pod whose memory is off reports nothing rather than an
+    # empty shape that could be mistaken for a working join.
+    if memory_service is not None:
+        yield OneTextStreamEvent(
+            kind="memory",
+            memory={
+                "enabled": True,
+                "recalls": _pair_memory_recalls(observed_recalls),
+                "review": catch_up_review.as_dict() if catch_up_review is not None else None,
+                "written": int(getattr(memory_service, "last_written", 0) or 0),
+                "provider": dict(getattr(memory_service, "provider_report", None) or {}),
+            },
+        )
+
     logger.info(
-        "one_text_turn_complete model=%s first_visible_ms=%s elapsed_ms=%s directives=%s",
+        "one_text_turn_complete model=%s first_visible_ms=%s elapsed_ms=%s directives=%s "
+        "catch_up=%s",
         runtime_model,
         (round((first_visible_at - started_at) * 1000) if first_visible_at is not None else None),
         round((time.perf_counter() - started_at) * 1000),
         len(emitted_directives),
+        catch_up_review.outcome if catch_up_review is not None else None,
     )
+
+
+async def _memory_digest(memory_service: Any) -> str:
+    """The curated digest for this turn's instruction, bounded by the pod's record.
+
+    Empty on the hub (no service) and empty on any failure: the digest is an
+    aid, never a dependency, so a store that cannot be read costs the turn its
+    digest and nothing else. Curated facts only; the raw transcript never
+    enters a prompt through this path (``PodMemoryStore.digest``).
+    """
+    if memory_service is None:
+        return ""
+    digest = getattr(memory_service, "digest", None)
+    if not callable(digest):
+        return ""
+    try:
+        from hushh_mcp.services.pod_config import active_pod_config  # noqa: PLC0415
+
+        return str(await digest(active_pod_config().memory_digest_max_chars) or "")
+    except Exception as error:  # noqa: BLE001 - a digest must never cost the answer
+        logger.warning("one_text_turn.memory_digest_failed error=%s", type(error).__name__)
+        return ""
+
+
+async def _catch_up_memory_review(
+    *,
+    memory_service: Any,
+    model: Any,
+    runtime_provider: str,
+    runtime_model: str,
+    session_owner_id: str,
+    review_policy: "MemoryReviewPolicy | None" = None,
+) -> Any:
+    """Review what a closed-without-notice conversation left behind, before answering.
+
+    Runs only when the pod's configuration record says so, only when the memory
+    service holds un-reviewed records, and only inside the record's budget. It
+    returns a ``MemoryReviewResult`` or None, and it can never raise into a turn:
+    a review that fails degrades to an un-reviewed turn, never a failed one.
+
+    THIS IS THE STAND-IN FOR THE CLOSE THE PERSON NEVER SENT, so it has to be able
+    to do what that close would have done -- including retire a fact the person
+    corrected or asked to be forgotten. ``review_policy`` is how: the turn route
+    resolved it from the door that admitted this caller
+    (``api.routes.one.pod_memory.review_policy_for_session``) and it travels here
+    as a finding. Nothing in this module reads a session, a binding or a scope; an
+    authority decision inside the model runtime would be a second reader of the
+    same consent, and the two could disagree. Absent means absent: no policy is no
+    authority, and ``run_memory_review`` is default-deny for exactly that case.
+    """
+    if memory_service is None:
+        return None
+    try:
+        from hushh_mcp.services.pod_config import active_pod_config  # noqa: PLC0415
+
+        config = active_pod_config()
+        if not config.memory_review_catch_up:
+            return None
+        pending = getattr(memory_service, "unreviewed_count", None)
+        if not callable(pending) or pending() <= 0:
+            return None
+        from hushh_mcp.one_adk.memory_review import (  # noqa: PLC0415
+            MemoryReviewPolicy,
+            run_memory_review,
+        )
+
+        return await run_memory_review(
+            memory_service=memory_service,
+            model=model,
+            runtime_provider=runtime_provider,
+            runtime_model=runtime_model,
+            reason="catch_up",
+            budget_seconds=config.memory_review_budget_seconds,
+            max_records=config.memory_review_max_records,
+            session_owner_id=session_owner_id,
+            # Made explicit rather than left to the callee's default, so what an
+            # unauthorised caller gets is visible at the boundary that hands it
+            # over: the empty policy denies retirement.
+            policy=review_policy if review_policy is not None else MemoryReviewPolicy(),
+        )
+    except Exception as error:  # noqa: BLE001 - a review must never cost the answer
+        logger.warning("one_text_turn.catch_up_review_failed error=%s", type(error).__name__)
+        return None
+
+
+def _resolve_pod_memory_service():
+    """The pod's memory service, or None everywhere else.
+
+    Fail-safe by construction: a pod that cannot resolve its memory must still answer,
+    so any failure here degrades to a memoryless turn rather than a failed one. The
+    resolver already fails safe internally; this guards the import as well.
+    """
+    try:
+        from hushh_mcp.services.pod_memory_service import (  # noqa: PLC0415
+            resolve_pod_memory_service,
+        )
+
+        return resolve_pod_memory_service()
+    except Exception:  # noqa: BLE001 -- never block a turn on memory
+        logger.exception("one_text.pod_memory_unavailable")
+        return None
 
 
 async def stream_one_text_turn(
     *,
     user_id: str,
+    session_owner_id: str | None = None,
     consent_token: str,
     conversation_id: str,
     message: str,
@@ -450,13 +947,20 @@ async def stream_one_text_turn(
     timezone: str | None,
     screen_context: dict[str, Any] | None,
     pkm_context: str | None,
+    grounding_reason: str | None = None,
     runtime_provider: str,
     runtime_model: str,
     runtime_mode: str,
     runtime_credential: str | None,
+    puppy_device_id: str | None = None,
     runtime_credential_transport: Literal["developer_api", "vertex_api_key"] = "developer_api",
     runtime_vertex_project: str | None = None,
     runtime_vertex_location: str | None = None,
+    data_door_grants: dict[str, str] | None = None,
+    memory_commit_allowed: Any = None,
+    # What the caller's door decided the catch-up review may do. Resolved at the
+    # route and carried; the runtime never derives it. None is default-deny.
+    memory_review_policy: "MemoryReviewPolicy | None" = None,
 ) -> AsyncGenerator[OneTextStreamEvent, None]:
     """Run One with same-model regional failover before any observable event."""
     locations: tuple[str | None, ...] = (None,)
@@ -470,6 +974,7 @@ async def stream_one_text_turn(
         try:
             async for event in _stream_one_text_turn_once(
                 user_id=user_id,
+                session_owner_id=session_owner_id,
                 consent_token=consent_token,
                 conversation_id=conversation_id,
                 message=message,
@@ -477,14 +982,19 @@ async def stream_one_text_turn(
                 timezone=timezone,
                 screen_context=screen_context,
                 pkm_context=pkm_context,
+                grounding_reason=grounding_reason,
                 runtime_provider=runtime_provider,
                 runtime_model=runtime_model,
                 runtime_mode=runtime_mode,
                 runtime_credential=runtime_credential,
+                puppy_device_id=puppy_device_id,
                 runtime_credential_transport=runtime_credential_transport,
                 runtime_vertex_project=runtime_vertex_project,
                 runtime_vertex_location=runtime_vertex_location,
+                data_door_grants=data_door_grants,
                 managed_location=location,
+                memory_commit_allowed=memory_commit_allowed,
+                memory_review_policy=memory_review_policy,
             ):
                 if event.kind == "boundary":
                     replay_boundary_crossed = True
@@ -580,6 +1090,9 @@ async def stream_one_intro_text_turn(
 
         for text_source in _event_sources(event):
             yield OneTextStreamEvent(kind="source", source=text_source)
+
+        for outcome in _event_specialists(event):
+            yield OneTextStreamEvent(kind="specialist", specialist=outcome)
 
         text = _event_text(event)
         if not text:

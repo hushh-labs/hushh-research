@@ -42,6 +42,7 @@ describe("setup catalog voice parity", () => {
       "Set up your advisor profile",
     ]);
     const visibleSetupActionIds = new Set([
+      "setup.open_cloud",
       "setup.open_connections",
       ...ONE_SETUP_CAPABILITIES.map((capability) => capability.setupActionId),
     ]);
@@ -50,6 +51,7 @@ describe("setup catalog voice parity", () => {
         .filter((action) => visibleSetupActionIds.has(action.action_id))
         .map((action) => action.label),
     ).toEqual([
+      "Set up your cloud",
       "Choose your AI",
       ...CAPABILITY_SETUP_COPY.map((capability) => capability.setupTitle),
     ]);
@@ -81,7 +83,11 @@ describe("setup catalog voice parity", () => {
     const orderedActionIds = ONE_SETUP_CAPABILITIES.map(
       (capability) => capability.setupActionId,
     );
-    const orderedHubActionIds = ["setup.open_connections", ...orderedActionIds];
+    const orderedHubActionIds = [
+      "setup.open_cloud",
+      "setup.open_connections",
+      ...orderedActionIds,
+    ];
     expect(
       hubContract.actions
         .map((action) => action.action_id)
@@ -91,16 +97,13 @@ describe("setup catalog voice parity", () => {
     const setupRoute = routeLayoutContract.find(
       (entry) => entry.route === "/one/setup",
     );
-    expect(setupRoute?.voicePlaybook?.primaryActionId).toBe(
-      "setup.open_connections",
-    );
-    expect(
-      setupRoute?.voicePlaybook?.happyPathActionIds.filter(
-        (actionId) =>
-          actionId === "setup.hub_master_ack" ||
-          orderedHubActionIds.includes(actionId),
-      ),
-    ).toEqual([...orderedHubActionIds, "setup.hub_master_ack"]);
+    // The hub's primary action leads with the cloud, because that is the first step
+    // a person must take. Broken on purpose: point it back at AI access and this fails.
+    expect(setupRoute?.voicePlaybook?.primaryActionId).toBe("setup.open_cloud");
+    expect(setupRoute?.voicePlaybook?.happyPathActionIds).toEqual([
+      ...orderedHubActionIds,
+      "setup.hub_master_ack",
+    ]);
 
     const gmailConnectAction = gmailSetupContract.actions.find(
       (action) => action.action_id === "setup.connect_gmail",

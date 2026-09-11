@@ -68,12 +68,20 @@ ALTER TABLE connected_system_intents
   ADD COLUMN IF NOT EXISTS client_operation_id TEXT,
   ADD COLUMN IF NOT EXISTS approval_challenge_id TEXT;
 
--- UAT and production run migrations with --migration-mode replay, so every
--- statement here has to survive a second application. Everything else in this
--- file already does (IF NOT EXISTS on every table, index and column); this
--- ALTER did not, and Postgres has no ADD CONSTRAINT IF NOT EXISTS. The first
--- replay after this migration landed failed the whole UAT deploy with
--- DuplicateObjectError, which blocks the release before anything ships.
+-- Drop before adding, because every lane runs this manifest with
+-- `--migration-mode replay` on every deploy, so each statement has to survive a
+-- second application. Everything else in this file already does (IF NOT EXISTS on
+-- every table, index and column); this ALTER did not, and Postgres has no
+-- ADD CONSTRAINT IF NOT EXISTS -- a bare ADD CONSTRAINT succeeds exactly once and
+-- then raises DuplicateObjectError forever after.
+--
+-- It broke twice, independently, which is why both records are kept here: the
+-- first replay after the migration landed failed the whole UAT deploy before
+-- anything shipped, and it later blocked the dev deploy of 4a3d22964, where the
+-- constraint had been applied by a deploy three hours earlier.
+--
+-- The rollback file (141_crm_zk_v1_down.sql) carries exactly this line, and this
+-- matches the house pattern in 019, 024, 027 and 039.
 ALTER TABLE connected_system_intents
   DROP CONSTRAINT IF EXISTS connected_system_intents_crm_zk_shape;
 

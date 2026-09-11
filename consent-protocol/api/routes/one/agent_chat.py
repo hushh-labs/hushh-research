@@ -1,13 +1,16 @@
-"""Canonical AG-UI transport for the private agent's text experience."""
+"""Public AG-UI intro and protected historical conversation access.
+
+Personal turns use the existing owner-authorized pod relay. This hub endpoint
+never selects a full shared runner, even for valid vault-owner credentials.
+"""
 
 from __future__ import annotations
 
 import hashlib
 import logging
-from datetime import datetime, timezone
 from typing import Any
 
-from ag_ui.core import RunAgentInput, UserMessage
+from ag_ui.core import RunAgentInput
 from ag_ui_adk import ADKAgent, add_adk_fastapi_endpoint
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from google.adk.apps import App, ResumabilityConfig
@@ -15,7 +18,7 @@ from google.adk.sessions import InMemorySessionService
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
-from api.middleware import require_vault_owner_token
+from api.middleware import _extract_token, require_vault_owner_token
 from api.routes.one.live_context import sanitize_live_context
 from api.utils.firebase_auth import verify_firebase_bearer
 from hushh_mcp.one_adk.agent_tree import (
@@ -28,12 +31,8 @@ from hushh_mcp.one_adk.agent_tree import (
     STATE_USER_ID,
     STATE_VOICE_CONTEXT,
     build_one_intro_text_agent,
-    build_one_text_agent,
 )
-from hushh_mcp.one_adk.agui_action_tools import action_id_from_tool_name
 from hushh_mcp.one_adk.encrypted_session_service import EncryptedAdkSessionService
-from hushh_mcp.one_adk.request_secrets import store_request_secret
-from hushh_mcp.services.action_gateway import get_action_gateway_action, list_action_gateway_actions
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["Agent One"])
@@ -47,65 +46,86 @@ def _user_id(input_data: RunAgentInput) -> str:
     return value
 
 
+def _private_runtime_required() -> HTTPException:
+    return HTTPException(
+        status_code=409,
+        detail={
+            "code": "AGENT_PRIVATE_RUNTIME_REQUIRED",
+            "message": "Open your private agent to continue this conversation.",
+        },
+    )
+
+
 async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[str, Any]:
     authorization = request.headers.get("authorization")
     consent_header = request.headers.get("x-hushh-consent")
     token: dict[str, Any] | None = None
-    try:
+    # Credential presence selects the verifier, never the eventual privilege.
+    # A rejected owner token must not downgrade to Firebase-only or anonymous.
+    owner_authorization = authorization is not None and _extract_token(
+        authorization, allow_raw=True
+    ).startswith("HCT:")
+    if consent_header is not None or owner_authorization:
         token = await require_vault_owner_token(
             request=request,
-            authorization=authorization,
+            # A present empty custom header is invalid; do not fall back to a
+            # different credential inside the compatibility verifier.
+            authorization=authorization if consent_header is None else None,
             hushh_consent=consent_header,
         )
-    except HTTPException:
-        token = None
+        if consent_header is not None and owner_authorization:
+            authorization_owner = await require_vault_owner_token(
+                request=request, authorization=authorization, hushh_consent=None
+            )
+            if authorization_owner.get("user_id") != token.get("user_id"):
+                raise HTTPException(
+                    status_code=403, detail="Credentials belong to different accounts"
+                )
     firebase_uid = ""
-    if token is None and authorization:
-        try:
-            firebase_uid = await run_in_threadpool(verify_firebase_bearer, authorization)
-        except HTTPException:
-            firebase_uid = ""
+    if authorization is not None and not owner_authorization:
+        firebase_uid = await run_in_threadpool(verify_firebase_bearer, authorization)
+        if not isinstance(firebase_uid, str) or not firebase_uid.strip():
+            raise HTTPException(status_code=401, detail="Invalid Firebase identity")
+    if token is not None:
+        owner_id = str(token.get("user_id") or "").strip()
+        if not owner_id:
+            raise HTTPException(status_code=401, detail="Invalid owner identity")
+        if firebase_uid and owner_id != firebase_uid:
+            raise HTTPException(status_code=403, detail="Credentials belong to different accounts")
+        # Owner credentials are valid, but do not authorize personal execution
+        # on shared compute. Refuse before retaining context or creating a session.
+        raise _private_runtime_required()
     forwarded = input_data.forwarded_props if isinstance(input_data.forwarded_props, dict) else {}
+    if input_data.tools or input_data.context or set(forwarded) - {"screenContext", "timezone"}:
+        raise HTTPException(
+            status_code=400, detail="Intro accepts public conversation context only"
+        )
     screen_payload = forwarded.get("screenContext")
     screen_context = sanitize_live_context(
         screen_payload if isinstance(screen_payload, dict) else {}
     )
 
-    # Client-provided tools are frontend execution requests, never new
-    # authority. Every tool must already exist in the generated Action Gateway.
-    for tool in input_data.tools:
-        action_id = action_id_from_tool_name(tool.name)
-        if not action_id or get_action_gateway_action(action_id) is None:
-            raise HTTPException(
-                status_code=400, detail="Agent tool is not in the generated action contract."
-            )
-
     # Discard arbitrary client state before the middleware merges the trusted
-    # projection. Sensitive values are represented only by expiring references.
+    # projection. This public ingress retains no private credentials or PKM.
     input_data.state = {}
     anonymous_seed = (
         f"{request.client.host if request.client else ''}|{request.headers.get('user-agent', '')}"
     )
-    user_id = str((token or {}).get("user_id") or firebase_uid).strip()
+    user_id = firebase_uid.strip()
     session_user_id = (
         user_id or f"anonymous:{hashlib.sha256(anonymous_seed.encode()).hexdigest()[:24]}"
     )
     return {
         STATE_USER_ID: session_user_id,
-        STATE_CONSENT_TOKEN: store_request_secret(str((token or {}).get("token") or "")),
+        STATE_CONSENT_TOKEN: "",
         STATE_CONVERSATION_ID: input_data.thread_id,
         STATE_TIMEZONE: str(forwarded.get("timezone") or "")[:64],
         STATE_SCREEN: str(screen_context.get("screen") or "")[:64],
         STATE_VOICE_CONTEXT: screen_context,
-        STATE_PKM_CONTEXT: store_request_secret(str(forwarded.get("pkmContext") or "")[:20000]),
+        STATE_PKM_CONTEXT: "",
     }
 
 
-_app = App(
-    name=ONE_APP_NAME,
-    root_agent=build_one_text_agent(),
-    resumability_config=ResumabilityConfig(is_resumable=True),
-)
 _intro_app = App(
     name=f"{ONE_APP_NAME}_intro",
     root_agent=build_one_intro_text_agent(),
@@ -113,50 +133,26 @@ _intro_app = App(
 )
 _session_service = EncryptedAdkSessionService()
 _intro_session_service = InMemorySessionService()
-_authenticated_capabilities = {
+_intro_capabilities = {
     "identity": {
-        "name": "Agent One",
+        "name": "One onboarding",
         "type": "google-adk",
-        "description": "Hussh private agent",
+        "description": "Public onboarding conversation",
         "version": "1.0.0",
         "provider": "Hussh",
     },
     "transport": {"streaming": True, "websocket": False, "httpBinary": False, "resumable": True},
-    "tools": {"supported": True, "parallelCalls": False, "clientProvided": True},
-    "state": {"snapshots": True, "deltas": True, "memory": False, "persistentState": True},
-    "multiAgent": {"supported": True, "delegation": True, "handoffs": False},
-    "reasoning": {"supported": True, "streaming": True, "encrypted": False},
-    "humanInTheLoop": {
-        "supported": True,
-        "approvals": True,
-        "interventions": True,
-        "feedback": False,
-        "interrupts": True,
-        "approveWithEdits": False,
-    },
-}
-_intro_capabilities = {
-    **_authenticated_capabilities,
     "tools": {"supported": False, "parallelCalls": False, "clientProvided": False},
     "state": {"snapshots": True, "deltas": True, "memory": False, "persistentState": False},
     "multiAgent": {"supported": False, "delegation": False, "handoffs": False},
+    "reasoning": {"supported": True, "streaming": True, "encrypted": False},
     "humanInTheLoop": {"supported": False, "interrupts": False},
 }
-_agent = ADKAgent.from_app(
-    _app,
-    user_id_extractor=_user_id,
-    session_service=_session_service,
-    use_in_memory_services=True,
-    use_thread_id_as_session_id=True,
-    emit_messages_snapshot=True,
-    capabilities=_authenticated_capabilities,
-)
 _intro_agent = ADKAgent.from_app(
     _intro_app,
     user_id_extractor=_user_id,
-    # Anonymous and Firebase-only pre-vault turns intentionally remain
-    # ephemeral. Durable history begins only after VAULT_OWNER authority is
-    # present, where the encrypted owner-bound store can enforce teardown.
+    # Public intro is ephemeral. Existing encrypted history remains readable
+    # through the owner-protected routes below; personal execution lives in pods.
     session_service=_intro_session_service,
     use_in_memory_services=True,
     use_thread_id_as_session_id=True,
@@ -167,12 +163,14 @@ _intro_agent = ADKAgent.from_app(
 
 async def _resolve_agent(_request: Request, input_data: RunAgentInput) -> ADKAgent:
     state = input_data.state if isinstance(input_data.state, dict) else {}
-    return _agent if state.get(STATE_CONSENT_TOKEN) else _intro_agent
+    if state.get(STATE_CONSENT_TOKEN) or state.get(STATE_PKM_CONTEXT):
+        raise _private_runtime_required()
+    return _intro_agent
 
 
 add_adk_fastapi_endpoint(
     router,
-    _agent,
+    _intro_agent,
     path="/api/one/agent-chat",
     extract_state_from_request=_extract_state,
     agent_resolver=_resolve_agent,
@@ -307,8 +305,6 @@ async def delete_conversation(
 
 class ActionSearchRequest(BaseModel):
     query: str = Field(min_length=1, max_length=2048)
-    context: dict[str, Any] | None = None
-    limit: int = Field(default=10, ge=1, le=20)
 
 
 class ActionProposalRequest(BaseModel):
@@ -320,366 +316,72 @@ class ConfirmProposalRequest(BaseModel):
     confirmed_slots: dict[str, Any] = Field(default_factory=dict)
 
 
-# In-memory proposal store keyed by proposal_id.
-# Per-request scoped; proposals expire after 15 minutes.
-_proposal_store: dict[str, dict[str, Any]] = {}
-_PROPOSAL_TTL_SECONDS = 900
+proposal_router = APIRouter(tags=["Agent One"])
 
 
-def _cleanup_expired_proposals() -> None:
-    now = datetime.now(timezone.utc).timestamp()
-    expired = [
-        pid
-        for pid, p in _proposal_store.items()
-        if now - p.get("created_at", 0) > _PROPOSAL_TTL_SECONDS
-    ]
-    for pid in expired:
-        del _proposal_store[pid]
-
-
-def _proposal_owner_key(token: dict, request: Request, proposal_id: str) -> str:
-    ip = request.client.host if request.client else ""
-    return f"{token.get('user_id', '')}:{ip}:{proposal_id}"
-
-
-@router.post("/api/one/actions/search")
+@proposal_router.post("/api/one/actions/search")
 async def search_actions_endpoint(
     payload: ActionSearchRequest,
     request: Request,
     token: dict = Depends(require_vault_owner_token),
 ):
-    """Return related generated capabilities for a natural-language query.
-
-    This is a read-only search. No action is executed.
-    """
-    from hushh_mcp.one_adk.action_retrieval import search_actions_for_command_palette
-
-    query = payload.query.strip()
-    if not query:
-        raise HTTPException(status_code=400, detail="Query must not be empty.")
-
-    app_runtime_state: dict[str, Any] = {}
-    if isinstance(payload.context, dict):
-        # Only redacted routing fields cross this search boundary. The action
-        # gateway remains the execution authority and revalidates everything.
-        for key in ("screen", "available_action_ids", "executable_action_ids"):
-            value = payload.context.get(key)
-            if key == "screen" and isinstance(value, str):
-                app_runtime_state[key] = value
-            elif (
-                key != "screen"
-                and isinstance(value, list)
-                and all(isinstance(item, str) for item in value)
-            ):
-                app_runtime_state[key] = value[:100]
-    screen = request.headers.get("x-hushh-screen")
-    if screen:
-        app_runtime_state["screen"] = screen
-
-    try:
-        results = search_actions_for_command_palette(
-            query,
-            {"actions": list_action_gateway_actions()},
-            app_runtime_state=app_runtime_state,
-            limit=payload.limit,
-        )
-    except Exception:
-        logger.exception("action_search_failed")
-        raise HTTPException(status_code=500, detail="Search temporarily unavailable.")
-
-    return {
-        "status": "ok",
-        "query": query,
-        "total": len(results),
-        "results": results,
-    }
+    """Personal proposal transport requires the owner's private runtime."""
+    raise _private_runtime_required()
 
 
-@router.post("/api/one/agent-chat/proposals")
+@proposal_router.post("/api/one/agent-chat/proposals")
 async def create_action_proposal(
     payload: ActionProposalRequest,
     request: Request,
     token: dict = Depends(require_vault_owner_token),
 ):
-    """Run One's restricted proposal head and return a typed action assessment.
-
-    Emits a distinct ``one_action_proposal`` event; never an ordinary executable
-    directive.
-    """
-    from hushh_mcp.one_adk.agent_tree import build_one_text_agent
-
-    _cleanup_expired_proposals()
-    query = payload.query.strip()
-    if not query:
-        raise HTTPException(status_code=400, detail="Query must not be empty.")
-
-    # Build a request-scoped session for the proposal turn.
-    proposal_app = App(
-        name=f"{ONE_APP_NAME}_proposal",
-        root_agent=build_one_text_agent(),
-        resumability_config=ResumabilityConfig(is_resumable=False),
-    )
-    proposal_agent = ADKAgent.from_app(
-        proposal_app,
-        user_id_extractor=lambda d: str(
-            (d.state or {}).get(STATE_USER_ID) or token.get("user_id", "")
-        ),
-        session_service=InMemorySessionService(),
-        use_in_memory_services=True,
-        use_thread_id_as_session_id=True,
-        emit_messages_snapshot=True,
-    )
-
-    # Restrict to proposal-mode tools only.
-    _PROPOSAL_ALLOWED_TOOLS = {
-        "list_app_actions",
-        "propose_app_action",
-    }
-    proposal_agent._adk_app.root_agent.tools = [
-        t
-        for t in proposal_agent._adk_app.root_agent.tools
-        if getattr(t, "name", "") in _PROPOSAL_ALLOWED_TOOLS
-    ]
-
-    # Run the proposal turn through AG-UI.
-    run_input = RunAgentInput(
-        thread_id=payload.conversation_id,
-        run_id=f"proposal-{datetime.now(timezone.utc).timestamp()}",
-        state={
-            STATE_USER_ID: token.get("user_id", ""),
-            STATE_CONSENT_TOKEN: store_request_secret(str(token.get("token") or "")),
-        },
-        messages=[
-            UserMessage(id="user-proposal", role="user", content=query),
-        ],
-        # `context` and `tools` are required by RunAgentInput. Omitting context
-        # raised ValidationError on every proposal turn, so this path had never
-        # run; empty is the correct value here because the proposal turn carries
-        # its context in `state`, not as AG-UI context entries.
-        context=[],
-        forwarded_props={},
-        tools=[],
-    )
-
-    proposal_id = f"prop_{datetime.now(timezone.utc).timestamp()}_{hash(query) & 0xFFFF:04x}"
-    _proposal_store[proposal_id] = {
-        "proposal_id": proposal_id,
-        "query": query,
-        "user_id": str(token.get("user_id", "")),
-        "conversation_id": payload.conversation_id,
-        "status": "pending",
-        "created_at": datetime.now(timezone.utc).timestamp(),
-        "result": None,
-    }
-
-    # Stream the AG-UI response.
-    proposal_result: dict[str, Any] | None = None
-    try:
-        async for event in proposal_agent.run(run_input):
-            event_type = getattr(event, "type", "")
-            if event_type == "one_action_proposal":
-                proposal_result = getattr(event, "content", None)
-                break
-            if event_type == "error":
-                logger.error("proposal_agent_error event=%s", event)
-                break
-    except Exception:
-        logger.exception("proposal_agent_run_failed")
-
-    if proposal_result is None:
-        _proposal_store[proposal_id]["status"] = "no_match"
-        _proposal_store[proposal_id]["result"] = {
-            "schemaVersion": "one.action_proposal.v1",
-            "status": "unsupported",
-            "message": "One could not map this request to a supported action.",
-        }
-        return _proposal_store[proposal_id]["result"]
-
-    _proposal_store[proposal_id]["status"] = "drafted"
-    _proposal_store[proposal_id]["result"] = proposal_result
-    proposal_result.setdefault("proposalId", proposal_id)
-    proposal_result.setdefault("requestId", payload.conversation_id)
-    return proposal_result
+    """Personal proposal transport requires the owner's private runtime."""
+    raise _private_runtime_required()
 
 
-@router.post("/api/one/action-proposals/{proposal_id}/admit")
+@proposal_router.post("/api/one/action-proposals/{proposal_id}/admit")
 async def admit_proposal(
     proposal_id: str,
     request: Request,
     token: dict = Depends(require_vault_owner_token),
 ):
-    """Verify the issued draft, resolve inputs, and revalidate the contract."""
-    _cleanup_expired_proposals()
-    proposal = _proposal_store.get(proposal_id)
-    if proposal is None:
-        raise HTTPException(status_code=404, detail="Proposal not found or expired.")
-    if proposal["status"] != "drafted":
-        raise HTTPException(
-            status_code=409,
-            detail=f"Proposal is in '{proposal['status']}' state; admit is only valid for 'drafted'.",
-        )
-    if proposal["user_id"] != str(token.get("user_id", "")):
-        raise HTTPException(status_code=403, detail="Proposal owner mismatch.")
-
-    result = proposal.get("result") or {}
-    action_id = str(result.get("actionId") or "")
-    if not action_id:
-        raise HTTPException(status_code=400, detail="Proposal is missing an action id.")
-
-    entry = get_action_gateway_action(action_id)
-    if entry is None:
-        raise HTTPException(status_code=400, detail=f"'{action_id}' is no longer a valid action.")
-
-    # Revalidate current execution policy.
-    policy = str(entry.get("execution_policy") or "allow_direct")
-    if policy == "manual_only":
-        raise HTTPException(
-            status_code=400,
-            detail=f"'{action_id}' requires the app UI and cannot be admitted here.",
-        )
-
-    # Build prepared execution grant.
-    admission: dict[str, Any] = {
-        "schemaVersion": "one.action_proposal.v1",
-        "proposalId": proposal_id,
-        "status": "ready_for_confirmation" if policy == "confirm_required" else "ready",
-        "actionId": action_id,
-        "label": str(entry.get("label") or ""),
-        "meaning": str(entry.get("meaning") or ""),
-        "executionPolicy": policy,
-        "slots": result.get("slots") or {},
-        "requiredInputs": result.get("requiredInputs") or [],
-        "missingSlots": result.get("missingSlots") or [],
-        "confirmationRequired": policy == "confirm_required",
-        "useTool": result.get("useTool"),
-        "navigation": result.get("navigation"),
-        "guardIds": result.get("guardIds") or [],
-        "admittedAt": datetime.now(timezone.utc).isoformat(),
-    }
-    proposal["status"] = "admitted"
-    proposal["admission"] = admission
-    return admission
+    """Personal proposal transport requires the owner's private runtime."""
+    raise _private_runtime_required()
 
 
-@router.post("/api/one/action-proposals/{proposal_id}/confirm")
+@proposal_router.post("/api/one/action-proposals/{proposal_id}/confirm")
 async def confirm_proposal(
     proposal_id: str,
     request: Request,
     payload: ConfirmProposalRequest = ConfirmProposalRequest(),
     token: dict = Depends(require_vault_owner_token),
 ):
-    """Validate the prepared action and advance to execution permission."""
-    _cleanup_expired_proposals()
-    proposal = _proposal_store.get(proposal_id)
-    if proposal is None:
-        raise HTTPException(status_code=404, detail="Proposal not found or expired.")
-    if proposal["status"] != "admitted":
-        raise HTTPException(
-            status_code=409,
-            detail=f"Proposal is in '{proposal['status']}' state; confirm requires 'admitted'.",
-        )
-    if proposal["user_id"] != str(token.get("user_id", "")):
-        raise HTTPException(status_code=403, detail="Proposal owner mismatch.")
-
-    admission = proposal.get("admission") or {}
-    action_id = str(admission.get("actionId") or "")
-    entry = get_action_gateway_action(action_id)
-    if entry is None:
-        raise HTTPException(status_code=400, detail="Action is no longer valid.")
-
-    # Revalidate the action has not changed since admission.
-    current_policy = str(entry.get("execution_policy") or "allow_direct")
-    if current_policy != admission.get("executionPolicy"):
-        raise HTTPException(
-            status_code=409,
-            detail="Action policy changed since admission; re-admit required.",
-        )
-
-    # Merge any user-supplied slot corrections.
-    slots = dict(admission.get("slots") or {})
-    if payload and isinstance(payload.confirmed_slots, dict):
-        for k, v in payload.confirmed_slots.items():
-            if str(k).strip():
-                slots[str(k).strip()] = v
-
-    # Final validation: check no required slots are still missing.
-    missing_slots = admission.get("missingSlots") or []
-    still_missing = [s for s in missing_slots if slots.get(s.get("slot", "")) in (None, "")]
-
-    if still_missing:
-        return {
-            "schemaVersion": "one.action_proposal.v1",
-            "proposalId": proposal_id,
-            "status": "needs_resolution",
-            "actionId": action_id,
-            "slots": slots,
-            "missingSlots": still_missing,
-        }
-
-    proposal["status"] = "confirmed"
-    proposal["confirmed_slots"] = slots
-
-    return {
-        "schemaVersion": "one.action_proposal.v1",
-        "proposalId": proposal_id,
-        "status": "execution_granted",
-        "actionId": action_id,
-        "slots": slots,
-        "executionPolicy": current_policy,
-        "useTool": admission.get("useTool"),
-        "navigation": admission.get("navigation"),
-        "guardIds": admission.get("guardIds") or [],
-        "confirmedAt": datetime.now(timezone.utc).isoformat(),
-    }
+    """Personal proposal transport requires the owner's private runtime."""
+    raise _private_runtime_required()
 
 
-@router.post("/api/one/action-proposals/{proposal_id}/settle")
+@proposal_router.post("/api/one/action-proposals/{proposal_id}/settle")
 async def settle_proposal(
     proposal_id: str,
     result_payload: dict[str, Any],
     request: Request,
     token: dict = Depends(require_vault_owner_token),
 ):
-    """Record the correlated handler result under existing receipt rules."""
-    _cleanup_expired_proposals()
-    proposal = _proposal_store.get(proposal_id)
-    if proposal is None:
-        raise HTTPException(status_code=404, detail="Proposal not found or expired.")
-    if proposal["user_id"] != str(token.get("user_id", "")):
-        raise HTTPException(status_code=403, detail="Proposal owner mismatch.")
-
-    proposal["status"] = "settled"
-    proposal["settlement"] = {
-        "result": result_payload,
-        "settledAt": datetime.now(timezone.utc).isoformat(),
-    }
-    return {
-        "proposalId": proposal_id,
-        "status": "settled",
-        "result": result_payload,
-    }
+    """Personal proposal transport requires the owner's private runtime."""
+    raise _private_runtime_required()
 
 
-@router.delete("/api/one/action-proposals/{proposal_id}")
+@proposal_router.delete("/api/one/action-proposals/{proposal_id}")
 async def cancel_proposal(
     proposal_id: str,
     request: Request,
     token: dict = Depends(require_vault_owner_token),
 ):
-    """Cancel an issued/prepared proposal."""
-    _cleanup_expired_proposals()
-    proposal = _proposal_store.get(proposal_id)
-    if proposal is None:
-        return {"proposalId": proposal_id, "status": "already_gone"}
-    if proposal["user_id"] != str(token.get("user_id", "")):
-        raise HTTPException(status_code=403, detail="Proposal owner mismatch.")
-
-    if proposal["status"] in ("drafted", "admitted"):
-        proposal["status"] = "cancelled"
-        proposal["cancelledAt"] = datetime.now(timezone.utc).isoformat()
-        return {"proposalId": proposal_id, "status": "cancelled"}
-
-    return {"proposalId": proposal_id, "status": proposal["status"]}
+    """Personal proposal transport requires the owner's private runtime."""
+    raise _private_runtime_required()
 
 
 __all__ = ["router"]
+
+
+router.include_router(proposal_router)

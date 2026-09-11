@@ -69,12 +69,19 @@ Non-owned surfaces:
 5. Treat One Voice as the product-facing voice contract; keep Kai-era voice routes as compatibility/runtime identifiers until explicitly migrated.
 6. Author workflows only when the UI can move through the same prerequisite chain with settlement between steps.
 7. Treat persona, workspace, vault, consent, onboarding, rollout, and kill-switch gates as hard preconditions.
-8. Keep short-term memory in-memory only and durable memory vault-gated, client-side encrypted, and out of plaintext storage.
+8. Keep shared-runtime context consent-scoped and out of plaintext storage. Durable owner-isolated pod experience follows `docs/reference/architecture/private-agent-north-star.md`; it must not become a second PKM authority.
 9. Block new microphone, dictation, transcript, or voice-like inputs unless they are approved adapters over the existing gateway path.
 10. Use `voice-review-checklist.md` before recommending or merging voice-adjacent PRs.
 11. Route changes that affect any voice-reachable screen must update `deriveVoiceRouteScreen`, local `.voice-action-contract.json` reachability/targets, generated gateway artifacts, typed-search parity, and One Voice context snapshot expectations in the same change.
 12. Keep legacy query route inputs as compatibility only. Generated `route.*` actions should target canonical nested routes unless the action intentionally opens a canonical One capability route.
 13. Do not expose broken or unrelated route actions in realtime context. Published voice surface metadata may describe local controls and unavailable state, but it must omit executable `actionId` values unless that id exists in the generated gateway and is compatible with the active route, vault/persona/cache state, and UI affordance.
+
+Compatibility authoring references:
+
+- `references/wire-voice-action.md`
+- `references/wire-voice-navigation.md`
+
+These refine this owner; they do not introduce another routing authority.
 
 ## Handoff Rules
 

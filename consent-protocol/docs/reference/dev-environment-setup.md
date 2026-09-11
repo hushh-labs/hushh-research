@@ -68,17 +68,157 @@ The dev environment splits infrastructure identity from runtime identity on purp
 | Cloud SQL instance | `hushh-pda-dev:us-central1:hushh-dev-pg` | own database |
 | Frontend origin | `https://dev.one.hushh.ai` | own domain |
 | Deploy labels / provenance | `deploy-env=dev`, `deploy-source=deploy-dev` | auditability |
-| Runtime identity | `ENVIRONMENT=uat`, `NEXT_PUBLIC_APP_ENV=uat` | exact UAT behavior parity |
+| Backend runtime identity | `ENVIRONMENT=dev` | dev reports its own name (2026-08-07) |
+| Frontend runtime identity | `NEXT_PUBLIC_APP_ENV=uat` | unchanged — see the note below |
 
-Backend behavior gates (UAT phone test numbers, webhook auth defaults, SSE defaults,
-review-alias verification, non-production CORS) all key off `ENVIRONMENT`. Keeping the
-`uat` runtime identity is what makes dev a true replica. The string `dev` must NOT be
-used as `ENVIRONMENT` or `NEXT_PUBLIC_APP_ENV`: existing code treats `dev` as local
-development and would silently change behavior (auth defaults off, debug routes on).
+**The backend now reports `dev`, and this section used to say it must not.** That warning
+was right about one thing and wrong about another, and both are worth keeping:
 
-The deploy pipeline enforces this through the `_RUNTIME_ENVIRONMENT=uat` Cloud Build
-substitution (backend) and `_APP_ENV=uat` (frontend), while `_DEPLOY_ENV=dev` drives
-labels and provenance verification.
+- **Right: debug routes.** `/api/_debug/firebase` gated on the environment name alone and
+  was closed only because dev reported `uat`. That gate now also requires *no deploy
+  lane*, so it is open on a developer's machine and closed on every hosted lane including
+  dev. The regression this section predicted was real, and is fixed rather than accepted.
+- **Wrong: auth defaults.** `developer_api_enabled()` defaults true for anything that is
+  not `production`, so `uat` and `dev` are identical. Same for SSE (`!= "production"`),
+  CORS and database-on-startup (all `_is_production()`), the review-alias allowlist and
+  `location.py`'s safe-environment set — every one admits `dev` and `uat` equally. The
+  webhook auth defaults are moot because the dev lane sets them explicitly.
+
+**`dev`, not `development`.** `runtime_providers/factory.py` keys `_HOSTED_ENVIRONMENTS`
+on `{"dev","uat","staging","production","prod"}`, and that set gates the assertions that a
+hosted runtime must use Vertex ADC and must carry `GOOGLE_CLOUD_PROJECT`. `dev` keeps those
+guards; `development` is absent from the set and would quietly relax them.
+
+**What changed behaviourally:** dev no longer resolves `HUSHH_UAT_PHONE_TEST_NUMBERS` /
+`_CODE` as its own. It had been doing so silently — the dev revision mounts UAT's
+phone-test secrets and, while it reported `uat`, treated them as its allowlist. Dev now
+has its own simulation lane (`HUSHH_DEV_PHONE_TEST_NUMBERS`, reserved fictitious numbers,
+OTP optional) which the deploy configures.
+
+The override lives in `scripts/deploy/backend-deploy.sh`, not in `deploy-dev.yml`. The
+deploy workflow definition always runs from `main`, so a substitution change there does
+nothing for a branch deploy; the script ships from the deployed SHA. `deploy-dev.yml` still
+passes `_RUNTIME_ENVIRONMENT=uat` and the script overrides it for the dev lane.
+
+### The frontend half — safe now, still one `main`-side line
+
+**The frontend still reports `uat`** (`_APP_ENV=uat`), because that substitution is set in
+`deploy-dev.yml` and only a change on `main` can move it.
+
+**Do not flip it without reading this.** The frontend is where the "auth defaults off"
+warning is actually true — it was wrong about the backend and right here. The frontend type
+has no `dev`: `normalizeEnvironment` maps `dev` → `development`, so `NEXT_PUBLIC_APP_ENV=dev`
+makes `resolveAppEnvironment()` return `development`. Twelve auth bypasses were gated on
+`isDevelopment()`, which asks only "is this build labelled development":
+
+- `DEV_AUTO_GRANT` — auto-grants a consent token
+- `Bearer DEV_TOKEN` — accepted as a valid Firebase session
+- ten vault routes — `if (!validation.valid && !isDevelopment())` and
+  `if (!authHeader && !isDevelopment())`, i.e. proceed anyway
+
+All twelve would have turned on for an internet-reachable service holding real test
+accounts.
+
+They now use `devAuthBypassAllowed()`, which requires the development label **and** the
+absence of `HUSHH_DEPLOY_ENV` — set on every hosted Cloud Run service (verified present on
+`hushh-webapp` in `hushh-pda-dev`) and absent on a developer's machine. Every caller is a
+server-side route handler, so the variable is read without a `NEXT_PUBLIC_` prefix on
+purpose. Behaviour today is unchanged, because the frontend still reports `uat` and
+`isDevelopment()` was already false on every hosted lane.
+
+The other consumers were checked and are all binary `!== "production"`
+(`nearby-check-in-availability`, `location-map-demo`, `ria-client-test-profile`,
+`marketplace`, `ria/onboarding`, `observability/env`), so they do not move. The
+`config.ts` URL fallbacks to `127.0.0.1:8000` and `localhost:3000` do not fire either:
+`NEXT_PUBLIC_BACKEND_URL` and `NEXT_PUBLIC_APP_URL` are baked at build time from the
+`BACKEND_URL` and `NEXT_PUBLIC_APP_URL` secrets, both confirmed present in
+`hushh-pda-dev`.
+
+**The substitution change is staged on the branch and awaits the Admin SOP.**
+`deploy-dev.yml` now passes `_APP_ENV=dev` (frontend) and `_RUNTIME_ENVIRONMENT=dev`
+(backend). Both are inert until that file lands on `main`, because the deploy workflow
+definition always runs from there — the backend already reports `dev` regardless, via
+the override in `scripts/deploy/backend-deploy.sh`, which is what makes a branch deploy
+correct in the meantime.
+
+`scripts/ops/setup_dev_cloudbuild_triggers.sh` was flipped in the same change. It is a
+**second** deploy path into the same environment — a Cloud Build trigger that
+auto-deploys the frontend to dev on `main` pushes — and leaving it at `uat` would have
+made the two paths disagree, with whichever ran last deciding what dev reported.
+
+After the SOP lands it, the frontend reports **`development`**, not `dev`: the frontend
+vocabulary has no `dev`, and `normalizeEnvironment` maps it. The backend reports `dev`.
+That asymmetry is a property of the two vocabularies, not a mistake.
+
+The **local** `--mode dev` profile deliberately still hydrates `NEXT_PUBLIC_APP_ENV=uat`
+(`scripts/env/bootstrap_profiles.sh`). Local has no deploy lane, so `development` there
+would satisfy `devAuthBypassAllowed()` and turn on the vault auth bypasses while talking
+to the shared dev backend. Changing that is a separate decision.
+
+## Google OAuth return URIs, and what a local hub needs (corrected 2026-09-03)
+
+The 2026-09-02 version of this section was wrong in three ways, each measured false by
+probing the clients directly. Corrected:
+
+- **There are two clients, not one.** `dev` **and every localhost port** use
+  `745506018753-…` (which lives in the `hushh-pda-uat` project). **`uat` and `prod` share
+  `1006304528804-…`** (in `hushh-pda`). So an entry added "for UAT" is an edit to the
+  *production* client.
+- **Every lane's `GMAIL_OAUTH_REDIRECT_URI` holds the `/one/profile/gmail/oauth/return`
+  form**, including production — the deploy gate
+  (`verify-env-secrets-parity.py --require-gmail`) requires exactly that.
+- **uat and prod register both forms and need nothing.** The dev client is the outlier: it
+  registers the no-`/one` Gmail shim and the `/one` **Google** return, but not the `/one`
+  Gmail form. Dev Gmail connect therefore still needs one console entry
+  (`https://dev.one.hushh.ai/one/profile/gmail/oauth/return`); it cannot be fixed from
+  here, because no API edits a Web-application client's redirect URIs and the deploy gate
+  runs from `main`. See `docs/reference/operations/env-and-secrets.md` § *Google OAuth
+  redirect URIs, per lane* for the matrix and the probe that verifies it without console
+  access.
+
+Both no-`/one` paths 307 to their `/one` page with `code` and `state` intact (verified
+live), so a registered shim is a real door, not a workaround.
+
+**BYOC "give GCP access" no longer borrows the Gmail door.** `byoc_oauth_authorizer`
+resolves `GOOGLE_OAUTH_REDIRECT_URI`, then the canonical
+`/one/profile/google/oauth/return` derived from this deployment's own
+`APP_FRONTEND_ORIGIN`. That URI is registered on all three lanes, so dev works with no
+console change (verified live against the deployed hub).
+
+## After pulling this branch — what every developer has to do once
+
+Four steps, in this order. Three of them fail loudly and one fails silently.
+
+1. **Re-sync the backend virtualenv.** The lockfile moved; the local hub refuses to start
+   until you do (`The environment is outdated`).
+   ```bash
+   cd consent-protocol && uv sync --frozen --group dev
+   ```
+2. **Re-install frontend packages** if `npm` reports a missing binary
+   (`sh: next: command not found`) — the webapp lockfile moved too.
+   ```bash
+   cd hushh-webapp && npm ci
+   ```
+3. **Add one line to your local `consent-protocol/.env`**, or BYOC and Calendar from a
+   local hub die at Google with `redirect_uri_mismatch`. Localhost origins are not
+   registered on the OAuth client and only the founder can add them, so a local hub
+   borrows dev's registered Google return; the callback completes on the deployed dev
+   frontend, which is fine because local rides the dev database and shares dev's
+   `APP_SIGNING_KEY`, so the signed `state` validates there.
+   ```bash
+   GOOGLE_OAUTH_REDIRECT_URI=https://dev.one.hushh.ai/one/profile/google/oauth/return
+   ```
+4. **Mirror `HUSSH_ONE_POD_IMAGE` after every dev deploy.** This is the silent one: a
+   stale value builds every new pod from an old image, and the symptoms look like pod
+   bugs rather than a stale tag.
+   ```bash
+   gcloud run services describe consent-protocol --project hushh-pda-dev \
+     --region us-central1 --format='value(spec.template.spec.containers[0].env)' \
+     | tr ';' '\n' | grep -o 'consent-protocol-pod:dev-[a-f0-9]*'
+   ```
+
+No secret was created or rotated in any GCP project by this work, and no environment's
+OAuth client id changed — nothing to re-fetch on the server side.
 
 ## Intentional divergences from UAT
 
@@ -219,6 +359,47 @@ python3 scripts/ops/verify-env-secrets-parity.py \
   --require-plaid --require-market-data --require-gmail --require-one-email \
   --require-voice --require-reviewer-smoke
 ```
+
+### Ed25519 consent-token signing (dev-only cutover)
+
+Non-repudiation is staged on dev: `scripts/deploy/backend-deploy.sh` flips
+`CONSENT_TOKEN_SIGNING_ALG=ed25519` **only** on the dev lane and **only when both
+key secrets already exist** in `hushh-pda-dev`, so a deploy before the mint stays
+HMAC and says so in the build log. UAT and production carry none of this by
+construction (every value is dev-block-scoped and empty elsewhere;
+`tests/test_consent_signing_dev_rollout_contract.py` keeps that a red/green fact).
+
+The two secrets and their exact shapes (they must come from ONE keypair — a
+mismatched pair verifies at the hub and fail-closes in every pod):
+
+| Secret | Shape |
+|---|---|
+| `CONSENT_ED25519_PRIVATE_KEY` | base64 of the raw 32-byte Ed25519 seed |
+| `CONSENT_ED25519_PUBLIC_KEYS` | JSON `{kid: b64_raw_32_public}` map |
+
+Mint (and rotate) with the checked-in script — the seed rides stdin into Secret
+Manager and is never printed:
+
+```bash
+cd consent-protocol
+uv run python scripts/ops/mint_consent_ed25519_key.py --project hushh-pda-dev
+# rotation: mint -2 alongside -1, deploy + re-render pods, then drop -1 after
+# outstanding tokens expire
+uv run python scripts/ops/mint_consent_ed25519_key.py --project hushh-pda-dev \
+  --kid hushh-consent-dev-2 --rotate
+```
+
+Then grant the dev runtime read on both (same pattern as `HUSSH_POD_KEY_MASTER`)
+and redeploy dev. Two standing caveats:
+
+* **Pods receive verification keys at render time only** (`gcp_backend` injects
+  `CONSENT_ED25519_PUBLIC_KEYS` from hub env into each render), so every key
+  event — first flip, every rotation — ends with a pod re-render. Un-re-rendered
+  pods keep working for turns (verification is hub-relayed) but their local a2a
+  door fail-closes on ed25519 tokens until re-rendered.
+* **Rollback** is deleting both secrets and redeploying: the existence gate
+  reverts issuance to HMAC byte-identically. Outstanding ed25519 tokens then fail
+  closed and dev's synthetic users re-consent — designed behavior, not a defect.
 
 ## Phase 4 — Deploy service account + GitHub wiring
 

@@ -28,6 +28,11 @@ from hushh_mcp.services.one_email_kyc_service import (
     OneEmailKycError,
     get_one_email_kyc_service,
 )
+from hushh_mcp.services.scheduler_identity import (
+    SchedulerIdentityError,
+    legacy_shared_token_allowed,
+    verified_scheduler_identity,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -228,9 +233,37 @@ def _watch_renew_auth_enabled() -> bool:
     return environment not in {"development", "dev", "local", "test"}
 
 
+def _unauthorized(reason: str = "") -> HTTPException:
+    detail: dict[str, Any] = {
+        "code": "ONE_EMAIL_WATCH_RENEW_UNAUTHORIZED",
+        "message": "One email watch renewal is not authorized.",
+    }
+    if reason:
+        detail["reason"] = reason
+    return HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=detail)
+
+
 def _require_watch_renew_auth(request: Request) -> None:
+    """OIDC first; the shared header only while the legacy path is still open.
+
+    Both maintenance endpoints used the SAME `X-Hushh-Maintenance-Token` header
+    name, so a value lifted from one job authorised the other. An OIDC token's `aud`
+    claim binds it to one endpoint, which is the property the shared header could
+    not have at any secret length.
+    """
     if not _watch_renew_auth_enabled():
         return
+
+    try:
+        if verified_scheduler_identity(request, "ONE_EMAIL_WATCH_RENEW") is not None:
+            return
+    except SchedulerIdentityError as error:
+        # Presented and invalid. Never falls through to the shared-header path.
+        raise _unauthorized(error.reason) from error
+
+    if not legacy_shared_token_allowed():
+        raise _unauthorized()
+
     expected = str(os.getenv("ONE_EMAIL_WATCH_RENEW_TOKEN") or "").strip()
     if not expected:
         raise HTTPException(
@@ -242,13 +275,7 @@ def _require_watch_renew_auth(request: Request) -> None:
         )
     provided = str(request.headers.get("x-hushh-maintenance-token") or "").strip()
     if not provided or not hmac.compare_digest(provided, expected):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail={
-                "code": "ONE_EMAIL_WATCH_RENEW_UNAUTHORIZED",
-                "message": "One email watch renewal is not authorized.",
-            },
-        )
+        raise _unauthorized()
 
 
 @router.post("/email/webhook")

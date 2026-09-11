@@ -11,6 +11,7 @@ import {
 } from "@/lib/services/cache-service";
 import {
   normalizeOneSetupCapabilityId,
+  ONE_CLOUD_SETUP_PREREQUISITE_ID,
   ONE_RUNTIME_SETUP_PREREQUISITE_ID,
 } from "@/lib/onboarding/setup-capability-ids";
 import { OneSetupCompletionHintService } from "@/lib/services/one-setup-completion-hint-service";
@@ -456,6 +457,26 @@ export class PreVaultUserStateService {
   ): boolean {
     return Boolean(
       state?.setupCapabilityIds.includes(ONE_RUNTIME_SETUP_PREREQUISITE_ID),
+    );
+  }
+
+  /**
+   * Has this person connected their own cloud, and has hushh PROVEN it can reach it?
+   *
+   * There is deliberately no `markOneCloudReady` beside `markOneRuntimeChoice`. The AI
+   * choice is a preference the client legitimately asserts; a cloud is an
+   * infrastructure fact hushh must verify, so this marker is written SERVER-SIDE by
+   * `POST /api/one/runtime/byoc/project/save` only after it has minted a token against
+   * the person's bootstrap account. A cloud marker a client could set would be a gate
+   * that does nothing -- the person would pass the step without hushh being able to
+   * build anything in their project, and the failure would surface much later, during
+   * provisioning, in their own cloud.
+   */
+  static hasOneCloudProject(
+    state: PreVaultUserState | null | undefined,
+  ): boolean {
+    return Boolean(
+      state?.setupCapabilityIds.includes(ONE_CLOUD_SETUP_PREREQUISITE_ID),
     );
   }
 

@@ -10,6 +10,7 @@ OneLocationAgentService and scope checks inside @hushh_tool.
 
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timezone
 from typing import Any
 from uuid import UUID
@@ -28,6 +29,13 @@ def _ctx() -> HushhContext:
 
 
 def _service() -> OneLocationAgentService:
+    context = _ctx()
+    if "location" in context.service_ports:
+        return context.service_ports["location"]
+    from hushh_mcp.runtime_settings import pod_mode
+
+    if pod_mode():
+        raise RuntimeError("Location storage is unavailable in this pod")
     return OneLocationAgentService()
 
 
@@ -74,7 +82,7 @@ async def list_incoming_location_shares() -> dict[str, Any]:
     """List active shares where the current user is the recipient (so they can be
     viewed). Returns grant ids + owner names; coordinate-free (no lat/lng)."""
     context = _ctx()
-    state = _service().list_state(user_id=context.user_id)
+    state = await asyncio.to_thread(_service().list_state, user_id=context.user_id)
     shares = [
         {
             "grantId": grant.get("id"),
@@ -92,7 +100,7 @@ async def list_incoming_location_shares() -> dict[str, Any]:
 async def list_public_links() -> dict[str, Any]:
     """List the user's active public location links (id + expiry). Coordinate-free."""
     context = _ctx()
-    state = _service().list_state(user_id=context.user_id)
+    state = await asyncio.to_thread(_service().list_state, user_id=context.user_id)
     links = [
         {
             "inviteId": invite.get("id"),
@@ -193,7 +201,7 @@ async def request_incoming_choice() -> dict[str, Any]:
     """Ask the user whose incoming shared location to view. Coordinate-free
     single-select whose options carry real grant ids."""
     context = _ctx()
-    state = _service().list_state(user_id=context.user_id)
+    state = await asyncio.to_thread(_service().list_state, user_id=context.user_id)
     incoming = [g for g in state.get("receivedGrants", []) if g.get("status") == "active"]
     if not incoming:
         return {"incomingShares": []}

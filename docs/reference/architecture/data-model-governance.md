@@ -36,6 +36,20 @@ Use these in order:
 | `audit_regulated` | consent, internal access, funding/trading evidence | long-retention metadata only |
 | `reference` | shared market/reference data | rebuildable or refreshable |
 
+## Lifecycle Status
+
+`lifecycle_status` says where a family sits in its rollout, not what it stores. Unlike `data_class` it has **no** `allowed_*` enum in the contract: `scripts/ops/data_model_audit.py` only requires the field to be non-empty, and the single behavioural branch is `startswith("legacy")`, which pulls the family's tables into the legacy-write scan. Because nothing validates the spelling, keep the vocabulary small and add a row here before introducing a new value.
+
+| Status | Meaning |
+| --- | --- |
+| `current` | Applied everywhere through the release migration manifest. The default. |
+| `customer0` | Live, but scoped to the Customer Zero rollout rather than general availability. |
+| `dev_only` | Schema carried by the dev-only lane (`consent-protocol/db/dev_migration_manifest.json`, resolved in place from `consent-protocol/db/migrations/parked/`), deliberately absent from `release_migration_manifest.json` and therefore from UAT and production. Promotion requires separate authorization under [migration governance](../operations/migration-governance.md). |
+| `transitional` | Retained for a bounded compatibility window during an in-flight migration. |
+| `legacy_migration` | Read and cleanup only. A new write is a governance failure, and the audit scans runtime source for one. |
+
+`dev_only` is a statement about which **lane** carries the schema, not about any one database's current contents — the same way `current` does not assert a row count. A family may only be `dev_only` while its migrations stay under `migrations/parked/`; the moment they are renumbered into `migrations/` proper it becomes `current`.
+
 ## Adding Or Changing Tables
 
 Before a migration is production-ready:
@@ -133,6 +147,61 @@ Provider-derived data becomes durable user memory only after a consented, encryp
 - Consent/audit and funding/trading records remain long-retention metadata when accountability or regulatory evidence requires it.
 - Reference data is not user-delete scoped and should be rebuildable.
 
+### Gmail cache maintenance
+
+Gmail token refresh binds its result to the observed active connection's encrypted
+refresh-token envelope and token timestamp. A delayed success or failure cannot
+overwrite a disconnect, reconnect or competing refresh; it returns a retryable 409.
+Revoked connections refuse credential decryption. Provider error details are omitted
+from refresh failures and stored reauthorization diagnostics. This fences refresh
+persistence only: already admitted provider calls, disconnect ordering, receipt and
+preview publication still require separate lifecycle handling.
+
+Terminal sync-run metadata expires after **30 days** from `completed_at`. For
+legacy terminal rows without a completion timestamp, `updated_at` is the
+conservative fallback: an old request may have completed recently. A row without
+either timestamp remains unresolved and is not deleted. Queued/running runs are
+excluded. Preview artifacts expire **seven days** after `created_at`; subsequent
+updates or PKM persistence acknowledgement do not renew that period.
+
+These are engineering policy choices: one month supports incident investigation,
+while the richer, rebuildable preview has a shorter lifetime. They are not measured
+optimal values. Runtime readers refuse expired rows independently of physical
+compaction. Separately consented encrypted PKM remains authoritative and is untouched.
+
+Use the existing `data-model-audit` workflow for manual maintenance. Populate the
+following variables through the existing authorized credential/runbook path, keeping
+their values in process memory. The command accepts variable **names**, not secrets
+or owner identifiers in arguments:
+
+```bash
+uv run --project consent-protocol python scripts/ops/gmail_cache_retention.py \
+  --database-url-env GMAIL_RETENTION_DATABASE_URL \
+  --owner-id-env GMAIL_RETENTION_OWNER_ID
+```
+
+The default is a read-only report for exactly one explicit owner. After reviewing the
+bound environment and owner scope, add `--apply` to delete one batch per table;
+`--batch-limit` defaults to 200 and cannot exceed 1,000. Re-run and inspect aggregate
+remaining counts until the authorized scope is drained. Exit 0 means the observed
+scope had no expired or undated rows; exit 2 means remaining or unavailable scope;
+exit 1 means failure. A capped count is a lower bound. Locked rows remain visible in
+remaining observations, and errors roll back the batch. An uncertain commit never
+reports success; a repeated batch is idempotent.
+
+Every invocation uses one PostgreSQL transaction clock, explicit public tables,
+owner predicates, row locking, RLS-filter refusal, and statement/lock timeouts.
+`LIMIT` bounds returned/deleted rows, not scan cost. Existing owner-prefix indexes
+serve this deliberately owner-scoped tool; global cleanup is not supported. A
+large owner can hit the timeout and remains incomplete until query/index remediation.
+
+No schedule is added. Physical rows can remain after read expiry until manual
+maintenance runs. `scope_drained` describes READ COMMITTED observations across two
+cache families; it is not an atomic fleet snapshot, a fence against later writes, or
+provider/backup/account erasure evidence. Disconnect cleanup and stale-worker
+publication fencing are separate outstanding corrections. The report-only retention
+registry remains an inventory declaration, not proof that a scheduled job exists.
+
 ## Legacy Memory Rule
 
 Legacy tables such as `pkm_data`, `pkm_embeddings`, `world_model_*`, old chat tables, and old portfolio/world-model tables are migration surfaces only.
@@ -169,6 +238,53 @@ Backend:
 - agents never bypass consent, vault, or service boundaries
 
 ## Required Verification
+
+The default data-model audit is a static migration/contract and legacy-write
+scan. Its successful result does not verify a deployed database. Optional live
+statistics use the existing backend environment and an already resolved,
+authorized connection variable:
+
+```bash
+uv run --directory consent-protocol ../bin/hushh codex data-model-audit --database-url-env AUDIT_DATABASE_URL --json
+```
+
+Resolve credentials through the existing environment runbook in process memory;
+do not paste their values into shell commands or artifacts. The legacy
+`--database-url` flag remains compatible but exposes its argument to the shell
+and process listing. The env-name path avoids copying that value into child
+process arguments or reports.
+
+`live_observation` distinguishes `not_requested`, `verified`, and `unavailable`.
+A requested missing connection, driver failure, refused query, timeout, or
+malformed result fails the audit while preserving the static findings. A verified
+empty query is distinct from an unavailable query. Live statistics cover only the
+25 largest `public` tables and catalog row estimates. They do not establish a
+complete table inventory, schema/migration alignment, ownership, encryption,
+retention, deletion, or intended deployment identity. Record the revision and
+environment separately and keep the schema checks below.
+
+The connection is read-only, with connect, statement, lock, and idle-transaction
+timeouts. These bound individual operations, not total wall-clock time across
+multiple connection hosts. Closing the connection rolls back its read-only
+transaction; this audit does not run migrations or repair information.
+
+Add `--pkm-aggregates` for five explicit structural observations: current envelope
+field presence and negative revisions; owner/domain key presence; blob/manifest
+association; archived-segment parent/envelope shape; and commit/revision scope
+consistency. These queries return counts only, after a real-table and column/type
+preflight. PostgreSQL's `row_security=off` rejects a query that would otherwise
+return RLS-filtered information; it does not grant access or bypass a policy.
+Insufficient privilege, missing schema, timeouts and malformed results remain
+unavailable. A verified query with positive findings fails the audit and never
+authorizes repair or deletion. `NULL` archived commit references are legitimate.
+
+These observations do not decrypt or validate ciphertext, establish valid owner
+identities or consent, measure retention, or prove erasure. An aggregate returns
+few rows but may scan an entire relation; statement/lock timeouts bound that work.
+The database rehearsal in `test_data_model_audit_postgres.py` creates and removes
+its own socket-only PostgreSQL cluster, with synthetic defects and a role whose
+reads would be filtered. A test host lacking server binaries records a skip;
+run it on a host with those binaries before crediting that rehearsal.
 
 Run the smallest relevant bundle, and include the data-model audit for any table, migration, cache, or workflow-state change:
 

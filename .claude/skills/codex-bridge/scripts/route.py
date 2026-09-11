@@ -147,7 +147,7 @@ def discover(repo_root: Path) -> tuple[list[Entry], list[Entry], list[Entry]]:
                     manifest=manifest,
                 )
             )
-    agents_dir = repo_root / ".codex" / "agents"
+    agents_dir = repo_root / "agents"
     if agents_dir.is_dir():
         for p in sorted(agents_dir.glob("*.toml")):
             manifest = _parse_agent_toml(p)
@@ -780,7 +780,7 @@ _AGENT_HANDOFF_SHAPE = [
 
 
 def compose_agent_briefing(agent: Entry, skills_by_id: dict[str, Entry]) -> str:
-    """Compose a briefing for a repo-scoped custom agent under .codex/agents/."""
+    """Compose a briefing for a repo-scoped custom agent under agents/."""
     m = agent.manifest
     authority = _agent_authority_kind(agent)
     authority_line = (
@@ -1353,7 +1353,7 @@ def route(argv: list[str]) -> tuple[str, int]:
     if not skills and not workflows and not agents:
         if args.hook:
             return ("", 0)
-        return (f"_No `.codex/skills/`, `.codex/workflows/`, or `.codex/agents/` entries under {repo_root}._\n", 1)
+        return (f"_No `.codex/skills/`, `.codex/workflows/`, or `agents/` entries under {repo_root}._\n", 1)
 
     if args.hook:
         query = _read_hook_stdin()

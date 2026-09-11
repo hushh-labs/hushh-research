@@ -305,6 +305,7 @@ def _build(
     gemini_byok_transport: GeminiByokTransport = "developer_api",
     vertex_project: str | None = None,
     vertex_location: str | None = None,
+    puppy_device_id: str | None = None,
 ) -> Any:
     if provider == "gemini":
         return _gemini_client(
@@ -326,6 +327,17 @@ def _build(
         from .openai_transport import GROK_BASE_URL, OpenAITransport
 
         return OpenAITransport(api_key=api_key, base_url=GROK_BASE_URL, provider="grok")
+    if provider == "puppy":
+        from .puppy_local_transport import select_puppy_transport
+        from .puppy_transport import PuppyRelayTransport
+
+        # Owner-direct first: inside a pod whose configuration keeps the in-pod broker
+        # on, a device linked to THIS pod is served over that link and the hub is never
+        # dialled. A device that still dials the hub keeps the relay transport.
+        local = select_puppy_transport(device_id=puppy_device_id)
+        if local is not None:
+            return local
+        return PuppyRelayTransport(api_key=api_key, device_id=puppy_device_id)
     # normalize_provider already rejects unknown providers, so this is defensive.
     raise ValueError(f"Unsupported runtime provider: {provider!r}")
 
@@ -337,6 +349,7 @@ def build_runtime_client(
     gemini_byok_transport: GeminiByokTransport = "developer_api",
     vertex_project: str | None = None,
     vertex_location: str | None = None,
+    puppy_device_id: str | None = None,
 ) -> Any:
     """BYOK client: the user supplies the key for the chosen provider."""
 
@@ -353,6 +366,7 @@ def build_runtime_client(
         gemini_byok_transport=gemini_byok_transport,
         vertex_project=vertex_project,
         vertex_location=vertex_location,
+        puppy_device_id=puppy_device_id,
     )
 
 

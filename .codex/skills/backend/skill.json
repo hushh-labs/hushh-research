@@ -31,7 +31,8 @@
     "consent-protocol/README.md",
     "consent-protocol/docs/README.md",
     "docs/reference/architecture/architecture.md",
-    "docs/project_context_map.md"
+    "docs/project_context_map.md",
+    "docs/reference/architecture/pod-data-door.md"
   ],
   "required_commands": [
     "./bin/hushh protocol --help",

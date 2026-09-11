@@ -19,6 +19,24 @@ function requiredParam(
   return (params.get(name) || "").trim();
 }
 
+function trustedDeviceEnvironment(hostname: string): "dev" | "uat" | "production" {
+  const normalized = hostname.trim().toLowerCase();
+  if (normalized === "one.hushh.ai") return "production";
+  if (normalized === "dev.one.hushh.ai") return "dev";
+  return "uat";
+}
+
+function authorizationErrorMessage(payload: unknown): string {
+  const code =
+    typeof payload === "object" && payload !== null && "detail" in payload
+      ? (payload as { detail?: { code?: unknown } }).detail?.code
+      : undefined;
+  if (code === "TRUSTED_DEVICE_DISABLED") {
+    return "Device approval is not available right now.";
+  }
+  return "We couldn’t approve this device. Try again.";
+}
+
 export default function TrustedDeviceAuthorizePage() {
   const searchParams = useSearchParams();
   const { user } = useAuth();
@@ -59,9 +77,7 @@ export default function TrustedDeviceAuthorizePage() {
       const response = await ApiService.authorizeTrustedDevice(request);
       const payload = await response.json();
       if (!response.ok || typeof payload.redirect_url !== "string") {
-        throw new Error(
-          payload?.detail?.message || "This device could not be authorized.",
-        );
+        throw new Error(authorizationErrorMessage(payload));
       }
       const handoffPublicKey =
         typeof payload.vault_handoff_public_key === "string"
@@ -77,10 +93,7 @@ export default function TrustedDeviceAuthorizePage() {
             expiresAt: Number(payload.expires_at || 0),
             recipientPublicKey: handoffPublicKey,
             hostname: window.location.hostname,
-            environment:
-              window.location.hostname === "one.hushh.ai"
-                ? "production"
-                : "uat",
+            environment: trustedDeviceEnvironment(window.location.hostname),
           });
           if (handoff) {
             const attachResponse =
@@ -129,12 +142,7 @@ export default function TrustedDeviceAuthorizePage() {
           Connect this Hermes device
         </h1>
         <p className="mt-3 text-sm leading-6 text-muted-foreground">
-          Approve this private computer as an extension of One. The vault
-          passphrase remains local to Hermes and is never sent to Hussh. When
-          this browser can use an existing One passkey, Touch ID can secure the
-          device without asking for the passphrase again. Each signed device
-          proof can issue a short-lived vault-owner capability for protected
-          actions, including confirmed PKM writes.
+          Approve this computer to use One. Your passphrase stays on Hermes.
         </p>
 
         <dl className="mt-6 rounded-2xl bg-muted/50 p-4 text-sm">
@@ -153,7 +161,7 @@ export default function TrustedDeviceAuthorizePage() {
           <div className="mt-2 flex justify-between gap-4">
             <dt className="text-muted-foreground">Access</dt>
             <dd className="text-right font-medium">
-              Trusted until revoked; short-lived action capabilities
+              Trusted until you revoke it
             </dd>
           </div>
         </dl>
@@ -164,8 +172,7 @@ export default function TrustedDeviceAuthorizePage() {
             aria-hidden
           />
           <p>
-            You can revoke this device at any time from Profile → Security →
-            Devices.
+            You can revoke it anytime in Profile → Security → Devices.
           </p>
         </div>
 
@@ -174,8 +181,7 @@ export default function TrustedDeviceAuthorizePage() {
         ) : null}
         {!complete ? (
           <p className="mt-5 text-sm text-destructive">
-            The Hermes authorization request is incomplete. Return to Hermes and
-            try again.
+            This approval link is incomplete. Return to Hermes and try again.
           </p>
         ) : null}
 

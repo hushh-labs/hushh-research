@@ -21,6 +21,7 @@
  */
 
 import { Capacitor, CapacitorHttp } from "@capacitor/core";
+import { recordVoiceCell } from "@/lib/voice/voice-cell";
 import {
   HushhVault,
   HushhAuth,
@@ -72,6 +73,7 @@ import {
   type AuthSessionOwnerSnapshot,
   isValidatedAuthSessionOwnerCurrent,
   snapshotValidatedAuthSessionOwner,
+  snapshotAuthSessionGeneration,
 } from "@/lib/auth/session-owner";
 
 const AUTH_REFRESH_RETRY_HEADER = "X-Hushh-Auth-Refresh-Retry";
@@ -487,6 +489,14 @@ async function classifyVaultOwnerAuthFailure(
 const WEB_FETCH_TIMEOUT_MS = 60_000;
 
 /**
+ * The pod turn's own ceiling, one rung above the Next proxy (165 s), the hub
+ * proxy (160 s) and the pod route's typed 504 (155 s), so the pod's answer or its
+ * named timeout always reaches the person before this client gives up. Pinned by
+ * consent-protocol/tests/test_timeout_ladder.py on the server side.
+ */
+export const POD_TURN_FETCH_TIMEOUT_MS = 170_000;
+
+/**
  * `fetch` has no default timeout. A request that never receives a response
  * leaves its promise pending for as long as the tab lives, and every caller
  * awaiting it spins with no error and no way back. The native branch of
@@ -500,6 +510,10 @@ const WEB_FETCH_TIMEOUT_MS = 60_000;
 export async function fetchWithWebTimeout(
   url: string,
   init: RequestInit,
+  // Per-call override for the one route that legitimately outlives the default:
+  // an owner-direct pod turn on a local model (170 s, one rung above the hub
+  // proxy's 160 s). Everything else keeps the 60 s ceiling.
+  timeoutMs: number = WEB_FETCH_TIMEOUT_MS,
 ): Promise<Response> {
   const controller = new AbortController();
   const callerSignal = init.signal ?? null;
@@ -514,11 +528,11 @@ export async function fetchWithWebTimeout(
   const timer = setTimeout(() => {
     controller.abort(
       new DOMException(
-        `Request timed out after ${WEB_FETCH_TIMEOUT_MS}ms`,
+        `Request timed out after ${timeoutMs}ms`,
         "TimeoutError",
       ),
     );
-  }, WEB_FETCH_TIMEOUT_MS);
+  }, timeoutMs);
 
   try {
     return await fetch(url, { ...init, signal: controller.signal });
@@ -528,10 +542,17 @@ export async function fetchWithWebTimeout(
   }
 }
 
+/**
+ * `RequestInit` plus the one knob a caller may turn: a per-call ceiling for the
+ * request. Web and native both honour it; the retry path carries it forward.
+ */
+export type ApiFetchOptions = RequestInit & { timeoutMs?: number };
+
 async function apiFetch(
   path: string,
-  options: RequestInit = {},
+  options: ApiFetchOptions = {},
 ): Promise<Response> {
+  const { timeoutMs: requestTimeoutMs, ...fetchInit } = options;
   const initiatingAuthUser = AuthService.getCurrentUser();
   // Native auth may intentionally live only in the Capacitor SDK. Bind its
   // refresh to the central validated owner generation, not an absent JS user.
@@ -753,6 +774,11 @@ async function apiFetch(
       .catch(() => "");
     const normalized = text.toLowerCase();
     return (
+      // Preferred: the backend's typed contract code (api/utils/firebase_auth.py).
+      // Keying off the stable code, not prose, is what makes "don't sign out on a
+      // transient auth-provider outage" hold by construction rather than by luck.
+      normalized.includes("auth_provider_unavailable") ||
+      normalized.includes("authentication service temporarily unavailable") ||
       normalized.includes("firebase validation unavailable") ||
       normalized.includes("firebase id token verification timed out") ||
       normalized.includes("auth/network-request-failed") ||
@@ -838,8 +864,10 @@ async function apiFetch(
         path.includes("/ria/profile/refresh-license");
       // 90s ceiling for the RIA scrape routes; a generous 60s otherwise so we
       // only ever bound a genuinely hung request (native calls were previously
-      // unbounded — keep legitimately-slow uploads/downloads working).
-      const readTimeoutMs = isLongRunningRoute ? 90_000 : 60_000;
+      // unbounded — keep legitimately-slow uploads/downloads working). A caller
+      // that knows better (the owner-direct pod turn) names its own ceiling.
+      const readTimeoutMs =
+        requestTimeoutMs ?? (isLongRunningRoute ? 90_000 : 60_000);
       const request: {
         url: string;
         method: string;
@@ -863,7 +891,7 @@ async function apiFetch(
         if (options.body instanceof FormData) {
           // Multipart uploads route through native plugins; keep fetch fallback for safety.
           const formResponse = await fetch(url, {
-            ...options,
+            ...fetchInit,
             credentials: "include",
             headers: mergedHeaders,
           });
@@ -948,11 +976,15 @@ async function apiFetch(
       return await settleAuthenticatedResponse(response);
     }
 
-    const response = await fetchWithWebTimeout(url, {
-      ...options,
-      credentials: "include",
-      headers: mergedHeaders,
-    });
+    const response = await fetchWithWebTimeout(
+      url,
+      {
+        ...fetchInit,
+        credentials: "include",
+        headers: mergedHeaders,
+      },
+      requestTimeoutMs ?? WEB_FETCH_TIMEOUT_MS,
+    );
     return await settleAuthenticatedResponse(response);
   } catch (error) {
     recordApiRequestMetric(null);
@@ -1589,7 +1621,7 @@ export class ApiService {
    */
   static async apiFetch(
     path: string,
-    options: RequestInit = {},
+    options: ApiFetchOptions = {},
   ): Promise<Response> {
     return apiFetch(path, options);
   }
@@ -1703,111 +1735,6 @@ export class ApiService {
         context_structured: data.plannerV2?.structuredContext,
         memory_short: data.plannerV2?.memoryShort || [],
         memory_retrieved: data.plannerV2?.memoryRetrieved || [],
-      }),
-      signal: data.signal,
-    });
-  }
-
-  static async composeOneVoiceReply(data: {
-    userId: string;
-    vaultOwnerToken: string;
-    transcript: string;
-    response: Record<string, unknown>;
-    appState?: AppRuntimeState;
-    context?: Record<string, unknown>;
-    structuredContext?: unknown;
-    turnId?: string;
-    responseId?: string;
-    mode?: string;
-    actionId?: string | null;
-    slots?: Record<string, unknown>;
-    guards?: string[];
-    replyStrategy?: string;
-    clarification?: Record<string, unknown> | null;
-    actionCompletion?: string | null;
-    actionResult?: Record<string, unknown> | null;
-    memoryShort?: unknown[];
-    memoryRetrieved?: unknown[];
-    voiceTurnId?: string;
-    signal?: AbortSignal;
-  }): Promise<Response> {
-    return voiceFetch("/api/one/voice/compose", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${data.vaultOwnerToken}`,
-        ...(data.voiceTurnId ? { "X-Voice-Turn-Id": data.voiceTurnId } : {}),
-      },
-      body: JSON.stringify({
-        user_id: data.userId,
-        transcript: data.transcript,
-        response: data.response,
-        app_state: data.appState,
-        context: data.context || {},
-        context_structured: data.structuredContext || {},
-        turn_id: data.turnId,
-        response_id: data.responseId,
-        mode: data.mode,
-        action_id: data.actionId,
-        slots: data.slots || {},
-        guards: data.guards || [],
-        reply_strategy: data.replyStrategy,
-        clarification: data.clarification ?? null,
-        action_completion: data.actionCompletion ?? null,
-        action_result: data.actionResult ?? null,
-        memory_short: data.memoryShort || [],
-        memory_retrieved: data.memoryRetrieved || [],
-      }),
-      signal: data.signal,
-    });
-  }
-
-  static async planOneGoal(data: {
-    vaultOwnerToken: string;
-    transcript?: string | null;
-    actionId?: string | null;
-    candidateActionId?: string | null;
-    slots?: Record<string, unknown>;
-    appState?: AppRuntimeState;
-    entrypoint: "voice" | "chat" | "typed_search" | "command_bar" | "ui";
-    signal?: AbortSignal;
-  }): Promise<Response> {
-    return voiceFetch("/api/one/goal/plan", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${data.vaultOwnerToken}`,
-      },
-      body: JSON.stringify({
-        transcript: data.transcript ?? null,
-        action_id: data.actionId ?? null,
-        candidate_action_id: data.candidateActionId ?? null,
-        slots: data.slots || {},
-        app_state: data.appState || {},
-        entrypoint: data.entrypoint,
-      }),
-      signal: data.signal,
-    });
-  }
-
-  static async composeOneGoal(data: {
-    vaultOwnerToken: string;
-    goalId: string;
-    actionId: string;
-    state: string;
-    events?: Array<Record<string, unknown>>;
-    result?: Record<string, unknown> | null;
-    signal?: AbortSignal;
-  }): Promise<Response> {
-    return voiceFetch("/api/one/goal/compose", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${data.vaultOwnerToken}`,
-      },
-      body: JSON.stringify({
-        goal_id: data.goalId,
-        action_id: data.actionId,
-        state: data.state,
-        events: data.events || [],
-        result: data.result ?? null,
       }),
       signal: data.signal,
     });
@@ -1940,6 +1867,39 @@ export class ApiService {
         headers: { Authorization: `Bearer ${authToken}` },
       },
     );
+  }
+
+  /**
+   * Revoke a device everywhere it is trusted: the pod FIRST (revocation is
+   * authoritative there once the owner dials the pod directly), then the hub.
+   *
+   * When the pod cannot be reached the revocation is not lost and not pretended:
+   * an owner-signed intent is couriered through the hub and `pod.pending` names
+   * it, so the surface can say "revocation pending delivery" and nothing else.
+   * Without a pin (no direct path yet) only the hub leg runs, as before.
+   */
+  static async revokeTrustedDeviceEverywhere(deviceId: string): Promise<{
+    hub: Response;
+    pod:
+      | { delivered: true; pending: null }
+      | { delivered: false; pending: import("./owner-pod-endpoint").PendingRevocation | null }
+      | { delivered: false; pending: null; unpinned: true };
+  }> {
+    const ownerPod = await import("./owner-pod-endpoint");
+    const uid = AuthService.getCurrentUser()?.uid;
+    let pod:
+      | { delivered: true; pending: null }
+      | { delivered: false; pending: import("./owner-pod-endpoint").PendingRevocation | null }
+      | { delivered: false; pending: null; unpinned: true } = {
+      delivered: false,
+      pending: null,
+      unpinned: true,
+    };
+    if (uid && (await ownerPod.loadPinnedEndpoint(uid).catch(() => null))) {
+      pod = await ownerPod.revokeAtPod(uid, deviceId, await this.ownerPodTransport());
+    }
+    const hub = await this.revokeTrustedDevice(deviceId);
+    return { hub, pod };
   }
 
   /**
@@ -2341,30 +2301,6 @@ export class ApiService {
   }
 
   // ==================== Consent ====================
-
-  /**
-   * Get session token for consent protocol
-   */
-  static async getSessionToken(data: {
-    userId: string;
-    scope: string;
-    agentId?: string;
-  }): Promise<Response> {
-    const firebaseIdToken = await this.getFirebaseToken();
-    if (!firebaseIdToken) {
-      return new Response(
-        JSON.stringify({ error: "Missing Firebase ID token" }),
-        { status: 401 },
-      );
-    }
-    return apiFetch("/api/consent/session-token", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${firebaseIdToken}`,
-      },
-      body: JSON.stringify(data),
-    });
-  }
 
   /**
    * Logout from consent protocol
@@ -3348,13 +3284,50 @@ export class ApiService {
 
   static async createOneAdkRelaySession(data?: {
     signal?: AbortSignal;
+    requireAuthenticated?: boolean;
   }): Promise<{
     relay_ticket: string;
     expires_at: number;
     model: string;
     tier: string;
+    // Public onboarding uses the hub. Private voice refuses admission until
+    // the owner's pod can execute the existing Live protocol.
+    cell?: "hub" | "pod";
+    cell_reason?: string | null;
   }> {
-    const firebaseIdToken = await this.getFirebaseToken();
+    const owner = snapshotValidatedAuthSessionOwner();
+    const generation = snapshotAuthSessionGeneration();
+    const requireAuthenticated = data?.requireAuthenticated === true || Boolean(owner || AuthService.getCurrentUser());
+    const ownerIsCurrent = () => Boolean(
+      generation && isValidatedAuthSessionOwnerCurrent(generation) &&
+      (owner || AuthService.getCurrentUser() === null),
+    );
+    let firebaseIdToken: string | undefined;
+    if (requireAuthenticated) {
+      if (!owner) {
+        throw Object.assign(new Error("Sign-in is still being verified. Please retry."), { status: 401 });
+      }
+      try {
+        firebaseIdToken = await AuthService.getIdToken(true) || undefined;
+      } catch (error) {
+        const code = authSessionInvalidationCodeFromFirebaseError(error);
+        if (code && ownerIsCurrent()) {
+          dispatchAuthSessionInvalidated({ code, path: "/api/one/adk/relay-session", userId: owner.userId });
+        }
+        throw Object.assign(new Error(code ? "Sign in again to start voice." : "Sign-in could not be verified for voice. Please retry."), {
+          status: code ? 401 : 503,
+          code: code || "AUTH_PROVIDER_UNAVAILABLE",
+        });
+      }
+      if (!firebaseIdToken || decodeFirebaseTokenSubject(firebaseIdToken) !== owner.userId) {
+        throw Object.assign(new Error("Sign in again to start voice."), { status: 401 });
+      }
+    } else {
+      firebaseIdToken = await this.getFirebaseToken();
+    }
+    if (!ownerIsCurrent()) {
+      throw Object.assign(new Error("The signed-in account changed. Start voice again."), { status: 401 });
+    }
     const response = await ApiService.apiFetch("/api/one/adk/relay-session", {
       method: "POST",
       headers: {
@@ -3367,13 +3340,24 @@ export class ApiService {
       signal: data?.signal,
     });
     if (!response.ok) {
+      const body = await response.json().catch(() => null);
+      if (response.status === 503 && body?.detail?.code === "AGENT_NOT_READY") {
+        throw Object.assign(
+          new Error("Private-agent voice is unavailable. Use your private agent's typed chat."),
+          { status: 503, code: "AGENT_NOT_READY" },
+        );
+      }
       const error = new Error(
         `One voice relay session failed: ${response.status}`,
       ) as Error & { status: number };
       error.status = response.status;
       throw error;
     }
-    return response.json();
+    const relaySession = await response.json();
+    if (!ownerIsCurrent()) {
+      throw Object.assign(new Error("The signed-in account changed. Start voice again."), { status: 401 });
+    }
+    return relaySession;
   }
 
   /**
@@ -3447,6 +3431,996 @@ export class ApiService {
   }
 
   /**
+   * Tell the server a person chose the hussh-managed runtime, and let it verify.
+   *
+   * Choosing managed used to be an entirely client-side act: the mode went into
+   * the user's own PKM vault and no server route was called at all. Managed is the
+   * DEFAULT mode, so for most people the server never learned an AI connection
+   * existed — and provisioning a private agent is gated on exactly that event. The
+   * default onboarding path therefore finished with no agent, no error, and nothing
+   * anywhere saying so.
+   *
+   * The server probes the managed runtime before answering, so a "ready" here means
+   * the same thing it means for a BYOK key: something actually generated.
+   */
+  static async selectManagedGeminiRuntime(): Promise<{
+    status: "ready";
+    model: string;
+    location: string;
+    agentScheduled: boolean;
+    agentReason: string;
+  }> {
+    const firebaseIdToken = await this.getFirebaseToken();
+    const response = await ApiService.apiFetch(
+      "/api/one/runtime/managed/select",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(firebaseIdToken
+            ? { Authorization: `Bearer ${firebaseIdToken}` }
+            : {}),
+        },
+        body: JSON.stringify({}),
+      },
+    );
+    if (!response.ok) {
+      // Surface the typed schedule-time cloud verdicts so the UI can route a person
+      // to the right recovery (reconnect a gone project vs re-authorize a revoked
+      // grant) instead of a generic "not ready". Anything else stays the generic code.
+      const body = await response.json().catch(() => null);
+      const code =
+        typeof body?.detail?.code === "string" ? body.detail.code : null;
+      if (code === "CLOUD_PROJECT_GONE" || code === "CLOUD_GRANT_REVOKED") {
+        throw new Error(code);
+      }
+      throw new Error("MANAGED_RUNTIME_NOT_READY");
+    }
+    return response.json();
+  }
+
+  /**
+   * The pre-filled, editable name we suggest for a person's own cloud project.
+   *
+   * Stable for a given person, so reloading the page or retrying a failed creation
+   * shows the same name. A suggestion that changed under someone between seeing it
+   * and accepting it would be a poor thing to do to a person naming infrastructure
+   * they are about to own.
+   */
+  static async suggestByocProject(): Promise<{
+    projectId: string;
+    displayName: string;
+    editable: boolean;
+    rationale: string;
+    creationModes: string[];
+  }> {
+    const firebaseIdToken = await this.getFirebaseToken();
+    const response = await ApiService.apiFetch(
+      "/api/one/runtime/byoc/project/suggest",
+      {
+        method: "GET",
+        headers: {
+          ...(firebaseIdToken
+            ? { Authorization: `Bearer ${firebaseIdToken}` }
+            : {}),
+        },
+      },
+    );
+    if (!response.ok) {
+      throw new Error("BYOC_SUGGESTION_UNAVAILABLE");
+    }
+    return response.json();
+  }
+
+  /**
+   * Is this name one Google will accept, and is it free?
+   *
+   * `available` is deliberately tri-state. `null` means "we could not determine it",
+   * which is NOT the same as taken — Google answers 403 both for "exists but hidden"
+   * and for "you may not look". Rendering `null` as unavailable would tell a person a
+   * perfectly free name is used, and they would rename their cloud for no reason.
+   */
+  static async checkByocProject(projectId: string): Promise<{
+    projectId: string;
+    valid: boolean;
+    available: boolean | null;
+    reason: string;
+  }> {
+    const firebaseIdToken = await this.getFirebaseToken();
+    const response = await ApiService.apiFetch(
+      "/api/one/runtime/byoc/project/check",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(firebaseIdToken
+            ? { Authorization: `Bearer ${firebaseIdToken}` }
+            : {}),
+        },
+        body: JSON.stringify({ projectId }),
+      },
+    );
+    if (!response.ok) {
+      throw new Error("BYOC_CHECK_FAILED");
+    }
+    return response.json();
+  }
+
+  /**
+   * What creating this project would involve — without creating it.
+   *
+   * Returns the guided route (a console link and a `gcloud` line the person runs
+   * themselves) and, when they have named an organization or folder, the disclosure
+   * for letting hushh create it instead. Both come back together on purpose: the
+   * larger permission should be read next to the alternative that avoids it.
+   */
+  static async planByocProject(input: {
+    projectId: string;
+    displayName?: string;
+    parentType?: "organization" | "folder";
+    parentId?: string;
+  }): Promise<{
+    guided: {
+      mode: string;
+      projectId: string;
+      consoleUrl: string;
+      cliCommand: string;
+      billingNote: string;
+      whatHushhGets: string;
+    };
+    delegated: Record<string, string>;
+  }> {
+    const firebaseIdToken = await this.getFirebaseToken();
+    const response = await ApiService.apiFetch(
+      "/api/one/runtime/byoc/project/plan",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(firebaseIdToken
+            ? { Authorization: `Bearer ${firebaseIdToken}` }
+            : {}),
+        },
+        body: JSON.stringify({
+          projectId: input.projectId,
+          displayName: input.displayName ?? "",
+          parentType: input.parentType ?? null,
+          parentId: input.parentId ?? "",
+        }),
+      },
+    );
+    if (!response.ok) {
+      throw new Error("BYOC_PLAN_FAILED");
+    }
+    return response.json();
+  }
+
+  /**
+   * Record WHICH cloud is this person's, and ask hushh to PROVE it can reach it.
+   *
+   * `authorized` comes back from a real impersonation attempt against their bootstrap
+   * account, never from anything this client sends. An unauthorized answer is a normal
+   * outcome rather than an error: a person needs `hushhCaller` from this response in
+   * order to run the authorization script, so the first call is expected to say no.
+   */
+  /**
+   * ONE-CLICK CLOUD, the default. `begin` returns Google's consent URL for an
+   * online-only cloud-platform grant bound to this signed-in person and this
+   * project name; `complete` hands the code back and the server does the rest —
+   * create the project if it does not exist, link the person's own billing,
+   * apply the authorization plan under THEIR transient token, then prove and
+   * record it through the same save path as the manual route. The console link
+   * and the copy-paste script remain as the fallback.
+   */
+  static async beginByocAuthorize(input: { projectId: string }): Promise<{ authUrl: string }> {
+    const firebaseIdToken = await this.getFirebaseToken();
+    const response = await ApiService.apiFetch("/api/one/runtime/byoc/authorize/begin", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(firebaseIdToken ? { Authorization: `Bearer ${firebaseIdToken}` } : {}),
+      },
+      body: JSON.stringify({ projectId: input.projectId }),
+    });
+    if (!response.ok) {
+      let serverMessage = "";
+      try {
+        const body = (await response.json()) as { detail?: { message?: string } | string };
+        serverMessage =
+          typeof body.detail === "string" ? body.detail : (body.detail?.message ?? "");
+      } catch {
+        // fall through to the generic error
+      }
+      throw new Error(serverMessage || "BYOC_AUTHORIZE_BEGIN_FAILED");
+    }
+    return response.json();
+  }
+
+  // The completion is a background JOB now: this returns a claim ticket in
+  // about a second, and getByocSetupStatus serves the live stage record. The
+  // six-stage chain inside one HTTP request lost to three stacked timeouts.
+  static async completeByocAuthorize(input: { code: string; state: string }): Promise<{
+    jobId: string;
+    projectId: string;
+    status: "running";
+  }> {
+    const firebaseIdToken = await this.getFirebaseToken();
+    const response = await ApiService.apiFetch("/api/one/runtime/byoc/authorize/complete", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(firebaseIdToken ? { Authorization: `Bearer ${firebaseIdToken}` } : {}),
+      },
+      body: JSON.stringify({ code: input.code, state: input.state }),
+    });
+    if (!response.ok) {
+      let serverMessage = "";
+      try {
+        const body = (await response.json()) as {
+          detail?: { message?: string } | string;
+          message?: string;
+        };
+        serverMessage =
+          typeof body.detail === "string"
+            ? body.detail
+            : (body.detail?.message ??
+              // The Next proxy's own timeout body carries { error, message }
+              // with no detail. Without this fallback its 504 surfaced as the
+              // generic failure line (audit finding, 2026-08-21).
+              body.message ??
+              "");
+      } catch {
+        // fall through to the generic error
+      }
+      throw new Error(serverMessage || "BYOC_AUTHORIZE_FAILED");
+    }
+    return response.json();
+  }
+
+  /** The live stage record of the person's cloud setup job. */
+  static async getByocSetupStatus(): Promise<{
+    status: "none" | "running" | "recorded" | "failed";
+    stage: string;
+    stages: Array<{ stage: string; at: string }>;
+    projectId: string;
+    errorCode: string | null;
+    errorMessage: string | null;
+    stale: boolean;
+    updatedAt: string | null;
+  }> {
+    const firebaseIdToken = await this.getFirebaseToken();
+    const response = await ApiService.apiFetch("/api/one/runtime/byoc/setup/status", {
+      method: "GET",
+      headers: firebaseIdToken ? { Authorization: `Bearer ${firebaseIdToken}` } : {},
+    });
+    if (!response.ok) {
+      throw new Error("BYOC_SETUP_STATUS_FAILED");
+    }
+    return response.json();
+  }
+
+  /**
+   * What the person is being asked to grant, and the script that grants it.
+   *
+   * The setup page used to print `bash deploy/iam/authorize_byoc_project.sh` -- a path
+   * that exists only in the hussh repository -- so whenever one-click authorization was
+   * unavailable the journey stopped on an instruction nobody could follow. This returns
+   * the script itself, rendered with this person's project already in it, alongside the
+   * disclosure of every role it binds and what hussh never receives.
+   */
+  static async getByocAuthorizationInstructions(): Promise<{
+    projectId: string;
+    bootstrapServiceAccount: string;
+    hushhCaller: string;
+    disclosure: {
+      grants_to_bootstrap_sa?: Array<{ role: string; why: string; scope?: string }>;
+      grants_to_hushh?: Array<{ role: string; on: string; why: string }>;
+      hushh_never_receives?: string[];
+      revocation?: string;
+    };
+    script: string;
+    scriptFilename: string;
+    revokeCommand: string;
+    authorized: boolean;
+  }> {
+    const firebaseIdToken = await this.getFirebaseToken();
+    const response = await ApiService.apiFetch(
+      "/api/one/runtime/byoc/authorize/instructions",
+      {
+        method: "GET",
+        headers: firebaseIdToken
+          ? { Authorization: `Bearer ${firebaseIdToken}` }
+          : {},
+      },
+    );
+    if (!response.ok) {
+      throw new Error("BYOC_AUTHORIZATION_INSTRUCTIONS_FAILED");
+    }
+    return response.json();
+  }
+
+  static async saveByocProject(input: {
+    projectId: string;
+    region?: string;
+    bootstrapServiceAccountId?: string;
+  }): Promise<{
+    projectId: string;
+    region: string;
+    bootstrapServiceAccount: string;
+    authorized: boolean;
+    hushhCaller: string;
+    nextStep: string;
+  }> {
+    const firebaseIdToken = await this.getFirebaseToken();
+    const response = await ApiService.apiFetch(
+      "/api/one/runtime/byoc/project/save",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(firebaseIdToken
+            ? { Authorization: `Bearer ${firebaseIdToken}` }
+            : {}),
+        },
+        body: JSON.stringify({
+          projectId: input.projectId,
+          region: input.region ?? "us-central1",
+          bootstrapServiceAccountId:
+            input.bootstrapServiceAccountId ?? "one-bootstrap",
+        }),
+      },
+    );
+    if (!response.ok) {
+      // Revive the verbatim server reason (today collapsed into a generic string, so
+      // even NO_AGENT_RECORD / "Verify your phone number first" never reached the
+      // page). detail may be a bare string or a typed { code, message }.
+      const body = await response.json().catch(() => null);
+      const msg =
+        typeof body?.detail === "string"
+          ? body.detail
+          : (body?.detail?.message ?? "");
+      throw new Error(msg || "BYOC_SAVE_FAILED");
+    }
+    return response.json();
+  }
+
+  /**
+   * Choose to have hussh host this person's private agent, for now.
+   *
+   * The third door, and the one that makes day zero reachable for someone who
+   * arrives with a Google account and nothing else. Their agent is still their
+   * own instance running the same image, sealed with keys only that pod holds —
+   * and it can be moved into their own project later without losing anything it
+   * has learned.
+   *
+   * The assurance sentence comes back FROM the server rather than being written
+   * here, so the page renders the claim the server actually stands behind. The
+   * honest claim for this tier is "hussh does not read this pod"; "hussh cannot
+   * read this pod" is the one only the user-owned targets earn.
+   */
+  static async selectHostedCloud(): Promise<{
+    deploymentTarget: string;
+    assurance: string;
+    migratable: boolean;
+    nextStep: string;
+  }> {
+    const firebaseIdToken = await this.getFirebaseToken();
+    const response = await ApiService.apiFetch(
+      "/api/one/runtime/byoc/hosted/select",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(firebaseIdToken
+            ? { Authorization: `Bearer ${firebaseIdToken}` }
+            : {}),
+        },
+        body: JSON.stringify({}),
+      },
+    );
+    if (!response.ok) {
+      // Same verbatim-reason revival as the BYOC door: the 409 "verify your
+      // phone first" is a normal step of this journey, not a fault, and a
+      // generic string would strand the person with no next move.
+      const body = await response.json().catch(() => null);
+      const msg =
+        typeof body?.detail === "string"
+          ? body.detail
+          : (body?.detail?.message ?? "");
+      throw new Error(msg || "HOSTED_SELECT_FAILED");
+    }
+    return response.json();
+  }
+
+  /**
+   * Run one turn on this person's own pod, through the private relay.
+   *
+   * The pod is `internal` ingress with no public binding, so the hub is the only
+   * door to it. This does NOT send a consent token: the relay mints a `pkm.read`
+   * grant server-side. The only token a browser holds is the vault-owner master
+   * grant, and sending that would hand the pod everything its person has.
+   *
+   * `AGENT_NOT_READY` is a typed refusal, not a fault — it carries the agent's
+   * real state so the caller can say "starting up" instead of "something went
+   * wrong" during the window when a person is most likely to assume the latter.
+   */
+  /**
+   * Ask for the caller's own private agent to be stood up.
+   *
+   * Takes the VAULT_OWNER token, not the Firebase one: creating compute that will
+   * hold this person's sealed holdings is an owner act, and the backend gates it on
+   * `require_vault_owner_token` plus a verified phone.
+   *
+   * Sends no pod key. The pod generates its own keypair inside its runtime and
+   * publishes the public half afterwards; the browser has none and never will. The
+   * backend parks the row in `connecting` and completes the handshake on the status
+   * poll the dashboard is already running.
+   *
+   * A pod is billable compute. `capped` comes back when the fleet ceiling is reached
+   * — the caller must render that as "capped", never as a failure.
+   */
+  static async provisionPersonalAgent(input: {
+    vaultOwnerToken: string;
+    signal?: AbortSignal;
+  }): Promise<{
+    success?: boolean;
+    status?: string;
+    capped?: boolean;
+    hushhId?: string | null;
+  }> {
+    const response = await ApiService.apiFetch("/api/one/personal-agent/provision", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...ApiService.getAuthHeaders(input.vaultOwnerToken),
+      },
+      body: JSON.stringify({}),
+      signal: input.signal,
+    });
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => null)) as {
+        detail?: { code?: string; message?: string } | string;
+      } | null;
+      const detail = payload?.detail;
+      if (typeof detail === "object" && detail?.code) {
+        // PHONE_NOT_VERIFIED and INVALID_PROVISION_INPUT both arrive this way, and
+        // the person can act on the first — so name it rather than flattening both
+        // into one unhelpful failure.
+        throw new Error(`${detail.code}:${detail.message || ""}`);
+      }
+      throw new Error(`AGENT_PROVISION_FAILED:${response.status}`);
+    }
+    return response.json();
+  }
+
+  /**
+   * The caller's own personal-agent state.
+   *
+   * This lives here rather than as a bare `apiJson` in the follow hook because
+   * `apiFetch` does NOT attach auth -- every caller supplies its own bearer, and
+   * `getFirebaseToken` is private to this class. The hook called `apiJson` with no
+   * headers, so `require_firebase_auth` 401'd every poll, the hook's catch treated
+   * it as "a transient status failure", and the dashboard chip sat on `reserved`
+   * forever while a real agent may have been running.
+   *
+   * Returns the full payload rather than just `state`. The backend already sends
+   * `hushhId` (`personal_agent.py:167`) and it was being dropped on the floor by a
+   * narrower client type -- and `hushhId` is the address the pod relay needs, so
+   * discarding it is what left the pod unreachable from the product.
+   *
+   * `health` and `lastSeenAt` are optional BY CONTRACT: the backend omits them
+   * unless the liveness sweep reached a real verdict, rather than defaulting to
+   * "healthy". Render them when present and say nothing when absent.
+   */
+  /**
+   * Wake the caller's own pod, explicitly. Driven by `useProactiveAgentWake` from the
+   * high-signal moments a person is about to need their agent -- composer focus, agent
+   * surface mount, and app resume-to-foreground -- so the ~12s cold start runs while
+   * they are still reaching for it instead of eating their first turn. That hook owns
+   * the cooldown and in-flight de-duplication, so this stays a bare primitive. The
+   * response is the server's honest estimate for a determinate "Waking" affordance;
+   * presence TRUTH then arrives through the lifecycle surface, never invented here.
+   */
+  static async wakePod(): Promise<{
+    state: "awake" | "waking" | "gone";
+    etaMs: number;
+    needsFreshSetup?: boolean;
+  }> {
+    const firebaseIdToken = await this.getFirebaseToken();
+    const response = await ApiService.apiFetch("/api/one/pod/wake", {
+      method: "POST",
+      headers: {
+        ...(firebaseIdToken ? { Authorization: `Bearer ${firebaseIdToken}` } : {}),
+      },
+    });
+    if (!response.ok) {
+      throw new Error(`pod wake failed: HTTP ${response.status}`);
+    }
+    return response.json();
+  }
+
+  /**
+   * Reconnect to a pod that already exists in the caller's own cloud, instead of
+   * rebuilding it. Owner-authenticated, NOT vault-gated: adoption can only restore a
+   * lost registry row to a pod that is still running, so it never mints a new identity
+   * and never needs the vault unlocked. Returns { adopted: false } when there is
+   * nothing to adopt (no orphan pod, no BYOC cloud) -- the caller then falls through
+   * to reinit or rebuild. The recovery classifier tries this FIRST because it
+   * preserves the agent's identity and memory.
+   */
+  static async adoptOrphanPod(): Promise<{ adopted: boolean; status?: string; hushhId?: string }> {
+    const firebaseIdToken = await this.getFirebaseToken();
+    const response = await ApiService.apiFetch("/api/one/personal-agent/adopt", {
+      method: "POST",
+      headers: {
+        ...(firebaseIdToken ? { Authorization: `Bearer ${firebaseIdToken}` } : {}),
+      },
+    });
+    if (!response.ok) {
+      throw new Error(`pod adopt failed: HTTP ${response.status}`);
+    }
+    return response.json();
+  }
+
+  /**
+   * Owner-authorized reachability probe of the caller's OWN pod, for login/resume.
+   * Round-trips through the hub relay to the pod's /pod/info (the only door to a
+   * pod). Returns the relay envelope { hushhId, podStatus, pod }: a podStatus of
+   * 200 means the pod is reachable and can be reconnected; a non-200 (or a thrown
+   * error) means it is cold or gone, and the caller should wake or offer a fresh
+   * setup rather than assume the pod is serving.
+   */
+  static async getPodInfo(
+    hushhId: string,
+  ): Promise<{ hushhId: string; podStatus: number; pod: unknown }> {
+    const firebaseIdToken = await this.getFirebaseToken();
+    const response = await ApiService.apiFetch(
+      `/api/one/u/${encodeURIComponent(hushhId)}/info`,
+      {
+        method: "GET",
+        headers: {
+          ...(firebaseIdToken ? { Authorization: `Bearer ${firebaseIdToken}` } : {}),
+        },
+      },
+    );
+    if (!response.ok) {
+      throw new Error(`pod info failed: HTTP ${response.status}`);
+    }
+    return response.json();
+  }
+
+  /**
+   * The lifecycle narrative since `cursor`, as one JSON read. This is the
+   * NATIVE transport for provisioning progress (Capacitor cannot stream) and
+   * the degradation target for the web stream. Pure read: unlike the old
+   * status GET, it can be polled by every open tab without minting anything.
+   */
+  static async getPodLifecycle(options: {
+    cursor: number;
+    signal?: AbortSignal;
+  }): Promise<{
+    snapshot?: Record<string, unknown>;
+    events?: Array<Record<string, unknown>>;
+    nextCursor?: number;
+    terminal?: boolean;
+  }> {
+    const firebaseIdToken = await this.getFirebaseToken();
+    const response = await ApiService.apiFetch(
+      `/api/one/pod/lifecycle?cursor=${Math.max(0, options.cursor)}`,
+      {
+        method: "GET",
+        headers: {
+          ...(firebaseIdToken ? { Authorization: `Bearer ${firebaseIdToken}` } : {}),
+        },
+        signal: options.signal,
+      },
+    );
+    if (!response.ok) {
+      throw new Error(`pod lifecycle read failed: HTTP ${response.status}`);
+    }
+    return response.json();
+  }
+
+  /**
+   * One ~40s SSE segment of the lifecycle narrative. The caller owns consuming
+   * it (`followPodLifecycle`); this only opens it with auth attached. Web only.
+   */
+  static async openPodLifecycleStream(options: {
+    cursor: number;
+    signal?: AbortSignal;
+  }): Promise<Response> {
+    const firebaseIdToken = await this.getFirebaseToken();
+    return ApiService.apiFetchStream(
+      `/api/one/pod/lifecycle/stream?cursor=${Math.max(0, options.cursor)}`,
+      {
+        method: "GET",
+        headers: {
+          ...(firebaseIdToken ? { Authorization: `Bearer ${firebaseIdToken}` } : {}),
+        },
+        signal: options.signal,
+      },
+    );
+  }
+
+  static async getPersonalAgentStatus(options?: {
+    signal?: AbortSignal;
+  }): Promise<{
+    state?: string | null;
+    featureEnabled?: boolean;
+    hushhId?: string | null;
+    health?: string | null;
+    lastSeenAt?: string | null;
+    cloudProject?: string | null;
+    cloudRegion?: string | null;
+    deploymentTarget?: string | null;
+    credentialMode?: string | null;
+    // The software-update half. Tri-state like `hostReady`: each field is absent
+    // when its evidence is absent (no lane target, nothing recorded), never false.
+    runningImage?: string | null;
+    targetImage?: string | null;
+    updateAvailable?: boolean;
+    updateInProgress?: boolean;
+    updateFailed?: boolean;
+    updateError?: string | null;
+  }> {
+    const firebaseIdToken = await this.getFirebaseToken();
+    const response = await ApiService.apiFetch("/api/one/personal-agent/status", {
+      method: "GET",
+      headers: {
+        ...(firebaseIdToken ? { Authorization: `Bearer ${firebaseIdToken}` } : {}),
+      },
+      signal: options?.signal,
+    });
+    if (!response.ok) {
+      throw new Error(`AGENT_STATUS_UNAVAILABLE:${response.status}`);
+    }
+    return response.json();
+  }
+
+  static async runPodTurn(input: {
+    hushhId: string;
+    message: string;
+    conversationId?: string;
+    timezone?: string | null;
+    runtimeCredential?: string | null;
+    runtimeCredentialTransport?: "developer_api" | "vertex_api_key";
+    runtimeProvider?: "puppy";
+    puppyDeviceId?: string | null;
+    vertexProject?: string | null;
+    vertexLocation?: string | null;
+    pkmContext?: string | null;
+    // The visible transcript, oldest first. A pod holds no durable session (its
+    // session service is in-memory by design), so without this every pod turn
+    // started from nothing: the relay, the route and the runner all accepted
+    // `history` and this, the only caller, never sent it.
+    history?: Array<{ role: "user" | "assistant"; content: string }> | null;
+    signal?: AbortSignal;
+  }): Promise<{
+    hushhId: string;
+    text: string;
+    // OBSERVED from the provider when it reported one, otherwise the id the pod
+    // resolved; `modelReported` says which. Never render `model` as a fact
+    // without checking it.
+    model: string;
+    modelReported: boolean;
+    provider: string;
+    // DERIVED by the pod from whether a projection actually reached its runtime,
+    // never asserted. Render it rather than assuming — an ungrounded answer is a
+    // real state and the person should be able to tell.
+    grounded: boolean;
+    runtimeMode: string;
+    // Present when the pod answered with a bounded explanation instead of the
+    // turn it was asked for (keyless_pod_db_wall, puppy_capability_unsupported).
+    degraded?: string;
+  }> {
+    const firebaseIdToken = await this.getFirebaseToken();
+    const body = JSON.stringify({
+      message: input.message,
+      conversationId: input.conversationId || undefined,
+      timezone: input.timezone || undefined,
+      runtimeCredential: input.runtimeCredential || undefined,
+      runtimeCredentialTransport: input.runtimeCredentialTransport || undefined,
+      runtimeProvider: input.runtimeProvider || undefined,
+      puppyDeviceId: input.puppyDeviceId || undefined,
+      vertexProject: input.vertexProject || undefined,
+      vertexLocation: input.vertexLocation || undefined,
+      history: input.history?.length ? input.history : undefined,
+      // The owner's consented turn projection, decrypted here from their own
+      // unlocked vault — the same value this client already sends to the hub on
+      // every Agent Chat turn. Sending it is what makes a pod turn grounded
+      // WITHOUT the pod holding PKM or reaching a database, so Zero Knowledge is
+      // preserved: it is opened by the owner's key on the owner's device.
+      pkmContext: input.pkmContext || undefined,
+    });
+
+    // THE OWNER-DIRECT DOOR. When this installation has pinned its pod's address
+    // and holds a pod session, the turn goes straight to the pod with the session
+    // as its bearer: no hub in the conversation path, no hub grant needed for
+    // Puppy (the pod's own authority admits the device). There is deliberately no
+    // fallback to the hub from this branch: a direct failure is named, so a person
+    // who chose their own line is never quietly moved back onto the shared one.
+    const direct = await ApiService.ownerDirectPodTurn(input.hushhId, body, input.signal);
+    if (direct) return direct;
+
+    const response = await ApiService.apiFetch(
+      `/api/one/u/${encodeURIComponent(input.hushhId)}/turn`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(firebaseIdToken
+            ? { Authorization: `Bearer ${firebaseIdToken}` }
+            : {}),
+        },
+        body,
+        signal: input.signal,
+        // The pod turn is the one call that legitimately outlives the 60 s ceiling:
+        // one rung above the Next proxy's 165 s, which sits above the hub's 160 s.
+        timeoutMs: POD_TURN_FETCH_TIMEOUT_MS,
+      },
+    );
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => null)) as {
+        detail?: { code?: string; status?: string } | string;
+      } | null;
+      const detail = payload?.detail;
+      if (typeof detail === "object" && detail?.code === "AGENT_NOT_READY") {
+        // Preserve the state so the UI can name it rather than guess.
+        throw new Error(`AGENT_NOT_READY:${detail.status || "unknown"}`);
+      }
+      if (response.status === 403) {
+        throw new Error("AGENT_NOT_YOURS");
+      }
+      throw new Error("AGENT_UNREACHABLE");
+    }
+    return response.json();
+  }
+
+  /**
+   * Tell the person's pod that a conversation has closed, so the private agent
+   * can review what was said on the model that said it and keep what matters.
+   *
+   * Sent with `keepalive` because the natural moment is the person LEAVING the
+   * chat (route change, tab hidden), when an ordinary fetch is cancelled with the
+   * page. Never awaited by the caller for a result the UI needs: a review that
+   * did not run is caught up before the next answer by the pod itself.
+   */
+  static async closePodConversation(input: {
+    hushhId: string;
+    conversationId: string;
+    runtimeCredential?: string | null;
+    runtimeCredentialTransport?: "developer_api" | "vertex_api_key" | null;
+    runtimeProvider?: "puppy" | null;
+    puppyDeviceId?: string | null;
+    vertexProject?: string | null;
+    vertexLocation?: string | null;
+  }): Promise<{
+    hushhId: string;
+    memory?: { written?: number; review?: { outcome?: string } };
+  } | null> {
+    const firebaseIdToken = await this.getFirebaseToken();
+    const response = await ApiService.apiFetch(
+      `/api/one/u/${encodeURIComponent(input.hushhId)}/conversation/${encodeURIComponent(input.conversationId)}/close`,
+      {
+        method: "POST",
+        keepalive: true,
+        headers: {
+          "Content-Type": "application/json",
+          ...(firebaseIdToken
+            ? { Authorization: `Bearer ${firebaseIdToken}` }
+            : {}),
+        },
+        body: JSON.stringify({
+          runtimeCredential: input.runtimeCredential || undefined,
+          runtimeCredentialTransport:
+            input.runtimeCredentialTransport || undefined,
+          runtimeProvider: input.runtimeProvider || undefined,
+          puppyDeviceId: input.puppyDeviceId || undefined,
+          vertexProject: input.vertexProject || undefined,
+          vertexLocation: input.vertexLocation || undefined,
+        }),
+      },
+    );
+    if (!response.ok) return null;
+    return response.json().catch(() => null);
+  }
+
+  /**
+   * The transports `owner-pod-endpoint` needs: the hub with the owner's Firebase
+   * bearer applied, and the pod by absolute URL. Both ride `apiFetch` so request
+   * ids, telemetry and the per-call timeout behave exactly as for every other call.
+   */
+  private static async ownerPodTransport(): Promise<
+    import("./owner-pod-endpoint").OwnerPodTransport
+  > {
+    const firebaseIdToken = await this.getFirebaseToken();
+    return {
+      hub: (path, init) =>
+        apiFetch(path, {
+          ...init,
+          headers: {
+            ...((init.headers as Record<string, string> | undefined) ?? {}),
+            ...(firebaseIdToken
+              ? { Authorization: `Bearer ${firebaseIdToken}` }
+              : {}),
+          },
+        }),
+      direct: (url, init) => apiFetch(url, init),
+    };
+  }
+
+  /**
+   * Run the turn directly against the pinned pod, or return null when this
+   * installation has no pin (the hub path then applies). Never falls back to the
+   * hub on a direct failure; it names the failure instead.
+   */
+  private static async ownerDirectPodTurn(
+    hushhId: string,
+    body: string,
+    signal?: AbortSignal,
+  ): Promise<{
+    hushhId: string;
+    text: string;
+    model: string;
+    modelReported: boolean;
+    provider: string;
+    grounded: boolean;
+    runtimeMode: string;
+  } | null> {
+    const ownerPod = await import("./owner-pod-endpoint");
+    const uid = AuthService.getCurrentUser()?.uid;
+    if (!uid) return null;
+    const pin = await ownerPod.loadPinnedEndpoint(uid).catch(() => null);
+    if (!pin || pin.hushhId !== hushhId) return null;
+    const transport = await this.ownerPodTransport();
+    let session: import("./owner-pod-endpoint").PodSessionRecord;
+    try {
+      session = await ownerPod.currentPodSession(uid, transport);
+    } catch (error) {
+      const code = error instanceof Error ? error.message : "unknown";
+      throw new Error(`POD_DIRECT_UNAVAILABLE:${code}`);
+    }
+    const response = await apiFetch(`${pin.url}/api/one/pod/turn`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${session.session}`,
+      },
+      body,
+      signal,
+      timeoutMs: POD_TURN_FETCH_TIMEOUT_MS,
+    });
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => null)) as {
+        detail?: { code?: string; reason?: string } | string;
+      } | null;
+      const detail = payload?.detail;
+      const code = typeof detail === "object" ? String(detail?.code ?? "") : "";
+      if (code === "PUPPY_OFFLINE") throw new Error("PUPPY_OFFLINE");
+      if (code === "POD_TURN_TIMEOUT") throw new Error("AGENT_UNREACHABLE");
+      if (response.status === 401 || response.status === 403) {
+        throw new Error(code ? `AGENT_NOT_YOURS:${code}` : "AGENT_NOT_YOURS");
+      }
+      throw new Error(code ? `POD_DIRECT_UNAVAILABLE:${code}` : "AGENT_UNREACHABLE");
+    }
+    const answer = (await response.json()) as {
+      text: string;
+      model: string;
+      modelReported: boolean;
+      provider: string;
+      grounded: boolean;
+      runtimeMode: string;
+    };
+    return { hushhId, ...answer };
+  }
+
+  static async issuePuppyInferenceGrant(deviceId: string): Promise<{
+    device_id: string;
+    scope: "cap.puppy.inference";
+    token: string;
+    expires_at: number;
+  }> {
+    const firebaseIdToken = await this.getFirebaseToken();
+    const response = await ApiService.apiFetch(
+      `/api/account/trusted-devices/${encodeURIComponent(deviceId)}/puppy-inference-grant`,
+      {
+        method: "POST",
+        headers: {
+          ...(firebaseIdToken ? { Authorization: `Bearer ${firebaseIdToken}` } : {}),
+        },
+      },
+    );
+    if (!response.ok) throw new Error(`PUPPY_INFERENCE_GRANT_UNAVAILABLE:${response.status}`);
+    return response.json();
+  }
+
+  static async getPuppyRelayStatus(deviceId: string): Promise<{
+    device_id: string;
+    state: "revoked" | "ready" | "busy" | "offline" | "unavailable";
+    linked: boolean;
+    inference_ready: boolean;
+    execution_target: "puppy" | "unavailable";
+    // The broker's view of the linked device. `model` and `capabilities` are what
+    // the device declared at admission (validated by the hub), present only while
+    // the device is linked to this hub instance; absent means undeclared.
+    relay?: {
+      connected: boolean;
+      state: string;
+      busy: boolean;
+      generation: number | null;
+      last_seen_age_seconds?: number;
+      model?: string;
+      capabilities?: Record<string, boolean>;
+      probe_mode?: string;
+    };
+  }> {
+    // Pinned: the pod's own broker is the truth about the device link, so read the
+    // pod's status and never the hub's. The hub broker knows nothing about a device
+    // that dials the pod directly, and would report it offline.
+    const pinnedStatus = await ApiService.ownerDirectPuppyStatus(deviceId);
+    if (pinnedStatus) return pinnedStatus;
+
+    const firebaseIdToken = await this.getFirebaseToken();
+    const response = await ApiService.apiFetch(
+      `/api/one/puppy/status/${encodeURIComponent(deviceId)}`,
+      {
+        method: "GET",
+        headers: {
+          ...(firebaseIdToken ? { Authorization: `Bearer ${firebaseIdToken}` } : {}),
+        },
+        cache: "no-store",
+      },
+    );
+    if (!response.ok) throw new Error(`PUPPY_STATUS_UNAVAILABLE:${response.status}`);
+    return response.json();
+  }
+
+  private static async ownerDirectPuppyStatus(deviceId: string): Promise<{
+    device_id: string;
+    state: "revoked" | "ready" | "busy" | "offline" | "unavailable";
+    linked: boolean;
+    inference_ready: boolean;
+    execution_target: "puppy" | "unavailable";
+  } | null> {
+    const ownerPod = await import("./owner-pod-endpoint");
+    const uid = AuthService.getCurrentUser()?.uid;
+    if (!uid) return null;
+    const pin = await ownerPod.loadPinnedEndpoint(uid).catch(() => null);
+    if (!pin) return null;
+    const session = await ownerPod.currentPodSession(uid, await this.ownerPodTransport());
+    const response = await apiFetch(`${pin.url}/api/one/pod/status`, {
+      method: "GET",
+      headers: { Authorization: `Bearer ${session.session}` },
+      cache: "no-store",
+    });
+    if (!response.ok) throw new Error(`PUPPY_STATUS_UNAVAILABLE:${response.status}`);
+    const status = (await response.json()) as {
+      subjects?: Array<{ subjectId: string; role?: string; state: string; scopes?: string[] }>;
+      puppy?: { links?: Array<{ deviceId: string; state: string; busy: boolean }> };
+    };
+    const subject = (status.subjects ?? []).find((s) => s.subjectId === deviceId);
+    const link = (status.puppy?.links ?? []).find((l) => l.deviceId === deviceId);
+    const trusted = Boolean(subject && subject.state === "trusted");
+    const inferenceScoped = Boolean(subject?.scopes?.includes("puppy.inference"));
+    const state: "revoked" | "ready" | "busy" | "offline" | "unavailable" = subject
+      ? subject.state === "revoked"
+        ? "revoked"
+        : link
+          ? link.busy
+            ? "busy"
+            : "ready"
+          : "offline"
+      : "unavailable";
+    return {
+      device_id: deviceId,
+      state,
+      linked: trusted,
+      inference_ready: trusted && inferenceScoped && state === "ready",
+      execution_target: trusted && (state === "ready" || state === "busy") ? "puppy" : "unavailable",
+    };
+  }
+
+  /**
    * Build the WebSocket URL for the server-side One ADK live relay.
    *
    * The relay runs One's agent tree through ADK's Runner over Vertex AI via
@@ -3460,6 +4434,7 @@ export class ApiService {
    */
   static async getOneAdkLiveRelayUrl(data?: {
     signal?: AbortSignal;
+    requireAuthenticated?: boolean;
   }): Promise<string> {
     const backend = resolveRuntimeBackendUrl();
     // Apply the same Android-emulator localhost rewrite the HTTP layer uses.
@@ -3472,6 +4447,10 @@ export class ApiService {
     const wsBase = base.replace(/^http/i, "ws");
     const url = new URL(`${wsBase}/api/one/adk/live`);
     const relaySession = await this.createOneAdkRelaySession(data);
+    recordVoiceCell({
+      cell: relaySession.cell === "pod" ? "pod" : relaySession.cell === "hub" ? "hub" : null,
+      reason: relaySession.cell_reason ?? null,
+    });
     url.searchParams.set("relay_ticket", relaySession.relay_ticket);
     return url.toString();
   }

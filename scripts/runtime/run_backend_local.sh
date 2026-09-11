@@ -356,6 +356,8 @@ export DB_SQLALCHEMY_POOL_SIZE="${DB_SQLALCHEMY_POOL_SIZE:-2}"
 export DB_SQLALCHEMY_MAX_OVERFLOW="${DB_SQLALCHEMY_MAX_OVERFLOW:-0}"
 echo "Local Cloud SQL connection budget: async=${DB_POOL_MIN_SIZE}-${DB_POOL_MAX_SIZE}, sql=${DB_SQLALCHEMY_POOL_SIZE}+${DB_SQLALCHEMY_MAX_OVERFLOW}."
 
+BACKEND_PORT="${BACKEND_PORT:-$(read_env_value "$BACKEND_ENV_FILE" 'BACKEND_PORT')}"
+BACKEND_PORT="${BACKEND_PORT:-8000}"
 echo "Starting backend on :${BACKEND_PORT} for runtime mode ${PROFILE}..."
 cd "$REPO_ROOT/consent-protocol"
 uvicorn_args=(server:app --port "$BACKEND_PORT")

@@ -59,11 +59,18 @@ generate design references before implementation.
 
 ## Updating
 
-```bash
-npx skills@latest update          # all three packs, respecting skills-lock.json
-npx skills@latest list            # what's installed
-npx skills@latest experimental_install   # restore from the lockfile on a fresh clone
-```
+Imported bundles are pinned by `skills-lock.json` and the governed
+[platform source inventory](../../.codex/skills/agent-orchestration-governance/references/platform-source-inventory.json).
+Review the exact upstream revision, licenses, notices, dependencies, and nested agents
+before updating a bundle. Preserve compatibility entrypoints and regenerate/check
+host bridges and mirrors through `agent-orchestration-governance`. Do not run an
+unrestricted installer update over reviewed bridges.
+
+Impeccable's original 152 files match upstream commit
+`ae5e95101a6979e7f7973a4ff57680b3c7adc1ec` exactly. Its upstream `LICENSE`
+and `NOTICE.md` are retained beside the bundle; the notice identifies MIT-derived
+platform references. Its nested agents remain imported dependencies outside the
+canonical engineering fleet.
 
 ## Not done yet
 

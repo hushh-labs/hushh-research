@@ -175,7 +175,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
+      # Full history, for the same reason ci.yml's Protocol lane needs it: the
+      # tombstone rollback pin is a commit sha and only history can order two shas.
+      # At the default depth of 1 the pin's object is absent, so the guard tests
+      # skip rather than fail and a rewritten pin lands green.
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
 
       - uses: ./consent-protocol/.github/actions/setup-python-uv
         with:

@@ -1,11 +1,12 @@
 #!/usr/bin/env node
 
 import fs from "node:fs";
+import { applyNativeAuditBuildEnvironment } from "./native-build-environment.mjs";
 import path from "node:path";
+import { verifyPrebuiltNativeEnvironment } from "./native-build-environment.mjs";
 import { execFileSync, execSync } from "node:child_process";
 import {
   defaultReviewerIdentityEnvFiles,
-  parseEnvFile,
   resolveReviewerTestIdentity,
 } from "../testing/reviewer-test-identity.mjs";
 import { prepareNativeTestArtifacts } from "./prepare-native-test-artifacts.mjs";
@@ -93,7 +94,7 @@ function resolveSimulatorDestination(deviceName) {
     const output = execFileSync(
       "xcrun",
       ["simctl", "list", "devices", "available", "--json"],
-      { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }
+      { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout: 120_000, killSignal: "SIGKILL" }
     );
     const payload = JSON.parse(output);
     for (const devices of Object.values(payload.devices || {})) {
@@ -116,6 +117,8 @@ function run(cmd, args, options = {}) {
     cwd: repoRoot,
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
+    // Bound simulator IPC without imposing this limit on Xcode builds.
+    ...(args[0] === "simctl" ? { timeout: 120_000, killSignal: "SIGKILL" } : {}),
     ...options,
   }).trim();
 }
@@ -231,74 +234,17 @@ function launchRoute(route) {
   }
   args.push("-UITestAutoReviewerLogin", route.autoReviewerLogin ? "true" : "false");
   args.push("-UITestResetAppState", resetStateRoutes.has(route.route) ? "true" : "false");
-  args.push("-UITestVaultPassphrase", reviewerVaultPassphrase);
-  args.push("-UITestExpectedUserId", reviewerUid);
-  run("xcrun", args);
-}
-
-function applyEnvValues(values = {}) {
-  for (const [key, value] of Object.entries(values)) {
-    if (value !== undefined && value !== "") {
-      process.env[key] = value;
-    }
-  }
-}
-
-function resolveNativeTestBackendUrl() {
-  const configured = String(process.env.NEXT_PUBLIC_BACKEND_URL || "").trim();
-  if (configured && !/^https?:\/\/(localhost|127\.0\.0\.1)(:|\/|$)/i.test(configured)) {
-    return configured;
-  }
-
-  const uatEnvPath = path.join(repoRoot, ".env.uat.local");
-  const uatValues = parseEnvFile(uatEnvPath);
-  const uatBackend = String(uatValues.NEXT_PUBLIC_BACKEND_URL || "").trim();
-  if (uatBackend) {
-    return uatBackend;
-  }
-
-  return configured;
+  run("xcrun", args, {
+    env: {
+      ...process.env,
+      SIMCTL_CHILD_HUSHH_UI_TEST_REVIEWER_VAULT_PASSPHRASE: reviewerVaultPassphrase,
+      SIMCTL_CHILD_HUSHH_UI_TEST_REVIEWER_UID: reviewerUid,
+    },
+  });
 }
 
 function ensureNativeTestBuildEnv() {
-  const uatEnvPath = path.join(repoRoot, ".env.uat.local");
-  const uatValues = parseEnvFile(uatEnvPath);
-  const backendUrl = resolveNativeTestBackendUrl();
-
-  if (!backendUrl) {
-    throw new Error(
-      "native iOS route audit requires NEXT_PUBLIC_BACKEND_URL. Set it in the shell or hushh-webapp/.env.uat.local."
-    );
-  }
-
-  if (/^https?:\/\/(localhost|127\.0\.0\.1)(:|\/|$)/i.test(backendUrl)) {
-    throw new Error(
-      `native iOS route audit cannot use local backend (${backendUrl}). Start the local backend or load hushh-webapp/.env.uat.local before building.`
-    );
-  }
-
-  applyEnvValues({
-    APP_RUNTIME_PROFILE: uatValues.APP_RUNTIME_PROFILE || "uat",
-    NEXT_PUBLIC_APP_ENV: uatValues.NEXT_PUBLIC_APP_ENV || "uat",
-    NEXT_PUBLIC_BACKEND_URL: backendUrl,
-    NEXT_PUBLIC_APP_URL: uatValues.NEXT_PUBLIC_APP_URL,
-    NEXT_PUBLIC_PASSKEY_RP_ID: uatValues.NEXT_PUBLIC_PASSKEY_RP_ID,
-    NEXT_PUBLIC_FIREBASE_API_KEY: uatValues.NEXT_PUBLIC_FIREBASE_API_KEY,
-    NEXT_PUBLIC_GOOGLE_MAPS_IOS_API_KEY: uatValues.NEXT_PUBLIC_GOOGLE_MAPS_IOS_API_KEY,
-    NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: uatValues.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
-    NEXT_PUBLIC_FIREBASE_PROJECT_ID: uatValues.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
-    NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET: uatValues.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET,
-    NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID:
-      uatValues.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
-    NEXT_PUBLIC_FIREBASE_APP_ID: uatValues.NEXT_PUBLIC_FIREBASE_APP_ID,
-    NEXT_PUBLIC_FIREBASE_VAPID_KEY: uatValues.NEXT_PUBLIC_FIREBASE_VAPID_KEY,
-    NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID: uatValues.NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID,
-    NEXT_PUBLIC_OBSERVABILITY_ENABLED: uatValues.NEXT_PUBLIC_OBSERVABILITY_ENABLED,
-    NEXT_PUBLIC_OBSERVABILITY_DEBUG: uatValues.NEXT_PUBLIC_OBSERVABILITY_DEBUG,
-    NEXT_PUBLIC_OBSERVABILITY_SAMPLE_RATE: uatValues.NEXT_PUBLIC_OBSERVABILITY_SAMPLE_RATE,
-  });
-
-  console.log(`==> native test backend: ${backendUrl}`);
+  applyNativeAuditBuildEnvironment(repoRoot);
 }
 
 function buildApp() {
@@ -442,13 +388,9 @@ function runAudit() {
   if (process.env.IOS_ROUTE_AUDIT_SKIP_BUILD !== "true") {
     buildApp();
   } else {
-    const backendUrl = resolveNativeTestBackendUrl();
-    if (/^https?:\/\/(localhost|127\.0\.0\.1)(:|\/|$)/i.test(backendUrl)) {
-      throw new Error(
-        `IOS_ROUTE_AUDIT_SKIP_BUILD=true but the baked app targets local backend (${backendUrl || "unset"}). Rebuild without skip or load .env.uat.local first.`
-      );
-    }
-    console.log(`==> skipping rebuild (IOS_ROUTE_AUDIT_SKIP_BUILD=true, backend=${backendUrl})`);
+    ensureNativeTestBuildEnv();
+    verifyPrebuiltNativeEnvironment({ appPath, env: process.env });
+    console.log("==> verified prebuilt native backend and Firebase identity");
   }
   ensureSimulatorBooted();
   tryRun("xcrun", ["simctl", "terminate", simulatorDevice, bundleId]);

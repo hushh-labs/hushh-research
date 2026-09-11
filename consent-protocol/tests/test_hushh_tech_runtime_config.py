@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 
 from hushh_mcp import runtime_settings
+from tests._deploy_contract import backend_deploy_surface
 
 SYNC_SCRIPT = Path(__file__).resolve().parents[2] / "scripts/ops/sync_backend_runtime_secrets.py"
 
@@ -105,18 +106,23 @@ def test_production_workflow_pins_client_flag_off():
 
 
 def test_uat_cloud_run_binds_launch_pepper_only_as_optional_secret():
-    cloudbuild = (
-        Path(__file__).resolve().parents[2] / "deploy/backend.cloudbuild.yaml"
-    ).read_text()
+    # The deploy body lives in scripts/deploy/backend-deploy.sh (extracted from the
+    # cloudbuild for Cloud Build's 10,000-char step-arg cap), and this repo names the
+    # secret-binding helper append_optional_secret. Read the whole deploy surface.
+    cloudbuild = backend_deploy_surface()
     workflow = (
         Path(__file__).resolve().parents[2] / ".github/workflows/deploy-uat.yml"
     ).read_text()
     assert (
-        'add_secret "${_HUSHH_TECH_LAUNCH_PEPPER_SECRET}" "HUSSH_TECH_LAUNCH_PEPPER"' in cloudbuild
+        'append_optional_secret "${_HUSHH_TECH_LAUNCH_PEPPER_SECRET}" "HUSSH_TECH_LAUNCH_PEPPER"'
+        in cloudbuild
     )
     assert "_HUSHH_TECH_LAUNCH_PEPPER_SECRET=HUSSH_TECH_LAUNCH_PEPPER" in workflow
     assert "HUSSH_TECH_LAUNCH_PEPPER=" not in workflow
-    assert 'add_secret "${_RATE_LIMIT_STORAGE_URI_SECRET}" "RATE_LIMIT_STORAGE_URI"' in cloudbuild
+    assert (
+        'append_optional_secret "${_RATE_LIMIT_STORAGE_URI_SECRET}" "RATE_LIMIT_STORAGE_URI"'
+        in cloudbuild
+    )
     assert "_RATE_LIMIT_STORAGE_URI_SECRET=RATE_LIMIT_STORAGE_URI" in workflow
     assert "RATE_LIMIT_STORAGE_URI=" not in workflow
     assert 'cmd+=("--vpc-connector=${_VPC_CONNECTOR}"' in cloudbuild

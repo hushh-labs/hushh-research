@@ -1,0 +1,941 @@
+"""Owner-gated text turns and Live transport in the private pod.
+
+Each turn asks the hub to validate consent and revocation, then requires the
+returned owner binding to match this pod. Unavailable authority refuses the turn.
+Browser-provided PKM context takes precedence; otherwise the existing local PKM
+resolver supplies bounded grounding. Owner conflicts and erasure fences refuse
+execution rather than degrade to an ungrounded provider request.
+
+The existing text runtime collects events into a JSON response. Its transient
+ADK session uses InMemorySessionService; persistent agent experience belongs to
+the separately resolved pod memory service. PKM remains the information authority.
+The hub currently forwards the browser's plaintext projection, so this transport
+is not evidence that the control plane cannot observe turn context.
+
+Mounting and execution require pod mode and HUSSH_POD_TURN_ENABLED. The hub's
+shared turn implementation is separate. The pod Live endpoint reuses the existing
+Live protocol with current consent and erasure checks. The hub couriers admitted
+signed-in sockets here; deployed readiness still requires operational evidence.
+Historical First Light findings remain in Git;
+source wiring alone does not establish deployed recall or lifecycle completion.
+"""
+
+from __future__ import annotations
+
+import logging
+import os
+from types import SimpleNamespace
+from typing import Any, Optional
+
+from fastapi import APIRouter, Body, Header, HTTPException, WebSocket
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+from api.routes.one.pod_relay import POD_DATA_DOOR_NAMES
+from hushh_mcp.runtime_settings import pod_mode, pod_turn_enabled
+from hushh_mcp.services.pod_commit_log import PodLogFenced
+from hushh_mcp.services.pod_pkm_resolver import PodPkmOwnerMismatch
+
+logger = logging.getLogger(__name__)
+
+router = APIRouter(prefix="/api/one/pod", tags=["personal-agent"])
+
+# Every grant key a text turn may carry. The door names are the Live wire
+# contract; the two scope-named keys are proposal authorities the pod's Location
+# service reads under their scope name. The Live route enforced its allowlist
+# on headers from the start; the text path accepted any key until this list
+# existed, so an unknown key now refuses at validation instead of riding into
+# session state.
+POD_TURN_GRANT_KEYS: tuple[str, ...] = (
+    *POD_DATA_DOOR_NAMES,
+    "cap.location.live.share",
+    "cap.location.live.refer_request",
+)
+# Matches the Live route's per-grant header bound.
+_MAX_GRANT_TOKEN_LENGTH = 4096
+# The pod route's own bound, one rung above the ADK Puppy total (150 s) and one
+# below the hub proxy (160 s), so a turn that runs out of time answers with a typed
+# 504 from the pod rather than a vaguer failure from whoever gave up first.
+# `tests/test_timeout_ladder.py` pins the order.
+POD_TURN_ROUTE_TIMEOUT_SECONDS = 155.0
+
+
+class PodTurnRequest(BaseModel):
+    message: str = Field(..., min_length=1, max_length=8000)
+    conversation_id: str = Field(default="pod-first-light", alias="conversationId", max_length=128)
+    timezone: Optional[str] = Field(default=None, max_length=64)
+    # The OWNER'S model credential, supplied per turn. See _resolve_runtime for why
+    # a pod uses the person's own key rather than a fleet identity.
+    # 12000 matches the hub's own bound (api/routes/kai/agent_chat.py). A tighter
+    # cap here would 422 credentials the hub accepts, and the relay would surface
+    # that as an opaque refusal rather than "your key is too long".
+    runtime_credential: Optional[str] = Field(
+        default=None, alias="runtimeCredential", max_length=12000
+    )
+    runtime_credential_transport: str = Field(
+        default="developer_api", alias="runtimeCredentialTransport", max_length=32
+    )
+    # Only ``puppy`` is accepted as an explicit alternate target. The pod does
+    # not let a caller select arbitrary hosted providers or bypass the authored
+    # fleet manifest.
+    runtime_provider: Optional[str] = Field(default=None, alias="runtimeProvider", max_length=32)
+    puppy_device_id: Optional[str] = Field(default=None, alias="puppyDeviceId", max_length=128)
+    vertex_project: Optional[str] = Field(default=None, alias="vertexProject", max_length=64)
+    vertex_location: Optional[str] = Field(default=None, alias="vertexLocation", max_length=64)
+    # The owner's consented turn projection, opened by their key on their own device
+    # and couriered here by the hub. A pod grounds on this rather than reading PKM
+    # itself: it holds no database credential BY DESIGN, and the browser already
+    # computes exactly this value for every hub turn.
+    #
+    # 20000 matches the hub's cap so the two paths cannot disagree about what fits.
+    pkm_context: Optional[str] = Field(default=None, alias="pkmContext", max_length=20000)
+    # Recent conversation turns from the browser, so this turn has the thread the
+    # hub would have from its database. Seeded into the runner memory-only and
+    # capped by the runner (last 20, user/assistant only, 4000 chars each); the
+    # pod holds nothing after.
+    history: Optional[list[dict[str, str]]] = Field(default=None)
+    # Per-specialist scope tokens the relay minted so a keyless pod can READ a
+    # DB-backed specialist THROUGH the hub broker (the data door). Memory-only,
+    # like pkmContext: the pod hands each token straight back to the broker and
+    # holds nothing after. Absent stays absent -> the specialist reports
+    # runtime_unavailable, today's DB-wall behaviour.
+    data_door_grants: Optional[dict[str, str]] = Field(default=None, alias="dataDoorGrants")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    @field_validator("data_door_grants")
+    @classmethod
+    def _only_known_bounded_grants(
+        cls, value: Optional[dict[str, str]]
+    ) -> Optional[dict[str, str]]:
+        if value is None:
+            return None
+        for key, token in value.items():
+            if key not in POD_TURN_GRANT_KEYS:
+                raise ValueError(f"unknown grant key: {key}")
+            if len(token) > _MAX_GRANT_TOKEN_LENGTH:
+                raise ValueError(f"grant value too long for {key}")
+        return value
+
+
+def _require_enabled() -> None:
+    # Pod mode first: on the hub this route must not exist at all, not merely be
+    # disabled, so nothing can start depending on a second turn implementation.
+    if not pod_mode() or not pod_turn_enabled():
+        raise HTTPException(status_code=404, detail="pod turn is not available")
+
+
+# The signature a keyless pod raises when a tool reaches for the database it holds
+# no credential for. Matched on the MESSAGE, not the exception type, so it holds
+# whether the failure arrives as the db layer's own `DatabaseExecutionError` or as
+# the raw `EnvironmentError` from `get_db_engine()` -- and without importing the db
+# layer (which the pod image can build without). The message is emitted verbatim by
+# db/db_client.get_db_engine(); see `run_pod_turn`'s except block.
+_DB_WALL_MARKER = "Database credentials not set"
+
+
+def _is_keyless_pod_db_wall(exc: BaseException) -> bool:
+    """True when this failure is only the pod having no DB credential, by design.
+
+    Walks the __cause__/__context__ chain because the DB error is raised deep in a
+    tool and re-wrapped by the ADK runner before it reaches the turn boundary.
+    Deliberately narrow: it matches the credential-absence wall specifically, so it
+    can never mask a genuine turn failure (a model error, a real DB fault elsewhere).
+    """
+    seen: set[int] = set()
+    cur: BaseException | None = exc
+    while cur is not None and id(cur) not in seen:
+        seen.add(id(cur))
+        if _DB_WALL_MARKER in str(cur):
+            return True
+        cur = cur.__cause__ or cur.__context__
+    return False
+
+
+def _turn_dependencies(specialists: list[Any]) -> dict[str, list[str]]:
+    """Which specialists leaned on the hub, and which could not get what they needed.
+
+    Derived from the per-specialist trace, never asserted. ``hub`` lists every
+    specialist whose facts came through a hub information door this turn; the
+    ledger item ``specialists-run-in-pod`` needs that list empty. ``unavailable``
+    lists specialists whose door was unreachable or whose model capability the
+    device refused, so a turn can say what did not work while the rest went on.
+    """
+    hub: set[str] = set()
+    unavailable: set[str] = set()
+    for outcome in specialists:
+        agent_id = str(getattr(outcome, "agent_id", "") or "")
+        if not agent_id:
+            continue
+        source = str(getattr(outcome, "information_source", "") or "")
+        if int(getattr(outcome, "hub_reads", 0) or 0) > 0 or source == "hub_door":
+            hub.add(agent_id)
+        if source in {"unavailable", "unsupported"}:
+            unavailable.add(agent_id)
+    return {"hub": sorted(hub), "unavailable": sorted(unavailable)}
+
+
+def _is_puppy_capability_unsupported(exc: BaseException) -> bool:
+    """True when One's own model call was refused for a capability the device lacks.
+
+    Walks the cause chain like the DB-wall detector, because the transport's typed
+    refusal is re-wrapped by the ADK runner before it reaches the turn boundary.
+    """
+    from hushh_mcp.runtime_providers.puppy_transport import (  # noqa: PLC0415
+        PuppyCapabilityUnsupported,
+    )
+
+    seen: set[int] = set()
+    cur: BaseException | None = exc
+    while cur is not None and id(cur) not in seen:
+        seen.add(id(cur))
+        if isinstance(cur, PuppyCapabilityUnsupported):
+            return True
+        cur = cur.__cause__ or cur.__context__
+    return False
+
+
+async def _validate_consent(consent_token: str, *, verifier: Any = None) -> dict:
+    """Ask the hub whether this consent is live. The hub is the authority.
+
+    A pod cannot verify locally: its APP_SIGNING_KEY is deliberately a different key
+    from the hub's, and even a checkable signature would not close revocation, whose
+    state lives in the hub's process and database (SECURITY-REVIEW I1).
+
+    Three outcomes, kept distinct on purpose:
+
+      valid        run the turn
+      invalid      403 -- a clean denial from the authority
+      unavailable  503 -- the authority could not be asked
+
+    The last must never collapse into either neighbour. As a denial it turns a hub
+    blip into "your agent refuses to know you"; as an approval it lets a pod act on
+    someone's holdings with no live consent check.
+    """
+    check = verifier
+    if check is None:
+        from hushh_mcp.services.pod_consent_client import verify_consent  # noqa: PLC0415
+
+        check = verify_consent
+
+    from hushh_mcp.constants import ConsentScope  # noqa: PLC0415
+
+    verdict = await check(consent_token, expected_scope=ConsentScope.PKM_READ.value)
+
+    if not verdict.available:
+        logger.warning("pod_turn.consent_authority_unavailable reason=%s", verdict.reason)
+        raise HTTPException(status_code=503, detail="consent authority is unavailable")
+    if not verdict.valid:
+        logger.info("pod_turn.consent_refused")
+        raise HTTPException(status_code=403, detail="consent token is not valid here")
+
+    # WHOSE turn is this? A valid token proves someone consented -- it does not
+    # prove they are THIS pod's owner. Without this check a token belonging to
+    # person A, presented to person B's pod, would drive B's pod on A's behalf:
+    # B's memory, B's holdings, B's model spend. "Valid" and "yours" are different
+    # questions and only the second one makes a per-user pod per-user.
+    #
+    # An unresolvable binding is refused too. An unknown owner is precisely the
+    # case where serving anyway would be the bug, so empty must never read as
+    # "any pod will do".
+    mine = (os.getenv("HUSSH_ID") or "").strip()
+    if not mine or not verdict.hushh_id or verdict.hushh_id != mine:
+        logger.warning(
+            "pod_turn.owner_mismatch pod_has_identity=%s token_bound=%s",
+            bool(mine),
+            bool(verdict.hushh_id),
+        )
+        # Same 403 shape as a denial: a caller must not learn from this response
+        # whether the token was invalid or merely somebody else's.
+        raise HTTPException(status_code=403, detail="consent token is not valid here")
+
+    return {"user_id": verdict.user_id, "scope": verdict.scope}
+
+
+# -- owner-local sessions ------------------------------------------------------
+#
+# A turn admitted by the pod's own session authority (api/routes/one/pod_session.py)
+# carries no hub token. The session's local verifier answers the consent question
+# the hub used to, from the pod's own trust and tombstone records; the hub-verified
+# path below is unchanged. Role comes from the signed binding the session was minted
+# from, and only the app role may run a turn.
+
+
+def _require_local_session(consent_token: str, session: dict | None) -> None:
+    """An owner-local turn runs in the app role, and must carry its claims to prove it.
+
+    The route already asks ``verified_session`` this when it verifies the bearer.
+    This repeats it at the core, so a caller reaching ``run_pod_turn`` directly
+    cannot present a device-role session and run a turn anyway.
+
+    A local call is recognised by the TOKEN, not by whether a session was passed:
+    ``local_token`` is the only token shaped ``pod-session:<sid>`` and only the
+    authority mints it. Asking the shape is what makes the repeat a real check
+    rather than an honour system, because a direct caller that supplies the local
+    token and the local verifier but omits ``session`` would otherwise reach the
+    turn with no role question asked at all. ``pod_memory._require_local_session``
+    is the same guard on the memory doors; the two must stay in step.
+    """
+    from hushh_mcp.services.pod_session_authority import (  # noqa: PLC0415
+        LOCAL_TOKEN_PREFIX,
+        ROLE_APP,
+    )
+
+    if str(consent_token or "").strip().startswith(LOCAL_TOKEN_PREFIX) and session is None:
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "code": "session_required",
+                "message": "an owner-local call must carry its verified session",
+            },
+        )
+    if session is None:
+        return
+    if str(session.get("role") or "") != ROLE_APP:
+        raise HTTPException(
+            status_code=403,
+            detail={"code": "role_mismatch", "message": "an app-role session is required"},
+        )
+
+
+async def _puppy_link_available(hushh_id: str, device_id: str) -> bool:
+    """Whether the owner's Puppy device holds a live link on THIS pod's broker."""
+    try:
+        from hushh_mcp.services.puppy_broker import BROKER  # noqa: PLC0415
+    except Exception:  # noqa: BLE001 - no broker in this image means no link
+        return False
+    return bool(await BROKER.available((hushh_id, device_id)))
+
+
+async def _require_local_puppy_admission(session: dict, device_id: str) -> None:
+    """A local Puppy turn needs an enrolled, un-revoked, inference-scoped, linked device."""
+    from hushh_mcp.services.pod_authority_store import active_authority_store  # noqa: PLC0415
+    from hushh_mcp.services.pod_session_authority import (  # noqa: PLC0415
+        ROLE_DEVICE,
+        SCOPE_PUPPY_INFERENCE,
+    )
+
+    store = active_authority_store()
+    status = store.subject(device_id) if store is not None else None
+    trusted = (
+        status is not None
+        and status.state == "trusted"
+        and status.trust is not None
+        and status.trust.role == ROLE_DEVICE
+        and SCOPE_PUPPY_INFERENCE in (status.trust.binding.get("scopes") or [])
+    )
+    if not trusted:
+        logger.info("pod_turn.puppy_device_not_trusted")
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "PUPPY_OFFLINE", "reason": "device not enrolled for inference"},
+        )
+    if not await _puppy_link_available(str(session.get("hushh_id") or ""), device_id):
+        raise HTTPException(
+            status_code=409, detail={"code": "PUPPY_OFFLINE", "reason": "device not linked"}
+        )
+
+
+async def _memory_commit_allowed() -> bool:
+    """Only the incarnation that holds the fence publishes to memory."""
+    from hushh_mcp.services.pod_session_authority import (  # noqa: PLC0415
+        active_session_authority,
+    )
+
+    authority = active_session_authority()
+    if authority is None:
+        return True
+    return (await authority.lease.is_current()) is True
+
+
+async def run_pod_turn(
+    *,
+    payload: PodTurnRequest,
+    consent_token: str,
+    stream_fn: Any = None,
+    verifier: Any = None,
+    session: dict | None = None,
+) -> dict:
+    """The testable core: validate, run one turn, collect. Injectable by keyword."""
+    _require_enabled()
+    _require_local_session(consent_token, session)
+    if not (consent_token or "").strip():
+        raise HTTPException(status_code=401, detail="consent token required")
+
+    claims = await _validate_consent(consent_token, verifier=verifier)
+    user_id = claims["user_id"]
+    if not user_id:
+        raise HTTPException(status_code=403, detail="consent token carries no owner")
+
+    runner = stream_fn
+    if runner is None:
+        from hushh_mcp.one_adk.text_runtime import stream_one_text_turn  # noqa: PLC0415
+
+        runner = stream_one_text_turn
+
+    # WHAT THE CATCH-UP REVIEW MAY DO, decided HERE, where the door is already known.
+    #
+    # A turn that arrives with un-reviewed records runs the catch-up review before it
+    # answers, and that review is the stand-in for a close the person never sent. Two
+    # of its four tools retire a held fact, so it needs the same authority answer the
+    # close route resolves -- and it must be the SAME answer, from the same helper, or
+    # the two doors into one memory would disagree about one caller.
+    #
+    # Resolved at the route rather than in the runtime on purpose. The runtime can be
+    # handed a verdict; it must not be handed a session and asked to read scopes,
+    # because a second place that interprets consent is a second place that can
+    # interpret it differently, and the interpretation would then live in the ADK
+    # layer where a change to the binding vocabulary has no business reaching. A bare
+    # bool would carry the verdict but not its provenance, so a denial could not name
+    # itself in a log line.
+    #
+    # A turn that reaches here with no verified local session was admitted on the
+    # hub's own verdict about the consent token (`_require_local_session` refuses an
+    # owner-local token that arrives without its claims). `review_policy_for_session`
+    # treats that as full authority for the same reason the close and revoke routes
+    # do: a hub consent token carries hub scopes, not binding scopes.
+    from api.routes.one.pod_memory import review_policy_for_session  # noqa: PLC0415
+
+    memory_review_policy = review_policy_for_session(session)
+
+    # Keep the no-argument manifest resolver injectable for existing pod tests
+    # and callers; an explicit Puppy target is the only payload-dependent path.
+    provider, model = _resolve_model(payload) if payload.runtime_provider else _resolve_model()
+    if session is not None and provider == "puppy":
+        await _require_local_puppy_admission(session, str(payload.puppy_device_id or ""))
+        if not str(payload.runtime_credential or "").strip():
+            # The session IS the Puppy authority on the local path; the marker keeps
+            # every existing non-empty credential check honest without a hub grant.
+            payload = payload.model_copy(update={"runtime_credential": consent_token})
+    runtime_mode = _resolve_runtime_mode(payload, provider)
+    # Normalised once: an all-whitespace projection is not grounding, and letting it
+    # count would report `grounded: true` for a turn that learned nothing.
+    grounding = (payload.pkm_context or "").strip() or None
+
+    # No grounding pushed in? Ask this pod's OWN index.
+    #
+    # `pkmContext` originates in the browser and the hub only forwards it, so a
+    # turn with no browser attached arrives with none at all -- which is every
+    # background tick. A pod that can only be grounded while a person is looking
+    # at it cannot do the between-conversation work the architecture promises.
+    #
+    # Second, never first: when the browser DID send a projection it is the
+    # fresher of the two (it holds the decrypted PKM), and this pod's index is
+    # rebuilt from its own log. Preferring the local copy would quietly answer
+    # from older holdings on exactly the turns a person is watching.
+    if grounding is None:
+        try:
+            from hushh_mcp.services.pod_pkm_resolver import local_grounding  # noqa: PLC0415
+
+            # Keyed on the owner the HUB verified in the consent token, never on
+            # anything the request body carries, so a caller cannot steer this
+            # pod into rebuilding somebody else's index by naming them.
+            grounding = await local_grounding(user_id)
+        except PodLogFenced:
+            raise HTTPException(
+                status_code=409, detail="pod storage is closed for erasure"
+            ) from None
+        except PodPkmOwnerMismatch:
+            # An identity conflict is not degraded grounding. Never let a
+            # recycled or misrouted pod proceed to the provider without context.
+            raise HTTPException(status_code=403, detail="pod owner mismatch") from None
+        except Exception:  # noqa: BLE001 - ordinary grounding availability may degrade
+            logger.warning("pod_turn.local_grounding_failed")
+            grounding = None
+
+    # The runner's SESSION (and therefore pod memory) is keyed by the AGENT's own
+    # identity, while user_id keeps carrying the person's uid to tools via session
+    # state. Pod memory is owner-scoped to the HusshID, and ADK hands the session
+    # key to `search_memory` -- keyed by the person's Firebase uid, the very first
+    # recall trips the isolation guard (observed live on the founder's pod,
+    # 2026-08-25). HUSSH_ID is the pod's own identity, rendered into every pod.
+    import os  # noqa: PLC0415
+
+    pod_own_id = (os.environ.get("HUSSH_ID") or "").strip() or None
+
+    from hushh_mcp.adk_bridge.dispatch import bind_specialist_runtime
+    from hushh_mcp.services.pod_specialist_runtime import build_pod_specialist_runtime
+
+    specialist_runtime = build_pod_specialist_runtime(
+        user_id=user_id,
+        hushh_id=pod_own_id or "",
+        consent_token=consent_token,
+        provider=provider,
+        model=model,
+        runtime_mode=runtime_mode,
+        credential=payload.runtime_credential,
+        credential_transport=payload.runtime_credential_transport,
+        vertex_project=payload.vertex_project,
+        vertex_location=payload.vertex_location,
+        data_door_grants=payload.data_door_grants or {},
+        puppy_device_id=payload.puppy_device_id,
+        verifier=verifier,
+    )
+
+    chunks: list[str] = []
+    directives: list[Any] = []
+    specialists: list[Any] = []
+    # The model the provider SAID answered, read off the token events. Empty when
+    # nothing reported one; then the response names the resolved id and says so.
+    observed_model = ""
+    # The runtime's one memory report per turn (observed recalls, review, written,
+    # provider). None when the runner never emitted it (a pre-join image).
+    memory_report: dict[str, Any] | None = None
+    try:
+        with bind_specialist_runtime(specialist_runtime):
+            async for event in runner(
+                user_id=user_id,
+                session_owner_id=pod_own_id,
+                consent_token=consent_token,
+                conversation_id=payload.conversation_id,
+                message=payload.message,
+                # Within-conversation continuity, memory-only. The browser-carried
+                # turns are wrapped as attribute-bearing objects because the runner
+                # reads `.role` / `.content` (text_runtime._history_content) and caps
+                # them itself; a non-dict item is skipped rather than raising, so a
+                # malformed history never fails a turn. Empty when the webapp sent
+                # none -> the pre-Phase-3 behaviour, unchanged.
+                history=[
+                    SimpleNamespace(
+                        role=str(m.get("role", "")),
+                        content=str(m.get("content", "")),
+                    )
+                    for m in (payload.history or [])
+                    if isinstance(m, dict)
+                ],
+                timezone=payload.timezone,
+                screen_context=None,
+                # Grounded on the owner's OWN projection, opened by their key on their own
+                # device and couriered here by the hub. The pod holds no database
+                # credential by design, so this is what makes a pod turn grounded without
+                # weakening the boundary that makes it a private agent.
+                pkm_context=grounding,
+                # When there is none, say WHY rather than leaving the model to infer it
+                # from silence -- the same honesty the hub path now carries.
+                grounding_reason=None
+                if grounding
+                else "no consented projection was sent with this turn",
+                runtime_provider=provider,
+                runtime_model=model,
+                runtime_mode=runtime_mode,
+                runtime_credential=payload.runtime_credential,
+                runtime_credential_transport=payload.runtime_credential_transport,  # type: ignore[arg-type]
+                puppy_device_id=payload.puppy_device_id,
+                runtime_vertex_project=payload.vertex_project,
+                runtime_vertex_location=payload.vertex_location,
+                # The couriered per-specialist read scopes. Seeded into the runtime so
+                # a DB-backed specialist reads through the hub broker rather than
+                # failing on the missing DB credential. Empty {} keeps today's behaviour.
+                data_door_grants=payload.data_door_grants or {},
+                # A fenced incarnation answers but never publishes; see text_runtime.
+                memory_commit_allowed=_memory_commit_allowed,
+                # The door's verdict on retirement, carried to the catch-up review.
+                memory_review_policy=memory_review_policy,
+            ):
+                kind = getattr(event, "kind", "")
+                if kind == "token":
+                    chunks.append(str(getattr(event, "text", "") or ""))
+                    observed_model = (
+                        observed_model or str(getattr(event, "model_version", "") or "").strip()
+                    )
+                elif kind == "directive" and getattr(event, "directive", None) is not None:
+                    directives.append(event.directive)
+                elif kind == "specialist" and getattr(event, "specialist", None) is not None:
+                    specialists.append(event.specialist)
+                elif kind == "memory" and isinstance(getattr(event, "memory", None), dict):
+                    memory_report = dict(event.memory)
+    except Exception as exc:  # noqa: BLE001 - a failed turn is a 502, never a 500 traceback
+        # THE KEYLESS-POD DB WALL IS AN EXPECTED CONDITION, NOT A 502.
+        # A pod holds no database credential by design. Some tools on One's roster
+        # (calendar, and any tool that reads a connected-account OAuth token) reach
+        # for the DB the pod does not have and raise "Database credentials not set".
+        # That is the pod being a pod -- exactly like a DB-backed specialist degrading
+        # to runtime_unavailable through the data door -- so it must read to the owner
+        # as "I can't do that here yet", never as their agent crashing (a 502). Only
+        # in pod mode, and only for that specific wall: a real DB error on the
+        # DB-capable hub still surfaces, and any OTHER pod failure is still a 502.
+        if pod_mode() and _is_puppy_capability_unsupported(exc):
+            # The owner's device model refused a capability One's own request
+            # needs. The device is up and the consent is good, so this is a
+            # bounded answer about the model, never a 502 about the agent.
+            logger.info("pod_turn.degraded_puppy_capability_unsupported")
+            return {
+                "text": (
+                    "Your device's model can't handle the way I need to ask this "
+                    "question here. I can still help with anything that needs a "
+                    "plain answer, or you can switch to a model that supports it."
+                ),
+                "model": model,
+                "modelReported": False,
+                "provider": provider,
+                "grounded": bool(grounding),
+                "directiveCount": 0,
+                "directives": [],
+                "specialists": [],
+                "dependencies": {"hub": [], "unavailable": []},
+                "runtimeMode": runtime_mode,
+                "degraded": "puppy_capability_unsupported",
+            }
+        if pod_mode() and _is_keyless_pod_db_wall(exc):
+            logger.info("pod_turn.degraded_db_wall %s", type(exc).__name__)
+            text = (
+                "I can't do that from your private agent yet. That needs a connected "
+                "account I can't reach here. I can still help with anything in the "
+                "information you've shared with me."
+            )
+            return {
+                "text": text,
+                "model": model,
+                "modelReported": False,
+                "provider": provider,
+                "grounded": bool(grounding),
+                "directiveCount": 0,
+                "directives": [],
+                "specialists": [],
+                "dependencies": {"hub": [], "unavailable": []},
+                "runtimeMode": runtime_mode,
+                "degraded": "keyless_pod_db_wall",
+            }
+        logger.warning("pod_turn.failed reason=%s", type(exc).__name__)
+        raise HTTPException(
+            status_code=502, detail=f"the agent could not complete this turn: {type(exc).__name__}"
+        ) from None
+
+    text = "".join(chunks).strip()
+    # A SUCCESSFUL TURN LEAVES A TRACE. Until this line, `run_pod_turn` logged only on
+    # failure -- so a pod that was working and a pod that was never called looked
+    # exactly alike in Cloud Logging, and nothing anywhere recorded how many turns a
+    # person's agent actually served, how long they took, or which model answered.
+    #
+    # The hub's POD_ACCESS receipt is written BEFORE the proxy call, so it records
+    # "permission granted", never "turn completed". This is the only place that can
+    # say the turn finished.
+    #
+    # Carries shape, never content: no message, no answer, no projection -- only
+    # whether grounding arrived, how long it took, and whose model served it.
+    logger.info(
+        "pod_turn.completed grounded=%s chars=%s directives=%s specialists=%s "
+        "runtime_mode=%s provider=%s",
+        bool(grounding),
+        len(text),
+        len(directives),
+        len(specialists),
+        runtime_mode,
+        provider,
+    )
+    return {
+        "text": text,
+        # OBSERVED when the provider reported it, RESOLVED otherwise, and the next
+        # field says which. This was the requested id on every turn, so a Puppy turn
+        # always read `local` whatever model actually answered, and a turn that
+        # quietly served from a different resident model was indistinguishable
+        # from one that did not.
+        "model": observed_model or model,
+        "modelReported": bool(observed_model),
+        "provider": provider,
+        # DERIVED, never asserted. This was hardcoded False while the turn was
+        # ungrounded by construction, which was honest then and would be a lie the
+        # moment a projection started arriving. Deriving it from what actually
+        # reached the runtime means the field cannot drift from the behaviour --
+        # the same reason `/health` stopped reporting a hand-written roster.
+        "grounded": bool(grounding),
+        "directiveCount": len(directives),
+        # The directive PAYLOADS, not just their count -- this is what lets an
+        # in-pod Agent One drive the app (navigate, render an action card, launch
+        # a Debate via analysis.start). The pod PROPOSES only: it mints no
+        # directive id, no receipt, no grant. The hub relay is the sole authority
+        # that re-validates each action against the gateway, supersedes the prior
+        # directive, and issues a single-use ledger entry before any card renders
+        # -- so a directive here can never assert authority the pod does not hold.
+        # Emitted unconditionally because it is inert until the relay's
+        # POD_DIRECTIVE_TRANSPORT flag processes it; an older relay ignores it.
+        "directives": [
+            {
+                "kind": getattr(d, "kind", ""),
+                "payload": getattr(d, "payload", {}) or {},
+                "delegateAgentId": getattr(d, "delegate_agent_id", None),
+            }
+            for d in directives
+        ],
+        # WHICH SPECIALISTS SERVED, AND WHAT THEY DECIDED.
+        #
+        # This key is what makes the pod measurable. `observe_pod` has always read
+        # `turn["specialists"]`, and `run_pod_turn` has never emitted it, so the
+        # parity oracle observed an empty specialist tuple on every real pod turn.
+        # The consequence was not a wrong score, it was a ruler with no markings on
+        # it: no live probe could certify that a specialist had been re-homed into
+        # the pod, because the measurement could not register a specialist at all.
+        # A check that cannot fail is not evidence, and a ruler that cannot see the
+        # dimension it measures is the same defect wearing an instrument's clothes.
+        #
+        # Shape, never content: an agent id and a state word per outcome. No text,
+        # no arguments, no holdings. `agentId` is camelCase to match the rest of
+        # this envelope; the oracle reads both spellings.
+        "specialists": [
+            {
+                "agentId": getattr(s, "agent_id", ""),
+                "status": getattr(s, "status", ""),
+                # The honest dependency report per specialist: where it ran, where
+                # its facts came from, how many hub reads that took, and why it
+                # could not when it could not. Empty strings mean the outcome
+                # predates the trace, never that nothing was read.
+                "execution": getattr(s, "execution", "") or "",
+                "informationSource": getattr(s, "information_source", "") or "",
+                "hubReads": int(getattr(s, "hub_reads", 0) or 0),
+                "reason": getattr(s, "reason", "") or "",
+            }
+            for s in specialists
+        ],
+        # Turn-level roll-up of the same trace, for the ledger and the person.
+        "dependencies": _turn_dependencies(specialists),
+        # Whose model answered. Stated, because "your AI" is a product promise and a
+        # cost boundary, not an implementation detail.
+        "runtimeMode": runtime_mode,
+        # WHAT THE AGENT REMEMBERED, LEARNED AND WROTE THIS TURN. Observed
+        # `load_memory` recalls ({queryChars, hits, backend}), the catch-up review
+        # (counts), records written, and the provider outcome vocabulary
+        # (consent / generate / recall). Shape only, never content. Absent on an
+        # image that predates the memory join, which is what the drill's
+        # `memory_join_present_on_image` precondition reads.
+        **({"memory": memory_report} if memory_report is not None else {}),
+    }
+
+
+def _resolve_runtime_mode(payload: PodTurnRequest, provider: str | None = None) -> str:
+    """Whose model serves this turn -- and the answer should be the OWNER'S.
+
+    A pod runs on the person's own AI key, supplied per turn, for three reasons
+    that all point the same way:
+
+    * **It is the product.** "Own your AI. Own your data. Own your compute." An
+      agent that quietly bills its thinking to a fleet account owns none of those.
+    * **Cost and quota land where they belong** -- on the person whose agent is
+      working, not on a shared pool that one heavy user can exhaust for everyone.
+    * **Least privilege.** The pod service account holds ZERO project roles, which
+      is the whole basis of the isolation story. Serving turns from a fleet Vertex
+      identity would mean granting ``aiplatform.user`` to every pod in the fleet --
+      spending the one property that makes a compromised pod uninteresting.
+
+    The key never rests in the pod: it arrives with the turn and leaves with it.
+    Nothing here writes it anywhere, and it is never logged.
+
+    A managed fallback exists because the product supports it, but it is chosen
+    explicitly, never by silent default -- a pod with no credential that quietly
+    reached for a fleet identity would be spending money nobody authorised.
+    """
+    if provider == "puppy":
+        if not str(payload.runtime_credential or "").strip():
+            raise HTTPException(status_code=403, detail="Puppy inference grant required")
+        return "puppy_relay"
+    if str(payload.runtime_credential or "").strip():
+        # `byok`, matching AgentRuntimeCredentialMode — NOT "gemini_byok".
+        #
+        # This returned "gemini_byok" and `text_runtime._runtime_model` branches on
+        # "byok", so a pod turn carrying a credential matched neither BYOK branch,
+        # fell through to `if credential:` and raised "Managed Vertex cannot be
+        # constructed from an API key". The BYOK pod path failed on every turn.
+        #
+        # It survived because the route test asserts this STRING while injecting a
+        # stub `stream_fn`, so the real runner was never constructed. A test that
+        # pins the value a function returns, rather than what the next function does
+        # with it, passes for exactly as long as both ends are wrong together.
+        return "byok"
+    from hushh_mcp.runtime_settings import (  # noqa: PLC0415
+        pod_managed_model_enabled,
+        pod_user_adc_enabled,
+    )
+
+    # ORDER IS LOAD-BEARING, and it is BYOK -> user ADC -> managed.
+    #
+    # An owner who sends a key gets their key: that is checked above and nothing here
+    # can take it from them. Next comes the person's own project, which is the
+    # production answer once their cloud exists -- no credential travels, because the
+    # pod already runs as their service account in their project.
+    #
+    # Managed stays last precisely because it is the only branch that spends hushh's
+    # identity. Putting it earlier would let a mis-set FLEET flag capture a BYOC pod
+    # and quietly bill a person's thinking to hushh while their own project sat idle,
+    # and nothing in the answer would look wrong.
+    if pod_user_adc_enabled():
+        return "user_adc"
+    if pod_managed_model_enabled():
+        return "hushh_managed_vertex"
+    # Refusing beats guessing. This is the honest state for a person whose AI
+    # connection has not been established -- and by the provisioning gate, they
+    # should not have a pod at all yet.
+    raise HTTPException(
+        status_code=400,
+        detail="this pod has no model access; connect an AI key first",
+    )
+
+
+def _resolve_model(payload: PodTurnRequest | None = None) -> tuple[str, str]:
+    """Provider + model from the file-backed runtime manifest. No database.
+
+    ``load_one_agent_runtime_manifest`` reads the checked-in agent YAML, so it works
+    in a pod, where the DB-backed ``AgentChatService`` cannot be constructed at all.
+    """
+    from hushh_mcp.services.agent_chat_service import (  # noqa: PLC0415
+        load_one_agent_runtime_manifest,
+    )
+
+    requested = str(getattr(payload, "runtime_provider", None) or "").strip().lower()
+    if requested:
+        # Puppy is an owner/device capability, not a deployment-wide feature flag.
+        # Admission is enforced by the pod consent token and device-bound grant
+        # before this resolver is reached.
+        if requested != "puppy":
+            raise HTTPException(status_code=400, detail="requested inference target is unavailable")
+        if not str(getattr(payload, "puppy_device_id", None) or "").strip():
+            raise HTTPException(status_code=400, detail="Puppy device is required")
+        model = str(os.getenv("PUPPY_INFERENCE_MODEL") or "local").strip()
+        return "puppy", model
+    manifest = load_one_agent_runtime_manifest()
+    provider = str(manifest.model.provider or "gemini").strip().lower()
+    model = str(manifest.model.name or "").strip()
+    if not model:
+        raise HTTPException(status_code=503, detail="pod has no runtime model configured")
+    return provider, model
+
+
+@router.post("/turn")
+async def pod_turn_route(
+    payload: PodTurnRequest = Body(...),
+    x_consent_token: Optional[str] = Header(default=None, alias="X-Consent-Token"),
+    authorization: Optional[str] = Header(default=None),
+) -> dict:
+    """Run one Agent One turn inside this pod.
+
+    Two doors, one core. A hub-relayed turn carries ``X-Consent-Token`` and the hub
+    verifies it. An owner-direct turn carries a pod session as the bearer and the
+    pod's own authority verifies it; a bearer that is not a pod session (a hub
+    consent token, an OIDC token) is refused by shape, never accepted as local.
+    """
+    if not str(x_consent_token or "").strip():
+        from api.routes.one.pod_session import bearer, verified_session  # noqa: PLC0415
+        from hushh_mcp.services.pod_session_authority import ROLE_APP  # noqa: PLC0415
+
+        if bearer(authorization):
+            authority, claims = verified_session(authorization, role=ROLE_APP)
+            return await _bounded_turn(
+                run_pod_turn(
+                    payload=payload,
+                    consent_token=authority.local_token(claims),
+                    verifier=authority.local_verifier(claims),
+                    session=claims,
+                )
+            )
+    return await _bounded_turn(run_pod_turn(payload=payload, consent_token=x_consent_token or ""))
+
+
+async def _bounded_turn(turn: Any) -> dict:
+    """Run one turn under the route's bound; a timeout is a typed 504, never a hang."""
+    import asyncio  # noqa: PLC0415
+
+    try:
+        async with asyncio.timeout(POD_TURN_ROUTE_TIMEOUT_SECONDS):
+            completed: dict = await turn
+            return completed
+    except TimeoutError:
+        logger.warning("pod_turn.route_timeout seconds=%s", POD_TURN_ROUTE_TIMEOUT_SECONDS)
+        raise HTTPException(
+            status_code=504,
+            detail={
+                "code": "POD_TURN_TIMEOUT",
+                "message": "the agent did not answer within the pod's time budget",
+            },
+        ) from None
+
+
+@router.websocket("/live")
+async def pod_live_route(websocket: WebSocket) -> None:
+    """Pod-only Live entrypoint under the existing IAM and scoped consent door.
+
+    Cloud Run validates the hub's audience-bound IAM before this process. The
+    scoped grant is independently checked against current hub ownership before
+    any bootstrap, then throughout the connection. A browser vault master is
+    never an accepted substitute for this read grant.
+    """
+    import asyncio
+    import re
+
+    from api.routes.one.adk_live import run_one_live_session
+    from api.routes.one.pod_live_session import PodLiveSession
+    from api.routes.one.pod_live_store import PodVoiceDirectiveStore
+    from api.routes.one.pod_live_transport import PodLiveTransport
+    from api.routes.one.relay_auth import one_voice_enabled
+
+    try:
+        _require_enabled()
+        if not one_voice_enabled():
+            raise HTTPException(status_code=503, detail="voice unavailable")
+        consent = str(websocket.headers.get("x-consent-token") or "")
+        session_id = str(websocket.headers.get("x-hussh-voice-session") or "")
+        if (
+            not consent
+            or len(consent) > 4096
+            or not re.fullmatch(r"voice_[a-f0-9]{32}", session_id)
+        ):
+            raise HTTPException(status_code=403, detail="voice binding required")
+        claims = await _validate_consent(consent)
+        doors = {}
+        for name in POD_DATA_DOOR_NAMES:
+            token = str(websocket.headers.get("x-hussh-" + name + "-grant") or "")
+            if len(token) > 4096:
+                raise HTTPException(status_code=403, detail="specialist grant unavailable")
+            if token:
+                doors[name] = token
+        private = PodLiveSession(
+            user_id=str(claims.get("user_id") or ""),
+            hushh_id=(os.getenv("HUSSH_ID") or "").strip(),
+            session_id=session_id,
+            consent_token=consent,
+            data_door_grants=doors,
+        )
+        await private.require_access()
+    except Exception:
+        await websocket.close(code=1008, reason="Private voice unavailable.")
+        return
+
+    await websocket.accept()
+    async with PodLiveTransport(websocket) as transport:
+
+        async def watch() -> None:
+            while True:
+                await asyncio.sleep(1.0)
+                async with asyncio.timeout(10.0):
+                    await private.require_access()
+
+        live = asyncio.create_task(
+            run_one_live_session(
+                transport,
+                uid=private.user_id,
+                persona_tier="signed_locked",
+                directive_store=PodVoiceDirectiveStore(transport),
+                pod_session=private,
+            )
+        )
+        monitor = asyncio.create_task(watch())
+        tasks = {live, monitor}
+        try:
+            done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+            for task in done:
+                task.result()
+        except Exception:
+            # No credential, transcription or raw authority/provider error is
+            # reflected to peers or diagnostics. No retry or shared fallback.
+            pass
+        finally:
+            for task in tasks:
+                task.cancel()
+            await transport.close(code=1008, reason="Private voice connection ended.")
+            _, pending = await asyncio.wait(tasks, timeout=10.0)
+            for task in tasks:
+                if task.done() and not task.cancelled():
+                    task.exception()
+            if pending:
+                logger.error("pod_live.shutdown_incomplete pending=%s", len(pending))
+                for task in pending:
+                    task.cancel()
+                    task.add_done_callback(
+                        lambda finished: None if finished.cancelled() else finished.exception()
+                    )

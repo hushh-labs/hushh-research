@@ -54,6 +54,8 @@ Non-owned surfaces:
 1. Confirm whether the change is about orchestration, tool surface, or agent packaging before editing code.
 2. Keep orchestration docs and relevant tests aligned with the implementation.
 3. Route trust, consent, or scope-enforcement questions into `security-audit`.
+4. For pod support, follow `agent-development.md`'s "One authored fleet, explicit runtime dependencies" procedure: reuse the agent and inject dependencies; verify authority and fail-closed behavior through the existing pod ledger.
+5. Separate portable shared-runtime corrections from pod wiring before any ADK worktree transfer. Registration or local synthetic tests alone do not establish pod completion.
 
 ## Handoff Rules
 

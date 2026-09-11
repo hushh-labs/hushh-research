@@ -29,22 +29,31 @@ create the first vault. Vault keys and owner tokens remain in memory only.
 
 ```mermaid
 flowchart TD
-  Hub["/one/setup (hub)\ntiles + live status\nmaster Finish setup"]
-  Connections["/one/setup/connections\nrequired explicit managed or BYOK choice"]
-  Gmail["/one/setup/gmail (workspace)\nConnect, review receipt signals, Finish Gmail setup"]
-  Static["/one/setup/location | email | ria | connected-systems\nreused feature workspace + terminal footer"]
-  Wizard["/one/setup/finance (wizard)\nquestionnaire -> persona"]
-  Import["/one/setup/finance/import\nPlaid, statement, or set up later"]
+  Hub["/one/setup (hub)<br/>tiles + live status<br/>master Finish setup"]
+  Connections["/one/setup/connections<br/>required explicit managed or BYOK choice"]
+  Pod["Private Agent One pod<br/>provisioned only after the AI connection verifies"]
+  Gmail["/one/setup/gmail (workspace)<br/>Connect, review receipt signals, Finish Gmail setup"]
+  Static["/one/setup/location | email | ria | connected-systems<br/>reused feature workspace + terminal footer"]
+  Wizard["/one/setup/finance (wizard)<br/>questionnaire then persona"]
+  Import["/one/setup/finance/import<br/>Plaid, statement, or set up later"]
+  Dash["/one (dashboard)<br/>reached after the master acknowledgement"]
 
   Hub -->|choose how One runs| Connections -->|durable choice marker| Hub
+  Connections -.->|"server verifies the key, then schedules"| Pod
   Hub -->|Connect Gmail| Gmail
   Gmail -->|verified connection + Finish Gmail setup| Hub
   Hub -->|choose capability| Static
   Hub -->|Finance| Wizard --> Import
   Static -->|verified Finish or Skip| Hub
   Import -->|verified Finish or Skip| Hub
-  Hub -->|after Connections: Finish setup -> required vault| Dash
+  Hub -->|after Connections: Finish setup then required vault| Dash
 ```
+
+The dotted edge is deliberately dotted: the person does not wait on it. Their
+pod is provisioned in the background once the server has proved their AI
+connection actually works, and the rest of setup continues either way. Nothing
+in the setup journey blocks on a pod, and a person who never finishes setup
+never has one built.
 
 The setup catalog is a deliberate subset of the broader One capability catalog
 (single source of truth:
@@ -101,9 +110,11 @@ presentation alone.
 
 ```mermaid
 flowchart TD
-  One["One setup (ROOT)\n/one/setup\nonce per account"]
-  Kai["Finance preferences (SUB)\n/one/setup/finance"]
-  Cap["Static capability setup (SUB)\n/one/setup/<capability>"]
+  One["One setup (ROOT)<br/>/one/setup<br/>once per account"]
+  Kai["Finance preferences (SUB)<br/>/one/setup/finance"]
+  Cap["Static capability setup (SUB)<br/>/one/setup/&lt;capability&gt;"]
+  Ria["RIA advisor verification (SUB)<br/>/one/setup/ria"]
+  Kyc["KYC identity workflow (SUB)<br/>/one/setup/email"]
   One --> Kai
   One --> Cap
   One --> Ria
@@ -211,6 +222,38 @@ Root acknowledgement never writes Finance completion into the Kai profile.
 The AI access setup preface writes only the bounded `connections` marker in
 the existing pre-vault setup-state set. BYOK material remains encrypted in the
 vault and is never present in that marker.
+
+### AI access is also the compute gate
+
+Choosing AI access does one thing beyond recording a preference: it is the
+**only** event that causes a person's Private Agent One pod to be provisioned.
+
+Both branches of the choice contact the server, and both are verified there
+before anything is built:
+
+| Choice | Route | What proves it |
+| --- | --- | --- |
+| Hussh-managed | `POST /api/one/runtime/managed/select` | a real generation against the managed provider |
+| Bring your own key | `POST /api/one/runtime/gemini/validate` | a real generation against the person's own key |
+
+Each returns `agentScheduled` and `agentReason`, so the surface reports what
+actually happened instead of guessing. Provisioning **starts only after the key
+verifies** — a failed or absent connection produces no pod, and therefore no
+cost.
+
+That ordering is the correction of a real defect, and the reason is worth
+keeping. Provisioning used to fire on phone verification, which put billable,
+warm, heart-beating compute behind an event that says nothing about whether the
+agent could ever answer a question. Signing in is not evidence of a working
+agent; a successful model call is.
+
+The consequence for this document is that AI access is no longer a leaf
+preference. It is the root of the compute journey, which is why the setup map
+above draws an edge out of `/one/setup/connections` that leaves the setup graph
+entirely. The pod journey itself lives in
+[Architecture § 1a](../architecture/architecture.md) and the dynamic view in the
+[Architecture View Catalog](../architecture/architecture-view-catalog.md);
+do not restate its internals here.
 
 ### Static capability workspaces
 

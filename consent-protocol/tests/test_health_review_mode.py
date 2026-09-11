@@ -13,6 +13,7 @@ def _build_app() -> FastAPI:
 
 
 def test_health_reports_one_led_agent_model(monkeypatch):
+    monkeypatch.setenv("HUSSH_POD_MODE", "0")
     monkeypatch.setattr(
         health,
         "_one_runtime_dependency_evidence",
@@ -28,10 +29,14 @@ def test_health_reports_one_led_agent_model(monkeypatch):
     assert response.status_code == 200
     assert response.json() == {
         "status": "healthy",
-        "agents": ["one", "kai", "nav", "kyc"],
+        # `kyc` is deliberately absent: it has an agent.yaml no Python loads and is
+        # in no roster any code builds. It was reported for as long as this was a
+        # hardcoded literal, and a fleet document cited that literal as proof a pod
+        # was running agents.
+        "agents": ["one", "kai", "nav"],
         "agent_model": {
             "primary": "one",
-            "specialists": ["kai", "nav", "kyc"],
+            "specialists": ["kai", "nav"],
         },
         "one_runtime": {
             "google_adk_expected": "2.4.0",

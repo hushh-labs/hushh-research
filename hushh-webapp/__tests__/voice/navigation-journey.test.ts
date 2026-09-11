@@ -139,6 +139,7 @@ describe("navigation journeys", () => {
       "location.trigger_sos",
       "setup.connect_gmail",
       "setup.finish_calendar",
+      "setup.finish_cloud",
       "setup.finish_connections",
       "setup.finish_email",
       "setup.finish_finance",

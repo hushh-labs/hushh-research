@@ -1,0 +1,1710 @@
+"""DB-backed registry for per-user personal agents.
+
+Thin async CRUD over ``personal_agent_registry`` and its retained
+``personal_agent_deletion_tombstones`` (migration 900), mirroring the Supabase
+access pattern used by ``ConsentDBService``. The client is injectable so the
+whole repo is hermetically testable with a fake; in production it resolves the
+shared ``db.db_client.get_db()`` client lazily.
+
+This is the concrete adapter behind the registry Protocol that
+``PersonalAgentProvisioningService`` orchestrates. It stores only the opaque
+HusshID, the HMAC phone hash, the pod's PUBLIC key, version pins, and status,
+never the raw phone number and never a private key.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import uuid
+from copy import deepcopy
+from datetime import datetime, timezone
+from typing import Any, Optional
+
+from db.db_client import get_db
+
+_REGISTRY = "personal_agent_registry"
+_TOMBSTONES = "personal_agent_deletion_tombstones"
+
+# Statuses that mean this row is holding, or is in the act of standing up, a real
+# host. ``provisioning`` is counted deliberately: provision() records that status
+# before the backend call and leaves it there while the host is created, so a row
+# mid-flight may already own a billable service. ``connecting`` is counted for the
+# stronger reason that the host demonstrably EXISTS by then -- the backend returned
+# a handle and the row is waiting only on the pod to register its public key. A
+# pod parked in ``connecting`` is fully billable, so omitting it here would let the
+# fleet grow past PERSONAL_AGENT_MAX_PODS without the cap ever noticing.
+# Over-counting is the safe direction for a cost ceiling; under-counting spends money.
+#: Rows that HOLD (or are standing up) billable compute. This answers the cost
+#: question -- "does this person occupy a slot in the fleet" -- and `migrating`
+#: belongs here because a migration briefly holds TWO hosts, and under-counting a
+#: cost ceiling spends money.
+_ACTIVE_POD_STATUSES = ("provisioning", "connecting", "provisioned", "migrating", "suspended")
+
+#: Rows whose SILENCE the liveness sweep is entitled to judge. Deliberately not
+#: the same tuple: one list was answering two different questions, and the answers
+#: diverge at exactly one status. A migrating pod is frozen on purpose, so probing
+#: it would read a deliberate silence as a fault, wake a pod mid-export, and bill
+#: a cold start for the privilege.
+_LIVENESS_CANDIDATE_STATUSES = ("provisioning", "connecting", "provisioned")
+# States a row should have LEFT. `provisioning` is the fire-and-forget task that
+# died mid-flight; `provisioning_failed` recorded its own defeat. `connecting` is
+# excluded on purpose -- see fetch_stalled_agents.
+#
+# This said `"failed"`, and NOTHING has ever written that string. The service writes
+# `"provisioning_failed"` (personal_agent_provisioning_service, two sites). So the
+# retry sweep has never once retried a failed pod, and could not have: it queried for
+# a status that does not exist in the table.
+#
+# Nothing reported it because a sweep that finds nothing and a sweep looking for the
+# wrong string produce identical logs -- `personal_agent_reconcile.pass stalled=0`
+# either way. The only way to see it was to compare this tuple against the writers,
+# which is exactly what the guard beside it now does on every run.
+_STALLED_POD_STATUSES = ("provisioning", "provisioning_failed")
+
+# Failure code written by mark_provisioning_failed when a 'connecting' row blew its
+# handshake deadline, and read back by the reconcile sweep's retry gate: a heal
+# re-provisions to the SAME digest the dead pod already runs, so auto-retry would
+# converge on the same dead boot and flap the owner's surface connecting<->failed.
+REASON_HANDSHAKE_TIMEOUT = "handshake_timeout"
+
+
+def registry_host_snapshot(row: Optional[dict]) -> Optional[dict]:
+    """Copy the registry fields whose host/authority an external probe observes.
+
+    This is optimistic observation fencing, not a compute-incarnation lease.
+    Keep comparisons and the conditional writer on the same field contract.
+    """
+    if row is None:
+        return None
+    return deepcopy(
+        {
+            key: row.get(key)
+            for key in (
+                "user_id",
+                "hushh_id",
+                "status",
+                "updated_at",
+                "backend",
+                "external_agent_id",
+                "a2a_route",
+                "backend_metadata",
+                "billing_space_id",
+                "deployment_target",
+                "model_credential_mode",
+                "user_cloud_project",
+                "user_cloud_region",
+                "user_cloud_bootstrap_sa",
+                "user_cloud_authorized_at",
+            )
+        }
+    )
+
+
+_UPGRADE_HOST_METADATA_KEYS = (
+    "project",
+    "region",
+    "service",
+    "serviceUid",
+    "url",
+    "runtime_service_account",
+    "tenancy",
+    "ingress",
+    "substrateReceipt",
+)
+
+
+def upgrade_host_snapshot(row: Optional[dict]) -> Optional[dict]:
+    snapshot = registry_host_snapshot(row)
+    if row is None or snapshot is None:
+        return None
+    # Reuse the host authority projection and include the remaining PodSpec inputs.
+    snapshot.update(
+        {
+            key: row.get(key)
+            for key in (
+                "phone_e164_hash",
+                "pod_pubkey",
+                "pod_key_id",
+                "liveness_mode",
+            )
+        }
+    )
+    metadata = snapshot["backend_metadata"] or {}
+    snapshot["host_metadata"] = {key: metadata.get(key) for key in _UPGRADE_HOST_METADATA_KEYS}
+    return snapshot
+
+
+def _upgrade_snapshot_params(snapshot: dict, *, publishing: bool = False) -> dict:
+    """Bind observations as values; registry/metadata keys never become SQL.
+
+    Timestamps retain their typed comparisons, and full metadata stays separate
+    so a SQL NULL cannot match a stored JSON null. Publication tolerates heartbeat
+    changes while retaining the exact host/custody projection.
+    """
+    registry = {
+        key: value
+        for key, value in snapshot.items()
+        if key
+        not in {"updated_at", "user_cloud_authorized_at", "backend_metadata", "host_metadata"}
+    }
+    return {
+        "observed_registry": json.dumps(registry),
+        "observed_host_metadata": json.dumps(snapshot["host_metadata"]),
+        "observed_updated_at": snapshot["updated_at"],
+        "observed_user_cloud_authorized_at": snapshot["user_cloud_authorized_at"],
+        "observed_backend_metadata": (
+            json.dumps(snapshot["backend_metadata"])
+            if snapshot["backend_metadata"] is not None
+            else None
+        ),
+        "publishing": publishing,
+    }
+
+
+class PersonalAgentRegistryRepo:
+    """CRUD over the personal-agent registry and deletion tombstones."""
+
+    def __init__(self, client: Any = None) -> None:
+        self._client = client
+
+    def _db(self) -> Any:
+        return self._client if self._client is not None else get_db()
+
+    async def claim_provision(self, *, observed: Optional[dict], intent: dict) -> dict:
+        """Reserve one durable attempt before any substrate or host operation.
+
+        A refusal or lost acknowledgement must not reach a provider. This does
+        not rediscover or take over an uncertain attempt, even after a restart.
+        """
+        owner = str(intent.get("user_id") or "")
+        attempt = uuid.uuid4().hex
+        try:
+            result = await asyncio.to_thread(
+                self._db().execute_raw,
+                "SELECT public.claim_personal_agent_provision(:owner,:attempt,"
+                "CAST(:observed AS jsonb),CAST(:intent AS jsonb)) AS reservation",
+                {
+                    "owner": owner,
+                    "attempt": attempt,
+                    "observed": json.dumps(observed, default=str),
+                    "intent": json.dumps(intent),
+                },
+            )
+            reservation = result.data[0]["reservation"] if result.data else None
+            if (
+                not isinstance(reservation, dict)
+                or reservation.get("ownerId") != owner
+                or reservation.get("attemptId") != attempt
+                or reservation.get("phase") != "reserved"
+                or reservation.get("intent") != intent
+            ):
+                raise ValueError("unacknowledged provision reservation")
+            return reservation
+        except Exception:
+            raise RuntimeError("personal agent provision admission unavailable") from None
+
+    async def publish_provision(
+        self,
+        *,
+        user_id: str,
+        attempt_id: str,
+        expected_phase: str,
+        next_phase: str,
+        evidence: dict,
+    ) -> bool:
+        """Retain exact-attempt evidence without overwriting heartbeat metadata."""
+        result = await asyncio.to_thread(
+            self._db().execute_raw,
+            "SELECT public.publish_personal_agent_provision(:owner,:attempt,:expected,"
+            ":next,CAST(:evidence AS jsonb)) AS published",
+            {
+                "owner": user_id,
+                "attempt": attempt_id,
+                "expected": expected_phase,
+                "next": next_phase,
+                "evidence": json.dumps(evidence),
+            },
+        )
+        published = bool(result.data and result.data[0].get("published") is True)
+        if not published and (expected_phase, next_phase) in {
+            ("reserved", "substrate"),
+            ("host_requested", "host_acknowledged"),
+            ("host_requested", "host_requested"),
+        }:
+            await asyncio.to_thread(
+                self._db().execute_raw,
+                "SELECT public.retain_personal_agent_provision_ack(:owner,CAST(:receipt AS jsonb))",
+                {
+                    "owner": user_id,
+                    "receipt": json.dumps(
+                        {
+                            "version": 1,
+                            "ownerId": user_id,
+                            "attemptId": attempt_id,
+                            "expectedPhase": expected_phase,
+                            "nextPhase": next_phase,
+                            "evidence": evidence,
+                        }
+                    ),
+                },
+            )
+        # Retention is not permission to continue ordinary provisioning.
+        return published
+
+    async def retain_erasure_upgrade_ack(self, *, user_id: str, lease: str, receipt: dict) -> bool:
+        """Append late provider evidence without reopening the reserved owner."""
+        response = await asyncio.to_thread(
+            self._db().execute_raw,
+            "SELECT public.retain_erasure_upgrade_ack(:owner, :lease, CAST(:receipt AS jsonb)) AS retained",
+            {"owner": user_id, "lease": lease, "receipt": json.dumps(receipt)},
+        )
+        return bool(response.data and response.data[0].get("retained") is True)
+
+    async def retain_erasure_memory_binding(
+        self, *, user_id: str, reservation: dict, receipt: dict
+    ) -> bool:
+        """Append immutable pod coordinates under the same reserved owner attempt."""
+        response = await asyncio.to_thread(
+            self._db().execute_raw,
+            "SELECT public.retain_erasure_memory_binding(:owner, :attempt, "
+            "CAST(:expected AS jsonb), CAST(:receipt AS jsonb)) AS retained",
+            {
+                "owner": user_id,
+                "attempt": reservation["attemptId"],
+                "expected": json.dumps(reservation),
+                "receipt": json.dumps(receipt),
+            },
+        )
+        return bool(response.data and response.data[0].get("retained") is True)
+
+    async def retain_erasure_memory_deletion(
+        self, *, user_id: str, reservation: dict, receipt: dict
+    ) -> bool:
+        """Retain provider completion without releasing compute or owner authority."""
+        response = await asyncio.to_thread(
+            self._db().execute_raw,
+            "SELECT public.retain_erasure_memory_deletion(:owner, :attempt, "
+            "CAST(:expected AS jsonb), CAST(:receipt AS jsonb)) AS retained",
+            {
+                "owner": user_id,
+                "attempt": reservation["attemptId"],
+                "expected": json.dumps(reservation),
+                "receipt": json.dumps(receipt),
+            },
+        )
+        return bool(response.data and response.data[0].get("retained") is True)
+
+    async def retain_erasure_compute_receipt(
+        self, *, user_id: str, reservation: dict, stage: str, receipt: dict
+    ) -> bool:
+        """Append a compute receipt; repeated admission never grants another DELETE."""
+        response = await asyncio.to_thread(
+            self._db().execute_raw,
+            "SELECT public.retain_erasure_compute_receipt(:owner, :attempt, "
+            "CAST(:expected AS jsonb), :stage, CAST(:receipt AS jsonb)) AS retained",
+            {
+                "owner": user_id,
+                "attempt": reservation["attemptId"],
+                "expected": json.dumps(reservation),
+                "stage": stage,
+                "receipt": json.dumps(receipt),
+            },
+        )
+        return bool(response.data and response.data[0].get("retained") is True)
+
+    async def retain_erasure_substrate_inventory(self, *, user_id: str, reservation: dict) -> bool:
+        """Retain the database snapshot inventory; this grants no deletion authority."""
+        response = await asyncio.to_thread(
+            self._db().execute_raw,
+            "SELECT public.retain_erasure_substrate_inventory(:owner, :attempt, "
+            "CAST(:expected AS jsonb)) AS retained",
+            {
+                "owner": user_id,
+                "attempt": reservation["attemptId"],
+                "expected": json.dumps(reservation),
+            },
+        )
+        return bool(response.data and response.data[0].get("retained") is True)
+
+    async def retain_erasure_writer_receipt(
+        self, *, user_id: str, reservation: dict, stage: str, receipt: dict
+    ) -> bool:
+        """Retain writer revocation under the existing owner erasure reservation."""
+        response = await asyncio.to_thread(
+            self._db().execute_raw,
+            "SELECT public.retain_erasure_writer_receipt(:owner, :attempt, "
+            "CAST(:expected AS jsonb), :stage, CAST(:receipt AS jsonb)) AS retained",
+            {
+                "owner": user_id,
+                "attempt": reservation["attemptId"],
+                "expected": json.dumps(reservation),
+                "stage": stage,
+                "receipt": json.dumps(receipt),
+            },
+        )
+        return bool(response.data and response.data[0].get("retained") is True)
+
+    async def verify_erasure_bucket_preflight(self, *, user_id: str, reservation: dict) -> bool:
+        response = await asyncio.to_thread(
+            self._db().execute_raw,
+            "SELECT public.verify_erasure_bucket_preflight(:owner, :attempt, "
+            "CAST(:expected AS jsonb)) AS verified",
+            {
+                "owner": user_id,
+                "attempt": reservation["attemptId"],
+                "expected": json.dumps(reservation),
+            },
+        )
+        return bool(response.data and response.data[0].get("verified") is True)
+
+    async def retain_erasure_bucket_receipt(
+        self, *, user_id: str, reservation: dict, stage: str, receipt: dict
+    ) -> bool:
+        """Retain bucket revocation under the existing owner erasure reservation."""
+        response = await asyncio.to_thread(
+            self._db().execute_raw,
+            "SELECT public.retain_erasure_bucket_receipt(:owner, :attempt, "
+            "CAST(:expected AS jsonb), :stage, CAST(:receipt AS jsonb)) AS retained",
+            {
+                "owner": user_id,
+                "attempt": reservation["attemptId"],
+                "expected": json.dumps(reservation),
+                "stage": stage,
+                "receipt": json.dumps(receipt),
+            },
+        )
+        return bool(response.data and response.data[0].get("retained") is True)
+
+    async def verify_erasure_mail_preflight(self, *, user_id: str, reservation: dict) -> bool:
+        response = await asyncio.to_thread(
+            self._db().execute_raw,
+            "SELECT public.verify_erasure_mail_preflight(:owner, :attempt, "
+            "CAST(:expected AS jsonb)) AS verified",
+            {
+                "owner": user_id,
+                "attempt": reservation["attemptId"],
+                "expected": json.dumps(reservation),
+            },
+        )
+        return bool(response.data and response.data[0].get("verified") is True)
+
+    async def retain_erasure_mail_receipt(
+        self, *, user_id: str, reservation: dict, kind: str, stage: str, receipt: dict
+    ) -> bool:
+        """Retain mail revocation under the existing owner erasure reservation."""
+        response = await asyncio.to_thread(
+            self._db().execute_raw,
+            "SELECT public.retain_erasure_mail_receipt(:owner, :attempt, "
+            "CAST(:expected AS jsonb), :kind, :stage, CAST(:receipt AS jsonb)) AS retained",
+            {
+                "owner": user_id,
+                "attempt": reservation["attemptId"],
+                "expected": json.dumps(reservation),
+                "kind": kind,
+                "stage": stage,
+                "receipt": json.dumps(receipt),
+            },
+        )
+        return bool(response.data and response.data[0].get("retained") is True)
+
+    async def verify_erasure_kms_preflight(self, *, user_id: str, reservation: dict) -> bool:
+        response = await asyncio.to_thread(
+            self._db().execute_raw,
+            "SELECT public.verify_erasure_kms_preflight(:owner, :attempt, "
+            "CAST(:expected AS jsonb)) AS verified",
+            {
+                "owner": user_id,
+                "attempt": reservation["attemptId"],
+                "expected": json.dumps(reservation),
+            },
+        )
+        return bool(response.data and response.data[0].get("verified") is True)
+
+    async def retain_erasure_kms_receipt(
+        self, *, user_id: str, reservation: dict, stage: str, receipt: dict
+    ) -> bool:
+        """Retain KMS erasure under the existing owner erasure reservation."""
+        response = await asyncio.to_thread(
+            self._db().execute_raw,
+            "SELECT public.retain_erasure_kms_receipt(:owner, :attempt, "
+            "CAST(:expected AS jsonb), :stage, CAST(:receipt AS jsonb)) AS retained",
+            {
+                "owner": user_id,
+                "attempt": reservation["attemptId"],
+                "expected": json.dumps(reservation),
+                "stage": stage,
+                "receipt": json.dumps(receipt),
+            },
+        )
+        return bool(response.data and response.data[0].get("retained") is True)
+
+    async def verify_erasure_secret_preflight(self, *, user_id: str, reservation: dict) -> bool:
+        response = await asyncio.to_thread(
+            self._db().execute_raw,
+            "SELECT public.verify_erasure_secret_preflight(:owner, :attempt, "
+            "CAST(:expected AS jsonb)) AS verified",
+            {
+                "owner": user_id,
+                "attempt": reservation["attemptId"],
+                "expected": json.dumps(reservation),
+            },
+        )
+        return bool(response.data and response.data[0].get("verified") is True)
+
+    async def retain_erasure_secret_receipt(
+        self, *, user_id: str, reservation: dict, stage: str, receipt: dict
+    ) -> bool:
+        """Retain secret erasure under the existing owner erasure reservation."""
+        response = await asyncio.to_thread(
+            self._db().execute_raw,
+            "SELECT public.retain_erasure_secret_receipt(:owner, :attempt, "
+            "CAST(:expected AS jsonb), :stage, CAST(:receipt AS jsonb)) AS retained",
+            {
+                "owner": user_id,
+                "attempt": reservation["attemptId"],
+                "expected": json.dumps(reservation),
+                "stage": stage,
+                "receipt": json.dumps(receipt),
+            },
+        )
+        return bool(response.data and response.data[0].get("retained") is True)
+
+    async def verify_erasure_account_preflight(self, *, user_id: str, reservation: dict) -> bool:
+        response = await asyncio.to_thread(
+            self._db().execute_raw,
+            "SELECT public.verify_erasure_account_preflight(:owner, :attempt, "
+            "CAST(:expected AS jsonb)) AS verified",
+            {
+                "owner": user_id,
+                "attempt": reservation["attemptId"],
+                "expected": json.dumps(reservation),
+            },
+        )
+        return bool(response.data and response.data[0].get("verified") is True)
+
+    async def retain_erasure_account_receipt(
+        self, *, user_id: str, reservation: dict, stage: str, receipt: dict
+    ) -> bool:
+        """Retain runtime account erasure under the existing owner erasure reservation."""
+        response = await asyncio.to_thread(
+            self._db().execute_raw,
+            "SELECT public.retain_erasure_account_receipt(:owner, :attempt, "
+            "CAST(:expected AS jsonb), :stage, CAST(:receipt AS jsonb)) AS retained",
+            {
+                "owner": user_id,
+                "attempt": reservation["attemptId"],
+                "expected": json.dumps(reservation),
+                "stage": stage,
+                "receipt": json.dumps(receipt),
+            },
+        )
+        return bool(response.data and response.data[0].get("retained") is True)
+
+    async def reserve_erasure_grant_release(self, *, user_id: str, reservation: dict) -> bool:
+        """Fence shared project admission; this alone never authorizes a policy write."""
+        response = await asyncio.to_thread(
+            self._db().execute_raw,
+            "SELECT public.reserve_erasure_grant_release(:owner, :attempt, CAST(:expected AS jsonb)) AS retained",
+            {
+                "owner": user_id,
+                "attempt": reservation["attemptId"],
+                "expected": json.dumps(reservation),
+            },
+        )
+        return bool(response.data and response.data[0].get("retained") is True)
+
+    async def retain_erasure_runtime_grant_receipt(
+        self, *, user_id: str, reservation: dict, stage: str, receipt: dict
+    ) -> bool:
+        response = await asyncio.to_thread(
+            self._db().execute_raw,
+            "SELECT public.retain_erasure_runtime_grant_receipt(:owner,:attempt,CAST(:expected AS jsonb),:stage,CAST(:receipt AS jsonb)) AS retained",
+            {
+                "owner": user_id,
+                "attempt": reservation["attemptId"],
+                "expected": json.dumps(reservation),
+                "stage": stage,
+                "receipt": json.dumps(receipt),
+            },
+        )
+        return bool(response.data and response.data[0].get("retained") is True)
+
+    async def retain_erasure_repository_grant_receipt(
+        self, *, user_id: str, reservation: dict, stage: str, receipt: dict
+    ) -> bool:
+        response = await asyncio.to_thread(
+            self._db().execute_raw,
+            "SELECT public.retain_erasure_repository_grant_receipt(:owner,:attempt,CAST(:expected AS jsonb),:stage,CAST(:receipt AS jsonb)) AS retained",
+            {
+                "owner": user_id,
+                "attempt": reservation["attemptId"],
+                "expected": json.dumps(reservation),
+                "stage": stage,
+                "receipt": json.dumps(receipt),
+            },
+        )
+        return bool(response.data and response.data[0].get("retained") is True)
+
+    async def reserve_erasure_bootstrap_grants(
+        self, *, user_id: str, reservation: dict, recovery_member: str
+    ) -> bool:
+        response = await asyncio.to_thread(
+            self._db().execute_raw,
+            "SELECT public.reserve_erasure_bootstrap_grants(:owner,:attempt,CAST(:expected AS jsonb),:member) AS retained",
+            {
+                "owner": user_id,
+                "attempt": reservation["attemptId"],
+                "expected": json.dumps(reservation),
+                "member": recovery_member,
+            },
+        )
+        return bool(response.data and response.data[0].get("retained") is True)
+
+    async def retain_erasure_bootstrap_grant_receipt(
+        self, *, user_id: str, reservation: dict, grant_key: str, stage: str, receipt: dict
+    ) -> bool:
+        response = await asyncio.to_thread(
+            self._db().execute_raw,
+            "SELECT public.retain_erasure_bootstrap_grant_receipt(:owner,:attempt,CAST(:expected AS jsonb),:grant_key,:stage,CAST(:receipt AS jsonb)) AS retained",
+            {
+                "owner": user_id,
+                "attempt": reservation["attemptId"],
+                "expected": json.dumps(reservation),
+                "grant_key": grant_key,
+                "stage": stage,
+                "receipt": json.dumps(receipt),
+            },
+        )
+        return bool(response.data and response.data[0].get("retained") is True)
+
+    async def retain_erasure_repository_inventory(
+        self, *, user_id: str, reservation: dict, receipt: dict
+    ) -> bool:
+        response = await asyncio.to_thread(
+            self._db().execute_raw,
+            "SELECT public.retain_erasure_repository_inventory(:owner,:attempt,CAST(:expected AS jsonb),CAST(:receipt AS jsonb)) AS retained",
+            {
+                "owner": user_id,
+                "attempt": reservation["attemptId"],
+                "expected": json.dumps(reservation),
+                "receipt": json.dumps(receipt),
+            },
+        )
+        return bool(response.data and response.data[0].get("retained") is True)
+
+    async def retain_erasure_repository_retention(
+        self, *, user_id: str, reservation: dict, receipt: dict
+    ) -> bool:
+        response = await asyncio.to_thread(
+            self._db().execute_raw,
+            "SELECT public.retain_erasure_repository_retention(:owner,:attempt,CAST(:expected AS jsonb),CAST(:receipt AS jsonb)) AS retained",
+            {
+                "owner": user_id,
+                "attempt": reservation["attemptId"],
+                "expected": json.dumps(reservation),
+                "receipt": json.dumps(receipt),
+            },
+        )
+        return bool(response.data and response.data[0].get("retained") is True)
+
+    async def reserve_erasure(self, *, user_id: str) -> dict:
+        """Retain the current resource snapshot and close ordinary pod admission."""
+        try:
+            response = await asyncio.to_thread(
+                self._db().execute_raw,
+                "SELECT public.reserve_personal_agent_erasure(:owner, :attempt) AS reservation",
+                {"owner": user_id, "attempt": uuid.uuid4().hex},
+            )
+            if not response.data or not isinstance(response.data[0].get("reservation"), dict):
+                raise RuntimeError("erasure reservation not acknowledged")
+            return dict(response.data[0]["reservation"])
+        except Exception:
+            raise RuntimeError("personal agent erasure admission unavailable") from None
+
+    async def restore_stale_erasure_reservation(
+        self, *, user_id: str, attempt_id: str, evidence: dict[str, Any]
+    ) -> bool:
+        """Restore one unstarted reservation after the live pod was rediscovered.
+
+        The database function rechecks the immutable reservation, tombstones and
+        account-deletion barrier under the owner locks. The hash is read inside the
+        database rather than reconstructed in Python because PostgreSQL's canonical
+        JSONB text representation is the authority for the snapshot digest.
+        """
+        digest = await asyncio.to_thread(
+            self._db().execute_raw,
+            "SELECT encode(sha256(convert_to((backend_metadata->'erasure'->'registrySnapshot')::text, 'UTF8')), 'hex') AS digest "
+            "FROM personal_agent_registry WHERE user_id = :owner",
+            {"owner": user_id},
+        )
+        rows = list(digest.data or [])
+        snapshot_sha256 = str(rows[0].get("digest") or "") if rows else ""
+        if not snapshot_sha256:
+            return False
+        response = await asyncio.to_thread(
+            self._db().execute_raw,
+            "SELECT public.restore_personal_agent_erasure_reservation(:owner,:attempt,:snapshot,CAST(:evidence AS jsonb)) AS restored",
+            {
+                "owner": user_id,
+                "attempt": attempt_id,
+                "snapshot": snapshot_sha256,
+                "evidence": json.dumps(evidence),
+            },
+        )
+        return bool(response.data and response.data[0].get("restored") is True)
+
+    async def upsert(
+        self,
+        *,
+        user_id: str,
+        hushh_id: str,
+        phone_e164_hash: str,
+        status: str,
+        pod_pubkey: Optional[str] = None,
+        pod_key_id: Optional[str] = None,
+        pod_key_wrapping_alg: Optional[str] = None,
+        external_agent_id: Optional[str] = None,
+        a2a_route: Optional[str] = None,
+        backend: Optional[str] = None,
+        # The owner's chosen handle for their space (product-facing, user-set).
+        # Written by the space-name settings path, never at provision. None here
+        # is dropped, so provisioning does not clobber a name the owner set.
+        space_id: Optional[str] = None,
+        # The opaque cost-attribution id (engineering, minted at provision). A
+        # different value from space_id on purpose: this one becomes a cloud label.
+        billing_space_id: Optional[str] = None,
+        backend_metadata: Optional[dict] = None,
+        attestation_ref: Optional[str] = None,
+        liveness_mode: Optional[str] = None,
+        deployment_target: Optional[str] = None,
+        model_credential_mode: Optional[str] = None,
+        user_cloud_project: Optional[str] = None,
+        user_cloud_region: Optional[str] = None,
+        user_cloud_bootstrap_sa: Optional[str] = None,
+    ) -> None:
+        # None fields are dropped so a PENDING/logical row (phone-verify seam, or the
+        # NullBackend) leaves them at the schema NULL default; a full provision with a
+        # real backend handle fills in the host fields.
+        data = {
+            "user_id": user_id,
+            "hushh_id": hushh_id,
+            "phone_e164_hash": phone_e164_hash,
+            "pod_pubkey": pod_pubkey,
+            "pod_key_id": pod_key_id,
+            "pod_key_wrapping_alg": pod_key_wrapping_alg,
+            "external_agent_id": external_agent_id,
+            "a2a_route": a2a_route,
+            "backend": backend,
+            "space_id": space_id,
+            "billing_space_id": billing_space_id,
+            "backend_metadata": backend_metadata,
+            "attestation_ref": attestation_ref,
+            # Pinned from the handle at creation. None (any backend that does not
+            # report one) leaves the schema default rather than guessing a tier.
+            "liveness_mode": liveness_mode,
+            # The per-person deployment axes (migration 906). Recorded on the row that
+            # the provision actually used, so what happened and what was asked for can
+            # be compared later. None leaves the column NULL, which honestly means "the
+            # deployment default" -- which is what every pre-906 row is.
+            "deployment_target": deployment_target,
+            "model_credential_mode": model_credential_mode,
+            # Carried on every write for a user-cloud row: the INSERT half of an upsert
+            # is checked before the conflict resolves, so a status write that names
+            # deployment_target without the project trips
+            # personal_agent_registry_user_gcp_needs_project_check (seen live
+            # 2026-09-02 while recording provisioning_failed).
+            "user_cloud_project": user_cloud_project,
+            "user_cloud_region": user_cloud_region,
+            "user_cloud_bootstrap_sa": user_cloud_bootstrap_sa,
+            "status": status,
+        }
+        data = {k: v for k, v in data.items() if v is not None}
+
+        # Stamp the transition time ourselves. The column defaults to now() but a
+        # DEFAULT only fires on INSERT and there is no ON UPDATE trigger (migration
+        # 900), so on every subsequent upsert `updated_at` would keep reporting the
+        # moment the row was first created. Nothing could then say how long a pod
+        # has been booting -- and "how long has this been going" is precisely what
+        # the onboarding progress surface has to answer honestly. `health.py`
+        # currently works around the gap with an age heuristic.
+        now = datetime.now(timezone.utc).isoformat()
+        data["updated_at"] = now
+        # Set once, when the agent actually becomes usable. Left alone on every
+        # other transition so a re-provision cannot rewrite the original activation
+        # time, and never cleared, so it stays a durable record of first activation.
+        if status == "provisioned":
+            data["provisioned_at"] = now
+
+        self._db().table(_REGISTRY).upsert(data, on_conflict="user_id").execute()
+
+        # Narrative, AFTER authority. This is the one funnel every status writer
+        # already passes through (the two _record closures and both direct upserts),
+        # which is why the appender lives here and not at any call site -- a call
+        # site emitter misses the row-creating INSERT and the key-rotation write.
+        #
+        # After, not atomically-with: db_client exposes no caller-facing transaction,
+        # and the ordering is the safety property anyway. A lost narrative row costs
+        # a missing frame that the stream's snapshot repairs from this row within one
+        # segment; a narrative row describing a write that failed would be a story
+        # about something that never happened. Fail-safe by contract: `append` cannot
+        # raise into a provisioning path.
+        from hushh_mcp.services.pod_lifecycle_log import (  # noqa: PLC0415
+            STAGE_BY_REGISTRY_STATUS,
+            append,
+        )
+
+        stage = STAGE_BY_REGISTRY_STATUS.get(status)
+        if stage:
+            await append(
+                user_id,
+                stage=stage,
+                registry_status=status,
+                hushh_id=hushh_id,
+            )
+
+    async def get(self, user_id: str) -> Optional[dict]:
+        response = self._db().table(_REGISTRY).select("*").eq("user_id", user_id).limit(1).execute()
+        rows = response.data or []
+        return rows[0] if rows else None
+
+    async def set_space_name(self, *, user_id: str, space_name: str) -> bool:
+        """Update only an existing owner's handle, preserving lifecycle authority.
+
+        A name edit must not replay an earlier status, reset transition timestamps,
+        or recreate a row removed by account deletion. UPDATE's returned rows are
+        the acknowledgement; a separate existence check would race with deletion.
+        """
+
+        def write() -> bool:
+            response = (
+                self._db()
+                .table(_REGISTRY)
+                .update({"space_id": space_name})
+                .eq("user_id", user_id)
+                .execute()
+            )
+            if not isinstance(response.data, list):
+                raise RuntimeError("Space name update acknowledgement unavailable")
+            return bool(response.data)
+
+        return await asyncio.to_thread(write)
+
+    async def get_by_hushh_id(self, hushh_id: str) -> Optional[dict]:
+        """Reverse lookup for callers that know the HusshID but not the user.
+
+        Used by the pod key-registration route: a pod knows its own HusshID (it is
+        the agent's identity) and nothing else about its owner. ``hushh_id`` is
+        UNIQUE in migration 900, so this is a single row by construction.
+        """
+        normalized = str(hushh_id or "").strip()
+        if not normalized:
+            return None
+        response = (
+            self._db().table(_REGISTRY).select("*").eq("hushh_id", normalized).limit(1).execute()
+        )
+        rows = response.data or []
+        return rows[0] if rows else None
+
+    # -- liveness (migration 905) ---------------------------------------------
+
+    async def record_heartbeat(
+        self, *, hushh_id: str, observed: Optional[dict] = None
+    ) -> Optional[dict]:
+        """A pod said it is alive. Returns the matched row, or None.
+
+        ``observed`` is the pod's self-report of WHICH build it runs (``imageTag``,
+        ``revision``), written under ``backend_metadata.observed`` -- a key of its
+        own, separate from ``source_image`` / ``image_digest`` which record what the
+        hub DEPLOYED. The two are kept apart on purpose so they can disagree, and
+        the disagreement (a pod running older code than its row claims) is visible
+        instead of overwritten. Written only when it changed, so a steady pod's
+        every-60s beat stays one UPDATE.
+
+        Keyed by ``hushh_id`` because that is the only identity a pod knows about
+        itself -- it holds no user id, by design, so the heartbeat cannot be written
+        by user. ``hushh_id`` is UNIQUE (migration 900), so this touches one row.
+
+        The empty return is load-bearing rather than decorative: a heartbeat for a
+        HusshID with no row means a pod is running that the registry does not know
+        about -- an orphan, which is a real and billable condition. Swallowing that
+        as success would hide it, so the caller gets the fact and logs it.
+
+        The ROW rather than a bool because the update already returns it. A pod's
+        first beat is what tells the hub the pod is up and warm, which is the moment
+        to finish provisioning -- and deciding that needs the row's status. Fetching
+        it separately would be a second query on every beat of every pod in the
+        fleet, forever, to serve a case that arises once per pod's lifetime.
+
+        Writes ``health_state='healthy'`` alongside the timestamp. A pod that
+        successfully authenticated to the hub and reported in IS healthy by the only
+        definition available here, and leaving the verdict stale while the
+        observation advances is how the two columns would drift apart.
+
+        Deliberately does NOT touch ``updated_at``. That column tracks lifecycle
+        transitions and is what the onboarding surface reads to answer "how long has
+        this been provisioning"; a heartbeat every 60s would reset it continuously
+        and destroy that meaning.
+        """
+        normalized = str(hushh_id or "").strip()
+        if not normalized:
+            return None
+        now = datetime.now(timezone.utc).isoformat()
+        response = (
+            self._db()
+            .table(_REGISTRY)
+            .update(
+                {
+                    "last_heartbeat_at": now,
+                    "health_state": "healthy",
+                    # Any successful heartbeat clears the failure streak. A pod that
+                    # is answering again is not "still failing, but less" -- the
+                    # streak counts CONSECUTIVE failures and must restart at zero, or
+                    # a pod that flaps would eventually cross the heal threshold on
+                    # accumulated non-consecutive blips.
+                    "liveness_failures": 0,
+                }
+            )
+            .eq("hushh_id", normalized)
+            .execute()
+        )
+        rows = list(response.data or [])
+        row = rows[0] if rows else None
+        if row is not None:
+            current = (row.get("backend_metadata") or {}).get("observed")
+            if not observed and current:
+                # A bodyless beat from a row that carries a self-report: the process
+                # beating now is one that does not report (an older image), so the
+                # old report is no longer what the pod says it is. Seen live
+                # 2026-09-03: a draining hub revision moved a pod BACK to an older
+                # image, the older pod beat without a body, and the stale report
+                # kept the status claiming the newer build was running.
+                self._db().execute_raw(
+                    """
+                    UPDATE personal_agent_registry
+                    SET backend_metadata = coalesce(backend_metadata, '{}'::jsonb) - 'observed'
+                    WHERE hushh_id = :hushh_id
+                    """,
+                    {"hushh_id": normalized},
+                )
+                meta = dict(row.get("backend_metadata") or {})
+                meta.pop("observed", None)
+                row = {**row, "backend_metadata": meta}
+            elif observed and current != observed:
+                self._db().execute_raw(
+                    """
+                    UPDATE personal_agent_registry
+                    SET backend_metadata = jsonb_set(
+                            coalesce(backend_metadata, '{}'::jsonb),
+                            '{observed}',
+                            CAST(:observed AS jsonb),
+                            true
+                        )
+                    WHERE hushh_id = :hushh_id
+                    """,
+                    {"hushh_id": normalized, "observed": json.dumps(observed)},
+                )
+                row = {
+                    **row,
+                    "backend_metadata": {
+                        **(row.get("backend_metadata") or {}),
+                        "observed": observed,
+                    },
+                }
+        return row
+
+    # -- owner-direct admission records (Lane A) --------------------------------------
+    #
+    # Three small JSONB merges under `backend_metadata`, the same shape
+    # `record_image_upgrade` and the heartbeat's `observed` use: touch one key, keep
+    # everything else, never rewrite the column wholesale.
+
+    async def record_binding(self, *, user_id: str, device_id: str, record: dict) -> None:
+        """`backend_metadata.bindings[device_id] = record` (merge; other subjects kept)."""
+        await asyncio.to_thread(
+            self._db().execute_raw,
+            """
+            UPDATE personal_agent_registry
+            SET backend_metadata = jsonb_set(
+                    coalesce(backend_metadata, '{}'::jsonb),
+                    '{bindings}',
+                    coalesce(backend_metadata->'bindings', '{}'::jsonb)
+                        || CAST(:record AS jsonb),
+                    true
+                )
+            WHERE user_id = :user_id
+            """,
+            {"user_id": user_id, "record": json.dumps({device_id: record})},
+        )
+
+    async def record_endpoint(self, *, user_id: str, endpoint: dict) -> None:
+        """`backend_metadata.endpoint = endpoint` (the discovery record, versioned)."""
+        await asyncio.to_thread(
+            self._db().execute_raw,
+            """
+            UPDATE personal_agent_registry
+            SET backend_metadata = jsonb_set(
+                    coalesce(backend_metadata, '{}'::jsonb),
+                    '{endpoint}',
+                    CAST(:endpoint AS jsonb),
+                    true
+                )
+            WHERE user_id = :user_id
+            """,
+            {"user_id": user_id, "endpoint": json.dumps(endpoint)},
+        )
+
+    async def append_pending_tombstone(self, *, user_id: str, entry: dict) -> None:
+        """Queue one owner-signed revocation for the pod's next heartbeat to collect."""
+        await asyncio.to_thread(
+            self._db().execute_raw,
+            """
+            UPDATE personal_agent_registry
+            SET backend_metadata = jsonb_set(
+                    coalesce(backend_metadata, '{}'::jsonb),
+                    '{pendingTombstones}',
+                    coalesce(backend_metadata->'pendingTombstones', '[]'::jsonb)
+                        || CAST(:entry AS jsonb),
+                    true
+                )
+            WHERE user_id = :user_id
+            """,
+            {"user_id": user_id, "entry": json.dumps([entry])},
+        )
+
+    async def clear_pending_tombstones(self, *, hushh_id: str, intent_ids: list[str]) -> None:
+        """Drop the intents a pod reported applied. Keyed by HusshID: the beat knows no user."""
+        row = await self.get_by_hushh_id(hushh_id)
+        if not row:
+            return
+        metadata = row.get("backend_metadata") or {}
+        pending = metadata.get("pendingTombstones") if isinstance(metadata, dict) else None
+        if not isinstance(pending, list) or not pending:
+            return
+        applied = {str(i) for i in intent_ids}
+        remaining = [
+            entry
+            for entry in pending
+            if not (
+                isinstance(entry, dict)
+                and str((entry.get("intent") or {}).get("intentId") or "") in applied
+            )
+        ]
+        if len(remaining) == len(pending):
+            return
+        await asyncio.to_thread(
+            self._db().execute_raw,
+            """
+            UPDATE personal_agent_registry
+            SET backend_metadata = jsonb_set(
+                    coalesce(backend_metadata, '{}'::jsonb),
+                    '{pendingTombstones}',
+                    CAST(:remaining AS jsonb),
+                    true
+                )
+            WHERE hushh_id = :hushh_id
+            """,
+            {"hushh_id": hushh_id, "remaining": json.dumps(remaining)},
+        )
+
+    async def set_health_state(
+        self,
+        *,
+        user_id: str,
+        health_state: str,
+        liveness_failures: Optional[int] = None,
+        probed: bool = False,
+        healed: bool = False,
+    ) -> None:
+        """Record the hub's VERDICT about a pod (and, optionally, that it probed/healed).
+
+        Separate from :meth:`record_heartbeat` because the two have different
+        authors: a heartbeat is the pod's own claim, this is the hub's judgment about
+        it. Keeping the writers separate is what stops a judgment from ever
+        masquerading as an observation -- ``last_heartbeat_at`` is never written
+        here, so no amount of hub-side reasoning can fabricate evidence that a pod
+        spoke.
+        """
+        data: dict[str, Any] = {"health_state": health_state}
+        if liveness_failures is not None:
+            data["liveness_failures"] = int(liveness_failures)
+        now = datetime.now(timezone.utc).isoformat()
+        if probed:
+            data["last_probe_at"] = now
+        if healed:
+            data["last_healed_at"] = now
+        self._db().table(_REGISTRY).update(data).eq("user_id", user_id).execute()
+
+    async def set_liveness_mode(self, *, user_id: str, liveness_mode: str) -> None:
+        """Pin the rule by which this pod's silence is to be read.
+
+        Called at provision time with the mode the pod was ACTUALLY created with, so
+        a later change to ``HUSSH_POD_MIN_INSTANCES`` cannot retroactively re-judge a
+        fleet that was built under the old setting. See migration 905 for why this
+        is per-row rather than read from the environment.
+        """
+        normalized = str(liveness_mode or "").strip()
+        if normalized not in ("warm", "economy"):
+            return
+        self._db().table(_REGISTRY).update({"liveness_mode": normalized}).eq(
+            "user_id", user_id
+        ).execute()
+
+    # -- the person's own cloud (migration 906) --------------------------------
+
+    async def set_user_cloud(
+        self,
+        *,
+        user_id: str,
+        project: str,
+        deployment_target: str,
+        model_credential_mode: str,
+        region: Optional[str] = None,
+        bootstrap_sa: Optional[str] = None,
+        authorized: bool = False,
+    ) -> bool:
+        """Record WHERE this person's pod belongs. Returns False if they have no row.
+
+        `deployment_target` and `model_credential_mode` are REQUIRED and are never
+        defaulted here. The registry is the common layer: it orchestrates a fleet it must
+        not be able to name, and a default like "the target is user_gcp" would be this
+        file deciding a provider policy on the caller's behalf. Defaulting them was
+        caught by `test_deployment_boundary_holds` on the first run, which is the guard
+        doing precisely its job. The route that knows a person chose their own cloud is
+        the layer allowed to say so.
+
+        An UPDATE rather than an upsert, deliberately. This is called while someone is
+        onboarding, long before a pod exists, and it must never be the thing that brings
+        a registry row into being -- a row created here would carry no HusshID and no
+        phone hash, and every reader downstream assumes both. `register_pending` owns
+        row creation; this only ever adds coordinates to a row that already exists.
+
+        `authorized` is the whole point of the separation. It is set only when hushh has
+        just PROVEN it can act in the project by minting a token and reading the bindings
+        back -- never because a form said so. A project recorded without it is a person
+        who named a cloud and has not yet run the grant, and provisioning must refuse
+        that rather than fall back to hushh's own cloud (which would silently put their
+        agent, and their bill, somewhere they did not choose).
+
+        Not cleared on a failed re-check OF THE SAME PROJECT: losing a previously proven
+        authorization on one transient API error would strand a working pod. Re-proving
+        updates the timestamp; only an explicit revocation path should ever clear it.
+
+        Cleared on a PROJECT SWITCH, structurally: a proof is a statement about one
+        project, and carrying it onto a different, never-proven project would let
+        provisioning proceed where hushh holds no grant -- exactly the fallback this
+        column exists to refuse (audit finding, 2026-08-21). Switching and proving in
+        the same call (the one-click chain) keeps its fresh proof.
+        """
+        normalized_project = str(project or "").strip()
+        if not normalized_project:
+            raise ValueError("a user cloud needs a project id -- it is never inferred")
+
+        data: dict[str, Any] = {
+            "user_cloud_project": normalized_project,
+            "deployment_target": deployment_target,
+            "model_credential_mode": model_credential_mode,
+        }
+        if region:
+            data["user_cloud_region"] = str(region).strip()
+        if bootstrap_sa:
+            data["user_cloud_bootstrap_sa"] = str(bootstrap_sa).strip()
+        if authorized:
+            data["user_cloud_authorized_at"] = datetime.now(timezone.utc).isoformat()
+        else:
+            current = (
+                self._db()
+                .table(_REGISTRY)
+                .select("user_cloud_project")
+                .eq("user_id", user_id)
+                .limit(1)
+                .execute()
+            )
+            rows = current.data or []
+            previous_project = str((rows[0] if rows else {}).get("user_cloud_project") or "")
+            if previous_project and previous_project != normalized_project:
+                data["user_cloud_authorized_at"] = None
+        data["updated_at"] = datetime.now(timezone.utc).isoformat()
+
+        response = self._db().table(_REGISTRY).update(data).eq("user_id", user_id).execute()
+        return bool(response.data or [])
+
+    async def set_hosted_cloud(
+        self,
+        *,
+        user_id: str,
+        deployment_target: str,
+        model_credential_mode: Optional[str] = None,
+    ) -> bool:
+        """Record that this person chose to have hussh host their pod. Returns False
+        if they have no row.
+
+        The sibling of ``set_user_cloud`` for the third door. Same two rules, for the
+        same two reasons:
+
+        * ``deployment_target`` is REQUIRED and never defaulted here. The registry
+          orchestrates a fleet it must not be able to name; the route that knows a
+          person chose the hosted tier is the layer allowed to say so
+          (``test_deployment_boundary_holds``).
+        * An UPDATE, never an upsert. A row created here would carry no HusshID and
+          no phone hash, and every reader downstream assumes both.
+
+        The user-cloud coordinates are CLEARED, not left behind. A hosted row that
+        still carries a project, region, bootstrap SA or a proven authorization is a
+        half-state: ``is_user_owned`` would read False while ``user_cloud_project``
+        reads set, and the schema's own ``user_gcp_needs_project`` constraint exists
+        because those half-states are illegal. Clearing them also means a later
+        migration into that same project re-proves the grant rather than inheriting a
+        stale proof about a project this pod never ran in.
+
+        ``model_credential_mode`` stays None unless the caller states it. The two axes
+        are orthogonal by design -- where the pod runs and which credential reaches a
+        model are separate choices, and the AI step owns the second one.
+        """
+        normalized = str(user_id or "").strip()
+        if not normalized:
+            return False
+
+        data: dict[str, Any] = {
+            "deployment_target": deployment_target,
+            "user_cloud_project": None,
+            "user_cloud_region": None,
+            "user_cloud_bootstrap_sa": None,
+            "user_cloud_authorized_at": None,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }
+        if model_credential_mode:
+            data["model_credential_mode"] = model_credential_mode
+
+        response = self._db().table(_REGISTRY).update(data).eq("user_id", normalized).execute()
+        return bool(response.data or [])
+
+    async def begin_migration(self, user_id: str) -> bool:
+        """Freeze this row: its pod is about to have its log exported.
+
+        CONDITIONAL on the row being ``provisioned``, so a pod that is still
+        standing up, already failed, or already migrating cannot be frozen out
+        from under whatever is happening to it. Zero rows matched returns False,
+        which the caller reports as "not ready to move" rather than proceeding.
+
+        The freeze is what makes the export's single-writer assumption true:
+        every writer path reads ``migrating`` as a refusal -- the relay declines
+        turns and ticks, the retry sweep skips the row, and liveness suspends
+        judgement rather than reading a deliberate silence as a fault.
+
+        The status is the ONLY thing that changes. The HusshID, the pod key, the
+        host coordinates and the cloud record all stay exactly as they are,
+        because every one of them is still true and the rollback is a status
+        write back to ``provisioned``.
+        """
+        normalized = str(user_id or "").strip()
+        if not normalized:
+            return False
+        response = (
+            self._db()
+            .table(_REGISTRY)
+            .update({"status": "migrating", "updated_at": datetime.now(timezone.utc).isoformat()})
+            .eq("user_id", normalized)
+            .eq("status", "provisioned")
+            .execute()
+        )
+        return bool(response.data or [])
+
+    async def end_migration(self, user_id: str, *, status: str = "provisioned") -> bool:
+        """Unfreeze. The rollback for every pre-switch failure.
+
+        CONDITIONAL on the row still being ``migrating``, so a job that died and
+        was superseded cannot reach back and unfreeze a row a newer attempt now
+        owns.
+
+        Defaults to ``provisioned`` because that is what the row WAS: until the
+        switch-over the source pod is untouched, so the honest recovery from any
+        failure before it is to put the row back exactly where it started.
+        """
+        normalized = str(user_id or "").strip()
+        if not normalized:
+            return False
+        response = (
+            self._db()
+            .table(_REGISTRY)
+            .update({"status": status, "updated_at": datetime.now(timezone.utc).isoformat()})
+            .eq("user_id", normalized)
+            .eq("status", "migrating")
+            .execute()
+        )
+        return bool(response.data or [])
+
+    async def mark_needs_reinit(self, user_id: str, *, observed: Optional[dict]) -> bool:
+        """The recorded host is CONFIRMED gone (the user deleted the project/service).
+
+        Two writes, together: flip status to ``needs_reinit`` AND clear
+        ``user_cloud_authorized_at``. Clearing the authorization is the load-bearing
+        half -- it is otherwise sticky forever, so ``is_ready_to_provision`` stays
+        True and ``/managed/select`` keeps scheduling a pod into a project that no
+        longer exists (the compounding bug the reachability gate exists to end). The
+        HusshID and the identity are untouched: reinit re-authorizes a project and
+        adopts the same agent; it never re-mints. Only a CONFIRMED-gone verdict may
+        call this -- a transient probe blip must not (pod_wake defaults to waking).
+        The pre-probe snapshot must still match. A newer authorization, host or
+        lifecycle transition wins; this writer never replaces it with an old verdict.
+        In-progress and suspended lifecycle states cannot be reinitialized here.
+        """
+        normalized = str(user_id or "").strip()
+        snapshot = registry_host_snapshot(observed)
+        if (
+            not normalized
+            or snapshot is None
+            or snapshot["user_id"] != normalized
+            or not snapshot["updated_at"]
+            or snapshot["status"]
+            not in (
+                "pending",
+                "unprovisioned",
+                "provisioned",
+                "provisioning_failed",
+                "needs_reinit",
+            )
+        ):
+            return False
+        data = {
+            "status": "needs_reinit",
+            "user_cloud_authorized_at": None,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }
+        query = self._db().table(_REGISTRY).update(data)
+        for key, value in snapshot.items():
+            query = query.is_(key, None) if value is None else query.eq(key, value)
+        response = query.execute()
+        return bool(response.data or [])
+
+    async def mark_provisioning_failed(
+        self, *, user_id: str, reason: str, detail: str = ""
+    ) -> bool:
+        """A 'connecting' row past its handshake deadline is recorded as failed.
+
+        CONDITIONAL on the row still being 'connecting' so a key attach that lands
+        between the sweep's read and this write wins the race (0 rows matched ->
+        False). Same direct-UPDATE shape as ``mark_needs_reinit``; no new status
+        value, so the status vocabulary is untouched. The failure marker rides
+        ``backend_metadata`` (merged in Python -- a JSONB update replaces the whole
+        column) and is only ever read for provisioning_failed rows, so a later
+        resurrection by a slow key attach leaves it inert.
+        """
+        normalized = str(user_id or "").strip()
+        if not normalized:
+            return False
+        row = await self.get(normalized)
+        if not row or str(row.get("status") or "") != "connecting":
+            return False
+        now = datetime.now(timezone.utc).isoformat()
+        metadata = dict(row.get("backend_metadata") or {})
+        metadata["failure"] = {
+            "code": reason,
+            "detail": " ".join(str(detail).split())[:200],
+            "at": now,
+        }
+        response = (
+            self._db()
+            .table(_REGISTRY)
+            .update(
+                {
+                    "status": "provisioning_failed",
+                    "backend_metadata": metadata,
+                    "updated_at": now,
+                }
+            )
+            .eq("user_id", normalized)
+            .eq("status", "connecting")
+            .execute()
+        )
+        if not (response.data or []):
+            return False
+        # Same funnel as upsert: the journey trace must record the terminal verdict,
+        # and `append` cannot raise into this path by contract.
+        from hushh_mcp.services.pod_lifecycle_log import append  # noqa: PLC0415
+
+        await append(
+            normalized,
+            stage="failed",
+            registry_status="provisioning_failed",
+            event="terminal",
+            hushh_id=str(row.get("hushh_id") or "") or None,
+            reason=reason,
+        )
+        return True
+
+    async def fetch_fleet_inventory(self) -> list[dict]:
+        """Complete host-claim snapshot for the report-only fleet reconciler.
+
+        This is deliberately separate from bounded liveness probes: migrating and
+        inactive rows can still own compute. The SQL-backed client applies no
+        implicit limit, so one SELECT sees one database snapshot without paging
+        races. Cloud inventory is a separate observation, not an atomic join.
+        """
+        response = (
+            self._db()
+            .table(_REGISTRY)
+            .select("hushh_id", "status", "backend", "external_agent_id", "backend_metadata")
+            .execute()
+        )
+        if not isinstance(response.data, list):
+            raise ValueError("Fleet registry inventory unavailable")
+        return response.data
+
+    async def fetch_liveness_candidates(self, *, limit: int = 200) -> list[dict]:
+        """Rows that own (or are standing up) a host, for the liveness sweep to judge.
+
+        Returns the candidates and nothing more -- no cutoff arithmetic, no staleness
+        verdict. Which of these is actually stale depends on the per-row
+        ``liveness_mode`` and on separate warm/economy thresholds, and that policy
+        belongs to the evaluator, not to a query. Pushing a single cutoff into SQL
+        here is exactly the shortcut that would apply the warm rule to the economy
+        tier and start waking sleeping pods.
+        """
+        response = (
+            self._db()
+            .table(_REGISTRY)
+            .select("*")
+            .in_("status", list(_LIVENESS_CANDIDATE_STATUSES))
+            .limit(limit)
+            .execute()
+        )
+        return list(response.data or [])
+
+    async def fetch_stalled_agents(
+        self,
+        *,
+        stalled_before: str,
+        limit: int = 100,
+        statuses: tuple[str, ...] = _STALLED_POD_STATUSES,
+    ) -> list[dict]:
+        """Rows whose provisioning never finished, for the reconcile sweep to retry.
+
+        WHY *INACTIVITY* IS THE SIGNAL, NOT ROW AGE
+        -------------------------------------------
+        This docstring used to argue for ``created_at`` on the premise that
+        ``updated_at`` "has no ``ON UPDATE`` trigger and this repo never writes it, so
+        it equals ``created_at``". That premise is false and was false when it was
+        written: :meth:`upsert` stamps ``updated_at`` on every call (see the comment
+        there, which exists precisely so the onboarding surface can answer "how long
+        has this been going"). The claim and its refutation sat 200 lines apart in one
+        file, which is why nobody noticed.
+
+        With the true premise, ``created_at`` is measurably worse. It measures the
+        row's AGE, so a pod that transitioned thirty seconds ago is retried anyway
+        once the row itself is old enough -- a spurious retry against a provision
+        that is making progress, which is the one thing a retry sweep must not do.
+        ``updated_at`` measures what the sweep actually means: nothing has happened
+        since.
+
+        The obvious worry does not apply. :meth:`record_heartbeat` deliberately does
+        NOT touch ``updated_at`` (its docstring says why), so a pod that is stuck mid
+        provision cannot hold itself out of this query by beating. Only a real
+        lifecycle transition refreshes the clock, and a real transition is exactly
+        the thing that should.
+
+        ``connecting`` is deliberately NOT included. That row has a live host and is
+        mid-handshake waiting for the pod's key; re-running provision against it
+        would replace a running service. Its stall is owned by the pod's startup key
+        push, not by this sweep.
+        """
+        response = (
+            self._db()
+            .table(_REGISTRY)
+            .select("user_id", "hushh_id", "status", "created_at")
+            .in_("status", list(statuses))
+            # Inactivity, not age. See the docstring: `upsert` stamps `updated_at` on
+            # every lifecycle transition and `record_heartbeat` deliberately does not,
+            # so this is "nothing has happened since" rather than "the row is old".
+            .lt("updated_at", stalled_before)
+            .limit(limit)
+            .execute()
+        )
+        return list(response.data or [])
+
+    async def fetch_upgrade_candidates(self, *, limit: int = 200) -> list[dict]:
+        """Every whole pod, with the metadata that says which image it runs.
+
+        Only ``provisioned`` rows: a pod mid-handshake (``connecting``) or mid-retry
+        is owned by another sweep, and replacing its revision underneath would race
+        it. The caller decides staleness by comparing the row's recorded source image
+        with the hub's current one -- a JSON comparison this client cannot express as
+        a filter, and the fleet is small enough that the rows are cheaper than the
+        abstraction.
+        """
+        response = (
+            self._db()
+            .table(_REGISTRY)
+            .select(
+                "user_id",
+                "hushh_id",
+                "status",
+                "backend",
+                "backend_metadata",
+                "deployment_target",
+            )
+            .eq("status", "provisioned")
+            .limit(limit)
+            .execute()
+        )
+        return list(response.data or [])
+
+    async def claim_image_upgrade(
+        self, *, user_id: str, target_image: str, observed: Optional[dict]
+    ) -> Optional[str]:
+        """Take the single-flight lease for moving THIS pod to ``target_image``.
+
+        One conditional UPDATE, so two hub workers cannot both win: the reconcile
+        loop runs in every gunicorn worker, and on 2026-09-02 both replaced the
+        founder's pod within thirty seconds of each other and each counted the
+        other pod's copy failure, so the three-attempt cap was reached in two
+        passes. The lease is a timestamp inside ``backend_metadata`` (no new
+        column), cleared only after a known terminal result. Worker death and elapsed
+        time never release admission: the provider may still be executing. The
+        returned exact token owns result publication and uncertain retries remain
+        reserved until provider reconciliation proves a terminal outcome.
+        """
+        snapshot = upgrade_host_snapshot(observed)
+        if (
+            snapshot is None
+            or snapshot["user_id"] != user_id
+            or snapshot["status"] != "provisioned"
+        ):
+            return None
+        observed_params = _upgrade_snapshot_params(snapshot)
+        now = datetime.now(timezone.utc)
+        lease = f"{now.isoformat()}|{uuid.uuid4().hex}|{target_image}"
+        result = self._db().execute_raw(
+            """
+            UPDATE personal_agent_registry AS registry
+            SET backend_metadata = jsonb_set(
+                    coalesce(backend_metadata, '{}'::jsonb),
+                    '{upgradeLease}',
+                    to_jsonb(CAST(:lease AS text)),
+                    true
+                )
+            WHERE user_id = :user_id
+              AND status = 'provisioned'
+              AND NOT EXISTS (
+                    SELECT 1 FROM jsonb_each(CAST(:observed_registry AS jsonb)) AS observed
+                    WHERE to_jsonb(registry)->observed.key IS DISTINCT FROM observed.value
+                  )
+              AND user_cloud_authorized_at IS NOT DISTINCT FROM
+                    CAST(:observed_user_cloud_authorized_at AS timestamptz)
+              AND (
+                    CAST(:publishing AS boolean)
+                    OR (
+                        updated_at IS NOT DISTINCT FROM CAST(:observed_updated_at AS timestamptz)
+                        AND backend_metadata IS NOT DISTINCT FROM CAST(:observed_backend_metadata AS jsonb)
+                    )
+                  )
+              AND NOT EXISTS (
+                    SELECT 1 FROM jsonb_each(CAST(:observed_host_metadata AS jsonb)) AS observed
+                    WHERE COALESCE(backend_metadata->observed.key, 'null'::jsonb)
+                          IS DISTINCT FROM observed.value
+                  )
+              AND backend_metadata->>'upgradeLease' IS NULL
+            RETURNING user_id
+            """,
+            {
+                **observed_params,
+                "user_id": user_id,
+                "lease": lease,
+            },
+        )
+        return lease if result.data else None
+
+    async def record_image_upgrade(
+        self,
+        *,
+        user_id: str,
+        backend_metadata: dict,
+        expected_lease: str,
+        previous_metadata: dict,
+        observed: Optional[dict],
+        liveness_mode: Optional[str] = None,
+        retain_lease: bool = False,
+    ) -> bool:
+        """Publish only the claiming worker's result, preserving unrelated metadata.
+
+        The exact lease and provisioned state fence registry publication only.
+        They do not establish provider-incarnation ownership or drain old work.
+        """
+        if not isinstance(expected_lease, str) or not expected_lease:
+            return False
+        snapshot = upgrade_host_snapshot(observed)
+        if (
+            snapshot is None
+            or snapshot["user_id"] != user_id
+            or snapshot["status"] != "provisioned"
+        ):
+            return False
+        observed_params = _upgrade_snapshot_params(snapshot, publishing=True)
+        changes = {
+            key: value
+            for key, value in backend_metadata.items()
+            if key != "upgradeLease"
+            and (key not in previous_metadata or previous_metadata[key] != value)
+        }
+        removed = {
+            key: True
+            for key in previous_metadata
+            if key != "upgradeLease" and key not in backend_metadata
+        }
+        result = self._db().execute_raw(
+            """
+            UPDATE personal_agent_registry AS registry
+            SET backend_metadata = (
+                    SELECT COALESCE(jsonb_object_agg(item.key, item.value), '{}'::jsonb)
+                    FROM jsonb_each(COALESCE(registry.backend_metadata, '{}'::jsonb)) AS item
+                    WHERE (item.key <> 'upgradeLease' OR CAST(:retain_lease AS boolean))
+                      AND NOT (
+                          CAST(:removed AS jsonb) ? item.key
+                          AND CAST(:previous AS jsonb)->item.key IS NOT DISTINCT FROM item.value
+                      )
+                ) || CAST(:changes AS jsonb),
+                liveness_mode = COALESCE(:liveness_mode, liveness_mode),
+                updated_at = NOW()
+            WHERE user_id = :user_id AND status = 'provisioned'
+              AND backend_metadata->>'upgradeLease' = :expected_lease
+              AND NOT EXISTS (
+                    SELECT 1 FROM jsonb_each(CAST(:observed_registry AS jsonb)) AS observed
+                    WHERE to_jsonb(registry)->observed.key IS DISTINCT FROM observed.value
+                  )
+              AND user_cloud_authorized_at IS NOT DISTINCT FROM
+                    CAST(:observed_user_cloud_authorized_at AS timestamptz)
+              AND (
+                    CAST(:publishing AS boolean)
+                    OR (
+                        updated_at IS NOT DISTINCT FROM CAST(:observed_updated_at AS timestamptz)
+                        AND backend_metadata IS NOT DISTINCT FROM CAST(:observed_backend_metadata AS jsonb)
+                    )
+                  )
+              AND NOT EXISTS (
+                    SELECT 1 FROM jsonb_each(CAST(:observed_host_metadata AS jsonb)) AS observed
+                    WHERE COALESCE(backend_metadata->observed.key, 'null'::jsonb)
+                          IS DISTINCT FROM observed.value
+                  )
+            RETURNING user_id
+            """,
+            {
+                **observed_params,
+                "user_id": user_id,
+                "expected_lease": expected_lease,
+                "retain_lease": retain_lease,
+                "removed": json.dumps(removed),
+                "previous": json.dumps(previous_metadata),
+                "changes": json.dumps(changes),
+                "liveness_mode": liveness_mode,
+            },
+        )
+        return bool(result.data)
+
+    async def count_active_pods(self, *, exclude_user_id: Optional[str] = None) -> int:
+        """How many rows currently hold (or are standing up) a pod. The cap's denominator.
+
+        Read by ``PersonalAgentProvisioningService`` before it asks a backend to
+        create a host, so the fleet cannot grow past ``PERSONAL_AGENT_MAX_PODS``.
+        ``exclude_user_id`` leaves the caller's own row out, so a user who already
+        has a pod is never blocked from re-provisioning by their own row.
+
+        Uses the client's exact-count path (a ``COUNT(*)`` with ``LIMIT 0``, no row
+        fetch). If a client cannot produce a count it falls back to the returned row
+        length -- which may under-count, and under-counting only ever lets a
+        provision through, never blocks one incorrectly.
+        """
+        query = (
+            self._db()
+            .table(_REGISTRY)
+            .select("user_id", count="exact")
+            .in_("status", list(_ACTIVE_POD_STATUSES))
+        )
+        if (exclude_user_id or "").strip():
+            query = query.neq("user_id", exclude_user_id)
+        response = query.limit(0).execute()
+        count = getattr(response, "count", None)
+        return int(count) if count is not None else len(response.data or [])
+
+    async def tombstone(
+        self,
+        *,
+        hushh_id: Optional[str],
+        external_agent_id: Optional[str],
+        status: str,
+        metadata: Optional[dict[str, Any]] = None,
+    ) -> None:
+        # Nothing to tombstone without an identity: deprovision reads the row
+        # first, so an empty hushh_id means the row was already gone. Skipping
+        # avoids empty-hushh_id audit noise on a missing-row / retried teardown.
+        if not (hushh_id or "").strip():
+            return
+        data: dict[str, Any] = {
+            "hushh_id": hushh_id,
+            "external_agent_id": external_agent_id,
+            "status": status,
+        }
+        # ``metadata`` names WHERE an unreclaimed orphan lives (project/region/target)
+        # so a billing host stays reclaimable after the registry row is gone. A
+        # missing column or uncertain write must fail: dropping recovery coordinates
+        # would acknowledge an unusable receipt, and retrying an uncertain INSERT
+        # with less information can also duplicate a write that already committed.
+        clean_meta = {k: v for k, v in (metadata or {}).items() if v is not None}
+        base = {k: v for k, v in data.items() if v is not None}
+        payload = {**base, "metadata": clean_meta} if clean_meta else base
+        self._db().table(_TOMBSTONES).insert(payload).execute()
+
+    async def delete(self, user_id: str) -> None:
+        self._db().table(_REGISTRY).delete().eq("user_id", user_id).execute()
+
+    async def latest_tombstone_for_project(
+        self, project: str, *, status: Optional[str] = None
+    ) -> Optional[dict]:
+        """The newest tombstone whose metadata names ``project`` as the person's cloud.
+
+        Account deletion uses this when the registry row is already gone (a pod deleted
+        from the UI earlier): the byoc_setup_jobs row still knows the project, and the
+        deprovision tombstone written at that time knows the hushh_id and bootstrap
+        account, which is everything the substrate teardown needs. Filtering happens in
+        Python so the JSON column needs no operator support from the client.
+        """
+        normalized = str(project or "").strip()
+        if not normalized:
+            return None
+        query = self._db().table(_TOMBSTONES).select("*")
+        if status:
+            query = query.eq("status", status)
+        response = query.execute()
+        rows = [dict(r) for r in (response.data or [])]
+        matches = [
+            r
+            for r in rows
+            if str((r.get("metadata") or {}).get("user_cloud_project") or "") == normalized
+        ]
+        if not matches:
+            return None
+
+        def _created(r: dict) -> str:
+            return str(r.get("created_at") or "")
+
+        matches.sort(key=_created, reverse=True)
+        return matches[0]
+
+    async def tombstone_exists(self, hushh_id: str, *, status: Optional[str] = None) -> bool:
+        """Whether a deletion tombstone already exists for ``hushh_id``.
+
+        Used by provisioning to skip a HusshID that belonged to a prior owner of a
+        since-recycled phone (SECURITY-REVIEW.md L1) -- that caller wants ANY tombstone,
+        so ``status`` defaults to None (unfiltered).
+
+        With ``status`` set it scopes to one kind of tombstone. This is required for the
+        substrate-orphan marker: deprovision always writes a ``deprovision_requested``
+        tombstone for the same hushh_id, so an unscoped check would make the substrate
+        tombstone either always skip or never write.
+        """
+        if not (hushh_id or "").strip():
+            return False
+        query = self._db().table(_TOMBSTONES).select("id").eq("hushh_id", hushh_id)
+        if status:
+            query = query.eq("status", status)
+        response = query.limit(1).execute()
+        return bool(response.data)

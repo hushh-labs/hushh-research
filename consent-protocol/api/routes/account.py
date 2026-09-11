@@ -43,6 +43,7 @@ from api.middleware import (
 )
 from api.utils.firebase_admin import get_firebase_auth_app
 from api.utils.firebase_auth import verify_firebase_bearer
+from hushh_mcp.constants import ConsentScope
 from hushh_mcp.services.account_deletion_lifecycle_service import (
     AccountDeletionLifecycleService,
     CleanupIntentKind,
@@ -58,6 +59,7 @@ from hushh_mcp.services.actor_identity_service import (
     ActorIdentityAliasError,
     ActorIdentityService,
 )
+from hushh_mcp.services.personal_agent_grant_service import PersonalAgentGrantService
 from hushh_mcp.services.trusted_device_service import (
     TrustedDeviceError,
     TrustedDeviceService,
@@ -573,6 +575,163 @@ async def trusted_device_status(
     return {**status, "server_time_ms": int(time.time() * 1000)}
 
 
+# -- owner-direct admission: the hub enrols and signs, then leaves the path ----------
+
+
+class TrustedDeviceSelfEnrollRequest(BaseModel):
+    device_public_key: str = Field(..., alias="devicePublicKey", min_length=1, max_length=4096)
+    device_name: str = Field(..., alias="deviceName", min_length=1, max_length=100)
+    platform: str = Field(..., min_length=1, max_length=16)
+    model_config = {"populate_by_name": True}
+
+
+class PodBindingIssueRequest(BaseModel):
+    puppy_inference: bool = Field(default=False, alias="puppyInference")
+    model_config = {"populate_by_name": True}
+
+
+class PodTombstoneIntentRequest(BaseModel):
+    intent: dict[str, Any]
+    signature: str = Field(..., min_length=1, max_length=1024)
+
+
+def _raise_pod_binding_error(exc: Any) -> None:
+    raise HTTPException(
+        status_code=int(getattr(exc, "status", 400)),
+        detail={"code": str(getattr(exc, "code", "POD_BINDING_ERROR")), "message": str(exc)},
+    ) from exc
+
+
+@router.post("/trusted-devices/self-enroll")
+async def trusted_device_self_enroll(
+    payload: TrustedDeviceSelfEnrollRequest,
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    """Enrol the signed-in app installation (web, iOS, Android) as a pod subject.
+
+    The app generates a non-extractable P-256 key and registers its public half
+    here; it proves possession of it at the pod, never here. Enrolment carries no
+    Puppy inference and no vault authority.
+    """
+    await _trusted_device_guard(firebase_uid)
+    try:
+        return await run_in_threadpool(
+            TrustedDeviceService().self_enroll,
+            user_id=firebase_uid,
+            device_public_key=payload.device_public_key,
+            device_name=payload.device_name,
+            platform=payload.platform,
+        )
+    except TrustedDeviceError as exc:
+        _raise_trusted_device_error(exc)
+
+
+@router.post("/trusted-devices/{device_id}/pod-binding")
+async def issue_pod_binding(
+    device_id: str,
+    payload: PodBindingIssueRequest = Body(default=PodBindingIssueRequest()),
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    """Issue the next hub-signed binding for one subject of the owner's pod."""
+    from hushh_mcp.services.pod_binding_service import PodBindingError, PodBindingService
+
+    try:
+        return await PodBindingService().issue(
+            user_id=firebase_uid, device_id=device_id, puppy_inference=payload.puppy_inference
+        )
+    except PodBindingError as exc:
+        _raise_pod_binding_error(exc)
+
+
+@router.get("/trusted-devices/{device_id}/pod-binding")
+async def read_pod_binding(
+    device_id: str,
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    """The latest binding issued for this subject, or 404 when none was issued."""
+    from hushh_mcp.services.pod_binding_service import PodBindingError, PodBindingService
+
+    try:
+        latest = await PodBindingService().latest(user_id=firebase_uid, device_id=device_id)
+    except PodBindingError as exc:
+        _raise_pod_binding_error(exc)
+    if latest is None:
+        raise HTTPException(
+            status_code=404,
+            detail={"code": "POD_BINDING_NOT_ISSUED", "message": "No binding has been issued."},
+        )
+    return latest
+
+
+@router.post("/trusted-devices/{device_id}/pod-tombstone")
+async def courier_pod_tombstone(
+    device_id: str,
+    payload: PodTombstoneIntentRequest,
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    """Queue an owner-signed revocation for the pod to collect on its next heartbeat.
+
+    Used when the pod could not be reached directly ("revocation pending
+    delivery"). The hub is a courier: it checks the app's signature and stores the
+    intent; the pod verifies it again against its own trust record before applying.
+    """
+    from hushh_mcp.services.pod_binding_service import PodBindingError, PodBindingService
+
+    try:
+        return await PodBindingService().courier_tombstone(
+            user_id=firebase_uid,
+            device_id=device_id,
+            intent=payload.intent,
+            signature=payload.signature,
+        )
+    except PodBindingError as exc:
+        _raise_pod_binding_error(exc)
+
+
+@router.post("/trusted-devices/{device_id}/puppy-inference-grant")
+async def puppy_inference_grant(
+    device_id: str,
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    """Issue the narrow, owner-revocable grant for Puppy inference.
+
+    The device must be an active trusted device owned by the authenticated
+    Firebase identity. The returned token authorizes inference only and is
+    deliberately bound to ``device:{device_id}``; it cannot authorize vault
+    reads, tools, shell access, or a different device.
+    """
+    service = TrustedDeviceService()
+    try:
+        active = await run_in_threadpool(
+            service.is_active_device, user_id=firebase_uid, device_id=device_id
+        )
+    except Exception:
+        logger.exception("trusted_device.puppy_grant_status_failed")
+        raise HTTPException(status_code=503, detail="trusted-device status unavailable") from None
+    if not active:
+        raise HTTPException(status_code=403, detail="trusted device is not active")
+    try:
+        grant = await PersonalAgentGrantService().issue_or_reuse_standing_scope(
+            firebase_uid,
+            scope=ConsentScope.CAP_PUPPY_INFERENCE,
+            grant_kind="puppy_inference",
+            scope_description=(
+                "Allow the linked Puppy One device to answer private-agent inference requests"
+            ),
+            pod_agent_id=f"device:{device_id}",
+            expires_in_ms=60 * 60 * 1000,
+        )
+    except Exception as exc:  # noqa: BLE001 - authority unavailable must fail closed
+        logger.warning("trusted_device.puppy_grant_failed %s", type(exc).__name__)
+        raise HTTPException(status_code=503, detail="Puppy inference grant unavailable") from None
+    return {
+        "device_id": device_id,
+        "scope": ConsentScope.CAP_PUPPY_INFERENCE.value,
+        "token": str(grant.get("token") or ""),
+        "expires_at": grant.get("expiresAt"),
+    }
+
+
 @router.post("/trusted-devices/{device_id}/seal-ack")
 async def trusted_device_seal_ack(
     device_id: str,
@@ -914,6 +1073,13 @@ def _parse_phone_test_numbers(raw: str) -> set[str]:
     }
 
 
+#: The North American reserved fictitious range (+1 555 0100 -- +1 555 0199).
+#: A simulation allowlist may contain NOTHING else, so a dev lane can never claim
+#: a routable number that belongs to a real person. The UAT and production lanes
+#: are unaffected: they are operator-curated and predate this.
+_SIMULATION_PHONE_PREFIX = "+1555010"
+
+
 def _configured_uat_phone_test_numbers() -> set[str]:
     raw = _clean_env("HUSHH_UAT_PHONE_TEST_NUMBERS") or _clean_env("UAT_PHONE_TEST_NUMBERS")
     return _parse_phone_test_numbers(raw)
@@ -923,13 +1089,92 @@ def _configured_prod_phone_test_numbers() -> set[str]:
     return _parse_phone_test_numbers(_clean_env("HUSHH_PROD_PHONE_TEST_NUMBERS"))
 
 
+def _configured_dev_phone_test_numbers() -> set[str]:
+    """The simulation lane's allowlist, or empty when simulation is not permitted.
+
+    This exists because the dev hub deliberately runs with the **uat** runtime
+    identity for behaviour parity, so `_runtime_environment()` reads `uat` on a
+    dev box and `uat` on real UAT and cannot separate them. Until this lane
+    existed, dev reached the bypass only by being indistinguishable from UAT --
+    which is precisely the confusion `dev_simulation_guard` was written to end.
+
+    The guard reads the DEPLOY LANE, which is written per-lane by the deploy
+    workflow and stays honest, and it denies when unconfigured. So this branch is
+    reachable on a dev deployment and on a developer's box that opted in, and
+    nowhere else.
+    """
+    from hushh_mcp.services.dev_simulation_guard import simulation_permitted
+
+    if not simulation_permitted():
+        return set()
+    numbers = _parse_phone_test_numbers(_clean_env("HUSHH_DEV_PHONE_TEST_NUMBERS"))
+    # Fail loud rather than silently narrowing: an operator who put a real number
+    # in a simulation allowlist has made a mistake worth stopping on.
+    outside = {n for n in numbers if not n.startswith(_SIMULATION_PHONE_PREFIX)}
+    if outside:
+        raise RuntimeError(
+            "HUSHH_DEV_PHONE_TEST_NUMBERS may only contain reserved fictitious "
+            f"numbers ({_SIMULATION_PHONE_PREFIX}xx); refused {sorted(outside)}"
+        )
+    return numbers
+
+
 def _configured_phone_test_numbers() -> set[str]:
     environment = _runtime_environment()
+    dev_numbers = _configured_dev_phone_test_numbers()
+    if dev_numbers:
+        # The simulation lane also honours the operator-curated UAT allowlist.
+        # Dev ran on that allowlist for as long as its runtime identified as
+        # `uat`; the 2026-08-07 dev-identity change silently dropped it, which
+        # stranded the numbers people actually use there (founder-reported,
+        # 2026-08-21: the standing +1 989 898 9894 / 000000 pair stopped
+        # working on dev). The reserved +1 555 0100-0199 range stays the only
+        # thing HUSHH_DEV_PHONE_TEST_NUMBERS itself may carry — that guard is
+        # untouched — and a uat-sourced number keeps its fixed UAT code on
+        # confirm, so merging widens which numbers are claimable in the lane
+        # without relaxing how they are claimed.
+        return dev_numbers | _configured_uat_phone_test_numbers()
     if environment == "uat":
         return _configured_uat_phone_test_numbers()
     if environment == "production" and _is_truthy_env("HUSHH_PROD_PHONE_TEST_ENABLED"):
         return _configured_prod_phone_test_numbers()
     return set()
+
+
+def _configured_dev_phone_test_code() -> str:
+    from hushh_mcp.services.dev_simulation_guard import simulation_permitted
+
+    return _clean_env("HUSHH_DEV_PHONE_TEST_CODE") if simulation_permitted() else ""
+
+
+def _dev_phone_code_is_optional() -> bool:
+    """In the simulation lane with no code configured, the OTP step is skipped.
+
+    The dev deployment is meant to behave like localhost: it must not block
+    end-to-end testing behind a code somebody has to go and set. Requiring one
+    meant a manual `gcloud run services update` after **every** dev deploy, since
+    the deploy uses `--set-env-vars` and replaces the whole environment — a step
+    that would be forgotten, and whose absence looks exactly like a broken lane.
+
+    So no code configured means no code checked. This is a real relaxation and it
+    is bounded on three sides, all of which must hold at once:
+
+      * `simulation_permitted()` — an explicit opt-in AND a deploy lane naming a
+        development environment. `uat`, `staging` and `production` are refused
+        outright, and absence of configuration denies.
+      * the allowlist — the code may be skipped ONLY for the reserved fictitious
+        range (+1 555 0100-0199), so no real person's number is claimable
+        without a code. Operator-curated UAT numbers are also claimable in the
+        lane (see `_configured_phone_test_numbers`), but they keep their fixed
+        UAT code on confirm — the relaxation never extends to them.
+      * the challenge — `_is_valid_uat_phone_test_verification_id` still has to
+        pass, so the confirm call must follow a start call for the same number.
+
+    Setting `HUSHH_DEV_PHONE_TEST_CODE` turns the code check back on without any
+    other change, which is the escape hatch if dev ever needs to rehearse the
+    real OTP flow.
+    """
+    return bool(_configured_dev_phone_test_numbers()) and not _configured_dev_phone_test_code()
 
 
 def _configured_uat_phone_test_code() -> str:
@@ -946,6 +1191,9 @@ def _configured_prod_phone_test_challenge_secret() -> str:
 
 def _configured_phone_test_code() -> str:
     environment = _runtime_environment()
+    dev_code = _configured_dev_phone_test_code()
+    if dev_code:
+        return dev_code
     if environment == "uat":
         return _configured_uat_phone_test_code()
     if environment == "production" and _is_truthy_env("HUSHH_PROD_PHONE_TEST_ENABLED"):
@@ -955,13 +1203,32 @@ def _configured_phone_test_code() -> str:
 
 def _phone_test_enabled() -> bool:
     if _runtime_environment() == "production":
+        # The simulation lane is never reachable here: `simulation_permitted()`
+        # refuses `production` outright, so the dev resolvers return empty and
+        # this branch is the only answer production can give.
         return bool(
             _is_truthy_env("HUSHH_PROD_PHONE_TEST_ENABLED")
             and _configured_prod_phone_test_numbers()
             and _configured_prod_phone_test_code()
             and _configured_prod_phone_test_challenge_secret()
         )
+    if _dev_phone_code_is_optional():
+        return True
     return bool(_configured_phone_test_numbers() and _configured_phone_test_code())
+
+
+def _phone_test_expected_code(phone_number: str) -> tuple[str, bool]:
+    """The (expected_code, code_optional) claim semantics for one allowlisted number.
+
+    The two allowlists keep their own semantics when merged on dev: the code may
+    be skipped ONLY for the reserved fictitious range, and an operator-curated
+    UAT number keeps its fixed UAT code even inside the simulation lane.
+    """
+    dev_reserved = phone_number in _configured_dev_phone_test_numbers()
+    configured = _configured_phone_test_code()
+    expected = configured if dev_reserved else (_configured_uat_phone_test_code() or configured)
+    optional = _dev_phone_code_is_optional() and dev_reserved
+    return expected, optional
 
 
 def _phone_test_challenge_key() -> str:
@@ -1305,7 +1572,6 @@ async def confirm_uat_test_phone_verification(
 ):
     """Persist an environment-gated fixed-code phone verification claim."""
     phone_number = _normalize_phone_number(payload.phone_number)
-    configured_code = _configured_phone_test_code()
 
     if not _phone_test_enabled() or phone_number not in _configured_phone_test_numbers():
         raise HTTPException(
@@ -1325,7 +1591,15 @@ async def confirm_uat_test_phone_verification(
             },
         )
 
-    if not secrets.compare_digest(str(payload.verification_code or "").strip(), configured_code):
+    # The simulation lane may run without a code at all — see
+    # `_dev_phone_code_is_optional`. That relaxation is scoped to the RESERVED
+    # fictitious range only; `_phone_test_expected_code` keeps each allowlist's
+    # own claim semantics when they are merged on dev. The allowlist and the
+    # challenge above still had to pass either way.
+    expected_code, code_optional = _phone_test_expected_code(phone_number)
+    if not code_optional and not secrets.compare_digest(
+        str(payload.verification_code or "").strip(), expected_code
+    ):
         raise HTTPException(
             status_code=401,
             detail={
@@ -1376,6 +1650,12 @@ async def delete_account(
     target = payload.target if payload else "both"
     logger.warning("⚠️ DELETE ACCOUNT REQUESTED for user %s target=%s", user_id, target)
     service = AccountService()
+
+    # The service's transactional external-resource guard must run before any
+    # destructive operation. Pod teardown is not proof of Memory Bank erasure;
+    # destroying it first can strand the only credentials able to finish deletion.
+    # Until incarnation-bound external erasure receipts exist, retained resources
+    # return the existing recoverable 409 and keep their recovery authority intact.
     result = await service.delete_account(user_id, target=target)
 
     if not result["success"]:
@@ -1398,6 +1678,8 @@ async def delete_account(
             details = {}
         firebase_auth_status = await _delete_firebase_auth_user(user_id)
         details["firebase_auth_user"] = firebase_auth_status
+        # The service proved external resources absent before committing deletion.
+        # Do not attempt cloud teardown after discarding account authority.
         # Fail-loud on Firebase identity cleanup: the encrypted account is already
         # gone, so we keep the 200, but expose whether the remaining identity was
         # safely quarantined or still needs urgent operator cleanup.

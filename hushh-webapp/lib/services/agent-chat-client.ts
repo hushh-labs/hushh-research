@@ -609,3 +609,258 @@ export async function deleteAgentChatConversation(input: {
   }
   return (await response.json()) as { conversation_id: string; deleted: boolean };
 }
+
+/**
+ * Where a turn is answered: the shared hub, or the person's own pod.
+ *
+ * Returned alongside the answer so the UI can SAY which cell replied. The north star
+ * requires the person to be able to tell whose compute served them; a silent switch
+ * would make "your own private agent" an unverifiable claim.
+ */
+export type TurnCell = "hub" | "pod";
+
+/** How long a turn waits for the pod address before reporting unavailable status.
+ *
+ * Short enough that a person with no agent never notices, long enough to cover a
+ * status read that is merely in flight (measured on dev: ~330ms). */
+export const POD_VERDICT_WAIT_MS = 1_500;
+
+async function waitForPodVerdict(input: {
+  podResolved?: boolean;
+  podHushhId?: string | null;
+  podState?: string | null;
+  readPodAddress?: () => { hushhId: string | null; state: string | null; resolved: boolean };
+}): Promise<void> {
+  const read = input.readPodAddress;
+  if (!read) return; // the caller cannot re-read; answer with what we have
+  const deadline = Date.now() + POD_VERDICT_WAIT_MS;
+  while (Date.now() < deadline) {
+    const latest = read();
+    if (latest.resolved) {
+      input.podResolved = true;
+      input.podHushhId = latest.hushhId;
+      input.podState = latest.state;
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+}
+
+export function agentTurnAvailabilityMessage(code: string): string | null {
+  if (code === "AGENT_SETUP_REQUIRED") {
+    return "Set up your private agent before sending a message.";
+  }
+  if (code === "AGENT_STATUS_UNKNOWN") {
+    return "Your private agent's status could not be confirmed. Check its setup and try again.";
+  }
+  if (code === "AGENT_UNAVAILABLE") {
+    return "Your private agent is not available yet. Check its setup before trying again.";
+  }
+  return null;
+}
+
+export type AgentTurnResult = {
+  conversationId: string | null;
+  model: string | null;
+  text: string;
+  cell: TurnCell;
+  /** Present only for a pod turn: DERIVED by the pod, never asserted by the client. */
+  grounded?: boolean;
+  provider?: string | null;
+  runtimeMode?: string | null;
+};
+
+/**
+ * Run one Agent Chat turn on whichever cell belongs to this person.
+ *
+ * WHY THIS EXISTS RATHER THAN A BRANCH IN THE COMPONENT
+ * `ApiService.runPodTurn` was complete and had ZERO callers, so every turn went to the
+ * shared hub even for someone whose pod was live -- the north star's central claim
+ * ("their complete agent ecosystem runs in their pod") was unreachable from the product.
+ *
+ * The two cells do not answer the same SHAPE. The hub streams SSE; the pod returns one
+ * complete response. Branching inside the chat component would have put that difference
+ * in a 4,600-line file at two separate call sites. It lives here instead, so the
+ * component asks one question -- "run this turn" -- and the shape difference is owned in
+ * one place.
+ *
+ * HONEST STREAMING, NOT FAKE STREAMING
+ * A pod turn is delivered as ONE `onToken` call with the whole answer. It would have
+ * been easy to slice the text and emit it character by character so the UI looked
+ * identical, and that would be a lie about where the latency went: the person would see
+ * a typing animation for text that had already fully arrived. The rail shows real
+ * progress or it shows none.
+ */
+export async function runAgentChatTurn(input: {
+  userId: string;
+  message: string;
+  conversationId?: string | null;
+  vaultOwnerToken: string;
+  pkmContext?: string;
+  screenContext?: Record<string, unknown> | null;
+  runtimeCredential?: string | null;
+  runtimeCredentialMode?: string | null;
+  runtimeCredentialTransport?: "developer_api" | "vertex_api_key" | null;
+  runtimeProvider?: "puppy" | null;
+  puppyDeviceId?: string | null;
+  runtimeVertexProject?: string | null;
+  runtimeVertexLocation?: string | null;
+  /** The visible transcript, oldest first, supplements durable pod memory. */
+  history?: Array<{ role: "user" | "assistant"; content: string }>;
+  delegateAgentId?: string | null;
+  delegateResult?: Record<string, unknown>;
+  signal?: AbortSignal;
+  handlers?: AgentChatStreamHandlers;
+  /** The owner's pod address; absence requires setup, never shared execution. */
+  podHushhId?: string | null;
+  /** Whether the pod status has been read at least once. `false` means unknown. */
+  podResolved?: boolean;
+  /** Re-read the caller's latest pod address; supplied by the surface that polls. */
+  readPodAddress?: () => { hushhId: string | null; state: string | null; resolved: boolean };
+  /** Their pod's lifecycle state. Only `active` is answerable. */
+  podState?: string | null;
+}): Promise<AgentTurnResult> {
+  // An unresolved or inactive private agent never grants shared-runtime authority.
+  if (input.podResolved === false) {
+    await waitForPodVerdict(input);
+  }
+  let unavailable: string | null = null;
+  if (input.podResolved === false || (!input.podHushhId && input.podResolved !== true)) {
+    unavailable = "AGENT_STATUS_UNKNOWN";
+  } else if (!input.podHushhId) {
+    unavailable = "AGENT_SETUP_REQUIRED";
+  } else if (input.podState !== "active") {
+    unavailable = "AGENT_UNAVAILABLE";
+  }
+  if (unavailable) {
+    input.handlers?.onError?.(unavailable);
+    throw new Error(unavailable);
+  }
+
+  const handlers = input.handlers ?? {};
+  const conversationId = input.conversationId || "";
+  try {
+    const turn = await ApiService.runPodTurn({
+      hushhId: String(input.podHushhId),
+      message: input.message,
+      conversationId: input.conversationId || undefined,
+      timezone: resolveBrowserTimeZone(),
+      runtimeCredential: input.runtimeCredential,
+      runtimeCredentialTransport: input.runtimeCredentialTransport || undefined,
+      runtimeProvider: input.runtimeProvider || undefined,
+      puppyDeviceId: input.puppyDeviceId,
+      vertexProject: input.runtimeVertexProject,
+      vertexLocation: input.runtimeVertexLocation,
+      // The owner's own consented projection, decrypted on their device. This is what
+      // makes a pod turn grounded WITHOUT the pod holding PKM or reaching a database.
+      pkmContext: input.pkmContext,
+      history: input.history,
+      signal: input.signal,
+    });
+
+    // Remember which pod and which runtime served this conversation, so the close
+    // sent on leaving the chat can run the review on the SAME model without a
+    // second vault read at the one moment (pagehide) there is no time for one.
+    if (conversationId) {
+      lastPodConversation = {
+        hushhId: String(input.podHushhId),
+        conversationId,
+        runtimeCredential: input.runtimeCredential ?? null,
+        runtimeCredentialTransport: input.runtimeCredentialTransport ?? null,
+        runtimeProvider: input.runtimeProvider ?? null,
+        puppyDeviceId: input.puppyDeviceId ?? null,
+        vertexProject: input.runtimeVertexProject ?? null,
+        vertexLocation: input.runtimeVertexLocation ?? null,
+      };
+    }
+
+    handlers.onStart?.({ conversationId, model: turn.model });
+    if (turn.text) handlers.onToken?.(turn.text);
+    handlers.onComplete?.({ conversationId, model: turn.model });
+    return {
+      conversationId: input.conversationId ?? null,
+      model: turn.model,
+      text: turn.text,
+      cell: "pod",
+      grounded: turn.grounded,
+      provider: turn.provider,
+      runtimeMode: turn.runtimeMode,
+    };
+  } catch (error) {
+    // The three typed failures `runPodTurn` raises are about THIS person's pod, and
+    // each has a different remedy. Falling back to the hub would answer them anyway and
+    // hide the fault -- the person would believe their pod served a turn it never saw,
+    // which is the "200 on an empty page" failure this codebase argues against
+    // everywhere else. Surface it and let the caller decide.
+    const message = error instanceof Error ? error.message : "AGENT_UNREACHABLE";
+    handlers.onError?.(message);
+    throw error;
+  }
+}
+
+type PodConversationRuntime = {
+  hushhId: string;
+  conversationId: string;
+  runtimeCredential: string | null;
+  runtimeCredentialTransport: "developer_api" | "vertex_api_key" | null;
+  runtimeProvider: "puppy" | null;
+  puppyDeviceId: string | null;
+  vertexProject: string | null;
+  vertexLocation: string | null;
+};
+
+// The last conversation a pod turn served in this page, with the runtime that
+// served it. Module-level on purpose: the close fires from a `pagehide` or a
+// route change, where no component state is guaranteed to still exist.
+let lastPodConversation: PodConversationRuntime | null = null;
+
+/** Test seam and page-lifecycle reset. */
+export function _resetLastPodConversation(): void {
+  lastPodConversation = null;
+}
+
+/**
+ * The person left a conversation: let their pod review it and learn.
+ *
+ * WHY HERE. Decision 3 of the owner-pod plan (2026-09-10): the private agent learns
+ * on conversation close, plus a catch-up before the next answer. Learning on every
+ * reply would slow each answer; learning never would leave the transcript
+ * un-curated. The close is the cheap moment, and the pod's own catch-up covers a
+ * close that never arrived (tab killed, network gone), so this call is best-effort
+ * by design and its result is never needed by the UI.
+ *
+ * Fires only for a conversation a POD turn actually served; a shared-hub
+ * conversation has no pod to review it. Idempotent per conversation id: a route
+ * change and a `pagehide` for the same chat send one close, not two.
+ */
+export async function closeAgentChatConversation(input: {
+  conversationId?: string | null;
+  /** When omitted, the conversation the last pod turn served is closed. */
+  hushhId?: string | null;
+}): Promise<boolean> {
+  const remembered = lastPodConversation;
+  const conversationId = input.conversationId || remembered?.conversationId || "";
+  const hushhId = input.hushhId || remembered?.hushhId || "";
+  if (!conversationId || !hushhId) return false;
+  if (!remembered || remembered.conversationId !== conversationId) {
+    // Not a conversation this page's pod turns served: nothing to review here.
+    return false;
+  }
+  lastPodConversation = null;
+  try {
+    await ApiService.closePodConversation({
+      hushhId,
+      conversationId,
+      runtimeCredential: remembered.runtimeCredential,
+      runtimeCredentialTransport: remembered.runtimeCredentialTransport,
+      runtimeProvider: remembered.runtimeProvider,
+      puppyDeviceId: remembered.puppyDeviceId,
+      vertexProject: remembered.vertexProject,
+      vertexLocation: remembered.vertexLocation,
+    });
+    return true;
+  } catch {
+    // Best-effort: the pod catches up before its next answer.
+    return false;
+  }
+}

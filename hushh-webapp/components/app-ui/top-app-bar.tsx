@@ -68,6 +68,7 @@ import {
 import { toast } from "sonner";
 import { useAuth } from "@/hooks/use-auth";
 import { useEffectiveAvatarUrl } from "@/hooks/use-effective-avatar-url";
+import { useSessionChromeSuppressed } from "@/lib/auth/use-session-chrome-suppression";
 import { useVault } from "@/lib/vault/vault-context";
 import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
 import {
@@ -81,11 +82,11 @@ import { buildLoginRouteWithAuthSessionNotice } from "@/lib/auth/session-invalid
 import { VaultService } from "@/lib/services/vault-service";
 import { getKaiChromeState } from "@/lib/navigation/kai-chrome-state";
 import {
+  isOneSetupSurfaceRoute,
   KAI_MARKET_PATH,
-  normalizeInternalRouteHref,
   ROUTES,
 } from "@/lib/navigation/routes";
-import { buildProfileRoute } from "@/lib/navigation/profile-routes";
+import { requestProfilePaneOpen } from "@/lib/navigation/profile-pane";
 
 import { getAgentSection } from "@/lib/navigation/agent-sections";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
@@ -457,11 +458,18 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { isAuthenticated, user } = useAuth();
-  const effectiveAvatarUrl = useEffectiveAvatarUrl();
   const { isVaultUnlocked } = useVault();
   const { activePersona, riaCapability, riaEntryRoute, switchPersona } =
     usePersonaState();
   const pathname = usePathname();
+  // The top bar is suppressed on every setup surface, so its avatar must not
+  // spend a pool connection fetching an image nobody is looking at while a
+  // first-run person waits on the gate. It still renders from cache, and
+  // `PhoneMandateGuard` fetches the same identity below the gate.
+  const chromeSuppressed = useSessionChromeSuppressed();
+  const effectiveAvatarUrl = useEffectiveAvatarUrl({
+    fetchWhenCold: !isOneSetupSurfaceRoute(pathname ?? "") && !chromeSuppressed,
+  });
   const normalizedPathname = useMemo(
     () =>
       model.mode === "hidden"
@@ -845,29 +853,6 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
     });
   }, [normalizedPathname, searchParams, topShellBreadcrumb]);
 
-  // The avatar opens Profile from EVERY signed-in screen, so tag the current
-  // route as the `?from` origin. The shared top-bar back control then retraces
-  // to wherever the user opened Profile from instead of always dropping them on
-  // the One dashboard — the profile "back goes to dashboard" glitch. We strip
-  // any inherited `from` (no nesting) and never tag Profile as its own origin.
-  const profileOpenHref = useMemo(() => {
-    const base = normalizeInternalRouteHref(normalizedPathname);
-    if (
-      !base ||
-      base === ROUTES.PROFILE ||
-      base.startsWith(`${ROUTES.PROFILE}/`)
-    ) {
-      return ROUTES.PROFILE;
-    }
-    const query = new URLSearchParams(searchParams?.toString?.() ?? "");
-    query.delete("from");
-    const queryString = query.toString();
-    const origin = queryString ? `${base}?${queryString}` : base;
-    return buildProfileRoute({
-      searchParams: new URLSearchParams({ from: origin }),
-    });
-  }, [normalizedPathname, searchParams]);
-
   const [switchingPersona, setSwitchingPersona] = useState<Persona | null>(
     null,
   );
@@ -1235,14 +1220,7 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
                         <ShellActionSurface
                           variant="icon"
                           aria-label="Open Profile"
-                          onClick={() =>
-                            requestInternalAppNavigation({
-                              href: profileOpenHref,
-                              scroll: false,
-                              source: "tap",
-                              transitionMode: "full",
-                            })
-                          }
+                          onClick={() => requestProfilePaneOpen("tap")}
                           className="!h-8 !w-8 !border-transparent !bg-[color:var(--app-accent)] p-0 !text-[color:var(--app-accent-fg)] !shadow-none hover:!bg-[color:var(--app-accent-hover)]"
                         >
                           <Avatar className="h-8 w-8">

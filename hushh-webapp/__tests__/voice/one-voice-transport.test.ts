@@ -374,4 +374,35 @@ describe("One Voice realtime transports", () => {
     expect(send).not.toHaveBeenCalled();
   });
 
+  it("does not let quiet room tone cancel the first welcome cue", () => {
+    const transport = new GeminiLiveTransport();
+    const send = vi.fn();
+    const testTransport = transport as unknown as {
+      ws: { readyState: number; send: (message: string) => void };
+      setupComplete: boolean;
+      initialGreetingPending: boolean;
+      sendVisitorActivityStart: (level: number, pcm: Uint8Array) => boolean;
+    };
+    testTransport.ws = { readyState: WebSocket.OPEN, send };
+    testTransport.setupComplete = true;
+    testTransport.initialGreetingPending = true;
+
+    for (let index = 0; index < 12; index += 1) {
+      testTransport.sendVisitorActivityStart(0.1, new Uint8Array([index]));
+    }
+    expect(send).not.toHaveBeenCalled();
+
+    for (let index = 0; index < 7; index += 1) {
+      expect(
+        testTransport.sendVisitorActivityStart(0.15, new Uint8Array([index])),
+      ).toBe(false);
+    }
+    expect(
+      testTransport.sendVisitorActivityStart(0.15, new Uint8Array([7])),
+    ).toBe(false);
+    expect(send).toHaveBeenCalledWith(
+      JSON.stringify({ type: "voice_activity_start" }),
+    );
+  });
+
 });

@@ -55,6 +55,7 @@ import {
 } from "@/components/one-location/onboarding/save-location-sheet-layout";
 import { isNative } from "@/lib/capacitor/platform";
 import { cn } from "@/lib/utils";
+import { SearchClearButton } from "@/components/app-ui/search-clear-button";
 import {
   defaultSavedLocationCategory,
   type SavedLocation,
@@ -1886,7 +1887,13 @@ export function SaveLocationModal({
                   disabled={interactionBusy}
                   autoComplete="off"
                   placeholder="Search address or place"
-                  className={cn(controlInputClassName, "pl-10 pr-10")}
+                  className={cn(controlInputClassName, "pl-10 pr-12")}
+                />
+                <SearchClearButton
+                  visible={placeQuery.length > 0 && !placeSearching && !changingPlace}
+                  label="Clear place search"
+                  onClear={() => setPlaceQuery("")}
+                  className="right-1 text-[color:var(--app-tertiary-label)]"
                 />
                 {placeSearching || changingPlace ? (
                   <Loader2

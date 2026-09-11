@@ -355,6 +355,11 @@ if [[ "$DEPLOY_BACKEND" == "true" ]]; then
   SUBS="${SUBS}##_DEPLOY_ENV=${TARGET_ENV}##_DEPLOY_SOURCE=${DEPLOY_SOURCE}"
   SUBS="${SUBS}##_DEPLOY_SHA=${DEPLOY_SHA}##_GITHUB_RUN_ID=${RUN_ID}"
 
+  # Preserve the managed-AI billing split in the fallback release path too.
+  if [[ "$TARGET_ENV" == "production" || "$TARGET_ENV" == "uat" ]]; then
+    SUBS="${SUBS}##_GENAI_PROJECT_ID=hushh-vertex-personal54"
+  fi
+
   if [[ "$TARGET_ENV" == "production" ]]; then
     SUBS="${SUBS}##_DB_POOL_MIN_SIZE=1##_DB_POOL_MAX_SIZE=4"
     SUBS="${SUBS}##_DB_SQLALCHEMY_POOL_SIZE=4##_DB_SQLALCHEMY_MAX_OVERFLOW=0"

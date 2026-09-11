@@ -2,6 +2,7 @@ import {
   AppPageContentRegion,
   AppPageShell,
 } from "@/components/app-ui/app-page-shell";
+import { OneAgentPresence } from "@/components/dashboard/one-agent-presence";
 import { OneAgentRoster } from "@/components/dashboard/one-agent-roster";
 import { type CapabilityStatus } from "@/lib/services/capability-setup-state-service";
 
@@ -9,7 +10,6 @@ export function OneDashboardPage({
   capabilityStatusById = {},
   userId,
 }: {
-  displayName?: string | null;
   capabilityStatusById?: Record<string, CapabilityStatus>;
   userId?: string | null;
 }) {
@@ -26,7 +26,10 @@ export function OneDashboardPage({
       }}
     >
       <AppPageContentRegion>
-        <OneAgentRoster capabilityStatusById={capabilityStatusById} userId={userId} />
+        <div className="space-y-5">
+          <OneAgentPresence />
+          <OneAgentRoster capabilityStatusById={capabilityStatusById} userId={userId} />
+        </div>
       </AppPageContentRegion>
     </AppPageShell>
   );

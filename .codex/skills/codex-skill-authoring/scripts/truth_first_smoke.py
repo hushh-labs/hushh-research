@@ -16,7 +16,7 @@ DELEGATION_CONTRACT = (
 )
 COMMS_RULES = REPO_ROOT / ".codex/skills/comms-community/references/reply-rules.md"
 COMMUNITY_WORKFLOW = REPO_ROOT / ".codex/workflows/community-response/workflow.json"
-AGENTS_DIR = REPO_ROOT / ".codex/agents"
+AGENTS_DIR = REPO_ROOT / "agents"
 
 CLAIM_LABELS = [
     "already_exists",

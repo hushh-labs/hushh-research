@@ -10,6 +10,7 @@ import android.location.LocationListener
 import android.location.LocationManager
 import android.net.Uri
 import android.os.Bundle
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
@@ -26,9 +27,13 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
+import okhttp3.HttpUrl.Companion.toHttpUrl
+import com.hussh.app.plugins.shared.BackendUrl
+import com.google.firebase.auth.FirebaseAuth
+import java.lang.ref.WeakReference
 
 /**
- * Foreground-only location capture for One Location Agent.
+ * Foreground capture and explicitly consented native background publishing.
  *
  * Coordinates are returned only to the local web layer. The web layer encrypts
  * before calling the backend.
@@ -42,7 +47,8 @@ import java.util.TimeZone
                 Manifest.permission.ACCESS_FINE_LOCATION,
                 Manifest.permission.ACCESS_COARSE_LOCATION
             ]
-        )
+        ),
+        Permission(alias = "backgroundNotifications", strings = [Manifest.permission.POST_NOTIFICATIONS])
     ]
 )
 class HushhLocationPlugin : Plugin() {
@@ -50,6 +56,11 @@ class HushhLocationPlugin : Plugin() {
     // Active continuous-tracking watches keyed by the saved callback id returned
     // to JS. Each holds its LocationListener so clearWatch can detach it.
     private val activeWatches = HashMap<String, LocationListener>()
+    private val backgroundPermissionRequests = mutableMapOf<String, Pair<Long, String>>()
+    override fun load() {
+        val plugin = WeakReference(this)
+        BackgroundLocationService.onStopped = { plugin.get()?.notifyListeners("backgroundShareStopped", JSObject()) }
+    }
 
     @PluginMethod
     fun getPermissionState(call: PluginCall) {
@@ -130,24 +141,96 @@ class HushhLocationPlugin : Plugin() {
 
     @PluginMethod
     fun requestAlwaysAuthorization(call: PluginCall) {
-        // Android background publishing is not implemented yet. Return the
-        // truthful foreground state so the web layer can keep the opt-in off.
+        // Android 11+ requires the owner to select Always in system settings.
+        // Foreground permission must be granted separately first.
+        if (hasLocationPermission() && Build.VERSION.SDK_INT >= 29 &&
+            !hasAndroidPermission(Manifest.permission.ACCESS_BACKGROUND_LOCATION)) {
+            val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                Uri.parse("package:${context.packageName}"))
+            activity.startActivity(intent)
+        }
         call.resolve(permissionPayload())
     }
 
     @PluginMethod
     fun startBackgroundShare(call: PluginCall) {
-        call.resolve(
-            JSObject()
-                .put("started", false)
-                .put("reason", "android_background_share_unavailable")
-        )
+        activity.runOnUiThread {
+            val ownerUid = FirebaseAuth.getInstance().currentUser?.uid
+            val existing = BackgroundLocationService.instance?.takeIf { it.canUpdateForOwner(ownerUid) }
+            BackgroundLocationService.clearSession()
+            fun unavailable(reason: String) { call.resolve(JSObject().put("started", false).put("reason", reason)) }
+            if (!hasLocationPermission() || (Build.VERSION.SDK_INT >= 29 &&
+                !hasAndroidPermission(Manifest.permission.ACCESS_BACKGROUND_LOCATION))) {
+                unavailable("background_permission_required"); return@runOnUiThread
+            }
+            if (!activity.hasWindowFocus() && existing == null) { unavailable("foreground_required"); return@runOnUiThread }
+            if (ownerUid == null) { unavailable("authentication_required"); return@runOnUiThread }
+            if (Build.VERSION.SDK_INT >= 33 && !hasAndroidPermission(Manifest.permission.POST_NOTIFICATIONS)) {
+                backgroundPermissionRequests[call.callbackId] = BackgroundLocationService.generation to ownerUid
+                requestPermissionForAlias("backgroundNotifications", call, "backgroundNotificationCallback")
+                return@runOnUiThread
+            }
+            val session = try {
+                val base = requireNotNull(call.getString("backendBaseUrl")).toHttpUrl()
+                require(base.isHttps && base.username.isEmpty() && base.password.isEmpty() && base.query == null && base.fragment == null)
+                val configured = BackendUrl.resolve(bridge, null, "HushhLocation").toHttpUrl()
+                require(base == configured)
+                val token = requireNotNull(call.getString("vaultOwnerToken"))
+                require(token.isNotBlank())
+                val raw = requireNotNull(call.getArray("grants"))
+                require(raw.length() in 1..100)
+                val grants = (0 until raw.length()).map { index ->
+                    val grant = raw.getJSONObject(index)
+                    val expiry = if (grant.has("expiresAtMs")) {
+                        val value = grant.get("expiresAtMs")
+                        require(value is Number)
+                        val ms = value.toDouble()
+                        require(ms.isFinite() && ms > System.currentTimeMillis() && ms < Long.MAX_VALUE.toDouble())
+                        ms.toLong()
+                    } else null
+                    val id = grant.getString("grantId")
+                    val keyId = grant.getString("recipientKeyId")
+                    require(id.isNotBlank() && keyId.isNotBlank())
+                    BackgroundGrant(id, keyId, LocationEnvelopeCrypto.publicKey(grant.getJSONObject("recipientPublicKeyJwk")), expiry)
+                }
+                require(grants.map { it.id }.distinct().size == grants.size)
+                val move = call.getDouble("minMoveMeters", 10.0) ?: 10.0
+                val interval = call.getDouble("minIntervalMs", 15000.0) ?: 15000.0
+                require(move.isFinite() && interval.isFinite())
+                BackgroundSession(token, base, grants, move.coerceAtLeast(0.0), interval.coerceIn(1000.0, 3600000.0).toLong(), ownerUid)
+            } catch (_: Exception) { unavailable("invalid_background_session"); return@runOnUiThread }
+            BackgroundLocationService.pending = session
+            BackgroundLocationService.acknowledge = { started ->
+                call.resolve(JSObject().put("started", started).put("reason", if (started) null else "background_share_stopped"))
+            }
+            try {
+                if (existing != null) existing.applyPendingSession()
+                else ContextCompat.startForegroundService(context, Intent(context, BackgroundLocationService::class.java))
+            }
+            catch (_: Exception) { BackgroundLocationService.clearSession() }
+        }
     }
 
     @PluginMethod
     fun stopBackgroundShare(call: PluginCall) {
-        // Safe idempotent no-op while Android background publishing is absent.
-        call.resolve()
+        activity.runOnUiThread {
+            BackgroundLocationService.clearSession()
+            call.resolve()
+        }
+    }
+
+    @PermissionCallback
+    private fun backgroundNotificationCallback(call: PluginCall) {
+        val attempt = backgroundPermissionRequests.remove(call.callbackId)
+        if (attempt?.first != BackgroundLocationService.generation || attempt.second != FirebaseAuth.getInstance().currentUser?.uid) {
+            call.resolve(JSObject().put("started", false).put("reason", "background_share_stopped"))
+            return
+        }
+        if (Build.VERSION.SDK_INT >= 33 && !hasAndroidPermission(Manifest.permission.POST_NOTIFICATIONS)) {
+            call.resolve(JSObject().put("started", false).put("reason", "notification_permission_required"))
+            return
+        }
+        startBackgroundShare(call)
     }
 
     @PermissionCallback
@@ -187,7 +270,8 @@ class HushhLocationPlugin : Plugin() {
         return JSObject()
             .put("state", state)
             .put("precise", fineGranted)
-            .put("background", "foreground-only")
+            .put("background", if (hasLocationPermission() && (Build.VERSION.SDK_INT < 29 ||
+                hasAndroidPermission(Manifest.permission.ACCESS_BACKGROUND_LOCATION))) "available" else "foreground-only")
             .put("locationServicesEnabled", locationServicesEnabled)
     }
 

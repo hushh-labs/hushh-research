@@ -998,6 +998,11 @@ def test_one_location_retention_route_purges_terminal_state_and_preserves_active
 ) -> None:
     monkeypatch.delenv("ONE_LOCATION_RETENTION_AUTH_ENABLED", raising=False)
     monkeypatch.setenv("ONE_LOCATION_RETENTION_TOKEN", "expected-token")
+    from unittest.mock import Mock
+
+    ratings = Mock()
+    ratings.purge_expired_visits.return_value = {"purged": 0}
+    monkeypatch.setattr(one_location, "_place_rating_service", lambda: ratings)
     service = FourUserMemoryService()
     client = _client(service, {"user_id": "user_a"}, monkeypatch)
     now = datetime.now(timezone.utc)
@@ -1132,6 +1137,7 @@ def test_one_location_retention_route_purges_terminal_state_and_preserves_active
         "deleted_public_submissions": 1,
         "deleted_events": 1,
         "nearby_presence": {"expired": 0, "deleted": 0},
+        "place_rating_visits": {"purged": 0},
         "retention_hours": 12.0,
     }
     assert old_grant_id not in service.grants
@@ -1330,6 +1336,119 @@ def test_create_grant_without_share_kind_preserves_existing_classification(monke
     # "never replace anything" and grants would pile up with no Stop for them.
     assert service.grants[grant["id"]]["status"] == "revoked"
     assert service.grants[resp2.json()["grant"]["id"]]["status"] == "active"
+
+
+# -- OIDC scheduler identity -----------------------------------------------------------
+#
+# The retention purge is reached by Cloud Scheduler, which used to present a Secret
+# Manager value baked into its own job config as `X-Hushh-Maintenance-Token`. These
+# four cases cover the route-level behaviour of the replacement; the verification
+# logic itself is covered in `test_scheduler_identity.py`.
+
+
+def _oidc_claims(email: str = "sched@hushh-pda-uat.iam.gserviceaccount.com") -> dict:
+    return {"email": email, "email_verified": True, "aud": "https://backend.test", "sub": "1"}
+
+
+def _accept_any_token(claims: dict):
+    def _verify(_token: str, _audience: str) -> dict:
+        return claims
+
+    return _verify
+
+
+def test_one_location_retention_purge_accepts_a_scheduler_oidc_token(monkeypatch) -> None:
+    """The whole point: no secret in the job, and the purge still runs."""
+    from hushh_mcp.services import scheduler_identity
+
+    monkeypatch.delenv("ONE_LOCATION_RETENTION_AUTH_ENABLED", raising=False)
+    monkeypatch.delenv("ONE_LOCATION_RETENTION_TOKEN", raising=False)
+    monkeypatch.setenv(
+        "ONE_LOCATION_RETENTION_SCHEDULER_SERVICE_ACCOUNTS",
+        "sched@hushh-pda-uat.iam.gserviceaccount.com",
+    )
+    monkeypatch.setenv("ONE_LOCATION_RETENTION_AUDIENCE", "https://backend.test")
+    monkeypatch.setattr(
+        scheduler_identity, "_verify_google_id_token", _accept_any_token(_oidc_claims())
+    )
+    client = _client(FourUserMemoryService(), {"user_id": "user_a"}, monkeypatch)
+
+    response = client.post(
+        "/api/one/location/retention/purge?older_than_hours=12",
+        headers={"Authorization": "Bearer signed-by-google"},
+    )
+
+    assert response.status_code == 200, response.json()
+    assert response.json()["retention_hours"] == 12
+
+
+def test_one_location_retention_purge_refuses_a_scheduler_outside_the_allowlist(
+    monkeypatch,
+) -> None:
+    from hushh_mcp.services import scheduler_identity
+
+    monkeypatch.delenv("ONE_LOCATION_RETENTION_AUTH_ENABLED", raising=False)
+    # A legacy token that WOULD be accepted, to prove the OIDC failure does not fall
+    # through to it. A stolen shared secret plus a forged OIDC token must not be a
+    # better position than the stolen secret alone.
+    monkeypatch.setenv("ONE_LOCATION_RETENTION_TOKEN", "expected-token")
+    monkeypatch.setenv(
+        "ONE_LOCATION_RETENTION_SCHEDULER_SERVICE_ACCOUNTS",
+        "sched@hushh-pda-uat.iam.gserviceaccount.com",
+    )
+    monkeypatch.setenv("ONE_LOCATION_RETENTION_AUDIENCE", "https://backend.test")
+    monkeypatch.setattr(
+        scheduler_identity,
+        "_verify_google_id_token",
+        _accept_any_token(_oidc_claims(email="intruder@example.iam.gserviceaccount.com")),
+    )
+    client = _client(FourUserMemoryService(), {"user_id": "user_a"}, monkeypatch)
+
+    response = client.post(
+        "/api/one/location/retention/purge?older_than_hours=12",
+        headers={
+            "Authorization": "Bearer signed-by-google",
+            "X-Hushh-Maintenance-Token": "expected-token",
+        },
+    )
+
+    assert response.status_code == 401
+    assert response.json()["detail"]["reason"] == "scheduler_identity_not_allowed"
+
+
+def test_one_location_retention_purge_closes_the_legacy_path_on_one_variable(
+    monkeypatch,
+) -> None:
+    """The migration's last step must not need a code change."""
+    monkeypatch.delenv("ONE_LOCATION_RETENTION_AUTH_ENABLED", raising=False)
+    monkeypatch.setenv("ONE_LOCATION_RETENTION_TOKEN", "expected-token")
+    monkeypatch.setenv("HUSHH_MAINTENANCE_LEGACY_TOKEN_ENABLED", "0")
+    client = _client(FourUserMemoryService(), {"user_id": "user_a"}, monkeypatch)
+
+    response = client.post(
+        "/api/one/location/retention/purge?older_than_hours=12",
+        headers={"X-Hushh-Maintenance-Token": "expected-token"},
+    )
+
+    assert response.status_code == 401
+    assert response.json()["detail"]["code"] == "ONE_LOCATION_RETENTION_UNAUTHORIZED"
+
+
+def test_one_location_retention_purge_still_accepts_the_shared_header_during_migration(
+    monkeypatch,
+) -> None:
+    """Flipping the server before the scheduler jobs must not break the purge."""
+    monkeypatch.delenv("ONE_LOCATION_RETENTION_AUTH_ENABLED", raising=False)
+    monkeypatch.delenv("HUSHH_MAINTENANCE_LEGACY_TOKEN_ENABLED", raising=False)
+    monkeypatch.setenv("ONE_LOCATION_RETENTION_TOKEN", "expected-token")
+    client = _client(FourUserMemoryService(), {"user_id": "user_a"}, monkeypatch)
+
+    response = client.post(
+        "/api/one/location/retention/purge?older_than_hours=12",
+        headers={"X-Hushh-Maintenance-Token": "expected-token"},
+    )
+
+    assert response.status_code == 200
 
 
 def test_sos_grant_and_normal_share_coexist_over_the_api(monkeypatch) -> None:

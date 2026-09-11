@@ -1,0 +1,520 @@
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import type { ReactNode } from "react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+const {
+  replace,
+  authUser,
+  finalizeSensitiveMock,
+  hasFinanceIntentMock,
+  migrateOnboardingBufferMock,
+  acknowledgeOneSetupExitMock,
+  vaultDialogOpenStates,
+} = vi.hoisted(() => ({
+  replace: vi.fn(),
+  authUser: { uid: "local-first-user" },
+  finalizeSensitiveMock: vi.fn(),
+  hasFinanceIntentMock: vi.fn(),
+  migrateOnboardingBufferMock: vi.fn(),
+  acknowledgeOneSetupExitMock: vi.fn(),
+  vaultDialogOpenStates: [] as boolean[],
+}));
+
+let vaultState = {
+  vaultKey: null as string | null,
+  vaultOwnerToken: null as string | null,
+  isVaultUnlocked: false,
+};
+
+vi.mock("next/navigation", () => {
+  const router = { replace, push: vi.fn() };
+  return { useRouter: () => router, useSearchParams: () => new URLSearchParams() };
+});
+
+vi.mock("@/lib/firebase/auth-context", () => ({
+  useAuth: () => ({ user: authUser }),
+}));
+
+vi.mock("@/lib/vault/vault-context", () => ({
+  useVault: () => vaultState,
+}));
+
+/**
+ * Stands in for the real dialog, which renders nothing while `open` is false.
+ * The marker is the honest signal that a vault surface was actually presented.
+ */
+vi.mock("@/components/vault/vault-unlock-dialog", () => ({
+  VaultUnlockDialog: ({
+    open,
+    onSuccess,
+  }: {
+    open: boolean;
+    onSuccess: () => void;
+  }) => {
+    vaultDialogOpenStates.push(open);
+    if (!open) return null;
+    return (
+      <div data-testid="vault-unlock-dialog">
+        <button type="button" onClick={() => onSuccess()}>
+          complete vault
+        </button>
+      </div>
+    );
+  },
+}));
+
+vi.mock("@/lib/services/onboarding-buffer-migration-service", () => ({
+  migrateOnboardingBuffer: migrateOnboardingBufferMock,
+}));
+
+vi.mock("@/lib/services/one-setup-exit-service", () => ({
+  acknowledgeOneSetupExit: acknowledgeOneSetupExitMock,
+}));
+
+vi.mock("@/lib/services/pre-vault-user-state-service", () => ({
+  PreVaultUserStateService: {
+    getCachedBootstrapState: () => ({ oneRuntimeChoice: "hushh_managed" }),
+    bootstrapState: vi.fn(async () => ({ oneRuntimeChoice: "hushh_managed" })),
+    hasOneRuntimeChoice: () => true,
+    // These tests are about the VAULT sequence, so both root prerequisites are
+    // already satisfied. Without this the hub's exit gate blocks on the cloud step --
+    // which is the gate working, but it is not what this file is exercising.
+    hasOneCloudProject: () => true,
+  },
+}));
+
+vi.mock("@/lib/onboarding/use-capability-setup-states", () => ({
+  useCapabilitySetupStates: () => ({
+    byId: {},
+    isLoading: false,
+    isEnriching: false,
+  }),
+}));
+
+vi.mock("@/lib/onboarding/capability-setup-copy", () => ({
+  CAPABILITY_SETUP_COPY: [],
+}));
+
+vi.mock("@/lib/onboarding/one-capabilities", async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  getOneSetupCapability: () => null,
+}));
+
+vi.mock("@/lib/voice/voice-surface-metadata", () => ({
+  usePublishVoiceSurfaceMetadata: () => undefined,
+}));
+
+vi.mock("@/lib/agent/local-onboarding-actions", () => ({
+  useLocalOnboardingActionHandler: () => undefined,
+}));
+
+vi.mock("@/lib/navigation/routes", async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  isOneSetupSurfaceRoute: () => false,
+  normalizeInternalRouteHref: () => null,
+}));
+
+vi.mock("@/lib/services/account-identity-service", () => ({
+  AccountIdentityService: {
+    peekCachedIdentity: () => ({ data: { user_id: "local-first-user", phone_verified: true } }),
+    refreshCurrentUserIdentity: vi.fn(async () => ({ user_id: "local-first-user", phone_verified: true })),
+    hasVerifiedPhone: (identity: { phone_verified?: boolean }) => identity?.phone_verified === true,
+  },
+}));
+vi.mock("@/lib/services/pre-vault-sensitive-draft-service", () => ({
+  PreVaultSensitiveDraftService: {
+    finalizeForVault: finalizeSensitiveMock,
+    hasFinanceIntent: hasFinanceIntentMock,
+  },
+}));
+vi.mock("@/lib/services/post-unlock-sync-service", () => ({
+  PostUnlockSyncService: { run: vi.fn(async () => ({ onboardingSynced: true })) },
+}));
+vi.mock("@/lib/services/finance-setup-draft-service", () => ({
+  FinanceSetupDraftService: { finalizeForVault: vi.fn(async () => undefined) },
+}));
+
+vi.mock("@/components/app-ui/app-page-shell", () => ({
+  AppPageShell: ({ children }: { children: ReactNode }) => <div>{children}</div>,
+  AppPageHeaderRegion: ({ children }: { children: ReactNode }) => <div>{children}</div>,
+  AppPageContentRegion: ({ children }: { children: ReactNode }) => <div>{children}</div>,
+}));
+
+vi.mock("@/components/app-ui/page-sections", () => ({
+  PageHeader: ({ title, description }: { title: string; description: string }) => (
+    <header>
+      <h1>{title}</h1>
+      <p>{description}</p>
+    </header>
+  ),
+}));
+
+vi.mock("@/components/app-ui/settings-ui", () => ({
+  SettingsGroup: ({ children }: { children: ReactNode }) => <div>{children}</div>,
+}));
+
+vi.mock("@/components/onboarding/setup/capability-setup-tile", () => ({
+  CapabilitySetupTile: () => null,
+  SetupNavigationTile: () => null,
+}));
+
+vi.mock("@/components/onboarding/setup/setup-completion-footer", () => ({
+  SetupCompletionFooter: ({
+    label,
+    onComplete,
+  }: {
+    label: string;
+    onComplete: () => void;
+  }) => (
+    <button type="button" data-testid="one-setup-master-ack" onClick={onComplete}>
+      {label}
+    </button>
+  ),
+}));
+
+type StubButtonProps = {
+  children?: ReactNode;
+  onClick?: () => void;
+  disabled?: boolean;
+  variant?: string;
+  effect?: string;
+  size?: string;
+  fullWidth?: boolean;
+  className?: string;
+  type?: "button" | "submit" | "reset";
+} & Record<string, unknown>;
+
+vi.mock("@/lib/morphy-ux/button", () => ({
+  Button: (props: StubButtonProps) => {
+    const {
+      children,
+      onClick,
+      disabled,
+      variant: _variant,
+      effect: _effect,
+      size: _size,
+      fullWidth: _fullWidth,
+      className: _className,
+      type: _type,
+      ...rest
+    } = props;
+    return (
+      <button type="button" onClick={onClick} disabled={disabled} {...rest}>
+        {children}
+      </button>
+    );
+  },
+}));
+
+import { OneSetupHub } from "@/components/onboarding/setup/one-setup-hub";
+import { CACHE_KEYS, CacheService } from "@/lib/services/cache-service";
+
+const FLAG = "NEXT_PUBLIC_ONBOARDING_LOCAL_FIRST_ENABLED";
+const ORIGINAL_FLAG = process.env[FLAG];
+
+function restoreFlag() {
+  if (ORIGINAL_FLAG === undefined) {
+    delete process.env[FLAG];
+  } else {
+    process.env[FLAG] = ORIGINAL_FLAG;
+  }
+}
+
+beforeEach(() => {
+  vaultState = { vaultKey: null, vaultOwnerToken: null, isVaultUnlocked: false };
+  vaultDialogOpenStates.length = 0;
+  replace.mockReset();
+  finalizeSensitiveMock.mockReset().mockResolvedValue(undefined);
+  hasFinanceIntentMock.mockReset().mockReturnValue(false);
+  migrateOnboardingBufferMock.mockReset();
+  migrateOnboardingBufferMock.mockResolvedValue({
+    outcome: "pending_vault",
+    acknowledgedIds: [],
+    remainingIds: ["rec-1"],
+  });
+  acknowledgeOneSetupExitMock.mockReset();
+  acknowledgeOneSetupExitMock.mockResolvedValue(undefined);
+});
+
+afterEach(() => {
+  vi.useRealTimers();
+  restoreFlag();
+});
+
+describe("flag OFF — onboarding is unchanged", () => {
+  beforeEach(() => {
+    delete process.env[FLAG];
+  });
+
+  it("goes straight from Finish setup to the lock step, no screen in between", async () => {
+    // Main removed the invitation interstitial on purpose: Finish setup opens
+    // the lock dialog itself, and the reassurance copy lives on the lock step's
+    // own first screen. With the local-first flag off, none of the story
+    // screens may appear either.
+    render(<OneSetupHub />);
+
+    fireEvent.click(screen.getByTestId("one-setup-master-ack"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("vault-unlock-dialog")).toBeTruthy();
+    });
+    expect(screen.queryByTestId("one-setup-guided-connection")).toBeNull();
+    expect(screen.queryByTestId("one-setup-vault-explainer")).toBeNull();
+    expect(migrateOnboardingBufferMock).not.toHaveBeenCalled();
+  });
+
+  it("routes home on vault success without running any migration", async () => {
+    const { rerender } = render(<OneSetupHub />);
+
+    // Main removed the invitation interstitial: Finish setup opens the lock
+    // dialog directly, so there is no invitation screen to step through.
+    fireEvent.click(screen.getByTestId("one-setup-master-ack"));
+    await waitFor(() => screen.getByTestId("vault-unlock-dialog"));
+
+    fireEvent.click(screen.getByText("complete vault"));
+    // The dialog's onSuccess is a no-op: the unlocked key only reaches the hub
+    // on the NEXT render (VaultFlow unlocks the context in the same tick), so
+    // nothing routes yet.
+    expect(replace).not.toHaveBeenCalled();
+
+    vaultState = {
+      vaultKey: "ab".repeat(32),
+      vaultOwnerToken: "owner-token",
+      isVaultUnlocked: true,
+    };
+    rerender(<OneSetupHub />);
+
+    // With the flag off, the freshly unlocked key finalizes the setup and routes
+    // straight home -- no migration pass runs on either side of the vault.
+    await waitFor(() => {
+      expect(replace).toHaveBeenCalledWith("/one");
+    });
+    expect(migrateOnboardingBufferMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("flag ON — vault is the last step, after the migration", () => {
+  beforeEach(() => {
+    process.env[FLAG] = "1";
+  });
+
+  it("shows one guided-connection screen instead of the vault invitation", async () => {
+    render(<OneSetupHub />);
+
+    fireEvent.click(screen.getByTestId("one-setup-master-ack"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("one-setup-guided-connection")).toBeTruthy();
+    });
+    expect(screen.queryByTestId("one-setup-vault-invitation")).toBeNull();
+    expect(screen.queryByTestId("vault-unlock-dialog")).toBeNull();
+    // No readiness event cached, so the screen does not claim readiness.
+    expect(screen.getByText("One last connection")).toBeTruthy();
+  });
+
+  it("names the private agent as ready once the feed has said so", async () => {
+    CacheService.getInstance().set(
+      CACHE_KEYS.FEED_LIST("local-first-user"),
+      {
+        items: [
+          {
+            id: "feed-1",
+            source_domain: "consent",
+            event_type: "personal_agent_ready",
+            actor_label: null,
+            metadata: {},
+            read: false,
+            created_at: "2026-08-01T00:00:00.000Z",
+          },
+        ],
+        next_cursor: null,
+        unread_count: 0,
+      },
+      60_000,
+    );
+
+    render(<OneSetupHub />);
+    fireEvent.click(screen.getByTestId("one-setup-master-ack"));
+
+    await waitFor(() => {
+      expect(screen.getByText("Your private agent is ready")).toBeTruthy();
+    });
+
+    CacheService.getInstance().invalidate(
+      CACHE_KEYS.FEED_LIST("local-first-user"),
+    );
+  });
+
+  it("fires no vault surface until the migration pass has completed", async () => {
+    let releaseMigration: (() => void) | null = null;
+    migrateOnboardingBufferMock.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          releaseMigration = () =>
+            resolve({
+              outcome: "pending_vault",
+              acknowledgedIds: [],
+              remainingIds: ["rec-1"],
+            });
+        }),
+    );
+
+    render(<OneSetupHub />);
+    fireEvent.click(screen.getByTestId("one-setup-master-ack"));
+    await waitFor(() => screen.getByTestId("one-setup-guided-connection"));
+
+    fireEvent.click(screen.getByTestId("one-setup-guided-connection-continue"));
+
+    // Migration in flight: no vault surface, no explainer.
+    await waitFor(() => {
+      expect(migrateOnboardingBufferMock).toHaveBeenCalledTimes(1);
+    });
+    expect(screen.queryByTestId("vault-unlock-dialog")).toBeNull();
+    expect(screen.queryByTestId("one-setup-vault-explainer")).toBeNull();
+    expect(vaultDialogOpenStates.some(Boolean)).toBe(false);
+
+    releaseMigration?.();
+
+    await waitFor(() => {
+      expect(screen.getByTestId("one-setup-vault-explainer")).toBeTruthy();
+    });
+    // Still no vault surface — the explainers come first.
+    expect(screen.queryByTestId("vault-unlock-dialog")).toBeNull();
+  });
+
+  it("walks three explainer screens, one idea each, then opens the vault", async () => {
+    render(<OneSetupHub />);
+    fireEvent.click(screen.getByTestId("one-setup-master-ack"));
+    await waitFor(() => screen.getByTestId("one-setup-guided-connection"));
+    fireEvent.click(screen.getByTestId("one-setup-guided-connection-continue"));
+    await waitFor(() => screen.getByTestId("one-setup-vault-explainer"));
+
+    // 1 — what the vault is.
+    expect(screen.getByTestId("one-setup-vault-explainer-what")).toBeTruthy();
+    expect(screen.getByText("Your vault is a locked box")).toBeTruthy();
+    fireEvent.click(screen.getByTestId("one-setup-vault-explainer-next"));
+
+    // 2 — why only they can open it.
+    expect(screen.getByTestId("one-setup-vault-explainer-who")).toBeTruthy();
+    expect(screen.getByText("Only you can open it")).toBeTruthy();
+    fireEvent.click(screen.getByTestId("one-setup-vault-explainer-next"));
+
+    // 3 — the honest expectation if they stop here.
+    expect(screen.getByTestId("one-setup-vault-explainer-skip")).toBeTruthy();
+    expect(screen.getByText("If you stop here, nothing is saved")).toBeTruthy();
+    expect(screen.queryByTestId("vault-unlock-dialog")).toBeNull();
+
+    fireEvent.click(screen.getByTestId("one-setup-vault-explainer-next"));
+    await waitFor(() => {
+      expect(screen.getByTestId("vault-unlock-dialog")).toBeTruthy();
+    });
+  });
+
+  it("drains the buffer once the vault exists, then routes home", async () => {
+    const { rerender } = render(<OneSetupHub />);
+    fireEvent.click(screen.getByTestId("one-setup-master-ack"));
+    await waitFor(() => screen.getByTestId("one-setup-guided-connection"));
+    fireEvent.click(screen.getByTestId("one-setup-guided-connection-continue"));
+    await waitFor(() => screen.getByTestId("one-setup-vault-explainer"));
+    fireEvent.click(screen.getByTestId("one-setup-vault-explainer-next"));
+    fireEvent.click(screen.getByTestId("one-setup-vault-explainer-next"));
+    fireEvent.click(screen.getByTestId("one-setup-vault-explainer-next"));
+    await waitFor(() => screen.getByTestId("vault-unlock-dialog"));
+
+    // The pre-vault pass ran with no key, exactly as the sequence intends.
+    expect(migrateOnboardingBufferMock).toHaveBeenCalledWith({
+      userId: "local-first-user",
+      vaultKey: null,
+      vaultOwnerToken: null,
+    });
+
+    migrateOnboardingBufferMock.mockResolvedValue({
+      outcome: "migrated",
+      acknowledgedIds: ["rec-1"],
+      remainingIds: [],
+    });
+
+    fireEvent.click(screen.getByText("complete vault"));
+    // The dialog's onSuccess is a no-op: the unlocked key only reaches the hub on
+    // the NEXT render (VaultFlow unlocks the context in the same tick), so nothing
+    // drains or navigates yet.
+    expect(replace).not.toHaveBeenCalled();
+
+    vaultState = {
+      vaultKey: "ab".repeat(32),
+      vaultOwnerToken: "owner-token",
+      isVaultUnlocked: true,
+    };
+    rerender(<OneSetupHub />);
+
+    // The freshly unlocked key drives the hub into its draining hand-off, which
+    // drains the buffer with the real key and only then routes home.
+    await waitFor(() => screen.getByTestId("one-setup-buffer-handoff"));
+    await waitFor(() => {
+      expect(migrateOnboardingBufferMock).toHaveBeenCalledWith({
+        userId: "local-first-user",
+        vaultKey: "ab".repeat(32),
+        vaultOwnerToken: "owner-token",
+      });
+    });
+    await waitFor(() => {
+      expect(replace).toHaveBeenCalledWith("/one");
+    });
+  });
+});
+
+
+describe.each(["0", "1"])("finance continuation with local-first=%s", (flag) => {
+  beforeEach(() => {
+    process.env[FLAG] = flag;
+    vaultState = { vaultKey: "ab".repeat(32), vaultOwnerToken: "synthetic-owner-token", isVaultUnlocked: true };
+    hasFinanceIntentMock.mockReturnValue(true);
+  });
+
+  it("resumes queued Finance intent only after encrypted finalization", async () => {
+    let finishWrite!: () => void;
+    finalizeSensitiveMock.mockImplementation(() => new Promise<void>((resolve) => { finishWrite = resolve; }));
+    render(<OneSetupHub />);
+    fireEvent.click(screen.getByTestId("one-setup-master-ack"));
+    await waitFor(() => expect(finalizeSensitiveMock).toHaveBeenCalledTimes(1));
+    expect(replace).not.toHaveBeenCalled();
+    expect(migrateOnboardingBufferMock).not.toHaveBeenCalled();
+    await act(async () => { finishWrite(); });
+    await waitFor(() => expect(replace).toHaveBeenCalledWith("/one/setup/finance/import"));
+    expect(finalizeSensitiveMock).toHaveBeenCalledTimes(1);
+    expect(replace).not.toHaveBeenCalledWith("/one");
+  });
+
+  it("does not navigate or drain when encrypted finalization fails", async () => {
+    finalizeSensitiveMock.mockRejectedValue(new Error("synthetic encrypted-write failure"));
+    render(<OneSetupHub />);
+    fireEvent.click(screen.getByTestId("one-setup-master-ack"));
+    await waitFor(() => expect(finalizeSensitiveMock).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.getByText("synthetic encrypted-write failure")).toBeTruthy());
+    expect(replace).not.toHaveBeenCalled();
+    expect(migrateOnboardingBufferMock).not.toHaveBeenCalled();
+  });
+});
+
+
+it("starts the Finance watchdog only after the encrypted finalizer succeeds", async () => {
+  process.env[FLAG] = "1";
+  vaultState = { vaultKey: "ab".repeat(32), vaultOwnerToken: "synthetic-owner-token", isVaultUnlocked: true };
+  hasFinanceIntentMock.mockReturnValue(true);
+  let finishWrite!: () => void;
+  finalizeSensitiveMock.mockImplementation(() => new Promise<void>((resolve) => { finishWrite = resolve; }));
+  migrateOnboardingBufferMock.mockReturnValue(new Promise(() => {}));
+  vi.useFakeTimers();
+  render(<OneSetupHub />);
+  await act(async () => { fireEvent.click(screen.getByTestId("one-setup-master-ack")); });
+  await act(async () => { await vi.advanceTimersByTimeAsync(8_000); });
+  expect(replace).not.toHaveBeenCalled();
+  expect(migrateOnboardingBufferMock).not.toHaveBeenCalled();
+  await act(async () => { finishWrite(); });
+  expect(migrateOnboardingBufferMock).toHaveBeenCalledTimes(1);
+  await act(async () => { await vi.advanceTimersByTimeAsync(7_999); });
+  expect(replace).not.toHaveBeenCalled();
+  await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+  expect(replace).toHaveBeenCalledWith("/one/setup/finance/import");
+  expect(replace).not.toHaveBeenCalledWith("/one");
+});

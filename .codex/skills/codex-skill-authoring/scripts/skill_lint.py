@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import re
+import runpy
 from collections import OrderedDict, defaultdict
 from pathlib import Path
 from typing import Any
@@ -1147,6 +1148,7 @@ def validate_admin_release_contract(errors: list[str]) -> None:
                     )
 
     legacy_release_bridges = [
+        REPO_ROOT / ".claude/skills/ship-testflight/SKILL.md",
         REPO_ROOT / ".claude/skills/ship-ios-testflight/SKILL.md",
         REPO_ROOT / ".claude/skills/release-ios-appstore/SKILL.md",
     ]
@@ -1378,7 +1380,7 @@ def validate_truth_first_contract(errors: list[str]) -> None:
                     f"{path.relative_to(REPO_ROOT)}: missing planning-question contract phrase `{phrase}`"
                 )
 
-    for agent_path in sorted((REPO_ROOT / ".codex/agents").glob("*.toml")):
+    for agent_path in sorted((REPO_ROOT / "agents").glob("*.toml")):
         text = agent_path.read_text(encoding="utf-8")
         if "Truth-first protocol:" not in text:
             errors.append(f"{agent_path.relative_to(REPO_ROOT)}: missing truth-first protocol block")
@@ -1431,6 +1433,9 @@ def main() -> int:
     validate_special_skill_contracts(errors)
     validate_admin_release_contract(errors)
     validate_truth_first_contract(errors)
+    portable_audit = runpy.run_path(str(REPO_ROOT / "scripts/ops/audit_agents_md_alignment.py"))
+    errors.extend(portable_audit["bridge_findings"](REPO_ROOT))
+    errors.extend(portable_audit["classification_findings"](REPO_ROOT))
 
     if errors:
         print("Skill lint failed:")

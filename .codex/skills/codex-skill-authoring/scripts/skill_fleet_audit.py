@@ -19,7 +19,7 @@ except ModuleNotFoundError as exc:  # pragma: no cover
 REPO_ROOT = Path(__file__).resolve().parents[4]
 SKILLS_ROOT = REPO_ROOT / ".codex/skills"
 WORKFLOWS_ROOT = REPO_ROOT / ".codex/workflows"
-AGENTS_ROOT = REPO_ROOT / ".codex/agents"
+AGENTS_ROOT = REPO_ROOT / "agents"
 OWNER_SKILL_MAX_LINES = 110
 SPOKE_SKILL_MAX_LINES = 85
 REFERENCE_MAX_LINES = 220

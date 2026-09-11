@@ -35,6 +35,12 @@ Run the read-only baseline:
 node .codex/skills/reviewer-app-testing/scripts/verify-reviewer-byok-navigation.mjs
 ```
 
+Read-only rehearsals locally suppress POST requests to the known Google Analytics
+collection endpoint and send no measurement events through that path. This is not
+analytics delivery proof; use the owning analytics smoke workflow for that evidence.
+All other unapproved product mutations remain refused. The route guard must be
+installed before the first navigation.
+
 Domain rehearsals import the harness and add only their domain assertions. They must not duplicate secret-resolution or navigation logic.
 
 ## Failure classification
