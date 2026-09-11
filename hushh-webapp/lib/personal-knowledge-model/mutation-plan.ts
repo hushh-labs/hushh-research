@@ -34,7 +34,24 @@ export type PkmOwnerAutoSaveAuthorization = {
   autoSavePolicyEnabledAt: string;
 };
 
-export type PkmWriteAuthorization = PkmUserConfirmation | PkmOwnerAutoSaveAuthorization;
+/**
+ * Product-default automatic capture for information a person intentionally
+ * enters into One. This is not an owner-confirmed preference: audit records
+ * must preserve that distinction until the owner actively changes the setting.
+ */
+export type PkmProductDefaultAutoSaveAuthorization = {
+  authorizationMode: "product_default_auto_save_policy";
+  confirmedByUser?: never;
+  surface: "chat" | "web";
+  source: "agent_chat_product_default_auto_save" | "kyc_identity_product_default_auto_save";
+  autoSavePolicyVersion: 1;
+  productDefaultEffectiveAt: string;
+};
+
+export type PkmWriteAuthorization =
+  | PkmUserConfirmation
+  | PkmOwnerAutoSaveAuthorization
+  | PkmProductDefaultAutoSaveAuthorization;
 
 export function isOwnerAutoSaveAuthorization(
   authorization: PkmWriteAuthorization
@@ -43,6 +60,17 @@ export function isOwnerAutoSaveAuthorization(
     authorization &&
       "authorizationMode" in authorization &&
       authorization.authorizationMode === "owner_auto_save_policy"
+  );
+}
+
+export function isAutomaticPkmWriteAuthorization(
+  authorization: PkmWriteAuthorization,
+): authorization is PkmOwnerAutoSaveAuthorization | PkmProductDefaultAutoSaveAuthorization {
+  return Boolean(
+    authorization &&
+      "authorizationMode" in authorization &&
+      (authorization.authorizationMode === "owner_auto_save_policy" ||
+        authorization.authorizationMode === "product_default_auto_save_policy"),
   );
 }
 
@@ -80,9 +108,13 @@ export type PkmMutationPlanV2 = {
     displayed_domain: string;
     displayed_scope: string;
     sharing_impact_acknowledged: boolean;
-    authorization_mode: "owner_confirmed" | "owner_auto_save_policy";
+    authorization_mode:
+      | "owner_confirmed"
+      | "owner_auto_save_policy"
+      | "product_default_auto_save_policy";
     auto_save_policy_version?: 1;
     auto_save_policy_enabled_at?: string;
+    product_default_effective_at?: string;
   };
 };
 
@@ -172,10 +204,10 @@ export async function buildConfirmedPkmMutationPlanV2(params: {
   sourceRevision?: number;
   confirmation: PkmWriteAuthorization;
 }): Promise<PkmMutationPlanV2> {
-  const automatic = isOwnerAutoSaveAuthorization(params.confirmation);
-  const automaticAuthorization = automatic
-    ? params.confirmation as PkmOwnerAutoSaveAuthorization
+  const automaticAuthorization = isAutomaticPkmWriteAuthorization(params.confirmation)
+    ? params.confirmation
     : null;
+  const automatic = automaticAuthorization !== null;
   const ownerConfirmation = automatic
     ? null
     : params.confirmation as PkmUserConfirmation;
@@ -203,6 +235,15 @@ export async function buildConfirmedPkmMutationPlanV2(params: {
   const confirmedAt = automatic
     ? new Date().toISOString()
     : ownerConfirmation?.confirmedAt || new Date().toISOString();
+  const authorizationReceipt = automaticAuthorization
+    ? {
+        authorization_mode: automaticAuthorization.authorizationMode,
+        auto_save_policy_version: automaticAuthorization.autoSavePolicyVersion,
+        ...(automaticAuthorization.authorizationMode === "owner_auto_save_policy"
+          ? { auto_save_policy_enabled_at: automaticAuthorization.autoSavePolicyEnabledAt }
+          : { product_default_effective_at: automaticAuthorization.productDefaultEffectiveAt }),
+      }
+    : { authorization_mode: "owner_confirmed" as const };
 
   return {
     version: 2,
@@ -218,7 +259,9 @@ export async function buildConfirmedPkmMutationPlanV2(params: {
     explanation:
       params.explanation ||
       (automatic
-        ? `The owner enabled automatic saving for this eligible ${operation} operation in ${titleize(domain)} / ${titleize(scope)}.`
+        ? params.confirmation.authorizationMode === "product_default_auto_save_policy"
+          ? `An eligible detail intentionally entered into One was saved under the product-default automatic capture policy in ${titleize(domain)} / ${titleize(scope)}.`
+          : `The owner enabled automatic saving for this eligible ${operation} operation in ${titleize(domain)} / ${titleize(scope)}.`
         : `The owner reviewed this ${operation} operation for ${titleize(domain)} / ${titleize(scope)}.`),
     affected_grant_ids: sharingImpact?.affectedGrantIds || [],
     affected_export_ids: sharingImpact?.affectedExportIds || [],
@@ -243,13 +286,7 @@ export async function buildConfirmedPkmMutationPlanV2(params: {
       displayed_scope: scope,
       sharing_impact_acknowledged:
         ownerConfirmation?.sharingImpactAcknowledged === true,
-      authorization_mode: automatic ? "owner_auto_save_policy" : "owner_confirmed",
-      ...(automatic
-        ? {
-            auto_save_policy_version: automaticAuthorization!.autoSavePolicyVersion,
-            auto_save_policy_enabled_at: automaticAuthorization!.autoSavePolicyEnabledAt,
-          }
-        : {}),
+      ...authorizationReceipt,
     },
   };
 }

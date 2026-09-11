@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import { AccountIdentityService } from "@/lib/services/account-identity-service";
 import { CacheService } from "@/lib/services/cache-service";
+import { shouldSkipAmbientIdentityHydrationForAutomation } from "@/lib/testing/native-test";
 
 /**
  * The avatar URL to render for the CURRENT user on every surface.
@@ -32,6 +33,9 @@ export function useEffectiveAvatarUrl(): string | null {
       setEffective(snap?.data?.photo_url ?? null);
     };
     read();
+    if (shouldSkipAmbientIdentityHydrationForAutomation()) {
+      return;
+    }
     // Cold/stale cache → SWR fetch, then re-read the populated snapshot.
     void AccountIdentityService.getIdentitySwr(user).then(() => read());
     // Re-read on any identity-cache mutation (peek is O(1); setState bails on an

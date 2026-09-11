@@ -75,6 +75,19 @@ describe("private-agent chat shell contract", () => {
     expect(workspace).not.toContain("Writing in expanded composer");
   });
 
+  it("stages an oversized prompt as a removable in-memory text attachment before sending", () => {
+    const workspace = read("components/agent/agent-chat-workspace.tsx");
+
+    expect(workspace).toContain("LONG_PROMPT_ATTACHMENT_CHARS = 8_000");
+    expect(workspace).toContain("data-testid=\"agent-chat-long-prompt-attachment\"");
+    expect(workspace).toContain("long-prompt.txt");
+    expect(workspace).toContain('aria-label="Remove long prompt attachment"');
+    expect(workspace).toContain("onClick={() => setLongPromptAttachment(null)}");
+    expect(workspace).toContain("const text = attachment?.text ?? draftText;");
+    expect(workspace).toContain("setComposerPurpose(null);");
+    expect(workspace).toContain("enqueuePrompt(text);");
+  });
+
   it("keeps active assistant streams full-width and errors compact", () => {
     const workspace = read("components/agent/agent-chat-workspace.tsx");
 

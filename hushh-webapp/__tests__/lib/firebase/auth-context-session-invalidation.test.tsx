@@ -22,6 +22,7 @@ const mocks = vi.hoisted(() => ({
   apiDeleteSession: vi.fn(),
   cacheSignedOut: vi.fn(),
   clearForUser: vi.fn(),
+  identityRefresh: vi.fn(),
   clearMarketingSeen: vi.fn(),
   markForceIntroOnce: vi.fn(),
 }));
@@ -77,7 +78,7 @@ vi.mock("@/lib/services/auth-service", () => ({
 vi.mock("@/lib/services/account-identity-service", () => ({
   AccountIdentityService: {
     peekCachedIdentity: vi.fn(() => null),
-    refreshCurrentUserIdentity: vi.fn().mockResolvedValue(null),
+    refreshCurrentUserIdentity: mocks.identityRefresh,
   },
 }));
 
@@ -151,12 +152,12 @@ function deferred<T>() {
   return { promise, reject, resolve };
 }
 
-function makeUser(uid = "account-owner"): User {
+function makeUser(uid = "account-owner", phoneNumber = "+14155550100"): User {
   return {
     uid,
     displayName: "Account Owner",
     email: "owner@example.test",
-    phoneNumber: "+14155550100",
+    phoneNumber,
     photoURL: null,
     getIdToken: vi.fn().mockResolvedValue("persisted-token"),
   } as unknown as User;
@@ -264,6 +265,7 @@ describe("AuthProvider terminal session invalidation", () => {
       activeSessionResponse(),
     );
     mocks.apiDeleteSession.mockResolvedValue(undefined);
+    mocks.identityRefresh.mockResolvedValue(null);
     mocks.clearForUser.mockResolvedValue(undefined);
     mocks.clearMarketingSeen.mockResolvedValue(undefined);
     mocks.markForceIntroOnce.mockResolvedValue(undefined);
@@ -275,6 +277,22 @@ describe("AuthProvider terminal session invalidation", () => {
 
   afterEach(() => {
     vi.useRealTimers();
+    delete window.__HUSHH_NATIVE_TEST__;
+  });
+
+  it("does not refresh the identity shadow during automated reviewer bootstrap", async () => {
+    window.__HUSHH_NATIVE_TEST__ = {
+      enabled: true,
+      autoReviewerLogin: true,
+    };
+    mocks.firebaseUser = makeUser("account-owner", null);
+
+    renderProvider();
+
+    await screen.findByText("Vault content for account-owner");
+    await act(async () => Promise.resolve());
+
+    expect(mocks.identityRefresh).not.toHaveBeenCalled();
   });
 
   it("can leave recovery without waiting on token-dependent notification cleanup", async () => {
@@ -332,6 +350,31 @@ describe("AuthProvider terminal session invalidation", () => {
     expect(
       await screen.findByText("Vault content for account-owner"),
     ).toBeInTheDocument();
+  });
+
+  it("does not remount protected UI for duplicate fresh web lifecycle checks", async () => {
+    renderProvider();
+
+    await screen.findByText("Vault content for account-owner");
+    mocks.apiGetAccountSessionStatus.mockClear();
+
+    act(() => {
+      window.dispatchEvent(new Event("focus"));
+    });
+
+    await waitFor(() => {
+      expect(mocks.apiGetAccountSessionStatus).toHaveBeenCalledTimes(1);
+    });
+    expect(screen.getByText("Vault content for account-owner")).toBeInTheDocument();
+
+    act(() => {
+      window.dispatchEvent(new Event("pageshow"));
+    });
+    await act(async () => Promise.resolve());
+
+    expect(mocks.apiGetAccountSessionStatus).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText("Checking session")).not.toBeInTheDocument();
+    expect(screen.getByText("Vault content for account-owner")).toBeInTheDocument();
   });
 
   it("coalesces account-not-found invalidation into one sign-out and login redirect", async () => {
@@ -1001,7 +1044,7 @@ describe("AuthProvider terminal session invalidation", () => {
     }
   });
 
-  it("bounds a hung foreground status check and keeps protected UI blocked", async () => {
+  it("enters locked recovery after a bounded hung foreground status check", async () => {
     renderProvider();
     await screen.findByText("Vault content for account-owner");
     vi.useFakeTimers();
@@ -1016,7 +1059,7 @@ describe("AuthProvider terminal session invalidation", () => {
     expect(screen.getByText("Checking session")).toBeInTheDocument();
 
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(8_001);
+      await vi.advanceTimersByTimeAsync(10_001);
     });
     expect(screen.getByText("Verification required")).toBeInTheDocument();
     expect(

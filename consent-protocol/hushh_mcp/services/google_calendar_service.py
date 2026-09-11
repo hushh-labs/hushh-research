@@ -8,6 +8,7 @@ the owner can make an informed, explicit choice before anything changes.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import secrets
 from datetime import UTC, datetime, timedelta
@@ -32,7 +33,11 @@ class GoogleCalendarService:
         self.db = db or get_db()
         self.connections = connections or get_google_connection_service()
 
-    def _purge_expired_proposals(self, *, user_id: str) -> None:
+    async def _execute_raw_async(self, sql: str, params: dict[str, Any] | None = None) -> Any:
+        """Keep proposal persistence from blocking Calendar's async routes."""
+        return await asyncio.to_thread(self.db.execute_raw, sql, params)
+
+    async def _purge_expired_proposals(self, *, user_id: str) -> None:
         """Remove terminal and expired plans on the next Calendar mutation.
 
         The proposal table is a confirmation hand-off, not a Calendar cache or
@@ -40,7 +45,7 @@ class GoogleCalendarService:
         Redis/outbox retention worker can perform the same bounded delete on a
         schedule later.
         """
-        self.db.execute_raw(
+        await self._execute_raw_async(
             """DELETE FROM google_calendar_action_proposals
                WHERE user_id = :user_id
                  AND (expires_at <= NOW() OR status IN ('executed', 'failed', 'expired'))""",
@@ -334,7 +339,7 @@ class GoogleCalendarService:
         action: Literal["create", "reschedule", "cancel"],
         payload: dict[str, Any],
     ) -> dict[str, Any]:
-        self._purge_expired_proposals(user_id=user_id)
+        await self._purge_expired_proposals(user_id=user_id)
         # A create proposal previously needed no Google call, so a read-only
         # connection reached the confirmation screen and failed only after the
         # owner pressed Schedule. Verify the management grant before creating
@@ -361,7 +366,7 @@ class GoogleCalendarService:
                 exclude_event_id=plan.get("event_id"),
             )
         proposal_id = f"gcal_{secrets.token_urlsafe(24)}"
-        self.db.execute_raw(
+        await self._execute_raw_async(
             """INSERT INTO google_calendar_action_proposals
                (proposal_id, user_id, action, payload_json, expected_event_etag, expires_at)
                VALUES (:proposal_id, :user_id, :action, CAST(:payload_json AS jsonb), :etag, :expires_at)""",
@@ -419,8 +424,8 @@ class GoogleCalendarService:
         return {"event_id": event_id, "send_updates": bool(payload.get("send_updates", True))}
 
     async def execute(self, *, user_id: str, proposal_id: str) -> dict[str, Any]:
-        self._purge_expired_proposals(user_id=user_id)
-        claim = self.db.execute_raw(
+        await self._purge_expired_proposals(user_id=user_id)
+        claim = await self._execute_raw_async(
             """UPDATE google_calendar_action_proposals SET status = 'executing'
                WHERE proposal_id = :proposal_id AND user_id = :user_id AND status = 'pending' AND expires_at > NOW()
                RETURNING action, payload_json, expected_event_etag""",
@@ -501,7 +506,7 @@ class GoogleCalendarService:
                         headers=headers,
                     )
                     response = {"id": plan["event_id"], "status": "cancelled"}
-            self.db.execute_raw(
+            await self._execute_raw_async(
                 "DELETE FROM google_calendar_action_proposals WHERE proposal_id = :proposal_id AND user_id = :user_id",
                 {"proposal_id": proposal_id, "user_id": user_id},
             )
@@ -510,7 +515,7 @@ class GoogleCalendarService:
                 "event": self._event_summary(response) if response.get("id") else response,
             }
         except Exception:
-            self.db.execute_raw(
+            await self._execute_raw_async(
                 "UPDATE google_calendar_action_proposals SET status = 'failed' WHERE proposal_id = :proposal_id",
                 {"proposal_id": proposal_id},
             )

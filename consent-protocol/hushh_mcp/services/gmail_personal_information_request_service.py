@@ -22,11 +22,13 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from email.utils import getaddresses
+from pathlib import Path
 from typing import Any, Iterable
 
 from google.genai import types as genai_types
 
 from db.connection import get_pool
+from hushh_mcp.consent.pkm_scope_policy import is_private_pkm_export_scope
 from hushh_mcp.consent.scope_generator import get_scope_generator
 from hushh_mcp.runtime_providers import (
     GEMINI_37_FLASH,
@@ -71,6 +73,10 @@ _CLASSIFIER_SCHEMA = {
         "requested_domains",
     ],
 }
+_KYC_IDENTITY_PROFILE_CONTRACT_PATH = (
+    Path(__file__).resolve().parents[3] / "config" / "pkm" / "kyc-identity-profile.v1.json"
+)
+_KYC_IDENTITY_FIELDS: dict[str, dict[str, Any]] | None = None
 _DOMAIN_NAMES = frozenset(
     {
         "identity",
@@ -81,9 +87,34 @@ _DOMAIN_NAMES = frozenset(
         "location",
         "food",
         "entertainment",
+        "education",
+        "professional",
+        "general",
     }
 )
 _WORKFLOW_STATUSES = frozenset({"detected", "ignored", "blocked", "sent"})
+_SCOPE_LABEL_STOPWORDS = frozenset(
+    {
+        "a",
+        "an",
+        "and",
+        "data",
+        "detail",
+        "details",
+        "for",
+        "information",
+        "kyc",
+        "my",
+        "of",
+        "personal",
+        "request",
+        "requested",
+        "the",
+        "to",
+        "user",
+        "your",
+    }
+)
 
 
 class PersonalGmailInformationRequestError(RuntimeError):
@@ -202,6 +233,95 @@ def _dedupe(values: Iterable[str], *, limit: int) -> tuple[str, ...]:
     return tuple(result)
 
 
+def _scope_label_tokens(value: str) -> set[str]:
+    return {
+        token
+        for token in re.findall(r"[a-z0-9]+", value.lower())
+        if len(token) > 1 and token not in _SCOPE_LABEL_STOPWORDS
+    }
+
+
+def _normalized_kyc_label(value: str) -> str:
+    return re.sub(r"\s+", " ", re.sub(r"[^a-z0-9]+", " ", _text(value).lower())).strip()
+
+
+def _kyc_identity_fields() -> dict[str, dict[str, Any]]:
+    global _KYC_IDENTITY_FIELDS
+    if _KYC_IDENTITY_FIELDS is not None:
+        return _KYC_IDENTITY_FIELDS
+    try:
+        payload = json.loads(_KYC_IDENTITY_PROFILE_CONTRACT_PATH.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        logger.warning("gmail.personal_information_request.kyc_registry_unavailable")
+        _KYC_IDENTITY_FIELDS = {}
+        return _KYC_IDENTITY_FIELDS
+    raw_fields = payload.get("fields") if isinstance(payload, dict) else []
+    _KYC_IDENTITY_FIELDS = {
+        _text(field.get("id")): field
+        for field in raw_fields
+        if isinstance(field, dict) and _text(field.get("id"))
+    }
+    return _KYC_IDENTITY_FIELDS
+
+
+def _canonical_kyc_field_ids(value: str) -> tuple[str, ...]:
+    normalized = _normalized_kyc_label(value)
+    if not normalized:
+        return ()
+    matches: list[str] = []
+    for field_id, field in _kyc_identity_fields().items():
+        aliases = [
+            field_id,
+            _text(field.get("path")),
+            *[_text(alias) for alias in field.get("aliases", [])],
+        ]
+        for alias in aliases:
+            normalized_alias = _normalized_kyc_label(alias)
+            if normalized_alias and (
+                normalized == normalized_alias
+                or normalized_alias in normalized
+                or normalized in normalized_alias
+            ):
+                matches.append(field_id)
+                break
+    return tuple(matches)
+
+
+def _matches_requested_label(*, field_labels: tuple[str, ...], haystack: str) -> bool:
+    """Match a classifier-provided label to a manifest leaf without substring bleed.
+
+    Email intent is classified by the model.  This only maps those reviewed labels
+    to the owner's currently materialized, exact manifest leaves.  Token-prefix
+    support covers labels such as ``education`` and ``educational institution``
+    while avoiding the old ``name in domain`` substring false positive.
+    """
+
+    requested_canonical_ids = {
+        field_id for label in field_labels for field_id in _canonical_kyc_field_ids(label)
+    }
+    candidate_canonical_ids = set(_canonical_kyc_field_ids(haystack))
+    if requested_canonical_ids & candidate_canonical_ids:
+        return True
+    candidate_tokens = _scope_label_tokens(haystack)
+    if not candidate_tokens:
+        return False
+    for label in field_labels:
+        requested_tokens = _scope_label_tokens(label)
+        if not requested_tokens:
+            continue
+        if any(
+            requested == candidate
+            or (
+                min(len(requested), len(candidate)) >= 4
+                and (requested.startswith(candidate) or candidate.startswith(requested))
+            )
+            for requested in requested_tokens
+            for candidate in candidate_tokens
+        ):
+            return True
+    return False
+
+
 def _source_fingerprint(message: dict[str, Any]) -> str:
     headers = _header_map(message)
     source = {
@@ -286,11 +406,17 @@ def _public_candidate_scope(value: Any) -> dict[str, Any] | None:
         or scope != f"attr.{domain}.{path}"
     ):
         return None
+    canonical_field_ids = [
+        field_id
+        for field_id in candidate.get("canonical_field_ids", [])
+        if field_id in _kyc_identity_fields()
+    ]
     return {
         "scope": scope,
         "domain": domain,
         "label": label or path.replace("_", " ").replace(".", " ").title(),
         "segment_ids": normalized_segments,
+        **({"canonical_field_ids": canonical_field_ids} if canonical_field_ids else {}),
     }
 
 
@@ -498,6 +624,65 @@ class PersonalGmailInformationRequestService:
             "total_count": total,
             "view": "activity" if view == "activity" else "active",
         }
+
+    async def refresh_candidate_scopes(self, *, user_id: str, workflow_id: str) -> dict[str, Any]:
+        """Re-resolve exact PKM leaves after the owner adds new private details.
+
+        A detected Gmail request retains only metadata.  Its candidate scope list
+        can therefore become stale when the owner completes KYC onboarding later.
+        Refreshing this list reads manifest metadata only, never PKM values or the
+        original email, and preserves the workflow's model-classified labels.
+        """
+
+        pool = await get_pool()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """
+                SELECT requested_field_labels, candidate_scopes, status
+                FROM gmail_personal_information_requests
+                WHERE workflow_id = $1 AND user_id = $2
+                """,
+                workflow_id,
+                user_id,
+            )
+        if row is None or _text(row["status"]) != "detected":
+            raise PersonalGmailInformationRequestError(
+                "Information request was not found or is no longer active.",
+                code="PERSONAL_GMAIL_INFORMATION_REQUEST_NOT_FOUND",
+                status_code=404,
+            )
+
+        requested_field_labels = tuple(
+            label
+            for label in _json_value(row["requested_field_labels"], fallback=[])
+            if isinstance(label, str) and _text(label)
+        )
+        existing_candidates = [
+            candidate
+            for candidate in (
+                _public_candidate_scope(value)
+                for value in _json_value(row["candidate_scopes"], fallback=[])
+            )
+            if candidate is not None
+        ]
+        domains = tuple(sorted({str(candidate["domain"]) for candidate in existing_candidates}))
+        candidates = await self._candidate_scopes(
+            user_id=user_id,
+            field_labels=requested_field_labels,
+            domains=domains,
+        )
+        async with pool.acquire() as conn:
+            await conn.execute(
+                """
+                UPDATE gmail_personal_information_requests
+                SET candidate_scopes = $3::jsonb, updated_at = NOW()
+                WHERE workflow_id = $1 AND user_id = $2 AND status = 'detected'
+                """,
+                workflow_id,
+                user_id,
+                json.dumps(candidates),
+            )
+        return {"workflow_id": workflow_id, "candidate_scopes": candidates}
 
     async def scan_recent(self, *, user_id: str, max_results: int = 12) -> dict[str, Any]:
         monitor_state = await self._monitor_state(user_id=user_id)
@@ -1267,7 +1452,11 @@ class PersonalGmailInformationRequestService:
                 type(exc).__name__,
             )
             return []
-        terms = {re.sub(r"[^a-z0-9]+", " ", value.lower()).strip() for value in field_labels}
+        requested_canonical_ids = {
+            field_id
+            for requested_label in field_labels
+            for field_id in _canonical_kyc_field_ids(requested_label)
+        }
         candidates: list[dict[str, Any]] = []
         for entry in entries:
             if not isinstance(entry, dict) or entry.get("consumer_visible") is False:
@@ -1280,6 +1469,7 @@ class PersonalGmailInformationRequestService:
             if (
                 not scope
                 or not domain
+                or is_private_pkm_export_scope(scope)
                 or entry.get("wildcard") is True
                 or _text(entry.get("source_kind")) != "pkm_manifest_paths"
                 or _text(entry.get("path_type")).lower() != "leaf"
@@ -1290,15 +1480,25 @@ class PersonalGmailInformationRequestService:
                 continue
             haystack = " ".join((scope, domain, label)).lower()
             matches_domain = domain in domains
-            matches_label = any(term and (term in haystack or haystack in term) for term in terms)
+            matches_label = _matches_requested_label(
+                field_labels=field_labels,
+                haystack=haystack,
+            )
             if not matches_domain and not matches_label:
                 continue
+            candidate_canonical_ids = set(_canonical_kyc_field_ids(" ".join((label, path, scope))))
+            # Emit registry IDs only when the classifier-requested field and
+            # this exact manifest leaf resolve to the same canonical field.
+            # A child such as `address.postal_code` must not inherit the broad
+            # `address` ID simply because it sits beneath that path.
+            canonical_field_ids = sorted(requested_canonical_ids & candidate_canonical_ids)
             candidate = _public_candidate_scope(
                 {
                     "scope": scope,
                     "domain": domain,
                     "label": label,
                     "segment_ids": [segment_id],
+                    "canonical_field_ids": canonical_field_ids,
                 }
             )
             if candidate is None:

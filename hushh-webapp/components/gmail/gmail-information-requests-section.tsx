@@ -1,8 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Loader2, Mail } from "lucide-react";
+import { Loader2, Mail, MailCheck } from "lucide-react";
+import { useRouter } from "next/navigation";
 
+import { useOptionalAgentPopover } from "@/components/agent/agent-popover-provider";
 import { SurfaceInset } from "@/components/app-ui/surfaces";
 import { AdaptiveDetailSurface } from "@/components/app-ui/settings-ui";
 import { Badge } from "@/components/ui/badge";
@@ -18,8 +20,12 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/lib/morphy-ux/button";
 import { SegmentedTabs } from "@/lib/morphy-ux/ui/segmented-tabs";
-import { PkmDomainResourceService } from "@/lib/pkm/pkm-domain-resource";
-import { projectDomainDataForScope } from "@/lib/personal-knowledge-model/manifest";
+import { useOneConversationSession } from "@/lib/agent/one-conversation-session";
+import { ROUTES } from "@/lib/navigation/routes";
+import {
+  isExactGmailInformationRequestCandidate,
+  prepareScopedGmailInformationRequestDraft,
+} from "@/lib/services/gmail-information-request-draft-service";
 import { openExternalUrl } from "@/lib/utils/browser-navigation";
 import {
   GmailInformationRequestsService,
@@ -51,53 +57,11 @@ function fieldLabels(workflow: GmailInformationRequestWorkflow): string {
 export function isExactDraftCandidate(
   candidate: GmailInformationRequestCandidateScope,
 ): boolean {
-  const domain = candidate.domain.trim().toLowerCase();
-  const scope = candidate.scope.trim().toLowerCase();
-  const prefix = `attr.${domain}.`;
-  const path = scope.startsWith(prefix) ? scope.slice(prefix.length) : "";
-  return (
-    Boolean(domain) &&
-    /^[a-z0-9_]+(?:\.[a-z0-9_]+)*$/.test(path) &&
-    !path.includes("*") &&
-    candidate.segment_ids.length === 1 &&
-    /^[a-z0-9_]{1,64}$/.test(
-      candidate.segment_ids[0]?.trim().toLowerCase() || "",
-    )
-  );
+  return isExactGmailInformationRequestCandidate(candidate);
 }
 
 function validCandidates(workflow: GmailInformationRequestWorkflow) {
   return workflow.candidate_scopes.filter(isExactDraftCandidate);
-}
-
-function valuesForDraft(value: unknown, label: string, depth = 0): string[] {
-  if (value === null || value === undefined || depth > 2) return [];
-  if (
-    typeof value === "string" ||
-    typeof value === "number" ||
-    typeof value === "boolean"
-  ) {
-    const text = String(value).trim();
-    return text ? [`${label}: ${text}`] : [];
-  }
-  if (Array.isArray(value)) {
-    const scalarValues = value
-      .filter((item) => ["string", "number", "boolean"].includes(typeof item))
-      .map((item) => String(item).trim())
-      .filter(Boolean)
-      .slice(0, 8);
-    return scalarValues.length ? [`${label}: ${scalarValues.join(", ")}`] : [];
-  }
-  if (typeof value !== "object") return [];
-  return Object.entries(value as Record<string, unknown>)
-    .flatMap(([key, nested]) =>
-      valuesForDraft(
-        nested,
-        `${label} · ${key.replaceAll("_", " ")}`,
-        depth + 1,
-      ),
-    )
-    .slice(0, 20);
 }
 
 function WorkflowCard({
@@ -290,44 +254,58 @@ function WorkflowCard({
 function WorkflowQueueCard({
   workflow,
   onReview,
+  onDraftWithOne,
 }: {
   workflow: GmailInformationRequestWorkflow;
   onReview: () => void;
+  onDraftWithOne: () => void;
 }) {
   return (
-    <div className="flex items-start justify-between gap-3 rounded-xl border border-[color:var(--app-card-border-standard)] bg-background/60 px-3.5 py-3.5">
-      <div className="flex min-w-0 gap-3">
-        <div className="rounded-xl bg-primary/10 p-2 text-primary">
-          <Mail className="h-4 w-4" />
+    <div className="rounded-xl border border-[color:var(--app-card-border-standard)] bg-background/60 px-3.5 py-3.5">
+      <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex min-w-0 items-start gap-3">
+          <div className="flex size-10 shrink-0 items-center justify-center rounded-full border border-primary/20 bg-primary/10 text-primary">
+            <MailCheck className="h-[18px] w-[18px]" aria-hidden="true" />
+          </div>
+          <div className="min-w-0 space-y-1">
+            <p className="text-sm font-semibold text-foreground">
+              Information requested
+            </p>
+            <p className="line-clamp-2 text-xs leading-5 text-muted-foreground sm:truncate sm:leading-normal">
+              {fieldLabels(workflow)}
+            </p>
+            <p className="text-xs text-muted-foreground">
+              {workflow.received_at
+                ? `Received ${new Intl.DateTimeFormat(undefined, {
+                    dateStyle: "medium",
+                  }).format(new Date(workflow.received_at))}`
+                : "New request"}
+              {workflow.attachment_review_required
+                ? " · Attachment included"
+                : ""}
+            </p>
+          </div>
         </div>
-        <div className="min-w-0 space-y-1">
-          <p className="text-sm font-semibold text-foreground">
-            Information requested
-          </p>
-          <p className="truncate text-xs text-muted-foreground">
-            {fieldLabels(workflow)}
-          </p>
-          <p className="text-xs text-muted-foreground">
-            {workflow.received_at
-              ? `Received ${new Intl.DateTimeFormat(undefined, {
-                  dateStyle: "medium",
-                }).format(new Date(workflow.received_at))}`
-              : "New request"}
-            {workflow.attachment_review_required
-              ? " · Attachment included"
-              : ""}
-          </p>
+        <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto sm:shrink-0">
+          <Button
+            type="button"
+            size="sm"
+            className="min-h-11 min-w-0 justify-center"
+            onClick={onDraftWithOne}
+          >
+            Draft with One
+          </Button>
+          <Button
+            type="button"
+            variant="muted"
+            size="sm"
+            className="min-h-11 min-w-0 justify-center"
+            onClick={onReview}
+          >
+            Review
+          </Button>
         </div>
       </div>
-      <Button
-        type="button"
-        variant="muted"
-        size="sm"
-        className="min-h-11 shrink-0"
-        onClick={onReview}
-      >
-        Review
-      </Button>
     </div>
   );
 }
@@ -394,6 +372,11 @@ export default function GmailInformationRequestsSection({
   idTokenProvider,
   onRequestVaultUnlock,
 }: Props) {
+  const router = useRouter();
+  const agentPopover = useOptionalAgentPopover();
+  const createHandoff = useOneConversationSession(
+    (state) => state.createHandoff,
+  );
   const [preference, setPreference] =
     useState<GmailInformationRequestPreference | null>(null);
   const [workflows, setWorkflows] = useState<GmailInformationRequestWorkflow[]>(
@@ -661,6 +644,30 @@ export default function GmailInformationRequestsSection({
     });
   }, []);
 
+  const draftWithOne = useCallback(
+    (workflow: GmailInformationRequestWorkflow) => {
+      const createdAtMs = Date.now();
+      createHandoff({
+        id: `gmail-kyc-reply-${workflow.workflow_id}-${createdAtMs}`,
+        reason: "user_requested",
+        gmailInformationRequest: {
+          workflow_id: workflow.workflow_id,
+          requested_field_labels: workflow.requested_field_labels,
+          candidate_scopes: workflow.candidate_scopes,
+          attachment_review_required: workflow.attachment_review_required,
+        },
+        createdAtMs,
+      });
+      setSelectedWorkflowId(null);
+      if (agentPopover) {
+        agentPopover.openAgent();
+        return;
+      }
+      router.push(ROUTES.AGENT);
+    },
+    [agentPopover, createHandoff, router],
+  );
+
   const prepareDraft = useCallback(
     async (workflow: GmailInformationRequestWorkflow) => {
       if (!userId || !vaultKey || !vaultOwnerToken) return;
@@ -669,50 +676,19 @@ export default function GmailInformationRequestsSection({
       setBusyWorkflowId(workflow.workflow_id);
       setError(null);
       try {
-        const candidateByScope = new Map(
-          validCandidates(workflow).map((candidate) => [
-            candidate.scope,
-            candidate,
-          ]),
-        );
-        const lines: string[] = [];
-        for (const scope of selected) {
-          const candidate = candidateByScope.get(scope);
-          if (!candidate || !isExactDraftCandidate(candidate)) continue;
-          const snapshot = await PkmDomainResourceService.getStaleFirst({
-            userId,
-            domain: candidate.domain,
-            segmentIds: candidate.segment_ids,
-            vaultKey,
-            vaultOwnerToken,
-            backgroundRefresh: false,
-          });
-          const projection = projectDomainDataForScope({
-            domain: candidate.domain,
-            scope: candidate.scope,
-            domainData: snapshot?.data || {},
-            approvedPaths: [
-              candidate.scope.slice(`attr.${candidate.domain}.`.length),
-            ],
-          });
-          lines.push(
-            ...valuesForDraft(projection[candidate.domain], candidate.label),
-          );
-        }
-        if (!lines.length) {
+        const prepared = await prepareScopedGmailInformationRequestDraft({
+          workflow,
+          userId,
+          vaultKey,
+          vaultOwnerToken,
+          scopes: selected,
+        });
+        if (!prepared.body) {
           throw new Error(
             "No approved private details were available for these fields.",
           );
         }
-        const body = [
-          "Hello,",
-          "",
-          "Here are the requested details:",
-          "",
-          ...lines,
-          "",
-          "Please let me know if you need anything else.",
-        ].join("\n");
+        const body = prepared.body;
         setDrafts((current) => ({
           ...current,
           [workflow.workflow_id]: { body },
@@ -1004,6 +980,7 @@ export default function GmailInformationRequestsSection({
               key={workflow.workflow_id}
               workflow={workflow}
               onReview={() => setSelectedWorkflowId(workflow.workflow_id)}
+              onDraftWithOne={() => draftWithOne(workflow)}
             />
           ))}
           {nextOffset !== null ? (

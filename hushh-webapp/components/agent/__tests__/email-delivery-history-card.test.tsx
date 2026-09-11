@@ -50,6 +50,25 @@ describe("EmailDeliveryHistoryCard", () => {
     );
   });
 
+  it("offers Gmail reconnection when delivery is blocked by Gmail authorization", () => {
+    render(
+      <EmailDeliveryHistoryCard
+        item={{
+          ...item,
+          status: "failed",
+          errorCode: "GMAIL_SEND_DISABLED",
+          errorMessage: "Reconnect Gmail to finish enabling email sending.",
+        }}
+      />,
+    );
+
+    fireEvent.click(screen.getByText("Email activity"));
+    expect(screen.getByRole("link", { name: "Reconnect Gmail" })).toHaveAttribute(
+      "href",
+      "/one/gmail",
+    );
+  });
+
   it("keeps rich formatting available when the owner expands sent email history", () => {
     render(
       <EmailDeliveryHistoryCard

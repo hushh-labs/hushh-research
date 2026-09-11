@@ -19,6 +19,7 @@ import { VaultService } from "@/lib/services/vault-service";
 import { useHostname } from "@/lib/hooks/use-hostname";
 import { useSessionChromeSuppression } from "@/lib/auth/use-session-chrome-suppression";
 import { SessionVerificationRecovery } from "@/components/auth/session-verification-recovery";
+import { shouldSkipAmbientIdentityHydrationForAutomation } from "@/lib/testing/native-test";
 
 function resolveInitialVaultPresence(params: {
   userId: string | null | undefined;
@@ -201,6 +202,13 @@ export function PhoneMandateGuard({
     const resolveIdentityFallback = async () => {
       if (firebasePhoneVerified) {
         setPhoneVerified(true);
+        return;
+      }
+      // The reviewer bridge already bypasses the phone mandate. Do not create
+      // an identity-shadow write merely to resolve an admission state that the
+      // read-only rehearsal will never enforce.
+      if (shouldSkipAmbientIdentityHydrationForAutomation()) {
+        setPhoneVerified(false);
         return;
       }
       try {

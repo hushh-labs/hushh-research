@@ -103,6 +103,33 @@ describe("ingestNaturalLanguagePkm", () => {
     }));
   });
 
+  it("saves review-required KYC cards after the person explicitly reviews the import", async () => {
+    const cards = [
+      {
+        card_id: "review",
+        source_text: "Full name: Example Person.",
+        write_mode: "confirm_first",
+      },
+    ];
+    mocks.preview.mockResolvedValueOnce({ cards });
+    mocks.save.mockResolvedValueOnce({ attempted: 1, saved: 1, failed: 0, domains: ["identity"], results: [] });
+
+    await ingestNaturalLanguagePkm({
+      userId: "user_1",
+      message: "**Full name:** Example Person.",
+      currentDomains: ["identity"],
+      vaultKey: "vault-key",
+      vaultOwnerToken: "owner-token",
+      source: "kyc_identity_onboarding",
+      confirmation: { confirmedByUser: true, surface: "web", source: "kyc_identity_onboarding" },
+      writePolicy: "reviewable",
+    });
+
+    expect(mocks.save).toHaveBeenCalledWith(expect.objectContaining({
+      cards: [expect.objectContaining({ card_id: expect.any(String), write_mode: "confirm_first" })],
+    }));
+  });
+
   it("recursively narrows a model-truncated proposal before any card is saved", async () => {
     mocks.preview.mockResolvedValueOnce({
       cards: [],
@@ -193,21 +220,113 @@ describe("ingestNaturalLanguagePkm", () => {
     expect(mocks.preview).toHaveBeenCalledTimes(3);
   });
 
-  it("fails closed when a source block has unaccounted facts", async () => {
+  it("keeps usable LLM cards when an advisory segment count remains mismatched", async () => {
     mocks.preview.mockResolvedValueOnce({
       cards: [{ card_id: "one", source_text: "One represented fact." }],
       preview_summary: { total_segments_detected: 2 },
     });
 
-    await expect(
-      prepareNaturalLanguagePkm({
-        userId: "user_1",
-        message: "One represented fact. One missing fact.",
-        currentDomains: [],
-        vaultOwnerToken: "owner-token",
-        source: "agent_chat_profile_import",
+    const prepared = await prepareNaturalLanguagePkm({
+      userId: "user_1",
+      message: "One represented fact. One missing fact.",
+      currentDomains: [],
+      vaultOwnerToken: "owner-token",
+      source: "agent_chat_profile_import",
+    });
+
+    expect(prepared.cards).toHaveLength(1);
+    expect(prepared.sourceCoverage).toEqual([
+      expect.objectContaining({
+        disposition: "review_required",
+        detectedFactCount: 2,
+        accountedFactCount: 1,
       }),
-    ).rejects.toThrow("was not fully accounted for");
+    ]);
+  });
+
+  it("keeps other KYC facts when one labelled block has no saveable card", async () => {
+    mocks.preview
+      .mockResolvedValueOnce({
+        cards: [{ card_id: "name", source_text: "**Full Name:** Example Person", write_mode: "confirm_first" }],
+        preview_summary: { total_segments_detected: 1 },
+      })
+      .mockResolvedValueOnce({
+        cards: [],
+        preview_summary: { total_segments_detected: 1 },
+      });
+
+    const prepared = await prepareNaturalLanguagePkm({
+      userId: "user_1",
+      message: [
+        "**Full Name:** Example Person",
+        "**Government ID:** Not supplied",
+      ].join("\n"),
+      currentDomains: ["identity"],
+      vaultOwnerToken: "owner-token",
+      source: "kyc_identity_onboarding",
+    });
+
+    expect(prepared.cards).toHaveLength(1);
+    expect(prepared.sourceCoverage).toEqual([
+      expect.objectContaining({ disposition: "review_required", accountedFactCount: 1 }),
+      expect.objectContaining({ disposition: "review_required", accountedFactCount: 0 }),
+    ]);
+  });
+
+  it("sends each labeled KYC field through the segmentation model independently", async () => {
+    mocks.preview.mockImplementation(async ({ message }: { message: string }) => ({
+      cards: [{ card_id: "field", source_text: message, write_mode: "confirm_first" }],
+      preview_summary: { total_segments_detected: 1 },
+    }));
+
+    const prepared = await prepareNaturalLanguagePkm({
+      userId: "user_1",
+      message: [
+        "**Full Name:** Example Person",
+        "**Educational Institution:** Example University",
+        "**Program:** Mechanical Engineering",
+      ].join("\n"),
+      currentDomains: ["identity"],
+      vaultOwnerToken: "owner-token",
+      source: "kyc_identity_onboarding",
+    });
+
+    expect(mocks.preview).toHaveBeenCalledTimes(3);
+    expect(mocks.preview.mock.calls.map(([params]) => params.message)).toEqual([
+      "**Full Name:** Example Person",
+      "**Educational Institution:** Example University",
+      "**Program:** Mechanical Engineering",
+    ]);
+    expect(prepared.cards).toHaveLength(3);
+  });
+
+  it("retries a long unaccounted section as smaller proposal blocks", async () => {
+    const longSection =
+      "A detailed KYC statement that contains several durable facts and needs the memory segmentation model to split it safely. ".repeat(3);
+    mocks.preview
+      .mockResolvedValueOnce({
+        cards: [{ card_id: "partial", source_text: "First detail.", write_mode: "confirm_first" }],
+        preview_summary: { total_segments_detected: 2 },
+      })
+      .mockResolvedValueOnce({
+        cards: [{ card_id: "left", source_text: "First split.", write_mode: "confirm_first" }],
+        preview_summary: { total_segments_detected: 1 },
+      })
+      .mockResolvedValueOnce({
+        cards: [{ card_id: "right", source_text: "Second split.", write_mode: "confirm_first" }],
+        preview_summary: { total_segments_detected: 1 },
+      });
+
+    const prepared = await prepareNaturalLanguagePkm({
+      userId: "user_1",
+      message: longSection,
+      currentDomains: [],
+      vaultOwnerToken: "owner-token",
+      source: "kyc_identity_onboarding",
+    });
+
+    expect(mocks.preview).toHaveBeenCalledTimes(3);
+    expect(prepared.cards).toHaveLength(2);
   });
 
   it("returns an explicit disposition for every processed source block", async () => {

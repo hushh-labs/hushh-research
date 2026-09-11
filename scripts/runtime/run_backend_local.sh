@@ -234,6 +234,8 @@ run_preflight() {
     PYTHONPATH=. "$BACKEND_VENV_PYTHON" -c \
       "from hushh_mcp.runtime_readiness import assert_pinned_google_adk; assert_pinned_google_adk()"
   )
+  echo "Verifying local managed Gemini authorization..."
+  bash "$REPO_ROOT/scripts/env/doctor.sh" "$profile"
   verify_iam_readiness "$profile"
 
   if port_is_listening 127.0.0.1 8000; then
@@ -254,7 +256,13 @@ cleanup() {
   fi
   cleanup_proxy_credentials
 }
-trap cleanup EXIT INT TERM
+if [ "${HUSHH_SUPERVISED_RUNTIME:-}" = "1" ]; then
+  # run_local_fast.sh owns signal ordering; preserve its ignored SIGINT
+  # disposition so the proxy remains available while backend requests drain.
+  trap cleanup EXIT TERM
+else
+  trap cleanup EXIT INT TERM
+fi
 
 DB_HOST="$(read_env_value "$BACKEND_ENV_FILE" 'DB_HOST')"
 DB_PORT="$(read_env_value "$BACKEND_ENV_FILE" 'DB_PORT')"
