@@ -19,7 +19,7 @@ GitHub action item: [#6719 Build consumer Hussh MCP with owner-pod memory and Pu
 ## Baseline and boundaries
 
 - Worktree: sibling `hushh-consumer-mcp`; branch `feat/consumer-mcp`.
-- Current branch candidate: `d15b87c5e` (11 September 2026); the earlier private baseline remains recorded in git history.
+- Current branch candidate: `e22163570` (11 September 2026); the earlier private baseline remains recorded in git history.
 - Original workspace and ADK worktree are independently active and remain untouched.
 - No deployment, main promotion, production activation or marketplace submission has occurred in this workstream.
 - Working source is implementation evidence, not installed-runtime or host acceptance evidence.
@@ -41,7 +41,7 @@ Provisioning, recoverable owner-pod vault custody and client access are separate
 | Standing memory consent | Implemented; local checks pass | Durable binding, secure review, revoke/commit race and full erasure/rollback exercised in disposable PostgreSQL |
 | Resumable onboarding and provisioning | Existing setup job; custody handoff wired in source | Compose the setup job, owner-session custody approval and no duplicate infrastructure on an installed pod |
 | Pod custody and canonical memory | Ceremony and local adapter implemented; live custody pending | Durable key/KMS configuration, authenticated envelope enrollment, encrypted commit, CAS and replacement recovery on an installed pod |
-| Consumer tools and Puppy adapters | Typed memory tools wired to owner-pod transport; Puppy parity pending | Common capability execution, receipts and Puppy device acceptance |
+| Consumer tools and Puppy adapters | Typed memory, receipt, disconnect and bounded private-agent delegation tools wired to owner-pod seams; Puppy parity pending | Common capability execution and Puppy device acceptance |
 | Direct/universal transport parity | Local relay adapter implemented; live parity pending | Isolation, revocation races and non-persistence across installed transports |
 | Host acceptance and submission packages | Pending | Real Claude and ChatGPT journeys, operational receipts |
 
@@ -68,7 +68,7 @@ The baseline action gateway has 214 authored actions (186 wired, 28 unwired). Of
 | Location | Location services and `PodLocationReadPort` | Adapt supported reads/proposals; device acquisition/background permission remains native |
 | Finance | Kai portfolio/analysis services | Existing MCP UI intents do not execute analysis; real job/results adapter required |
 | Consent / sharing | Consent ledger, exports, information-request services | Preserve current five-tool developer flow; add owner review and revocation without vault-key disclosure |
-| Delegated private-agent work | `pod_turn.py`, shared fleet and specialist runtime | Add bounded task tracking and cancellation; no shared runtime fallback |
+| Delegated private-agent work | `pod_turn.py`, shared fleet and specialist runtime | Bounded synchronous delegation is wired with a separate `cap.one.invoke` grant; durable task status/cancellation remains incomplete |
 | Puppy and recovery | Trusted-device services and Hermes local PKM bridge | Retain device proof and local custody; common canonical records must be proven |
 | Wallet / profile / support | Existing wallet-card, profile and support services | Separate public operations from protected reveals; native wallet installation is a handoff |
 | Marketplace / RIA | Existing marketplace and RIA services | Consumer ownership must not grant advisor/business-operator roles |
@@ -131,7 +131,8 @@ The topology generator remains the existing coverage join: `scripts/ops/generate
 - The consumer catalog also includes `list_hussh_capabilities`, derived from the existing tool definitions and labeled `owner_pod`, `consent_service`, or `secure_handoff`; it is discovery metadata, not a second routing authority.
 - `list_hussh_receipts` reads the existing `consent_audit` ledger through the owner-bound connection fence, returning only receipt reference, action, timing, and event class. Bearer token IDs and private payloads are excluded; the new receipt regression passes against disposable PostgreSQL.
 - `disconnect_hussh_connection` reuses the same `consent_audit` and connection-generation fence for the current external assistant. An assistant cannot revoke another client, omit confirmation, or replay an older generation; the private agent and canonical PKM remain intact.
+- `delegate_hussh_task` is a bounded, typed handoff to the existing owner-pod turn. It requires a separate owner-approved `cap.one.invoke` token for the external assistant, derives the deployment from the current OAuth binding, forwards no external bearer to the pod, and rejects a revocation or generation change before releasing a late result. It does not create a second router, durable task queue, automatic replay, or shared/cloud fallback; task status and cancellation remain a separate incomplete surface.
 - Live evidence checkpoint: a read-only Cloud Run inspection of `hushh-pda-dev` could not run because the available `gcloud` session requires interactive reauthentication; the active CLI context is UAT. No impersonation, UAT change, deployment, or migration was attempted. Re-authenticate an authorized dev account before the installed-pod custody and owner-journey checks.
-- Current combined local gate: `251` owner/pod/custody/Puppy tests and `51` MCP protocol/contract tests passed under locked Python 3.13; `./bin/hushh docs verify` passed. Warnings are existing dependency deprecations/experimental notices, not test failures. This gate still does not substitute for installed-host or marketplace evidence.
+- Current combined local gate: `258` owner/pod/custody/Puppy tests and `51` MCP protocol/contract tests passed under locked Python 3.13; `./bin/hushh docs verify` passed. Warnings are existing dependency deprecations/experimental notices, not test failures. This gate still does not substitute for installed-host or marketplace evidence.
 
 - Subsequent validation: 47 focused backend checks passed before the recipient/async-validation additions; all eight enrollment checks then passed. Four frontend proxy tests, frontend typecheck and docs/runtime parity passed. No combined final release or live acceptance gate has run.

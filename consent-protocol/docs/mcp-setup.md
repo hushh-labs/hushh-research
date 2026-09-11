@@ -259,8 +259,9 @@ OAuth preserves the authenticated person's identity separately from the
 registered application. This is connection identity only: it does not grant
 personal memory access or vault custody. Existing unbound developer credentials
 retain their existing permissions. Consumer onboarding and standing memory
-authorization are under implementation and are not available through this
-five-tool catalog yet.
+authorization are exposed only to owner-bound OAuth sessions through the
+consumer tools described below; application-only credentials retain the
+five-tool catalog.
 
 The secure owner interface can review a pending request with
 `GET /oauth/authorize/{connection_ref}`, inspect its own connected clients with
@@ -288,7 +289,12 @@ approves permission, reads memory or provisions infrastructure. The
 capability tool projects the authored catalog and labels owner-pod, consent
 service, and secure-handoff boundaries without claiming installed readiness.
 The receipts tool reads bounded non-bearer ledger references and never returns
-tokens or private payloads.
+tokens or private payloads. `disconnect_hussh_connection` requires explicit
+confirmation and the current generation, and can revoke only the calling
+assistant. `delegate_hussh_task` requires a separate approved
+`cap.one.invoke` grant and forwards one bounded task to the existing owner pod;
+it does not provide durable task status/cancellation, replay interrupted work,
+or fall back to shared intelligence.
 existing developer five-tool catalog remains unchanged for application-only
 credentials. Account creation, pod custody, installed owner-pod acceptance and
 full consumer coverage remain incomplete. On the isolated branch, typed memory
@@ -316,6 +322,8 @@ The existing OAuth proxy and `/oauth/authorize` page also serve consumer review:
 | `get_hussh_setup_status` (MCP) | Owner OAuth; read the existing setup job without provisioning or creating a second job |
 | `list_hussh_capabilities` (MCP) | Owner OAuth; read the authored consumer capability boundaries |
 | `list_hussh_receipts` (MCP) | Owner OAuth; read bounded consent receipt metadata without bearer tokens |
+| `disconnect_hussh_connection` (MCP) | Owner OAuth; explicit self-disconnect for the current generation |
+| `delegate_hussh_task` (MCP) | Owner OAuth plus separate `cap.one.invoke`; one bounded owner-pod task, no replay or shared fallback |
 | `POST /oauth/consumer-connections/prepare` | Current owner OAuth; resume a binding to the existing serving pod |
 | `GET /oauth/consumer-connections?limit=25&after=...` | Firebase owner; paginated permission metadata, including disconnected entries; no credentials |
 | `GET /oauth/consumer-connections/{id}?authorization_id=...` | Firebase owner; review the registered assistant and current binding |
