@@ -280,8 +280,10 @@ isolated `feat/consumer-mcp` branch now contains the typed owner-pod memory
 execution seam, but no hosted migration, installed pod acceptance, or marketplace
 review has occurred.
 Owner-bound, resource-aware OAuth sessions additionally discover
-`get_hussh_connection`. It returns an authenticated setup or memory-approval link;
-it never approves permission, reads memory or provisions infrastructure. The
+`get_hussh_connection` and `get_hussh_setup_status`. The connection tool returns
+an authenticated setup or memory-approval link; the status tool reads the
+existing resumable setup job and exposes only sanitized stage state. Neither tool
+approves permission, reads memory or provisions infrastructure. The
 existing developer five-tool catalog remains unchanged for application-only
 credentials. Account creation, pod custody, installed owner-pod acceptance and
 full consumer coverage remain incomplete. On the isolated branch, typed memory
@@ -306,6 +308,7 @@ The existing OAuth proxy and `/oauth/authorize` page also serve consumer review:
 
 | Endpoint | Authority and behavior |
 |---|---|
+| `get_hussh_setup_status` (MCP) | Owner OAuth; read the existing setup job without provisioning or creating a second job |
 | `POST /oauth/consumer-connections/prepare` | Current owner OAuth; resume a binding to the existing serving pod |
 | `GET /oauth/consumer-connections?limit=25&after=...` | Firebase owner; paginated permission metadata, including disconnected entries; no credentials |
 | `GET /oauth/consumer-connections/{id}?authorization_id=...` | Firebase owner; review the registered assistant and current binding |

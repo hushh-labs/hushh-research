@@ -378,6 +378,60 @@ async def test_mcp_dispatch_returns_owner_handoff_without_granting_access(consum
 
 
 @pytest.mark.asyncio
+async def test_consumer_mcp_reads_resumable_setup_status_without_starting_a_job(
+    consumer, monkeypatch
+):
+    import mcp_server
+    from hushh_mcp.services import byoc_setup_job_service as jobs
+    from mcp_modules.developer_context import (
+        reset_current_developer_principal,
+        set_current_developer_principal,
+    )
+    from mcp_modules.tools import consumer_tools
+
+    service, _, _ = consumer
+    principal, _, _ = connect(consumer)
+    monkeypatch.setenv("APP_FRONTEND_ORIGIN", "https://one.example.test")
+    get_app_runtime_settings.cache_clear()
+
+    class _Repo:
+        async def get(self, user_id):
+            assert user_id == "owner_a"
+            return {
+                "status": "recorded",
+                "stage": "awaiting_agent_record",
+                "project_id": "owner-project",
+                "stages": [
+                    {
+                        "stage": "applying_iam",
+                        "at": "2026-09-11T00:00:00+00:00",
+                        "bootstrap_sa": "do-not-return@example.iam.gserviceaccount.com",
+                    }
+                ],
+                "error_code": None,
+            }
+
+    monkeypatch.setattr(jobs, "ByocSetupJobRepo", _Repo)
+    monkeypatch.setattr(jobs, "is_stale", lambda _row: False)
+    monkeypatch.setattr(consumer_tools, "ConsumerMcpConnections", lambda: service)
+    context = set_current_developer_principal(principal)
+    try:
+        names = {tool.name for tool in await mcp_server.list_tools()}
+        assert "get_hussh_setup_status" in names
+        result = await mcp_server.call_tool("get_hussh_setup_status", {})
+    finally:
+        reset_current_developer_principal(context)
+
+    assert not result.isError
+    assert result.structuredContent["state"] == "waiting_for_pod"
+    assert result.structuredContent["project_id"] == "owner-project"
+    assert result.structuredContent["stages"] == [
+        {"stage": "applying_iam", "at": "2026-09-11T00:00:00+00:00"}
+    ]
+    assert "bootstrap_sa" not in result.structuredContent["stages"][0]
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("fail_late", [False, True])
 async def test_full_account_erasure_preserves_other_owner_and_rolls_back_atomically(
     consumer, monkeypatch, fail_late

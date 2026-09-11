@@ -36,6 +36,17 @@ class ConsumerConnectionResult(BaseModel):
     grant_receipt: str | None = None
 
 
+class ConsumerSetupStatusResult(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    state: Literal["not_started", "running", "waiting_for_pod", "ready", "failed", "stale"]
+    status: str
+    stage: str
+    project_id: str | None = None
+    stages: list[dict[str, str]]
+    error_code: str | None = None
+    next_action: str
+
+
 class ConsumerMemoryResult(BaseModel):
     model_config = ConfigDict(extra="allow")
     state: Literal["completed"]
@@ -69,13 +80,7 @@ def _error(code: str, message: str) -> CallToolResult:
     )
 
 
-async def handle_get_hussh_connection(arguments: dict) -> CallToolResult:
-    """No model argument may supply identity, approve consent or provision compute."""
-    if arguments:
-        return _error("INVALID_ARGUMENTS", "This tool accepts no arguments.")
-    principal = get_current_developer_principal()
-    if not has_consumer_oauth_identity(principal):
-        return _error("OWNER_AUTH_REQUIRED", "Reconnect using your own Hussh account.")
+def _secure_setup_origin() -> str | None:
     origin = get_app_runtime_settings().app_frontend_origin
     parsed = urlsplit(origin or "")
     if (
@@ -93,8 +98,20 @@ async def handle_get_hussh_connection(arguments: dict) -> CallToolResult:
             )
         )
     ):
+        return None
+    return origin.rstrip("/")
+
+
+async def handle_get_hussh_connection(arguments: dict) -> CallToolResult:
+    """No model argument may supply identity, approve consent or provision compute."""
+    if arguments:
+        return _error("INVALID_ARGUMENTS", "This tool accepts no arguments.")
+    principal = get_current_developer_principal()
+    if not has_consumer_oauth_identity(principal):
+        return _error("OWNER_AUTH_REQUIRED", "Reconnect using your own Hussh account.")
+    origin = _secure_setup_origin()
+    if origin is None:
         return _error("SETUP_UNAVAILABLE", "The secure setup interface is unavailable.")
-    origin = origin.rstrip("/")
     try:
         review = await asyncio.to_thread(ConsumerMcpConnections().prepare, principal)
     except ConsumerSetupRequired:
@@ -125,6 +142,78 @@ async def handle_get_hussh_connection(arguments: dict) -> CallToolResult:
                 if review.memory_access
                 else "Open the secure link to review memory access. Only the authenticated owner can approve; never send vault keys or recovery material to this assistant."
             ),
+        )
+    )
+
+
+async def handle_get_hussh_setup_status(arguments: dict) -> CallToolResult:
+    """Read the existing resumable setup job without starting or mutating it."""
+    if arguments:
+        return _error("INVALID_ARGUMENTS", "This tool accepts no arguments.")
+    principal = get_current_developer_principal()
+    if not has_consumer_oauth_identity(principal):
+        return _error("OWNER_AUTH_REQUIRED", "Reconnect using your own Hussh account.")
+    if _secure_setup_origin() is None:
+        return _error("SETUP_UNAVAILABLE", "The secure setup interface is unavailable.")
+    try:
+        from hushh_mcp.services import byoc_setup_job_service as jobs  # noqa: PLC0415
+
+        row = await jobs.ByocSetupJobRepo().get(str(principal.subject_firebase_uid or ""))
+    except Exception:
+        return _error("SETUP_STATUS_UNAVAILABLE", "Setup status is temporarily unavailable.")
+
+    if not row:
+        return _result(
+            ConsumerSetupStatusResult(
+                state="not_started",
+                status="none",
+                stage="",
+                stages=[],
+                next_action=(
+                    "Open the secure setup page to connect your cloud and private agent. "
+                    "This tool does not provision infrastructure."
+                ),
+            )
+        )
+
+    status = str(row.get("status") or "unknown")
+    stage = str(row.get("stage") or "")[:64]
+    stale = bool(jobs.is_stale(row))
+    if stale and status == "running":
+        state = "stale"
+        next_action = (
+            "Restart setup from the secure Hussh page; the previous job stopped advancing."
+        )
+    elif status == "running":
+        state = "running"
+        next_action = "Wait for the current setup job, then check this status again."
+    elif status == "failed":
+        state = "failed"
+        next_action = "Review the secure setup page and retry the failed step."
+    elif stage == "attached":
+        state = "ready"
+        next_action = "Call get_hussh_connection again to continue the owner approval flow."
+    elif status == "recorded":
+        state = "waiting_for_pod"
+        next_action = "Finish private-agent enrollment in the secure Hussh setup page."
+    else:
+        state = "failed"
+        next_action = "Review the secure setup page for the current recovery action."
+
+    safe_stages = [
+        {"stage": str(item.get("stage") or "")[:64], "at": str(item.get("at") or "")[:64]}
+        for item in (row.get("stages") or [])
+        if isinstance(item, dict) and item.get("stage")
+    ]
+    return _result(
+        ConsumerSetupStatusResult(
+            state=state,
+            status=status[:32],
+            stage=stage,
+            project_id=str(row.get("project_id") or "")[:64] or None,
+            stages=safe_stages,
+            error_code=str(row.get("error_code") or "")[:64] or None,
+            next_action=next_action,
         )
     )
 

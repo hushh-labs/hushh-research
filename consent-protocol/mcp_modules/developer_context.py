@@ -163,6 +163,7 @@ def get_current_visible_tool_names() -> tuple[str, ...]:
         visible = (
             *visible,
             "get_hussh_connection",
+            "get_hussh_setup_status",
             "read_hussh_memory",
             "save_hussh_memory",
             "correct_hussh_memory",
