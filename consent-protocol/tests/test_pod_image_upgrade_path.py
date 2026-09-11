@@ -1508,3 +1508,62 @@ async def test_late_acknowledgement_is_retained_without_resuming_upgrade(service
     assert retained["lease"] == registry.rows["uid-1"]["backend_metadata"]["upgradeLease"]
     assert retained["receipt"]["targetImage"] == SOURCE_NEW
     registry.retain_erasure_upgrade_ack.assert_awaited_once()
+
+
+# ---- a plan is not an upgrade (2026-09-11) ------------------------------------------
+
+
+class FakePlanOnlyBackend(FakeUpgradingBackend):
+    """A backend with no cloud credentials: renders, never calls, never changes anything."""
+
+    live = False
+
+
+@pytest.mark.asyncio
+async def test_a_plan_mode_backend_is_refused_before_it_can_touch_the_row(service_env):
+    """Plan mode used to report success and corrupt the registry doing it.
+
+    Without `HUSSH_GCP_BACKEND_LIVE` / `HUSSH_USER_GCP_LIVE` the backend renders a
+    config, calls no cloud, and returns `status="planned"` with placeholder
+    metadata. The success path merged that over the real row and published it, and
+    it also pops `observed`, which is right after a REAL replacement and
+    destructive after an imagined one.
+
+    Measured on the owner pod: an operator run in plan mode printed "already
+    current" and exited 0, then left `source_image` null, `observed` deleted and
+    the recorded image pointing at a week-old digest, while the pod carried on
+    running exactly what it always had.
+
+    The refusal has to land BEFORE the lease is claimed, because a lease is
+    released only by a terminal result: a refusal that strands the pod would be a
+    worse bug than the one it replaces.
+    """
+    pas, _ = service_env
+    rows = {"uid-1": {**_row(), "user_id": "uid-1"}}
+    registry = FakeRegistry(rows)
+    before = copy.deepcopy(rows["uid-1"]["backend_metadata"])
+
+    service = pas.PersonalAgentProvisioningService(registry=registry, backend=FakePlanOnlyBackend())
+
+    with pytest.raises(pas.PersonalAgentUpgradeUnsupportedError) as refused:
+        await service.upgrade_pod(user_id="uid-1", current_image=SOURCE_NEW)
+
+    assert "plan mode" in str(refused.value)
+    assert rows["uid-1"]["backend_metadata"] == before, "a refused upgrade changed the row"
+    assert "upgradeLease" not in rows["uid-1"]["backend_metadata"], (
+        "a refused upgrade left a lease behind, which strands the pod forever"
+    )
+
+
+@pytest.mark.asyncio
+async def test_a_live_backend_still_upgrades_negative_control(service_env):
+    """A guard that refuses everything is the same as no guard."""
+    pas, _ = service_env
+    rows = {"uid-1": {**_row(), "user_id": "uid-1"}}
+    service = pas.PersonalAgentProvisioningService(
+        registry=FakeRegistry(rows), backend=FakeUpgradingBackend()
+    )
+
+    result = await service.upgrade_pod(user_id="uid-1", current_image=SOURCE_NEW)
+
+    assert result.get("upgraded") is True, result

@@ -1389,6 +1389,33 @@ class PersonalAgentProvisioningService:
             raise PersonalAgentUpgradeUnsupportedError(
                 f"backend {getattr(backend, 'backend_id', '?')!r} cannot upgrade a pod in place"
             )
+        # A PLAN IS NOT AN UPGRADE, and recording one corrupts the row.
+        #
+        # A backend without live credentials renders a deployment, calls nothing,
+        # and returns a handle it marks as planned with placeholder metadata. The
+        # success path below merges that over the real row and publishes it, and
+        # it also drops `observed` -- correct after a REAL replacement,
+        # destructive after an imagined one.
+        #
+        # Measured 2026-09-11 on a user-owned pod: an operator run against a
+        # backend in plan mode reported "already current" and exited 0, then left
+        # `source_image` null, `observed` deleted and the recorded image pointing
+        # at a week-old digest, while the pod carried on running what it always
+        # had. Every layer read success. The same failure is in the 2026-08-06
+        # execution-log entry for provisioning; the upgrade path never learned it.
+        #
+        # `live` is a TYPED fact on the backend, so the orchestrator reads it
+        # without knowing which provider produced it or which credential it
+        # wanted -- each adapter names its own. Refuse HERE, before the lease is
+        # claimed, so a refusal changes nothing: a lease is released only by a
+        # terminal result, and one left behind strands the pod permanently.
+        # `getattr(..., True)` keeps test doubles, which declare no mode, live.
+        if getattr(backend, "live", True) is False:
+            raise PersonalAgentUpgradeUnsupportedError(
+                f"backend {getattr(backend, 'backend_id', '?')!r} is in plan mode: it renders a "
+                "deployment without calling its provider. Refusing rather than recording an "
+                "upgrade that never happened; give the backend its live credentials first."
+            )
         if set_by_newer_hub(row):
             logger.info(
                 "personal_agent.upgrade_skipped hushh_id=%s reason=set_by_newer_hub", hushh_id
