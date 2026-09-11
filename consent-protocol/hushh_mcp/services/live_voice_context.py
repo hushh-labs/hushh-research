@@ -56,6 +56,7 @@ def clear_live_voice_context(session_id: str | None) -> None:
         _LIVE_CONTEXT_BY_SESSION.pop(clean_id, None)
         _COMPLETED_ACTIONS_BY_SESSION.pop(clean_id, None)
         _FAILED_ACTIONS_BY_SESSION.pop(clean_id, None)
+        _UNKNOWN_ACTION_ATTEMPTS_BY_SESSION.pop(clean_id, None)
         _PENDING_SPECIALIST_DIRECTIVES_BY_SESSION.pop(clean_id, None)
 
 
@@ -106,6 +107,7 @@ def clear_completed_actions(session_id: str | None) -> None:
     if clean_id:
         _COMPLETED_ACTIONS_BY_SESSION.pop(clean_id, None)
         _FAILED_ACTIONS_BY_SESSION.pop(clean_id, None)
+        _UNKNOWN_ACTION_ATTEMPTS_BY_SESSION.pop(clean_id, None)
         _PENDING_SPECIALIST_DIRECTIVES_BY_SESSION.pop(clean_id, None)
 
 
@@ -171,6 +173,34 @@ def clear_failed_action(session_id: str | None, action_id: str) -> None:
     session_failures = _FAILED_ACTIONS_BY_SESSION.get(clean_id)
     if session_failures is not None:
         session_failures.pop(clean_action, None)
+
+
+# Unknown action ids are a repair-loop guard, not durable analytics. Keep only
+# a per-live-session count and clear it as soon as the person starts a new
+# request or the socket closes. A repeated unknown id can therefore never
+# become a standing refusal for a later, legitimate request.
+_UNKNOWN_ACTION_ATTEMPTS_BY_SESSION: dict[str, dict[str, int]] = {}
+
+
+def record_unknown_action_attempt(session_id: str | None, action_id: str) -> int:
+    """Record one unknown action attempt and return its bounded count."""
+    clean_session = str(session_id or "").strip()
+    clean_action = str(action_id or "").strip()[:128]
+    if not clean_session or not clean_action:
+        return 0
+    attempts = _UNKNOWN_ACTION_ATTEMPTS_BY_SESSION.setdefault(clean_session, {})
+    next_count = min(attempts.get(clean_action, 0) + 1, 2)
+    attempts[clean_action] = next_count
+    return next_count
+
+
+def read_unknown_action_attempts(session_id: str | None, action_id: str) -> int:
+    """Return the current-session count for an unknown action id."""
+    clean_session = str(session_id or "").strip()
+    clean_action = str(action_id or "").strip()[:128]
+    if not clean_session or not clean_action:
+        return 0
+    return _UNKNOWN_ACTION_ATTEMPTS_BY_SESSION.get(clean_session, {}).get(clean_action, 0)
 
 
 # Specialist directives already in front of the person and still unanswered.

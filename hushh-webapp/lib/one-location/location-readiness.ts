@@ -150,8 +150,9 @@ export function locationReadiness(params: {
  * string would fit beside the switch without wrapping the 28px title. It fit,
  * and it cost the label its meaning: on iOS the header showed a bare green
  * switch over the single word "On", which never said what it switched. The
- * status now renders under the title instead of beside the switch, so it costs
- * the title no width and can always say the whole thing.
+ * status now renders below the switch in a bounded header action column. A fix
+ * with reduced accuracy is still an active location preview, so that internal
+ * capability state must not replace the switch's simple on/off read-back.
  */
 export function locationStatusLabel(params: {
   readiness: LocationReadiness;
@@ -162,7 +163,6 @@ export function locationStatusLabel(params: {
   if (params.paused) return "Location off";
   if (params.readiness === "blocked") return "Location blocked";
   if (!params.previewOn) return "Location off";
-  if (params.accuracyLimited) return "Location limited";
   return "Location on";
 }
 

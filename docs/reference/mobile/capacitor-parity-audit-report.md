@@ -31,6 +31,35 @@ The native gate now includes:
 
 Continuity is separately rehearsed against an already-installed normal session with `ios:continuity:local` or `android:continuity:local`; it must not inherit evidence from a cold audit.
 
+## Android Agents Rendered-UI Rehearsal — September 9, 2026
+
+The Pixel 8 emulator running Android 17 and WebView 152.0.7977.64 reproduced
+agent-grid pixels above Search while the DOM contained one correctly positioned
+grid. Chromium's screenshot and Android's display capture disagreed. Removing
+backdrop filters, disabling native overscroll, and disabling HWUI partial redraws
+did not resolve the reproduction; those diagnostic overrides were removed.
+
+The same rebuilt APK reproduced the overlap with the emulator's ANGLE/SwiftShader
+software renderer and cleared it with the host GPU renderer (Apple M5/Metal).
+The affected local AVD now uses `hw.gpu.mode=host`. This is an emulator rendering
+configuration correction, not an application spacing or stacking-order fix.
+When diagnosing this failure, compare the actual renderer reported by
+`adb shell dumpsys SurfaceFlinger`, rather than assuming AVD `auto` selected
+hardware rendering. A cold emulator launch with `-gpu host -no-snapshot-load`
+allows comparison without wiping app storage.
+
+The Android-only roster clipping/paint-containment workaround was removed.
+The header, view controls, and Search remain outside the replaced content subtree.
+After rebuilding and installing the APK, two touch-driven cycles covered both
+views and returns from Connect, Feed, and the Search overlay. Sixteen Android
+display captures were collected. The header/Search region matched across all
+twelve return captures within each view. Component tests separately verify that
+Grid/List replacement preserves the same header, search, and control nodes.
+
+This is dated emulator evidence, not a physical-device or fresh iOS parity claim.
+Do not introduce route-local clipping, offsets, or forced redraw timers to mask
+an emulator compositor defect.
+
 ## Blockers
 
 Current tracked evidence blockers:

@@ -48,7 +48,9 @@ function shouldIgnoreSwipeTarget(target: EventTarget | null): boolean {
 /**
  * Route-hop gestures for finite, route-backed shell tabs. Query-backed
  * workspaces (Finance, Location, Consent, public Explore) render their own
- * in-page SwipeViews pager instead, which owns its own drag gesture.
+ * in-page SwipeViews pager instead, which owns its own drag gesture. RIA keeps
+ * durable route URLs, but its shared `/ria` layout owns the identity shell, so
+ * this gesture keeps that shell static while replacing the route content.
  */
 export function TopShellRouteSwipe({
   children,
@@ -63,6 +65,8 @@ export function TopShellRouteSwipe({
   const enabled = Boolean(
     tabSet && tabSet.queryParam === null && tabSet.tabs.length > 1,
   );
+  const keepsRiaShellStatic = tabSet?.id === "ria";
+  const transitionMode = keepsRiaShellStatic ? "contextual" : "full";
 
   useEffect(() => {
     if (!enabled || !tabSet || typeof document === "undefined") return;
@@ -81,7 +85,7 @@ export function TopShellRouteSwipe({
     let axis: "undecided" | "horizontal" | "vertical" = "undecided";
     const resetVisual = (animate: boolean) => {
       const surface = swipeContentRef.current;
-      if (surface) {
+      if (surface && !keepsRiaShellStatic) {
         surface.style.transition = animate
           ? "transform 160ms cubic-bezier(0.2, 0.8, 0.2, 1)"
           : "none";
@@ -110,7 +114,7 @@ export function TopShellRouteSwipe({
       startTimestamp = timestamp || performance.now();
       tracking = true;
       const surface = swipeContentRef.current;
-      if (surface) {
+      if (surface && !keepsRiaShellStatic) {
         surface.style.transition = "none";
         surface.style.willChange = "transform";
       }
@@ -160,7 +164,7 @@ export function TopShellRouteSwipe({
       );
       setTopShellTabSwipeState(tabSet.id, position, true);
       const surface = swipeContentRef.current;
-      if (surface) {
+      if (surface && !keepsRiaShellStatic) {
         const resistedDelta = Math.max(-28, Math.min(28, deltaX * 0.18));
         surface.style.transform = `translate3d(${resistedDelta}px, 0, 0)`;
       }
@@ -223,14 +227,18 @@ export function TopShellRouteSwipe({
       beginRouteTransition(
         destination.href,
         () => {
-          resetVisual(false);
-          // Reset after the shared exit has completed. Resetting at gesture
-          // release visibly jumps a long RIA page before it starts fading.
+          // RIA has already committed the destination index above. Its
+          // persistent shell must not briefly restore the outgoing index while
+          // the child route is being replaced.
+          if (!keepsRiaShellStatic) resetVisual(false);
+          // For full-envelope tabs, reset after the shared exit has completed.
+          // Resetting at gesture release visibly jumps a long page before it
+          // starts fading.
           scrollAppToTop("auto");
           router.push(destination.href, { scroll: false });
         },
         "tap",
-        "full",
+        transitionMode,
       );
     };
 
@@ -316,9 +324,9 @@ export function TopShellRouteSwipe({
       swipeSurface.removeEventListener("pointermove", pointerMoveListener);
       swipeSurface.removeEventListener("pointerup", pointerEndListener);
       swipeSurface.removeEventListener("pointercancel", cancelListener);
-      resetVisual(false);
+      if (!keepsRiaShellStatic) resetVisual(false);
     };
-  }, [enabled, pathname, router, tabSet]);
+  }, [enabled, keepsRiaShellStatic, pathname, router, tabSet, transitionMode]);
 
   if (!enabled) return <>{children}</>;
 

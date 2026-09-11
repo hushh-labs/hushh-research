@@ -540,13 +540,17 @@ function FeedPageSession({
         <SettingsPresentationProvider density="compact">
           <AppPageContentRegion>
             {hasLiveActionables ? (
-              <section aria-label="Live" className="bg-accent/[0.03]">
+              <section aria-label="Live">
                 <SectionLabel>Live</SectionLabel>
-                <div className="flex flex-col gap-2 pb-2">
+                <SettingsGroup
+                  separatorInset
+                  testId="feed-live-group"
+                  shellClassName="!bg-accent/[0.04] shadow-none ring-1 ring-inset ring-accent/10"
+                >
                   {liveActionables.map((item) => (
                     <FeedActionableRow key={item.id} item={item} />
                   ))}
-                </div>
+                </SettingsGroup>
               </section>
             ) : null}
 

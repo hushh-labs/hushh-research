@@ -5,13 +5,6 @@ import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 
 import {
-  AppPageContentRegion,
-  AppPageHeaderRegion,
-  AppPageShell,
-} from "@/components/app-ui/app-page-shell";
-import { PageHeader } from "@/components/app-ui/page-sections";
-import { SurfaceStack } from "@/components/app-ui/surfaces";
-import {
   buildKaiTestClientAccess,
   canShowKaiTestProfile,
   getKaiTestUserId,
@@ -36,7 +29,11 @@ import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metada
 import { RIA_TONE_BADGE } from "@/lib/ria/ria-tone";
 import { RIA_COPY } from "@/lib/ria/ria-screen-copy";
 import { cn } from "@/lib/utils";
-import { RiaCompatibilityState, RiaVerificationGate } from "@/components/ria/ria-page-shell";
+import {
+  RiaCompatibilityState,
+  RiaPageShell,
+  RiaVerificationGate,
+} from "@/components/ria/ria-page-shell";
 
 type ClientListItem = RiaClientAccess & {
   isTestProfile?: boolean;
@@ -72,44 +69,58 @@ export default function RiaClientsPage() {
   const [view, setView] = useState<ClientsView>("connected");
 
   const clientsResource = useStaleResource<RiaClientListResponse>({
-    cacheKey: user?.uid ? `ria_clients_connected_${user.uid}` : "ria_clients_guest",
+    cacheKey: user?.uid
+      ? `ria_clients_connected_${user.uid}`
+      : "ria_clients_guest",
     enabled: Boolean(user?.uid && riaCapability !== "setup"),
     load: async () => {
       if (!user?.uid) throw new Error("Sign in to access clients");
       const idToken = await user.getIdToken();
-      return RiaService.listClients(idToken, { userId: user.uid, page: 1, limit: 100 });
+      return RiaService.listClients(idToken, {
+        userId: user.uid,
+        page: 1,
+        limit: 100,
+      });
     },
   });
 
   const connectedClients = useMemo(
-    () => (clientsResource.data?.items || []).filter((client) => client.status === "approved"),
-    [clientsResource.data?.items]
+    () =>
+      (clientsResource.data?.items || []).filter(
+        (client) => client.status === "approved",
+      ),
+    [clientsResource.data?.items],
   );
 
   const injectedTestClient = useMemo<ClientListItem | null>(() => {
     if (!allowTestProfiles || !kaiTestUserId) return null;
-    if (connectedClients.some((client) => client.investor_user_id === kaiTestUserId)) return null;
+    if (
+      connectedClients.some(
+        (client) => client.investor_user_id === kaiTestUserId,
+      )
+    )
+      return null;
     return {
       ...buildKaiTestClientAccess(kaiTestUserId),
       isTestProfile: true,
     };
   }, [allowTestProfiles, connectedClients, kaiTestUserId]);
 
-  const clientItems = useMemo<ClientListItem[]>(
-    () => {
-      const normalizedClients = connectedClients.map((client) => ({
-        ...client,
-        isTestProfile: isKaiTestProfileUser(client.investor_user_id),
-      }));
-      return injectedTestClient ? [injectedTestClient, ...normalizedClients] : normalizedClients;
-    },
-    [connectedClients, injectedTestClient]
-  );
+  const clientItems = useMemo<ClientListItem[]>(() => {
+    const normalizedClients = connectedClients.map((client) => ({
+      ...client,
+      isTestProfile: isKaiTestProfileUser(client.investor_user_id),
+    }));
+    return injectedTestClient
+      ? [injectedTestClient, ...normalizedClients]
+      : normalizedClients;
+  }, [connectedClients, injectedTestClient]);
   const voiceSurfaceMetadata = useMemo(
     () => ({
       screenId: "ria_clients",
       title: "RIA Clients",
-      purpose: "Connected investor roster for opening advisor client workspaces.",
+      purpose:
+        "Connected investor roster for opening advisor client workspaces.",
       sections: [
         {
           id: "ria_clients_roster",
@@ -132,7 +143,8 @@ export default function RiaClientsPage() {
         },
         ...clientItems.slice(0, 8).map((client, index) => ({
           id: `ria_clients_client_row_${index + 1}`,
-          label: client.investor_display_name || client.investor_email || "Investor",
+          label:
+            client.investor_display_name || client.investor_email || "Investor",
           type: "button",
           actionId: "ria.clients.open_client_workspace",
           description: client.investor_user_id || null,
@@ -142,14 +154,19 @@ export default function RiaClientsPage() {
       visibleModules: ["Connected investors"],
       selectedObjects: clientItems
         .slice(0, 8)
-        .map((client) => client.investor_display_name || client.investor_email || client.investor_user_id)
+        .map(
+          (client) =>
+            client.investor_display_name ||
+            client.investor_email ||
+            client.investor_user_id,
+        )
         .filter((value): value is string => Boolean(value)),
       screenMetadata: {
         connected_client_count: clientItems.length,
         loading: clientsResource.loading,
       },
     }),
-    [clientItems, clientsResource.loading]
+    [clientItems, clientsResource.loading],
   );
   usePublishVoiceSurfaceMetadata(voiceSurfaceMetadata);
 
@@ -165,29 +182,30 @@ export default function RiaClientsPage() {
   if (personaLoading) return null;
   if (riaCapability === "setup") {
     return (
-      <>
-        <AppPageShell
-          as="main"
-          width="agent"
-          nativeTest={{
-            routeId: "/ria/clients",
-            marker: "native-route-ria-clients",
-            authState: user ? "authenticated" : "pending",
-            dataState: "unavailable-valid",
-          }}
-        />
+      <RiaPageShell
+        title="RIA"
+        titleRole="agent"
+        stackClassName="gap-8"
+        nativeTest={{
+          routeId: "/ria/clients",
+          marker: "native-route-ria-clients",
+          authState: user ? "authenticated" : "pending",
+          dataState: "unavailable-valid",
+        }}
+      >
         <RiaCompatibilityState
           title={RIA_COPY.clients.setupGate.title}
           description={RIA_COPY.clients.setupGate.description}
         />
-      </>
+      </RiaPageShell>
     );
   }
 
   return (
-    <AppPageShell
-      as="main"
-      width="agent"
+    <RiaPageShell
+      title="RIA"
+      titleRole="agent"
+      stackClassName="gap-8"
       nativeTest={{
         routeId: "/ria/clients",
         marker: "native-route-ria-clients",
@@ -199,125 +217,124 @@ export default function RiaClientsPage() {
             : "empty-valid",
       }}
     >
-      <AppPageHeaderRegion className="pt-2 sm:pt-3">
-        <PageHeader
-          eyebrow={RIA_COPY.clients.eyebrow}
-          title={
-            <span className="inline-flex flex-wrap items-center gap-2">
-              {RIA_COPY.clients.title}
-              {view === "connected" && clientItems.length > 0 ? (
-                <Badge variant="secondary" className="text-[10px]">
-                  {clientItems.length}
-                </Badge>
-              ) : null}
-            </span>
-          }
-          description={RIA_COPY.clients.description}
-          icon={UserRound}
-          accent="ria"
-          titleRole="agent"
-          className="[&>div:first-child]:!gap-3.5 [&_[data-slot=page-header-row]]:!items-center"
-        />
-      </AppPageHeaderRegion>
-
-      <AppPageContentRegion>
-        <RiaVerificationGate>
-        <SurfaceStack className="gap-8">
-          {/* Connected is the roster of investors who already granted access.
+      <RiaVerificationGate>
+            {/* Connected is the roster of investors who already granted access.
               Around you is prospecting against public records — a different
               kind of person entirely, which is why they are separate views on
               one screen rather than one merged list. */}
-          <div data-voice-control-id="ria_clients_view_switch">
-            <SegmentedTabs
-              value={view}
-              onValueChange={(next) => setView(next as ClientsView)}
-              options={[
-                { value: "connected", label: "Connected" },
-                { value: "nearby", label: "Around you" },
-              ]}
-            />
-          </div>
+            <div data-voice-control-id="ria_clients_view_switch">
+              <SegmentedTabs
+                value={view}
+                onValueChange={(next) => setView(next as ClientsView)}
+                ariaLabel="Clients view"
+                variant="subordinate"
+                options={[
+                  { value: "connected", label: "Connected" },
+                  { value: "nearby", label: "Around you" },
+                ]}
+              />
+            </div>
 
-          {view === "nearby" ? (
-            <NearbyAroundYou />
-          ) : (
-          <SettingsGroup
-            embedded
-            title={RIA_COPY.clients.section.title}
-            description={RIA_COPY.clients.section.description}
-          >
-            {clientsResource.loading ? (
-              <div className="flex items-center gap-2 px-4 py-6 text-sm text-muted-foreground">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                {RIA_COPY.clients.loading}
-              </div>
-            ) : clientItems.length === 0 ? (
-              <div className="space-y-3 px-4 py-8 text-center">
-                <p className="text-sm text-muted-foreground">{RIA_COPY.clients.empty}</p>
-                <Button
-                  variant="none"
-                  effect="fade"
-                  size="sm"
-                  data-voice-control-id="ria_clients_browse_marketplace"
-                  onClick={() => router.push(ROUTES.MARKETPLACE)}
-                >
-                  {RIA_COPY.clients.browse}
-                </Button>
-              </div>
+            {view === "nearby" ? (
+              <NearbyAroundYou />
             ) : (
-              clientItems.map((client, index) => (
-                <button
-                  key={client.id}
-                  type="button"
-                  data-voice-control-id={`ria_clients_client_row_${index + 1}`}
-                  data-testid={client.isTestProfile ? "ria-client-test-profile" : undefined}
-                  onClick={() =>
-                    router.push(
-                      buildRiaClientWorkspaceRoute(client.investor_user_id || "", {
-                        tab: "overview",
-                        testProfile: client.isTestProfile,
-                      })
-                    )
-                  }
-                  className={cn(
-                    "relative w-full overflow-hidden px-4 py-3 text-left transition-colors hover:bg-muted/35"
-                  )}
-                >
-                  <div className="flex items-center gap-3">
-                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[color:var(--foundation-accent-surface)] text-[color:var(--ria-gold)]">
-                      <UserRound className="h-4 w-4" />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex min-w-0 items-center gap-2">
-                        <p className="truncate text-sm font-semibold text-foreground">
-                          {client.investor_display_name || client.investor_user_id || "Investor"}
-                        </p>
-                        {client.isTestProfile ? (
-                          <span className="shrink-0 rounded-full border border-[color:var(--foundation-accent-border)] bg-[color:var(--foundation-accent-surface)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-[color:var(--ria-gold)]">
-                            Test
-                          </span>
-                        ) : null}
-                      </div>
-                      <p className="truncate text-xs text-muted-foreground">
-                        {client.investor_email || client.investor_secondary_label || "Connected"}
-                      </p>
-                    </div>
-                    <div className="flex shrink-0 items-center gap-2">
-                      <Badge className={cn("text-[10px]", statusBadgeClass(client.status))}>
-                        {formatStatus(client.status)}
-                      </Badge>
-                      <ChevronRight className="h-4 w-4 text-muted-foreground" />
-                    </div>
+              <SettingsGroup
+                embedded
+                title={RIA_COPY.clients.section.title}
+                description={RIA_COPY.clients.section.description}
+              >
+                {clientsResource.loading ? (
+                  <div className="flex items-center gap-2 px-4 py-6 text-sm text-muted-foreground">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    {RIA_COPY.clients.loading}
                   </div>
-                  <MaterialRipple variant="none" effect="fade" className="z-0" />
-                </button>
-              ))
+                ) : clientItems.length === 0 ? (
+                  <div className="space-y-3 px-4 py-8 text-center">
+                    <p className="text-sm text-muted-foreground">
+                      {RIA_COPY.clients.empty}
+                    </p>
+                    <Button
+                      variant="none"
+                      effect="fade"
+                      size="sm"
+                      data-voice-control-id="ria_clients_browse_marketplace"
+                      onClick={() => router.push(ROUTES.MARKETPLACE)}
+                    >
+                      {RIA_COPY.clients.browse}
+                    </Button>
+                  </div>
+                ) : (
+                  clientItems.map((client, index) => (
+                    <button
+                      key={client.id}
+                      type="button"
+                      data-voice-control-id={`ria_clients_client_row_${index + 1}`}
+                      data-testid={
+                        client.isTestProfile
+                          ? "ria-client-test-profile"
+                          : undefined
+                      }
+                      onClick={() =>
+                        router.push(
+                          buildRiaClientWorkspaceRoute(
+                            client.investor_user_id || "",
+                            {
+                              tab: "overview",
+                              testProfile: client.isTestProfile,
+                            },
+                          ),
+                        )
+                      }
+                      className={cn(
+                        "relative w-full overflow-hidden px-4 py-3 text-left transition-colors hover:bg-muted/35",
+                      )}
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[color:var(--foundation-accent-surface)] text-[color:var(--ria-gold)]">
+                          <UserRound className="h-4 w-4" />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex min-w-0 items-center gap-2">
+                            <p className="truncate text-sm font-semibold text-foreground">
+                              {client.investor_display_name ||
+                                client.investor_user_id ||
+                                "Investor"}
+                            </p>
+                            {client.isTestProfile ? (
+                              <span className="shrink-0 rounded-full border border-[color:var(--foundation-accent-border)] bg-[color:var(--foundation-accent-surface)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-[color:var(--ria-gold)]">
+                                Test
+                              </span>
+                            ) : null}
+                          </div>
+                          <p className="truncate text-xs text-muted-foreground">
+                            {client.investor_email ||
+                              client.investor_secondary_label ||
+                              "Connected"}
+                          </p>
+                        </div>
+                        <div className="flex shrink-0 items-center gap-2">
+                          <Badge
+                            className={cn(
+                              "text-[10px]",
+                              statusBadgeClass(client.status),
+                            )}
+                          >
+                            {formatStatus(client.status)}
+                          </Badge>
+                          <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                        </div>
+                      </div>
+                      <MaterialRipple
+                        variant="none"
+                        effect="fade"
+                        className="z-0"
+                      />
+                    </button>
+                  ))
+                )}
+              </SettingsGroup>
             )}
-          </SettingsGroup>
-          )}
-        </SurfaceStack>
-        </RiaVerificationGate>
-      </AppPageContentRegion>
-    </AppPageShell>
+      </RiaVerificationGate>
+    </RiaPageShell>
   );
 }

@@ -2,7 +2,12 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ApiService } from "@/lib/services/api-service";
 
+import { ApiService } from "@/lib/services/api-service";
 import { GeminiLiveClient } from "@/lib/services/gemini-live-client";
+import type {
+  OneVoiceSpeechAdapter,
+  SpeechAdapterCallbacks,
+} from "@/lib/voice/transcript-events";
 
 vi.mock("@/lib/voice/voice-telemetry", () => ({
   createVoiceTurnId: () => "vturn_test",
@@ -10,6 +15,118 @@ vi.mock("@/lib/voice/voice-telemetry", () => ({
 }));
 
 describe("GeminiLiveClient action confirmation", () => {
+  it("starts the speech adapter before relay discovery and retains an early final", async () => {
+    const OriginalWebSocket = global.WebSocket;
+    const order: string[] = [];
+    // Keep this fake deliberately small: the contract test is about ordering
+    // and the context barrier, not browser audio implementation details.
+    let onEvent: SpeechAdapterCallbacks["onEvent"] | undefined;
+    const speechAdapter = {
+      provider: "test_local_speech",
+      onDevice: true,
+      setCallbacks: vi.fn((callbacks: SpeechAdapterCallbacks) => {
+        onEvent = callbacks.onEvent;
+      }),
+      start: vi.fn(async () => {
+        order.push("speech");
+        onEvent?.({
+          sessionId: "speech_1",
+          sequence: 1,
+          kind: "final",
+          text: "create a circle called Family",
+          provider: "test_local_speech",
+          onDevice: true,
+        });
+        return {
+          sessionId: "speech_1",
+          provider: "test_local_speech",
+          onDevice: true,
+        };
+      }),
+      stop: vi.fn(async () => undefined),
+      cancel: vi.fn(async () => undefined),
+    } satisfies OneVoiceSpeechAdapter;
+
+    class FakeWebSocket {
+      readyState = 0;
+      onopen: (() => void) | null = null;
+      onmessage: ((event: { data: string }) => void) | null = null;
+      onclose: ((event: CloseEvent) => void) | null = null;
+      onerror: (() => void) | null = null;
+      send = vi.fn();
+      close = vi.fn();
+
+      constructor() {
+        order.push("socket");
+      }
+    }
+
+    const relayLookup = vi
+      .spyOn(ApiService, "getOneAdkLiveRelayUrl")
+      .mockImplementation(async () => {
+        order.push("relay");
+        return "wss://example.test/relay";
+      });
+
+    try {
+      // @ts-expect-error -- minimal WebSocket test double
+      global.WebSocket = FakeWebSocket;
+      const transport = new GeminiLiveClient();
+      await transport.start({ speechAdapter });
+
+      expect(order).toEqual(["speech", "relay", "socket"]);
+      const connection = transport as unknown as {
+        pendingSpeechEvents: { size: number };
+      };
+      expect(connection.pendingSpeechEvents.size).toBe(1);
+      transport.stop();
+    } finally {
+      relayLookup.mockRestore();
+      global.WebSocket = OriginalWebSocket;
+    }
+  });
+
+  it("buffers platform speech finals until context is acknowledged", () => {
+    const onEvent = vi.fn();
+    const transport = new GeminiLiveClient({ onEvent });
+    const connection = transport as unknown as {
+      initialContextReady: boolean;
+      handleSpeechAdapterEvent: (event: {
+        sessionId: string;
+        sequence: number;
+        kind: "final";
+        text: string;
+        provider: string;
+        onDevice: boolean;
+      }) => void;
+      flushPendingSpeechEvents: () => void;
+    };
+
+    connection.handleSpeechAdapterEvent({
+      sessionId: "speech_1",
+      sequence: 1,
+      kind: "final",
+      text: "create a circle called Family",
+      provider: "apple_speech",
+      onDevice: true,
+    });
+    expect(onEvent).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: "transcript_final" }),
+    );
+
+    connection.initialContextReady = true;
+    connection.flushPendingSpeechEvents();
+    expect(onEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "transcript_final",
+        source: "input",
+        text: "create a circle called Family",
+        transcriptProvider: "apple_speech",
+        onDevice: true,
+      }),
+    );
+  });
+
   it("returns a typed disconnected result instead of throwing from an absent socket", async () => {
     const transport = new GeminiLiveClient();
 
@@ -65,6 +182,73 @@ describe("GeminiLiveClient action confirmation", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("submits a local catalog proposal only after context is ready", async () => {
+    const send = vi.fn();
+    const transport = new GeminiLiveClient();
+    const connection = transport as unknown as {
+      ws: { readyState: number; send: (message: string) => void };
+      setupComplete: boolean;
+      initialContextReady: boolean;
+      handleSocketMessage: (data: unknown) => Promise<void>;
+    };
+    connection.ws = { readyState: WebSocket.OPEN, send };
+    connection.setupComplete = true;
+    connection.initialContextReady = true;
+
+    const pending = transport.proposeLocalAction({
+      actionId: "location.create_circle",
+      slots: { name: "Family" },
+      contextRevision: "route-1:ui-1",
+      needsConfirmation: true,
+    });
+    const frame = JSON.parse(send.mock.calls[0]?.[0] || "{}");
+    expect(frame.type).toBe("action_propose");
+    expect(frame.actionProposal).toMatchObject({
+      actionId: "location.create_circle",
+      slots: { name: "Family" },
+      contextRevision: "route-1:ui-1",
+    });
+
+    await connection.handleSocketMessage(
+      JSON.stringify({
+        localActionProposalAccepted: {
+          proposalId: frame.actionProposal.proposalId,
+        },
+      }),
+    );
+    await expect(pending).resolves.toBe(true);
+  });
+
+  it("fails a local proposal when the relay rejects its authority boundary", async () => {
+    const send = vi.fn();
+    const transport = new GeminiLiveClient();
+    const connection = transport as unknown as {
+      ws: { readyState: number; send: (message: string) => void };
+      setupComplete: boolean;
+      initialContextReady: boolean;
+      handleSocketMessage: (data: unknown) => Promise<void>;
+    };
+    connection.ws = { readyState: WebSocket.OPEN, send };
+    connection.setupComplete = true;
+    connection.initialContextReady = true;
+
+    const pending = transport.proposeLocalAction({
+      actionId: "location.trigger_sos",
+      contextRevision: "route-1:ui-1",
+      needsConfirmation: false,
+    });
+    const frame = JSON.parse(send.mock.calls[0]?.[0] || "{}");
+    await connection.handleSocketMessage(
+      JSON.stringify({
+        localActionProposalRejected: {
+          proposalId: frame.actionProposal.proposalId,
+          code: "sos_send_blocked",
+        },
+      }),
+    );
+    await expect(pending).resolves.toBe(false);
   });
 });
 
@@ -187,6 +371,43 @@ describe("GeminiLiveClient per-utterance activity signal", () => {
     );
 
     expect(connection.visitorActivitySent).toBe(false);
+  });
+
+  it("keeps a bounded speech onset until setup and context acknowledgement", () => {
+    const send = vi.fn();
+    const transport = new GeminiLiveClient();
+    const connection = transport as unknown as {
+      sendVisitorActivityStart: (level: number, pcm: Uint8Array) => boolean;
+      flushBufferedSpeechOnset: () => void;
+      ws: { readyState: number; send: (message: string) => void };
+      setupComplete: boolean;
+      initialContextReady: boolean;
+      speechOnsetReady: boolean;
+      bufferedVisitorSpeechFrames: Uint8Array[];
+    };
+    const pcm = new Uint8Array([1, 2, 3]);
+
+    for (let frame = 0; frame < 8; frame += 1) {
+      expect(connection.sendVisitorActivityStart(0.5, pcm)).toBe(false);
+    }
+    expect(connection.speechOnsetReady).toBe(true);
+    expect(connection.bufferedVisitorSpeechFrames).toHaveLength(8);
+
+    // A pause before the network handshake must not erase the captured onset.
+    expect(connection.sendVisitorActivityStart(0, pcm)).toBe(false);
+    expect(connection.bufferedVisitorSpeechFrames).toHaveLength(8);
+
+    connection.ws = { readyState: WebSocket.OPEN, send };
+    connection.setupComplete = true;
+    connection.initialContextReady = true;
+    connection.flushBufferedSpeechOnset();
+
+    expect(send.mock.calls[0]?.[0]).toBe(
+      JSON.stringify({ type: "voice_activity_start" }),
+    );
+    expect(send).toHaveBeenCalledTimes(9);
+    expect(connection.speechOnsetReady).toBe(false);
+    expect(connection.bufferedVisitorSpeechFrames).toHaveLength(0);
   });
 });
 

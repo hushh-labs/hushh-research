@@ -90,11 +90,40 @@ function applyWebUserId(userId: string | null): boolean {
     // the caller retry instead of memoizing a binding that never happened.
     return false;
   }
+  // Kept as a guard even though `set` is not scoped to a measurement id: with
+  // no id configured, gtag was never initialised for a stream, so there is
+  // nothing to bind to. Reporting failure keeps the caller retrying instead of
+  // memoizing a binding that could not have happened.
   const measurementId = resolveAnalyticsMeasurementId();
   if (!measurementId) return false;
 
-  // `config` rather than `set` so the id binds to this measurement id only,
-  // matching how the adapter scopes events with `send_to`.
+  // `set`, not a second `config`.
+  //
+  // This used to re-`config` the measurement id, on the reasoning that it
+  // would scope the identity to that id the way the adapter scopes events
+  // with `send_to`. Sound reasoning, but the runtime does not honour it: a
+  // `config` issued after the stream is already initialised does not attach
+  // `user_id` to subsequent hits, and it fails silently -- no error, no
+  // exception, and this function returned true, so the id was memoised as
+  // applied and never retried.
+  //
+  // Measured on the live production page with the transport intercepted:
+  //
+  //   gtag('config', id, { user_id })  ->  next event sent  uid absent
+  //   gtag('set', { user_id })         ->  next event sent  uid present
+  //
+  // Which matches what we saw in BigQuery: 67 completed web sign-ins over a
+  // month and not one `user_id`, while iOS -- which goes through Firebase
+  // Analytics rather than gtag -- bound 16 of 17.
+  //
+  // `set` is page-global rather than scoped to one measurement id. That is
+  // fine while the page configures exactly one; if a second property is ever
+  // added, this needs revisiting.
+  //
+  // `send_page_view` is deliberately gone: it was only needed because a
+  // repeated `config` re-applies gtag's default of true and would have fired
+  // a spurious page view on every sign-in. `set` does not re-initialise the
+  // stream, so that hazard disappears with it.
   //
   // Guarded because this is third-party code called from the auth state
   // handler. Analytics identity is never allowed to disturb a sign-in.
@@ -102,20 +131,14 @@ function applyWebUserId(userId: string | null): boolean {
     (
       window.gtag as unknown as (
         command: string,
-        target: string,
-        params?: Record<string, unknown>
+        params: Record<string, unknown>
       ) => void
-    )("config", measurementId, {
+    )("set", {
       // `null`, not `undefined`: gtag drops undefined fields, so signing out
       // with undefined would leave the previous account's id bound and
       // attribute the next person's events to them. On a shared family device
       // that is exactly the wrong outcome.
       user_id: userId,
-      // The app bootstraps this measurement id with `send_page_view: false`
-      // (app/layout.tsx) because page views are emitted by the adapter. Every
-      // `config` re-applies gtag's default of true unless we repeat it, so
-      // omitting this would fire a spurious page view on every sign-in.
-      send_page_view: false,
     });
     return true;
   } catch {

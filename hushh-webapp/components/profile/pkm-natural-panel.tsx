@@ -1086,6 +1086,7 @@ export function PkmNaturalPanel({
           onValueChange={(value) => setWorkspaceTab(value as MemoryWorkspaceTab)}
           options={MEMORY_WORKSPACE_TABS}
           mobileColumns={3}
+          variant="agent-top"
         />
         <SwipeViews
           options={MEMORY_WORKSPACE_TABS}

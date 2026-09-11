@@ -621,6 +621,37 @@ def test_ensure_firebase_admin_uses_default_service_account(monkeypatch):
     assert captured["name"] is None
 
 
+def test_ensure_firebase_admin_adopts_default_app_created_by_racing_caller(monkeypatch):
+    import firebase_admin
+    from firebase_admin import credentials
+
+    default_sa = {
+        "type": "service_account",
+        "project_id": "hushh-pda-uat",
+        "client_email": "default@example.com",
+        "private_key": "test-default-private-key-material",
+    }
+
+    class FakeApp:
+        project_id = "hushh-pda-uat"
+
+    existing_app = FakeApp()
+    lookups = iter((None, existing_app))
+    monkeypatch.setenv("FIREBASE_ADMIN_CREDENTIALS_JSON", json.dumps(default_sa))
+    monkeypatch.setattr(
+        "api.utils.firebase_admin._get_existing_app",
+        lambda name=None: next(lookups),
+    )
+    monkeypatch.setattr(credentials, "Certificate", lambda service_account: object())
+
+    def fake_initialize_app(*_args, **_kwargs):
+        raise ValueError("The default Firebase app already exists.")
+
+    monkeypatch.setattr(firebase_admin, "initialize_app", fake_initialize_app)
+
+    assert ensure_firebase_admin() == (True, "hushh-pda-uat")
+
+
 def test_ensure_firebase_auth_admin_falls_back_to_default_admin(monkeypatch):
     monkeypatch.setattr(
         "api.utils.firebase_admin.ensure_firebase_admin",

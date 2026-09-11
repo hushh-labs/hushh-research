@@ -27,6 +27,73 @@ export type CircleRecipientSelection = {
   excluded: CircleRecipientExclusion[];
 };
 
+/**
+ * Expand the audience choices into the unique people who will receive a
+ * share. Circles remain first-class choices in the picker, while the sharing
+ * pipeline still receives the person-level ids it needs for encryption.
+ */
+export function mergeShareAudienceRecipientIds(
+  directRecipientIds: readonly string[],
+  circleSelections: readonly CircleRecipientSelection[],
+): string[] {
+  const merged = new Set<string>();
+  for (const recipientId of directRecipientIds) {
+    if (recipientId) merged.add(recipientId);
+  }
+  for (const selection of circleSelections) {
+    for (const target of selection.ready) {
+      if (target.recipient.userId) merged.add(target.recipient.userId);
+    }
+  }
+  return [...merged];
+}
+
+function circleCanAuthorizeRecipient(
+  selection: CircleRecipientSelection,
+  recipientUserId: string,
+): boolean {
+  const { circle } = selection;
+  if (circle.systemKind === "trusted") return false;
+
+  const productManaged = Boolean(circle.systemKind || circle.isSystem);
+  if (!productManaged || circle.role === "owner") return true;
+
+  // A joined product-managed Circle (today, the SMS Circle) introduces its
+  // owner to each member, not every member to every other member. The backend
+  // enforces the same owner-scoped edge. If this person also has a direct or
+  // ordinary-Circle relationship, leaving the source unset lets the server use
+  // that valid authority instead of forcing an ineligible SMS provenance.
+  return circle.members.some(
+    (member) =>
+      member.userId === recipientUserId && member.role === "owner",
+  );
+}
+
+/**
+ * Preserve valid Circle provenance after several Circles are selected.
+ * Explicit contact choices stay direct, while overlapping Circle membership
+ * prefers an ordinary Circle over a product-managed one.
+ */
+export function sourceCircleIdForRecipient(
+  circleSelections: readonly CircleRecipientSelection[],
+  recipientUserId: string,
+  directRecipientIds: readonly string[] = [],
+): string | undefined {
+  if (directRecipientIds.includes(recipientUserId)) return undefined;
+
+  const eligible = circleSelections.filter(
+    (selection) =>
+      selection.ready.some(
+        (target) => target.recipient.userId === recipientUserId,
+      ) && circleCanAuthorizeRecipient(selection, recipientUserId),
+  );
+  return (
+    eligible.find(
+      ({ circle }) => !circle.systemKind && circle.isSystem !== true,
+    ) ?? eligible[0]
+  )?.circle.id;
+}
+
 function exclusionLabel(reason: CircleRecipientExclusionReason): string {
   if (reason === "self") return "You are not added as a recipient";
   if (reason === "phone_verification_needed")

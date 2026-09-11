@@ -2,6 +2,7 @@
 
 import type { OneVoiceContextSnapshot } from "@/lib/voice/screen-context-builder";
 import type { OneVoiceUiState } from "@/lib/voice/voice-ui-state-machine";
+import type { OneVoiceSpeechAdapter } from "@/lib/voice/transcript-events";
 
 export type OneVoiceProvider = "gemini_live";
 export type OneVoiceAccessTier =
@@ -57,6 +58,19 @@ export type OneVoiceSessionEvent =
       sessionId?: string | null;
       sourceId?: string | null;
       sourceSeq?: number | null;
+      transcriptProvider?: string | null;
+      onDevice?: boolean;
+    }
+  | {
+      type: "transcript_partial";
+      provider: OneVoiceProvider;
+      text: string;
+      confidence?: number | null;
+      sessionId?: string | null;
+      sourceId?: string | null;
+      sourceSeq?: number | null;
+      transcriptProvider?: string | null;
+      onDevice?: boolean;
     }
   | {
       type: "assistant_text";
@@ -145,6 +159,12 @@ export type OneVoiceTransportStartOptions = {
   resumptionHandle?: string | null;
   /** A Gemini TTS prebuilt voice name from voice-persona-options.ts, or null/absent for the deployment default. */
   voiceName?: string | null;
+  /**
+   * Optional platform speech adapter. When present, it owns microphone input
+   * and the transport forwards final transcript turns through the same Agent
+   * One resolver; Gemini remains output/fallback only.
+   */
+  speechAdapter?: OneVoiceSpeechAdapter | null;
   signal?: AbortSignal;
 };
 
@@ -173,12 +193,38 @@ export type OneVoiceActionConfirmation = {
 };
 
 export type OneVoiceContextApplyResult =
-  | { status: "acknowledged"; contextId: string }
+  | {
+      status: "acknowledged";
+      contextId: string;
+      executableActionIds: string[];
+    }
   | { status: "timeout" | "cancelled" | "closed"; contextId: string | null };
 
 export interface RealtimeVoiceTransport {
   readonly provider: OneVoiceProvider;
   start(options?: OneVoiceTransportStartOptions): Promise<void>;
+  /**
+   * Queue or send one real user text turn. Native/Siri request handoffs use
+   * this path so the request is interpreted by One after app context is
+   * acknowledged, never as app-composed speech.
+   */
+  sendUserText?(text: string): boolean;
+  /** Wait for the initial redacted app context to be accepted by the relay. */
+  waitForContextReady?(options?: {
+    signal?: AbortSignal;
+    timeoutMs?: number;
+  }): Promise<boolean>;
+  /** Submit a generated-catalog action proposal without asking Gemini to route it. */
+  proposeLocalAction?(input: {
+    actionId: string;
+    slots?: Record<string, unknown>;
+    contextRevision: string;
+    needsConfirmation: boolean;
+    trustedActivationRequired?: boolean;
+    goalId?: string | null;
+  }): Promise<boolean>;
+  /** Server-filtered executable inventory from the latest context barrier. */
+  getExecutableActionIds?(): readonly string[] | null;
   speakText?(input: {
     text: string;
     turnId?: string | null;

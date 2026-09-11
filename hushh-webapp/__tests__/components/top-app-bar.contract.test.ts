@@ -307,6 +307,9 @@ describe("Top app bar responsive contract", () => {
     const breadcrumbs = read("lib/navigation/top-shell-breadcrumbs.ts");
 
     expect(source).toContain("breadcrumb: topShellBreadcrumb");
+    expect(source).toContain(
+      "visibleTopShellBreadcrumbItems(topShellBreadcrumb?.items ?? [])",
+    );
     expect(source).toContain("navigateTopShellBack({");
     expect(back).toContain("navigate: (action: TopShellBackAction) => void;");
     expect(back).toContain("params.navigate(action);");

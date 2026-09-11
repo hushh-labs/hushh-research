@@ -20,6 +20,10 @@ export default [
       "node_modules*/**",
       "dist/**",
       "build/**",
+      // Pinned upstream runtime assets are verified by
+      // scripts/voice/verify-local-runtime-assets.mjs; they are not app
+      // source and must retain their upstream bytes unchanged.
+      "public/vendor/**",
       "android/**",
       "ios/**",
       "*.config.js",

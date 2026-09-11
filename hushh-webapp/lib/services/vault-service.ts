@@ -6,10 +6,15 @@ import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { PreVaultUserStateService } from "@/lib/services/pre-vault-user-state-service";
 import {
   createVaultWithPassphrase as webCreateVault,
+  hexToBytes,
   unlockVaultWithPassphrase as webUnlockVault,
   unlockVaultWithRecoveryKey as webUnlockRecall,
 } from "@/lib/vault/passphrase-key";
-import { resolvePasskeyRpId } from "@/lib/vault/passkey-rp";
+import {
+  isPasskeyRpIdCompatibleWithHost,
+  resolvePasskeyRpId,
+} from "@/lib/vault/passkey-rp";
+import { VAULT_WRITE_PROTOCOL_VERSION } from "@/lib/vault/write-protocol-version";
 import { auth } from "@/lib/firebase/config";
 import { apiJson } from "@/lib/services/api-client";
 import {
@@ -604,19 +609,35 @@ export class VaultService {
       if (!requested) return null;
       if (!shouldPreferRp || !rpId) return requested;
       const wrapperRpId = this.normalizeNullableString(requested.passkeyRpId);
-      if (!wrapperRpId || wrapperRpId === rpId) return requested;
+      if (
+        !wrapperRpId ||
+        isPasskeyRpIdCompatibleWithHost(rpId, wrapperRpId)
+      ) {
+        return requested;
+      }
       return (
         all.find(
           (wrapper) =>
-            this.normalizeNullableString(wrapper.passkeyRpId) === rpId,
+            isPasskeyRpIdCompatibleWithHost(
+              rpId,
+              this.normalizeNullableString(wrapper.passkeyRpId),
+            ),
         ) ?? null
       );
     }
 
     if (shouldPreferRp && rpId) {
-      const rpMatch = all.find(
-        (wrapper) => this.normalizeNullableString(wrapper.passkeyRpId) === rpId,
-      );
+      const rpMatch =
+        all.find(
+          (wrapper) =>
+            this.normalizeNullableString(wrapper.passkeyRpId) === rpId,
+        ) ??
+        all.find((wrapper) =>
+          isPasskeyRpIdCompatibleWithHost(
+            rpId,
+            this.normalizeNullableString(wrapper.passkeyRpId),
+          ),
+        );
       if (rpMatch) return rpMatch;
 
       // If wrappers are explicitly pinned to other RP IDs, fail closed and fall
@@ -645,18 +666,40 @@ export class VaultService {
     return wrapper;
   }
 
-  static async hashVaultKey(vaultKeyHex: string): Promise<string> {
+  static async hashVaultKey(
+    vaultKeyHex: string,
+    existingVaultKeyHash?: string,
+  ): Promise<string> {
     const normalized = this.normalizeVaultKeyHex(vaultKeyHex);
     if (!normalized) {
       throw new Error("Invalid vault key hex.");
     }
+    // A deployed release briefly wrote raw-byte hashes. Retain compatibility
+    // with those records while preserving the original hex-text write format.
+    const rawBytes = hexToBytes(normalized);
     const digest = await crypto.subtle.digest(
+      "SHA-256",
+      rawBytes.buffer as ArrayBuffer,
+    );
+    const rawHash = Array.from(new Uint8Array(digest))
+      .map((byte) => byte.toString(16).padStart(2, "0"))
+      .join("");
+    if (existingVaultKeyHash === rawHash) return rawHash;
+
+    // Vaults created before the raw-byte hash change stored SHA-256 of the
+    // normalized hex text. Verify that exact historical encoding as well.
+    // Preserve a matching stored hash for wrapper mutations: the backend
+    // compares it verbatim, and changing it requires a coordinated migration.
+    const legacyDigest = await crypto.subtle.digest(
       "SHA-256",
       new TextEncoder().encode(normalized),
     );
-    return Array.from(new Uint8Array(digest))
+    const legacyHash = Array.from(new Uint8Array(legacyDigest))
       .map((byte) => byte.toString(16).padStart(2, "0"))
       .join("");
+    return !existingVaultKeyHash || legacyHash === existingVaultKeyHash
+      ? legacyHash
+      : rawHash;
   }
 
   static async unlockWithMethod(params: {
@@ -689,7 +732,7 @@ export class VaultService {
     }
     if (!state.vaultKeyHash) return;
 
-    const hashed = await this.hashVaultKey(normalizedKey);
+    const hashed = await this.hashVaultKey(normalizedKey, state.vaultKeyHash);
     if (hashed !== state.vaultKeyHash) {
       throw new Error("Vault key integrity check failed.");
     }
@@ -1303,8 +1346,7 @@ export class VaultService {
       const authToken = await this.getFirebaseToken();
       const headers: HeadersInit = {
         "Content-Type": "application/json",
-        "x-hushh-client-version":
-          process.env.NEXT_PUBLIC_CLIENT_VERSION || "2.0.0",
+        "x-hushh-client-version": VAULT_WRITE_PROTOCOL_VERSION,
       };
       if (authToken) {
         headers.Authorization = `Bearer ${authToken}`;
@@ -1377,8 +1419,7 @@ export class VaultService {
         const authToken = await this.getFirebaseToken();
         const headers: HeadersInit = {
           "Content-Type": "application/json",
-          "x-hushh-client-version":
-            process.env.NEXT_PUBLIC_CLIENT_VERSION || "2.0.0",
+          "x-hushh-client-version": VAULT_WRITE_PROTOCOL_VERSION,
         };
         if (authToken) headers.Authorization = `Bearer ${authToken}`;
 
@@ -1462,8 +1503,7 @@ export class VaultService {
         const authToken = await this.getFirebaseToken();
         const headers: HeadersInit = {
           "Content-Type": "application/json",
-          "x-hushh-client-version":
-            process.env.NEXT_PUBLIC_CLIENT_VERSION || "2.0.0",
+          "x-hushh-client-version": VAULT_WRITE_PROTOCOL_VERSION,
         };
         if (authToken) headers.Authorization = `Bearer ${authToken}`;
         headers["X-Hushh-Consent"] = `Bearer ${params.vaultOwnerToken}`;
@@ -1523,8 +1563,7 @@ export class VaultService {
         const authToken = await this.getFirebaseToken();
         const headers: HeadersInit = {
           "Content-Type": "application/json",
-          "x-hushh-client-version":
-            process.env.NEXT_PUBLIC_CLIENT_VERSION || "2.0.0",
+          "x-hushh-client-version": VAULT_WRITE_PROTOCOL_VERSION,
         };
         if (authToken) headers.Authorization = `Bearer ${authToken}`;
 

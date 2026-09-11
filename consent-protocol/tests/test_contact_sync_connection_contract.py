@@ -4,6 +4,7 @@ import hashlib
 import inspect
 import json
 from contextlib import contextmanager
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -66,6 +67,9 @@ class _ContactSyncService(ConnectionsService):
         stale_proof: bool = False,
         requester_verified: bool = True,
         ambiguous_proof: bool = False,
+        revoked_by_user_id: str | None = None,
+        revoked_at: datetime | None = None,
+        revoked_by_at: datetime | None = None,
     ) -> None:
         super().__init__(notifier=None)
         self.target_discoverable = target_discoverable
@@ -83,6 +87,9 @@ class _ContactSyncService(ConnectionsService):
         self.stale_proof = stale_proof
         self.requester_verified = requester_verified
         self.ambiguous_proof = ambiguous_proof
+        self.revoked_by_user_id = revoked_by_user_id
+        self.revoked_at = revoked_at
+        self.revoked_by_at = revoked_by_at
         self.writes: list[tuple] = []
         self.statement_count = 0
         self.transaction_depth = 0
@@ -211,6 +218,9 @@ class _ContactSyncService(ConnectionsService):
                         "user_b_id": target_user_id,
                         "target_user_id": target_user_id,
                         "status": status,
+                        "revoked_by_user_id": self.revoked_by_user_id,
+                        "revoked_at": self.revoked_at,
+                        "revoked_by_at": self.revoked_by_at,
                     }
                 )
             return rows
@@ -226,6 +236,7 @@ def _behavior_sync(
     *,
     count: int = 1,
     activation_suppressed: bool = False,
+    sync_started_at: datetime | None = None,
 ):
     lookups: list[dict[str, str]] = []
     matches: list[dict[str, str]] = []
@@ -280,7 +291,79 @@ def _behavior_sync(
             "requester",
             phone_lookups=lookups,
             matches=matches,
+            sync_started_at=sync_started_at,
         )
+
+
+def test_fresh_resync_restores_requesters_removed_contact_among_three_matches() -> None:
+    removed_at = datetime(2026, 9, 9, tzinfo=timezone.utc)
+    service = _ContactSyncService(
+        existing_status_by_user={
+            "target_0001": "active",
+            "target_0002": "revoked",
+            "target_0003": "active",
+        },
+        revoked_by_user_id="requester",
+        revoked_at=removed_at,
+        revoked_by_at=removed_at,
+    )
+    result = _behavior_sync(service, count=3, sync_started_at=removed_at + timedelta(seconds=1))
+    assert result["matchedCount"] == 3
+    assert result["autoConnectedCount"] == 1
+    assert result["alreadyConnectedCount"] == 2
+    assert result["suppressedCount"] == 0
+    activation = next(write for write in service.writes if write[0] == "bulk_graph")[2]
+    assert (
+        next(item for item in activation if item["target_user_id"] == "target_0002")[
+            "reconnect_revoked_at"
+        ]
+        == removed_at
+    )
+
+
+@pytest.mark.parametrize(
+    "actor,episode_offset,cutoff_offset",
+    [
+        ("target", 0, 1),
+        (None, 0, 1),
+        ("requester", -1, 1),
+        ("requester", 0, 0),
+        ("requester", 0, -1),
+        ("requester", 0, None),
+    ],
+)
+def test_resync_preserves_peer_unknown_stale_and_concurrent_disconnects(
+    actor, episode_offset, cutoff_offset
+) -> None:
+    removed_at = datetime(2026, 9, 9, tzinfo=timezone.utc)
+    service = _ContactSyncService(
+        existing_status="revoked",
+        revoked_by_user_id=actor,
+        revoked_at=removed_at,
+        revoked_by_at=removed_at + timedelta(seconds=episode_offset),
+    )
+    result = _behavior_sync(
+        service,
+        sync_started_at=(removed_at + timedelta(seconds=cutoff_offset))
+        if cutoff_offset is not None
+        else None,
+    )
+    assert result["items"][0]["outcome"] == "suppressed"
+    assert service.writes == []
+
+
+def test_own_disconnect_reconnect_still_requires_current_directory_eligibility() -> None:
+    removed_at = datetime(2026, 9, 9, tzinfo=timezone.utc)
+    service = _ContactSyncService(
+        existing_status="revoked",
+        revoked_by_user_id="requester",
+        revoked_at=removed_at,
+        revoked_by_at=removed_at,
+        marketplace_visible=False,
+    )
+    result = _behavior_sync(service, sync_started_at=removed_at + timedelta(seconds=1))
+    assert result["matchedCount"] == 0
+    assert service.writes == []
 
 
 def test_sync_wire_is_bounded_and_rejects_ambiguous_proofs() -> None:

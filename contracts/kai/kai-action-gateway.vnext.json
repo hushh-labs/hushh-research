@@ -20998,7 +20998,7 @@
         "scopes",
         "ask for"
       ],
-      "meaning": "Sends an information request to a named person for the exact fields One already proposed with propose_information_request, with the stated purpose and duration. Runs only from a proposal id that tool returned, so the person never handles field identifiers; One asks once in words, then calls this with confirmed set to true. Never call it before propose_information_request has resolved the person and fields.",
+      "meaning": "Sends an information request to a named person for the exact fields One already proposed with propose_information_request, with the stated purpose and duration. Runs only from a proposal id that tool returned, so the person never handles field identifiers; the Agent One app confirmation ledger authorizes the send. Never call it before propose_information_request has resolved the person and fields.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
@@ -21077,8 +21077,7 @@
         ],
         "input_resolvers": [],
         "slot_schema": {
-          "proposal_id": "opaque_proposal_id",
-          "confirmed": "boolean"
+          "proposal_id": "opaque_proposal_id"
         },
         "workflow_steps": [
           {
@@ -21128,7 +21127,7 @@
         "request",
         "consent"
       ],
-      "meaning": "Declines one request that is waiting on the owner, by the request id list_pending_information_requests returned. One names the requester and what they asked for, gets a yes, then calls this with confirmed set to true. Approval is never done here: approving is the owner's tap on the request card, because the export is encrypted in their own browser.",
+      "meaning": "Declines one request that is waiting on the owner, by the request id list_pending_information_requests returned. The Agent One app confirmation ledger authorizes the decline. Approval is never done here: approving is the owner's tap on the request card, because the export is encrypted in their own browser.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
@@ -21207,8 +21206,7 @@
         ],
         "input_resolvers": [],
         "slot_schema": {
-          "request_id": "opaque_request_id",
-          "confirmed": "boolean"
+          "request_id": "opaque_request_id"
         },
         "workflow_steps": [
           {
@@ -21258,7 +21256,7 @@
         "stop sharing",
         "consent"
       ],
-      "meaning": "Ends one active grant the owner gave earlier, matched by the request it came from, so the other side loses access at once. One names who loses access and to what, gets a yes, then calls this with confirmed set to true.",
+      "meaning": "Ends one active grant the owner gave earlier, matched by the request it came from, so the other side loses access at once. The Agent One app confirmation ledger authorizes the revocation.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
@@ -21337,8 +21335,7 @@
         ],
         "input_resolvers": [],
         "slot_schema": {
-          "request_id": "opaque_request_id",
-          "confirmed": "boolean"
+          "request_id": "opaque_request_id"
         },
         "workflow_steps": [
           {
@@ -21388,7 +21385,7 @@
         "sent",
         "consent"
       ],
-      "meaning": "Withdraws an information request the owner sent that the other person has not decided yet. With no bundle_id it withdraws the request sent most recently in this conversation, which is the usual case; One confirms in words first, then calls this with confirmed set to true.",
+      "meaning": "Withdraws an information request the owner sent that the other person has not decided yet. With no bundle_id it withdraws the request sent most recently in this conversation, which is the usual case; the Agent One app confirmation ledger authorizes the cancellation.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
@@ -21459,8 +21456,7 @@
         "required_inputs": [],
         "input_resolvers": [],
         "slot_schema": {
-          "bundle_id": "opaque_bundle_id_optional",
-          "confirmed": "boolean"
+          "bundle_id": "opaque_bundle_id_optional"
         },
         "workflow_steps": [
           {

@@ -335,6 +335,45 @@ def test_live_context_keeps_only_bounded_redacted_ui_fields():
     }
 
 
+def test_live_context_keeps_a_full_execution_inventory_separate_from_prompt_cap():
+    action_ids = [
+        "location.open_now",
+        "location.open_map",
+        "location.open_people",
+        "location.open_links",
+        "location.open_share",
+        "location.open_ask",
+        "location.open_invite",
+        "location.open_create_circle",
+        "location.open_join_circle",
+        "location.open_temporary_link",
+        "location.open_check_in",
+        "location.open_sos",
+        "location.open_sms_contacts",
+        "location.open_settings",
+        "location.open_active_shares",
+        "location.open_shared_with_me",
+        "location.open_needs_review",
+        "location.add_connections",
+        "location.open_map",
+        "location.refresh",
+        "location.pause_updates",
+        "location.share_selected",
+        "location.create_circle",
+    ]
+    context = _sanitize_live_context(
+        {
+            "route_family": "/one/location",
+            "available_action_ids": action_ids,
+            "executable_action_ids": [*action_ids, "location.rename_circle"],
+        }
+    )
+
+    assert len(context["available_action_ids"]) <= 58
+    assert "location.rename_circle" not in context["available_action_ids"]
+    assert "location.rename_circle" in context["executable_action_ids"]
+
+
 def test_voice_settings_fails_open_when_absent_or_malformed():
     # Every field here is a person's own restriction on a capability they
     # already have, not a grant -- missing or corrupted input must resolve to

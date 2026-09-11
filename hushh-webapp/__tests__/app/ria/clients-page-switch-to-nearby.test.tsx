@@ -16,6 +16,7 @@ const handlerHarness = vi.hoisted(() => ({
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
+  usePathname: () => "/ria/clients",
 }));
 
 vi.mock("@/lib/agent/local-onboarding-actions", () => ({
@@ -45,6 +46,7 @@ vi.mock("@/components/ria/nearby/nearby-around-you", () => ({
 }));
 
 vi.mock("@/components/ria/ria-page-shell", () => ({
+  RiaPageShell: ({ children }: { children: React.ReactNode }) => children,
   RiaCompatibilityState: ({ children }: { children: React.ReactNode }) => children,
   RiaVerificationGate: ({ children }: { children: React.ReactNode }) => children,
 }));

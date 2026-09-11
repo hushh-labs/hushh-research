@@ -129,21 +129,30 @@ function LiveShareIdentity({ status }: { status: LiveShareStatus }) {
           .map((displayName) => ({ displayName, photoUrl: null }));
   const names = people.map((person) => person.displayName).filter(Boolean);
   if (status.count > 1 || people.length > 1) {
-    const visiblePeople = people.slice(0, 3);
-    const fallbackCount = Math.min(status.count, 3);
+    const totalCount = Math.max(status.count, people.length);
+    const visiblePeople = people.slice(0, 2);
+    const fallbackCount = Math.min(totalCount, 2);
     const slots = visiblePeople.length
       ? visiblePeople
       : Array.from({ length: fallbackCount }, (_, index) => ({
           displayName: `${index + 1}`,
           photoUrl: null,
         }));
-    const remaining = Math.max(status.count - slots.length, 0);
+    const remaining = Math.max(totalCount - slots.length, 0);
     return (
-      <span aria-hidden="true" className="flex h-10 w-14 shrink-0 items-center">
+      <span
+        aria-hidden="true"
+        data-testid="one-location-live-share-identities"
+        className={cn(
+          "flex h-9 shrink-0 items-center",
+          remaining > 0 ? "w-20" : "w-14",
+        )}
+      >
         {slots.map((person, index) => (
           <span
             key={`${person.displayName}-${index}`}
-            className="-ml-2 first:ml-0 inline-flex h-9 w-9 items-center justify-center rounded-full bg-[color:var(--app-secondary-surface)] text-[12px] font-semibold text-[color:var(--app-secondary-label)] ring-2 ring-[color:var(--app-primary-surface)]"
+            data-live-share-avatar=""
+            className="-ml-2 first:ml-0 inline-flex h-8 w-8 items-center justify-center rounded-full bg-[color:var(--app-secondary-surface)] text-[11px] font-semibold text-[color:var(--app-secondary-label)] ring-2 ring-[color:var(--app-primary-surface)]"
           >
             {person.photoUrl ? (
               // eslint-disable-next-line @next/next/no-img-element
@@ -158,7 +167,10 @@ function LiveShareIdentity({ status }: { status: LiveShareStatus }) {
           </span>
         ))}
         {remaining > 0 ? (
-          <span className="-ml-2 inline-flex h-9 w-9 items-center justify-center rounded-full bg-[color:var(--app-secondary-surface)] text-[11px] font-semibold text-[color:var(--app-secondary-label)] ring-2 ring-[color:var(--app-primary-surface)]">
+          <span
+            data-testid="one-location-live-share-remaining"
+            className="-ml-2 inline-flex h-8 min-w-8 items-center justify-center rounded-full bg-[color:var(--app-secondary-surface)] px-1 text-[11px] font-semibold text-[color:var(--app-secondary-label)] ring-2 ring-[color:var(--app-primary-surface)]"
+          >
             +{remaining}
           </span>
         ) : null}

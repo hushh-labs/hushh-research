@@ -4,10 +4,14 @@ import { User, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 
 import { useAgentVoiceState } from "@/lib/agent/agent-voice-state";
-import { resolveLocalOnboardingHandler } from "@/lib/agent/local-onboarding-actions";
+import {
+  resolveLocalOnboardingHandler,
+  type LocalOnboardingActionContext,
+} from "@/lib/agent/local-onboarding-actions";
 import { snapKaiBottomChromeVisible } from "@/lib/navigation/kai-bottom-chrome-visibility";
 import {
   clearVoiceCard,
+  consumeVoiceConfirmToken,
   readVoiceCard,
   subscribeToVoiceCard,
   type VoiceCardRequest,
@@ -158,7 +162,12 @@ export function VoiceActionCard() {
     setRunningId(confirm.actionId);
     setFailure(null);
     try {
-      const result = await handler({ ...confirm.slots, confirmed: true });
+      const result = await handler(
+        { ...confirm.slots },
+        {
+          humanConfirmationToken: consumeVoiceConfirmToken(confirm.actionId),
+        } satisfies LocalOnboardingActionContext,
+      );
       if (result.status === "blocked" || result.status === "failed") {
         setFailure(result.summary);
         return;

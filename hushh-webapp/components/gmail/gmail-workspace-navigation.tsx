@@ -24,6 +24,7 @@ export function GmailWorkspaceNavigation({
       options={[...OPTIONS]}
       mobileColumns={3}
       ariaLabel="Gmail workspace"
+      variant="agent-top"
     />
   );
 }

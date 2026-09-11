@@ -21,6 +21,7 @@ import {
   useState,
 } from "react";
 import { AuthProvider } from "@/lib/firebase";
+import { ContactInvitationSessionProvider } from "@/components/connections/contact-invitation-session-provider";
 import { VaultProvider } from "@/lib/vault/vault-context";
 import { StepProgressProvider } from "@/lib/progress/step-progress-context";
 import { StepProgressBar } from "@/components/app-ui/step-progress-bar";
@@ -38,12 +39,14 @@ import { TopShellRouteSwipe } from "@/components/app-ui/top-shell-route-swipe";
 import { AgentPopoverProvider } from "@/components/agent/agent-popover-provider";
 import { AgentRuntimeStateProvider } from "@/lib/agent/agent-runtime-context";
 import { SiriOneVoiceHandoff } from "@/components/agent/siri-one-voice-handoff";
+import { SiriOneRequestHandoff } from "@/components/agent/siri-one-request-handoff";
 import { SiriOneActionHandoff } from "@/components/agent/siri-one-action-handoff";
 import { SiriOneEntityIndexPublisher } from "@/components/agent/siri-one-entity-index-publisher";
 import { AgentVoiceEdgeGlow } from "@/components/agent/agent-voice-edge-glow";
 import { FoundationPublicAmbient } from "@/components/app-ui/foundation-public-ambient";
 import { AppBottomShell } from "@/components/app-ui/app-bottom-shell";
 import { AmbientChromeController } from "@/components/app-ui/ambient-chrome-mask";
+import { resolveRiaRouteTabSet } from "@/lib/navigation/top-shell-tabs";
 import { Toaster } from "@/components/ui/sonner";
 import { StatusBarManager } from "@/components/status-bar-manager";
 import { KeyboardInsetManager } from "@/components/keyboard-inset-manager";
@@ -204,12 +207,19 @@ function AppShellFrame({ children }: ProvidersProps) {
     );
   }, [searchParams, shellPathname]);
   const topShellModel = topShellRouteProfile.model;
-  const routeSwipeTabSet =
-    topShellModel.mode === "bar-with-tabs" &&
-    (topShellModel.tabs.queryParam === null ||
-      topShellModel.tabs.id === "consent")
-      ? topShellModel.tabs
-      : null;
+  const routeSwipeTabSet = useMemo(() => {
+    if (
+      topShellModel.mode === "bar-with-tabs" &&
+      (topShellModel.tabs.queryParam === null ||
+        topShellModel.tabs.id === "consent")
+    ) {
+      return topShellModel.tabs;
+    }
+    const query = searchParams?.toString() ?? "";
+    return resolveRiaRouteTabSet(
+      query ? `${shellPathname}?${query}` : shellPathname,
+    );
+  }, [searchParams, shellPathname, topShellModel]);
   const topShellMetrics = useMemo(
     () => ({
       shellVisible: topShellModel.mode !== "hidden",
@@ -527,6 +537,7 @@ function AppShellFrame({ children }: ProvidersProps) {
           <AgentRuntimeStateProvider>
             <AgentPopoverProvider>
               <SiriOneVoiceHandoff />
+              <SiriOneRequestHandoff />
               <SiriOneActionHandoff />
               <SiriOneEntityIndexPublisher />
               <NativeTestRouter />
@@ -557,8 +568,9 @@ function AppShellFrame({ children }: ProvidersProps) {
               <PostAuthOnboardingSyncBridge />
               <LocationBusAccountBridge />
               <NativeGoogleOAuthReturn />
-              <Suspense
-                fallback={
+              <ContactInvitationSessionProvider>
+                <Suspense
+                  fallback={
                   <>
                     {/* Flex container for proper scroll behavior */}
                     <div
@@ -617,8 +629,8 @@ function AppShellFrame({ children }: ProvidersProps) {
                       </div>
                     </div>
                   </>
-                }
-              >
+                  }
+                >
                 <ConsentNotificationProvider>
                   <ConsentSheetProvider>
                     {/* Flex container for proper scroll behavior */}
@@ -682,7 +694,8 @@ function AppShellFrame({ children }: ProvidersProps) {
                     </div>
                   </ConsentSheetProvider>
                 </ConsentNotificationProvider>
-              </Suspense>
+                </Suspense>
+              </ContactInvitationSessionProvider>
             </AgentPopoverProvider>
           </AgentRuntimeStateProvider>
         </VaultProvider>

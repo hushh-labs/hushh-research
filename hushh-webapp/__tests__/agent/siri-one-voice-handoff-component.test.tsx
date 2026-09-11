@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
   push: vi.fn(),
   getPendingInvocation: vi.fn(),
   claimInvocation: vi.fn(),
+  reportProgress: vi.fn(),
   completeInvocation: vi.fn(),
   addAvailabilityListener: vi.fn(),
   removeAvailabilityListener: vi.fn(),
@@ -37,6 +38,7 @@ vi.mock("@/lib/capacitor/one-voice-invocation", () => ({
     isSupported: () => true,
     getPendingInvocation: mocks.getPendingInvocation,
     claimInvocation: mocks.claimInvocation,
+    reportProgress: mocks.reportProgress,
     completeInvocation: mocks.completeInvocation,
     addAvailabilityListener: mocks.addAvailabilityListener,
   },
@@ -58,6 +60,7 @@ function invocation(overrides: Partial<{
   id: string;
   createdAt: number;
   expiresAt: number;
+  handoffDeadlineAt: number;
 }> = {}) {
   const now = Date.now();
   return {
@@ -66,6 +69,7 @@ function invocation(overrides: Partial<{
     source: "siri_app_shortcut" as const,
     createdAt: overrides.createdAt ?? now,
     expiresAt: overrides.expiresAt ?? now + 300_000,
+    handoffDeadlineAt: overrides.handoffDeadlineAt ?? now + 25_000,
   };
 }
 
@@ -86,10 +90,12 @@ describe("SiriOneVoiceHandoff lifecycle", () => {
     mocks.push.mockReset();
     mocks.getPendingInvocation.mockReset();
     mocks.claimInvocation.mockReset();
+    mocks.reportProgress.mockReset();
     mocks.completeInvocation.mockReset();
     mocks.addAvailabilityListener.mockReset();
     mocks.removeAvailabilityListener.mockReset();
     mocks.claimInvocation.mockResolvedValue({ claimed: true });
+    mocks.reportProgress.mockResolvedValue({ reported: true });
     mocks.completeInvocation.mockResolvedValue(undefined);
     mocks.addAvailabilityListener.mockResolvedValue({
       remove: mocks.removeAvailabilityListener,
@@ -135,6 +141,10 @@ describe("SiriOneVoiceHandoff lifecycle", () => {
         outcome: "accepted",
       }),
     );
+    expect(mocks.reportProgress).toHaveBeenCalledWith({
+      id: pending.id,
+      state: "app_owned",
+    });
     expect(mocks.claimInvocation).toHaveBeenCalledTimes(1);
     window.removeEventListener(AGENT_CONVERSATION_REQUEST_EVENT, received);
   });

@@ -152,11 +152,11 @@ describe("Navbar bottom chrome contract", () => {
     expect(providers).toContain(
       "const foundationVoiceOnlyChrome = isFoundationRoute;",
     );
-    expect(providers).toContain(
-      "const pinnedBottomChrome =\n    isRiaRoute(pathname) || foundationVoiceOnlyChrome;",
+    expect(providers).toMatch(
+      /const pinnedBottomChrome\s*=\s*isRiaRoute\(pathname\)\s*\|\|\s*foundationVoiceOnlyChrome;/,
     );
-    expect(providers).toContain(
-      "navigationHidden:\n      effectiveHideCommandBar || foundationVoiceOnlyChrome,",
+    expect(providers).toMatch(
+      /navigationHidden:\s*effectiveHideCommandBar\s*\|\|\s*foundationVoiceOnlyChrome,/,
     );
     expect(providers).toContain(
       "!pinnedBottomChrome &&\n      !bottomChromeHidden",

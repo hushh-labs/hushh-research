@@ -61,6 +61,7 @@ import {
 } from "@/components/ui/popover";
 import { useRequireAuth } from "@/hooks/use-auth";
 import { ContactSyncResultsSheet } from "@/components/one-location/contact-sync-results-sheet";
+import { ContactInvitationNotice } from "@/components/connections/contact-invitation-notice";
 import { ContactDiscoverabilityConsentDialog } from "@/components/connections/contact-discoverability-consent-dialog";
 import { useContactSync } from "@/lib/contacts/use-contact-sync";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
@@ -177,10 +178,13 @@ export function writeStoredConnectSearchQuery(query: string): void {
 /**
  * The pinned header: the Connect hub strip, and nothing else.
  *
- * `--top-shell-live-height` rather than `top-0` -- the scroll root clears the
- * top bar with a spacer rather than padding, so `top-0` sticks a strip to the
- * scrollport edge, which the fixed bar overlays. Same token the feed's sticky
- * day dividers use.
+ * The strip pins to the SOLID edge of the top chrome, not the end of its fade.
+ * Pinning to `--top-shell-live-height` left the whole fade tail as dead space
+ * above the tabs. On a moving list that space also exposed whichever row was
+ * passing underneath, making the navigation look detached from the app bar.
+ * `--top-shell-mask-solid-height` follows the same collapse value as the bar,
+ * but lets the tab surface itself sit behind the fade so the two read as one
+ * continuous piece of chrome.
  *
  * The negative inline margin is what makes the background reach the page
  * gutters. Without it, rows scroll past visibly in the 16-24px either side of a
@@ -192,24 +196,10 @@ export function writeStoredConnectSearchQuery(query: string): void {
  * fixes. The blur went with it -- it has nothing left to blur, and it cost a
  * compositing layer on every scroll frame.
  *
- * `::before` continues that same material UP over `--top-fade-active`, the band
- * where the fixed top mask dissolves to fully transparent. The header pins at
- * the mask's last visible pixel, so that band is chrome-coloured at the top and
- * clear glass at the bottom -- and rows slid through it in plain sight, between
- * the bar and the strips, which is the other half of the same report. Covering
- * it means the tail dissolves over empty page instead, exactly as it does when
- * the page has not been scrolled.
- *
- * Height only under `data-pinned`: an absolutely positioned box with no height
- * and empty content is 0px tall, so the cover exists and measures nothing until
- * the header is really pinned. It has to be conditional. At rest this header
- * sits `--page-header-section-gap` below the page title -- 10px at compact
- * density -- and an unconditional 22px band would take a bite out of "Connect".
- *
  * Held by e2e/connect-sticky-header.layout.spec.ts.
  */
 const CONNECT_STICKY_HEADER_CLASSNAME =
-  "sticky top-[var(--top-shell-live-height,0px)] z-20 mx-[calc(var(--page-inline-gutter-standard)*-1)] space-y-2.5 bg-background px-[var(--page-inline-gutter-standard)] pb-2.5 pt-1.5 before:pointer-events-none before:absolute before:inset-x-0 before:bottom-full before:bg-background data-[pinned=true]:before:h-[calc(var(--top-fade-active,0px)+1px)] sm:space-y-3";
+  "sticky top-[var(--top-shell-mask-solid-height,0px)] z-20 mx-[calc(var(--page-inline-gutter-standard)*-1)] space-y-2.5 bg-background px-[var(--page-inline-gutter-standard)] pb-2.5 pt-1.5 sm:space-y-3";
 
 /**
  * The search row pins UNDER the header, not with it.
@@ -220,13 +210,13 @@ const CONNECT_STICKY_HEADER_CLASSNAME =
  * not filter. Pinned in place instead, it arrives exactly when its own results
  * do and stays for as long as they are on screen.
  *
- * The offset is the live top shell plus whatever the header above measured.
+ * The offset is the solid chrome edge plus whatever the header above measured.
  *
  * Opaque for the same reason the header above it is: at 85% the directory rows
  * this field filters read straight through it as they scroll past.
  */
 const CONNECT_STICKY_SEARCH_CLASSNAME =
-  "sticky top-[calc(var(--top-shell-live-height,0px)+var(--connect-sticky-header-height,0px))] z-10 mx-[calc(var(--page-inline-gutter-standard)*-1)] bg-background px-[var(--page-inline-gutter-standard)] py-2";
+  "sticky top-[calc(var(--top-shell-mask-solid-height,0px)+var(--connect-sticky-header-height,0px))] z-10 mx-[calc(var(--page-inline-gutter-standard)*-1)] bg-background px-[var(--page-inline-gutter-standard)] py-2";
 
 const CONNECT_TAB_LABEL: Record<ConnectTab, string> = {
   people: "People",
@@ -538,7 +528,6 @@ export default function ConnectPageClient() {
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const connectStackRef = useRef<HTMLDivElement | null>(null);
   const stickyHeaderRef = useRef<HTMLDivElement | null>(null);
-  const stickyPinSentinelRef = useRef<HTMLDivElement | null>(null);
   const directoryMenuRef = useRef<HTMLDivElement | null>(null);
   const directoryMenuButtonRef = useRef<HTMLButtonElement | null>(null);
   const [directoryMenuOpen, setDirectoryMenuOpen] = useState(false);
@@ -569,6 +558,7 @@ export default function ConnectPageClient() {
   const [connectionsPage, setConnectionsPage] = useState(1);
   const [connectionsHasMore, setConnectionsHasMore] = useState(false);
   const [connectionsTotalCount, setConnectionsTotalCount] = useState(0);
+  const [connectionsExpanded, setConnectionsExpanded] = useState(false);
   const [connectionsLoadingMore, setConnectionsLoadingMore] = useState(false);
   const [connectionsRefreshingFirstPage, setConnectionsRefreshingFirstPage] =
     useState(false);
@@ -613,60 +603,6 @@ export default function ConnectPageClient() {
     observer.observe(header);
     return () => observer.disconnect();
   }, [surface]);
-  /**
-   * Say whether the header is actually pinned, so its cover can be conditional.
-   *
-   * The cover is a band of page background continuing UP from the header over
-   * `--top-fade-active` -- the strip where the fixed top mask dissolves to
-   * nothing and rows were sliding through it in plain sight. Pinned, that band
-   * belongs to the chrome. At rest it is the gap under the "Connect" title,
-   * `--page-header-section-gap`, which is 10px at this page's density -- so an
-   * unconditional cover would sit on the title instead of on the mask's tail.
-   *
-   * An observer rather than a scroll handler: this fires twice per visit, at
-   * the pin boundary, instead of measuring on every frame the way the top app
-   * bar's own collapse tracking has to.
-   *
-   * `rootMargin` is the header's resolved `top`, read back rather than
-   * recomputed. `--top-shell-live-height` is a calc of six tokens declared at
-   * route-shell scope; anything here that re-derived it would be a second copy
-   * to keep in step with `signed-in-shell-content-offset.ts`.
-   */
-  useEffect(() => {
-    const header = stickyHeaderRef.current;
-    const sentinel = stickyPinSentinelRef.current;
-    if (!header || !sentinel) return;
-    if (typeof IntersectionObserver === "undefined") return;
-    const scrollRoot = document.querySelector<HTMLElement>(
-      '[data-app-scroll-root="true"]',
-    );
-    let observer: IntersectionObserver | null = null;
-    const attach = () => {
-      observer?.disconnect();
-      const pinnedAt = Math.max(
-        0,
-        Math.round(Number.parseFloat(getComputedStyle(header).top) || 0),
-      );
-      observer = new IntersectionObserver(
-        (entries) => {
-          const entry = entries[entries.length - 1];
-          if (!entry) return;
-          header.dataset.pinned = entry.isIntersecting ? "false" : "true";
-        },
-        { root: scrollRoot, rootMargin: `-${pinnedAt}px 0px 0px 0px` },
-      );
-      observer.observe(sentinel);
-    };
-    attach();
-    // The offset moves with the breakpoint and with the safe-area inset, and a
-    // rotation changes both at once.
-    window.addEventListener("resize", attach);
-    return () => {
-      window.removeEventListener("resize", attach);
-      observer?.disconnect();
-    };
-  }, [surface]);
-
   useEffect(() => {
     if (useWebDirectoryPopover) return;
     if (!directoryMenuOpen) return;
@@ -745,6 +681,8 @@ export default function ConnectPageClient() {
     [user],
   );
 
+  const [connectionsRefreshError, setConnectionsRefreshError] = useState(false);
+
   const loadOutgoingRequestIds = useCallback(async () => {
     if (!user) return;
     try {
@@ -792,6 +730,7 @@ export default function ConnectPageClient() {
         if (requestId !== connectionsRequestRef.current) return false;
 
         if (result) {
+          setConnectionsRefreshError(false);
           setConnections(result.items);
           setConnectionsPage(result.page);
           setConnectionsHasMore(result.hasMore);
@@ -805,6 +744,11 @@ export default function ConnectPageClient() {
           setConnectionsPage(0);
           setConnectionsHasMore(true);
           setConnectionsTotalCount((current) => Math.max(0, current - 1));
+        }
+        if (!result) {
+          setConnectionsRefreshError(true);
+          // A collapsed panel must not conceal its only retry affordance.
+          setConnectionsExpanded(true);
         }
         return true;
       } finally {
@@ -844,11 +788,11 @@ export default function ConnectPageClient() {
     // AuthContext hydrates the verified backend phone independently for
     // native/UAT verification paths where Firebase User.phoneNumber is empty.
     accountPhoneNumber: phoneNumber ?? user?.phoneNumber,
+    accountEmail: user?.email,
     resolveVerifiedAccountPhoneNumber: resolveVerifiedPhoneNumber,
     userId: user?.uid,
-    // Awaited, and its boolean dropped: the hook only needs to know the
-    // refresh finished before it announces the outcome, so the toast never
-    // claims a connection the list behind it has not caught up to.
+    // Await the display refresh. A failed read preserves the successful sync
+    // and exposes a retry beside the list rather than repeating the import.
     //
     // The audience is read from a ref rather than captured. A sync is long
     // enough to switch tabs under, and the hook snapshots its options once at
@@ -1247,7 +1191,7 @@ export default function ConnectPageClient() {
           connectionId: connection.connectionId,
         });
         await refreshConnectionsFirstPage({
-          audience: connectionAudience,
+          audience: connectionAudienceRef.current,
           removedConnection: true,
         });
         CacheSyncService.onConnectionGraphMutated(user.uid);
@@ -1269,7 +1213,7 @@ export default function ConnectPageClient() {
         setPendingRemoveId(null);
       }
     },
-    [connectionAudience, refreshConnectionsFirstPage, user],
+    [refreshConnectionsFirstPage, user],
   );
 
   const handleLoadMoreConnections = useCallback(async () => {
@@ -2152,13 +2096,9 @@ export default function ConnectPageClient() {
 
   useLocalOnboardingActionHandler(
     "connect.remove_connection",
-    async (slots) => {
+    async (slots, context) => {
       const spokenName =
         typeof slots.person === "string" ? slots.person.trim() : "";
-      // Set by the card's destructive button and by nothing else. Voice never
-      // carries it, so a spoken sentence can raise this question but can never
-      // answer its own question.
-      const confirmed = slots.confirmed === true;
       const chosenConnectionId =
         typeof slots.connectionId === "string" ? slots.connectionId.trim() : "";
       if (!user) {
@@ -2216,7 +2156,7 @@ export default function ConnectPageClient() {
           };
         }
         const connection = matches[0]!;
-        if (!confirmed) {
+        if (!context?.directiveId && !context?.humanConfirmationToken) {
           // Ask before, not after. A name misheard once is a connection gone
           // with no undo, and this is the one action here where being wrong
           // cannot be walked back.
@@ -2437,26 +2377,9 @@ export default function ConnectPageClient() {
                   ref={connectStackRef}
                   className="relative space-y-3 sm:space-y-4"
                 >
-                  {/* Where the header sits when it is NOT pinned, held open as a 1px
-                line so an observer can watch that spot leave the scrollport.
-                Absolutely positioned, so it is out of flow: `space-y-*` gives a
-                first child `margin-block-end` only, which an absolute box with
-                `top: 0` cannot act on, and the strips below keep their rhythm.
-                Reading the header itself would prove nothing -- once pinned it
-                never leaves, which is the whole point of it. */}
-                  <div
-                    ref={stickyPinSentinelRef}
-                    data-testid="connect-sticky-pin-sentinel"
-                    aria-hidden
-                    className="pointer-events-none absolute inset-x-0 top-0 h-px"
-                  />
                   <div
                     ref={stickyHeaderRef}
                     data-testid="connect-sticky-header"
-                    // Written by the observer above. Declared here so the attribute
-                    // exists from the first paint rather than arriving a frame later,
-                    // which is a frame of the cover in the wrong state.
-                    data-pinned="false"
                     className={CONNECT_STICKY_HEADER_CLASSNAME}
                   >
                     <TopShellTabs
@@ -2488,18 +2411,34 @@ export default function ConnectPageClient() {
                       ) : (
                         <div className="space-y-3 sm:space-y-4">
                           <SettingsGroup
-                            title={
-                              <span className={CONNECT_WRAPPING_TEXT_CLASSNAME}>
-                                {connectionsHeading}
-                              </span>
+                            titleControl={
+                              <Button
+                                type="button"
+                                variant="none"
+                                effect="fade"
+                                aria-controls="connect-my-connections-panel"
+                                aria-expanded={connectionsExpanded}
+                                onClick={() =>
+                                  setConnectionsExpanded((expanded) => !expanded)
+                                }
+                                data-testid="connect-my-connections-toggle"
+                                className="group h-11 min-h-11 max-w-full rounded-full border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-secondary-fill)] px-3 text-[14px] font-semibold text-[color:var(--app-label)] shadow-none hover:bg-[color:var(--app-tertiary-fill)] focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)] focus-visible:ring-offset-2"
+                              >
+                                <span className={CONNECT_WRAPPING_TEXT_CLASSNAME}>
+                                  {connectionsHeading}
+                                </span>
+                                <ChevronDown
+                                  aria-hidden="true"
+                                  className={cn(
+                                    "ml-1.5 h-4 w-4 shrink-0 transition-transform duration-200",
+                                    connectionsExpanded && "rotate-180",
+                                  )}
+                                />
+                              </Button>
                             }
-                            // Refresh sits in `titleAction`, not inside `title`. It used
-                            // to be a child of the title node, which `SettingsGroup`
-                            // renders inside an element carrying `role="heading"` -- and
-                            // a control there is not a control. A screen reader folds its
-                            // label into the heading's accessible name, so the heading
-                            // announced as "Your connections Refresh contacts", and the
-                            // button itself was never offered as something to press.
+                            // Refresh stays beside the disclosure, never inside it: nested
+                            // controls are invalid and would make one of the two actions
+                            // unreachable to keyboard and assistive-technology users.
                             titleAction={
                               <Button
                                 type="button"
@@ -2524,6 +2463,10 @@ export default function ConnectPageClient() {
                               </Button>
                             }
                             separatorInset
+                            contentId="connect-my-connections-panel"
+                            shellClassName={cn(
+                              !connectionsExpanded && "hidden",
+                            )}
                             contentClassName={
                               sortedConnections.length > 0
                                 ? CONNECT_CONNECTION_LIST_CLASSNAME
@@ -2531,6 +2474,15 @@ export default function ConnectPageClient() {
                             }
                             testId="connect-my-connections-group"
                           >
+                            {connectionsRefreshError && (
+                              <SettingsRow
+                                title="Could not refresh connections"
+                                description="Your list may be out of date. Tap to retry."
+                                onClick={handleRefreshConnections}
+                                disabled={connectionsRefreshingFirstPage}
+                                density="compact"
+                              />
+                            )}
                             {sortedConnections.length === 0 ? (
                               <SettingsRow
                                 // No description. "Connections appear here." explained what
@@ -2703,6 +2655,9 @@ export default function ConnectPageClient() {
                           ) : null}
 
                           <div className="space-y-4">
+                            {!isAdvisorTab && contactSync.available ? (
+                              <ContactInvitationNotice />
+                            ) : null}
                             <SettingsGroup
                               titleControl={directorySelector}
                               // People only. This one JSX node also renders the RIAs

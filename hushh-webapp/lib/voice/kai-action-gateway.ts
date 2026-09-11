@@ -736,6 +736,7 @@ function validateGateway(value: unknown): KaiActionGateway {
 }
 
 export const KAI_ACTION_GATEWAY = validateGateway(gatewayJson);
+export const KAI_ACTION_GATEWAY_SCHEMA_VERSION = KAI_ACTION_GATEWAY.schema_version;
 function isCrmProductAction(action: KaiActionDefinition): boolean {
   const searchable = [
     action.action_id,
@@ -1231,7 +1232,13 @@ async function searchKaiActionsSemantic(
         "Content-Type": "application/json",
         "X-Hushh-Consent": `Bearer ${input.vaultOwnerToken}`,
       },
-      body: JSON.stringify({ query: input.query.trim(), limit }),
+      body: JSON.stringify({
+        query: input.query.trim(),
+        limit,
+        context: {
+          screen: input.appRuntimeState?.route.screen || null,
+        },
+      }),
       signal: signal ?? abort.signal,
       credentials: "include",
     });

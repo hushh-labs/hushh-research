@@ -5,6 +5,8 @@ import { Check, Loader2, RefreshCw, Send, ShieldAlert } from "lucide-react";
 import { toast } from "sonner";
 
 import { ContactSourceBadge } from "@/components/connections/contact-source-badge";
+import { ContactInvitationSheet } from "@/components/connections/contact-invitation-sheet";
+import type { ContactInvitationController } from "@/lib/contacts/use-contact-invitations";
 import {
   TAKEOVER_OVERLAY_Z_CLASSNAME,
   TAKEOVER_SURFACE_Z_CLASSNAME,
@@ -52,6 +54,7 @@ export function ContactSyncResultsSheet({
   onInvite,
   onRequestConnection,
   takeover = false,
+  invitations,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -62,6 +65,7 @@ export function ContactSyncResultsSheet({
   onRequestConnection: (userId: string) => Promise<void>;
   /** Use the existing Location onboarding layer for its nested results. */
   takeover?: boolean;
+  invitations?: ContactInvitationController;
 }) {
   const [requestingUserId, setRequestingUserId] = useState<string | null>(null);
   const [requestedUserIds, setRequestedUserIds] = useState<Set<string>>(
@@ -73,6 +77,19 @@ export function ContactSyncResultsSheet({
     setRequestedUserIds(new Set());
     setVisibleMatchCount(MATCH_PAGE_SIZE);
   }, [result]);
+  // Admission gates can remount the route after an external composer returns.
+  // The active, account/route-owned invitation session survives that temporary
+  // remount even though the route's matching results/open flag do not.
+  if (invitations?.enabled && invitations.active) {
+    return (
+      <ContactInvitationSheet
+        key={invitations.version}
+        controller={invitations}
+        takeover={takeover}
+        onFinish={() => onOpenChange(false)}
+      />
+    );
+  }
   if (!result) return null;
 
   const connectedCount =
@@ -96,6 +113,9 @@ export function ContactSyncResultsSheet({
       <SheetContent
         side="bottom"
         dragDismiss={false}
+        // The launching menu may restore focus after an async sync opens us.
+        // Keep results visible; outside pointer presses, Escape and Close still dismiss.
+        onFocusOutside={(event) => event.preventDefault()}
         overlayClassName={takeover ? TAKEOVER_OVERLAY_Z_CLASSNAME : undefined}
         className={cn(
           "mx-auto flex max-h-[calc(88dvh-var(--kb-height,0px))] w-full max-w-2xl flex-col rounded-t-[24px] px-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:px-6",
@@ -105,9 +125,9 @@ export function ContactSyncResultsSheet({
         <SheetHeader className="text-left">
           <SheetTitle>Contact sync results</SheetTitle>
           <SheetDescription>
-            Only eligible Hushh accounts are listed. Names and raw phone numbers
-            are never sent to Hushh; contacts without a match are shown only as
-            counts.
+            {invitations?.enabled
+              ? "Names, numbers and invitation emails stay on your device. Choose contacts to invite from this session after reviewing your matches."
+              : "Only eligible Hushh accounts are listed. Names and raw phone numbers are never sent to Hushh; contacts without a match are shown only as counts."}
           </SheetDescription>
         </SheetHeader>
 
@@ -154,11 +174,14 @@ export function ContactSyncResultsSheet({
               </p>
             ) : null}
             {result.uncheckedContactCount ? (
-              <p>{result.uncheckedContactCount} contacts were not checked yet.</p>
+              <p>
+                {result.uncheckedContactCount} contacts were not checked yet.
+              </p>
             ) : null}
             {result.lookupLimitExceeded ? (
               <p>
-                This address book exceeded the secure {CONTACT_SYNC_MAX_LOOKUPS.toLocaleString()}-number sync limit.
+                This address book exceeded the secure{" "}
+                {CONTACT_SYNC_MAX_LOOKUPS.toLocaleString()}-number sync limit.
                 {result.lookupLimitedContactCount
                   ? ` ${result.lookupLimitedContactCount} contacts with overflow numbers were left unchecked and are not inviteable.`
                   : " Additional numbers were outside the limit, but no matched contact was reclassified as unchecked or inviteable."}
@@ -207,7 +230,9 @@ export function ContactSyncResultsSheet({
                         ) : null}
                       </div>
                       <p className="break-words text-xs text-muted-foreground [overflow-wrap:anywhere]">
-                        {requested ? "Request sent" : resultStatus(match.outcome)}
+                        {requested
+                          ? "Request sent"
+                          : resultStatus(match.outcome)}
                       </p>
                     </div>
                     {match.outcome === "request_required" && !requested ? (
@@ -261,8 +286,8 @@ export function ContactSyncResultsSheet({
           {hiddenMatchCount ? (
             <div className="mt-3 flex flex-col items-center gap-2">
               <p className="text-xs text-muted-foreground" aria-live="polite">
-                Showing {visibleMatches.length} of {result.matches.length} matched
-                people
+                Showing {visibleMatches.length} of {result.matches.length}{" "}
+                matched people
               </p>
               <Button
                 type="button"
@@ -309,7 +334,12 @@ export function ContactSyncResultsSheet({
           )}
           <Button
             type="button"
-            disabled={!result.inviteCandidateCount}
+            disabled={
+              syncing ||
+              !(invitations?.enabled
+                ? invitations.candidates.length
+                : result.inviteCandidateCount)
+            }
             onClick={() => void onInvite()}
             className="h-11 rounded-full"
           >

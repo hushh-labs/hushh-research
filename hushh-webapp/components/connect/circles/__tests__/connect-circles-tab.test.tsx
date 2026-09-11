@@ -498,6 +498,21 @@ describe("ConnectCirclesTab", () => {
     expect(joinHref).not.toContain("/one/location");
   });
 
+  it("keeps circle navigation copy compact on narrow screens", async () => {
+    render(<ConnectCirclesTab />);
+
+    const createDescription = await screen.findByText(
+      "Create a group for your connections.",
+    );
+    const joinDescription = screen.getByText(
+      "Enter a shared 12-character code.",
+    );
+    for (const description of [createDescription, joinDescription]) {
+      expect(description.className).toContain("truncate");
+      expect(description.className).toContain("whitespace-nowrap");
+    }
+  });
+
   it("names the tab explicitly on every navigation", async () => {
     // The App Router refuses a navigation whose only change is the whole query
     // string disappearing, so `tab=circles` is written out even when closing a

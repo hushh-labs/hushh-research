@@ -64,13 +64,19 @@ describe("Profile, Location People, and Location Links consistency contract", ()
     const source = readSource(
       "components/one-location/redesign/location-redesign-hub.tsx",
     );
+    const ctaLayout = readSource(
+      "components/one-location/redesign/location-cta-layout.ts",
+    );
 
     // The People tab used to introduce a private 640px reading column inside
     // the agent shell, leaving its search/list surface visibly narrower than
     // the Now | People | Links tabs on desktop. Hub panels already own the
     // canonical page gutters, so the tab content should fill that same shell.
     expect(source).toContain('<div className="w-full space-y-4 sm:space-y-5">');
-    expect(source).toContain("w-full max-w-[200px] self-start rounded-[13px]");
+    expect(source).toContain("PUBLIC_LINK_CONTROLS_CLASSNAME");
+    expect(source).toContain("equalWidthButtons");
+    expect(ctaLayout).toContain("mx-auto w-full max-w-[280px] space-y-3");
+    expect(ctaLayout).toContain("h-11 min-h-11 w-full rounded-[13px]");
   });
 
   it("keeps Location Links concise without duplicate active-card title or live pill copy", () => {
@@ -89,18 +95,19 @@ describe("Profile, Location People, and Location Links consistency contract", ()
     expect(source).not.toContain("Stops in 1h");
   });
 
-  it("normalizes Profile utility icons to neutral rows while preserving semantic exceptions", () => {
+  it("uses semantic Profile icon tones while preserving destructive treatment", () => {
     const source = readSource("app/profile/profile-workspace-page.tsx");
 
     expect(source).toContain("title={PROFILE_LABELS.referrals}");
-    expect(source).toContain('iconTone="gray"');
     expect(source).toContain("title={PROFILE_LABELS.developerTools}");
-    expect(source).not.toContain(
-      'icon={Users}\n                iconTone="blue"',
-    );
-    expect(source).not.toContain(
-      'icon={CodeXml}\n                  iconTone="purple"',
-    );
+    expect(source).toMatch(/icon=\{UserRound\}\s+iconTone="blue"/);
+    expect(source).toMatch(/icon=\{SlidersHorizontal\}\s+iconTone="purple"/);
+    expect(source).toMatch(/icon=\{ShieldCheck\}\s+iconTone="green"/);
+    expect(source).toMatch(/icon=\{Laptop\}\s+iconTone="indigo"/);
+    expect(source).toMatch(/icon=\{Users\}\s+iconTone="orange"/);
+    expect(source).toMatch(/icon=\{MessageCircleQuestion\}\s+iconTone="blue"/);
+    expect(source).toMatch(/icon=\{CodeXml\}\s+iconTone="purple"/);
+    expect(source).toContain('tone="destructive"');
   });
 
   it("keeps Profile and Location grouped surfaces on the same compact radius token", () => {

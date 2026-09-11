@@ -3,9 +3,11 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   CHANGE_TIME_DURATION_LADDER,
+  DURATION_COMPACT_GRID_CLASS,
   DurationPresetPicker,
   compactDurationLabel,
 } from "@/components/one-location/redesign/duration-presets";
+import { DurationSelector } from "@/components/one-location/redesign/selectors";
 
 /** Every cell that currently reads as chosen. */
 function pressedLabels(): string[] {
@@ -138,6 +140,18 @@ describe("DurationPresetPicker", () => {
     }
   });
 
+  it("bounds the confirmation choices without shrinking their touch targets", () => {
+    const { container } = render(
+      <DurationPresetPicker value="1" onChange={vi.fn()} compact />,
+    );
+
+    const grid = container.querySelector('[role="group"] > div');
+    expect(grid).toHaveClass(...DURATION_COMPACT_GRID_CLASS.split(" "));
+    for (const cell of screen.getAllByRole("button")) {
+      expect(cell).toHaveClass("min-h-11", "rounded-full", "px-3");
+    }
+  });
+
   it("drops the Custom cell and its wheel when allowCustom is false", () => {
     // The live-share "New time" editor (issue #6228): the timed rungs plus the
     // open-ended row are the whole choice.
@@ -187,6 +201,29 @@ describe("DurationPresetPicker", () => {
       "Custom",
       "Until I stop",
     ]);
+  });
+});
+
+describe("DurationSelector button layout", () => {
+  it("can distribute a short option set evenly across its available width", () => {
+    render(
+      <DurationSelector
+        value="1"
+        onChange={vi.fn()}
+        options={[
+          { value: "0.5", label: "30 min" },
+          { value: "1", label: "1 hour" },
+        ]}
+        presentation="buttons"
+        equalWidthButtons
+      />,
+    );
+
+    const group = screen.getByRole("radiogroup", { name: "Duration" });
+    expect(group).toHaveClass("grid", "w-full", "grid-cols-2", "gap-2");
+    for (const option of screen.getAllByRole("radio")) {
+      expect(option).toHaveClass("min-h-11", "min-w-0", "px-3");
+    }
   });
 });
 

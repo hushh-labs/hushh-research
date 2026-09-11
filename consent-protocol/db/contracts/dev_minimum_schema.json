@@ -1,6 +1,6 @@
 {
   "contract_name": "dev_minimum_schema",
-  "expected_migration_version": 204,
+  "expected_migration_version": 206,
   "migration_version_policy": "minimum",
   "required_functions": [
     "resolve_feed_counterpart_user_id",
@@ -1212,6 +1212,18 @@
       "one_runtime_setup_choice",
       "created_at",
       "updated_at"
+    ],
+    "connections": [
+      "id",
+      "user_a_id",
+      "user_b_id",
+      "status",
+      "source",
+      "created_at",
+      "updated_at",
+      "revoked_at",
+      "revoked_by_side",
+      "revoked_by_at"
     ]
   }
 }

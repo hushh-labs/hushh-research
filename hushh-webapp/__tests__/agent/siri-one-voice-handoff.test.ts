@@ -1,9 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  AGENT_CONVERSATION_CANCEL_EVENT,
   AGENT_CONVERSATION_OUTCOME_EVENT,
   AGENT_CONVERSATION_REQUEST_EVENT,
   acknowledgeAgentConversation,
+  cancelAgentConversationRequest,
   markAgentConversationOwnerReady,
   requestAgentConversation,
   resetAgentConversationBrokerForTests,
@@ -16,6 +18,7 @@ import {
 const readyInput = {
   now: 1_000,
   expiresAt: 301_000,
+  handoffDeadlineAt: 26_000,
   visible: true,
   authLoading: false,
   signedIn: true,
@@ -86,6 +89,12 @@ describe("Siri One Voice handoff", () => {
       }),
     ).toBe("expired");
     expect(
+      resolveSiriOneVoiceHandoffState({
+        ...readyInput,
+        handoffDeadlineAt: readyInput.now,
+      }),
+    ).toBe("handoff_timeout");
+    expect(
       resolveSiriOneVoiceHandoffState({ ...readyInput, voiceEnabled: false }),
     ).toBe("voice_disabled");
   });
@@ -135,6 +144,32 @@ describe("Siri One Voice handoff", () => {
       requestId: undefined,
     });
     window.removeEventListener(AGENT_CONVERSATION_REQUEST_EVENT, received);
+  });
+
+  it("cancels a queued Siri request before the voice owner mounts", async () => {
+    const received = vi.fn();
+    const cancelled = vi.fn();
+    window.addEventListener(AGENT_CONVERSATION_REQUEST_EVENT, received);
+    window.addEventListener(AGENT_CONVERSATION_CANCEL_EVENT, cancelled);
+
+    expect(
+      requestAgentConversation({
+        source: "siri_app_shortcut",
+        requestId: "siri-cancelled",
+        initialRequestText: "enable location",
+      }),
+    ).toBe("queued");
+    cancelAgentConversationRequest({
+      source: "siri_app_shortcut",
+      requestId: "siri-cancelled",
+    });
+    markAgentConversationOwnerReady();
+    await Promise.resolve();
+
+    expect(received).not.toHaveBeenCalled();
+    expect(cancelled).toHaveBeenCalledTimes(1);
+    window.removeEventListener(AGENT_CONVERSATION_REQUEST_EVENT, received);
+    window.removeEventListener(AGENT_CONVERSATION_CANCEL_EVENT, cancelled);
   });
 
   it("emits one correlated terminal acknowledgement", () => {

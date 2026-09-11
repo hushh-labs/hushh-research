@@ -5603,15 +5603,15 @@
   "schema_version": "hushh.runtime_topology_index.v1",
   "source_sha256": {
     "a2a_scope_map": "ca0f361cb381a6235d61d5668ecea15b6069e04ff6c26d8d7138c5e99391180e",
-    "action_gateway": "a0373f44e99a7a3496033fff0bd858c254c52012776da1cf626fabb03ef09543",
+    "action_gateway": "8c3b5cf72b85f18e5214311094f306c7fae2c48188261e4b305f8547e3bacf49",
     "agent_registry": "512034daf9e4876dd5c2d9ad37594c5d5c0578dae4ddd4e8b68fb6bc064a7f87",
     "cache_manifest": "3e667d561723697d04d5c4b49faf24b66a87a63b39fd1c7a026b1b1d4d52a979",
     "data_plane": "d82bde251c6b4be8dc61e2c9b76a1492497a13a5b16b39a990901fc25508035f",
     "in_process_dispatch": "427e94fb794e6f1f8fe6151fd7f79392b8f7001eefe0dc6204726cd29aacac8d",
-    "one_specialist_tools": "9d2f7d4fdc29cd82264636ce610a078db35b46aef9ca62b1bd4938255054e471",
+    "one_specialist_tools": "43318b25db3a708b557357dfa0060c49ea73f91ad0c79c7b660fe8120ce57093",
     "route_index": "029f3357bbde6b96a975a646434126345ae69f52d871ce47dbb8ec034302795f",
     "route_layout": "20cc86e43dce62e3826a12cd07116f28f173a16e1fc241d8c08983bc434ea68f",
-    "surface_map": "1c19b403ddfef3cc477f99067a26b4480224efc6c3083ce1dd785cef453d2ba4",
+    "surface_map": "78d06ddf4b743da7797876546b2ca3acc62716b6d28bbc22de5ca3bd817e5311",
     "topology_contract": "3515551e0cd42c3d17c767dd922111b1bf29f7ac1521d47e2d16ced39c6c1b6a",
     "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"
   },

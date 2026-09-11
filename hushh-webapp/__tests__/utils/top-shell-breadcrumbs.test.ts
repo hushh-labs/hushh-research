@@ -1,8 +1,35 @@
 import { describe, expect, it } from "vitest";
 
-import { resolveTopShellBreadcrumb } from "@/lib/navigation/top-shell-breadcrumbs";
+import {
+  resolveTopShellBreadcrumb,
+  visibleTopShellBreadcrumbItems,
+} from "@/lib/navigation/top-shell-breadcrumbs";
 
 describe("top shell breadcrumbs", () => {
+  it("shows only the immediate parent and current page in deep trails", () => {
+    expect(
+      visibleTopShellBreadcrumbItems([
+        { label: "Profile", href: "/one/profile" },
+        { label: "Security", href: "/one/profile/security" },
+        { label: "Vault methods" },
+      ]),
+    ).toEqual([
+      { label: "Security", href: "/one/profile/security" },
+      { label: "Vault methods" },
+    ]);
+
+    expect(
+      visibleTopShellBreadcrumbItems([
+        { label: "One", href: "/one" },
+        { label: "Location", href: "/one/location" },
+        { label: "Settings" },
+      ]),
+    ).toEqual([
+      { label: "Location", href: "/one/location" },
+      { label: "Settings" },
+    ]);
+  });
+
   it("returns a query-selected saved analysis to its Analysis workspace", () => {
     expect(
       resolveTopShellBreadcrumb(
@@ -993,6 +1020,29 @@ describe("top shell breadcrumbs", () => {
     });
   });
 
+  it("keeps primary RIA pages on back-arrow-only top chrome", () => {
+    expect(resolveTopShellBreadcrumb("/ria/profile")).toEqual({
+      backHref: "/one",
+      width: "content",
+      align: "center",
+      items: [],
+    });
+
+    expect(resolveTopShellBreadcrumb("/ria/clients")).toEqual({
+      backHref: "/ria/profile",
+      width: "profile",
+      align: "center",
+      items: [],
+    });
+
+    expect(resolveTopShellBreadcrumb("/ria/picks")).toEqual({
+      backHref: "/ria/profile",
+      width: "content",
+      align: "center",
+      items: [],
+    });
+  });
+
   it("keeps bare Picks regardless of any ?view= value", () => {
     // Picks has no sub-view left to deepen into (the Debate config view was
     // removed as a duplicate of Screening), so every ?view= value -- known,
@@ -1001,11 +1051,7 @@ describe("top shell breadcrumbs", () => {
       backHref: "/ria/profile",
       width: "content" as const,
       align: "center" as const,
-      items: [
-        { label: "One", href: "/one" },
-        { label: "RIA", href: "/ria/profile" },
-        { label: "Picks" },
-      ],
+      items: [],
     };
 
     expect(resolveTopShellBreadcrumb("/ria/picks")).toEqual(barePicks);
