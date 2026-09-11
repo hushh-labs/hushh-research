@@ -1,36 +1,12 @@
--- 206_pkm_manifest_display_segment.sql
+-- Rollback for 207_pkm_manifest_display_segment.sql
 --
--- Remember how the owner spelled each path segment.
---
--- `json_path` is normalized for authorization: lowercased, separators folded.
--- That is correct and must not change, because the path is the string grants are
--- matched against. It is also lossy in a way nothing downstream can undo --
--- `addressDetails` becomes `addressdetails`, and no function can tell that from
--- a genuine single word. Five separate places used to try, by title-casing the
--- normalized path, which is how a consent row came to read
--- "Saved Places Locations Items Addressdetails Buildingcolor".
---
--- `display_segment` holds this row's own final segment as written. One row per
--- path already exists, so each row only needs to remember its own segment; the
--- full phrase is reconstructible by walking ancestors. That serves both the flat
--- label and the Memory screen's one-level-at-a-time renderer, which needs the
--- label of a SINGLE segment and cannot get it from a flattened phrase.
---
--- Nullable and not backfilled, deliberately. The original casing lives in vault
--- data only the owner's client can decrypt, so it cannot be recovered
--- server-side. Existing rows fill in when that owner's client next writes the
--- domain. `consent_label` is fixed independently at both write sites, so the
--- visible repair does not wait on this column.
+-- Drops the column and restores migration 161's function verbatim. Dropping the
+-- column discards the captured spellings; they return only when each owner's
+-- client next writes that domain, which is the same forward-only property the
+-- column had on the way in.
 
 ALTER TABLE pkm_manifest_paths
-  ADD COLUMN IF NOT EXISTS display_segment TEXT;
-
-COMMENT ON COLUMN pkm_manifest_paths.display_segment IS
-  'This path''s final segment as the owner''s data spelled it. NULL for synthetic collection segments (_items, _entities) and for rows written before migration 206.';
-
--- Recreated from migration 161, unchanged except that display_segment is now
--- carried from the path rows into the table. jsonb_to_recordset matches by NAME,
--- so this is additive: a client that does not send the field writes NULL.
+  DROP COLUMN IF EXISTS display_segment;
 
 CREATE OR REPLACE FUNCTION commit_pkm_scope_exposure_v1(
   p_user_id TEXT,
@@ -167,16 +143,16 @@ BEGIN
   DELETE FROM pkm_manifest_paths WHERE user_id = p_user_id AND domain = p_domain;
   INSERT INTO pkm_manifest_paths (
     user_id, domain, json_path, parent_path, path_type, segment_id, scope_handle,
-    exposure_eligibility, display_segment, consent_label, sensitivity_label, source_agent
+    exposure_eligibility, consent_label, sensitivity_label, source_agent
   )
   SELECT p_user_id, p_domain, row_data.json_path, row_data.parent_path,
     row_data.path_type, row_data.segment_id, row_data.scope_handle,
-    row_data.exposure_eligibility, row_data.display_segment, row_data.consent_label,
+    row_data.exposure_eligibility, row_data.consent_label,
     row_data.sensitivity_label, row_data.source_agent
   FROM jsonb_to_recordset(COALESCE(p_path_rows, '[]'::JSONB)) AS row_data(
     json_path TEXT, parent_path TEXT, path_type TEXT, segment_id TEXT,
-    scope_handle TEXT, exposure_eligibility BOOLEAN, display_segment TEXT,
-    consent_label TEXT, sensitivity_label TEXT, source_agent TEXT
+    scope_handle TEXT, exposure_eligibility BOOLEAN, consent_label TEXT,
+    sensitivity_label TEXT, source_agent TEXT
   );
 
   DELETE FROM pkm_scope_registry WHERE user_id = p_user_id AND domain = p_domain;

@@ -3,10 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import {
-  awaitProductFont,
-  productFontStyle,
-} from "./fixtures/product-font";
+import { awaitProductFont, productFontStyle } from "./fixtures/product-font";
 import {
   DURATION_COMPACT_CELL_CLASS,
   DURATION_COMPACT_GRID_CLASS,
@@ -29,7 +26,7 @@ import {
 } from "../components/one-location/redesign/location-header-layout";
 import { cn } from "../lib/utils";
 
-const WIDTHS = [320, 360, 393, 430, 600, 768] as const;
+const WIDTHS = [320, 360, 393, 430, 600, 768, 1024] as const;
 const STATUS_LABELS = [
   "Location on",
   "Location off",
@@ -108,7 +105,9 @@ async function buildFixture(): Promise<string> {
     )
     .join("");
   const headers = STATUS_LABELS.map(
-    (label) => `<header data-header class="${LOCATION_HUB_PAGE_HEADER_CLASSNAME}">
+    (
+      label,
+    ) => `<header data-header class="${LOCATION_HUB_PAGE_HEADER_CLASSNAME}">
       <div class="flex items-stretch gap-3 sm:gap-4">
         <span class="h-11 w-11 shrink-0 self-center rounded-[10px]"></span>
         <div class="min-w-0 flex-1">
@@ -119,7 +118,7 @@ async function buildFixture(): Promise<string> {
             <div data-slot="page-header-actions" class="flex w-auto shrink-0 flex-wrap items-center justify-end self-start gap-2 sm:w-auto sm:shrink-0 sm:justify-end sm:self-center">
               <div data-header-actions class="${LOCATION_HEADER_ACTIONS_CLASSNAME}">
                 <button data-header-switch class="h-8 w-[51px] shrink-0 rounded-full"></button>
-                <span data-header-status class="${LOCATION_HEADER_STATUS_CLASSNAME}">${label}</span>
+                <button type="button" data-header-status class="${LOCATION_HEADER_STATUS_CLASSNAME}">${label}</button>
               </div>
             </div>
           </div>
@@ -172,7 +171,9 @@ test.describe("One Location compact CTA layout", () => {
 
       const result = await page.evaluate(() => {
         const box = (selector: string) =>
-          document.querySelector<HTMLElement>(selector)!.getBoundingClientRect();
+          document
+            .querySelector<HTMLElement>(selector)!
+            .getBoundingClientRect();
         const publicCard = box("[data-public-card]");
         const publicCardPaddingLeft = Number.parseFloat(
           getComputedStyle(
@@ -227,6 +228,11 @@ test.describe("One Location compact CTA layout", () => {
           publicOptions: publicOptions.map((value) => value.toJSON()),
           publicCta: publicCta.toJSON(),
           shareCard: shareCard.toJSON(),
+          shareCardPaddingRight: parseFloat(
+            getComputedStyle(
+              document.querySelector<HTMLElement>("[data-share-card]")!,
+            ).paddingRight,
+          ),
           shareOptions: shareOptions.toJSON(),
           shareCells: shareCells.map((value) => value.toJSON()),
           shareActions: shareActions.toJSON(),
@@ -240,7 +246,14 @@ test.describe("One Location compact CTA layout", () => {
 
       expect(result.overflow).toBeLessThanOrEqual(1);
 
-      expect(result.publicControls.width).toBeLessThanOrEqual(280.5);
+      if (width < 640) {
+        expect(result.publicControls.width).toBeCloseTo(
+          result.publicCard.width - result.publicCardPaddingLeft * 2,
+          0,
+        );
+      } else {
+        expect(result.publicControls.width).toBeCloseTo(280, 0);
+      }
       expect(
         Math.abs(
           result.publicControls.left -
@@ -248,9 +261,7 @@ test.describe("One Location compact CTA layout", () => {
         ),
       ).toBeLessThanOrEqual(1);
       expect(
-        Math.abs(
-          result.publicOptions[0].width - result.publicOptions[1].width,
-        ),
+        Math.abs(result.publicOptions[0].width - result.publicOptions[1].width),
       ).toBeLessThanOrEqual(1);
       expect(result.publicOptions[0].height).toBeGreaterThanOrEqual(44);
       expect(result.publicOptions[1].height).toBeGreaterThanOrEqual(44);
@@ -258,15 +269,21 @@ test.describe("One Location compact CTA layout", () => {
         Math.abs(result.publicCta.width - result.publicControls.width),
       ).toBeLessThanOrEqual(1);
 
-      expect(result.shareOptions.width).toBeLessThanOrEqual(240.5);
+      expect(result.shareOptions.width).toBeCloseTo(
+        width < 640
+          ? result.shareCard.width - result.shareCardPaddingRight * 2
+          : 280,
+        0,
+      );
       expect(
         Math.abs(
           result.shareOptions.left -
-            (result.shareCard.left +
-              (result.shareCard.width - result.shareOptions.width) / 2),
+            (result.shareCard.left + result.shareCardPaddingRight),
         ),
       ).toBeLessThanOrEqual(1);
-      expect(new Set(result.shareCells.map((cell) => Math.round(cell.top))).size).toBe(2);
+      expect(
+        new Set(result.shareCells.map((cell) => Math.round(cell.top))).size,
+      ).toBe(2);
       for (const cell of result.shareCells) {
         expect(cell.height).toBeGreaterThanOrEqual(44);
         expect(
@@ -281,7 +298,9 @@ test.describe("One Location compact CTA layout", () => {
       }
 
       for (const header of result.headers) {
-        expect(header.actions.right).toBeLessThanOrEqual(header.header.right + 1);
+        expect(header.actions.right).toBeLessThanOrEqual(
+          header.header.right + 1,
+        );
         expect(header.toggle.left).toBeGreaterThanOrEqual(
           header.actions.left - 1,
         );
@@ -298,12 +317,18 @@ test.describe("One Location compact CTA layout", () => {
           header.titleClientWidth + 1,
         );
         if (width >= 640) {
-          expect(
-            header.actions.left - header.title.right,
-          ).toBeGreaterThanOrEqual(16);
-          expect(header.actions.left - header.title.right).toBeLessThanOrEqual(
-            32,
-          );
+          if (width >= 1024) {
+            expect(
+              header.header.right - header.actions.right,
+            ).toBeLessThanOrEqual(1);
+          } else {
+            expect(
+              header.actions.left - header.title.right,
+            ).toBeGreaterThanOrEqual(16);
+            expect(
+              header.actions.left - header.title.right,
+            ).toBeLessThanOrEqual(32);
+          }
         }
         if (width >= 400) {
           expect(

@@ -1909,6 +1909,12 @@ describe("OneLocationAgentPage", () => {
     expect(screen.getByTestId("page-header").className).toContain(
       "sm:[&_[data-slot=page-header-actions]]:!ml-5",
     );
+    expect(screen.getByTestId("page-header").className).toContain(
+      "lg:[&_[data-slot=page-header-row]]:!justify-between",
+    );
+    expect(screen.getByTestId("page-header").className).toContain(
+      "lg:[&_[data-slot=page-header-actions]]:!ml-auto",
+    );
     expect(heading).toHaveClass("ui-text-agent-title");
     expect(screen.getByTestId("one-location-header-icon")).toBeTruthy();
     expect(
@@ -1965,6 +1971,17 @@ describe("OneLocationAgentPage", () => {
     );
     expect(screen.getByText("Location off")).toBeTruthy();
     expect(mockRevokeGrant).not.toHaveBeenCalled();
+
+    // The caption is a separate, explicit action target. It must call the
+    // same transition once, without relying on native label forwarding.
+    mockCaptureCurrentPosition.mockClear();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Location off" }),
+    );
+    await waitFor(() => expect(mockCaptureCurrentPosition).toHaveBeenCalled());
+    expect(
+      screen.getByRole("switch", { name: "Turn location off" }),
+    ).toHaveAttribute("aria-checked", "true");
   });
 
   it("keeps Settings focused on auto approval and Saved Locations", async () => {

@@ -10,7 +10,6 @@ import {
 } from "react";
 import {
   Check,
-  ChevronRight,
   Compass,
   Loader2,
   LocateFixed,
@@ -86,10 +85,7 @@ import {
   loadSavedLocations,
 } from "@/lib/one-location/saved-locations";
 import { OneLocationService } from "@/lib/one-location/service";
-import {
-  ONE_LOCATION_NEARBY_COARSE_ACCURACY_METERS,
-  ONE_LOCATION_NEARBY_MAX_ACCURACY_METERS,
-} from "@/lib/one-location/nearby-check-in-availability";
+import { ONE_LOCATION_NEARBY_MAX_ACCURACY_METERS } from "@/lib/one-location/nearby-check-in-availability";
 import type {
   OneLocationNearbyAttendee,
   OneLocationNearbyPlaceCategory,
@@ -339,7 +335,9 @@ function placesInCategory(
     // exhaustively and never sends an empty list, but a response cached before
     // that shipped still can -- and a row that answers no chip is a row the
     // person can see under "All" and then never find again.
-    (place.categories?.length ? place.categories : ["other"]).includes(category),
+    (place.categories?.length ? place.categories : ["other"]).includes(
+      category,
+    ),
   );
 }
 
@@ -417,27 +415,6 @@ function hasCheckInAccuracy(point: PlainLocationPoint): boolean {
     point.accuracyM >= 0 &&
     point.accuracyM <= ONE_LOCATION_NEARBY_MAX_ACCURACY_METERS
   );
-}
-
-/**
- * A usable-but-broad fix. Worth surfacing so a rejected place choice is not a
- * surprise, but never a reason to withhold the place list: browser geolocation
- * lands here routinely and the owner can still pick the venue they are standing
- * in.
- */
-function isCoarseAccuracy(point: PlainLocationPoint): boolean {
-  return (
-    typeof point.accuracyM === "number" &&
-    Number.isFinite(point.accuracyM) &&
-    point.accuracyM > ONE_LOCATION_NEARBY_COARSE_ACCURACY_METERS
-  );
-}
-
-function coarseAccuracyNotice(point: PlainLocationPoint): string {
-  const reading = Math.round(Number(point.accuracyM));
-  const distance =
-    reading >= 1_000 ? `${(reading / 1_000).toFixed(1)} km` : `${reading} m`;
-  return `Your location is accurate to about ${distance}. Pick the place you're actually at — if it's rejected, move to an open area or turn on precise location.`;
 }
 
 /**
@@ -665,7 +642,6 @@ export function NearbyCheckInSheet({
   const [durationMinutes, setDurationMinutes] = useState<30 | 60 | 120>(60);
   const [consentAccepted, setConsentAccepted] = useState(false);
   const [allowConnectionRequests, setAllowConnectionRequests] = useState(false);
-  const [showAllPlaces, setShowAllPlaces] = useState(false);
   const [addTimeOpen, setAddTimeOpen] = useState(false);
   const [addTimeBusy, setAddTimeBusy] = useState<30 | 60 | null>(null);
   const [busy, setBusy] = useState<"check-in" | "checkout" | string | null>(
@@ -704,9 +680,7 @@ export function NearbyCheckInSheet({
     null,
   );
   const [placesError, setPlacesError] = useState<string | null>(null);
-  const [accuracyNotice, setAccuracyNotice] = useState<string | null>(null);
   const typedSearchActive = search.trim().length >= 2;
-  const fullPlaceChooserOpen = showAllPlaces || typedSearchActive;
 
   /**
    * The rows on screen. Derived rather than stored: the merged nearby sweep is
@@ -716,9 +690,7 @@ export function NearbyCheckInSheet({
   const places = useMemo(() => {
     const visible = typedSearchActive
       ? searchResults
-      : fullPlaceChooserOpen
-        ? placesInCategory(automaticPlaces, category)
-        : automaticPlaces;
+      : placesInCategory(automaticPlaces, category);
     // Coordinates resolved on demand for searched places, which arrive without
     // them, so the map can pin whatever the owner is looking at.
     return visible.map((place) => {
@@ -729,7 +701,6 @@ export function NearbyCheckInSheet({
   }, [
     automaticPlaces,
     category,
-    fullPlaceChooserOpen,
     resolvedPlacePoints,
     searchResults,
     typedSearchActive,
@@ -949,7 +920,6 @@ export function NearbyCheckInSheet({
         setPoint(sessionFix);
         setPointOrigin("last-known");
         setLocationError(null);
-        setAccuracyNotice(null);
         void loadPlaces(sessionFix, generation, expectedOwnerEpoch);
         return true;
       }
@@ -964,7 +934,6 @@ export function NearbyCheckInSheet({
       setPoint(restored);
       setPointOrigin("last-known");
       setLocationError(null);
-      setAccuracyNotice(null);
       void loadPlaces(restored, generation, expectedOwnerEpoch);
       return true;
     },
@@ -972,17 +941,13 @@ export function NearbyCheckInSheet({
   );
 
   const captureAndLoadPlaces = useCallback(
-    async (
-      nextCategory: OneLocationNearbyPlaceCategory = "all",
-      options: { preserveChooser?: boolean } = {},
-    ) => {
+    async (nextCategory: OneLocationNearbyPlaceCategory = "all") => {
       if (!ownerId || !vaultOwnerToken) return;
       const expectedOwnerEpoch = ownerEpochRef.current;
       const generation = ++requestGenerationRef.current;
       searchGenerationRef.current += 1;
       setCapturing(true);
       setCategory(nextCategory);
-      if (!options.preserveChooser) setShowAllPlaces(false);
       setSearch("");
       setSearchResults([]);
       setSearching(false);
@@ -990,7 +955,6 @@ export function NearbyCheckInSheet({
       setLocationRecovery(null);
       setPresenceLoadError(null);
       setPlacesError(null);
-      setAccuracyNotice(null);
       try {
         let permission: Awaited<
           ReturnType<typeof OneLocationService.getPermissionState>
@@ -1099,9 +1063,6 @@ export function NearbyCheckInSheet({
         // an error and zero places instead of the venues it is standing in --
         // the owner still needs to pick where they are, and the backend does the
         // authoritative plausibility check at check-in.
-        setAccuracyNotice(
-          isCoarseAccuracy(nextPoint) ? coarseAccuracyNotice(nextPoint) : null,
-        );
         lastKnownPointRef.current = nextPoint;
         // Carry it past this page. The next cold start reads this instead of
         // starting from nothing, which is what turns a failed first GPS read
@@ -1158,7 +1119,6 @@ export function NearbyCheckInSheet({
   const selectCategory = useCallback(
     (nextCategory: OneLocationNearbyPlaceCategory) => {
       setCategory(nextCategory);
-      setShowAllPlaces(true);
       setSearch("");
       setSearchResults([]);
       setSearching(false);
@@ -1191,7 +1151,6 @@ export function NearbyCheckInSheet({
     setViewState("loading");
     setConsentAccepted(false);
     setAllowConnectionRequests(false);
-    setShowAllPlaces(false);
     setAddTimeOpen(false);
     setAddTimeBusy(null);
     setDurationMinutes(60);
@@ -1202,7 +1161,6 @@ export function NearbyCheckInSheet({
     setLocationRecovery(null);
     setPresenceLoadError(null);
     setPlacesError(null);
-    setAccuracyNotice(null);
     publishState(EMPTY_NEARBY_STATE);
     return () => {
       requestGenerationRef.current += 1;
@@ -1229,7 +1187,6 @@ export function NearbyCheckInSheet({
     setSearching(false);
     setConsentAccepted(false);
     setAllowConnectionRequests(false);
-    setShowAllPlaces(false);
     setAddTimeOpen(false);
     setAddTimeBusy(null);
     setDurationMinutes(60);
@@ -1642,9 +1599,6 @@ export function NearbyCheckInSheet({
         toast.error("A more precise location is needed before check-in.");
         return;
       }
-      setAccuracyNotice(
-        isCoarseAccuracy(freshPoint) ? coarseAccuracyNotice(freshPoint) : null,
-      );
       setPoint(freshPoint);
       const next = await OneLocationService.checkInNearby({
         vaultOwnerToken: ownerToken,
@@ -1672,7 +1626,6 @@ export function NearbyCheckInSheet({
       setSearchResults([]);
       setSelectedPlaceId("");
       setSearch("");
-      setAccuracyNotice(null);
       toast.success("You're checked in nearby.");
     } catch (error) {
       if (
@@ -1712,9 +1665,7 @@ export function NearbyCheckInSheet({
             }
           });
         } else {
-          void captureAndLoadPlaces(category, {
-            preserveChooser: fullPlaceChooserOpen,
-          });
+          void captureAndLoadPlaces(category);
         }
       } else if (details.message.toLowerCase().includes("closer place")) {
         setPlacesError(details.message);
@@ -1926,11 +1877,6 @@ export function NearbyCheckInSheet({
               "Couldn't confirm your location precisely enough. Nothing was shared — try again in a second.",
           };
         }
-        setAccuracyNotice(
-          isCoarseAccuracy(freshPoint)
-            ? coarseAccuracyNotice(freshPoint)
-            : null,
-        );
         setPoint(freshPoint);
         const next = await OneLocationService.checkInNearby({
           vaultOwnerToken,
@@ -1949,7 +1895,6 @@ export function NearbyCheckInSheet({
         setSearchResults([]);
         setSelectedPlaceId("");
         setSearch("");
-        setAccuracyNotice(null);
         toast.success("You're checked in nearby.");
         const placeName = place.name ?? place.text;
         return {
@@ -2158,7 +2103,9 @@ export function NearbyCheckInSheet({
         }).catch(() => undefined);
       }
       setCompletedCheckIn((current) =>
-        current ? { ...current, ratingSaved: true, ratingError: null } : current,
+        current
+          ? { ...current, ratingSaved: true, ratingError: null }
+          : current,
       );
       trackVisitRated({
         route_id: "one_location_check_in",
@@ -2231,7 +2178,6 @@ export function NearbyCheckInSheet({
       setRatingNote("");
       setConsentAccepted(false);
       setAllowConnectionRequests(false);
-      setShowAllPlaces(false);
       setAddTimeOpen(false);
       setAddTimeBusy(null);
       void offerSavePlace(savedPlaceOffer);
@@ -2807,11 +2753,7 @@ export function NearbyCheckInSheet({
                     to say what the list is. */}
                   <div className="flex items-center justify-between gap-3">
                     <div>
-                      <h2 className="font-semibold">
-                        {fullPlaceChooserOpen
-                          ? "All nearby places"
-                          : "Nearby places"}
-                      </h2>
+                      <h2 className="font-semibold">Nearby places</h2>
                     </div>
                     {capturing ? (
                       <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
@@ -2852,11 +2794,7 @@ export function NearbyCheckInSheet({
                           type="button"
                           size="sm"
                           disabled={capturing || busy === "settings"}
-                          onClick={() =>
-                            void captureAndLoadPlaces(category, {
-                              preserveChooser: fullPlaceChooserOpen,
-                            })
-                          }
+                          onClick={() => void captureAndLoadPlaces(category)}
                         >
                           {capturing ? (
                             <Loader2 className="h-4 w-4 animate-spin" />
@@ -2901,23 +2839,13 @@ export function NearbyCheckInSheet({
                               className="font-semibold underline underline-offset-2"
                               disabled={capturing}
                               onClick={() =>
-                                void captureAndLoadPlaces(category, {
-                                  preserveChooser: fullPlaceChooserOpen,
-                                })
+                                void captureAndLoadPlaces(category)
                               }
                             >
                               update your location
                             </button>
                             .
                           </span>
-                        </p>
-                      ) : null}
-                      {accuracyNotice ? (
-                        <p
-                          className="mt-3 rounded-2xl border border-border/60 bg-muted/40 p-3 text-xs text-muted-foreground"
-                          role="status"
-                        >
-                          {accuracyNotice}
                         </p>
                       ) : null}
                       <label className="relative mt-3 block">
@@ -2946,150 +2874,123 @@ export function NearbyCheckInSheet({
                         ) : null}
                       </label>
 
-                      {fullPlaceChooserOpen ? (
-                        <div
-                          className={CHECK_IN_CATEGORY_ROW_CLASSNAME}
-                          aria-label="Nearby place categories"
-                        >
-                          {typedSearchActive ? (
-                            <span className="inline-flex h-9 shrink-0 items-center rounded-full bg-primary px-3 text-sm font-medium text-primary-foreground">
-                              Search results
-                            </span>
-                          ) : null}
-                          {PLACE_CATEGORIES.map((option) => (
-                            <Button
-                              key={option.value}
-                              type="button"
-                              size="sm"
-                              variant={
-                                !typedSearchActive && category === option.value
-                                  ? "default"
-                                  : "secondary"
-                              }
-                              className="shrink-0 rounded-full"
-                              aria-pressed={
-                                !typedSearchActive && category === option.value
-                              }
-                              disabled={
-                                !point || capturing || typedSearchActive
-                              }
-                              onClick={() => selectCategory(option.value)}
-                            >
-                              {option.label}
-                            </Button>
-                          ))}
-                        </div>
-                      ) : null}
+                      <div
+                        className={CHECK_IN_CATEGORY_ROW_CLASSNAME}
+                        role="group"
+                        aria-label="Nearby place categories"
+                      >
+                        {typedSearchActive ? (
+                          <span className="inline-flex h-9 shrink-0 items-center rounded-full bg-primary px-3 text-sm font-medium text-primary-foreground">
+                            Search results
+                          </span>
+                        ) : null}
+                        {PLACE_CATEGORIES.map((option) => (
+                          <Button
+                            key={option.value}
+                            type="button"
+                            size="sm"
+                            variant={
+                              !typedSearchActive && category === option.value
+                                ? "default"
+                                : "secondary"
+                            }
+                            className="shrink-0 rounded-full"
+                            aria-pressed={
+                              !typedSearchActive && category === option.value
+                            }
+                            disabled={!point || capturing || typedSearchActive}
+                            onClick={() => selectCategory(option.value)}
+                          >
+                            {option.label}
+                          </Button>
+                        ))}
+                      </div>
 
                       <div
-                        className={cn(
-                          "mt-3 space-y-2",
-                          fullPlaceChooserOpen &&
-                            "max-h-[35vh] overflow-y-auto pr-2",
-                        )}
+                        className="mt-3 max-h-[35vh] space-y-2 overflow-y-auto pr-2"
                         role="radiogroup"
                         aria-label="Nearby places"
                       >
-                        {places
-                          .slice(0, fullPlaceChooserOpen ? places.length : 3)
-                          .map((place) => {
-                            const selected = place.placeId === selectedPlaceId;
-                            const name = place.name?.trim() || place.text;
-                            // One supporting line, not two joined by a middot.
-                            //
-                            // The row is a choice between venues the person can
-                            // see out of the window, so the useful cue is what
-                            // kind of place it is. A postal address is longer than
-                            // the row, always truncates, and the tail that gets
-                            // cut is the part that would have disambiguated it —
-                            // so it cost a line and answered nothing. The address
-                            // still shows when there is no category to show
-                            // instead, and the full pair stays in the title
-                            // attribute for a pointer and for assistive tech.
-                            const category = place.category?.trim() || "";
-                            const address = place.address?.trim() || "";
-                            const metadataLabel = category || address;
-                            const ratingSummary = ratingSummaries[place.placeId];
-                            const metadataTitle = Array.from(
-                              new Set([category, address].filter(Boolean)),
-                            ).join(" · ");
-                            return (
-                              <button
-                                key={place.placeId}
-                                type="button"
-                                role="radio"
-                                aria-checked={selected}
-                                className={cn(
-                                  CHECK_IN_PLACE_ROW_CLASSNAME,
-                                  selected
-                                    ? CHECK_IN_PLACE_ROW_ON_CLASSNAME
-                                    : CHECK_IN_PLACE_ROW_OFF_CLASSNAME,
-                                )}
-                                onClick={() =>
-                                  setSelectedPlaceId(place.placeId)
-                                }
-                              >
-                                <MapPin className="h-4 w-4 shrink-0 text-[var(--app-accent-deep)] dark:text-[var(--app-accent-bright)]" />
-                                <span className="min-w-0 flex-1">
+                        {places.map((place) => {
+                          const selected = place.placeId === selectedPlaceId;
+                          const name = place.name?.trim() || place.text;
+                          // One supporting line, not two joined by a middot.
+                          //
+                          // The row is a choice between venues the person can
+                          // see out of the window, so the useful cue is what
+                          // kind of place it is. A postal address is longer than
+                          // the row, always truncates, and the tail that gets
+                          // cut is the part that would have disambiguated it —
+                          // so it cost a line and answered nothing. The address
+                          // still shows when there is no category to show
+                          // instead, and the full pair stays in the title
+                          // attribute for a pointer and for assistive tech.
+                          const category = place.category?.trim() || "";
+                          const address = place.address?.trim() || "";
+                          const metadataLabel = category || address;
+                          const ratingSummary = ratingSummaries[place.placeId];
+                          const metadataTitle = Array.from(
+                            new Set([category, address].filter(Boolean)),
+                          ).join(" · ");
+                          return (
+                            <button
+                              key={place.placeId}
+                              type="button"
+                              role="radio"
+                              aria-checked={selected}
+                              className={cn(
+                                CHECK_IN_PLACE_ROW_CLASSNAME,
+                                selected
+                                  ? CHECK_IN_PLACE_ROW_ON_CLASSNAME
+                                  : CHECK_IN_PLACE_ROW_OFF_CLASSNAME,
+                              )}
+                              onClick={() => setSelectedPlaceId(place.placeId)}
+                            >
+                              <MapPin className="h-4 w-4 shrink-0 text-[var(--app-accent-deep)] dark:text-[var(--app-accent-bright)]" />
+                              <span className="min-w-0 flex-1">
+                                <span
+                                  title={name}
+                                  className={CHECK_IN_PLACE_NAME_CLASSNAME}
+                                >
+                                  {name}
+                                </span>
+                                {metadataLabel || ratingSummary ? (
                                   <span
-                                    title={name}
-                                    className={CHECK_IN_PLACE_NAME_CLASSNAME}
+                                    title={metadataTitle}
+                                    className={CHECK_IN_PLACE_META_CLASSNAME}
                                   >
-                                    {name}
-                                  </span>
-                                  {metadataLabel || ratingSummary ? (
-                                    <span
-                                      title={metadataTitle}
-                                      className={CHECK_IN_PLACE_META_CLASSNAME}
-                                    >
-                                      {metadataLabel}
-                                      {ratingSummary ? (
-                                        <>
-                                          {metadataLabel ? " · " : null}
-                                          {/* A bucket, never an exact count:
+                                    {metadataLabel}
+                                    {ratingSummary ? (
+                                      <>
+                                        {metadataLabel ? " · " : null}
+                                        {/* A bucket, never an exact count:
                                               an exact count beside an exact
                                               average lets somebody watching
                                               the list recover each new rating
                                               by subtraction. */}
-                                          <span aria-hidden="true">★</span>
-                                          {ratingSummary.average.toFixed(1)} ·{" "}
-                                          {ratingSummary.countBucket}
-                                          <span className="sr-only">
-                                            {` Hushh rating ${ratingSummary.average.toFixed(1)} out of 5, from ${ratingSummary.countBucket} people`}
-                                          </span>
-                                        </>
-                                      ) : null}
-                                    </span>
-                                  ) : null}
-                                </span>
-                                <span
-                                  className={CHECK_IN_PLACE_DISTANCE_CLASSNAME}
-                                >
-                                  {compactDistanceLabel(place.distanceMeters)}
-                                </span>
-                                {selected ? (
-                                  <Check className="h-4 w-4 shrink-0 text-[var(--app-accent-deep)] dark:text-[var(--app-accent-bright)]" />
+                                        <span aria-hidden="true">★</span>
+                                        {ratingSummary.average.toFixed(
+                                          1,
+                                        )} · {ratingSummary.countBucket}
+                                        <span className="sr-only">
+                                          {` Hushh rating ${ratingSummary.average.toFixed(1)} out of 5, from ${ratingSummary.countBucket} people`}
+                                        </span>
+                                      </>
+                                    ) : null}
+                                  </span>
                                 ) : null}
-                              </button>
-                            );
-                          })}
-                      {!fullPlaceChooserOpen && automaticPlaces.length > 0 ? (
-                          <div className="pt-1 pb-2">
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="sm"
-                              className="flex w-full items-center justify-between text-muted-foreground"
-                              onClick={() => setShowAllPlaces(true)}
-                            >
-                              <span>See all places</span>
-                              <ChevronRight
-                                className="h-4 w-4"
-                                aria-hidden="true"
-                              />
-                            </Button>
-                          </div>
-                        ) : null}
+                              </span>
+                              <span
+                                className={CHECK_IN_PLACE_DISTANCE_CLASSNAME}
+                              >
+                                {compactDistanceLabel(place.distanceMeters)}
+                              </span>
+                              {selected ? (
+                                <Check className="h-4 w-4 shrink-0 text-[var(--app-accent-deep)] dark:text-[var(--app-accent-bright)]" />
+                              ) : null}
+                            </button>
+                          );
+                        })}
                       </div>
                       {/*
                       The owner's point and their venue are two different places
@@ -3261,11 +3162,11 @@ export function NearbyCheckInSheet({
           if (busy === null) setAddTimeOpen(nextOpen);
         }}
       >
-      <SheetContent
-        side="bottom"
-        className="mx-auto w-full gap-0 rounded-t-[var(--app-card-radius-feature)] px-5 pb-[max(1rem,env(safe-area-inset-bottom))] pt-4 sm:max-w-md md:left-auto md:right-6 md:max-w-sm md:rounded-[var(--app-card-radius-feature)]"
-        aria-describedby={undefined}
-      >
+        <SheetContent
+          side="bottom"
+          className="mx-auto w-full gap-0 rounded-t-[var(--app-card-radius-feature)] px-5 pb-[max(1rem,env(safe-area-inset-bottom))] pt-4 sm:max-w-md md:left-auto md:right-6 md:max-w-sm md:rounded-[var(--app-card-radius-feature)]"
+          aria-describedby={undefined}
+        >
           <SheetHeader className="px-0 pb-3 text-left">
             <SheetTitle className="text-[17px] leading-6">Add time</SheetTitle>
           </SheetHeader>
