@@ -474,9 +474,9 @@
       "id": "email_workflows",
       "operation": "Email workflow read, draft, approval and delivery status",
       "owner": "One Email/KYC service",
-      "disposition": "missing",
-      "evidence": "consent-protocol/api/routes/one/email.py; consent-protocol/hushh_mcp/services/one_email_kyc_service.py",
-      "reason": "Gmail receipt reads are exposed; tracked draft/send workflows still need a typed consumer adapter."
+      "disposition": "secure_handoff",
+      "evidence": "consent-protocol/mcp_modules/tools/consumer_tools.py; consent-protocol/api/routes/one/email.py; consent-protocol/hushh_mcp/services/one_email_kyc_service.py",
+      "reason": "Typed status reads are exposed; consequential draft, approval, send and archive actions use the authenticated owner handoff so the existing confirmation boundary remains authoritative."
     },
     {
       "id": "finance_analysis",

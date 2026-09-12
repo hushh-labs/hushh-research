@@ -698,12 +698,12 @@
       "reason": "Enrollment and revocation require device proof and remain in the authenticated owner surface."
     },
     {
-      "disposition": "missing",
-      "evidence": "consent-protocol/api/routes/one/email.py; consent-protocol/hushh_mcp/services/one_email_kyc_service.py",
+      "disposition": "secure_handoff",
+      "evidence": "consent-protocol/mcp_modules/tools/consumer_tools.py; consent-protocol/api/routes/one/email.py; consent-protocol/hushh_mcp/services/one_email_kyc_service.py",
       "id": "email_workflows",
       "operation": "Email workflow read, draft, approval and delivery status",
       "owner": "One Email/KYC service",
-      "reason": "Gmail receipt reads are exposed; tracked draft/send workflows still need a typed consumer adapter."
+      "reason": "Typed status reads are exposed; consequential draft, approval, send and archive actions use the authenticated owner handoff so the existing confirmation boundary remains authoritative."
     },
     {
       "disposition": "not_applicable",
@@ -5931,7 +5931,7 @@
     "route_index": "029f3357bbde6b96a975a646434126345ae69f52d871ce47dbb8ec034302795f",
     "route_layout": "20cc86e43dce62e3826a12cd07116f28f173a16e1fc241d8c08983bc434ea68f",
     "surface_map": "78d06ddf4b743da7797876546b2ca3acc62716b6d28bbc22de5ca3bd817e5311",
-    "topology_contract": "9027c8379c1bc564a136d05cb1ad708d65b4024c856d4b1e006ba701b3ab9740",
+    "topology_contract": "43893b0f1d70716aa19587fe1f022dcafe35c17a9dd7062d888efc89d7178893",
     "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"
   },
   "summary": {
@@ -5941,7 +5941,7 @@
     "aliases": 3,
     "consumer_mcp_capabilities": 39,
     "consumer_mcp_executable": 28,
-    "consumer_mcp_missing": 3,
+    "consumer_mcp_missing": 2,
     "decision_required": 2,
     "in_process_specialists": 6,
     "one_specialist_tools": 5,
