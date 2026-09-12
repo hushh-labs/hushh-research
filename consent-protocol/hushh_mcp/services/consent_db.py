@@ -1612,14 +1612,22 @@ class ConsentDBService:
                 # No legacy fallback: renewal and revocation must use one authority.
                 with db.engine.begin() as connection:
                     _lock_owner_lineage(connection, user_id)
-                    columns = ", ".join(data)
-                    values = ", ".join(f":{key}" for key in data)
                     return connection.execute(
                         text(
-                            f"INSERT INTO internal_access_events ({columns}) "
-                            f"VALUES ({values}) RETURNING id"
+                            "INSERT INTO internal_access_events "
+                            "(token_id, user_id, agent_id, scope, action, request_id, "
+                            "scope_description, issued_at, expires_at, metadata) "
+                            "VALUES (:token_id, :user_id, :agent_id, :scope, :action, "
+                            ":request_id, :scope_description, :issued_at, :expires_at, "
+                            ":metadata) RETURNING id"
                         ),
-                        data,
+                        {
+                            "request_id": None,
+                            "scope_description": None,
+                            "expires_at": None,
+                            "metadata": None,
+                            **data,
+                        },
                     ).scalar_one()
 
             return await asyncio.to_thread(insert_owner_revocation)
