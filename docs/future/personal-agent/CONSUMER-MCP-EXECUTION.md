@@ -333,3 +333,8 @@ their provisional statements while preserving the original evidence trail.
 - `pod_lifecycle_drill.py --dry-run` passed its preserving lifecycle and memory learning self-tests, including six-fact recovery, correction, tombstone replay protection and absent-fact negative control. Its `quality_judged_independently` value is false, so the self-test is not counted as live or independently judged acceptance.
 - Hermes compatibility at revision `c63ddfb08ddccc951d16ff3a92e560e516abe00f` passed `tests/gateway/test_puppy_inference_relay.py` (**14 passed**). The Hermes worktree was clean and unchanged. This proves relay contract compatibility only; it does not prove an enrolled owner device is connected to the installed pod.
 - Read-only owner-pod identity inspection returned `/pod/public-key=200` with `podKeyDurable=true`, a present 32-byte public key, and sanitized public-key fingerprint `584f8d26fe027c69a0acb4dbbf1a2b2b189b54a88afea8dff57386f38a2629a1`. This is one installed-revision identity observation; restart/replacement continuity and a foreign/replayed negative control are still required before the durable-identity ledger assertion can pass.
+
+## Documentation hygiene receipt — 12 September 2026
+
+- Branch head `97f8347f4` is pushed to `origin/feat/consumer-mcp`. Earlier custody and synchronous-task checkpoint statements are now explicitly marked historical and superseded by the later enrollment and durable-task receipts; the generated topology ledger and latest dated evidence remain authoritative.
+- `git diff --check` and `generate_runtime_topology_index.py --check` pass. This is a documentation-only correction; no runtime code, deployment, migration, IAM, credential, main/UAT/production, Hermes or ADK worktree change occurred.
