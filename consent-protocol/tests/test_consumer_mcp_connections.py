@@ -366,6 +366,7 @@ async def test_mcp_dispatch_returns_owner_handoff_without_granting_access(consum
             "export_hussh_memory",
         }.issubset({tool.name for tool in await mcp_server.list_tools()})
         assert "list_hussh_connections" in {tool.name for tool in await mcp_server.list_tools()}
+        assert "open_hussh_email_workflow" in {tool.name for tool in await mcp_server.list_tools()}
         capabilities = await mcp_server.call_tool("list_hussh_capabilities", {})
         assert not capabilities.isError
         projected = {item["name"]: item for item in capabilities.structuredContent["capabilities"]}
@@ -377,6 +378,8 @@ async def test_mcp_dispatch_returns_owner_handoff_without_granting_access(consum
         assert projected["list_hussh_integrations"]["execution"] == "consent_service"
         assert projected["connect_hussh_integration"]["execution"] == "secure_handoff"
         assert projected["disconnect_hussh_integration"]["availability"] == "approval_required"
+        assert projected["open_hussh_email_workflow"]["execution"] == "secure_handoff"
+        assert projected["open_hussh_email_workflow"]["availability"] == "secure_handoff"
         connections = await mcp_server.call_tool("list_hussh_connections", {})
         assert not connections.isError
         assert connections.structuredContent["state"] == "available"
