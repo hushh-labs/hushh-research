@@ -66,6 +66,7 @@ import {
   type ContactDiscoverabilityConsentDialogProps,
 } from "@/lib/contacts/use-contact-discoverability-consent";
 import { trackEvent } from "@/lib/observability/client";
+import { trackOneLocationJourneyAction } from "@/lib/observability/location-events";
 import type { RouteId } from "@/lib/observability/route-map";
 import {
   OneLocationContactSyncError,
@@ -627,6 +628,12 @@ export function useContactSync(options: UseContactSyncOptions): UseContactSync {
     // preference is saved; only an already-recorded decision may continue and
     // retain browser transient activation.
     if (!requestContactCheck()) return;
+    if (!(googleFallback || googleSync.phase !== "idle") && inFlightRef.current) return;
+    trackOneLocationJourneyAction({
+      action: "contact_sync_started",
+      routeId,
+      targetType: "contacts",
+    });
     if (googleFallback || googleSync.phase !== "idle") {
       await runGoogleSync({
         routeId, resolveIdToken: getIdToken,
@@ -637,7 +644,6 @@ export function useContactSync(options: UseContactSyncOptions): UseContactSync {
       });
       return;
     }
-    if (inFlightRef.current) return;
     inFlightRef.current = true;
     const syncGeneration = ++syncGenerationRef.current;
     const syncIsCurrent = () => syncGenerationRef.current === syncGeneration &&

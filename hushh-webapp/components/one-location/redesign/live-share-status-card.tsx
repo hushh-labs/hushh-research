@@ -39,6 +39,8 @@ import {
   LIVE_SHARE_HEADER_CLASSNAME,
   LIVE_SHARE_PROGRESS_FILL_CLASSNAME,
   LIVE_SHARE_PROGRESS_TRACK_CLASSNAME,
+  LIVE_SHARE_PRIMARY_ACTION_CLASSNAME,
+  LIVE_SHARE_SECONDARY_ACTION_CLASSNAME,
   LIVE_SHARE_TITLE_CLASSNAME,
 } from "./live-share-card-layout";
 import { CARD_SURFACE } from "./tokens";
@@ -448,40 +450,43 @@ export function LiveShareStatusCard({
         </div>
       ) : null}
 
-      {onShareMore ? (
-        <Button
-          type="button"
-          onClick={runChildAction(onShareMore)}
-          className="mt-4 min-h-[48px] w-full rounded-[16px] bg-[color:var(--app-accent)] px-5 font-[family-name:var(--font-app-body)] text-[17px] font-semibold leading-[22px] tracking-[-0.02em] text-white transition-[background-color,transform] hover:bg-[color:var(--app-accent)]/90 active:scale-[0.99]"
-          data-ui-contract="occlusion-sensitive"
-          data-ui-role="control"
-          data-ui-id="location-live-share-more"
-          data-testid="one-location-live-share-more"
-        >
-          Share with more
-        </Button>
-      ) : null}
-
-      {canChangeDuration ? (
+      {onShareMore || canChangeDuration ? (
         <div className={LIVE_SHARE_FOOTER_ROW_CLASSNAME}>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={(event) => {
-              event.stopPropagation();
-              onChangeDuration?.(event.currentTarget);
-            }}
-            className={cn(
-              LIVE_SHARE_ACTION_CLASSNAME,
-              "mx-auto text-[color:var(--app-accent)]",
-            )}
-            data-ui-contract="occlusion-sensitive"
-            data-ui-role="control"
-            data-ui-id="location-live-share-duration"
-            data-testid="one-location-live-share-change-time"
-          >
-            {openEnded ? "Set an end time" : "Change end time"}
-          </Button>
+          {onShareMore ? (
+            <Button
+              type="button"
+              size="sm"
+              onClick={runChildAction(onShareMore)}
+              className={LIVE_SHARE_PRIMARY_ACTION_CLASSNAME}
+              data-ui-contract="occlusion-sensitive"
+              data-ui-role="control"
+              data-ui-id="location-live-share-more"
+              data-testid="one-location-live-share-more"
+            >
+              Share with more
+            </Button>
+          ) : null}
+
+          {canChangeDuration ? (
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={(event) => {
+                event.stopPropagation();
+                onChangeDuration?.(event.currentTarget);
+              }}
+              className={cn(
+                LIVE_SHARE_ACTION_CLASSNAME,
+                LIVE_SHARE_SECONDARY_ACTION_CLASSNAME,
+              )}
+              data-ui-contract="occlusion-sensitive"
+              data-ui-role="control"
+              data-ui-id="location-live-share-duration"
+              data-testid="one-location-live-share-change-time"
+            >
+              {openEnded ? "Set an end time" : "Change end time"}
+            </Button>
+          ) : null}
         </div>
       ) : null}
     </section>

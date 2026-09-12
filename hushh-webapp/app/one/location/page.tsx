@@ -396,8 +396,10 @@ import {
 } from "@/lib/consent/consent-events";
 import { toDurationBucket, trackEvent } from "@/lib/observability/client";
 import {
+  oneLocationCountBucket,
   trackLocationShareConfirmed,
   trackLocationShareReceived,
+  trackOneLocationJourneyAction,
 } from "@/lib/observability/location-events";
 import {
   rememberLocationInviteSource,
@@ -7902,6 +7904,11 @@ export function OneLocationAgentPageContent({
     try {
       const copiedToClipboard = await copyToClipboard(publicInviteUrl);
       if (copiedToClipboard) {
+        trackOneLocationJourneyAction({
+          action: "public_link_shared",
+          routeId: "one_location",
+          targetType: "public",
+        });
         toast.success("Public location link copied.");
         return true;
       } else {
@@ -7922,6 +7929,11 @@ export function OneLocationAgentPageContent({
         text: ONE_LOCATION_PUBLIC_SHARE_COPY,
         url: publicInviteUrl,
         dialogTitle: "Share to contacts",
+      });
+      trackOneLocationJourneyAction({
+        action: "public_link_shared",
+        routeId: "one_location",
+        targetType: "public",
       });
       if (delivery === "copied") {
         toast.success("Public location link copied.");
@@ -7969,6 +7981,12 @@ export function OneLocationAgentPageContent({
         text: ONE_LOCATION_PUBLIC_SHARE_COPY,
         url,
         dialogTitle: "Share to contacts",
+      });
+      trackOneLocationJourneyAction({
+        action: "contact_invitation_handoff",
+        routeId: "one_location",
+        targetType: "contacts",
+        countBucket: "1",
       });
       if (delivery === "copied") {
         toast.success("Invite link copied.");
@@ -8045,6 +8063,12 @@ export function OneLocationAgentPageContent({
     try {
       const copiedToClipboard = await copyToClipboard(circleInviteUrl);
       if (copiedToClipboard) {
+        trackOneLocationJourneyAction({
+          action: "contact_invitation_handoff",
+          routeId: "one_location",
+          targetType: "contacts",
+          countBucket: "1",
+        });
         toast.success("Invite to One link copied.");
       } else {
         toast.error("Could not copy the Invite to One link.");
@@ -8062,6 +8086,12 @@ export function OneLocationAgentPageContent({
         text: ONE_LOCATION_CIRCLE_SHARE_COPY,
         url: circleInviteUrl,
         dialogTitle: "Share Invite to One",
+      });
+      trackOneLocationJourneyAction({
+        action: "contact_invitation_handoff",
+        routeId: "one_location",
+        targetType: "contacts",
+        countBucket: "1",
       });
       if (delivery === "copied") {
         toast.success("Invite to One link copied.");
@@ -8425,6 +8455,11 @@ export function OneLocationAgentPageContent({
           vaultOwnerToken,
           code,
         });
+        trackOneLocationJourneyAction({
+          action: "circle_joined",
+          routeId: "one_location",
+          targetType: "circle",
+        });
         scheduleNamedCircleStateRefresh();
         toast.success(
           result.joined
@@ -8501,6 +8536,11 @@ export function OneLocationAgentPageContent({
           }),
           dialogTitle: "Share Circle code",
           url: joinUrl,
+        });
+        trackOneLocationJourneyAction({
+          action: "circle_code_shared",
+          routeId: "one_location",
+          targetType: "circle",
         });
         if (delivery === "copied") toast.success("Circle code copied.");
       } catch (error) {
@@ -8750,6 +8790,12 @@ export function OneLocationAgentPageContent({
           circleId,
           memberUserId,
         });
+        trackOneLocationJourneyAction({
+          action: "circle_member_removed",
+          routeId: "one_location",
+          targetType: "circle",
+          countBucket: "1",
+        });
         scheduleNamedCircleStateRefresh();
         toast.success("Member removed.");
       } catch (error) {
@@ -8824,6 +8870,12 @@ export function OneLocationAgentPageContent({
           circleId,
           inviteeUserIds,
         });
+        trackOneLocationJourneyAction({
+          action: "circle_member_invited",
+          routeId: "one_location",
+          targetType: "circle",
+          countBucket: oneLocationCountBucket(inviteeUserIds.length),
+        });
       } catch (error) {
         throw new Error(
           oneLocationErrorMessage(error, "Could not add them to the Circle."),
@@ -8845,6 +8897,11 @@ export function OneLocationAgentPageContent({
         const circle = await OneLocationService.acceptNamedCircleMemberInvite({
           vaultOwnerToken,
           inviteId,
+        });
+        trackOneLocationJourneyAction({
+          action: "circle_joined",
+          routeId: "one_location",
+          targetType: "circle",
         });
         setIncomingCircleMemberInvites((current) =>
           current.filter((invite) => invite.id !== inviteId),
@@ -8883,6 +8940,11 @@ export function OneLocationAgentPageContent({
           vaultOwnerToken,
           inviteId,
         });
+        trackOneLocationJourneyAction({
+          action: "circle_invite_declined",
+          routeId: "one_location",
+          targetType: "circle",
+        });
         setIncomingCircleMemberInvites((current) =>
           current.filter((invite) => invite.id !== inviteId),
         );
@@ -8918,6 +8980,11 @@ export function OneLocationAgentPageContent({
           vaultOwnerToken,
           inviteId,
         });
+        trackOneLocationJourneyAction({
+          action: "circle_invite_cancelled",
+          routeId: "one_location",
+          targetType: "circle",
+        });
       } catch (error) {
         throw new Error(
           oneLocationErrorMessage(
@@ -8942,6 +9009,11 @@ export function OneLocationAgentPageContent({
           vaultOwnerToken,
           circleId,
         });
+        trackOneLocationJourneyAction({
+          action: "circle_left",
+          routeId: "one_location",
+          targetType: "circle",
+        });
         scheduleNamedCircleStateRefresh();
         toast.success("You left the Circle.");
       } catch (error) {
@@ -8964,6 +9036,11 @@ export function OneLocationAgentPageContent({
         await OneLocationService.deleteNamedCircle({
           vaultOwnerToken,
           circleId,
+        });
+        trackOneLocationJourneyAction({
+          action: "circle_deleted",
+          routeId: "one_location",
+          targetType: "circle",
         });
         scheduleNamedCircleStateRefresh();
         toast.success("Circle deleted.");
@@ -9037,6 +9114,11 @@ export function OneLocationAgentPageContent({
           vaultOwnerToken,
           inviteId: invite.id,
         });
+        trackOneLocationJourneyAction({
+          action: "public_link_revoked",
+          routeId: "one_location",
+          targetType: "public",
+        });
         setCreatedPublicInvite(null);
         setStateEntry((current) =>
           current?.userId === auth.userId
@@ -9054,6 +9136,12 @@ export function OneLocationAgentPageContent({
         toast.success("Public location link revoked.");
         void refresh().catch(() => null);
       } catch (error) {
+        trackOneLocationJourneyAction({
+          action: "public_link_revoked",
+          result: "error",
+          routeId: "one_location",
+          targetType: "public",
+        });
         toast.error(
           oneLocationErrorMessage(
             error,
@@ -9141,6 +9229,11 @@ export function OneLocationAgentPageContent({
           return true;
         }
         await publishEnvelopeWithRetry(response.grant, requester, "manual");
+        trackOneLocationJourneyAction({
+          action: "location_request_fulfilled",
+          routeId: "one_location",
+          targetType: "person",
+        });
         // Name the person. An automatic approval is still a share starting
         // without a tap, so it has to be legible as it happens rather than
         // discoverable later in a list.
@@ -9155,6 +9248,12 @@ export function OneLocationAgentPageContent({
         if (!automatic) void refresh().catch(() => null);
         return true;
       } catch (error) {
+        trackOneLocationJourneyAction({
+          action: "location_request_fulfilled",
+          result: "error",
+          routeId: "one_location",
+          targetType: "person",
+        });
         toast.error(
           error instanceof Error
             ? error.message
@@ -9257,10 +9356,21 @@ export function OneLocationAgentPageContent({
       setBusy("deny");
       try {
         await OneLocationService.denyRequest({ vaultOwnerToken, requestId });
+        trackOneLocationJourneyAction({
+          action: "location_request_denied",
+          routeId: "one_location",
+          targetType: "person",
+        });
         toast.success("Request denied.");
         void refresh().catch(() => null);
         return true;
       } catch (error) {
+        trackOneLocationJourneyAction({
+          action: "location_request_denied",
+          result: "error",
+          routeId: "one_location",
+          targetType: "person",
+        });
         toast.error(
           error instanceof Error ? error.message : "Could not deny request.",
         );

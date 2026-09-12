@@ -39,6 +39,7 @@ import type {
   ConsentActionKind,
   ConsentActionState,
 } from "@/lib/consent/use-consent-actions";
+import { trackOneLocationJourneyAction } from "@/lib/observability/location-events";
 
 /**
  * Minimal shape the hook needs from a `ConsentCenterEntry`. Kept structural so
@@ -230,8 +231,17 @@ export function useOneLocationConsentActions(
 
           try {
             await promise;
+            trackOneLocationJourneyAction({
+              action: "location_request_fulfilled",
+              targetType: "person",
+            });
             emitComplete({ action: "approve", requestId });
           } catch (error) {
+            trackOneLocationJourneyAction({
+              action: "location_request_fulfilled",
+              result: "error",
+              targetType: "person",
+            });
             console.error("[OneLocationConsent] approve failed:", error);
             throw error;
           }
@@ -272,8 +282,17 @@ export function useOneLocationConsentActions(
 
           try {
             await promise;
+            trackOneLocationJourneyAction({
+              action: "location_request_denied",
+              targetType: "person",
+            });
             emitComplete({ action: "deny", requestId });
           } catch (error) {
+            trackOneLocationJourneyAction({
+              action: "location_request_denied",
+              result: "error",
+              targetType: "person",
+            });
             console.error("[OneLocationConsent] deny failed:", error);
             throw error;
           }

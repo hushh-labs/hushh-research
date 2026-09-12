@@ -4,7 +4,7 @@
 
 Canonical visual owner: [Observability Architecture Map](./observability-architecture-map.md). Use that map for topology and reporting boundaries; this page is the event taxonomy and emitter map beneath it.
 
-This matrix documents the maintained Kai observability contract:
+This matrix documents the maintained One-platform observability contract:
 
 1. what each event means
 2. which params are required
@@ -84,6 +84,32 @@ Every emitted observability event carries centrally added shared params:
 | `gmail_sync_requested` | Manual Gmail sync requested | `action`, `result` | `hushh-webapp/lib/services/gmail-receipts-service.ts` | sync request volume | GA DebugView |
 | `gmail_sync_result` | Gmail sync queue/already-running result | `action`, `result` | `hushh-webapp/lib/services/gmail-receipts-service.ts` | sync queue health | GA DebugView |
 | `gmail_receipts_loaded` | Receipt list load result | `result` | `hushh-webapp/lib/services/gmail-receipts-service.ts` | receipts UX quality | GA DebugView |
+
+## One Location Behaviour
+
+One Location reporting combines web, iOS, and Android into one product total.
+The `platform` context remains attached only so operators can prove that every
+supported surface is flowing; it is not a separate product scorecard. Counts
+are device/browser analytics until account identity is consistently bound on
+all three surfaces.
+
+| Event | Business purpose | Required params | Primary emitter | Destination use | Proof path |
+| --- | --- | --- | --- | --- | --- |
+| `one_location_share_confirmed` | Live-location share outcome | `route_id`, `result`, selected/success/failure counts, duration bucket | `hushh-webapp/lib/observability/location-events.ts` | combined Location feature adoption and technical success | `npm run verify:analytics`, metrics Location drill-down |
+| `one_location_check_in_completed` | One-off Check-In outcome distinct from live sharing | `route_id`, `result`, selected/success/failure counts, `circle_targeted` | One Location Check-In flow | Check-In adoption and reliability | `npm run verify:analytics`, metrics Location drill-down |
+| `one_location_sos_triggered` | Save My Soul/SMS outcome without location, message, or recipient data | `route_id`, `result`, aggregate reach counts, `has_note` | One Location SMS flow | safety-feature adoption and delivery failures | `npm run verify:analytics`, metrics Location drill-down |
+| `one_location_request_sent` | Request Location send outcome | `route_id`, `result`, aggregate selected/success/failure counts, `has_note` | One Location request composer | request adoption and send reliability | `npm run verify:analytics`, metrics Location drill-down |
+| `one_location_contact_signal_synced` | Contact-sync result | `route_id`, `result`, source, count bucket, aggregate match/invite counts | `hushh-webapp/lib/contacts/use-contact-sync.ts` | contact-sync completion and quality | contact-sync tests, metrics Location drill-down |
+| `one_location_public_link_created` | Public live-location link creation | `route_id`, `result`, duration bucket, clipboard flag, active count | One Location Links flow | public-sharing creation and failure rate | `npm run verify:analytics`, metrics Location drill-down |
+| `one_location_circle_invite_created` | Invite-to-One link creation | `route_id`, `result`, duration bucket, clipboard flag, active count | One Location invite flow | invitation adoption and failure rate | `npm run verify:analytics`, metrics Location drill-down |
+| `one_location_circle_created` | Named Circle creation and type mix | `route_id`, `result`, `circle_kind` | One Location and Connect Circles | Circles created in-range by Family/Friends/Custom | Circle tests, metrics Location drill-down |
+| `one_location_journey_action` | Cross-surface Connect, invitations, Circles, request fulfilment, public-view, and share-view actions | `route_id`, `action`, `result`, `entry_surface`, `target_type`; optional low-cardinality kind/count bucket | shared Location observability helper, contact-sync/invitation hooks, Connect Circles, consent actions, public-link view | combined end-to-end journey reach and Circle engagement | `npm run verify:analytics`, schema privacy test, targeted Connect/Circle tests |
+
+The journey event must never contain IDs, Circle names, contact values,
+coordinates, invite codes, public tokens, messages, or other free text. The
+allowlist is enforced in `hushh-webapp/lib/observability/schema.ts`; the
+dashboard receives only BigQuery aggregates. Newly added journey rows render as
+“measuring after rollout” until this event is observed in the production export.
 
 ## Growth Funnel Canonical Events
 

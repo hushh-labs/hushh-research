@@ -13,6 +13,7 @@ import {
   type InvitationShare,
 } from "@/lib/services/contact-invitations-service";
 import { isShareCancellationError } from "@/lib/share/share-link";
+import { trackOneLocationJourneyAction } from "@/lib/observability/location-events";
 
 /** Session-owned UI state and handoffs survive temporary admission-gate remounts. */
 export function useInvitationQueue(
@@ -84,17 +85,42 @@ export function useInvitationQueue(
             ? await ContactInvitationsService.share(personal)
             : await ContactInvitationsService.copy(personal);
       if (!isCurrentSession()) return;
+      trackOneLocationJourneyAction({
+        action: "contact_invitation_handoff",
+        result:
+          result === "failed"
+            ? "error"
+            : result === "cancelled" || result === "unavailable"
+              ? "expected_error"
+              : "success",
+        targetType: "contacts",
+        countBucket: "1",
+      });
       if (result === "copied") toast.success("Invitation copied");
       if (ContactInvitationsService.completesRecipient(result)) {
         setProcessed((previous) => new Set(previous).add(recipient.id));
       } else setOutcome(result);
     } catch (failure) {
       if (!isCurrentSession()) return;
-      if (isShareCancellationError(failure)) setOutcome("cancelled");
-      else
+      if (isShareCancellationError(failure)) {
+        trackOneLocationJourneyAction({
+          action: "contact_invitation_handoff",
+          result: "expected_error",
+          targetType: "contacts",
+          countBucket: "1",
+        });
+        setOutcome("cancelled");
+      } else {
+        trackOneLocationJourneyAction({
+          action: "contact_invitation_handoff",
+          result: "error",
+          targetType: "contacts",
+          countBucket: "1",
+        });
         setError(
           "Could not open or copy the invitation. Please try again, or select and copy the message above.",
         );
+      }
     } finally {
       if (isCurrentSession()) {
         busyRef.current = false;

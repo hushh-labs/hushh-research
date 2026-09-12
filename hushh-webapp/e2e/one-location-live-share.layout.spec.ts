@@ -14,6 +14,8 @@ import {
   LIVE_SHARE_FOOTER_CLASSNAME,
   LIVE_SHARE_FOOTER_ROW_CLASSNAME,
   LIVE_SHARE_HEADER_CLASSNAME,
+  LIVE_SHARE_PRIMARY_ACTION_CLASSNAME,
+  LIVE_SHARE_SECONDARY_ACTION_CLASSNAME,
   LIVE_SHARE_TITLE_CLASSNAME,
 } from "../components/one-location/redesign/live-share-card-layout";
 
@@ -109,6 +111,8 @@ async function buildFixture(): Promise<string> {
     LIVE_SHARE_CLOCK_CLASSNAME,
     LIVE_SHARE_FOOTER_CLASSNAME,
     LIVE_SHARE_FOOTER_ROW_CLASSNAME,
+    LIVE_SHARE_PRIMARY_ACTION_CLASSNAME,
+    LIVE_SHARE_SECONDARY_ACTION_CLASSNAME,
     "h-2 w-2 shrink-0 rounded-full inline-flex items-center justify-center",
   ].join(" ");
   const css = compiler.build(classes.split(/\s+/).filter(Boolean));
@@ -127,9 +131,9 @@ async function buildFixture(): Promise<string> {
       <span>·</span>
       <span class="${LIVE_SHARE_FOOTER_CLASSNAME}" data-testid="footer-${item.id}">${item.footer}</span>
     </p>
-    <button class="${LIVE_SHARE_ACTION_CLASSNAME} mt-4 inline-flex min-h-[48px] w-full items-center justify-center rounded-[16px] px-5" data-testid="share-more-${item.id}">Share with more</button>
     <div class="${LIVE_SHARE_FOOTER_ROW_CLASSNAME}">
-      <button class="${LIVE_SHARE_ACTION_CLASSNAME} inline-flex items-center justify-center" data-testid="change-${item.id}">Change time</button>
+      <button class="${LIVE_SHARE_PRIMARY_ACTION_CLASSNAME} inline-flex items-center justify-center" data-testid="share-more-${item.id}" onclick="document.body.dataset.lastAction='share-more'">Share with more</button>
+      <button class="${LIVE_SHARE_ACTION_CLASSNAME} ${LIVE_SHARE_SECONDARY_ACTION_CLASSNAME} inline-flex items-center" data-testid="change-${item.id}" onclick="document.body.dataset.lastAction='change-time'">Change end time</button>
     </div>
   </section>`,
   ).join("\n");
@@ -138,10 +142,10 @@ async function buildFixture(): Promise<string> {
   fs.writeFileSync(path.join(dir, "fixture.css"), css);
   fs.writeFileSync(
     path.join(dir, "fixture.html"),
-    `<!doctype html><html><head><meta charset="utf-8">
+    `<!doctype html><html><head><meta charset="utf-8"><title>One Location live share actions</title>
 <style>${productFontStyle()}</style>
 <link rel="stylesheet" href="fixture.css"></head>
-<body style="margin:0;background:#f2f2f7">
+<body style="margin:0;background:#f2f2f7;color:#1c1c1e;--app-accent:#0a84ff;--app-secondary-label:#6e6e73;--app-neutral-fill:rgba(0,0,0,.055);--app-neutral-fill-strong:rgba(0,0,0,.09);--font-app-body:InterVariable,Arial,sans-serif">
 <div style="display:flex;flex-direction:column;gap:12px;padding:12px">
 ${cards}
 </div></body></html>`,
@@ -156,6 +160,8 @@ type Probe = {
   clientHeight: number;
   right: number;
   left: number;
+  top: number;
+  width: number;
   height: number;
   textOverflow: string;
   lineClamp: string;
@@ -172,6 +178,8 @@ const PROBE = (node: Element): Probe => {
     clientHeight: node.clientHeight,
     right: box.right,
     left: box.left,
+    top: box.top,
+    width: box.width,
     height: box.height,
     textOverflow: style.textOverflow,
     lineClamp: style.webkitLineClamp,
@@ -180,6 +188,37 @@ const PROBE = (node: Element): Probe => {
 };
 
 test.describe("One Location live share card layout", () => {
+  test("renders an identified fixture with unobstructed action controls", async ({
+    page,
+  }) => {
+    const consoleErrors: string[] = [];
+    page.on("console", (message) => {
+      if (message.type() === "error") consoleErrors.push(message.text());
+    });
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto(await buildFixture());
+    await awaitProductFont(page);
+
+    await expect(page).toHaveTitle("One Location live share actions");
+    await expect(page.getByTestId("title-short")).toContainText(
+      "Sharing with Rohan",
+    );
+    await expect(page.locator("nextjs-portal")).toHaveCount(0);
+
+    await page.getByTestId("share-more-short").click();
+    await expect(page.locator("body")).toHaveAttribute(
+      "data-last-action",
+      "share-more",
+    );
+    await page.getByTestId("change-short").click();
+    await expect(page.locator("body")).toHaveAttribute(
+      "data-last-action",
+      "change-time",
+    );
+    expect(consoleErrors).toEqual([]);
+  });
+
   for (const width of WIDTHS) {
     test(`keeps every part of the live status readable at ${width}px`, async ({
       page,
@@ -250,6 +289,24 @@ test.describe("One Location live share card layout", () => {
           .evaluate(PROBE);
         expect(shareMore.height).toBeGreaterThanOrEqual(MIN_TOUCH_TARGET);
         expect(shareMore.right).toBeLessThanOrEqual(width + 1);
+
+        const card = await page.getByTestId(`card-${item.id}`).evaluate(PROBE);
+        const actionGap = change.left - shareMore.right;
+        if (width < 360) {
+          expect(shareMore.width).toBeGreaterThanOrEqual(card.width - 41);
+          expect(change.width).toBeGreaterThanOrEqual(card.width - 41);
+          expect(change.top).toBeGreaterThanOrEqual(
+            shareMore.top + shareMore.height,
+          );
+        } else {
+          expect(Math.abs(change.top - shareMore.top)).toBeLessThanOrEqual(1);
+          expect(shareMore.left).toBeGreaterThanOrEqual(card.left + 15);
+          expect(shareMore.left).toBeLessThanOrEqual(card.left + 21);
+          expect(shareMore.width).toBeLessThan(190);
+          expect(change.width).toBeLessThan(190);
+          expect(actionGap).toBeGreaterThanOrEqual(8);
+          expect(actionGap).toBeLessThanOrEqual(14);
+        }
       }
     });
   }

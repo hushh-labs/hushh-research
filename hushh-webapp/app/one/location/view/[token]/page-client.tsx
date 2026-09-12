@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import {
   AlertTriangle,
@@ -34,6 +34,7 @@ import type {
   OneLocationPublicInvite,
   PlainLocationPoint,
 } from "@/lib/one-location/types";
+import { trackOneLocationJourneyAction } from "@/lib/observability/location-events";
 
 /**
  * The link resolved and the window is open — there is simply no snapshot on
@@ -386,6 +387,31 @@ export default function PublicLocationViewPageClient() {
   );
   const { invite, publicLocation, loading, error, confirmedExpired } =
     usePublicLocationInvite(publicToken);
+  const openedTrackedRef = useRef(false);
+  const viewedTrackedRef = useRef(false);
+
+  useEffect(() => {
+    if (loading || openedTrackedRef.current) return;
+    openedTrackedRef.current = true;
+    trackOneLocationJourneyAction({
+      action: "public_link_opened",
+      result: invite ? "success" : error ? "error" : "expected_error",
+      routeId: "one_location_public_request",
+      entrySurface: "public_link",
+      targetType: "public",
+    });
+  }, [error, invite, loading]);
+
+  useEffect(() => {
+    if (!publicLocation || viewedTrackedRef.current) return;
+    viewedTrackedRef.current = true;
+    trackOneLocationJourneyAction({
+      action: "location_share_viewed",
+      routeId: "one_location_public_request",
+      entrySurface: "public_link",
+      targetType: "public",
+    });
+  }, [publicLocation]);
 
   const ownerName = ownerNameOf(invite);
   const remainingMs = useRemainingMs(invite?.expiresAt);
