@@ -453,6 +453,7 @@ class ConsumerMemoryPayload(BaseModel):
     records: list[ConsumerMemoryRecord] = Field(default_factory=list, max_length=20)
     revision: int | None = Field(default=None, ge=0)
     saved: bool | None = None
+    deleted: bool | None = None
     memory_id: str | None = Field(default=None, max_length=128)
 
 
@@ -724,6 +725,7 @@ async def handle_list_hussh_capabilities(arguments: dict) -> CallToolResult:
         "read_hussh_memory",
         "save_hussh_memory",
         "correct_hussh_memory",
+        "delete_hussh_memory",
         "export_hussh_memory",
         "list_hussh_capabilities",
         "list_hussh_connections",
@@ -801,6 +803,7 @@ async def handle_list_hussh_capabilities(arguments: dict) -> CallToolResult:
             "read_hussh_memory",
             "save_hussh_memory",
             "correct_hussh_memory",
+            "delete_hussh_memory",
             "export_hussh_memory",
         }:
             execution = "owner_pod"
@@ -2317,6 +2320,10 @@ async def handle_save_hussh_memory(arguments: dict) -> CallToolResult:
 
 async def handle_correct_hussh_memory(arguments: dict) -> CallToolResult:
     return await _handle_memory("correct", arguments)
+
+
+async def handle_delete_hussh_memory(arguments: dict) -> CallToolResult:
+    return await _handle_memory("delete", arguments)
 
 
 async def handle_export_hussh_memory(arguments: dict) -> CallToolResult:

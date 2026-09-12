@@ -30,7 +30,7 @@ class PodConsumerMemoryRequest(BaseModel):
     owner_id: str = Field(..., alias="ownerId", min_length=1, max_length=128)
     connection_id: str = Field(..., alias="connectionId", min_length=1, max_length=128)
     generation: int = Field(..., ge=1)
-    operation: Literal["read", "query", "save", "correct", "export"]
+    operation: Literal["read", "query", "save", "correct", "delete", "export"]
     arguments: dict[str, Any]
 
 

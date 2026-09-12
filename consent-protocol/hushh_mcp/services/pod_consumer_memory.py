@@ -22,6 +22,7 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from hushh_mcp.services.pod_pkm_resolver import resolve_pod_pkm_store
 
 MAX_DOMAIN_RECORDS = 20
+MAX_DOMAIN_TOMBSTONES = 1_024
 MAX_RECORD_CONTENT_CHARS = 4_000
 _COMMIT_NAMESPACE = uuid.UUID("7a3b1778-5f9a-44d7-b1a2-2b5304d8a3a0")
 
@@ -65,16 +66,38 @@ def _decrypt(blob: dict[str, Any], key: bytes) -> Any:
     return value
 
 
+def _tombstones(value: dict[str, Any]) -> list[dict[str, str]]:
+    raw = value.get("consumer_memory_tombstones")
+    if not isinstance(raw, list):
+        return []
+    tombstones: list[dict[str, str]] = []
+    for item in raw:
+        if isinstance(item, str) and item:
+            tombstones.append({"id": item[:128], "commit_id": ""})
+        elif isinstance(item, dict) and str(item.get("id") or ""):
+            tombstones.append(
+                {
+                    "id": str(item.get("id") or "")[:128],
+                    "commit_id": str(item.get("commit_id") or "")[:128],
+                }
+            )
+    return tombstones
+
+
 def _records(value: dict[str, Any]) -> list[dict[str, Any]]:
     raw = value.get("consumer_memory")
     if not isinstance(raw, list):
         return []
+    deleted = {item["id"] for item in _tombstones(value)}
     records: list[dict[str, Any]] = []
     for item in raw:
         if isinstance(item, dict) and isinstance(item.get("content"), str):
+            memory_id = str(item.get("id") or "")[:128]
+            if memory_id in deleted:
+                continue
             records.append(
                 {
-                    "id": str(item.get("id") or "")[:128],
+                    "id": memory_id,
                     "content": str(item.get("content") or "")[:MAX_RECORD_CONTENT_CHARS],
                     "updated_at": str(item.get("updated_at") or ""),
                 }
@@ -174,6 +197,7 @@ class PodConsumerMemoryExecutor:
             if isinstance(root, dict):
                 value = _decrypt(root, self._vault_key)
         records = _records(value)
+        tombstones = _tombstones(value)
         query = str(arguments.get("query") or "").strip().casefold()
         if operation in {"read", "query"}:
             matches = [item for item in records if query in item["content"].casefold()]
@@ -193,8 +217,35 @@ class PodConsumerMemoryExecutor:
             )
         now = datetime.now(UTC).isoformat()
         memory_id = str(arguments.get("memory_id") or "")
-        content = str(arguments["content"])
-        if operation == "save":
+        content = str(arguments.get("content") or "")
+        commit_id = str(
+            uuid.uuid5(
+                _COMMIT_NAMESPACE,
+                f"{owner_id}:{domain}:{arguments['idempotency_key']}:{operation}",
+            )
+        )
+        if operation == "delete":
+            prior_tombstone = next(
+                (item for item in tombstones if item["commit_id"] == commit_id), None
+            )
+            if prior_tombstone is not None:
+                return {
+                    "result": {
+                        "deleted": True,
+                        "memory_id": prior_tombstone["id"],
+                        "revision": current_revision,
+                    }
+                }
+            if not any(record["id"] == memory_id for record in records):
+                raise PodConsumerMemoryUnavailable("memory record not found")
+            if len(tombstones) >= MAX_DOMAIN_TOMBSTONES:
+                raise PodConsumerMemoryUnavailable("memory tombstone capacity reached")
+            records = [record for record in records if record["id"] != memory_id]
+            tombstones = [
+                *tombstones,
+                {"id": memory_id, "commit_id": commit_id},
+            ]
+        elif operation == "save":
             # A save's idempotency key denotes one logical mutation.  Derive its
             # record ID from that key so a lost response can be retried without
             # returning a fresh ID for the already-committed record.
@@ -205,6 +256,10 @@ class PodConsumerMemoryExecutor:
                     f"{owner_id}:{domain}:save:{arguments['idempotency_key']}",
                 ).hex
             )
+            if any(item["id"] == memory_id for item in tombstones):
+                raise PodConsumerMemoryUnavailable(
+                    "memory id was deleted; use a new idempotency key"
+                )
             records = [*records, {"id": memory_id, "content": content, "updated_at": now}]
         else:
             found = False
@@ -215,16 +270,14 @@ class PodConsumerMemoryExecutor:
                     break
             if not found:
                 raise PodConsumerMemoryUnavailable("memory record not found")
-        next_value = {**value, "consumer_memory": records[-MAX_DOMAIN_RECORDS:]}
+        next_value = {
+            **value,
+            "consumer_memory": records[-MAX_DOMAIN_RECORDS:],
+            "consumer_memory_tombstones": tombstones,
+        }
         next_revision = current_revision + 1
         manifest, paths, scopes = _manifest(snapshot, domain=domain, revision=next_revision)
         manifest["summary_projection"]["memory_count"] = len(records)
-        commit_id = str(
-            uuid.uuid5(
-                _COMMIT_NAMESPACE,
-                f"{owner_id}:{domain}:{arguments['idempotency_key']}:{operation}",
-            )
-        )
         fingerprint = hashlib.sha256(
             json.dumps(
                 {
@@ -250,9 +303,21 @@ class PodConsumerMemoryExecutor:
                 "p_summary_patch": manifest["summary_projection"],
                 "p_event_rows": [
                     {
-                        "operation_type": "consumer_memory_write",
+                        "operation_type": (
+                            "consumer_memory_delete"
+                            if operation == "delete"
+                            else "consumer_memory_write"
+                        ),
                         "segment_ids": ["root"],
-                        "metadata": {"operation": operation, "record_count": len(records)},
+                        "metadata": {
+                            "operation": operation,
+                            "record_count": len(records),
+                            **(
+                                {"tombstone_count": len(tombstones)}
+                                if operation == "delete"
+                                else {}
+                            ),
+                        },
                     }
                 ],
                 "p_commit_id": commit_id,
@@ -268,7 +333,8 @@ class PodConsumerMemoryExecutor:
             raise PodConsumerMemoryUnavailable("personal memory commit failed")
         return {
             "result": {
-                "saved": True,
+                "saved": operation != "delete",
+                "deleted": operation == "delete",
                 "memory_id": memory_id,
                 "revision": result.get("data_version", next_revision),
             }

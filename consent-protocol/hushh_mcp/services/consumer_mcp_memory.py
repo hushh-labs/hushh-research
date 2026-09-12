@@ -27,7 +27,7 @@ class ConsumerMemoryConflict(RuntimeError):
 MAX_MEMORY_QUERY_CHARS = 512
 MAX_MEMORY_CONTENT_CHARS = 4_000
 MAX_MEMORY_RESULTS = 20
-MEMORY_OPERATIONS = frozenset({"read", "query", "save", "correct", "export"})
+MEMORY_OPERATIONS = frozenset({"read", "query", "save", "correct", "export", "delete"})
 
 
 class ConsumerMemoryUnavailable(RuntimeError):
@@ -180,13 +180,22 @@ def validate_memory_request(operation: str, arguments: dict[str, Any]) -> Consum
         if type(raw_limit) is not int or not 1 <= raw_limit <= MAX_MEMORY_RESULTS:
             raise ConsumerMemoryInvalid("limit is invalid")
         normalized["limit"] = raw_limit
-    elif operation in {"save", "correct"}:
-        normalized["content"] = _text(
-            arguments.get("content"),
-            field="content",
-            maximum=MAX_MEMORY_CONTENT_CHARS,
-            required=True,
-        )
+    elif operation in {"save", "correct", "delete"}:
+        if operation == "delete" and arguments.get("confirm") is not True:
+            raise ConsumerMemoryInvalid("delete requires fresh confirmation")
+        if operation == "delete":
+            normalized["confirm"] = True
+        if operation in {"correct", "delete"}:
+            normalized["memory_id"] = _text(
+                arguments.get("memory_id"), field="memory_id", maximum=128, required=True
+            )
+        if operation != "delete":
+            normalized["content"] = _text(
+                arguments.get("content"),
+                field="content",
+                maximum=MAX_MEMORY_CONTENT_CHARS,
+                required=True,
+            )
         idempotency_key = _text(
             arguments.get("idempotency_key"),
             field="idempotency_key",
@@ -194,10 +203,6 @@ def validate_memory_request(operation: str, arguments: dict[str, Any]) -> Consum
             required=True,
         )
         normalized["idempotency_key"] = idempotency_key
-        if operation == "correct":
-            normalized["memory_id"] = _text(
-                arguments.get("memory_id"), field="memory_id", maximum=128, required=True
-            )
         expected_revision = arguments.get("expected_revision")
         if expected_revision is not None and (
             type(expected_revision) is not int or expected_revision < 0

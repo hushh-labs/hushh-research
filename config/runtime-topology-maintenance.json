@@ -391,6 +391,14 @@
       "evidence": "consent-protocol/mcp_modules/tools/definitions.py; consent-protocol/mcp_modules/tools/consumer_tools.py; consent-protocol/mcp_server.py"
     },
     {
+      "id": "tool.delete_hussh_memory",
+      "tool_name": "delete_hussh_memory",
+      "operation": "delete_hussh_memory",
+      "owner": "consumer_mcp",
+      "disposition": "executable",
+      "evidence": "consent-protocol/mcp_modules/tools/definitions.py; consent-protocol/mcp_modules/tools/consumer_tools.py; consent-protocol/mcp_server.py; consent-protocol/hushh_mcp/services/pod_consumer_memory.py"
+    },
+    {
       "id": "tool.export_hussh_memory",
       "tool_name": "export_hussh_memory",
       "operation": "export_hussh_memory",

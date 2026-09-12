@@ -15,6 +15,8 @@ from hushh_mcp.services.consumer_mcp_memory import (
 from hushh_mcp.services.pod_consumer_memory import (
     PodConsumerMemoryConflict,
     PodConsumerMemoryExecutor,
+    PodConsumerMemoryUnavailable,
+    _decrypt,
     _encrypt,
 )
 from mcp_modules.tools.consumer_tools import ConsumerMemoryResult
@@ -42,6 +44,21 @@ def test_memory_requests_are_typed_and_bounded() -> None:
         validate_memory_request("read", {"domain": "food", "query": "x" * 513})
     with pytest.raises(ConsumerMemoryInvalid):
         validate_memory_request("delete", {"domain": "food"})
+    with pytest.raises(ConsumerMemoryInvalid, match="fresh confirmation"):
+        validate_memory_request(
+            "delete",
+            {"domain": "food", "memory_id": "m1", "idempotency_key": "delete-1"},
+        )
+    request = validate_memory_request(
+        "delete",
+        {
+            "domain": "food",
+            "memory_id": "m1",
+            "idempotency_key": "delete-1",
+            "confirm": True,
+        },
+    )
+    assert request.arguments["confirm"] is True
 
 
 def test_memory_result_schema_keeps_pod_payload_bounded() -> None:
@@ -261,6 +278,101 @@ async def test_pod_executor_reads_the_existing_encrypted_domain():
     assert result["result"]["records"] == [
         {"id": "m1", "content": "vegetarian", "updated_at": "now"}
     ]
+
+
+@pytest.mark.asyncio
+async def test_pod_executor_delete_commits_an_encrypted_tombstone():
+    encrypted = _encrypt(
+        {"consumer_memory": [{"id": "m1", "content": "vegetarian", "updated_at": "now"}]},
+        b"K" * 32,
+    )
+    store = _PodStore(
+        snapshot={
+            "content_revision": 3,
+            "manifest": {},
+            "paths": [],
+            "scopes": [],
+            "segments": {"root": encrypted},
+        },
+        result={"success": True, "data_version": 4},
+    )
+    result = await PodConsumerMemoryExecutor(store=store, vault_key=b"K" * 32).execute(
+        owner_id="owner-a",
+        operation="delete",
+        arguments={
+            "domain": "food",
+            "memory_id": "m1",
+            "idempotency_key": "delete-1",
+            "confirm": True,
+        },
+    )
+
+    assert result["result"] == {"saved": False, "deleted": True, "memory_id": "m1", "revision": 4}
+    sealed = store.params["p_segment_rows"][0]
+    assert "vegetarian" not in str(sealed)
+    deleted_value = _decrypt(sealed, b"K" * 32)
+    assert deleted_value["consumer_memory"] == []
+    assert deleted_value["consumer_memory_tombstones"]
+    assert store.params["p_event_rows"][0]["metadata"]["operation"] == "delete"
+
+
+@pytest.mark.asyncio
+async def test_pod_executor_delete_retry_is_idempotent_and_new_key_cannot_recreate():
+    class _StatefulStore(_PodStore):
+        def __init__(self):
+            super().__init__(
+                snapshot={
+                    "content_revision": 3,
+                    "manifest": {},
+                    "paths": [],
+                    "scopes": [],
+                    "segments": {
+                        "root": _encrypt(
+                            {
+                                "consumer_memory": [
+                                    {"id": "m1", "content": "vegetarian", "updated_at": "now"}
+                                ]
+                            },
+                            b"K" * 32,
+                        )
+                    },
+                },
+                result={"success": True, "data_version": 4},
+            )
+            self.calls = 0
+
+        async def commit_domain_mutation(self, params):
+            self.calls += 1
+            self.params = params
+            self.snapshot = {
+                "content_revision": params["p_next_content_revision"],
+                "manifest": params["p_manifest_row"],
+                "paths": params["p_path_rows"],
+                "scopes": params["p_scope_rows"],
+                "segments": {"root": params["p_segment_rows"][0]},
+            }
+            return self.result
+
+    arguments = {
+        "domain": "food",
+        "memory_id": "m1",
+        "idempotency_key": "delete-retry",
+        "confirm": True,
+    }
+    store = _StatefulStore()
+    executor = PodConsumerMemoryExecutor(store=store, vault_key=b"K" * 32)
+    first = await executor.execute(owner_id="owner-a", operation="delete", arguments=arguments)
+    second = await executor.execute(owner_id="owner-a", operation="delete", arguments=arguments)
+
+    assert first["result"]["deleted"] is True
+    assert second["result"]["deleted"] is True
+    assert store.calls == 1
+    with pytest.raises(PodConsumerMemoryUnavailable, match="not found"):
+        await executor.execute(
+            owner_id="owner-a",
+            operation="delete",
+            arguments={**arguments, "idempotency_key": "delete-new-key"},
+        )
 
 
 @pytest.mark.asyncio

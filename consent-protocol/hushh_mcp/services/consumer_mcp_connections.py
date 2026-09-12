@@ -620,11 +620,13 @@ class ConsumerMcpConnections:
         """Hold the grant fence through a canonical database operation/commit.
 
         Callers still enforce memory type/secrets exclusions, CAS, encryption,
-        idempotency and sharing impact. This grants no delete/share/action rights.
+        idempotency and sharing impact. Deletion remains separately gated by a
+        fresh confirmation in the typed memory request; this grant does not
+        authorize sharing or external actions.
         Network execution must carry this generation and recheck at commit and
         result release; this SQL transaction cannot undo a remote side effect.
         """
-        if operation not in {"read", "query", "save", "correct", "export"}:
+        if operation not in {"read", "query", "save", "correct", "delete", "export"}:
             raise ConsumerConnectionDenied("This operation requires separate approval")
         owner = principal.subject_firebase_uid or ""
         with self._transaction(owner) as tx:

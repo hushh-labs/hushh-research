@@ -194,7 +194,9 @@ def test_full_identity_binding_and_operation_boundaries(consumer, monkeypatch):
         with pytest.raises(ConsumerConnectionDenied):
             with service.memory_transaction(changed, operation="read"):
                 pytest.fail("foreign authority admitted")
-    for operation in ("delete", "share", "send_email", "vault_key"):
+    with service.memory_transaction(principal, operation="delete"):
+        pass
+    for operation in ("share", "send_email", "vault_key"):
         with pytest.raises(ConsumerConnectionDenied):
             with service.memory_transaction(principal, operation=operation):
                 pytest.fail("separate action admitted")

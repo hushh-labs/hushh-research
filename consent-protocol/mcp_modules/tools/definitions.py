@@ -706,6 +706,27 @@ def _private_tool_definitions() -> list[Tool]:
             },
         ),
         Tool(
+            name="delete_hussh_memory",
+            description="Delete one owner-pod memory record after fresh confirmation. The encrypted tombstone prevents replay or regeneration of the deleted record.",
+            inputSchema=schema(
+                {
+                    "domain": {"type": "string", "minLength": 1, "maxLength": 64},
+                    "memory_id": {"type": "string", "minLength": 1, "maxLength": 128},
+                    "idempotency_key": {"type": "string", "minLength": 1, "maxLength": 128},
+                    "confirm": {"type": "boolean", "const": True},
+                    "expected_revision": {"type": "integer", "minimum": 0},
+                },
+                ["domain", "memory_id", "idempotency_key", "confirm"],
+            ),
+            outputSchema=ConsumerMemoryResult.model_json_schema(),
+            annotations={
+                "readOnlyHint": False,
+                "destructiveHint": True,
+                "idempotentHint": True,
+                "openWorldHint": False,
+            },
+        ),
+        Tool(
             name="export_hussh_memory",
             description="Request an owner-pod export of personal memory metadata. Credentials, keys and recovery secrets are excluded.",
             inputSchema=schema(

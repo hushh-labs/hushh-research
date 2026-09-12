@@ -133,7 +133,7 @@ The private \`feat/consumer-mcp\` branch adds a separate owner-bound catalog for
 - \`list_hussh_connection_requests\` — bounded incoming/outgoing request metadata; accepting, rejecting, sending, and changing scopes remain confirmed owner actions;
 - \`list_hussh_capabilities\`, \`list_hussh_connections\`, and \`list_hussh_receipts\` — bounded discovery, connection metadata, and non-bearer audit metadata;
 - \`list_hussh_integrations\`, \`connect_hussh_integration\`, and \`disconnect_hussh_integration\` — owner-scoped Google integration status, secure OAuth handoff, and confirmation-gated service revocation;
-- \`read_hussh_memory\`, \`save_hussh_memory\`, \`correct_hussh_memory\`, and \`export_hussh_memory\` — owner-pod PKM operations;
+- \`read_hussh_memory\`, \`save_hussh_memory\`, \`correct_hussh_memory\`, \`delete_hussh_memory\`, and \`export_hussh_memory\` — owner-pod PKM operations; deletion requires fresh confirmation;
 - \`delegate_hussh_task\` — one bounded private-agent turn with a separate \`cap.one.invoke\` approval. A registered Puppy device can be selected explicitly with \`runtime_provider=puppy\` and \`puppy_device_id\`; arbitrary providers are rejected and the pod remains the execution authority;
 - \`analyze_hussh_finance\` — run one bounded, non-mutating stock analysis through the owner pod and Kai specialist. It requires the separate Agent One approval and does not allow caller-selected providers;
 - \`start_hussh_task\`, \`get_hussh_task\`, and \`cancel_hussh_task\` — durable owner-pod task lifecycle. Status and results are sealed in the pod's existing commit log; replacement reports interruption and never replays uncertain work;
