@@ -409,11 +409,15 @@ steps:
           image_reference="gcr.io/$PROJECT_ID/consent-protocol:${_IMAGE_TAG}"
         fi
         job_name="${_BACKEND_SERVICE}-genai-readiness"
+        # This isolated model probe sends only synthetic requests. Clear any
+        # retained job secrets so it cannot inherit a retired Live key or
+        # application signing/vault authority from an earlier deployment.
         gcloud run jobs deploy "${job_name}" \
           --project="$PROJECT_ID" \
           --region="${_REGION}" \
           --image="${image_reference}" \
           --service-account="${_RUNTIME_SERVICE_ACCOUNT}" \
+          --clear-secrets \
           --command="python3" \
           --args="scripts/verify_managed_vertex_runtime.py" \
           --set-env-vars="^|^HUSHH_GENAI_AUTH_MODE=vertex_adc|GOOGLE_GENAI_USE_VERTEXAI=true|GOOGLE_CLOUD_PROJECT=${PROJECT_ID}|GENAI_GOOGLE_CLOUD_PROJECT=${genai_project_id}|GOOGLE_CLOUD_LOCATION=global|HUSHH_VERTEX_LOCATIONS=global,us,eu|HUSSH_GEMINI_TEXT_MODEL=${_HUSSH_GEMINI_TEXT_MODEL}" \

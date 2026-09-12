@@ -134,6 +134,18 @@ def test_backend_and_readiness_job_share_the_supported_text_model_regions() -> N
     assert "##_VERIFY_MANAGED_VERTEX_RUNTIME=${verify_managed_vertex_runtime}" in uat_workflow
 
 
+def test_managed_vertex_readiness_job_clears_retained_runtime_secrets() -> None:
+    backend_build = _read("deploy/backend.cloudbuild.yaml")
+    deploy_start = backend_build.index('gcloud run jobs deploy "${job_name}"')
+    execute_start = backend_build.index('gcloud run jobs execute "${job_name}"')
+    readiness_deploy = backend_build[deploy_start:execute_start]
+
+    # The job probes the managed model with synthetic inputs; it must not
+    # retain application secrets, including the retired Live credential.
+    assert "--clear-secrets" in readiness_deploy
+    assert "--set-secrets" not in readiness_deploy
+
+
 def test_backend_vertex_preflight_uses_supported_service_usage_command() -> None:
     backend_build = _read("deploy/backend.cloudbuild.yaml")
 
