@@ -427,7 +427,13 @@ class ConsumerMcpTask:
             },
         )
         await self._verify_current_connection(principal, current)
-        return self._normalize_lifecycle_result(result, current.deployment_id)
+        return self._normalize_lifecycle_result(
+            result,
+            current.deployment_id,
+            expected_provider=request.runtime_provider,
+            expected_device_id=request.puppy_device_id,
+            enforce_expected=True,
+        )
 
     async def status(
         self, principal: DeveloperPrincipal, *, arguments: dict[str, Any]
@@ -474,7 +480,14 @@ class ConsumerMcpTask:
         return self._normalize_lifecycle_result(result, current.deployment_id)
 
     @staticmethod
-    def _normalize_lifecycle_result(result: Any, deployment_id: str) -> dict[str, Any]:
+    def _normalize_lifecycle_result(
+        result: Any,
+        deployment_id: str,
+        *,
+        expected_provider: str | None = None,
+        expected_device_id: str | None = None,
+        enforce_expected: bool = False,
+    ) -> dict[str, Any]:
         if not isinstance(result, dict) or str(result.get("execution_target") or "") != "owner_pod":
             raise ConsumerTaskUnavailable("owner pod returned an invalid task")
         state = str(result.get("state") or "")
@@ -488,14 +501,24 @@ class ConsumerMcpTask:
             "interrupted",
         }:
             raise ConsumerTaskUnavailable("owner pod returned an invalid task state")
+        runtime_provider = str(result.get("runtime_provider") or "").strip().lower() or None
+        puppy_device_id = str(result.get("puppy_device_id") or "").strip() or None
+        if runtime_provider not in {None, "puppy"}:
+            raise ConsumerTaskUnavailable("owner pod returned an unsupported task provider")
+        if runtime_provider == "puppy" and puppy_device_id is None:
+            raise ConsumerTaskUnavailable("owner pod returned an unbound Puppy task")
+        if enforce_expected and (
+            expected_provider != runtime_provider or expected_device_id != puppy_device_id
+        ):
+            raise ConsumerTaskUnavailable("owner pod returned a mismatched task provider")
         return {
             "state": state,
             "execution_target": "owner_pod",
             "deployment_id": deployment_id,
             "task_id": str(result.get("task_id") or "")[:64],
             "conversation_id": str(result.get("conversation_id") or "")[:128],
-            "runtime_provider": str(result.get("runtime_provider") or "")[:32] or None,
-            "puppy_device_id": str(result.get("puppy_device_id") or "")[:128] or None,
+            "runtime_provider": runtime_provider,
+            "puppy_device_id": puppy_device_id,
             "result": str(result.get("result") or "")[:MAX_TASK_RESPONSE_CHARS] or None,
             "error_code": str(result.get("error_code") or "")[:64] or None,
             "created_at_ms": int(result.get("created_at_ms") or 0),

@@ -447,3 +447,50 @@ async def test_durable_lifecycle_rejects_revocation_before_returning_late_result
             principal(),
             arguments={"message": "long work", "idempotency_key": "request-1"},
         )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("runtime_provider", "puppy_device_id", "expected_message"),
+    [
+        ("gemini", None, "unsupported task provider"),
+        ("puppy", "other-device", "mismatched task provider"),
+        ("puppy", None, "unbound Puppy task"),
+    ],
+)
+async def test_durable_start_rejects_spoofed_provider_projection(
+    runtime_provider: str, puppy_device_id: str | None, expected_message: str
+) -> None:
+    async def active_tokens(*_args, **_kwargs):
+        return [{"token_id": "one-token"}]
+
+    async def validator(*_args, **_kwargs):
+        return (
+            True,
+            None,
+            SimpleNamespace(
+                user_id="owner_a", agent_id="developer:app_test", scope_str="cap.one.invoke"
+            ),
+        )
+
+    class Transport:
+        async def start(self, **_kwargs):
+            return {
+                "execution_target": "owner_pod",
+                "task_id": "task_0123456789abcdef0123456789abcdef",
+                "state": "queued",
+                "runtime_provider": runtime_provider,
+                "puppy_device_id": puppy_device_id,
+            }
+
+    task = ConsumerMcpTask(
+        connections=type("Connections", (), {"current": lambda _self, _principal: connection()})(),
+        transport=Transport(),
+        active_tokens=active_tokens,
+        validator=validator,
+    )
+    arguments = {"message": "long work", "idempotency_key": "request-1"}
+    if runtime_provider == "puppy":
+        arguments.update({"runtime_provider": "puppy", "puppy_device_id": "device-one"})
+    with pytest.raises(ConsumerTaskUnavailable, match=expected_message):
+        await task.start(principal(), arguments=arguments)
