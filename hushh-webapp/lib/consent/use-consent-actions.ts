@@ -685,7 +685,11 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
    * For VAULT_OWNER scope, this will also lock the vault
    */
   const handleRevoke = useCallback(
-    (scope: string, requestId?: string | null): Promise<void> => {
+    (
+      scope: string,
+      requestId?: string | null,
+      options?: { quiet?: boolean },
+    ): Promise<void> => {
       const normalizedScope = scope.trim();
       const actionKey = `revoke:${normalizedScope}`;
       return runWithActionLock(
@@ -713,13 +717,15 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
         return data;
       })();
 
-      toast.promise(promise, {
-        id: actionKey,
-        loading: "Revoking consent...",
-        success: () => `🔒 Consent revoked`,
-        error: (err) => `❌ ${err.message}`,
-        duration: 3000,
-      });
+      if (!options?.quiet) {
+        toast.promise(promise, {
+          id: actionKey,
+          loading: "Revoking consent...",
+          success: () => `🔒 Consent revoked`,
+          error: (err) => `❌ ${err.message}`,
+          duration: 3000,
+        });
+      }
 
       try {
         const result = await promise;
@@ -740,6 +746,15 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
         emitSuccessfulMutation({ action: "revoke", scope: normalizedScope });
       } catch (err) {
         console.error("Error revoking consent:", err);
+        // Quiet callers own the reporting, so they have to be told. Without
+        // this the promise resolves identically whether the grant was revoked
+        // or the request 500'd, and a caller that speaks the outcome -- the
+        // agent handler does -- would tell someone their access was taken
+        // back when it was not. handleDeny already rethrows under `quiet`
+        // for the same reason.
+        if (options?.quiet) {
+          throw err instanceof Error ? err : new Error("Failed to revoke consent");
+        }
       }
         }
       );

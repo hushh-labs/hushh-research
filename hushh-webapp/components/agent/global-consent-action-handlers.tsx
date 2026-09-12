@@ -44,6 +44,7 @@ import { toast } from "sonner";
 import { useAuth } from "@/hooks/use-auth";
 import { useVault } from "@/lib/vault/vault-context";
 import { useLocalOnboardingActionHandler } from "@/lib/agent/local-onboarding-actions";
+import { useConsentActions } from "@/lib/consent/use-consent-actions";
 import { OneKycClientZkService } from "@/lib/services/one-kyc-client-zk-service";
 import { PersonProfileService } from "@/lib/services/person-profile-service";
 
@@ -67,6 +68,10 @@ function names(labels: unknown): string {
 export function GlobalConsentActionHandlers() {
   const { user } = useAuth();
   const { vaultKey, vaultOwnerToken, isVaultUnlocked } = useVault();
+  // The same deny and revoke the consent screens run. A second copy of a
+  // ledger write is how two surfaces drift apart, and revoking VAULT_OWNER
+  // has to lock the vault whichever surface asked for it.
+  const { handleDeny, handleRevoke } = useConsentActions({ userId: user?.uid });
 
   useLocalOnboardingActionHandler(
     "consent.request",
@@ -82,7 +87,12 @@ export function GlobalConsentActionHandlers() {
       // answer: guessing a scope here would be this handler inventing a request
       // nobody agreed to, which is the exact thing the server-side resolution
       // exists to prevent.
-      if (!personRef || !scopeRefs.length || purpose.length < 8) {
+      // Minted server-side from the proposal id. Its absence means the same
+      // thing an unresolved personRef means: this directive was not expanded,
+      // so there is nothing trustworthy to send.
+      const idempotencyKey = String(slots?.idempotencyKey || "").trim();
+
+      if (!personRef || !scopeRefs.length || purpose.length < 8 || idempotencyKey.length < 16) {
         return {
           status: "failed" as const,
           summary: "That request is no longer ready. Ask me again and I will set it up.",
@@ -114,7 +124,12 @@ export function GlobalConsentActionHandlers() {
           purpose,
           durationSeconds: durationSeconds(slots?.durationHours),
           connectorKeyId: connector.connector_key_id,
-          idempotencyKey: crypto.randomUUID(),
+          // The server mints this from the proposal id, so it is the SAME key
+          // every time this directive is delivered. The bundle id is derived
+          // from it and the table is unique on it, which makes a redelivery a
+          // no-op. A key generated here per attempt defeats that and turns one
+          // retried directive into two live requests -- the duplicate ask.
+          idempotencyKey,
           vaultOwnerToken,
         });
       } catch (reason) {
@@ -137,6 +152,113 @@ export function GlobalConsentActionHandlers() {
     },
     // Not registered while signed out or locked, so the action drops out of
     // available_action_ids rather than being offered and then refused.
+    { enabled: Boolean(user && isVaultUnlocked) },
+  );
+
+  useLocalOnboardingActionHandler(
+    "consent.deny",
+    async (slots) => {
+      const requestId = String(slots?.requestId || slots?.request_id || "").trim();
+      if (!requestId) {
+        return {
+          status: "failed" as const,
+          summary: "Say which request to decline and I will do it.",
+        };
+      }
+      if (!user?.uid || !isVaultUnlocked) {
+        return { status: "failed" as const, summary: "Unlock your private agent first." };
+      }
+      try {
+        // `quiet` suppresses the screen's own toast (the agent speaks the
+        // outcome) and, more importantly, makes failure observable: without
+        // it the promise resolves the same way whether the deny landed or
+        // the request 500'd.
+        await handleDeny(requestId, { quiet: true });
+      } catch (reason) {
+        return {
+          status: "failed" as const,
+          summary:
+            reason instanceof Error && reason.message
+              ? reason.message
+              : "That request could not be declined.",
+        };
+      }
+      const summary = "Declined that request.";
+      toast.success(summary);
+      return { status: "succeeded" as const, summary };
+    },
+    { enabled: Boolean(user && isVaultUnlocked) },
+  );
+
+  useLocalOnboardingActionHandler(
+    "consent.revoke",
+    async (slots) => {
+      // Resolved server-side from the opaque grant handle the model passed;
+      // the model never holds a raw scope. An unexpanded handle means the
+      // listing has aged out of the session, and guessing which grant was
+      // meant is the one thing this must never do.
+      const scope = String(slots?.scope || "").trim();
+      const requestId = String(slots?.requestId || slots?.request_id || "").trim();
+      if (!scope) {
+        return {
+          status: "failed" as const,
+          summary: "I lost track of which one that was. Ask me what you're sharing and try again.",
+        };
+      }
+      if (!user?.uid || !isVaultUnlocked) {
+        return { status: "failed" as const, summary: "Unlock your private agent first." };
+      }
+      try {
+        await handleRevoke(scope, requestId || undefined, { quiet: true });
+      } catch (reason) {
+        return {
+          status: "failed" as const,
+          summary:
+            reason instanceof Error && reason.message
+              ? reason.message
+              : "That access could not be ended.",
+        };
+      }
+      const what = String(slots?.label || "").trim();
+      const who = String(slots?.holderLabel || "").trim();
+      const summary = what
+        ? `Ended ${who ? `${who}'s` : "that"} access to ${what}.`
+        : "Ended that access.";
+      toast.success(summary);
+      return { status: "succeeded" as const, summary };
+    },
+    { enabled: Boolean(user && isVaultUnlocked) },
+  );
+
+  useLocalOnboardingActionHandler(
+    "consent.cancel_request",
+    async (slots) => {
+      const bundleId = String(slots?.bundleId || "").trim();
+      if (!bundleId) {
+        return {
+          status: "failed" as const,
+          summary: "I could not tell which request that was. Ask me what you've sent.",
+        };
+      }
+      if (!vaultOwnerToken) {
+        return { status: "failed" as const, summary: "Unlock your private agent first." };
+      }
+      try {
+        await PersonProfileService.cancelInformationRequest({ bundleId, vaultOwnerToken });
+      } catch (reason) {
+        return {
+          status: "failed" as const,
+          summary:
+            reason instanceof Error && reason.message
+              ? reason.message
+              : "That request could not be withdrawn.",
+        };
+      }
+      const who = String(slots?.displayName || "").trim();
+      const summary = who ? `Withdrew your request to ${who}.` : "Withdrew that request.";
+      toast.success(summary);
+      return { status: "succeeded" as const, summary };
+    },
     { enabled: Boolean(user && isVaultUnlocked) },
   );
 

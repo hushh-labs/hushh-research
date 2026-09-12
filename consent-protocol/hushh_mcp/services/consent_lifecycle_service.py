@@ -15,6 +15,7 @@ import time
 from typing import Any, Awaitable, Callable, MutableMapping
 
 from hushh_mcp.consent import token as consent_token
+from hushh_mcp.consent.segment_labels import humanize_path
 from hushh_mcp.services.actor_identity_service import ActorIdentityService
 from hushh_mcp.services.consent_center_service import ConsentCenterService
 from hushh_mcp.services.consent_db import ConsentDBService
@@ -112,6 +113,55 @@ class ConsentLifecycleService:
             "bundleScopeCount": metadata.get("bundle_scope_count"),
             "issuedAt": entry.get("issued_at"),
             "expiresAt": entry.get("poll_timeout_at") or entry.get("expires_at"),
+        }
+
+    async def list_active_grants(self, user_id: str, *, limit: int = 20) -> list[dict[str, Any]]:
+        """Grants this owner has given that are still live, projected to labels.
+
+        The mirror of ``list_pending_incoming`` for the other end of the
+        lifecycle, and it exists because revoking was unreachable without it:
+        ``revoke_active_grant`` matches on a scope or a request id, and until
+        this method there was no tool that could tell anyone what either of
+        those were. An action whose target can never be named is not a
+        capability, it is a dead branch that reads like one.
+
+        Same projection discipline as ``_pending_projection``, for the same
+        reason: the model reads this and says it out loud, so it never carries
+        a raw ``attr.*`` scope, a token id, or a counterpart user id. The
+        caller pairs each row with an opaque handle and resolves that handle
+        server-side, exactly as ``propose_information_request`` does.
+        """
+        active = await self._db.get_active_tokens(user_id)
+        internal = await self._db.get_active_internal_tokens(user_id)
+        rows = [*internal, *active]
+        rows.sort(key=lambda row: row.get("issued_at") or 0, reverse=True)
+        return [self._grant_projection(row) for row in rows[: max(1, min(int(limit or 20), 100))]]
+
+    @staticmethod
+    def _grant_projection(row: dict[str, Any]) -> dict[str, Any]:
+        """One active grant as the model may repeat it: who, what, until when.
+
+        ``scope`` and ``requestId`` are returned because the CALLER needs them
+        to build its opaque handle; the caller is responsible for stripping
+        them before anything reaches the model. Keeping the projection honest
+        about what it holds is better than a second projection that silently
+        drops the two fields the revoke path cannot work without.
+        """
+        scope = _clean(row.get("scope"))
+        metadata = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+        # ``attr.`` is the storage prefix, not a word anybody says. Dropping it
+        # is the difference between "Attr Professional Employment" and
+        # "Professional Employment".
+        readable = humanize_path(scope[len("attr.") :] if scope.startswith("attr.") else scope)
+        return {
+            "scope": scope,
+            "requestId": _clean(row.get("request_id")) or None,
+            "label": readable or "some of your information",
+            "holderLabel": _clean(metadata.get("counterpart_label"))
+            or _clean(row.get("developer"))
+            or "someone",
+            "issuedAt": row.get("issued_at"),
+            "expiresAt": row.get("expires_at"),
         }
 
     async def deny_pending_request(self, user_id: str, request_id: str) -> dict[str, Any]:
