@@ -35,7 +35,7 @@ Provisioning, recoverable owner-pod vault custody and client access are separate
 | Checkpoint | Status | Next evidence |
 |---|---|---|
 | Isolation and committed baseline | Done | Baseline above; clean source when created |
-| Consumer capability coverage | Mechanically classified; 26 executable, 6 secure handoffs, 3 missing adapters, 1 not applicable | Generated topology check validates every executable/handoff tool against its definition, handler and server registration; missing adapters remain open |
+| Consumer capability coverage | Mechanically classified; 28 executable, 6 secure handoffs, 3 missing adapters, 1 not applicable | Generated topology check validates every executable/handoff tool against its definition, handler and server registration; missing adapters remain open |
 | OAuth owner/client/resource binding | Local checks pass | 55 focused checks; live host acceptance pending |
 | Owner connection review and disconnect | Local checks pass | Portal disconnect plus confirmation-gated MCP self-disconnect are fenced by owner, client and generation |
 | Standing memory consent | Implemented; local checks pass | Durable binding, secure review, revoke/commit race and full erasure/rollback exercised in disposable PostgreSQL |
@@ -81,6 +81,8 @@ The current topology receipt now records the consumer MCP coverage ledger in
 an executable or handoff row whose canonical definition, handler, or server
 registration is missing. This closes the classification gap; it does not claim
 that the three missing adapters or live-host acceptance are complete.
+
+The branch also exposes read-only owner-scoped email workflow status through the existing `OneEmailKycService`. MCP projections include workflow state, safe labels, draft/send/writeback status and timestamps while excluding mailbox bodies, provider identifiers, sender addresses, consent exports and credentials. Draft, send and archive actions remain in the secure owner flow; the email write/draft/delivery adapter remains incomplete.
 
 ## Current correction and receipts
 

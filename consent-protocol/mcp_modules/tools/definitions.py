@@ -17,6 +17,8 @@ from mcp_modules.tools.consumer_tools import (
     ConsumerConnectionsResult,
     ConsumerDevicesResult,
     ConsumerDisconnectResult,
+    ConsumerEmailWorkflowResult,
+    ConsumerEmailWorkflowsResult,
     ConsumerGmailReceiptsResult,
     ConsumerGmailStatusResult,
     ConsumerIntegrationConnectResult,
@@ -370,6 +372,40 @@ def _private_tool_definitions() -> list[Tool]:
             description="Read owner Gmail receipt-sync readiness without returning the connected email, tokens or mailbox content.",
             inputSchema=empty,
             outputSchema=ConsumerGmailStatusResult.model_json_schema(),
+            annotations={
+                "readOnlyHint": True,
+                "destructiveHint": False,
+                "idempotentHint": True,
+                "openWorldHint": False,
+            },
+        ),
+        Tool(
+            name="list_hussh_email_workflows",
+            description="List safe owner-scoped email workflow status. Mailbox bodies, provider identifiers and credentials are never returned; draft, send and archive actions remain in the secure owner flow.",
+            inputSchema=schema(
+                {
+                    "limit": {"type": "integer", "minimum": 1, "maximum": 50},
+                    "cursor": {"type": "string", "maxLength": 500},
+                    "status": {"type": "string", "maxLength": 64},
+                    "include_archived": {"type": "boolean"},
+                }
+            ),
+            outputSchema=ConsumerEmailWorkflowsResult.model_json_schema(),
+            annotations={
+                "readOnlyHint": True,
+                "destructiveHint": False,
+                "idempotentHint": True,
+                "openWorldHint": False,
+            },
+        ),
+        Tool(
+            name="get_hussh_email_workflow",
+            description="Read safe status for one owner-scoped email workflow. Mailbox bodies, provider identifiers and credentials are never returned.",
+            inputSchema=schema(
+                {"workflow_id": {"type": "string", "minLength": 1, "maxLength": 128}},
+                ["workflow_id"],
+            ),
+            outputSchema=ConsumerEmailWorkflowResult.model_json_schema(),
             annotations={
                 "readOnlyHint": True,
                 "destructiveHint": False,

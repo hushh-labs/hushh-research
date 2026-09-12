@@ -439,6 +439,22 @@
       "evidence": "consent-protocol/mcp_modules/tools/definitions.py; consent-protocol/mcp_modules/tools/consumer_tools.py; consent-protocol/mcp_server.py"
     },
     {
+      "id": "tool.list_hussh_email_workflows",
+      "tool_name": "list_hussh_email_workflows",
+      "operation": "list_hussh_email_workflows",
+      "owner": "consumer_mcp",
+      "disposition": "executable",
+      "evidence": "consent-protocol/mcp_modules/tools/definitions.py; consent-protocol/mcp_modules/tools/consumer_tools.py; consent-protocol/mcp_server.py"
+    },
+    {
+      "id": "tool.get_hussh_email_workflow",
+      "tool_name": "get_hussh_email_workflow",
+      "operation": "get_hussh_email_workflow",
+      "owner": "consumer_mcp",
+      "disposition": "executable",
+      "evidence": "consent-protocol/mcp_modules/tools/definitions.py; consent-protocol/mcp_modules/tools/consumer_tools.py; consent-protocol/mcp_server.py"
+    },
+    {
       "id": "source_library",
       "operation": "Source Library query, upload, organization and revision-pinned sharing",
       "owner": "Hermes Source Library Steward",

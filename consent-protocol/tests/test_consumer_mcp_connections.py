@@ -482,6 +482,106 @@ async def test_consumer_mcp_delegation_dispatches_through_owner_tool_contract(
 
 
 @pytest.mark.asyncio
+async def test_consumer_mcp_email_workflow_status_redacts_provider_payloads(consumer, monkeypatch):
+    import json
+
+    import mcp_server
+    from mcp_modules.developer_context import (
+        reset_current_developer_principal,
+        set_current_developer_principal,
+    )
+    from mcp_modules.tools import consumer_tools
+
+    principal, _, _ = connect(consumer)
+
+    class _EmailWorkflows:
+        async def list_workflows(self, **kwargs):
+            assert kwargs == {
+                "user_id": "owner_a",
+                "limit": 25,
+                "cursor": None,
+                "status_filter": None,
+                "include_archived": False,
+            }
+            return {
+                "workflows": [
+                    {
+                        "workflow_id": "wf_1",
+                        "status": "needs_confirm",
+                        "subject": "Bank reply",
+                        "counterparty_label": "Acme",
+                        "draft_status": "ready",
+                        "send_status": "not_started",
+                        "pkm_writeback_status": "pending",
+                        "created_at": "2026-09-12T00:00:00Z",
+                        "updated_at": "2026-09-12T00:01:00Z",
+                        "gmail_thread_id": "raw-thread",
+                        "gmail_message_id": "raw-message",
+                        "sender_email": "secret@example.com",
+                        "snippet": "secret mailbox body",
+                        "metadata": {"consent_export": "secret-export"},
+                    }
+                ],
+                "limit": 25,
+                "has_more": False,
+                "next_cursor": None,
+            }
+
+        async def get_workflow(self, **kwargs):
+            assert kwargs == {"user_id": "owner_a", "workflow_id": "wf_1"}
+            return {
+                "workflow_id": "wf_1",
+                "status": "needs_confirm",
+                "subject": "Bank reply",
+                "counterparty_label": "Acme",
+                "draft_status": "ready",
+                "send_status": "not_started",
+                "pkm_writeback_status": "pending",
+                "created_at": "2026-09-12T00:00:00Z",
+                "updated_at": "2026-09-12T00:01:00Z",
+                "gmail_thread_id": "raw-thread",
+                "gmail_message_id": "raw-message",
+                "sender_email": "secret@example.com",
+                "snippet": "secret mailbox body",
+                "metadata": {"consent_export": "secret-export"},
+            }
+
+    monkeypatch.setattr(consumer_tools, "get_one_email_kyc_service", lambda: _EmailWorkflows())
+    context = set_current_developer_principal(principal)
+    try:
+        listed = await mcp_server.call_tool("list_hussh_email_workflows", {})
+        fetched = await mcp_server.call_tool("get_hussh_email_workflow", {"workflow_id": "wf_1"})
+    finally:
+        reset_current_developer_principal(context)
+
+    assert not listed.isError
+    assert listed.structuredContent["items"][0] == {
+        "workflow_id": "wf_1",
+        "status": "needs_confirm",
+        "subject": "Bank reply",
+        "counterparty_label": "Acme",
+        "draft_status": "ready",
+        "send_status": "not_started",
+        "pkm_writeback_status": "pending",
+        "created_at": "2026-09-12T00:00:00Z",
+        "updated_at": "2026-09-12T00:01:00Z",
+    }
+    assert not fetched.isError
+    assert fetched.structuredContent["item"]["workflow_id"] == "wf_1"
+    serialized = json.dumps(
+        {"listed": listed.structuredContent, "fetched": fetched.structuredContent}
+    )
+    for secret in (
+        "raw-thread",
+        "raw-message",
+        "secret@example.com",
+        "secret mailbox body",
+        "secret-export",
+    ):
+        assert secret not in serialized
+
+
+@pytest.mark.asyncio
 async def test_consumer_mcp_reads_resumable_setup_status_without_starting_a_job(
     consumer, monkeypatch
 ):

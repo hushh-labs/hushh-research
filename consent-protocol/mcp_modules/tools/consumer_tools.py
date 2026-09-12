@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import re
 from typing import Literal
 from urllib.parse import urlencode, urlsplit
 from uuid import UUID
@@ -31,6 +32,10 @@ from hushh_mcp.services.google_calendar_service import get_google_calendar_servi
 from hushh_mcp.services.google_connection_service import (
     GoogleConnectionError,
     GoogleConnectionService,
+)
+from hushh_mcp.services.one_email_kyc_service import (
+    OneEmailKycError,
+    get_one_email_kyc_service,
 )
 from mcp_modules.developer_context import get_current_developer_principal
 
@@ -239,6 +244,36 @@ class ConsumerGmailStatusResult(BaseModel):
     last_sync_status: str = Field(..., max_length=32)
     last_sync_at: str | None = Field(default=None, max_length=64)
     receipt_count: int = Field(..., ge=0)
+    next_action: str
+
+
+class ConsumerEmailWorkflowItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    workflow_id: str = Field(..., max_length=128)
+    status: str = Field(..., max_length=32)
+    subject: str | None = Field(default=None, max_length=512)
+    counterparty_label: str | None = Field(default=None, max_length=256)
+    draft_status: str | None = Field(default=None, max_length=32)
+    send_status: str | None = Field(default=None, max_length=32)
+    pkm_writeback_status: str | None = Field(default=None, max_length=32)
+    created_at: str | None = Field(default=None, max_length=64)
+    updated_at: str | None = Field(default=None, max_length=64)
+
+
+class ConsumerEmailWorkflowsResult(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    state: Literal["available"]
+    items: list[ConsumerEmailWorkflowItem] = Field(default_factory=list, max_length=50)
+    limit: int = Field(..., ge=1, le=50)
+    has_more: bool
+    next_cursor: str | None = Field(default=None, max_length=500)
+    next_action: str
+
+
+class ConsumerEmailWorkflowResult(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    state: Literal["available"]
+    item: ConsumerEmailWorkflowItem
     next_action: str
 
 
@@ -601,6 +636,8 @@ async def handle_list_hussh_capabilities(arguments: dict) -> CallToolResult:
         "cancel_hussh_connection_request",
         "list_hussh_gmail_receipts",
         "get_hussh_gmail_status",
+        "list_hussh_email_workflows",
+        "get_hussh_email_workflow",
         "list_hussh_integrations",
         "connect_hussh_integration",
         "disconnect_hussh_integration",
@@ -662,7 +699,12 @@ async def handle_list_hussh_capabilities(arguments: dict) -> CallToolResult:
         }:
             execution = "consent_service"
             availability = "approval_required"
-        elif name in {"list_hussh_gmail_receipts", "get_hussh_gmail_status"}:
+        elif name in {
+            "list_hussh_gmail_receipts",
+            "get_hussh_gmail_status",
+            "list_hussh_email_workflows",
+            "get_hussh_email_workflow",
+        }:
             execution = "consent_service"
             availability = "approval_required"
         elif name == "disconnect_hussh_integration":
@@ -1739,6 +1781,137 @@ async def handle_get_hussh_gmail_status(arguments: dict) -> CallToolResult:
             last_sync_at=_safe_gmail_timestamp(result.get("last_sync_at")),
             receipt_count=max(0, receipt_count),
             next_action="Use the secure owner flow to connect or repair Gmail receipt sync; this status never exposes mailbox credentials.",
+        )
+    )
+
+
+def _email_workflow_arguments(arguments: dict) -> tuple[int, str | None, str | None, bool]:
+    if not isinstance(arguments, dict):
+        raise ValueError("arguments must be an object")
+    allowed = {"limit", "cursor", "status", "include_archived"}
+    if set(arguments) - allowed:
+        raise ValueError("only limit, cursor, status, and include_archived are accepted")
+    limit = arguments.get("limit", 25)
+    if type(limit) is not int or not 1 <= limit <= 50:
+        raise ValueError("limit must be an integer between 1 and 50")
+    cursor = arguments.get("cursor")
+    if cursor is not None and (not isinstance(cursor, str) or len(cursor) > 500):
+        raise ValueError("cursor must be no longer than 500 characters")
+    status = arguments.get("status")
+    if status is not None and (not isinstance(status, str) or len(status.strip()) > 64):
+        raise ValueError("status must be no longer than 64 characters")
+    include_archived = arguments.get("include_archived", False)
+    if type(include_archived) is not bool:
+        raise ValueError("include_archived must be a boolean")
+    return (
+        limit,
+        cursor or None,
+        status.strip() if isinstance(status, str) and status.strip() else None,
+        include_archived,
+    )
+
+
+def _email_workflow_item(value: object) -> ConsumerEmailWorkflowItem | None:
+    raw = value if isinstance(value, dict) else {}
+    workflow_id = str(raw.get("workflow_id") or "").strip()
+    if (
+        not workflow_id
+        or len(workflow_id) > 128
+        or not re.fullmatch(r"[A-Za-z0-9_-]+", workflow_id)
+    ):
+        return None
+    return ConsumerEmailWorkflowItem(
+        workflow_id=workflow_id,
+        status=str(raw.get("status") or "unknown")[:32],
+        subject=(str(raw.get("subject") or "")[:512] or None),
+        counterparty_label=(str(raw.get("counterparty_label") or "")[:256] or None),
+        draft_status=(str(raw.get("draft_status") or "")[:32] or None),
+        send_status=(str(raw.get("send_status") or "")[:32] or None),
+        pkm_writeback_status=(str(raw.get("pkm_writeback_status") or "")[:32] or None),
+        created_at=_safe_gmail_timestamp(raw.get("created_at")),
+        updated_at=_safe_gmail_timestamp(raw.get("updated_at")),
+    )
+
+
+def _email_workflow_error(error: Exception) -> CallToolResult:
+    status = int(getattr(error, "status_code", 502) or 502)
+    if status == 404:
+        return _error("EMAIL_WORKFLOW_NOT_FOUND", "That email workflow is unavailable.")
+    if status == 400:
+        return _error("INVALID_EMAIL_WORKFLOW_REQUEST", "The email workflow request is invalid.")
+    return _error("EMAIL_WORKFLOWS_UNAVAILABLE", "Email workflows are temporarily unavailable.")
+
+
+async def handle_list_hussh_email_workflows(arguments: dict) -> CallToolResult:
+    """List safe owner-scoped email workflow status without mailbox payloads."""
+    try:
+        limit, cursor, status, include_archived = _email_workflow_arguments(arguments)
+    except ValueError as error:
+        return _error("INVALID_EMAIL_WORKFLOW_REQUEST", str(error))
+    owner = _consumer_owner(get_current_developer_principal())
+    if owner is None:
+        return _error("OWNER_AUTH_REQUIRED", "Reconnect using your own Hussh account.")
+    try:
+        result = await get_one_email_kyc_service().list_workflows(
+            user_id=owner,
+            limit=limit,
+            cursor=cursor,
+            status_filter=status,
+            include_archived=include_archived,
+        )
+    except OneEmailKycError as error:
+        return _email_workflow_error(error)
+    except Exception:
+        return _error("EMAIL_WORKFLOWS_UNAVAILABLE", "Email workflows are temporarily unavailable.")
+    items = [
+        item
+        for raw in list(result.get("workflows") or [])[:50]
+        if (item := _email_workflow_item(raw)) is not None
+    ]
+    return _result(
+        ConsumerEmailWorkflowsResult(
+            state="available",
+            items=items,
+            limit=int(result.get("limit") or limit),
+            has_more=bool(result.get("has_more")),
+            next_cursor=(str(result.get("next_cursor") or "")[:500] or None),
+            next_action="Use the secure owner flow for scope approval, draft changes, sending, or archiving an email workflow.",
+        )
+    )
+
+
+async def handle_get_hussh_email_workflow(arguments: dict) -> CallToolResult:
+    """Read one safe owner-scoped email workflow status."""
+    if not isinstance(arguments, dict) or set(arguments) != {"workflow_id"}:
+        return _error("INVALID_EMAIL_WORKFLOW_REQUEST", "Only workflow_id is accepted.")
+    workflow_id = arguments.get("workflow_id")
+    if (
+        not isinstance(workflow_id, str)
+        or not workflow_id.strip()
+        or len(workflow_id.strip()) > 128
+        or not re.fullmatch(r"[A-Za-z0-9_-]+", workflow_id.strip())
+    ):
+        return _error("INVALID_EMAIL_WORKFLOW_REQUEST", "workflow_id is invalid.")
+    owner = _consumer_owner(get_current_developer_principal())
+    if owner is None:
+        return _error("OWNER_AUTH_REQUIRED", "Reconnect using your own Hussh account.")
+    try:
+        raw = await get_one_email_kyc_service().get_workflow(
+            user_id=owner,
+            workflow_id=workflow_id.strip(),
+        )
+    except OneEmailKycError as error:
+        return _email_workflow_error(error)
+    except Exception:
+        return _error("EMAIL_WORKFLOWS_UNAVAILABLE", "Email workflows are temporarily unavailable.")
+    item = _email_workflow_item(raw)
+    if item is None:
+        return _error("EMAIL_WORKFLOW_NOT_FOUND", "That email workflow is unavailable.")
+    return _result(
+        ConsumerEmailWorkflowResult(
+            state="available",
+            item=item,
+            next_action="Use the secure owner flow for scope approval, draft changes, sending, or archiving this workflow.",
         )
     )
 
