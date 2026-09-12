@@ -50,7 +50,12 @@ describe("Navbar bottom chrome contract", () => {
     // Not "Chat with One": the workspace this opens is a two-agent window
     // (One and Puppy One) whose mode survives a minimise, so the control
     // names the workspace rather than promising one of the two agents.
-    expect(agentBar).toContain("aria-label={`Open Agent Chat. ${hint}`}");
+    // The label names the agent, not the surface: a person taps this to reach
+    // One, and "Open Agent Chat" described our chrome rather than their
+    // assistant. The title attribute carries the same words so the hover
+    // tooltip and the screen reader never disagree.
+    expect(agentBar).toContain("aria-label={`Chat with One. ${hint}`}");
+    expect(agentBar).toContain('title="Chat with One"');
     expect(agentBar).toContain('data-testid="one-agent-chat-label"');
     expect(agentBar).not.toContain("openSearchAndChat");
     expect(agentBar).not.toContain("openKaiCommandBar");
@@ -71,7 +76,7 @@ describe("Navbar bottom chrome contract", () => {
     expect(agentBar).toContain("hover:bg-current/[0.09]");
     expect(agentBar).toContain("focus-visible:ring-inset");
     expect(agentBar).toContain(
-      'className="pointer-events-none absolute inset-0 z-0 overflow-hidden rounded-full"',
+      'className="pointer-events-none absolute inset-0 z-0 overflow-hidden rounded-[inherit]"',
     );
     expect(agentBar).toContain("min-w-[88px]");
     expect(agentBar).toContain("MessageCircle");
@@ -164,5 +169,32 @@ describe("Navbar bottom chrome contract", () => {
     expect(providers).toContain(
       "!pinnedBottomChrome &&\n      !bottomChromeHidden",
     );
+  });
+
+  it("clips each ripple to its own button's radius, not a hardcoded pill", () => {
+    // The split launcher is two halves of one pill: the voice half is
+    // rounded-l-full/rounded-r-none, the chat half is the mirror. MaterialRipple
+    // already inherits its clip (`borderRadius: "inherit"` on the host), but the
+    // call sites wrapped it in a span that hardcoded `rounded-full`. The ripple
+    // therefore inherited a FULL pill on a half-pill button, so the hover fill
+    // pulled away from the divider and left a visible gap on the flat side --
+    // the selection read as a floating pill instead of the half it belongs to.
+    //
+    // `rounded-[inherit]` is identical on the three genuinely-round buttons and
+    // correct on the two halves, which is why the guard covers every wrapper
+    // rather than only the two that were visibly wrong.
+    const agentBar = read("components/agent/agent-bar.tsx");
+
+    const clipWrappers = [
+      ...agentBar.matchAll(
+        /className="pointer-events-none absolute inset-0[^"]*overflow-hidden ([^"]*)"/g,
+      ),
+    ].map((match) => match[1]!);
+
+    expect(clipWrappers.length).toBeGreaterThan(0);
+    for (const clip of clipWrappers) {
+      expect(clip).toContain("rounded-[inherit]");
+      expect(clip).not.toMatch(/\brounded-full\b/);
+    }
   });
 });
