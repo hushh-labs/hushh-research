@@ -91,11 +91,11 @@ export function SiriOneRequestHandoff() {
           .getState()
           .setStatus(
             "error",
-            "Agent One could not start this voice request. Open the app and try again.",
+            "Agent One could not open this command request. Open the app and try again.",
           );
         void oneSystemRequestRuntime.complete(
           "handoff_timeout",
-          "Agent One could not start the voice session in time. Try again in the app.",
+          "Agent One could not open the command surface in time. Try again in the app.",
         );
       }, REQUEST_HANDOFF_TIMEOUT_MS);
     });
@@ -117,7 +117,7 @@ export function SiriOneRequestHandoff() {
           outcome.outcome === "accepted" ? "completed" : "failed",
           outcome.outcome === "accepted"
             ? "Agent One is handling your request."
-            : "Agent One could not start the voice session. Try again in the app.",
+            : "Agent One could not open the command surface. Try again in the app.",
         );
       })();
     };

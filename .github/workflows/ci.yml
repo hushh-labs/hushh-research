@@ -614,6 +614,20 @@ jobs:
       (needs['preflight-gate'].outputs.backend == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 25
+    services:
+      command-postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: command_test
+          POSTGRES_PASSWORD: command_test
+          POSTGRES_DB: command_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U command_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v6
 
@@ -626,6 +640,7 @@ jobs:
         timeout-minutes: 22
         run: bash scripts/ci/orchestrate.sh protocol
         env:
+          ONE_COMMAND_TEST_DATABASE_URL: "postgresql+psycopg2://command_test:command_test@127.0.0.1:5432/command_test"
           TESTING: "true"
           APP_SIGNING_KEY: "test_secret_key_for_ci_only_32chars_min"
           VAULT_DATA_KEY: "0000000000000000000000000000000000000000000000000000000000000000"

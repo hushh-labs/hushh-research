@@ -555,9 +555,9 @@ function AppShellFrame({ children }: ProvidersProps) {
               {/* Voice chrome is hoisted ABOVE the page Suspense boundary so it
                 mounts exactly once and survives client-side route transitions.
                 Inside the boundary it would remount whenever a navigation
-                suspends (fallback tree <-> resolved tree swap), tearing down
-                the live voice session and restarting the conversation on every
-                route switch. Both are fixed overlays, so position is unaffected. */}
+                suspends (fallback tree <-> resolved tree swap), cancelling an
+                active command capture during a route switch. Both are fixed
+                overlays, so position is unaffected. */}
               {!hidesPersistentChrome ? <AgentVoiceEdgeGlow /> : null}
               {!hidesPersistentChrome ? <AppEdgeBackGesture /> : null}
               <AppProfileEdgeGesture enabled={profilePaneEnabled} />

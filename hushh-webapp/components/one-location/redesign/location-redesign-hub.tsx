@@ -334,6 +334,8 @@ export type PrivateCheckInResult = {
 };
 
 export type PrivateCheckInRequest = {
+  /** Consented owner snapshot from the draft, including Circle recipients. */
+  recipientSnapshots?: OneLocationRecipient[];
   recipientIds: string[];
   durationHours: string;
   message?: string;

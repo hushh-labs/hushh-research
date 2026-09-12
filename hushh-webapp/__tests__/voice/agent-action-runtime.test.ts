@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { renderHook } from "@testing-library/react";
 
 import {
   executeAgentGatewayAction,
@@ -6,6 +7,8 @@ import {
 } from "@/lib/agent/agent-action-runtime";
 import {
   registerLocalOnboardingHandler,
+  resolveLocalOnboardingHandler,
+  useLocalOnboardingActionHandler,
   unregisterLocalOnboardingHandler,
 } from "@/lib/agent/local-onboarding-actions";
 import { buildKaiMarketRoute, ROUTES } from "@/lib/navigation/routes";
@@ -387,6 +390,53 @@ describe("executeAgentGatewayAction", () => {
       });
     } finally {
       unregisterLocalOnboardingHandler("onboarding.claim_one", handler);
+    }
+  });
+
+  it("does not start a local effect when cancelled during handler resolution", async () => {
+    const controller = new AbortController();
+    const handler = vi.fn().mockResolvedValue({ status: "succeeded", summary: "Opened." });
+    registerLocalOnboardingHandler("onboarding.claim_one", handler);
+    try {
+      const pending = executeAgentGatewayAction({
+        actionId: "onboarding.claim_one",
+        signal: controller.signal,
+        userId: "user_1",
+        router: { push: vi.fn() },
+        appRuntimeState: runtimeState({ route: { pathname: "/", screen: "one_intro", subview: null } }),
+        hasPortfolioData: false,
+        busyOperations: {},
+        setAnalysisParams: vi.fn(),
+      });
+      controller.abort();
+      await expect(pending).resolves.toMatchObject({ status: "failed", reason: "execution_aborted" });
+      expect(handler).not.toHaveBeenCalled();
+    } finally {
+      unregisterLocalOnboardingHandler("onboarding.claim_one", handler);
+    }
+  });
+
+  it("does not start a prepared effect after cancellation during revalidation", async () => {
+    const controller = new AbortController();
+    const handler = vi.fn().mockResolvedValue({ status: "succeeded", summary: "Done." });
+    let release!: () => void;
+    const binding = { owner: "user_1" };
+    const prepare = vi.fn(() => new Promise<{ status: "ready"; binding: typeof binding; summary: string }>((resolve) => {
+      release = () => resolve({ status: "ready", binding, summary: "Ready." });
+    }));
+    const hook = renderHook(() => useLocalOnboardingActionHandler("location.pause_updates", handler, { prepare }));
+    try {
+      const pending = resolveLocalOnboardingHandler("location.pause_updates")!({}, {
+        signal: controller.signal,
+        preparedBinding: binding,
+      });
+      expect(prepare).toHaveBeenCalledTimes(1);
+      controller.abort();
+      release();
+      await expect(pending).resolves.toMatchObject({ status: "failed" });
+      expect(handler).not.toHaveBeenCalled();
+    } finally {
+      hook.unmount();
     }
   });
 });

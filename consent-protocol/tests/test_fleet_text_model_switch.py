@@ -79,10 +79,10 @@ def test_vertex_readiness_probe_never_probes_the_alias(monkeypatch: pytest.Monke
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     monkeypatch.setattr(constants, "GEMINI_MODEL", "gemini-3.8-flash")
-    text_models, live_model = module._managed_manifest_models()
+    text_models = module._managed_manifest_models()
     assert "gemini-default" not in text_models
     assert "gemini-3.8-flash" in text_models
-    assert live_model == "gemini-3.1-flash-live-preview"
+    assert all("live" not in model for model in text_models)
 
 
 def test_31_pro_preview_maps_minimal_thinking_to_low() -> None:

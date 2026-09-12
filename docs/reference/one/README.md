@@ -47,14 +47,14 @@ for finance-specialist runtime references, and keep future-only One plans under
 
 ## References
 
-- [one-voice-runtime-architecture.md](./one-voice-runtime-architecture.md): current One Voice runtime: ADK `Runner.run_live` over the model's declared transport (Gemini Developer API for the canonical live model; Vertex for the rollback), One's root agent tree (google_search, open_screen, AgentTool Finance/RIA, specialist turn tools), the browser wire protocol, relay ticket auth, and the consent/directive boundary.
-- [one-goal-framework.md](./one-goal-framework.md): governed goal planning and running across Gemini Live voice, Agent Chat, typed search, command bar, and UI action buttons.
+- [one-voice-runtime-architecture.md](./one-voice-runtime-architecture.md): current Location command capture, semantic planning, execution, user gates, screen handoff and encrypted restart recovery.
+- [one-goal-framework.md](./one-goal-framework.md): existing goal planning and running for Agent Chat, typed search and UI actions; command routing uses the Location lifecycle.
 - [card-network-brand-inventory.md](./card-network-brand-inventory.md): where every card network mark comes from, the two rendering tiers, and the rules for adding official artwork.
 - [wallet.md](./wallet.md): the Wallet (formerly Cards): reserved `wallet` PKM domain, `agent_wallet`, `/one/wallet`, chat widgets, scopes, flags, and the complete Cards-to-Wallet naming map (the Wallet Profile identity pass is a different feature).
 - [one-agent-hierarchy.md](./one-agent-hierarchy.md): current One-led app agent hierarchy, A2A/specialist registry, consent authority cascade, and Codex subagent boundary.
-- [gemini-runtime-configuration.md](./gemini-runtime-configuration.md): Connections-owned managed Gemini and Google AI Studio BYOK boundary for typed turns and live voice.
+- [gemini-runtime-configuration.md](./gemini-runtime-configuration.md): managed Gemini command access and the existing request-scoped BYOK boundary for typed turns.
 - [one-voice-action-coverage-audit.md](./one-voice-action-coverage-audit.md): current audit of what One Voice can trigger and where screen/button/action coverage is incomplete.
-- [one-voice-kai-compatibility-runtime.md](./one-voice-kai-compatibility-runtime.md): compatibility runtime details for the Kai-era planner, composer, STT/TTS policy, and settlement path beneath the One Voice contract layer.
+- [one-voice-kai-compatibility-runtime.md](./one-voice-kai-compatibility-runtime.md): stable Kai-era action identifiers, shared text contracts and explicit Live retirement boundaries.
 - [one-voice-popup-design.md](./one-voice-popup-design.md): the design standard every One Voice pop-up variant holds to: when a card may be raised at all, touch-target and layout rules, Cancel's fixed position, destructive colour treatment, and how to add a variant without inventing a second surface.
 - [../../vision/agent-ontology.md](../../vision/agent-ontology.md): Hussh / One / Kai / Nav / KYC role contract.
 - [one-voice-onboarding-journey.md](./one-voice-onboarding-journey.md): the One Voice onboarding journey and its state contract.

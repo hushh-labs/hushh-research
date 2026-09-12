@@ -29,7 +29,6 @@ from typing import Any, Literal, Optional
 
 from google.adk.agents import LlmAgent
 from google.adk.runners import Runner
-from google.adk.sessions.in_memory_session_service import InMemorySessionService
 from google.adk.tools.google_search_tool import GoogleSearchTool
 from google.adk.tools.tool_context import ToolContext
 from google.genai import types as genai_types
@@ -92,12 +91,12 @@ from hushh_mcp.services.action_gateway import (
     is_navigation_action,
     list_action_gateway_actions,
 )
-from hushh_mcp.services.crm_product_availability import crm_product_available
-from hushh_mcp.services.live_voice_context import (
+from hushh_mcp.services.agent_task_context import (
     read_pending_specialist_directive,
     record_pending_specialist_directive,
     specialist_directive_fingerprint,
 )
+from hushh_mcp.services.crm_product_availability import crm_product_available
 
 logger = logging.getLogger(__name__)
 
@@ -163,74 +162,7 @@ APP_ROUTES: dict[str, str] = {
 if _CRM_PRODUCT_AVAILABLE:
     APP_ROUTES["connected_systems"] = "/one/connected-systems"
 
-# Voice head model contract. The canonical live model is authored in the One
-# manifest (heads.live) and env-swappable through AGENT_ONE_ADK_MODEL with no
-# code change; the transport per model comes from GEMINI_LIVE_COMPATIBILITY.
-#
-# MODEL CONTRACT (updated 2026-08-21 after an ADK Live rehearsal):
-# gemini-3.1-flash-live-preview is the canonical live model. It is served on
-# the Gemini Developer API only (verified: the Vertex publisher endpoint 404s
-# in us-central1/us-east4/europe-west4/asia-southeast1), so its transport is
-# developer_api with a Hussh-managed key (HUSHH_MANAGED_GEMINI_LIVE_API_KEY).
-# The relay's mid-session injections (greetings, app_speech, user_text turns,
-# settlement notes, route-change notes) all queue single-text-part Contents;
-# on Gemini 3.x Live model names, google-adk (>=2.4.0) transposes each of
-# those into session.send_realtime_input(text=...) automatically
-# (google/adk/models/gemini_llm_connection.py), which the rehearsal verified
-# elicits complete model turns mid-session. The rehearsal also verified that
-# mid-session send_client_content itself is honored on the current 3.1
-# preview build, so both injection channels are live. Rollback lever: set
-# AGENT_ONE_ADK_MODEL=gemini-live-2.5-flash-native-audio (GA, Vertex) — its
-# matrix entry and Vertex transport remain fully supported below.
-_ONE_HEADS = _ONE_MANIFEST.capabilities.get("heads", {})
-_ONE_MODEL = (
-    os.getenv("AGENT_ONE_ADK_MODEL")
-    or (_ONE_HEADS.get("live") if isinstance(_ONE_HEADS, dict) else None)
-    or "gemini-3.1-flash-live-preview"
-).strip()
-_ONE_LIVE_LOCATION = (os.getenv("AGENT_ONE_ADK_LOCATION") or "us-central1").strip()
-# Neither live model pins a voice by default, so each one's own default voice
-# plays -- and the two differ audibly. Native audio models (both the 3.1
-# preview and the 2.5 GA model above) accept any Gemini TTS prebuilt voice
-# name via speech_config. Public (no underscore prefix, unlike the other
-# constants here) because the relay builds RunConfig's speech_config from
-# this directly. Override per-environment with AGENT_ONE_ADK_VOICE_NAME if a
-# different one is wanted.
-ONE_LIVE_VOICE_NAME = (os.getenv("AGENT_ONE_ADK_VOICE_NAME") or "Leda").strip()
-
-# The picker Voice Settings offers, keyed by the exact Gemini TTS prebuilt
-# voice name the relay will pass straight through to speech_config. Google
-# does not publish a gender per voice -- these are its own one-word tone
-# descriptors, kept here so the relay can reject anything else a tampered or
-# out-of-date client might send rather than forwarding an arbitrary string
-# into PrebuiltVoiceConfig. Deliberately a curated subset of the ~30-voice
-# catalog, not all of it -- a picker with thirty near-indistinguishable
-# options is not a feature.
-ONE_LIVE_VOICE_OPTIONS: dict[str, str] = {
-    "Leda": "Youthful",
-    "Aoede": "Breezy",
-    "Achernar": "Soft",
-    "Sulafat": "Warm",
-    "Kore": "Firm",
-    "Puck": "Upbeat",
-}
-# The Developer API Live contract is intentionally separate from the Vertex
-# contract above. It is disabled by default until an ADK integration rehearsal
-# has verified the selected model's BIDI audio, tool calls and mid-session
-# send_client_content behavior. A BYOK key must never silently fall back to
-# Hussh's managed Vertex identity.
-_BYOK_LIVE_MODEL = (os.getenv("HUSHH_GEMINI_BYOK_LIVE_MODEL") or "").strip()
-# All worker agents resolve the same authored Gemini text generation, through the
-# manifest alias rather than a private environment knob no lane ever set.
 _SPECIALIST_MODEL = _KAI_MANIFEST.model_config_for_runtime().name.strip()
-
-
-# The Live compatibility registry lives in runtime_providers so the deploy
-# verifier can consult it without importing this module's heavy dependency
-# chain; re-exported here because this is its historical import site.
-from hushh_mcp.runtime_providers.live_compatibility import (  # noqa: E402
-    GEMINI_LIVE_COMPATIBILITY,
-)
 
 
 def _onboarding_goals_enabled(user_id: str) -> bool:
@@ -247,55 +179,6 @@ def _onboarding_goals_enabled(user_id: str) -> bool:
         if value.strip()
     }
     return not allowlist or user_id in allowlist
-
-
-def _managed_live_api_key() -> str:
-    """Hussh-managed Developer API key for developer_api-transport live models.
-
-    Distinct from BYOK by design: this key is Hussh-owned (minted in the
-    Gemini billing-bridge project, Secret Manager-delivered) and is only ever
-    used for the canonical managed live model. A person's BYOK key still flows
-    exclusively through build_one_live_runner's BYOK lane.
-    """
-    return (os.getenv("HUSHH_MANAGED_GEMINI_LIVE_API_KEY") or "").strip()
-
-
-def _build_one_live_model():
-    """Live model for One's voice head, built on the model's declared transport.
-
-    vertex transport wraps the model id in an ADK ``Gemini`` with an explicit
-    regional location (Vertex live models are served regionally, not on the
-    global endpoint the genai client defaults to). developer_api transport
-    builds the same ADK ``Gemini`` against the Gemini Developer API with the
-    Hussh-managed live key — required for gemini-3.1-flash-live-preview, which
-    is not published on Vertex.
-    """
-    compat = GEMINI_LIVE_COMPATIBILITY.get(_ONE_MODEL)
-    if compat is None:
-        logger.warning(
-            "one_adk_live_model_contract_risk model=%s: not declared in "
-            "GEMINI_LIVE_COMPATIBILITY. The relay's mid-session injection "
-            "channels have not been rehearsed for this model; falling back to "
-            "managed Vertex transport. Author a matrix entry after an ADK "
-            "rehearsal before shipping this model.",
-            _ONE_MODEL,
-        )
-    if compat is not None and compat.transport == "developer_api":
-        key = _managed_live_api_key()
-        if not key:
-            raise RuntimeError(
-                "managed_live_key_missing: the canonical live model "
-                f"'{_ONE_MODEL}' uses the developer_api transport and requires "
-                "HUSHH_MANAGED_GEMINI_LIVE_API_KEY. Set the secret, or roll "
-                "back with AGENT_ONE_ADK_MODEL=gemini-live-2.5-flash-native-audio."
-            )
-        from hushh_mcp.runtime_providers import build_gemini_byok_adk_model
-
-        return build_gemini_byok_adk_model(_ONE_MODEL, key)
-    return build_managed_gemini_adk_model(
-        _ONE_MODEL,
-        vertex_location=_ONE_LIVE_LOCATION,
-    )
 
 
 # Durable persona + north-star + roster grounding, composed from the canonical
@@ -1712,18 +1595,10 @@ def _one_roster_tools(*, specialist_model: Any | None = None, tool_mode: str = "
 
 
 def build_one_root_agent(
-    *,
-    model: Any | None = None,
-    specialist_model: Any | None = None,
+    *, model: Any | None = None, specialist_model: Any | None = None
 ) -> LlmAgent:
-    """Build the One VOICE head (native-audio Live model) with the full roster."""
-    return LlmAgent(
-        name="one",
-        model=model or _build_one_live_model(),
-        description=_ONE_MANIFEST.description,
-        instruction=_one_runtime_instruction,
-        tools=_one_roster_tools(specialist_model=specialist_model),
-    )
+    """Compatibility name for the ordinary text head."""
+    return build_one_text_agent(model=model or specialist_model)
 
 
 def build_one_text_agent(*, model: Any | None = None) -> LlmAgent:
@@ -1753,111 +1628,9 @@ def build_one_text_agent(*, model: Any | None = None) -> LlmAgent:
     )
 
 
-_runner: Runner | None = None
-
-
 def get_one_runner() -> Runner:
-    """Process-wide Runner for One (in-memory sessions; voice sessions are
-    ephemeral and the durable record lives in the app's own stores).
-
-    SCALE SEAM (Agent Architecture Doctrine, AGENTS.md): InMemorySessionService
-    means a mid-conversation reconnect that lands on another worker/instance
-    starts with zero context, and session count is bounded by one process's
-    memory. The documented upgrade is ADK's DatabaseSessionService on the
-    existing Postgres (asyncpg driver, SELECT FOR UPDATE row locking) for
-    resumable voice sessions; swap here, contract unchanged. Gate that swap on
-    a voice-session write-load measurement against the DB pool budget.
-    """
-    global _runner
-    if _runner is None:
-        _runner = Runner(
-            app_name=ONE_APP_NAME,
-            agent=build_one_root_agent(),
-            session_service=InMemorySessionService(),
-            auto_create_session=True,
-        )
-    return _runner
+    raise RuntimeError("ONE_LIVE_RETIRED: use command proposals or Agent Chat.")
 
 
-def build_one_live_runner(
-    *,
-    runtime_mode: Literal["hushh_managed_vertex", "byok"],
-    runtime_credential: str | None = None,
-    runtime_credential_transport: Literal["developer_api", "vertex_api_key"] = "developer_api",
-    runtime_vertex_project: str | None = None,
-    runtime_vertex_location: str | None = None,
-) -> Runner:
-    """Return the managed runner or an isolated, connection-local BYOK runner.
-
-    The BYOK Live compatibility gate is deliberately explicit. The managed
-    runner resolves its own transport (developer_api with the Hussh-managed
-    live key for the canonical gemini-3.1-flash-live-preview; Vertex ADC for
-    vertex-transport models); a BYOK Developer API model can only be enabled
-    once it is named through the strict model allowlist and the deployment
-    flag, and its live + specialist models are built from the person's key
-    explicitly. This prevents an API key from causing a credential fallback
-    or an unverified model swap in either direction.
-    """
-    if runtime_mode == "hushh_managed_vertex":
-        return get_one_runner()
-
-    enabled = (os.getenv("HUSHH_GEMINI_BYOK_LIVE_ENABLED") or "").strip().lower()
-    if enabled not in {"1", "true", "yes", "on"}:
-        raise ValueError("byok_live_unsupported")
-    # Google documents different live capability and endpoint contracts for
-    # Developer API and Vertex/Enterprise. Keep a Vertex API key out of voice
-    # until it has its own approved model/endpoint rehearsal; typed turns are
-    # already endpoint-safe through the provider factory.
-    if runtime_credential_transport == "vertex_api_key":
-        raise ValueError("byok_live_unsupported")
-    compatibility = GEMINI_LIVE_COMPATIBILITY.get(_BYOK_LIVE_MODEL)
-    if (
-        not runtime_credential
-        or compatibility is None
-        or compatibility.transport != "developer_api"
-        or not compatibility.supports_mid_session_client_content
-    ):
-        raise ValueError("byok_live_unsupported")
-
-    from hushh_mcp.runtime_providers import build_gemini_byok_adk_model
-
-    specialist_model = build_gemini_byok_adk_model(
-        _SPECIALIST_MODEL,
-        runtime_credential,
-        transport=runtime_credential_transport,
-    )
-
-    return Runner(
-        app_name=ONE_APP_NAME,
-        agent=build_one_root_agent(
-            model=build_gemini_byok_adk_model(
-                _BYOK_LIVE_MODEL,
-                runtime_credential,
-                transport=runtime_credential_transport,
-            ),
-            specialist_model=specialist_model,
-        ),
-        session_service=InMemorySessionService(),
-        auto_create_session=True,
-    )
-
-
-_text_runner: Runner | None = None
-
-
-def get_one_text_runner() -> Runner:
-    """Process-wide Runner for One's text head (external A2A, future chat).
-
-    Sessions are per-request ephemeral today; the same DatabaseSessionService
-    scale seam documented on get_one_runner applies here when multi-turn
-    external conversations need durability.
-    """
-    global _text_runner
-    if _text_runner is None:
-        _text_runner = Runner(
-            app_name=ONE_APP_NAME,
-            agent=build_one_text_agent(),
-            session_service=InMemorySessionService(),
-            auto_create_session=True,
-        )
-    return _text_runner
+def build_one_live_runner(**_options: Any) -> Runner:
+    raise RuntimeError("ONE_LIVE_RETIRED: use command proposals or Agent Chat.")

@@ -107,8 +107,6 @@ What is in `.env` / GCP Secret Manager must match exactly what the code reads --
 | `HUSHH_PROD_PHONE_TEST_CODE` | `api/routes/account.py` | Production test only | Fixed OTP for the production synthetic phone allowlist. Store in production Secret Manager and never expose as `NEXT_PUBLIC_*`. |
 | `HUSHH_PROD_PHONE_TEST_CHALLENGE_SECRET` | `api/routes/account.py` | Production test only | Required HMAC key for production stateless phone challenge IDs; production never falls back to `APP_SIGNING_KEY` or the OTP. |
 | `ROOT_PATH` | `server.py` | No | FastAPI root path for reverse proxy. |
-| `HUSHH_GEMINI_BYOK_LIVE_ENABLED` | `hushh_mcp/one_adk/agent_tree.py` | No | Default disabled. Enables only a registry-approved Developer API Live model after an ADK UAT rehearsal; never carries a user key. |
-| `HUSHH_GEMINI_BYOK_LIVE_MODEL` | `hushh_mcp/one_adk/agent_tree.py` | No | Exact registry-approved Developer API Live model for optional BYOK voice. Unset or unsupported values fail closed to managed Gemini. |
 | `GOOGLE_GENAI_USE_VERTEXAI` | Cloud Run env | Yes (hosted) | Set `true` with `HUSHH_GENAI_AUTH_MODE=vertex_adc`; API-key fallback is prohibited. |
 | `PLAID_ENV` / `PLAID_ENVIRONMENT` | `hushh_mcp/services/plaid_portfolio_service.py` | No | Plaid environment. Defaults to `sandbox`. |
 | `PLAID_CLIENT_ID` | `hushh_mcp/services/plaid_portfolio_service.py` | If Plaid enabled | Plaid client ID. |
@@ -366,7 +364,6 @@ Local runtime bootstrap:
 | `GMAIL_OAUTH_TOKEN_KEY` | Yes | GCP Secret Manager |
 | `OPENAI_API_KEY` | Yes | GCP Secret Manager |
 | `BACKEND_RUNTIME_CONFIG_JSON` | Yes | GCP Secret Manager |
-| `VOICE_RUNTIME_CONFIG_JSON` | Yes | GCP Secret Manager |
 | `HUSHH_PROD_PHONE_TEST_NUMBERS` | Production test only | GCP Secret Manager |
 | `HUSHH_PROD_PHONE_TEST_CODE` | Production test only | GCP Secret Manager |
 | `HUSHH_PROD_PHONE_TEST_CHALLENGE_SECRET` | Production test only | GCP Secret Manager |

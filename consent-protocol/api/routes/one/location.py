@@ -33,6 +33,7 @@ from hushh_mcp.services.capability_run_service import (
     MAX_CAPABILITY_RUN_RETENTION_PURGE,
     get_capability_run_store,
 )
+from hushh_mcp.services.command_checkpoints import CommandCheckpointStore
 from hushh_mcp.services.google_maps_service import (
     GoogleMapsError,
     GoogleMapsService,
@@ -180,6 +181,9 @@ class UpdateSosVoicePreferenceRequest(_CamelModel):
 
 
 class CreateAccessRequest(_CamelModel):
+    client_operation_id: str | None = Field(
+        default=None, alias="clientOperationId", min_length=1, max_length=160
+    )
     owner_user_id: str = Field(alias="ownerUserId", min_length=1, max_length=160)
     message: str | None = Field(default=None, max_length=500)
     # How much time the requester actually wants. Optional so an older client
@@ -221,6 +225,9 @@ class ResolveAccessRequest(_CamelModel):
         default=None,
         alias="autoApproveRuleVersion",
         ge=1,
+    )
+    expected_request_revision: int | None = Field(
+        default=None, alias="expectedRequestRevision", ge=1
     )
 
     @model_validator(mode="after")
@@ -845,6 +852,7 @@ def get_location_activity(
 async def purge_location_retention(request: Request, older_than_hours: float = 12):
     _require_retention_auth(request)
     try:
+        await CommandCheckpointStore().purge_expired()
         result = await run_in_threadpool(
             _service().purge_terminal_work, older_than_hours=older_than_hours
         )
@@ -2161,6 +2169,7 @@ def request_location_access(
                 requested_duration_hours=payload.requested_duration_hours,
                 requested_duration_mode=payload.requested_duration_mode,
                 extends_grant_id=payload.extends_grant_id,
+                client_operation_id=payload.client_operation_id,
             )
         }
     except Exception as exc:
@@ -2181,6 +2190,11 @@ def approve_location_access_request(
             duration_hours=payload.duration_hours,
             duration_mode=payload.duration_mode,
             auto_approve_rule_version=payload.auto_approve_rule_version,
+            **(
+                {"expected_request_revision": payload.expected_request_revision}
+                if payload.expected_request_revision is not None
+                else {}
+            ),
         )
     except Exception as exc:
         raise _handle_error(exc) from exc

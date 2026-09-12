@@ -92,12 +92,12 @@ action IDs that are valid on that destination. A source-route fallback is
 invalid for a route-changing local handler.
 
 The browser publishes the destination's redacted context snapshot and waits
-for the relay acknowledgement before it reports the originating settlement.
-Only then can `continue_app_goal` make the authored choices eligible. An
-explicit user choice is retained as its generated action ID only, in the live
-session, and is cleared on timeout, cancellation, sign-out, route mismatch,
-back navigation, or session end. It never carries speech, slots, credentials,
-or durable intent across screens.
+for authoritative client or service settlement before it reports the originating
+result. Only then can `continue_app_goal` make the authored choices eligible.
+An explicit user choice is retained as its generated action ID only, in the
+correlated task, and is cleared on timeout, cancellation, sign-out, route
+mismatch, back navigation, or task end. It never carries audio, slots,
+credentials, or durable intent across screens.
 
 ## Runtime Consumers
 
@@ -105,7 +105,7 @@ or durable intent across screens.
 - Shared client execution: [agent-action-runtime.ts](../../../hushh-webapp/lib/agent/agent-action-runtime.ts)
 - Backend generated-gateway loader: [action_gateway.py](../../../consent-protocol/hushh_mcp/services/action_gateway.py)
 - One policy tools: [action_tools.py](../../../consent-protocol/hushh_mcp/one_adk/action_tools.py)
-- One Live relay: [adk_live.py](../../../consent-protocol/api/routes/one/adk_live.py)
+- Location command proposal route: [command_proposals.py](../../../consent-protocol/api/routes/one/command_proposals.py)
 
 Gmail is deliberately absent from generated discovery while it is paused. Its
 route and manifest remain dormant for an explicit future enablement; no action

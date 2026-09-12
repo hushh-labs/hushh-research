@@ -19,20 +19,10 @@ import {
   updateVoicePreferences,
   type OneVoicePreferencesState,
 } from "@/lib/agent/voice-preferences";
-import {
-  VOICE_ENGINE_CHANGELOG,
-  VOICE_ENGINE_VERSION,
-} from "@/lib/agent/voice-engine-changelog";
 import { VOICE_ENGINE_DOMAINS } from "@/lib/agent/voice-engine-domains";
-import { VOICE_PERSONA_OPTIONS } from "@/lib/agent/voice-persona-options";
 import { OneLocationService } from "@/lib/one-location/service";
 import type { OneLocationSosVoiceDefaultAction } from "@/lib/one-location/types";
 import { ConnectionsService } from "@/lib/services/connections-service";
-
-/** Select has no null option, so the default pick gets its own sentinel value. */
-const VOICE_NAME_DEFAULT_VALUE = "__default__";
-
-const CHANGELOG_PREVIEW_COUNT = 2;
 
 function VoiceHeader() {
   return (
@@ -47,37 +37,9 @@ function VoiceHeader() {
         One
       </h1>
       <PageSubtitle className="text-muted-foreground">
-        Voice engine {VOICE_ENGINE_VERSION} — powered by Gemini Live
+        Location commands
       </PageSubtitle>
     </div>
-  );
-}
-
-function VoiceChangelog({ onOpenChangelog }: { onOpenChangelog: () => void }) {
-  const entries = VOICE_ENGINE_CHANGELOG.slice(0, CHANGELOG_PREVIEW_COUNT);
-  const hasMore = VOICE_ENGINE_CHANGELOG.length > CHANGELOG_PREVIEW_COUNT;
-
-  return (
-    <SettingsGroup title="What's new">
-      {entries.map((entry, index) => (
-        <SettingsRow
-          key={`${entry.version}:${entry.title}:${index}`}
-          title={entry.title}
-          description={entry.description}
-          trailing={
-            <span className="text-xs text-muted-foreground">{entry.date}</span>
-          }
-          stackTrailingOnMobile
-        />
-      ))}
-      {hasMore ? (
-        <SettingsRow
-          title="See all updates"
-          onClick={onOpenChangelog}
-          chevron
-        />
-      ) : null}
-    </SettingsGroup>
   );
 }
 
@@ -311,14 +273,10 @@ export function VoicePreferencesPanel({
   userId,
   vaultOwnerToken = null,
   getIdToken = null,
-  onOpenChangelog,
-  onOpenExamples,
 }: {
   userId: string | null;
   vaultOwnerToken?: string | null;
   getIdToken?: (() => Promise<string>) | null;
-  onOpenChangelog: () => void;
-  onOpenExamples: () => void;
 }) {
   const [state, setState] = useState<OneVoicePreferencesState>(() =>
     readVoicePreferences(userId),
@@ -337,15 +295,12 @@ export function VoicePreferencesPanel({
   return (
     <div className="space-y-4">
       <VoiceHeader />
-      <SettingsGroup>
+      <SettingsGroup title="How commands work">
         <SettingsRow
-          title="What can I say"
-          description="Examples for every part of the app."
-          chevron
-          onClick={onOpenExamples}
+          title="Use your own words"
+          description="Hold Talk to One, speak, and release. One interprets the request from your current Location context, then executes it, asks for a required action, or opens the relevant screen."
         />
       </SettingsGroup>
-      <VoiceChangelog onOpenChangelog={onOpenChangelog} />
       <SettingsGroup>
         <SettingsRow
           title="Voice control"
@@ -360,96 +315,9 @@ export function VoicePreferencesPanel({
             />
           }
         />
-        <SettingsRow
-          title="Voice"
-          description="Pick who One sounds like."
-          disabled={!state.voiceEnabled}
-          trailing={
-            <Select
-              value={state.voiceName ?? VOICE_NAME_DEFAULT_VALUE}
-              disabled={!state.voiceEnabled}
-              onValueChange={(value) =>
-                set((current) => ({
-                  ...current,
-                  voiceName: value === VOICE_NAME_DEFAULT_VALUE ? null : value,
-                }))
-              }
-            >
-              <SelectTrigger
-                className="w-full sm:w-60 min-w-[11rem]"
-                aria-label="Voice"
-              >
-                <SelectValue placeholder="Default" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value={VOICE_NAME_DEFAULT_VALUE}>
-                  Default
-                </SelectItem>
-                {VOICE_PERSONA_OPTIONS.map((option) => (
-                  <SelectItem key={option.name} value={option.name}>
-                    {option.name} — {option.descriptor}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          }
-          stackTrailingOnMobile
-        />
       </SettingsGroup>
-      {/*
-        The old copy here read "For actions that already ask to confirm" /
-        "Stops a spoken yes or no from confirming." Both were wrong, and
-        together they made a working control look broken.
-
-        Nothing "already asks". Voice deliberately does not confirm by
-        default -- `_directive_flags` in action_tools.py raises a card only
-        for `trusted_activation_required` (4 actions of 198) unless this
-        setting is on. So the group described a set that is empty in
-        practice, and the row promised to stop a spoken yes that was never
-        being asked for in the first place.
-
-        Turn this on and 35 `confirm_required` actions start asking, and
-        only a tap settles them. Both halves matter: the asking is new, not
-        just the tap. Somebody who reads the old copy tries it on an
-        ordinary action, sees no card, and concludes the switch does
-        nothing.
-      */}
-      <SettingsGroup
-        title="Safety"
-        description="For actions that share or change something."
-      >
-        <SettingsRow
-          title="Require a tap to confirm"
-          description="They ask first, and a spoken yes won't do."
-          disabled={!state.voiceEnabled}
-          trailing={
-            <Switch
-              checked={state.requireTapConfirmation}
-              disabled={!state.voiceEnabled}
-              onCheckedChange={(checked) =>
-                set((current) => ({ ...current, requireTapConfirmation: checked }))
-              }
-              aria-label="Require a tap to confirm"
-            />
-          }
-        />
-      </SettingsGroup>
-      <SettingsGroup title="Guidance" description="See each step as One works.">
-        <SettingsRow
-          title="Walk-through mode"
-          description="Follow along step by step."
-          disabled={!state.voiceEnabled}
-          trailing={
-            <Switch
-              checked={state.walkthroughMode}
-              disabled={!state.voiceEnabled}
-              onCheckedChange={(checked) =>
-                set((current) => ({ ...current, walkthroughMode: checked }))
-              }
-              aria-label="Walk-through mode"
-            />
-          }
-        />
+      <SettingsGroup title="Confirmations">
+        <SettingsRow title="Confirm sensitive actions" description="Location commands show a card when an action requires your approval. Tap Confirm to continue." />
       </SettingsGroup>
       <LocationAgentDefaultsGroup vaultOwnerToken={vaultOwnerToken} />
       <ConnectAgentDefaultsGroup getIdToken={getIdToken} />

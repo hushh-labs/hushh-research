@@ -61,15 +61,6 @@ BACKEND_ONE_EMAIL_RUNTIME_REQUIRED = (
     "ONE_EMAIL_KYC_STRICT_CLIENT_ZK_ENABLED",
 )
 
-BACKEND_VOICE_REQUIRED = (
-    "OPENAI_API_KEY",
-    "VOICE_RUNTIME_CONFIG_JSON",
-    # Hussh-managed Developer API key for the canonical live voice model
-    # (gemini-3.1-flash-live-preview rides the developer_api transport; the
-    # relay fails closed with "Voice is temporarily unavailable" without it).
-    "HUSHH_MANAGED_GEMINI_LIVE_API_KEY",
-)
-
 BACKEND_CONNECTED_SYSTEMS_REQUIRED = (
     "OMNIGATEWAY_CLIENT_ID",
     "OMNIGATEWAY_CLIENT_SECRET",
@@ -193,24 +184,6 @@ LEGACY_BACKEND_RUNTIME_COMPONENTS = (
     "OBS_DATA_STALE_RATIO_THRESHOLD",
     "PASSKEY_ALLOWED_RP_IDS",
 )
-
-LEGACY_VOICE_RUNTIME_COMPONENTS = (
-    "KAI_VOICE_REALTIME_ENABLED",
-    "KAI_VOICE_V1_ENABLED",
-    "KAI_VOICE_V1_CANARY_PERCENT",
-    "KAI_VOICE_V1_DISABLE_TOOL_EXECUTION",
-    "FORCE_REALTIME_VOICE",
-    "FAIL_FAST_VOICE",
-    "DISABLE_VOICE_FALLBACKS",
-    "OPENAI_VOICE_REALTIME_MODEL",
-    "OPENAI_VOICE_STT_MODELS",
-    "OPENAI_VOICE_INTENT_MODELS",
-    "OPENAI_VOICE_TTS_MODELS",
-    "OPENAI_VOICE_TTS_DEFAULT_VOICE",
-    "OPENAI_VOICE_TTS_FORMAT",
-    "OPENAI_VOICE_TTS_PREFER_QUALITY",
-)
-
 
 class CloudReadUnavailable(RuntimeError):
     """Cloud access failed; absence cannot be inferred from this observation."""
@@ -809,11 +782,6 @@ def main() -> int:
         help="Also require One mailbox/KYC runtime env and secrets.",
     )
     parser.add_argument(
-        "--require-voice",
-        action="store_true",
-        help="Also require backend voice runtime secrets for voice parity.",
-    )
-    parser.add_argument(
         "--require-connected-systems",
         action="store_true",
         help=(
@@ -861,8 +829,6 @@ def main() -> int:
         required.extend(BACKEND_CALENDAR_REQUIRED)
     if checks_backend and args.require_one_email:
         required.extend(BACKEND_ONE_EMAIL_SECRET_REQUIRED)
-    if checks_backend and args.require_voice:
-        required.extend(BACKEND_VOICE_REQUIRED)
     if checks_backend and args.require_connected_systems:
         required.extend(BACKEND_CONNECTED_SYSTEMS_REQUIRED)
     if checks_backend and args.require_reviewer_smoke:
@@ -906,7 +872,6 @@ def main() -> int:
             "one_email": list(BACKEND_ONE_EMAIL_SECRET_REQUIRED)
             if checks_backend and args.require_one_email
             else [],
-            "voice": list(BACKEND_VOICE_REQUIRED) if checks_backend and args.require_voice else [],
             "connected_systems": list(BACKEND_CONNECTED_SYSTEMS_REQUIRED)
             if checks_backend and args.require_connected_systems
             else [],
@@ -932,7 +897,6 @@ def main() -> int:
             "backend_gmail": [],
             "backend_calendar": [],
             "backend_one_email": [],
-            "backend_voice": [],
             "backend_reviewer_smoke": [],
         },
         "gmail_redirect_contract": {"status": "not_checked"},
@@ -972,11 +936,6 @@ def main() -> int:
         print(
             "Required One email backend keys "
             f"({len(BACKEND_ONE_EMAIL_SECRET_REQUIRED)}): {_format_names(BACKEND_ONE_EMAIL_SECRET_REQUIRED)}"
-        )
-    if checks_backend and args.require_voice:
-        print(
-            "Required voice backend secrets "
-            f"({len(BACKEND_VOICE_REQUIRED)}): {_format_names(BACKEND_VOICE_REQUIRED)}"
         )
     if checks_backend and args.require_connected_systems:
         print(
@@ -1119,18 +1078,6 @@ def main() -> int:
                 _classify_runtime_key(backend_env, key)
                 for key in BACKEND_ONE_EMAIL_RUNTIME_REQUIRED
             ]
-        backend_voice_entries = []
-        if checks_backend and args.require_voice:
-            backend_voice_entries = [
-                _classify_runtime_key(
-                    backend_env,
-                    key,
-                    legacy_component_keys=LEGACY_VOICE_RUNTIME_COMPONENTS
-                    if key == "VOICE_RUNTIME_CONFIG_JSON"
-                    else tuple(),
-                )
-                for key in BACKEND_VOICE_REQUIRED
-            ]
         backend_connected_systems_entries = []
         if checks_backend and args.require_connected_systems:
             backend_connected_systems_entries = [
@@ -1148,7 +1095,6 @@ def main() -> int:
         report["runtime_contract"]["backend_gmail"] = backend_gmail_entries
         report["runtime_contract"]["backend_calendar"] = backend_calendar_entries
         report["runtime_contract"]["backend_one_email"] = backend_one_email_entries
-        report["runtime_contract"]["backend_voice"] = backend_voice_entries
         report["runtime_contract"]["backend_connected_systems"] = backend_connected_systems_entries
         report["runtime_contract"]["backend_reviewer_smoke"] = backend_reviewer_smoke_entries
         report["runtime_contract"]["frontend_serving_revisions"] = frontend_revisions
@@ -1169,7 +1115,6 @@ def main() -> int:
         runtime_classifications.extend(
             _classifications_from_runtime_entries(backend_one_email_entries)
         )
-        runtime_classifications.extend(_classifications_from_runtime_entries(backend_voice_entries))
         runtime_classifications.extend(
             _classifications_from_runtime_entries(backend_connected_systems_entries)
         )
@@ -1199,10 +1144,6 @@ def main() -> int:
                     backend_one_email_entries,
                 )
             )
-        if checks_backend and args.require_voice:
-            print(
-                _render_runtime_summary("Backend voice runtime env contract", backend_voice_entries)
-            )
         if checks_backend and args.require_connected_systems:
             print(
                 _render_runtime_summary(
@@ -1224,8 +1165,8 @@ def main() -> int:
                 frontend_entries
                 + backend_entries
                 + backend_gmail_entries
+                + backend_calendar_entries
                 + backend_one_email_entries
-                + backend_voice_entries
                 + backend_connected_systems_entries
                 + backend_reviewer_smoke_entries
             )

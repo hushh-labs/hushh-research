@@ -82,7 +82,7 @@ The `uat` GitHub environment needs these non-secret variables:
 | `IOS_VOICE_DEVICE_TIER` | Redacted identifier for the attached iPhone tier; required only when `require_hardware: true` |
 
 The federated identity needs read access to the UAT build contract, App Store
-Connect material, model-pack registry, and Firebase configuration in
+Connect material and Firebase configuration in
 `hushh-pda-uat`. It must not use a long-lived key file.
 
 Before upload, the workflow fails closed unless Secret Manager contains:
@@ -101,40 +101,16 @@ Before upload, the workflow fails closed unless Secret Manager contains:
 
 The `OneVoicePrivacyContract.v1.json`, `OneVoiceModelNotices.json`,
 `Info.plist`, `PrivacyInfo.xcprivacy`, and built archive are reconciled before
-upload. Model weights are forbidden in the base archive. FluidAudio remains
-disabled unless its model notice is legally approved, its verified on-demand
-pack is active, and its device benchmark is eligible.
+upload. Location commands use bounded recording and ordinary Gemini transcription
+and semantic planning. The app ships no local ASR/intent model packs, Live
+transport, or generated speech. The model-pack publisher and its registry
+release gate are retired. Historical artifacts remain historical evidence.
 
-## UAT local-model packs
-
-The TestFlight workflow refuses an unconfigured local voice runtime. Publish
-only the browser ASR and intent-ranker packs for the exact merged SHA first:
-
-```bash
-gh workflow run publish-one-voice-model-packs.yml --ref main \
-  -f environment=uat \
-  -f operation=publish
-```
-
-That workflow stores immutable artifacts under the SHA in the UAT model bucket
-and atomically updates the metadata-only
-`HUSHH_LOCAL_RUNTIME_PACK_REGISTRY` Secret Manager registry. Cloud Run reads
-the registry through its bounded adapter and issues fresh short-lived signed
-URLs per capability request. The registry never stores a bearer URL.
-
-The FluidAudio model is deliberately omitted from this default publication.
-After legal approval is recorded in `OneVoiceModelNotices.json`, stage the
-reviewed upstream ZIP below `one-voice/fluid-audio-source/` in the selected
-environment's model bucket, then dispatch the same workflow with
-`include_fluid_audio: true`, that normalized object path, and its reviewed
-version. Automation normalizes the upstream `160ms` layout, verifies the
-NVIDIA notice, archive checksum, required Core ML files, and provenance
-manifest before adding the pack to the registry. A pending notice, malformed
-archive, or missing hardware eligibility fails the release path; it cannot
-silently enable the provider.
-
-Production model promotion is a separate explicit `production` dispatch after
-the UAT gates are proven. It is not implied by this TestFlight upload.
+Build a fresh static export and sync it into both native apps before packaging.
+Verify that the packaged assets contain the command capture worklet and no
+Gemini Live worklet or executable Live client. Device acceptance must separately
+prove final-word capture, cancellation, real permission continuation, explicit
+resume, and zero Live/generated-audio requests.
 
 ## Run the normal build
 
@@ -145,29 +121,8 @@ authority contract.
 
 1. Land the reviewed source on `main` and wait for the required post-merge
    checks to pass.
-2. Deploy the matching backend to UAT, with **`scope: all`** rather than the
-   default `scope: auto` whenever the release changes no `consent-protocol/`
-   file.
-
-   `auto` resolves the deploy lane from what actually changed, so a
-   frontend-only release correctly skips the backend. The backend then keeps
-   whatever SHA it was last deployed at, and `Verify matching UAT backend
-   revision` fails, because that gate compares the serving revision's
-   `deploy-sha` label against the release SHA for **exact** equality. Not
-   reachability, not recency.
-
-   The two are in direct contradiction for a frontend-only release, and the
-   failure misleads because nothing is wrong with the source: re-cutting the
-   branch, refetching `main`, and re-running the release all change nothing.
-   `scope: all` redeploys the identical backend under the new SHA, which is what
-   the gate is actually asking for.
-
-   Measured 2026-09-11: `git diff --name-only <deployed-sha>..origin/main --
-   consent-protocol/` returned **0 files** across ten commits of `main`. A
-   `scope: auto` deploy skipped the backend, and the TestFlight run failed this
-   gate identically to the run before it. Confirm the lane rather than assume
-   it, with `git diff --name-only <deployed-sha>..<release-sha> -- consent-protocol/`.
-3. Publish and activate the matching UAT model packs.
+2. Deploy the matching backend to UAT.
+3. Verify ordinary Gemini transcription and semantic model access against the matching backend.
 4. If device evidence is desired, verify the self-hosted iPhone runner is
    connected and registered with the `ios-voice-device` label.
 5. In GitHub Actions, run **Ship iOS to TestFlight** from `main`. Leave `sha`
@@ -192,7 +147,7 @@ model bytes are removed or never uploaded.
 | Failure | Meaning and safe response |
 | --- | --- |
 | No connected iPhone / missing timing result | If `require_hardware: true`, restore the dedicated runner or permission bootstrap and rerun. If physical evidence is not needed, rerun with `require_hardware: false` after the mandatory simulator and native gates pass. |
-| UAT backend provenance differs from source SHA | The UAT backend is not serving the release SHA. Redeploy UAT at that exact SHA with **`scope: all`**. `scope: auto` will skip the backend again whenever the release changed no `consent-protocol/` file, which is the usual reason this row is being read. Then restart the release workflow. |
+| UAT backend provenance differs from source SHA | Deploy that exact reviewed SHA to UAT, then restart the release workflow. |
 | Local model readiness fails | Publish checksum-verified packs for the same SHA; do not hard-code signed URLs. |
 | Missing group, contact, notes, or privacy attestation | Configure the protected UAT release material; the workflow intentionally will not upload. |
 | External beta review pending | Internal testers can use the valid build; wait for Apple's beta-review decision for external testers. |

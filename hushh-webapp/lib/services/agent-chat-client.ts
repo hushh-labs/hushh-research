@@ -362,9 +362,8 @@ export async function streamAgentChat(input: {
         handlers.onPendingConsentRequests?.(pendingIds);
       }
       // A server-side run_app_action parks a directive for the browser. The
-      // Live relay delivers parked directives through session state; this
-      // text transport has no such relay, so the parked action is surfaced
-      // here as a frontend tool event and staged (or run) by the workspace.
+      // text transport surfaces the directive as a frontend tool event, where
+      // the workspace stages it or routes it through the governed executor.
       const parked = parseParkedAppActionDirective(event.content);
       if (parked) {
         const action = getKaiActionById(parked.actionId);

@@ -57,7 +57,7 @@ fi
 
 # Agent Chat is a two-agent window: One in the cloud and Puppy One on the
 # owner's own Mac. The invariants that matter are COMPOSITION properties (which
-# of One's controls survive the switch, whether a live voice session or an
+# of One's controls survive the switch, whether a command capture or an
 # in-flight turn does), and none of the eleven Puppy suites gated a pull
 # request before this lane existed, which is how a cloud model picker shipped
 # sitting over the on-device transcript. Kept separate from the voice-gateway

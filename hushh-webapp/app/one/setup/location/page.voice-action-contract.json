@@ -5,7 +5,11 @@
   "defaults": {
     "reachability": { "active_personas": ["investor", "ria"] },
     "speaker_persona": "one",
-    "guard_ids": ["auth_signed_in"]
+    "guard_ids": ["auth_signed_in"],
+    "command": {
+      "domain": "location",
+      "review_route": "/one/setup/location"
+    }
   },
   "actions": [
     {
@@ -110,6 +114,9 @@
         "status": "wired",
         "path": "local_handler",
         "target": "setup.finish_location"
+      },
+      "command": {
+        "permission": "location"
       },
       "control_ids": ["one-setup-location-terminal"],
       "state_exposure": ["bounded Location onboarding run status", "verified settlement readiness"]

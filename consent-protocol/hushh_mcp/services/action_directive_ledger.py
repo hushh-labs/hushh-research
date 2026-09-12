@@ -14,13 +14,16 @@ import json
 import secrets
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 from typing import Any, Literal
 from uuid import uuid4
 
-from db.db_client import get_db
+from sqlalchemy import text
+
+from db.db_client import DatabaseExecutionError, get_db
 from hushh_mcp.runtime_settings import get_core_security_settings
 
-ActionChannel = Literal["typed_chat", "voice"]
+ActionChannel = Literal["typed_chat", "voice", "command"]
 
 
 class ActionDirectiveAuthorityError(RuntimeError):
@@ -51,7 +54,10 @@ def _canonical_json(value: Any) -> str:
 class ActionDirectiveStore:
     """Atomic metadata-only directive state transitions."""
 
-    def __init__(self, *, db: Any | None = None, hmac_key: str | None = None):
+    def __init__(
+        self, *, db: Any | None = None, hmac_key: str | None = None, connection: Any = None
+    ):
+        self._connection = connection
         self._db = db
         self._hmac_key = hmac_key
 
@@ -67,7 +73,18 @@ class ActionDirectiveStore:
         return value.encode("utf-8")
 
     async def _execute(self, sql: str, params: dict[str, Any]):
-        return await asyncio.to_thread(self.db.execute_raw, sql, params)
+        try:
+            if self._connection is not None:
+                return SimpleNamespace(
+                    data=[
+                        dict(row) for row in self._connection.execute(text(sql), params).mappings()
+                    ]
+                )
+            return await asyncio.to_thread(self.db.execute_raw, sql, params)
+        except DatabaseExecutionError:
+            raise ActionDirectiveAuthorityError(
+                "Action authority is temporarily unavailable."
+            ) from None
 
     def _hmac(self, value: Any) -> str:
         return hmac.new(
@@ -75,6 +92,185 @@ class ActionDirectiveStore:
             _canonical_json(value).encode("utf-8"),
             hashlib.sha256,
         ).hexdigest()
+
+    async def command_outcome(
+        self, *, user_id: str, command_id: str, step: int
+    ) -> dict[str, Any] | None:
+        result = await self._execute(
+            """SELECT directive_id,action_id,context_revision,requires_confirmation,state,
+               settlement_status,settlement_reason_code,expires_at,operation_id,slots_hmac,step_hmac,resource_binding_hmac,command_effect
+               FROM one_action_directive_ledger
+               WHERE user_id=:user AND session_id=:command AND command_step=:step AND channel='command'""",
+            {"user": user_id, "command": command_id, "step": step},
+        )
+        return dict(result.data[0]) if result.data else None
+
+    async def issue_command(
+        self,
+        *,
+        user_id: str,
+        command_id: str,
+        step: int,
+        action: dict[str, Any],
+        slots: dict[str, Any],
+        context_revision: str,
+        checkpoint_revision: int,
+        plan_digest: str,
+        resource_binding: dict[str, Any] | None = None,
+        renew: bool = False,
+    ) -> dict[str, Any]:
+        """Stable logical identity survives renewed authority and lost responses."""
+        confirmation = (
+            action.get("execution_policy") == "confirm_required"
+            or action.get("activation_policy") == "trusted_activation_required"
+        )
+        operation_id = self._hmac([user_id, command_id, step])
+        result = await self._execute(
+            """WITH command_fence AS (UPDATE one_adk_sessions SET command_status='admitted'
+               WHERE app_name='one.location.commands.v1' AND user_id=:user AND session_id=:command
+               AND revision=:checkpoint_revision AND command_status IN ('ready','admitted') AND command_plan_hmac=:plan_digest
+               AND created_at > NOW()-INTERVAL '24 hours' RETURNING session_id)
+               INSERT INTO one_action_directive_ledger
+               (directive_id,user_id,channel,session_id,command_step,operation_id,action_id,
+                context_revision,action_contract_digest,slots_hmac,requires_confirmation,
+                trusted_activation_required,expires_at,step_hmac,resource_binding_hmac,command_effect)
+               SELECT :id,:user,'command',:command,:step,:operation,:action,:revision,:digest,
+                       :slots,:confirmation,:confirmation,NOW()+INTERVAL '5 minutes',:step_hmac,:binding,:effect FROM command_fence
+               ON CONFLICT (user_id,session_id,command_step) WHERE channel='command'
+               DO UPDATE SET command_effect=EXCLUDED.command_effect, directive_id=CASE WHEN (:renew OR one_action_directive_ledger.command_effect <> EXCLUDED.command_effect OR one_action_directive_ledger.expires_at <= NOW() OR one_action_directive_ledger.context_revision <> EXCLUDED.context_revision OR one_action_directive_ledger.resource_binding_hmac IS DISTINCT FROM EXCLUDED.resource_binding_hmac) THEN EXCLUDED.directive_id ELSE one_action_directive_ledger.directive_id END,
+                 context_revision=CASE WHEN (:renew OR one_action_directive_ledger.command_effect <> EXCLUDED.command_effect OR one_action_directive_ledger.expires_at <= NOW() OR one_action_directive_ledger.context_revision <> EXCLUDED.context_revision OR one_action_directive_ledger.resource_binding_hmac IS DISTINCT FROM EXCLUDED.resource_binding_hmac) THEN EXCLUDED.context_revision ELSE one_action_directive_ledger.context_revision END,
+                 action_contract_digest=CASE WHEN (:renew OR one_action_directive_ledger.command_effect <> EXCLUDED.command_effect OR one_action_directive_ledger.expires_at <= NOW() OR one_action_directive_ledger.context_revision <> EXCLUDED.context_revision OR one_action_directive_ledger.resource_binding_hmac IS DISTINCT FROM EXCLUDED.resource_binding_hmac) THEN EXCLUDED.action_contract_digest ELSE one_action_directive_ledger.action_contract_digest END,
+                 requires_confirmation=CASE WHEN (:renew OR one_action_directive_ledger.command_effect <> EXCLUDED.command_effect OR one_action_directive_ledger.expires_at <= NOW() OR one_action_directive_ledger.context_revision <> EXCLUDED.context_revision OR one_action_directive_ledger.resource_binding_hmac IS DISTINCT FROM EXCLUDED.resource_binding_hmac) THEN EXCLUDED.requires_confirmation ELSE one_action_directive_ledger.requires_confirmation END,
+                 trusted_activation_required=CASE WHEN (:renew OR one_action_directive_ledger.command_effect <> EXCLUDED.command_effect OR one_action_directive_ledger.expires_at <= NOW() OR one_action_directive_ledger.context_revision <> EXCLUDED.context_revision OR one_action_directive_ledger.resource_binding_hmac IS DISTINCT FROM EXCLUDED.resource_binding_hmac) THEN EXCLUDED.trusted_activation_required ELSE one_action_directive_ledger.trusted_activation_required END,
+                 resource_binding_hmac=CASE WHEN (:renew OR one_action_directive_ledger.command_effect <> EXCLUDED.command_effect OR one_action_directive_ledger.expires_at <= NOW() OR one_action_directive_ledger.context_revision <> EXCLUDED.context_revision OR one_action_directive_ledger.resource_binding_hmac IS DISTINCT FROM EXCLUDED.resource_binding_hmac) THEN EXCLUDED.resource_binding_hmac ELSE one_action_directive_ledger.resource_binding_hmac END,
+                 state=CASE WHEN (:renew OR one_action_directive_ledger.command_effect <> EXCLUDED.command_effect OR one_action_directive_ledger.expires_at <= NOW() OR one_action_directive_ledger.context_revision <> EXCLUDED.context_revision OR one_action_directive_ledger.resource_binding_hmac IS DISTINCT FROM EXCLUDED.resource_binding_hmac) THEN 'issued' ELSE one_action_directive_ledger.state END,
+                 receipt_hash=CASE WHEN (:renew OR one_action_directive_ledger.command_effect <> EXCLUDED.command_effect OR one_action_directive_ledger.expires_at <= NOW() OR one_action_directive_ledger.context_revision <> EXCLUDED.context_revision OR one_action_directive_ledger.resource_binding_hmac IS DISTINCT FROM EXCLUDED.resource_binding_hmac) THEN NULL ELSE one_action_directive_ledger.receipt_hash END,
+                 confirmed_at=CASE WHEN (:renew OR one_action_directive_ledger.command_effect <> EXCLUDED.command_effect OR one_action_directive_ledger.expires_at <= NOW() OR one_action_directive_ledger.context_revision <> EXCLUDED.context_revision OR one_action_directive_ledger.resource_binding_hmac IS DISTINCT FROM EXCLUDED.resource_binding_hmac) THEN NULL ELSE one_action_directive_ledger.confirmed_at END,
+                 expires_at=CASE WHEN (:renew OR one_action_directive_ledger.command_effect <> EXCLUDED.command_effect OR one_action_directive_ledger.expires_at <= NOW() OR one_action_directive_ledger.context_revision <> EXCLUDED.context_revision OR one_action_directive_ledger.resource_binding_hmac IS DISTINCT FROM EXCLUDED.resource_binding_hmac) THEN EXCLUDED.expires_at ELSE one_action_directive_ledger.expires_at END
+               WHERE one_action_directive_ledger.state IN ('issued','confirmed')
+                 AND one_action_directive_ledger.action_id=EXCLUDED.action_id
+                 AND one_action_directive_ledger.slots_hmac=EXCLUDED.slots_hmac
+               RETURNING directive_id""",
+            {
+                "id": f"dir_{uuid4().hex}",
+                "user": user_id,
+                "checkpoint_revision": checkpoint_revision,
+                "plan_digest": plan_digest,
+                "command": command_id,
+                "step": step,
+                "operation": operation_id,
+                "action": action["action_id"],
+                "revision": context_revision,
+                "digest": self._hmac(action),
+                "slots": self._hmac(slots),
+                "confirmation": confirmation,
+                "step_hmac": self._hmac({"action_id": action["action_id"], "slots": slots}),
+                "binding": self._hmac(resource_binding or {}),
+                "renew": renew,
+                "effect": action.get("_command_effect", "action"),
+            },
+        )
+        if not result.data:
+            raise ActionDirectiveAuthorityError("The command changed or was already claimed.")
+        outcome = await self.command_outcome(user_id=user_id, command_id=command_id, step=step)
+        if outcome is None:
+            raise ActionDirectiveAuthorityError("Command authority is unavailable.")
+        return outcome
+
+    async def claim_command(
+        self,
+        *,
+        user_id: str,
+        command_id: str,
+        step: int,
+        action: dict[str, Any],
+        slots: dict[str, Any],
+        context_revision: str,
+        checkpoint_revision: int,
+        plan_digest: str,
+        confirmation_receipt: str | None = None,
+        resource_binding: dict[str, Any] | None = None,
+    ) -> dict[str, str]:
+        """Claim once before client effects. Ambiguous claims are reconciled, never replayed."""
+        execution_receipt = secrets.token_urlsafe(32)
+        result = await self._execute(
+            """WITH command_fence AS (UPDATE one_adk_sessions SET command_status='admitted'
+               WHERE app_name='one.location.commands.v1' AND user_id=:user AND session_id=:command
+               AND revision=:checkpoint_revision AND command_status IN ('ready','admitted') AND command_plan_hmac=:plan_digest
+               AND created_at > NOW()-INTERVAL '24 hours' RETURNING session_id)
+               UPDATE one_action_directive_ledger SET state='consumed',consumed_at=NOW(),
+               execution_receipt_hash=:execution_hash
+               FROM command_fence WHERE user_id=:user AND one_action_directive_ledger.session_id=:command AND command_step=:step AND channel='command'
+                 AND action_id=:action AND context_revision=:revision AND action_contract_digest=:digest
+                 AND slots_hmac=:slots AND resource_binding_hmac=:binding AND expires_at > NOW()
+                 AND ((state='issued' AND requires_confirmation=FALSE)
+                   OR (state='confirmed' AND receipt_hash=:confirmation_hash))
+               RETURNING directive_id,operation_id""",
+            {
+                "user": user_id,
+                "checkpoint_revision": checkpoint_revision,
+                "plan_digest": plan_digest,
+                "command": command_id,
+                "step": step,
+                "action": action["action_id"],
+                "revision": context_revision,
+                "digest": self._hmac(action),
+                "slots": self._hmac(slots),
+                "binding": self._hmac(resource_binding or {}),
+                "confirmation_hash": hashlib.sha256(
+                    (confirmation_receipt or "").encode()
+                ).hexdigest(),
+                "execution_hash": hashlib.sha256(execution_receipt.encode()).hexdigest(),
+            },
+        )
+        if not result.data:
+            raise ActionDirectiveAuthorityError(
+                "The operation was already claimed or its authority changed."
+            )
+        return {**dict(result.data[0]), "execution_receipt": execution_receipt}
+
+    async def settle_command(
+        self,
+        *,
+        user_id: str,
+        command_id: str,
+        step: int,
+        operation_id: str,
+        execution_receipt: str,
+        status: Literal["succeeded", "failed", "review_required"],
+    ) -> dict[str, Any]:
+        """Accept only the correlated executor's receipt; never model completion text."""
+        receipt_hash = hashlib.sha256(execution_receipt.encode()).hexdigest()
+        result = await self._execute(
+            """UPDATE one_action_directive_ledger SET state='settled',settlement_status=:status,
+               settlement_reason_code='command_executor_result',settled_at=NOW()
+               WHERE user_id=:user AND session_id=:command AND command_step=:step AND channel='command'
+                 AND operation_id=:operation AND execution_receipt_hash=:receipt
+                 AND (state='consumed' OR (state='settled' AND settlement_status=:status))
+               RETURNING directive_id""",
+            {
+                "user": user_id,
+                "command": command_id,
+                "step": step,
+                "operation": operation_id,
+                "receipt": receipt_hash,
+                "status": status,
+            },
+        )
+        if not result.data:
+            raise ActionDirectiveAuthorityError(
+                "The operation result is not correlated to this command."
+            )
+        return await self.command_outcome(user_id=user_id, command_id=command_id, step=step) or {}
+
+    async def cancel_command(self, *, user_id: str, command_id: str) -> None:
+        # Consumed effects remain in the ledger for outcome lookup after cancellation.
+        await self._execute(
+            """UPDATE one_action_directive_ledger SET state='cancelled'
+               WHERE user_id=:user AND session_id=:command AND channel='command'
+                 AND state IN ('issued','confirmed')""",
+            {"user": user_id, "command": command_id},
+        )
 
     async def issue(
         self,

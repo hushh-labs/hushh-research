@@ -1244,53 +1244,8 @@ class OneLocationCircleService:
         cleaned_kind = _clean_kind(kind)
         try:
             with self._db.engine.begin() as conn:
-                # Serializes this person's create/join against itself. There
-                # is no ceiling left to check -- a person may belong to as many
-                # Circles as people put them in.
-                self._lock_user_circle_memberships(
-                    conn,
-                    user_id=owner_user_id,
-                )
-                circle_row = _first(
-                    conn.execute(
-                        text(
-                            """
-                            INSERT INTO one_location_circles (
-                              owner_user_id, name, kind, status, member_limit,
-                              created_at, updated_at, metadata
-                            )
-                            VALUES (
-                              :owner_user_id, :name, :kind, 'active',
-                              :member_limit, NOW(), NOW(), '{}'::jsonb
-                            )
-                            RETURNING id
-                            """
-                        ),
-                        {
-                            "owner_user_id": owner_user_id,
-                            "name": cleaned_name,
-                            "kind": cleaned_kind,
-                            "member_limit": CIRCLE_DEFAULT_MEMBER_LIMIT,
-                        },
-                    )
-                )
-                circle_id = str((circle_row or {}).get("id") or "")
-                if not circle_id:
-                    raise RuntimeError("circle insert returned no id")
-                conn.execute(
-                    text(
-                        """
-                        INSERT INTO one_location_circle_memberships (
-                          circle_id, user_id, role, status, joined_at, updated_at,
-                          metadata
-                        )
-                        VALUES (
-                          CAST(:circle_id AS UUID), :user_id, 'owner', 'active',
-                          NOW(), NOW(), '{}'::jsonb
-                        )
-                        """
-                    ),
-                    {"circle_id": circle_id, "user_id": owner_user_id},
+                circle_id = self.create_circle_in_transaction(
+                    conn, owner_user_id=owner_user_id, name=cleaned_name, kind=cleaned_kind
                 )
             logger.info(
                 "one_location.circle_created owner=%s",
@@ -1301,6 +1256,80 @@ class OneLocationCircleService:
             raise
         except Exception as exc:
             raise self._safe_db_failure("create", exc) from exc
+
+    def create_circle_in_transaction(
+        self,
+        conn: Any,
+        *,
+        owner_user_id: str,
+        name: str,
+        kind: str | None = None,
+        reuse_existing: bool = False,
+    ) -> str:
+        """Existing circle mutation with a caller-owned transaction and receipt."""
+        cleaned_name = _clean_name(name)
+        cleaned_kind = _clean_kind(kind)
+        # Serializes this person's create/join against itself. There
+        # is no ceiling left to check -- a person may belong to as many
+        # Circles as people put them in.
+        self._lock_user_circle_memberships(
+            conn,
+            user_id=owner_user_id,
+        )
+        if reuse_existing:
+            existing = _first(
+                conn.execute(
+                    text("""SELECT c.id FROM one_location_circles c
+                JOIN one_location_circle_memberships m ON m.circle_id=c.id
+                WHERE m.user_id=:user AND m.status='active' AND c.status='active'
+                  AND LOWER(TRIM(c.name))=LOWER(:name) ORDER BY c.created_at,c.id LIMIT 1"""),
+                    {"user": owner_user_id, "name": cleaned_name},
+                )
+            )
+            if existing:
+                return str(existing["id"])
+        circle_row = _first(
+            conn.execute(
+                text(
+                    """
+                    INSERT INTO one_location_circles (
+                      owner_user_id, name, kind, status, member_limit,
+                      created_at, updated_at, metadata
+                    )
+                    VALUES (
+                      :owner_user_id, :name, :kind, 'active',
+                      :member_limit, NOW(), NOW(), '{}'::jsonb
+                    )
+                    RETURNING id
+                    """
+                ),
+                {
+                    "owner_user_id": owner_user_id,
+                    "name": cleaned_name,
+                    "kind": cleaned_kind,
+                    "member_limit": CIRCLE_DEFAULT_MEMBER_LIMIT,
+                },
+            )
+        )
+        circle_id = str((circle_row or {}).get("id") or "")
+        if not circle_id:
+            raise RuntimeError("circle insert returned no id")
+        conn.execute(
+            text(
+                """
+                INSERT INTO one_location_circle_memberships (
+                  circle_id, user_id, role, status, joined_at, updated_at,
+                  metadata
+                )
+                VALUES (
+                  CAST(:circle_id AS UUID), :user_id, 'owner', 'active',
+                  NOW(), NOW(), '{}'::jsonb
+                )
+                """
+            ),
+            {"circle_id": circle_id, "user_id": owner_user_id},
+        )
+        return circle_id
 
     @staticmethod
     def _find_trusted_circle_id(conn: Any, owner_user_id: str) -> str:

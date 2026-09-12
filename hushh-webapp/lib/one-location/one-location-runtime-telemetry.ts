@@ -212,7 +212,7 @@ const DIRECTIVE_ID_PATTERN = /^locdirective_[a-z0-9]{16,96}$/u;
 const GRAPH_REVISION_PATTERN = /^[a-f0-9]{16,128}$/u;
 const TRACE_ID_PATTERN = /^(?:[a-f0-9]{16,64}|trace_[a-z0-9_-]{8,96})$/iu;
 const ACTIVATION_ID_PATTERN = /^vact_[a-z0-9_-]{8,96}$/iu;
-const VOICE_SESSION_ID_PATTERN = /^(?:voice_|gemini_live_)[a-z0-9_-]{8,128}$/iu;
+const VOICE_SESSION_ID_PATTERN = /^(?:voice_|command_)[a-z0-9_-]{8,128}$/iu;
 const TURN_ID_PATTERN = /^vturn_[a-z0-9_-]{8,96}$/iu;
 const CONTEXT_REVISION_PATTERN =
   /^(?:ctx_)?r[a-z0-9_-]{1,64}(?::r[a-z0-9_-]{1,64})?$/iu;

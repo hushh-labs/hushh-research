@@ -1,10 +1,10 @@
 """Central model registry for runtime providers.
 
 Single source of truth for which providers and models the Agent brain can run
-on, the canonical default model per provider, and the capability flags the
-voice/transport layers depend on (native realtime, streaming, function calling,
-prompt caching). This removes hardcoded model strings scattered across the
-runtime and lets credential mode stay orthogonal to provider choice.
+on, the canonical default model per provider, and the capability flags used by
+runtime adapters (streaming, function calling, prompt caching). This removes
+hardcoded model strings scattered across the runtime and lets credential mode
+stay orthogonal to provider choice.
 """
 
 from __future__ import annotations
@@ -99,34 +99,7 @@ _MODELS: tuple[ModelEntry, ...] = (
         supported_vertex_locations=("global",),
     ),
     ModelEntry(provider="gemini", model="gemini-3.1-flash-lite"),
-    # Dedicated managed-GCP text transcription transport for the Location
-    # command lane.  It has no tool-calling authority; the server-owned
-    # Location Brain remains the only router/executor.
-    ModelEntry(
-        provider="gemini",
-        model="gemini-3.5-transcribe-live-preview",
-        supports_function_calling=False,
-        supports_native_realtime=True,
-        # Gemini 3.5 Transcribe Live is currently served through the managed
-        # global endpoint only.  Keep this on the model contract so a
-        # capacity-pool typo cannot turn into an opaque device-side Live
-        # connection failure after the microphone has already been armed.
-        supported_vertex_locations=("global",),
-    ),
-    ModelEntry(
-        provider="gemini",
-        model="gemini-live-2.5-flash-native-audio",
-        supports_native_realtime=True,
-    ),
-    # Canonical live model since 2026-08-21. Developer API transport only
-    # (not published on Vertex), so no supported_vertex_locations contract;
-    # the endpoint decision lives in GEMINI_LIVE_COMPATIBILITY (agent_tree).
-    ModelEntry(
-        provider="gemini",
-        model="gemini-3.1-flash-live-preview",
-        supports_native_realtime=True,
-    ),
-    # Anthropic -- native SDK adapter; chained-only voice (no native realtime API).
+    # Anthropic -- native SDK adapter.
     ModelEntry(
         provider="anthropic",
         model="claude-sonnet-4-5",
@@ -135,7 +108,7 @@ _MODELS: tuple[ModelEntry, ...] = (
     ),
     ModelEntry(provider="anthropic", model="claude-opus-4-1", supports_prompt_caching=True),
     ModelEntry(provider="anthropic", model="claude-haiku-4-5", supports_prompt_caching=True),
-    # OpenAI -- native SDK adapter; native realtime API.
+    # OpenAI -- native SDK adapter.
     ModelEntry(
         provider="openai",
         model="gpt-5.1",
@@ -144,7 +117,7 @@ _MODELS: tuple[ModelEntry, ...] = (
     ),
     ModelEntry(provider="openai", model="gpt-5", supports_native_realtime=True),
     ModelEntry(provider="openai", model="gpt-5-mini", supports_native_realtime=True),
-    # Grok -- OpenAI-compatible wire format on the x.ai host; chained-only voice.
+    # Grok -- OpenAI-compatible wire format on the x.ai host.
     ModelEntry(
         provider="grok",
         model="grok-4",

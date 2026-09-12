@@ -110,11 +110,10 @@ def test_gemini_model_matrix_uses_current_workload_equivalents() -> None:
     assert one.capabilities["heads"] == {
         "text": "gemini-default",
         "specialist_text": "gemini-default",
-        "live": "gemini-3.1-flash-live-preview",
     }
 
 
-def test_one_live_is_the_only_interactive_audio_backend() -> None:
+def test_one_command_runtime_has_no_legacy_voice_backends() -> None:
     assert not (ROOT / "api" / "routes" / "kai" / "agent_voice.py").exists()
     assert not (ROOT / "hushh_mcp" / "services" / "agent_voice_service.py").exists()
     kai_routes = (ROOT / "api" / "routes" / "kai" / "__init__.py").read_text()

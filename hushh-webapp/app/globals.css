@@ -3042,9 +3042,8 @@ body:has([data-testid="one-location-onboarding"])
   }
 }
 
-/* Agent bar edge glow: a STILL soft gold gradient rim (no idle spin). It only
-   comes alive (a gentle breathing brighten) while a live voice conversation is
-   active, so motion always MEANS something. */
+/* Agent bar edge glow: a still soft gold gradient rim. It brightens only while
+   Talk to One is capturing or processing a command. */
 .one-bar-aurora {
   position: absolute;
   inset: -6px;

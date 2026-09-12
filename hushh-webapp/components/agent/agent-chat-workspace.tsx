@@ -149,7 +149,7 @@ import { AppBackgroundTaskService } from "@/lib/services/app-background-task-ser
 import { toDurationBucket, trackEvent } from "@/lib/observability/client";
 import { useAgentVoiceState } from "@/lib/agent/agent-voice-state";
 import {
-  isAgentGeminiVoiceEnabled,
+  isAgentCommandEnabled,
   requestAgentConversation,
   requestAgentConversationStop,
 } from "@/lib/agent/agent-voice-settings";
@@ -1572,12 +1572,11 @@ export function AgentChatWorkspace({
   });
 
   const voiceActive = voiceState !== "idle";
-  const voiceMuted = voiceState === "muted";
   const voiceLevel = useAgentVoiceState((state) => state.level);
   const isToolWorking = activeFrontendToolCount > 0;
   const isPkmMemoryWorking = activePkmToolCount > 0;
   const tokenIsFresh = !tokenExpiresAt || Date.now() < tokenExpiresAt;
-  const agentVoiceEnabled = isAgentGeminiVoiceEnabled();
+  const agentVoiceEnabled = isAgentCommandEnabled();
   const abortAgentTurnWork = useCallback(() => {
     streamAbortControllerRef.current?.abort();
     streamAbortControllerRef.current = null;
@@ -2502,7 +2501,7 @@ export function AgentChatWorkspace({
       resultSummary ||
       (handoff.actionId
         ? `One moved this ${handoff.actionId} request into chat for the governed action path.`
-        : "One moved this live voice turn into chat.");
+        : "One moved this command into chat for the governed action path.");
     nextMessages.push({
       id: `handoff-${handoff.id}-assistant`,
       role: "assistant",
@@ -4083,7 +4082,7 @@ export function AgentChatWorkspace({
             );
             upsertTurnStreamEvent(visibleEvent);
             // A parked run_app_action directive that owes no confirmation
-            // runs right away, exactly as the Live relay would run it; one
+            // runs through the governed client executor; one
             // that does owe a confirmation (or a trusted tap) is staged.
             if (
               toolEvent.raw.parked === true &&
@@ -4996,8 +4995,9 @@ export function AgentChatWorkspace({
   }, [isPopover, isSurfaceClosing]);
 
   // Agent Chat never owns audio. Its microphone affordance delegates to the
-  // persistent Agent Bar, which is the sole owner of One Live and native audio.
+  // persistent Agent Bar, which is the sole owner of command capture.
   const startConversationalVoice = requestAgentConversation;
+  const cancelConversationalVoice = requestAgentConversationStop;
 
   // The single agent bar always works. Before the vault is unlocked it runs the
   // informational tier (help + navigation), so the access banner is a soft,
@@ -6576,10 +6576,8 @@ export function AgentChatWorkspace({
                   <AgentVoiceWaveInput
                     status={voiceState}
                     level={voiceLevel}
-                    muted={voiceMuted}
                     disabled={isVoiceConnecting}
-                    onToggleMute={startConversationalVoice}
-                    onCancel={startConversationalVoice}
+                    onCancel={cancelConversationalVoice}
                   />
                 </div>
               ) : (

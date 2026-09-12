@@ -1,6 +1,6 @@
 {
   "contract_name": "prod_core_schema",
-  "expected_migration_version": 211,
+  "expected_migration_version": 212,
   "migration_version_policy": "exact",
   "required_functions": [
     "resolve_feed_counterpart_user_id",

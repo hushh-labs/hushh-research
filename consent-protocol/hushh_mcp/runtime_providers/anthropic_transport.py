@@ -1,4 +1,4 @@
-"""Native Anthropic transport adapter (chained-only voice; no native realtime)."""
+"""Native Anthropic transport adapter."""
 
 from __future__ import annotations
 

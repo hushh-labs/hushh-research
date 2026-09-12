@@ -128,13 +128,11 @@ _USER_FACING_AREAS: tuple[tuple[str, tuple[str, ...]], ...] = (
 def _runnable_area_names() -> list[str]:
     """Areas with at least one voice action that can actually run today.
 
-    Derived, not authored, and that is the entire point. A hand-written list of
-    what One can do rots silently: the "What can I say" page used to teach
-    "Connect my Gmail" and "Sync my Gmail receipts now", and both mapped to
-    unwired actions that could not execute (fixed by removing them in #6308,
-    which is what this derivation exists to make durable). Somebody follows
-    the tutorial, the thing does not happen, and they conclude the agent is
-    broken.
+    Derived, not authored, and that is the entire point. A former static
+    examples page taught actions that had become unwired. A person could follow
+    the tutorial, see nothing happen, and conclude the private agent was
+    broken. This derivation keeps the displayed capability scope aligned with
+    the generated contract instead.
 
     The same three conditions the publishing surfaces use -- wired, a path that
     actually dispatches, and not manual_only -- so this answer moves with the

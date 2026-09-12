@@ -147,7 +147,6 @@ steps:
           --build-arg NEXT_PUBLIC_ONE_WALLET_CARD_ENABLED=${_ONE_WALLET_CARD_ENABLED} \
           --build-arg NEXT_PUBLIC_ONE_LOCATION_NEARBY_CHECK_IN=${_ONE_LOCATION_NEARBY_CHECK_IN} \
           --build-arg NEXT_PUBLIC_LOCATION_MAP_DEMO=${_LOCATION_MAP_DEMO} \
-          --build-arg NEXT_PUBLIC_LOCATION_COMMAND_RUNTIME_ENABLED=${_LOCATION_COMMAND_RUNTIME_ENABLED} \
           --build-arg NEXT_PUBLIC_OBSERVABILITY_DEBUG=false \
           --build-arg NEXT_PUBLIC_OBSERVABILITY_SAMPLE_RATE=1 \
           --build-arg NEXT_PUBLIC_GTM_ID=$$NEXT_PUBLIC_GTM_ID_VAL \
@@ -270,9 +269,6 @@ substitutions:
   # environment-shaped gate reads every store install as non-production and
   # hands real users a map of fabricated people.
   _LOCATION_MAP_DEMO: "false"
-  # Transcript-first Location commands are UAT-only and default dark in every
-  # frontend build. The backend relay remains the authority for admission.
-  _LOCATION_COMMAND_RUNTIME_ENABLED: "false"
   _HUSHH_TECH_CLIENT_ENABLED: "false"
   _HUSHH_TECH_PROXY_AUDIENCE: ""
   _HUSHH_TECH_FRONTEND_TRUSTED_PROXY_HOPS: "0"

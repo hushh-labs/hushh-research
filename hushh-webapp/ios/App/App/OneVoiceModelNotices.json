@@ -1,20 +1,4 @@
 {
   "protocol_version": "one.voice.model-notices.v1",
-  "artifacts": [
-    {
-      "notice_id": "fluidaudio-sdk-v0.15.6",
-      "component": "FluidAudio",
-      "source": "https://github.com/FluidInference/FluidAudio/tree/v0.15.6",
-      "license": "Apache-2.0",
-      "release_enabled": true
-    },
-    {
-      "notice_id": "fluid-audio-parakeet-eou-120m-coreml-v1",
-      "component": "Parakeet realtime EOU 120M Core ML model",
-      "source": "https://huggingface.co/FluidInference/parakeet-realtime-eou-120m-coreml/tree/40a23f4c0b333aa17ad8c0f2ea47ec2347f2f355",
-      "license": "NVIDIA Open Model License",
-      "approval_state": "pending_legal_review",
-      "release_enabled": false
-    }
-  ]
+  "artifacts": []
 }

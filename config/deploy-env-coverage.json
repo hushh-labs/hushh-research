@@ -3,8 +3,8 @@
     "Secrets bound by deploy/backend.cloudbuild.yaml whose substitution defaults to EMPTY and",
     "which a deploy lane does not pass. add_secret skips empties, so such an omission produces a",
     "service missing that environment variable with no error anywhere.",
-    "Substitutions with a non-empty default (e.g. _HUSHH_MANAGED_GEMINI_LIVE_API_KEY_SECRET) are",
-    "bound regardless and are deliberately not tracked here.",
+    "Substitutions with a non-empty default are bound regardless and are deliberately not",
+    "tracked here.",
     "scripts/ci/check-deploy-secret-coverage.py fails on any omission not listed, and on a listed",
     "entry that no longer matches reality. Adding an entry requires a reason."
   ],

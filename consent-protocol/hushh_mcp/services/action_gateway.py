@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 #   + len(GLOBAL_SESSION_ACTION_IDS) (1).
 # There is no automated cross-language sync for this -- bump both together,
 # in the same commit, whenever either grows on the TS side. Consumed by
-# live_context.py's LIVE_CONTEXT_ARRAY_CAP, onboarding/agent.py's
+# agent_context.py's AGENT_CONTEXT_ARRAY_CAP, onboarding/agent.py's
 # OnboardingJourneyContext.available_action_ids max_length, and
 # one_adk/agent_tree.py's two render-time slices.
 AVAILABLE_ACTION_IDS_CAP = 59

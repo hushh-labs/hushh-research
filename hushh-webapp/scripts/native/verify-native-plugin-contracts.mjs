@@ -25,10 +25,6 @@ const iosVoicePluginPath = path.join(
   appRoot,
   "ios/App/App/Plugins/HushhVoiceInvocationPlugin.swift",
 );
-const iosFluidAudioPackStorePath = path.join(
-  appRoot,
-  "ios/App/App/Plugins/OneVoiceFluidAudioPackStore.swift",
-);
 const iosMicrophoneCapturePath = path.join(
   appRoot,
   "ios/App/App/Plugins/OneVoiceMicrophoneCapture.swift",
@@ -37,7 +33,14 @@ const iosMicrophoneCapturePath = path.join(
 const webOnlyPlugins = new Set(["HushhDatabase", "HushhAgent"]);
 // App Shortcuts are an Apple system surface, not an Android route-parity lane.
 // The TypeScript adapter returns unsupported/no pending invocation elsewhere.
-const iosOnlyPlugins = new Set(["HushhVoiceInvocation"]);
+const iosOnlyPlugins = new Set();
+const appleInvocationMethods = new Set([
+  "getPendingInvocation", "claimInvocation", "reportInvocationProgress", "completeInvocation",
+  "getPendingActionInvocation", "claimActionInvocation", "completeActionInvocation", "reportActionInvocationProgress",
+  "updateActionEntityIndex", "clearActionState", "getPendingRequestInvocation", "claimRequestInvocation",
+  "completeRequestInvocation", "reportRequestInvocationProgress", "cancelRequestInvocation",
+  "addListener",
+]);
 const ignoredTsMethodsByPlugin = new Map([
   // Listener registration is inherited from CAPPlugin / Plugin, not a custom
   // @objc or @PluginMethod operation on these streaming/event plugins.
@@ -225,69 +228,15 @@ function verifyIosVaultAuthenticationConfiguration(iosContracts) {
   }
 }
 
-function verifyIosSpeechAdapterContract(iosContracts) {
+function verifyIosCommandCaptureContract(iosContracts) {
   if (!iosContracts.has("HushhVoiceInvocation")) return;
 
   const source = read(iosVoicePluginPath);
-  const requiredFragments = [
-    "CAPPluginMethod(name: \"startSpeechRecognition\"",
-    "CAPPluginMethod(name: \"stopSpeechRecognition\"",
-    "SFSpeechRecognizer",
-    "recognizer.supportsOnDeviceRecognition",
-    "request.requiresOnDeviceRecognition = onDevice",
-    "request.contextualStrings = contextualStrings",
-    "prefix(100)",
-    "call.getBool(\"allowNetwork\") ?? false",
-    "speech_on_device_unavailable",
-    "notifyListeners(\"oneTranscript\", data: payload)",
-    "CAPPluginMethod(name: \"prepareFluidAudioModelPack\"",
-    "CAPPluginMethod(name: \"getFluidAudioAvailability\"",
-    "CAPPluginMethod(name: \"rollbackFluidAudioModelPack\"",
-    "OneVoiceFluidAudioPolicy.runtimeIsEnabled()",
-    "OneVoiceFluidAudioPackStore.shared.installAndActivate(request)",
-    "OneVoiceFluidAudioSession(",
-    "\"provider\": \"fluid_audio\"",
-  ];
-  for (const fragment of requiredFragments) {
-    if (!source.includes(fragment)) {
-      fail(`iOS HushhVoiceInvocation speech adapter is missing required contract: ${fragment}.`);
-    }
+  for (const fragment of ["startCommandCapture", "finishCommandCapture", "cancelCommandCapture", "OneCommandRecording", "UIApplication.shared.applicationState == .active"]) {
+    if (!source.includes(fragment)) fail(`iOS command capture is missing ${fragment}.`);
   }
-
-  // The native adapter must never silently turn a requested on-device
-  // session into a network recognizer. It may reject and let the shared
-  // transport choose its explicit provider-backed fallback instead.
-  if (/requiresOnDeviceRecognition\s*=\s*false/.test(source)) {
-    fail("iOS speech adapter must not force network speech recognition.");
-  }
-
-  // The optional FluidAudio path remains an adapter only. It must be behind
-  // the native policy and pack store rather than constructing a second router,
-  // persistent transcript store, or direct model-download authority.
-  if (!source.includes("OneVoiceFluidAudioPolicy.runtimeIsEnabled()")) {
-    fail("FluidAudio provider selection must remain behind the native release policy.");
-  }
-  if (/https?:\/\//.test(source)) {
-    fail("The native voice plugin must receive short-lived pack URLs through the bridge, not embed model URLs.");
-  }
-
-  const packStore = read(iosFluidAudioPackStorePath);
-  for (const fragment of [
-    "OneVoiceFluidAudioPolicy.allowsArtifactURL(url)",
-    "storage.googleapis.com",
-    "OneVoiceModelPackAllowedBuckets",
-    "x-goog-signature",
-    "x-goog-expires",
-    "partial archive may be resumed only against a newly issued signed URL",
-    "one-voice-fluid-audio-manifest.json",
-    "hasSufficientResources",
-    "hasSufficientBattery",
-    "hasNetworkPath",
-    "minimumPhysicalMemoryBytes",
-  ]) {
-    if (!packStore.includes(fragment)) {
-      fail(`iOS FluidAudio pack store is missing its required trusted-download contract: ${fragment}.`);
-    }
+  if (/FluidAudio|SFSpeechRecognizer|startSpeechRecognition|startRealtimeAudioCapture/.test(source)) {
+    fail("The command plugin must not expose a retired speech or realtime surface.");
   }
 
   const microphoneCapture = read(iosMicrophoneCapturePath);
@@ -296,6 +245,9 @@ function verifyIosSpeechAdapterContract(iosContracts) {
     "claimGlobalOwnership()",
     "releaseGlobalOwnership()",
     "throw CaptureError.alreadyRunning",
+    "onFirstPCMWrite",
+    "firstPCMWrite?(sequence)",
+    "wav.append(contentsOf: \"RIFF\".utf8)",
   ]) {
     if (!microphoneCapture.includes(fragment)) {
       fail(`iOS microphone capture is missing singular-owner protection: ${fragment}.`);
@@ -310,7 +262,7 @@ const iosRegistrations = parseIosRegistrations();
 const androidRegistrations = parseAndroidRegistrations();
 
 verifyIosVaultAuthenticationConfiguration(iosContracts);
-verifyIosSpeechAdapterContract(iosContracts);
+verifyIosCommandCaptureContract(iosContracts);
 
 for (const pluginName of sorted(tsContracts.keys())) {
   if (webOnlyPlugins.has(pluginName)) continue;
@@ -331,7 +283,10 @@ for (const pluginName of sorted(tsContracts.keys())) {
     }
   }
   if (androidContract) {
-    compareMethods(pluginName, tsContract.methods, androidContract.methods, "Android");
+    const androidMethods = pluginName === "HushhVoiceInvocation"
+      ? new Set([...tsContract.methods].filter((method) => !appleInvocationMethods.has(method)))
+      : tsContract.methods;
+    compareMethods(pluginName, androidMethods, androidContract.methods, "Android");
     if (!androidRegistrations.has(androidContract.className)) {
       fail(`Android ${pluginName}: ${androidContract.className} is not registered in MainActivity.kt.`);
     }
@@ -353,7 +308,8 @@ for (const pluginName of sorted(androidContracts.keys())) {
 for (const pluginName of sorted(tsContracts.keys())) {
   if (webOnlyPlugins.has(pluginName) || iosOnlyPlugins.has(pluginName)) continue;
   if (!iosContracts.has(pluginName) || !androidContracts.has(pluginName)) continue;
-  const iosMethods = iosContracts.get(pluginName).methods;
+  const iosMethods = new Set([...iosContracts.get(pluginName).methods].filter((method) =>
+    pluginName !== "HushhVoiceInvocation" || !appleInvocationMethods.has(method)));
   const androidMethods = androidContracts.get(pluginName).methods;
   const iosOnly = diff(iosMethods, androidMethods);
   const androidOnly = diff(androidMethods, iosMethods);

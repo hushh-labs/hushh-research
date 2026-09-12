@@ -37,8 +37,6 @@ tests/test_vault_keys_metadata.py
 tests/test_one_location_routes.py
 tests/services/test_one_location_agent_service.py
 tests/test_one_capability_runtime_router_mount.py
-tests/test_location_command_relay.py
-tests/services/test_location_command_runtime.py
 tests/services/test_location_brain_semantic_retrieval.py
 tests/services/test_location_circle_direct_executor.py
 tests/services/test_location_circle_name_interaction.py
@@ -222,3 +220,9 @@ tests/test_live_context_screen_state.py
 tests/test_adk_dispatch.py
 
 tests/test_information_chat_service.py
+
+# Location command semantics, retirement and atomic recovery lifecycle.
+tests/operons/location/test_location_command.py
+tests/test_location_command_routes.py
+tests/services/test_location_command_postgres.py
+tests/test_kai_local_runtime.py

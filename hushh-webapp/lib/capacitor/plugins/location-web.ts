@@ -65,7 +65,10 @@ export class HushhLocationWeb implements HushhLocationPlugin {
       enableHighAccuracy: true,
       timeoutMs: 15_000,
     });
-    return this.getPermissionState();
+    const permission = await this.getPermissionState();
+    // A successful geolocation call proves permission even on WebKit, where
+    // the Permissions API cannot introspect the geolocation permission name.
+    return { ...permission, state: "granted" };
   }
 
   async requestAlwaysAuthorization(): Promise<HushhLocationPermissionState> {
@@ -482,4 +485,3 @@ export class HushhLocationWeb implements HushhLocationPlugin {
     // No-op on web; nothing was started.
   }
 }
-

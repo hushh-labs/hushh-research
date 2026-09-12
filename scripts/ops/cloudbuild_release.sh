@@ -344,7 +344,6 @@ if [[ "$DEPLOY_BACKEND" == "true" ]]; then
   SUBS="${SUBS}##_GMAIL_OAUTH_TOKEN_KEY_SECRET=GMAIL_OAUTH_TOKEN_KEY"
   SUBS="${SUBS}##_OPENAI_API_KEY_SECRET=OPENAI_API_KEY"
   SUBS="${SUBS}##_GOOGLE_MAPS_API_KEY_SECRET=GOOGLE_MAPS_API_KEY"
-  SUBS="${SUBS}##_VOICE_RUNTIME_CONFIG_JSON_SECRET=VOICE_RUNTIME_CONFIG_JSON"
   SUBS="${SUBS}##_HUSHH_DEVELOPER_TOKEN_SECRET=HUSHH_DEVELOPER_TOKEN"
   SUBS="${SUBS}##_RIA_INTELLIGENCE_VERIFY_BASE_URL_SECRET=RIA_INTELLIGENCE_VERIFY_BASE_URL"
   SUBS="${SUBS}##_ONE_WALLET_CARD_ENABLED=true##_WALLET_PASS_PROVIDER=service"
@@ -453,7 +452,7 @@ fi
 log "Verifying runtime env parity"
 PARITY_ARGS=(--project "$GCP_PROJECT_ID" --region "$GCP_REGION"
   --backend-service "$BACKEND_SERVICE" --frontend-service "$FRONTEND_SERVICE"
-  --require-plaid --require-market-data --require-gmail --require-calendar --require-voice
+  --require-plaid --require-market-data --require-gmail --require-calendar
   --assert-runtime-env-contract
   --report-path "${ARTIFACT_DIR}/runtime-parity.json")
 [[ "$TARGET_ENV" == "production" ]] && PARITY_ARGS+=(--require-connected-systems --require-prod-phone-test)

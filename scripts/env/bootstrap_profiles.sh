@@ -152,7 +152,6 @@ keys = {
     "FIREBASE_ADMIN_CREDENTIALS_JSON",
     "FIREBASE_AUTH_VERIFIER_CREDENTIALS_JSON",
     "BACKEND_RUNTIME_CONFIG_JSON",
-    "VOICE_RUNTIME_CONFIG_JSON",
 }
 assign_re = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
 decoder = json.JSONDecoder()
@@ -822,87 +821,6 @@ path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 PY
 }
 
-compose_voice_runtime_config_json() {
-  local file="$1"
-  python3 - "$file" <<'PY'
-import json
-import pathlib
-import sys
-
-path = pathlib.Path(sys.argv[1])
-values = {}
-for line in path.read_text(encoding="utf-8").splitlines():
-    if "=" not in line or line.lstrip().startswith("#"):
-        continue
-    key, value = line.split("=", 1)
-    values[key] = value
-
-payload = {}
-
-def maybe_bool(key: str, target: str) -> None:
-    value = str(values.get(key, "")).strip()
-    if value:
-        payload[target] = value.lower() in {"1", "true", "yes", "on", "enabled"}
-
-def maybe_int(key: str, target: str) -> None:
-    value = str(values.get(key, "")).strip()
-    if value:
-        try:
-            payload[target] = int(value)
-        except ValueError:
-            pass
-
-def maybe_csv(key: str, target: str) -> None:
-    value = [item.strip() for item in str(values.get(key, "")).split(",") if item.strip()]
-    if value:
-        payload[target] = value
-
-def maybe_string(key: str, target: str) -> None:
-    value = str(values.get(key, "")).strip()
-    if value:
-        payload[target] = value
-
-maybe_bool("KAI_VOICE_REALTIME_ENABLED", "realtime_enabled")
-maybe_bool("KAI_VOICE_V1_ENABLED", "hosted_voice_enabled")
-maybe_int("KAI_VOICE_V1_CANARY_PERCENT", "canary_percent")
-maybe_bool("KAI_VOICE_V1_DISABLE_TOOL_EXECUTION", "tool_execution_disabled")
-maybe_csv("KAI_VOICE_V1_ALLOWED_USERS", "allowed_users")
-maybe_bool("FORCE_REALTIME_VOICE", "force_realtime")
-maybe_bool("FAIL_FAST_VOICE", "fail_fast")
-maybe_bool("DISABLE_VOICE_FALLBACKS", "disable_fallbacks")
-maybe_string("OPENAI_VOICE_REALTIME_MODEL", "realtime_model")
-if str(values.get("OPENAI_VOICE_STT_MODELS", "")).strip():
-    maybe_csv("OPENAI_VOICE_STT_MODELS", "stt_models")
-elif str(values.get("OPENAI_VOICE_STT_MODEL", "")).strip():
-    maybe_string("OPENAI_VOICE_STT_MODEL", "stt_models")
-if str(values.get("OPENAI_VOICE_INTENT_MODELS", "")).strip():
-    maybe_csv("OPENAI_VOICE_INTENT_MODELS", "intent_models")
-elif str(values.get("OPENAI_VOICE_INTENT_MODEL", "")).strip():
-    maybe_string("OPENAI_VOICE_INTENT_MODEL", "intent_models")
-if str(values.get("OPENAI_VOICE_TTS_MODELS", "")).strip():
-    maybe_csv("OPENAI_VOICE_TTS_MODELS", "tts_models")
-elif str(values.get("OPENAI_VOICE_TTS_MODEL", "")).strip():
-    maybe_string("OPENAI_VOICE_TTS_MODEL", "tts_models")
-maybe_string("OPENAI_VOICE_TTS_DEFAULT_VOICE", "tts_default_voice")
-maybe_string("OPENAI_VOICE_TTS_FORMAT", "tts_format")
-maybe_bool("OPENAI_VOICE_TTS_PREFER_QUALITY", "tts_prefer_quality")
-
-needle = "VOICE_RUNTIME_CONFIG_JSON="
-lines = path.read_text(encoding="utf-8").splitlines()
-rendered = json.dumps(payload, separators=(",", ":"))
-for idx, line in enumerate(lines):
-    if line.startswith(needle):
-        lines[idx] = needle + rendered
-        break
-else:
-    if lines and lines[-1].strip():
-        lines.append("")
-    lines.append(needle + rendered)
-
-path.write_text("\n".join(lines) + "\n", encoding="utf-8")
-PY
-}
-
 cloudsql_instance_for_backend() {
   local project="$1"
   local annotation
@@ -986,7 +904,6 @@ hydrate_backend_cloud_reference() {
   set_secret_key_or_cached "$file" "$profile" "$project" "GOOGLE_OAUTH_REDIRECT_URI" "false" "$cache_file"
   set_mapped_secret_key_or_cached "$file" "$profile" "$project" "GOOGLE_OAUTH_TOKEN_KEY" "false" "$cache_file" GOOGLE_OAUTH_TOKEN_KEY GMAIL_OAUTH_TOKEN_KEY
   set_secret_key_or_cached "$file" "$profile" "$project" "OPENAI_API_KEY" "false" "$cache_file"
-  set_secret_key_or_cached "$file" "$profile" "$project" "VOICE_RUNTIME_CONFIG_JSON" "false" "$cache_file"
   # Managed Omni Gateway credentials are only materialized into the ignored,
   # mode-600 local backend runtime file. They are never emitted by doctor or
   # copied into frontend profiles.
@@ -1000,7 +917,7 @@ hydrate_backend_cloud_reference() {
 
   compose_backend_runtime_config_json "$file"
   remove_env_keys "$file" \
-    SECRET_KEY VAULT_ENCRYPTION_KEY FRONTEND_URL FIREBASE_SERVICE_ACCOUNT_JSON FIREBASE_AUTH_SERVICE_ACCOUNT_JSON FIREBASE_AUTH_VERIFIER_CREDENTIALS_JSON \
+    SECRET_KEY VAULT_ENCRYPTION_KEY FRONTEND_URL FIREBASE_SERVICE_ACCOUNT_JSON FIREBASE_AUTH_SERVICE_ACCOUNT_JSON FIREBASE_AUTH_VERIFIER_CREDENTIALS_JSON VOICE_RUNTIME_CONFIG_JSON \
     GMAIL_TOKEN_ENCRYPTION_KEY PLAID_TOKEN_ENCRYPTION_KEY \
     APCA_API_SECRET_KEY ALPACA_SECRET_KEY ALPACA_API_SECRET_KEY \
     KAI_VOICE_REALTIME_ENABLED KAI_VOICE_V1_ENABLED KAI_VOICE_V1_ALLOWED_USERS KAI_VOICE_V1_CANARY_PERCENT KAI_VOICE_V1_DISABLE_TOOL_EXECUTION \

@@ -284,7 +284,7 @@ final class OneSystemActionInvocationCoordinatorTests: XCTestCase {
                     "resolvedRecipientId": "contact-1",
                     "duration_hours": "2"
                 ],
-                confirmedBySystem: true
+                confirmedBySystem: false
             )
         )
         XCTAssertEqual(
@@ -300,7 +300,7 @@ final class OneSystemActionInvocationCoordinatorTests: XCTestCase {
                     "resolvedRecipientId": "contact-2",
                     "duration_hours": "0.5"
                 ],
-                confirmedBySystem: true
+                confirmedBySystem: false
             )
         )
         XCTAssertEqual(
@@ -311,7 +311,7 @@ final class OneSystemActionInvocationCoordinatorTests: XCTestCase {
             OneAppIntentActionRequest(
                 actionID: .stopShare,
                 slots: ["person": "Dad", "resolvedRecipientId": "contact-3"],
-                confirmedBySystem: true
+                confirmedBySystem: false
             )
         )
     }
@@ -324,14 +324,14 @@ final class OneSystemActionInvocationCoordinatorTests: XCTestCase {
         )
         XCTAssertEqual(
             OneAppIntentActionRequestFactory.setLocationState(.on),
-            .init(actionID: .resumeLocation, slots: [:], confirmedBySystem: true)
+            .init(actionID: .resumeLocation, slots: [:], confirmedBySystem: false)
         )
         XCTAssertEqual(
             OneAppIntentActionRequestFactory.createCircle(name: "Family"),
             .init(
                 actionID: .createCircle,
                 slots: ["name": "Family"],
-                confirmedBySystem: true
+                confirmedBySystem: false
             )
         )
         XCTAssertEqual(
@@ -347,7 +347,7 @@ final class OneSystemActionInvocationCoordinatorTests: XCTestCase {
                     "resolvedCircleId": "circle-1",
                     "name": "Home"
                 ],
-                confirmedBySystem: true
+                confirmedBySystem: false
             )
         )
     }

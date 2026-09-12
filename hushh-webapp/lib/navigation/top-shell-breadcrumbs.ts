@@ -1195,38 +1195,22 @@ function resolveTopShellBreadcrumbInner(
     };
   }
 
-  // Voice's changelog is a third level nested under the Voice detail screen,
-  // one deeper than the generic panel/detail breadcrumb below can express (it
-  // only carries a single detail label). Back must retrace to Voice itself,
-  // not to Preferences.
-  if (pathname === ROUTES.PROFILE_PREFERENCES_VOICE_CHANGELOG) {
+  // The former examples and changelog URLs are retained as command-settings
+  // aliases. They intentionally render no handwritten phrases or Live-era
+  // history, so navigation presents the current command surface directly.
+  if (
+    pathname === ROUTES.PROFILE_PREFERENCES_VOICE_CHANGELOG ||
+    pathname === ROUTES.PROFILE_PREFERENCES_VOICE_EXAMPLES
+  ) {
     const preferencesHref = profilePanelHref("preferences");
     return {
-      backHref: ROUTES.PROFILE_PREFERENCES_VOICE,
+      backHref: preferencesHref,
       width: "profile",
       align: "center",
       items: [
         { label: "Profile", href: ROUTES.PROFILE },
         { label: "Preferences", href: preferencesHref },
-        { label: "Voice", href: ROUTES.PROFILE_PREFERENCES_VOICE },
-        { label: "What's new" },
-      ],
-    };
-  }
-
-  // Same third-level nesting as the changelog above, for the "what can I
-  // say" examples screen.
-  if (pathname === ROUTES.PROFILE_PREFERENCES_VOICE_EXAMPLES) {
-    const preferencesHref = profilePanelHref("preferences");
-    return {
-      backHref: ROUTES.PROFILE_PREFERENCES_VOICE,
-      width: "profile",
-      align: "center",
-      items: [
-        { label: "Profile", href: ROUTES.PROFILE },
-        { label: "Preferences", href: preferencesHref },
-        { label: "Voice", href: ROUTES.PROFILE_PREFERENCES_VOICE },
-        { label: "What can I say" },
+        { label: "Location commands" },
       ],
     };
   }

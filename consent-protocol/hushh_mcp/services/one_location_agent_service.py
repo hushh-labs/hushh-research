@@ -3513,6 +3513,8 @@ class OneLocationAgentService:
                     <= NOW() - (:expired_request_hours * INTERVAL '1 hour')
                 )
                 OR approved_grant_id IN (SELECT id FROM stale_grants))
+                AND (NOT (COALESCE(metadata,'{}'::jsonb) ? 'command_operations')
+                     OR COALESCE(resolved_at, expires_at, requested_at) <= NOW()-INTERVAL '24 hours')
                 AND (
                   :user_id IS NULL
                   OR owner_user_id = :user_id
@@ -9272,6 +9274,7 @@ class OneLocationAgentService:
         requested_duration_hours: float | None = None,
         requested_duration_mode: str | None = None,
         extends_grant_id: str | None = None,
+        client_operation_id: str | None = None,
         _notification_outbox: list[_MetadataNotification] | None = None,
         _expires_after_hours: float | None = LOCATION_REQUEST_EXPIRY_HOURS,
     ) -> dict[str, Any]:
@@ -9336,6 +9339,21 @@ class OneLocationAgentService:
         remaining_label = _remaining_label(active_grant.get("expires_at")) if active_grant else ""
         is_extension = bool(extends_grant_value)
 
+        operation_id = str(client_operation_id or "").strip()[:160] or None
+        operation_fingerprint = hashlib.sha256(
+            json.dumps(
+                [
+                    owner_user_id,
+                    requester_user_id,
+                    referred_by_user_id,
+                    message_value,
+                    duration_hours_value,
+                    duration_mode_value,
+                    requested_grant_id,
+                ],
+                separators=(",", ":"),
+            ).encode()
+        ).hexdigest()
         transitioned = False
         requester_label = ""
         owner_label_for_feed = ""
@@ -9356,6 +9374,25 @@ class OneLocationAgentService:
                     )
                 },
             )
+            if operation_id:
+                prior = self._execute_one(
+                    """SELECT *, metadata->'command_operations'->>:operation AS command_fingerprint
+                    FROM one_location_access_requests WHERE owner_user_id=:owner AND requester_user_id=:requester
+                    AND metadata->'command_operations' ? :operation LIMIT 1""",
+                    {
+                        "owner": owner_user_id,
+                        "requester": requester_user_id,
+                        "operation": operation_id,
+                    },
+                )
+                if prior:
+                    if prior["command_fingerprint"] != operation_fingerprint:
+                        raise OneLocationAgentError(
+                            "LOCATION_OPERATION_CONFLICT",
+                            "This request operation has different inputs.",
+                            status_code=409,
+                        )
+                    return self._request_payload(prior) or {}
             self._repair_legacy_direct_request_deadlines(owner_user_id)
             row = self._execute_one(
                 """
@@ -9489,6 +9526,21 @@ class OneLocationAgentService:
                     if refreshed:
                         row = refreshed
                         transitioned = ask_changed
+            if operation_id and row:
+                # The existing event-bound writer commits the effect, its receipt,
+                # and notifications atomically. A retry after approval still finds
+                # this receipt and cannot create a second request.
+                row = self._execute_one(
+                    """UPDATE one_location_access_requests SET metadata=
+                    COALESCE(metadata,'{}'::jsonb) || jsonb_build_object('command_operations',
+                      COALESCE(metadata->'command_operations','{}'::jsonb) || jsonb_build_object(CAST(:operation AS TEXT),CAST(:fingerprint AS TEXT)))
+                    WHERE id=CAST(:id AS UUID) RETURNING *""",
+                    {
+                        "id": str(row["id"]),
+                        "operation": operation_id,
+                        "fingerprint": operation_fingerprint,
+                    },
+                )
             request = self._request_payload(row)
             if not request:
                 raise OneLocationAgentError(
@@ -9571,6 +9623,7 @@ class OneLocationAgentService:
         duration_hours: float | None,
         duration_mode: str | None = None,
         auto_approve_rule_version: int | None = None,
+        expected_request_revision: int | None = None,
     ) -> dict[str, Any]:
         """Grant the requested access and resolve the ask in one transaction.
 
@@ -9699,10 +9752,22 @@ class OneLocationAgentService:
                     status_code=404,
                 )
             requester_user_id = str(request_row.get("requester_user_id") or "")
-            if requester_user_id != expected_requester_user_id:
+            if requester_user_id != expected_requester_user_id or (
+                expected_request_revision is not None
+                and int(request_row.get("request_revision") or 1) != expected_request_revision
+            ):
                 raise OneLocationAgentError(
                     "LOCATION_REQUEST_CHANGED",
                     "This request changed. Review it again.",
+                    status_code=409,
+                )
+            if expected_request_revision is not None and request_row.get("extends_grant_id"):
+                # Command receipts do not yet pin the mutable grant used by
+                # extension arithmetic. Keep those approvals on the authored
+                # review screen; never widen a confirmed timed command here.
+                raise OneLocationAgentError(
+                    "LOCATION_EXTENSION_REVIEW_REQUIRED",
+                    "Review this extension against the current share before approving it.",
                     status_code=409,
                 )
 

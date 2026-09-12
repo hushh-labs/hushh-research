@@ -143,19 +143,14 @@ describe("private-agent chat shell contract", () => {
     expect(workspace).toContain('aria-label="One\'s model"');
   });
 
-  it("ends a live One voice session on the way into Puppy One", () => {
-    // A One Live session survived the switch with every trace of it gone from
-    // the screen: the status word is suppressed in Puppy mode, and the mute
-    // and cancel controls live inside the composer that `hidden` removes. The
-    // stop is unconditional because the shared voice store still reads "idle"
-    // during the window where the microphone lease is already held.
+  it("pauses One command capture on the way into Puppy One", () => {
     const workspace = read("components/agent/agent-chat-workspace.tsx");
-    const bar = read("components/agent/agent-bar.tsx");
+    const bar = read("components/agent/command-agent-bar.tsx");
 
     expect(workspace).toContain("requestAgentConversationStop();");
     expect(workspace).toContain("enterPuppySurface();");
     expect(bar).toContain("AGENT_CONVERSATION_STOP_EVENT");
-    expect(bar).toContain("handleConversationStop");
+    expect(bar).toContain("command.pause();");
   });
 
   it("keeps both transcripts mounted and mounts Puppy One only once it is asked for", () => {

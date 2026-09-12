@@ -24,19 +24,6 @@ class UatPasskeyConfigurationTests(unittest.TestCase):
             rp,
         ], cwd=ROOT, text=True)
         self.assertEqual(json.loads(output)['NEXT_PUBLIC_PASSKEY_RP_ID'], rp)
-        self.assertIn(
-            'put_env NEXT_PUBLIC_LOCATION_COMMAND_RUNTIME_ENABLED "$LOCATION_COMMAND_RUNTIME_ENABLED"',
-            script,
-        )
-        command_output = subprocess.check_output([
-            'node', '--input-type=module', '-e',
-            'import {buildIosUatRuntimeEnv} from "./hushh-webapp/scripts/native/prepare-ios-uat-archive.mjs";'
-            'console.log(JSON.stringify(buildIosUatRuntimeEnv({processEnv:{NEXT_PUBLIC_LOCATION_COMMAND_RUNTIME_ENABLED:"true"},uatValues:{},localValues:{}})));',
-        ], cwd=ROOT, text=True)
-        self.assertEqual(
-            json.loads(command_output)['NEXT_PUBLIC_LOCATION_COMMAND_RUNTIME_ENABLED'],
-            'true',
-        )
         for name in ('App.entitlements', 'AppRelease.entitlements'):
             entitlements = (ROOT / 'hushh-webapp/ios/App/App' / name).read_text()
             self.assertIn('webcredentials:' + rp, entitlements)

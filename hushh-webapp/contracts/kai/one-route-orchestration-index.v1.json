@@ -77,7 +77,7 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+        "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
         "next_route": null,
         "return_policy": "stay",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -126,7 +126,7 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+        "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
         "next_route": null,
         "return_policy": "navigate",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -169,7 +169,7 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+        "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
         "next_route": null,
         "return_policy": "navigate",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -216,7 +216,7 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+        "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
         "next_route": null,
         "return_policy": "navigate",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -259,7 +259,7 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+        "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
         "next_route": null,
         "return_policy": "stay",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -304,7 +304,7 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+        "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
         "next_route": null,
         "return_policy": "navigate",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -347,7 +347,7 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+        "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
         "next_route": null,
         "return_policy": "navigate",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -390,7 +390,7 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Completion is spoken only after the browser settles navigation to the canonical One consent workspace.",
+        "completion_boundary": "Completion is shown only after the browser settles navigation to the canonical One consent workspace.",
         "next_route": "/one/consent",
         "return_policy": "navigate",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -433,7 +433,7 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+        "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
         "next_route": null,
         "return_policy": "stay",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -476,7 +476,7 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+        "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
         "next_route": "/getting-started",
         "return_policy": "navigate",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -524,7 +524,7 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+        "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
         "next_route": null,
         "return_policy": "navigate",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -567,7 +567,7 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+        "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
         "next_route": "/one/kai?tab=market",
         "return_policy": "navigate",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -610,7 +610,7 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+        "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
         "next_route": null,
         "return_policy": "navigate",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -653,7 +653,7 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+        "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
         "next_route": null,
         "return_policy": "navigate",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -696,7 +696,7 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+        "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
         "next_route": null,
         "return_policy": "navigate",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -739,7 +739,7 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+        "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
         "next_route": null,
         "return_policy": "navigate",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -782,7 +782,7 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+        "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
         "next_route": null,
         "return_policy": "navigate",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -825,7 +825,7 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+        "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
         "next_route": null,
         "return_policy": "navigate",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -868,7 +868,7 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+        "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
         "next_route": null,
         "return_policy": "navigate",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -911,7 +911,7 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+        "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
         "next_route": null,
         "return_policy": "navigate",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -997,7 +997,7 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+        "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
         "next_route": null,
         "return_policy": "navigate",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -1040,7 +1040,7 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+        "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
         "next_route": null,
         "return_policy": "navigate",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -1137,7 +1137,7 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+        "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
         "next_route": null,
         "return_policy": "navigate",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -1180,7 +1180,7 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+        "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
         "next_route": "/marketplace",
         "return_policy": "stay",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -1225,7 +1225,7 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+        "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
         "next_route": null,
         "return_policy": "navigate",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -1268,7 +1268,7 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+        "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
         "next_route": null,
         "return_policy": "navigate",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -1311,7 +1311,7 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+        "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
         "next_route": "/marketplace/ria",
         "return_policy": "stay",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -1399,7 +1399,7 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+        "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
         "next_route": "/one",
         "return_policy": "stay",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -1500,7 +1500,7 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+        "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
         "next_route": null,
         "return_policy": "navigate",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -1554,7 +1554,7 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Completion is spoken only after navigation settles on the canonical Profile preference.",
+        "completion_boundary": "Completion is shown only after navigation settles on the canonical Profile preference.",
         "next_route": "/one/profile/preferences/gemini",
         "return_policy": "navigate",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -1599,7 +1599,7 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+        "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
         "next_route": "/one/connected-systems",
         "return_policy": "stay",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -1644,7 +1644,7 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+        "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
         "next_route": null,
         "return_policy": "stay",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -1693,7 +1693,7 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+        "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
         "next_route": "/one/consent",
         "return_policy": "stay",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -1742,7 +1742,7 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+        "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
         "next_route": null,
         "return_policy": "stay",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -1789,7 +1789,7 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+        "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
         "next_route": null,
         "return_policy": "stay",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -1832,7 +1832,7 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+        "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
         "next_route": null,
         "return_policy": "navigate",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -1879,7 +1879,7 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Completion is spoken only after the selected Finance view settles in the browser.",
+        "completion_boundary": "Completion is shown only after the selected Finance view settles in the browser.",
         "next_route": "/one/kai?tab=market",
         "return_policy": "stay",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -1932,7 +1932,7 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+        "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
         "next_route": "/one/kai?tab=analysis",
         "return_policy": "stay",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -1988,7 +1988,7 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+        "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
         "next_route": "/one/kai?tab=analysis",
         "return_policy": "stay",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -2044,7 +2044,7 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+        "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
         "next_route": "/one/kai?tab=analysis",
         "return_policy": "stay",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -2100,7 +2100,7 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+        "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
         "next_route": null,
         "return_policy": "navigate",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -2153,7 +2153,7 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+        "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
         "next_route": null,
         "return_policy": "navigate",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -2196,7 +2196,7 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+        "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
         "next_route": "/one/kai?tab=analysis",
         "return_policy": "stay",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -2245,7 +2245,7 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+        "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
         "next_route": null,
         "return_policy": "navigate",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -2290,7 +2290,7 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+        "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
         "next_route": null,
         "return_policy": "stay",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -2335,7 +2335,7 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+        "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
         "next_route": null,
         "return_policy": "navigate",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -2378,7 +2378,7 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+        "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
         "next_route": "/one/kai?tab=market",
         "return_policy": "navigate",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -2466,7 +2466,7 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+        "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
         "next_route": null,
         "return_policy": "navigate",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -2552,7 +2552,7 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+        "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
         "next_route": null,
         "return_policy": "navigate",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -2595,7 +2595,7 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+        "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
         "next_route": "/one/kai?tab=portfolio",
         "return_policy": "stay",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -2820,7 +2820,7 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+        "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
         "next_route": "/one/kyc",
         "return_policy": "stay",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -2870,7 +2870,7 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+        "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
         "next_route": "/one/location",
         "return_policy": "stay",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -3059,7 +3059,7 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+        "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
         "next_route": null,
         "return_policy": "navigate",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -3150,7 +3150,7 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+        "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
         "next_route": null,
         "return_policy": "navigate",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -3193,7 +3193,7 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+        "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
         "next_route": null,
         "return_policy": "navigate",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -3236,7 +3236,7 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+        "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
         "next_route": null,
         "return_policy": "stay",
         "out_of_scope_behavior": "Answer naturally without inventing a control."
@@ -3281,7 +3281,7 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+        "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
         "next_route": "/one/pkm",
         "return_policy": "stay",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -3329,7 +3329,7 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+        "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
         "next_route": "/one/pkm/recent",
         "return_policy": "stay",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -3376,7 +3376,7 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+        "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
         "next_route": null,
         "return_policy": "stay",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -3434,7 +3434,7 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+        "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
         "next_route": null,
         "return_policy": "stay",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -3477,7 +3477,7 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+        "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
         "next_route": null,
         "return_policy": "stay",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -3520,7 +3520,7 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+        "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
         "next_route": null,
         "return_policy": "stay",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -3578,7 +3578,7 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+        "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
         "next_route": null,
         "return_policy": "stay",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -3636,7 +3636,7 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+        "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
         "next_route": null,
         "return_policy": "stay",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -3681,7 +3681,7 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+        "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
         "next_route": null,
         "return_policy": "navigate",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -3724,7 +3724,7 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+        "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
         "next_route": null,
         "return_policy": "navigate",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -3767,7 +3767,7 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+        "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
         "next_route": null,
         "return_policy": "navigate",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -3810,7 +3810,7 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+        "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
         "next_route": null,
         "return_policy": "navigate",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -3896,7 +3896,7 @@
           "callback_error": "Return to Calendar without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Completion is spoken only after the Calendar route settles.",
+        "completion_boundary": "Completion is shown only after the Calendar route settles.",
         "next_route": "/one/calendar",
         "return_policy": "navigate",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -3939,7 +3939,7 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+        "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
         "next_route": null,
         "return_policy": "stay",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -3982,7 +3982,7 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+        "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
         "next_route": null,
         "return_policy": "stay",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -4025,7 +4025,7 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+        "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
         "next_route": null,
         "return_policy": "navigate",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -4111,7 +4111,7 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+        "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
         "next_route": null,
         "return_policy": "stay",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -4157,7 +4157,7 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+        "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
         "next_route": null,
         "return_policy": "stay",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -4249,7 +4249,7 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+        "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
         "next_route": null,
         "return_policy": "stay",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -4280,7 +4280,7 @@
       "context_policy": "minimal",
       "voice_playbook": {
         "playbook_id": "route.profile.preferences.voice",
-        "purpose": "Help the person manage One's own voice controls -- on/off, tap-confirmation, and which domains it may act in.",
+        "purpose": "Help the person manage Location command controls and the required confirmation behavior.",
         "screen": "profile_preferences",
         "entry_cue": "",
         "proactivity": "ambient",
@@ -4295,7 +4295,7 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+        "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
         "next_route": null,
         "return_policy": "stay",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -4326,7 +4326,7 @@
       "context_policy": "minimal",
       "voice_playbook": {
         "playbook_id": "route.profile.preferences.voice.changelog",
-        "purpose": "A read-only list of voice engine updates and fixes. Nothing to act on here.",
+        "purpose": "Legacy command-settings alias. It resolves to the current Location command controls.",
         "screen": "profile_preferences",
         "entry_cue": "",
         "proactivity": "ambient",
@@ -4341,7 +4341,7 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+        "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
         "next_route": null,
         "return_policy": "stay",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -4372,7 +4372,7 @@
       "context_policy": "minimal",
       "voice_playbook": {
         "playbook_id": "route.profile.preferences.voice.examples",
-        "purpose": "A read-only list of example phrases for what voice can do. Nothing to act on here.",
+        "purpose": "Legacy command-settings alias. It resolves to the current Location command controls without a phrase catalog.",
         "screen": "profile_preferences",
         "entry_cue": "",
         "proactivity": "ambient",
@@ -4387,7 +4387,7 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+        "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
         "next_route": null,
         "return_policy": "stay",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -4401,7 +4401,7 @@
         "help.open_examples",
         "route.voice_settings"
       ],
-      "action_coverage": "inherited",
+      "action_coverage": "none",
       "delegation_policy": {
         "mode": "no_delegation",
         "allowed_delegate_agent_ids": []
@@ -4433,7 +4433,7 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+        "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
         "next_route": null,
         "return_policy": "navigate",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -4478,7 +4478,7 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+        "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
         "next_route": "/one/profile/referrals",
         "return_policy": "stay",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -4568,7 +4568,7 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+        "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
         "next_route": "/one/profile/security",
         "return_policy": "stay",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -4699,7 +4699,7 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+        "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
         "next_route": null,
         "return_policy": "stay",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -4744,7 +4744,7 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+        "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
         "next_route": null,
         "return_policy": "stay",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -4791,7 +4791,7 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+        "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
         "next_route": "/one/profile/support",
         "return_policy": "stay",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -4836,7 +4836,7 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+        "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
         "next_route": null,
         "return_policy": "stay",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -4881,7 +4881,7 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+        "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
         "next_route": null,
         "return_policy": "stay",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -4926,7 +4926,7 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+        "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
         "next_route": null,
         "return_policy": "stay",
         "out_of_scope_behavior": "Answer naturally without inventing a control."
@@ -5581,7 +5581,7 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+        "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
         "next_route": null,
         "return_policy": "stay",
         "out_of_scope_behavior": "Answer naturally without inventing a control."
@@ -5631,7 +5631,7 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+        "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
         "next_route": null,
         "return_policy": "stay",
         "out_of_scope_behavior": "Answer naturally without inventing a control."
@@ -5684,7 +5684,7 @@
           "callback_error": "Keep the profile open and explain that the action could not be verified.",
           "route_mismatch": "Use only the verified public person profile route and its generated actions."
         },
-        "completion_boundary": "Completion is spoken only after the browser settles the exact mounted action; information values still require a separate active grant and local decryption.",
+        "completion_boundary": "Completion is shown only after the browser settles the exact mounted action; information values still require a separate active grant and local decryption.",
         "next_route": null,
         "return_policy": "stay",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never infer or expose private information."
@@ -5735,7 +5735,7 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+        "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
         "next_route": null,
         "return_policy": "navigate",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -5778,7 +5778,7 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+        "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
         "next_route": null,
         "return_policy": "navigate",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -5907,7 +5907,7 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+        "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
         "next_route": null,
         "return_policy": "stay",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -6004,7 +6004,7 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+        "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
         "next_route": null,
         "return_policy": "navigate",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -6047,7 +6047,7 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+        "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
         "next_route": null,
         "return_policy": "navigate",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -6096,7 +6096,7 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+        "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
         "next_route": "/ria",
         "return_policy": "stay",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -6143,7 +6143,7 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+        "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
         "next_route": "/ria/claim",
         "return_policy": "stay",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -6190,7 +6190,7 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+        "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
         "next_route": "/ria/clients",
         "return_policy": "stay",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -6238,7 +6238,7 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+        "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
         "next_route": "/ria/clients/[userId]",
         "return_policy": "stay",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -6290,7 +6290,7 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+        "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
         "next_route": "/ria/clients/[userId]?tab=explorer",
         "return_policy": "stay",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -6337,7 +6337,7 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+        "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
         "next_route": "/ria/clients/[userId]?tab=access",
         "return_policy": "stay",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -6384,7 +6384,7 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+        "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
         "next_route": "/ria/onboarding",
         "return_policy": "stay",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -6431,7 +6431,7 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+        "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
         "next_route": "/ria/picks",
         "return_policy": "stay",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -6485,7 +6485,7 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+        "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
         "next_route": null,
         "return_policy": "stay",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -6531,7 +6531,7 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+        "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
         "next_route": "/ria/requests",
         "return_policy": "navigate",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -6574,7 +6574,7 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+        "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
         "next_route": "/ria/settings",
         "return_policy": "navigate",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -6617,7 +6617,7 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+        "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
         "next_route": "/ria/workspace",
         "return_policy": "navigate",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -6660,7 +6660,7 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+        "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
         "next_route": null,
         "return_policy": "stay",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."

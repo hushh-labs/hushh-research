@@ -176,7 +176,7 @@ def _build_next_actions(blocking: list[str]) -> list[str]:
     if "runtime_mount_missing" in blocking:
         actions.append("Fix deploy/runtime env injection for the missing canonical keys, then redeploy the affected surface.")
     if "runtime_behavior_failed" in blocking:
-        actions.append("Inspect the semantic verification report and fix the live runtime behavior after env parity is green.")
+        actions.append("Inspect the semantic verification report and fix the command-runtime behavior after env parity is green.")
     if "smoke_overlay_dependency_leak" in blocking:
         actions.append("Restore or load the maintainer-only smoke overlay for UAT verification without adding it back to canonical runtime files.")
     if "db_contract_drift" in blocking:
@@ -211,8 +211,8 @@ def _surface_uat(args: argparse.Namespace, scratch_dir: Path) -> dict[str, Any]:
         "--frontend-service",
         frontend_service,
         "--require-gmail",
+        "--require-calendar",
         "--require-one-email",
-        "--require-voice",
         "--assert-runtime-env-contract",
         "--report-path",
         str(parity_report_path),

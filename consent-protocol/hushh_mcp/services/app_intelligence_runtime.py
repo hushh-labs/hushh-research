@@ -2,7 +2,7 @@
 
 The generated action gateway remains the source of truth for product actions.
 This module compiles it with the generated route index into a small, versioned
-capability graph that every entry point can use (Live voice, typed chat, Siri,
+capability graph that every entry point can use (Location commands, typed chat, Siri,
 and browser automation).  It deliberately contains product metadata and safe
 execution policy only; private domain values and client-provided authority do
 not enter the graph.
@@ -859,7 +859,7 @@ _VOICE_TELEMETRY_METRICS: Mapping[str, str] = {
 _VOICE_TELEMETRY_CORRELATION_PATTERNS: Mapping[str, re.Pattern[str]] = {
     "trace_id": re.compile(r"^(?:[0-9a-f]{16,64}|trace_[A-Za-z0-9_-]{8,96})$"),
     "activation_id": re.compile(r"^vact_[A-Za-z0-9_-]{8,96}$"),
-    "voice_session_id": re.compile(r"^(?:voice_|gemini_live_)[A-Za-z0-9_-]{8,128}$"),
+    "voice_session_id": re.compile(r"^(?:voice_|command_)[A-Za-z0-9_-]{8,128}$"),
     "turn_id": re.compile(r"^vturn_[A-Za-z0-9_-]{8,96}$"),
     "context_revision": re.compile(
         r"^(?:r[A-Za-z0-9_-]{1,64}:r[A-Za-z0-9_-]{1,64}|ctx_r[A-Za-z0-9_-]{1,96})$"
@@ -4761,7 +4761,7 @@ def list_complete_service_brain_model_projections(
 def load_capability_graph() -> dict[str, Any]:
     """Load the build-time graph and fail closed when it is stale.
 
-    Runtime source/AST discovery used to make a warm Live session depend on
+    Runtime source/AST discovery used to make an active request depend on
     process imports and stale in-memory caches. The deployable now consumes a
     checked-in artifact only; its generated-source, policy, and compiler
     digests prevent a gateway, manifest, or policy rollout from silently using

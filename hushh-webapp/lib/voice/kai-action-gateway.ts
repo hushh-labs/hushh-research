@@ -17,10 +17,7 @@ export type KaiActionExecutionPolicy =
   "allow_direct" | "confirm_required" | "manual_only";
 export type KaiActionActivationPolicy = "none" | "trusted_activation_required";
 export type KaiActionSiriMode =
-  | "direct"
-  | "review_ui"
-  | "conversation_only"
-  | "unsupported";
+  "direct" | "review_ui" | "conversation_only" | "unsupported";
 export type KaiActionSpeakerPersona = "one" | "kai" | "nav" | "kyc";
 export type KaiActionDelegateAgentId =
   | "one"
@@ -55,7 +52,7 @@ export type KaiActionExecutionTarget =
       status: "unwired";
       reason: string;
       intended_handler?: string;
-    }
+    };
 
 export type KaiActionWorkflowStep =
   | {
@@ -172,6 +169,13 @@ export type KaiActionExternalCallback = {
 };
 
 export type KaiActionDefinition = {
+  command?: {
+    domain: "location";
+    backend_binding?: "location.create_circle";
+    review_route: string;
+    review_only?: boolean;
+    permission?: "location";
+  };
   action_id: string;
   surface_id: string;
   label: string;
@@ -633,8 +637,7 @@ function validateAction(value: unknown): KaiActionDefinition | null {
     activation_policy: activationPolicy as KaiActionActivationPolicy,
     siri_mode: siriMode as KaiActionSiriMode,
     siri_requires_vault: value.siri_requires_vault === true,
-    siri_vault_locked_fallback_action_id:
-      siriVaultLockedFallbackActionId,
+    siri_vault_locked_fallback_action_id: siriVaultLockedFallbackActionId,
     execution_target: executionTarget,
     control_ids: isStringArray(value.control_ids) ? value.control_ids : [],
     state_exposure: isStringArray(value.state_exposure)
@@ -645,6 +648,22 @@ function validateAction(value: unknown): KaiActionDefinition | null {
       : [],
     workflow: validateWorkflow(value.workflow),
     external_callback: validateExternalCallback(value.external_callback),
+    command:
+      isPlainObject(value.command) &&
+      value.command.domain === "location" &&
+      typeof value.command.review_route === "string"
+        ? {
+            domain: "location",
+            review_route: value.command.review_route,
+            permission:
+              value.command.permission === "location" ? "location" : undefined,
+            review_only: value.command.review_only === true,
+            backend_binding:
+              value.command.backend_binding === "location.create_circle"
+                ? "location.create_circle"
+                : undefined,
+          }
+        : undefined,
     goal: validateGoal(value.goal, actionId),
     expected_effects: {
       state_changes:
@@ -736,7 +755,8 @@ function validateGateway(value: unknown): KaiActionGateway {
 }
 
 export const KAI_ACTION_GATEWAY = validateGateway(gatewayJson);
-export const KAI_ACTION_GATEWAY_SCHEMA_VERSION = KAI_ACTION_GATEWAY.schema_version;
+export const KAI_ACTION_GATEWAY_SCHEMA_VERSION =
+  KAI_ACTION_GATEWAY.schema_version;
 function isCrmProductAction(action: KaiActionDefinition): boolean {
   const searchable = [
     action.action_id,
@@ -745,8 +765,14 @@ function isCrmProductAction(action: KaiActionDefinition): boolean {
     ...action.reachability.routes,
     ...action.reachability.screens,
     ...(action.delegate_agent_id ? [action.delegate_agent_id] : []),
-  ].join(" ").toLowerCase();
-  return searchable.includes("crm") || searchable.includes("connected_system") || searchable.includes("connected-system");
+  ]
+    .join(" ")
+    .toLowerCase();
+  return (
+    searchable.includes("crm") ||
+    searchable.includes("connected_system") ||
+    searchable.includes("connected-system")
+  );
 }
 
 export const KAI_ACTION_GATEWAY_ACTIONS = isLocalCrmBuildEnabled()
@@ -1199,12 +1225,14 @@ async function searchKaiActionsSemantic(
     vaultOwnerToken?: string | null;
   },
   signal?: AbortSignal,
-): Promise<Array<{
-  action: KaiActionDefinition;
-  availability: KaiActionAvailability;
-  score: number;
-  semantic?: true;
-}>> {
+): Promise<
+  Array<{
+    action: KaiActionDefinition;
+    availability: KaiActionAvailability;
+    score: number;
+    semantic?: true;
+  }>
+> {
   const limit = Math.max(1, Math.min(input.limit ?? 10, 20));
   // The endpoint is authenticated with a VAULT_OWNER token, so without one
   // every call is a 401 that the catch below turns into an empty result set.
@@ -1296,12 +1324,14 @@ export async function searchKaiActionsAsync(input: {
   signal?: AbortSignal;
   /** Required for the semantic pass; without it only local search runs. */
   vaultOwnerToken?: string | null;
-}): Promise<Array<{
-  action: KaiActionDefinition;
-  availability: KaiActionAvailability;
-  score: number;
-  semantic?: true;
-}>> {
+}): Promise<
+  Array<{
+    action: KaiActionDefinition;
+    availability: KaiActionAvailability;
+    score: number;
+    semantic?: true;
+  }>
+> {
   const trimmed = input.query.trim();
   const debounceMs = input.debounceMs ?? 180;
   const { signal: outerSignal } = input;

@@ -8,7 +8,7 @@ export type OneConversationMirrorEvent = {
   id: string;
   role: "user" | "assistant" | "system";
   text: string;
-  source: "gemini_live" | "one_voice_orchestrator" | "agent_chat";
+  source: "location_command" | "agent_chat";
   turnId?: string | null;
   actionId?: string | null;
   resultSummary?: string | null;

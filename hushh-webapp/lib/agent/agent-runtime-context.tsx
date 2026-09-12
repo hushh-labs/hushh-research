@@ -11,8 +11,8 @@
 // active voice mode.
 //
 // Security posture: this context only describes state. It never carries vault
-// keys or owner tokens. Realtime and STT remain tool-less regardless of tier;
-// only typed chat (which separately holds the vault owner token) touches data.
+// keys or owner tokens. Command interpretation remains tool-less regardless of
+// tier; only typed chat (which separately holds the vault owner token) touches data.
 
 import {
   createContext,
@@ -80,14 +80,6 @@ export type AgentAccessTier =
   | "signed_locked"
   | "signed_unlocked";
 
-// The agent bar can be in one of these interaction modes at a time.
-//   - idle:     resting, no live channel
-//   - ambient:  visual-only affordance (no capture, no socket)
-//   - stt:      browser/STT dictation turn (tool-less)
-//   - realtime: Gemini Live conversational session (tool-less)
-//   - chat:     typed chat workspace is the active channel (vault-backed)
-export type AgentVoiceMode = "idle" | "ambient" | "stt" | "realtime" | "chat";
-
 export type AgentRuntimeState = {
   /** The full app runtime snapshot consumed by the voice/chat planner. */
   appRuntimeState: AppRuntimeState;
@@ -103,7 +95,7 @@ export type AgentRuntimeState = {
   activePersona: Persona;
   /** Normalized current screen id derived from the route. */
   screen: string;
-  /** Redacted One Voice snapshot safe for realtime prompt shaping. */
+  /** Redacted One context snapshot safe for command and chat shaping. */
   oneVoiceContextSnapshot: OneVoiceContextSnapshot;
   /** Redacted lifecycle and mounted-control state for action discovery. */
   capabilityState: VoiceCapabilityStateV1;

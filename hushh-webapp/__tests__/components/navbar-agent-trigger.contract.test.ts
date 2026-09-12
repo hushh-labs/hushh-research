@@ -14,7 +14,7 @@ function read(relativePath: string) {
 describe("Navbar bottom chrome contract", () => {
   it("keeps the persistent Agent Bar joined to the fixed utility bar", () => {
     const navbar = read("components/navbar.tsx");
-    const agentBar = read("components/agent/agent-bar.tsx");
+    const agentBar = read("components/agent/command-agent-bar.tsx");
 
     expect(navbar).toContain("const BOTTOM_GAP_PX = 4;");
     expect(navbar).toContain("flex justify-center");
@@ -27,7 +27,7 @@ describe("Navbar bottom chrome contract", () => {
   it("keeps Agent owned by the persistent AgentBar instead of duplicating it in the nav or search chrome", () => {
     const navbar = read("components/navbar.tsx");
     const searchBar = read("components/kai/kai-search-bar.tsx");
-    const agentBar = read("components/agent/agent-bar.tsx");
+    const agentBar = read("components/agent/command-agent-bar.tsx");
     const providers = read("app/providers.tsx");
 
     expect(navbar).toContain("const bottomNavWidth =");
@@ -46,55 +46,21 @@ describe("Navbar bottom chrome contract", () => {
     // persistent Agent dock exposes Voice and Chat as two sibling actions.
     expect(agentBar).toContain('data-testid="one-agent-chat-open"');
     expect(agentBar).toContain('data-agent-action="chat"');
-    expect(agentBar).toContain("onClick={openAgentChat}");
-    // "Chat with One", chosen deliberately over the earlier "Open Agent Chat".
-    //
-    // The earlier name described the workspace rather than an agent, because
-    // the window holds both One and Puppy One and naming one of them promises
-    // something the control does not exclusively deliver. That reasoning is
-    // sound and was overruled on product grounds: people do not think of this
-    // as opening a workspace, they think of it as talking to One, and a label
-    // nobody recognises is a worse failure than one that under-describes.
-    //
-    // Puppy One remains reachable inside the same window. If that ever stops
-    // being true, or Puppy One becomes the primary agent there, this name is
-    // the first thing that should be revisited.
-    expect(agentBar).toContain("aria-label={`Chat with One. ${hint}`}");
+    expect(agentBar).toContain("popover?.openAgent()");
+    expect(agentBar).toContain('aria-label="Chat with One"');
     expect(agentBar).toContain('data-testid="one-agent-chat-label"');
     expect(agentBar).not.toContain("openSearchAndChat");
     expect(agentBar).not.toContain("openKaiCommandBar");
-    expect(agentBar).toContain("Talk to One");
-    expect(agentBar).toContain(
-      'data-native-voice-control-id="one_voice_agent_bar_start"',
-    );
+    expect(agentBar).toContain("Talk to One. Hold to speak, or tap to start and finish.");
+    expect(agentBar).toContain('data-native-voice-control-id="one_voice_agent_bar_start"');
     expect(agentBar).toContain('data-agent-action="voice"');
-    expect(agentBar).toContain("onClick={handleVoiceStartClick}");
-    // The enabled command lane has a speech-end boundary, rather than the
-    // old open-ended voice-conversation contract. The launcher must describe
-    // that truth to assistive technology as well as visually.
-    expect(agentBar).toContain(
-      'const voiceLauncherInstruction = "Tap to talk to One. I’ll listen until you finish.";',
-    );
-    expect(agentBar).toContain("aria-label={");
-    expect(agentBar).toContain("voiceLauncherInstruction");
-    // The native control is the complete visible voice pill. The separate
-    // Agent Chat button is a labeled sibling action, so the dock never reads
-    // like one giant input with a hidden second function.
-    expect(agentBar).toContain("agent-bar-voice-launcher press-scale");
-    expect(agentBar).toContain("flex h-11 min-w-0 flex-1 items-center");
-    expect(agentBar).toContain("hover:bg-current/[0.09]");
-    expect(agentBar).toContain("focus-visible:ring-inset");
-    expect(agentBar).toContain(
-      'className="pointer-events-none absolute inset-0 z-0 overflow-hidden rounded-[inherit]"',
-    );
-    expect(agentBar).toContain("min-w-[88px]");
+    expect(agentBar).toContain("onPointerCancel");
+    expect(agentBar).toContain("suppressClick.current");
     expect(agentBar).toContain("MessageCircle");
-    expect(agentBar).toContain("loading: authLoading");
-    expect(agentBar).toContain("!agentPopover ||\n    authLoading ||");
     expect(agentBar).not.toContain("isRiaChrome");
     expect(agentBar).toContain('layout = "fixed"');
     expect(agentBar).not.toContain("useKaiBottomChromeElementTranslation");
-    expect(agentBar).toContain("bottom: physicalNavbarAbsent");
+    expect(agentBar).toContain("bottom: noNavbar");
     expect(agentBar).not.toContain("useKaiBottomChromeVisibility");
     expect(agentBar).not.toContain(
       "calc(var(--bottom-chrome-progress, 0) * var(--agent-bar-hide-distance))",
@@ -178,34 +144,5 @@ describe("Navbar bottom chrome contract", () => {
     expect(providers).toContain(
       "!pinnedBottomChrome &&\n      !bottomChromeHidden",
     );
-  });
-
-  it("clips each ripple to its own button's radius, not a hardcoded pill", () => {
-    // The idle launcher is two halves of ONE pill: the voice half is
-    // rounded-l-full/rounded-r-none and the chat half is the mirror.
-    // MaterialRipple already inherits its clip -- the host sets
-    // `borderRadius: "inherit"` -- but each call site wrapped it in a span that
-    // hardcoded `rounded-full`. The ripple inherited a FULL pill from that span
-    // while sitting on a HALF-pill button, so the hover fill curved away from
-    // the divider and left a visible gap on the flat side. The selection read
-    // as a floating pill rather than the half a person was pointing at.
-    //
-    // `rounded-[inherit]` is byte-identical in effect on the three genuinely
-    // round buttons and correct on the two halves, which is why this guard
-    // covers every wrapper instead of only the two that were visibly wrong: the
-    // defect is the hardcoded radius, not the two places it happened to show.
-    const agentBar = read("components/agent/agent-bar.tsx");
-
-    const clips = [
-      ...agentBar.matchAll(
-        /className="pointer-events-none absolute inset-0[^"]*overflow-hidden ([^"]*)"/g,
-      ),
-    ].map((match) => match[1]!);
-
-    expect(clips.length).toBeGreaterThan(0);
-    for (const clip of clips) {
-      expect(clip).toContain("rounded-[inherit]");
-      expect(clip).not.toMatch(/\brounded-full\b/);
-    }
   });
 });

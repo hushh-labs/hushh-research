@@ -1383,11 +1383,11 @@ describe("Connect — People", () => {
 
     const search = resolveLocalOnboardingHandler("connect.search_people");
     expect(search).not.toBeNull();
-    act(() => {
-      expect(search!({ person: "Person 9" })).toMatchObject({
-        status: "succeeded",
-      });
+    let result: Awaited<ReturnType<NonNullable<typeof search>>> | undefined;
+    await act(async () => {
+      result = await search!({ person: "Person 9" });
     });
+    expect(result).toMatchObject({ status: "succeeded" });
 
     await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalledTimes(2));
     expect(mocks.searchDirectory.mock.calls[1][0]).toMatchObject({

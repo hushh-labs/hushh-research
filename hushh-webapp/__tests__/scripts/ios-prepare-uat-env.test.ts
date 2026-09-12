@@ -1,27 +1,8 @@
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
-
 import { describe, expect, it } from "vitest";
 
 import { buildIosUatRuntimeEnv } from "../../scripts/native/prepare-ios-uat-archive.mjs";
 
 describe("iOS UAT native runtime env", () => {
-  it("keeps the command rollout key in every canonical frontend profile", () => {
-    const profiles = [
-      ".env.local.local.example",
-      ".env.uat.local.example",
-      ".env.dev.local.example",
-      ".env.prod.local.example",
-    ];
-
-    for (const profile of profiles) {
-      const contents = readFileSync(resolve(process.cwd(), profile), "utf8");
-      expect(contents).toMatch(
-        /^NEXT_PUBLIC_LOCATION_COMMAND_RUNTIME_ENABLED=false$/m,
-      );
-    }
-  });
-
   it("keeps UAT enrollment scoped to UAT despite production shell and file defaults", () => {
     const env = buildIosUatRuntimeEnv({
       processEnv: { NEXT_PUBLIC_PASSKEY_RP_ID: "one.hushh.ai" },
@@ -31,23 +12,6 @@ describe("iOS UAT native runtime env", () => {
     expect(env.NEXT_PUBLIC_PASSKEY_RP_ID).toBe("uat.one.hushh.ai");
   });
 
-  it("preserves the governed Location command rollout flag in the native build", () => {
-    const enabled = buildIosUatRuntimeEnv({
-      processEnv: { NEXT_PUBLIC_LOCATION_COMMAND_RUNTIME_ENABLED: "true" },
-      uatValues: {},
-      localValues: {},
-    });
-    const disabled = buildIosUatRuntimeEnv({
-      processEnv: {},
-      uatValues: {},
-      localValues: {
-        NEXT_PUBLIC_LOCATION_COMMAND_RUNTIME_ENABLED: "true",
-      },
-    });
-
-    expect(enabled.NEXT_PUBLIC_LOCATION_COMMAND_RUNTIME_ENABLED).toBe("true");
-    expect(disabled.NEXT_PUBLIC_LOCATION_COMMAND_RUNTIME_ENABLED).toBe("false");
-  });
   it("falls back from placeholder UAT env to the canonical UAT backend and shared local Firebase config", () => {
     const env = buildIosUatRuntimeEnv({
       processEnv: {},

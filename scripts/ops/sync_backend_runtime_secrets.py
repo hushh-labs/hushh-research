@@ -14,11 +14,6 @@ from urllib.parse import urlsplit, urlunsplit
 REPO_ROOT = Path(__file__).resolve().parents[2]
 UPSERT_SECRET_SCRIPT = REPO_ROOT / "scripts" / "ops" / "upsert_gcp_secret.py"
 GMAIL_OAUTH_RETURN_PATH = "/one/profile/gmail/oauth/return"
-# Kept local to this deployment-only generator so the release contract can be
-# validated without importing application startup (which requires production
-# security configuration). The Location command relay separately validates the
-# same model against the managed Live registry before accepting PCM.
-LOCATION_COMMAND_TRANSCRIBE_MODEL = "gemini-3.5-transcribe-live-preview"
 
 LEGACY_SECRET_FALLBACKS: dict[str, tuple[str, ...]] = {
     "APP_SIGNING_KEY": ("APP_SIGNING_KEY", "SECRET_KEY"),
@@ -31,7 +26,6 @@ LEGACY_SECRET_FALLBACKS: dict[str, tuple[str, ...]] = {
     "GOOGLE_MAPS_API_KEY": ("GOOGLE_MAPS_API_KEY",),
     "PLAID_ACCESS_TOKEN_KEY": ("PLAID_ACCESS_TOKEN_KEY", "PLAID_TOKEN_ENCRYPTION_KEY"),
     "GMAIL_OAUTH_TOKEN_KEY": ("GMAIL_OAUTH_TOKEN_KEY", "GMAIL_TOKEN_ENCRYPTION_KEY"),
-    "VOICE_RUNTIME_CONFIG_JSON": ("VOICE_RUNTIME_CONFIG_JSON",),
     "REVIEWER_UID": ("REVIEWER_UID", "UAT_SMOKE_USER_ID", "KAI_TEST_USER_ID"),
     "REVIEWER_VAULT_PASSPHRASE": (
         "REVIEWER_VAULT_PASSPHRASE",
@@ -101,17 +95,6 @@ def _resolve_secret(project: str, names: tuple[str, ...]) -> str:
     return ""
 
 
-def _bool_or_none(value: str) -> bool | None:
-    raw = str(value or "").strip().lower()
-    if not raw:
-        return None
-    if raw in {"1", "true", "yes", "on", "enabled"}:
-        return True
-    if raw in {"0", "false", "no", "off", "disabled"}:
-        return False
-    return None
-
-
 def _int_or_none(value: str) -> int | None:
     raw = str(value or "").strip()
     if not raw:
@@ -131,93 +114,6 @@ def _drop_empty(value: dict[str, Any]) -> dict[str, Any]:
     return {key: item for key, item in value.items() if item not in ("", None, [], {})}
 
 
-def _validated_location_command_capacity_pool(raw: object) -> str:
-    """Validate and canonicalize UAT's server-owned Transcribe capacity pool.
-
-    The normal deployment config is regenerated on every rollout, so an
-    operator-managed pool that is only written by hand would silently vanish
-    on the next deploy.  This input is deliberately a JSON *reference* graph:
-    ``ManagedGeminiLiveCapacityPool`` rejects embedded credentials and accepts
-    only approved managed-GCP targets.  The validation runs without ADC,
-    Redis, or provider traffic.
-    """
-
-    candidate = str(raw or "").strip()
-    if not candidate:
-        raise ValueError(
-            "Enabled Location commands require an explicit managed Gemini Live capacity pool"
-        )
-    try:
-        parsed = json.loads(candidate)
-    except json.JSONDecodeError as exc:
-        raise ValueError(
-            "Location command capacity pool must be a valid JSON object"
-        ) from exc
-    if not isinstance(parsed, dict):
-        raise ValueError("Location command capacity pool must be a JSON object")
-
-    # The sync script executes from the repository root in governed workflows,
-    # while the provider package lives below consent-protocol.  Insert only the
-    # package root and only for this enabled UAT validation path.
-    protocol_root = str(REPO_ROOT / "consent-protocol")
-    if protocol_root not in sys.path:
-        sys.path.insert(0, protocol_root)
-    from hushh_mcp.runtime_providers.live_capacity_pool import (  # noqa: PLC0415
-        LiveCapacityConfigurationError,
-        ManagedGeminiLiveCapacityPool,
-    )
-
-    canonical = json.dumps(parsed, separators=(",", ":"), sort_keys=True)
-    try:
-        pool = ManagedGeminiLiveCapacityPool.from_json(canonical)
-    except (LiveCapacityConfigurationError, TypeError, ValueError) as exc:
-        raise ValueError(
-            "Location command capacity pool is not a valid approved managed-GCP configuration"
-        ) from exc
-    if not pool.has_exact_model_target(LOCATION_COMMAND_TRANSCRIBE_MODEL):
-        raise ValueError(
-            "Location command capacity pool has no exact approved target for the pinned "
-            f"{LOCATION_COMMAND_TRANSCRIBE_MODEL!r} model"
-        )
-    return canonical
-
-
-def _location_command_rollout_config(args: argparse.Namespace) -> tuple[str, str, str]:
-    """Return the only deployable Location-command flag/model/pool tuple.
-
-    This transcript-first lane is an UAT-only, independently governed rollout.
-    Dev and production stay hard-off even if an accidental CLI value is passed.
-    UAT must opt in with a recognizable boolean, and an enabled lane is pinned
-    to the one reviewed managed Transcribe model rather than accepting an
-    arbitrary environment/model override.
-    """
-
-    environment = str(getattr(args, "environment", "") or "").strip().lower()
-    if environment != "uat":
-        return "false", "", ""
-
-    requested = _bool_or_none(
-        str(getattr(args, "location_command_runtime_enabled", "false") or "false")
-    )
-    if requested is None:
-        raise ValueError("--location-command-runtime-enabled must be a recognized boolean")
-    if not requested:
-        return "false", "", ""
-
-    requested_model = str(
-        getattr(args, "location_command_transcribe_model", "") or ""
-    ).strip()
-    if requested_model != LOCATION_COMMAND_TRANSCRIBE_MODEL:
-        raise ValueError(
-            "Enabled Location commands require the pinned "
-            f"{LOCATION_COMMAND_TRANSCRIBE_MODEL!r} Transcribe model"
-        )
-    capacity_pool = _validated_location_command_capacity_pool(
-        getattr(args, "location_command_capacity_pool_json", "")
-    )
-    return "true", LOCATION_COMMAND_TRANSCRIBE_MODEL, capacity_pool
-
-
 def _gmail_oauth_redirect_uri(app_frontend_origin: str) -> str:
     parsed = urlsplit(app_frontend_origin.strip())
     if (
@@ -234,36 +130,13 @@ def _gmail_oauth_redirect_uri(app_frontend_origin: str) -> str:
     return f"{origin}{GMAIL_OAUTH_RETURN_PATH}"
 
 
-def _read_voice_config(project: str) -> dict[str, Any]:
-    existing_raw = _resolve_secret(
-        project, LEGACY_SECRET_FALLBACKS["VOICE_RUNTIME_CONFIG_JSON"]
-    )
-    if not existing_raw:
-        return {}
-    try:
-        parsed = json.loads(existing_raw)
-    except json.JSONDecodeError:
-        return {}
-    if not isinstance(parsed, dict):
-        return {}
-    return _drop_empty(dict(parsed))
-
-
 def _build_backend_runtime_config(args: argparse.Namespace) -> dict[str, Any]:
-    (
-        location_command_enabled,
-        location_command_model,
-        location_command_capacity_pool,
-    ) = _location_command_rollout_config(args)
     config: dict[str, Any] = {
         "environment": args.environment,
         "hushh_genai_auth_mode": "vertex_adc",
         "google_genai_use_vertexai": True,
         "google_cloud_project": args.project,
         "google_cloud_location": "global",
-        "location_command_runtime_enabled": location_command_enabled,
-        "location_command_transcribe_model": location_command_model,
-        "gemini_live_capacity_pool": location_command_capacity_pool,
         "db_host": args.db_host,
         "db_port": args.db_port,
         "db_name": args.db_name,
@@ -423,11 +296,6 @@ def main() -> int:
     # rollout default, not a change to application behavior when the env is
     # absent.
     parser.add_argument("--one-location-read-only-state-enabled", default="false")
-    # Location command is deliberately UAT-only and opt-in. The generator
-    # hardens non-UAT lanes independently of these CLI defaults.
-    parser.add_argument("--location-command-runtime-enabled", default="false")
-    parser.add_argument("--location-command-transcribe-model", default="")
-    parser.add_argument("--location-command-capacity-pool-json", default="")
     # Nearby check-in admission. Blank leaves the flow closed in production and
     # unchanged everywhere else; `_drop_empty` keeps an unset flag out of the
     # config entirely rather than writing an empty string the gate would have to
@@ -550,7 +418,6 @@ def main() -> int:
         if canonical_name in {
             "APP_FRONTEND_ORIGIN",
             "BACKEND_RUNTIME_CONFIG_JSON",
-            "VOICE_RUNTIME_CONFIG_JSON",
         }:
             continue
         value = _resolve_secret(args.project, fallback_names)
@@ -579,14 +446,6 @@ def main() -> int:
     )
     sync_summary.append("BACKEND_RUNTIME_CONFIG_JSON")
 
-    voice_runtime_config = _read_voice_config(args.project)
-    if voice_runtime_config:
-        _upsert_secret(
-            args.project,
-            "VOICE_RUNTIME_CONFIG_JSON",
-            json.dumps(voice_runtime_config, separators=(",", ":"), sort_keys=True),
-        )
-        sync_summary.append("VOICE_RUNTIME_CONFIG_JSON")
 
     print(
         json.dumps(
@@ -594,7 +453,6 @@ def main() -> int:
                 "project": args.project,
                 "synced_secrets": sorted(set(sync_summary)),
                 "backend_runtime_config_keys": sorted(backend_runtime_config.keys()),
-                "voice_runtime_config_keys": sorted(voice_runtime_config.keys()),
             },
             indent=2,
         )

@@ -1,5 +1,6 @@
 package com.hussh.app
 
+import com.hussh.app.plugins.HushhVoiceInvocation.HushhVoiceInvocationPlugin
 import android.net.Uri
 import android.content.pm.ApplicationInfo
 import android.content.res.AssetManager
@@ -210,6 +211,7 @@ class MainActivity : BridgeActivity() {
         registerPlugin(HushhAccountPlugin::class.java) // Account management (deletion)
         registerPlugin(HushhLocationPlugin::class.java) // Foreground location capture
         registerPlugin(HushhContactsPlugin::class.java) // Contact matching
+        registerPlugin(HushhVoiceInvocationPlugin::class.java)
         registerPlugin(HushhInvitationsPlugin::class.java) // User-confirmed invitations
         registerPlugin(HushhSessionPrivacyPlugin::class.java) // Resume-time session privacy shield
         

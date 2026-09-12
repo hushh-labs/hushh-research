@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Build the immutable Agent One CapabilityGraphV1 artifact.
 
-The production relay reads the checked-in artifact only. Source discovery
-(including the intentionally non-executable endpoint catalog) happens here at
-build time, never while a Live session is warming or a person is speaking.
+The production command and chat paths read the checked-in artifact only. Source
+discovery (including the intentionally non-executable endpoint catalog) happens
+here at build time, never while a command is being interpreted.
 """
 
 from __future__ import annotations

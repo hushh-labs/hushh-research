@@ -64,7 +64,6 @@ WALLET_API_KEY_ENV = "WALLET_API_KEY"  # noqa: S105
 _WALLET_API_BASE_URL_DEFAULT = "https://hushh-wallet-api-fro3hygenq-uc.a.run.app"
 
 BACKEND_RUNTIME_CONFIG_JSON_ENV = "BACKEND_RUNTIME_CONFIG_JSON"
-VOICE_RUNTIME_CONFIG_JSON_ENV = "VOICE_RUNTIME_CONFIG_JSON"
 
 _BACKEND_RUNTIME_ENV_MAP: dict[str, str] = {
     "environment": "ENVIRONMENT",
@@ -73,16 +72,6 @@ _BACKEND_RUNTIME_ENV_MAP: dict[str, str] = {
     "google_cloud_project": "GOOGLE_CLOUD_PROJECT",
     "google_cloud_location": "GOOGLE_CLOUD_LOCATION",
     "hushh_vertex_locations": "HUSHH_VERTEX_LOCATIONS",
-    # Non-secret allowlist for the server-owned Gemini Live capacity pool.
-    # The pool itself references Secret Manager-mounted env names and/or
-    # workload identities; it never carries credential values in this blob.
-    "gemini_live_capacity_pool": "HUSHH_GEMINI_LIVE_CAPACITY_POOL_JSON",
-    # The transcript-first Location command lane is independently rollable.
-    # These are non-secret deployment policy, not client-provided model data:
-    # the UAT secret-sync generator pins both values and keeps every other
-    # hosted lane hard-off.
-    "location_command_runtime_enabled": "HUSHH_LOCATION_COMMAND_RUNTIME_ENABLED",
-    "location_command_transcribe_model": "HUSHH_LOCATION_COMMAND_TRANSCRIBE_MODEL",
     "db_host": "DB_HOST",
     "db_port": "DB_PORT",
     "db_name": "DB_NAME",
@@ -291,25 +280,6 @@ class WalletPassSettings:
         )
 
 
-@dataclass(frozen=True)
-class VoiceRuntimeSettings:
-    realtime_enabled: bool
-    hosted_voice_enabled: bool
-    canary_percent: int
-    tool_execution_disabled: bool
-    allowed_users: tuple[str, ...]
-    force_realtime: bool
-    fail_fast: bool
-    disable_fallbacks: bool
-    realtime_model: str
-    stt_models: tuple[str, ...]
-    intent_models: tuple[str, ...]
-    tts_models: tuple[str, ...]
-    tts_default_voice: str
-    tts_format: str
-    tts_prefer_quality: bool
-
-
 def get_optional_gmail_oauth_token_key() -> str:
     return _clean_env(GMAIL_OAUTH_TOKEN_KEY_ENV)
 
@@ -497,50 +467,6 @@ def get_app_runtime_settings() -> AppRuntimeSettings:
     return AppRuntimeSettings(
         environment=_clean_env("ENVIRONMENT", "development").lower() or "development",
         app_frontend_origin=_normalize_origin(_clean_env(APP_FRONTEND_ORIGIN_ENV)),
-    )
-
-
-def get_voice_runtime_settings() -> VoiceRuntimeSettings:
-    config = _json_object_from_env(VOICE_RUNTIME_CONFIG_JSON_ENV)
-
-    force_realtime = _bool_from_value(config.get("force_realtime"), default=False)
-    fail_fast = _bool_from_value(config.get("fail_fast"), default=False)
-    disable_fallbacks = (
-        _bool_from_value(config.get("disable_fallbacks"), default=False)
-        or fail_fast
-        or force_realtime
-    )
-
-    configured_tts_models = _csv_list(config.get("tts_models")) or ("gpt-4o-mini-tts",)
-    tts_models: list[str] = []
-    for candidate in ("gpt-4o-mini-tts", *configured_tts_models):
-        normalized = str(candidate).strip()
-        if normalized and normalized not in tts_models:
-            tts_models.append(normalized)
-
-    return VoiceRuntimeSettings(
-        realtime_enabled=_bool_from_value(config.get("realtime_enabled"), default=True),
-        hosted_voice_enabled=_bool_from_value(config.get("hosted_voice_enabled"), default=True),
-        canary_percent=max(
-            0,
-            min(100, _int_from_value(config.get("canary_percent"), 100)),
-        ),
-        tool_execution_disabled=_bool_from_value(
-            config.get("tool_execution_disabled"), default=False
-        ),
-        allowed_users=_csv_list(config.get("allowed_users")),
-        force_realtime=force_realtime,
-        fail_fast=fail_fast,
-        disable_fallbacks=disable_fallbacks,
-        realtime_model=str(config.get("realtime_model") or "gpt-realtime").strip()
-        or "gpt-realtime",
-        stt_models=_csv_list(config.get("stt_models")) or ("gpt-4o-mini-transcribe",),
-        intent_models=_csv_list(config.get("intent_models"))
-        or ("gpt-4.1-nano", "gpt-4o-mini", "gpt-4.1-mini"),
-        tts_models=tuple(tts_models) or ("gpt-4o-mini-tts",),
-        tts_default_voice=str(config.get("tts_default_voice") or "alloy").strip() or "alloy",
-        tts_format=str(config.get("tts_format") or "mp3").strip() or "mp3",
-        tts_prefer_quality=_bool_from_value(config.get("tts_prefer_quality"), default=False),
     )
 
 

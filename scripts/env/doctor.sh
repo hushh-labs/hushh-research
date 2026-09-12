@@ -329,14 +329,8 @@ BACKEND_ONE_EMAIL_WEBHOOK_SERVICE_ACCOUNT_EMAIL="$(read_env_value "$BACKEND_SOUR
 BACKEND_ONE_EMAIL_WATCH_RENEW_TOKEN="$(read_env_value "$BACKEND_SOURCE" "ONE_EMAIL_WATCH_RENEW_TOKEN")"
 BACKEND_ONE_EMAIL_KYC_DEFAULT_SCOPE="$(read_env_value "$BACKEND_SOURCE" "ONE_EMAIL_KYC_DEFAULT_SCOPE")"
 BACKEND_ONE_EMAIL_KYC_STRICT_CLIENT_ZK_ENABLED="$(read_env_value "$BACKEND_SOURCE" "ONE_EMAIL_KYC_STRICT_CLIENT_ZK_ENABLED")"
-BACKEND_OPENAI_API_KEY="$(read_env_value "$BACKEND_SOURCE" "OPENAI_API_KEY")"
 BACKEND_OMNIGATEWAY_CLIENT_ID="$(read_env_value "$BACKEND_SOURCE" "OMNIGATEWAY_CLIENT_ID")"
 BACKEND_OMNIGATEWAY_CLIENT_SECRET="$(read_env_value "$BACKEND_SOURCE" "OMNIGATEWAY_CLIENT_SECRET")"
-BACKEND_VOICE_REALTIME_ENABLED="$(read_json_env_field "$BACKEND_SOURCE" "VOICE_RUNTIME_CONFIG_JSON" "realtime_enabled")"
-BACKEND_VOICE_V1_ENABLED="$(read_json_env_field "$BACKEND_SOURCE" "VOICE_RUNTIME_CONFIG_JSON" "hosted_voice_enabled")"
-BACKEND_FORCE_REALTIME_VOICE="$(read_json_env_field "$BACKEND_SOURCE" "VOICE_RUNTIME_CONFIG_JSON" "force_realtime")"
-BACKEND_FAIL_FAST_VOICE="$(read_json_env_field "$BACKEND_SOURCE" "VOICE_RUNTIME_CONFIG_JSON" "fail_fast")"
-BACKEND_DISABLE_VOICE_FALLBACKS="$(read_json_env_field "$BACKEND_SOURCE" "VOICE_RUNTIME_CONFIG_JSON" "disable_fallbacks")"
 
 if [ "$BACKEND_SOURCE_PROFILE" = "local" ]; then
   add_check "backend_source_profile" "pass" "backend local runtime mode preserved"
@@ -538,19 +532,6 @@ case "$PROFILE" in
       add_check "one_email_kyc_readiness" "pass" "One Email KYC strict client-side ZK runtime keys are present"
     else
       add_check "one_email_kyc_readiness" "warn" "Missing One Email KYC runtime keys: ${missing_one_email_keys[*]}"
-    fi
-
-    missing_voice_keys=()
-    if is_placeholder "$BACKEND_OPENAI_API_KEY"; then missing_voice_keys+=("OPENAI_API_KEY"); fi
-    if is_placeholder "$BACKEND_VOICE_REALTIME_ENABLED"; then missing_voice_keys+=("VOICE_RUNTIME_CONFIG_JSON.realtime_enabled"); fi
-    if is_placeholder "$BACKEND_VOICE_V1_ENABLED"; then missing_voice_keys+=("VOICE_RUNTIME_CONFIG_JSON.hosted_voice_enabled"); fi
-    if is_placeholder "$BACKEND_FORCE_REALTIME_VOICE"; then missing_voice_keys+=("VOICE_RUNTIME_CONFIG_JSON.force_realtime"); fi
-    if is_placeholder "$BACKEND_FAIL_FAST_VOICE"; then missing_voice_keys+=("VOICE_RUNTIME_CONFIG_JSON.fail_fast"); fi
-    if is_placeholder "$BACKEND_DISABLE_VOICE_FALLBACKS"; then missing_voice_keys+=("VOICE_RUNTIME_CONFIG_JSON.disable_fallbacks"); fi
-    if [ "${#missing_voice_keys[@]}" -eq 0 ]; then
-      add_check "voice_runtime_readiness" "pass" "Voice backend runtime keys are present"
-    else
-      add_check "voice_runtime_readiness" "warn" "Missing voice backend keys: ${missing_voice_keys[*]}. Run: bash scripts/env/bootstrap_profiles.sh"
     fi
 
     missing_connected_systems_keys=()

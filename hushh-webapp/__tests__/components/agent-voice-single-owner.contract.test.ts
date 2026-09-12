@@ -10,9 +10,9 @@ function read(relativePath: string) {
 }
 
 describe("One interactive audio ownership", () => {
-  it("delegates Agent Chat voice requests to the persistent One Live owner", () => {
+  it("delegates Agent Chat voice requests to the persistent command capture owner", () => {
     const workspace = read("components/agent/agent-chat-workspace.tsx");
-    const agentBar = read("components/agent/agent-bar.tsx");
+    const agentBar = read("components/agent/command-agent-bar.tsx");
 
     expect(workspace).toContain("const startConversationalVoice = requestAgentConversation");
     expect(workspace).not.toContain("AgentVoiceClient");
@@ -22,29 +22,30 @@ describe("One interactive audio ownership", () => {
     expect(workspace).not.toContain("/agent/voice/");
 
     expect(agentBar).toContain("AGENT_CONVERSATION_REQUEST_EVENT");
-    expect(agentBar).toContain("handleConversationRequest");
-    expect(agentBar).toContain("createRealtimeVoiceTransport");
-    expect(agentBar).toContain('owner: "one_live"');
+    expect(agentBar).toContain("new CommandCapture()");
+    expect(agentBar).toContain("new LocationCommandRuntime(");
+    expect(agentBar).not.toContain("createRealtimeVoiceTransport");
+    expect(agentBar).not.toContain("GeminiLiveClient");
   });
 
   it("keeps the explicit stop inside the same single-owner broker", () => {
-    // Ending a live session is a different verb from requesting one: the
-    // request path is a TOGGLE, so calling it to stop would START a cloud
-    // session when none was running, and it no-ops during the window where
-    // the microphone lease is held but the transport is not live yet. The
-    // workspace still owns no audio; it dispatches, and the bar stops.
+    // A cancellation control must never take the release-and-submit request path.
     const workspace = read("components/agent/agent-chat-workspace.tsx");
     const settings = read("lib/agent/agent-voice-settings.ts");
-    const agentBar = read("components/agent/agent-bar.tsx");
+    const agentBar = read("components/agent/command-agent-bar.tsx");
 
     expect(settings).toContain("AGENT_CONVERSATION_STOP_EVENT");
     expect(settings).toContain("export function requestAgentConversationStop");
-    expect(workspace).toContain("requestAgentConversationStop();");
+    expect(workspace).toContain(
+      "const cancelConversationalVoice = requestAgentConversationStop",
+    );
+    expect(workspace).toContain("onCancel={cancelConversationalVoice}");
+    expect(workspace).not.toContain("onCancel={startConversationalVoice}");
+    expect(workspace).not.toContain("onToggleMute={startConversationalVoice}");
     expect(workspace).not.toContain("AgentVoiceClient");
     expect(agentBar).toContain("AGENT_CONVERSATION_STOP_EVENT");
-    // Guarded, so it can never become a general-purpose cancel: the same
-    // `stopConversation` also aborts an in-flight typed action run.
-    expect(agentBar).toContain("!voiceLeaseRef.current &&");
+    expect(agentBar).toContain("cancelCapture();");
+    expect(agentBar).toContain("command.pause();");
   });
 
   it("keeps removed chained STT and TTS modules out of the app contract", () => {
