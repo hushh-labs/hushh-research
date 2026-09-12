@@ -49,6 +49,21 @@ def test_validate_task_request_is_bounded_and_defaults_conversation() -> None:
     request = validate_task_request({"message": "  hello  "})
     assert request.message == "hello"
     assert request.conversation_id == "consumer-mcp"
+    puppy = validate_task_request(
+        {
+            "message": "hello Puppy",
+            "runtime_provider": "PUPPY",
+            "puppy_device_id": "device-one",
+        }
+    )
+    assert puppy.runtime_provider == "puppy"
+    assert puppy.puppy_device_id == "device-one"
+    with pytest.raises(ValueError, match="runtime_provider"):
+        validate_task_request({"message": "hello", "runtime_provider": "vertex"})
+    with pytest.raises(ValueError, match="puppy_device_id"):
+        validate_task_request({"message": "hello", "runtime_provider": "puppy"})
+    with pytest.raises(ValueError, match="runtime_provider"):
+        validate_task_request({"message": "hello", "puppy_device_id": "device-one"})
     with pytest.raises(ValueError, match="too long"):
         validate_task_request({"message": "x" * 8_001})
     with pytest.raises(ValueError, match="conversation_id"):
@@ -124,7 +139,13 @@ async def test_delegation_uses_owner_pod_and_does_not_forward_external_token() -
     )
     result = await task.execute(
         principal(),
-        arguments={"message": "hello", "conversation_id": "c1", "timezone": "UTC"},
+        arguments={
+            "message": "hello",
+            "conversation_id": "c1",
+            "timezone": "UTC",
+            "runtime_provider": "puppy",
+            "puppy_device_id": "device-one",
+        },
     )
     assert result["execution_target"] == "owner_pod"
     assert result["deployment_id"] == "pod_a"
@@ -137,6 +158,8 @@ async def test_delegation_uses_owner_pod_and_does_not_forward_external_token() -
     assert calls[0]["conversation_id"].startswith("mcp-")
     assert calls[0]["conversation_id"] != "c1"
     assert calls[0]["timezone"] == "UTC"
+    assert calls[0]["runtime_provider"] == "puppy"
+    assert calls[0]["puppy_device_id"] == "device-one"
     assert "token" not in calls[0]
 
 

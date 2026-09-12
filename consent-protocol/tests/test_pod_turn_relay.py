@@ -90,6 +90,10 @@ async def _grants(_user_id):
     return {"token": "standing-pkm-read", "scope": "pkm.read", "reused": True}
 
 
+async def _puppy_grants(_user_id, **_kwargs):
+    return {"token": "standing-puppy-inference", "scope": "cap.puppy.inference"}
+
+
 @pytest.fixture(autouse=True)
 def _enabled(monkeypatch):
     monkeypatch.setattr(pod_relay, "personal_agent_enabled", lambda: True)
@@ -268,6 +272,40 @@ async def test_the_owners_key_reaches_the_pod():
         session=pod,
     )
     assert pod.calls[0]["json"]["runtimeCredential"] == "AIza-owner-key"
+
+
+async def test_puppy_turn_mints_a_device_bound_grant_and_ignores_caller_credential():
+    pod = _Pod()
+    await _turn(
+        payload=PodTurnRelayRequest(
+            message="hi",
+            runtimeProvider="puppy",
+            puppyDeviceId="tdv_owner_puppy",
+            runtimeCredential="caller-supplied-token",
+        ),
+        puppy_grants=_puppy_grants,
+        puppy_device_active=lambda **_kwargs: True,
+        session=pod,
+    )
+
+    assert pod.calls[0]["json"]["runtimeCredential"] == "standing-puppy-inference"
+    assert pod.calls[0]["json"]["puppyDeviceId"] == "tdv_owner_puppy"
+
+
+async def test_inactive_puppy_is_refused_before_the_pod_is_reached():
+    pod = _Pod()
+    with pytest.raises(HTTPException) as exc:
+        await _turn(
+            payload=PodTurnRelayRequest(
+                message="hi", runtimeProvider="puppy", puppyDeviceId="tdv_revoked"
+            ),
+            puppy_grants=_puppy_grants,
+            puppy_device_active=lambda **_kwargs: False,
+            session=pod,
+        )
+
+    assert exc.value.status_code == 403
+    assert pod.calls == []
 
 
 async def test_the_key_is_excluded_from_every_serialisation_of_the_request():

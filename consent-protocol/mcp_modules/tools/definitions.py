@@ -103,15 +103,40 @@ def _private_tool_definitions() -> list[Tool]:
         ),
         Tool(
             name="delegate_hussh_task",
-            description="Delegate one bounded task to your existing private agent in its owner pod. Requires a separate approved cap.one.invoke grant; the MCP gateway does not run a second router or replay interrupted work.",
-            inputSchema=schema(
-                {
-                    "message": {"type": "string", "minLength": 1, "maxLength": 8000},
-                    "conversation_id": {"type": "string", "minLength": 1, "maxLength": 128},
-                    "timezone": {"type": "string", "maxLength": 64},
-                },
-                ["message"],
-            ),
+            description="Delegate one bounded task to your existing private agent in its owner pod. Set runtime_provider=puppy with the registered puppy_device_id to use that device's approved local inference lane. Requires a separate approved cap.one.invoke grant; arbitrary providers, a second router and automatic replay are rejected.",
+            inputSchema={
+                **schema(
+                    {
+                        "message": {"type": "string", "minLength": 1, "maxLength": 8000},
+                        "conversation_id": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 128,
+                        },
+                        "timezone": {"type": "string", "maxLength": 64},
+                        "runtime_provider": {"type": "string", "const": "puppy"},
+                        "puppy_device_id": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 128,
+                        },
+                    },
+                    ["message"],
+                ),
+                "allOf": [
+                    {
+                        "if": {
+                            "required": ["runtime_provider"],
+                            "properties": {"runtime_provider": {"const": "puppy"}},
+                        },
+                        "then": {"required": ["puppy_device_id"]},
+                    },
+                    {
+                        "if": {"required": ["puppy_device_id"]},
+                        "then": {"required": ["runtime_provider"]},
+                    },
+                ],
+            },
             outputSchema=ConsumerTaskResult.model_json_schema(),
             annotations={
                 "readOnlyHint": False,

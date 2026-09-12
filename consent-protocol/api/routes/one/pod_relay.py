@@ -31,6 +31,7 @@ every other personal-agent surface.
 
 from __future__ import annotations
 
+import inspect
 import logging
 from typing import Any, Literal, Optional
 
@@ -391,6 +392,73 @@ class PodTurnRelayRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
 
+_PUPPY_INFERENCE_GRANT_TTL_MS = 60 * 60 * 1000
+
+
+async def _issue_puppy_inference_grant(
+    *,
+    user_id: str,
+    device_id: str,
+    issuer: Any = None,
+    device_active: Any = None,
+) -> str:
+    """Mint the device-scoped Puppy grant at the owner relay boundary.
+
+    A caller may select a registered device, but it cannot supply the token that
+    authorizes that device. The hub verifies the active trusted-device row and
+    mints the existing ``cap.puppy.inference`` grant bound to ``device:<id>``;
+    the pod or hub relay then verifies that grant again before dispatch. This
+    keeps the MCP/Puppy path on the existing authority rather than making the
+    consumer task a second grant issuer.
+    """
+    clean_device = str(device_id or "").strip()
+    if not clean_device:
+        raise HTTPException(status_code=400, detail="Puppy device is required")
+
+    if device_active is None:
+        from hushh_mcp.services.trusted_device_service import (  # noqa: PLC0415
+            TrustedDeviceService,
+        )
+
+        service = TrustedDeviceService()
+        active = await run_in_threadpool(
+            service.is_active_device,
+            user_id=user_id,
+            device_id=clean_device,
+        )
+    else:
+        active = device_active(user_id=user_id, device_id=clean_device)
+        if inspect.isawaitable(active):
+            active = await active
+    if not active:
+        raise HTTPException(status_code=403, detail="Puppy device is not active")
+
+    if issuer is None:
+        from hushh_mcp.services.personal_agent_grant_service import (  # noqa: PLC0415
+            PersonalAgentGrantService,
+        )
+
+        issuer = PersonalAgentGrantService().issue_or_reuse_standing_scope
+    try:
+        grant = await issuer(
+            user_id,
+            scope=ConsentScope.CAP_PUPPY_INFERENCE,
+            grant_kind="puppy_inference",
+            scope_description=(
+                "Allow the linked Puppy One device to answer private-agent inference requests"
+            ),
+            pod_agent_id=f"device:{clean_device}",
+            expires_in_ms=_PUPPY_INFERENCE_GRANT_TTL_MS,
+        )
+    except Exception as exc:  # noqa: BLE001 - authority failure fails closed
+        logger.warning("pod_relay.puppy_grant_failed %s", type(exc).__name__)
+        raise HTTPException(status_code=503, detail="Puppy inference grant unavailable") from None
+    token = str((grant or {}).get("token") or "")
+    if not token:
+        raise HTTPException(status_code=503, detail="Puppy inference grant unavailable")
+    return token
+
+
 def _not_ready(status: str) -> HTTPException:
     """A typed refusal that says WHICH not-ready this is.
 
@@ -545,6 +613,8 @@ async def relay_pod_turn(
     registry: Optional[PersonalAgentRegistryRepo] = None,
     audit: Optional[PodAccessAuditService] = None,
     grants: Any = None,
+    puppy_grants: Any = None,
+    puppy_device_active: Any = None,
     door_grants: Any = None,
     correlation: Optional[dict[str, str]] = None,
     session: Any = None,
@@ -612,11 +682,24 @@ async def relay_pod_turn(
     # no grant is couriered and the pod cannot reach the door at all.
     data_door_grants = await issue_pod_data_door_grants(user_id, door_grants=door_grants)
 
+    # Puppy is an explicit device lane, never a caller-selected provider router.
+    # Mint its short-lived device-bound authority here and ignore any credential
+    # a caller placed in the request. BYOK credentials remain caller-carried for
+    # the ordinary owner-model path; Puppy credentials are hub-issued only.
+    puppy_token = None
+    if str(payload.runtime_provider or "").strip().lower() == "puppy":
+        puppy_token = await _issue_puppy_inference_grant(
+            user_id=user_id,
+            device_id=str(payload.puppy_device_id or ""),
+            issuer=puppy_grants,
+            device_active=puppy_device_active,
+        )
+
     body: dict[str, Any] = {
         "message": payload.message,
         "conversationId": payload.conversation_id,
         "timezone": payload.timezone,
-        "runtimeCredential": payload.runtime_credential,
+        "runtimeCredential": puppy_token or payload.runtime_credential,
         "runtimeCredentialTransport": payload.runtime_credential_transport,
         "runtimeProvider": payload.runtime_provider,
         "puppyDeviceId": payload.puppy_device_id,

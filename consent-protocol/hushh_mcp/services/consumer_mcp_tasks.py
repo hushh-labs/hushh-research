@@ -48,6 +48,8 @@ class ConsumerTaskTransport(Protocol):
         message: str,
         conversation_id: str,
         timezone: str | None,
+        runtime_provider: str | None,
+        puppy_device_id: str | None,
     ) -> dict[str, Any]: ...
 
 
@@ -62,6 +64,8 @@ class OwnerPodConsumerTaskTransport:
         message: str,
         conversation_id: str,
         timezone: str | None,
+        runtime_provider: str | None,
+        puppy_device_id: str | None,
     ) -> dict[str, Any]:
         from api.routes.one.pod_relay import (  # noqa: PLC0415
             PodTurnRelayRequest,
@@ -72,6 +76,8 @@ class OwnerPodConsumerTaskTransport:
             message=message,
             conversationId=conversation_id,
             timezone=timezone,
+            runtimeProvider=runtime_provider,
+            puppyDeviceId=puppy_device_id,
         )
         try:
             result = await relay_pod_turn(
@@ -93,6 +99,8 @@ class ConsumerTaskRequest:
     message: str
     conversation_id: str
     timezone: str | None
+    runtime_provider: str | None
+    puppy_device_id: str | None
 
 
 def validate_task_request(arguments: dict[str, Any]) -> ConsumerTaskRequest:
@@ -115,7 +123,33 @@ def validate_task_request(arguments: dict[str, Any]) -> ConsumerTaskRequest:
         if not isinstance(timezone, str) or len(timezone.strip()) > MAX_TIMEZONE_CHARS:
             raise ValueError("timezone is invalid")
         timezone = timezone.strip() or None
-    return ConsumerTaskRequest(message, conversation_id, timezone)
+    runtime_provider = arguments.get("runtime_provider")
+    if runtime_provider is not None:
+        if not isinstance(runtime_provider, str):
+            raise ValueError("runtime_provider is invalid")
+        runtime_provider = runtime_provider.strip().lower() or None
+        # The consumer surface may opt into the registered Puppy lane only.
+        # It must never become a caller-selected provider router.
+        if runtime_provider != "puppy":
+            raise ValueError("runtime_provider must be puppy when provided")
+    puppy_device_id = arguments.get("puppy_device_id")
+    if puppy_device_id is not None:
+        if not isinstance(puppy_device_id, str) or not puppy_device_id.strip():
+            raise ValueError("puppy_device_id is invalid")
+        puppy_device_id = puppy_device_id.strip()
+        if len(puppy_device_id) > 128:
+            raise ValueError("puppy_device_id is too long")
+    if runtime_provider == "puppy" and puppy_device_id is None:
+        raise ValueError("puppy_device_id is required for Puppy inference")
+    if runtime_provider is None and puppy_device_id is not None:
+        raise ValueError("runtime_provider=puppy is required for a Puppy device")
+    return ConsumerTaskRequest(
+        message,
+        conversation_id,
+        timezone,
+        runtime_provider,
+        puppy_device_id,
+    )
 
 
 class ConsumerMcpTask:
@@ -200,6 +234,8 @@ class ConsumerMcpTask:
                     message=request.message,
                     conversation_id=relay_conversation_id,
                     timezone=request.timezone,
+                    runtime_provider=request.runtime_provider,
+                    puppy_device_id=request.puppy_device_id,
                 ),
                 timeout=TASK_TIMEOUT_SECONDS,
             )
