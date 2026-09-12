@@ -927,10 +927,12 @@ export class VaultService {
   static async issueVaultOwnerToken(
     userId: string,
     firebaseIdToken: string,
+    renewalOfToken?: string,
   ): Promise<{
     token: string;
     expiresAt: number;
     scope: string;
+    renewalValidated?: boolean;
   }> {
     if (Capacitor.isNativePlatform()) {
       // iOS/Android: Use native plugin
@@ -938,6 +940,7 @@ export class VaultService {
       return HushhConsent.issueVaultOwnerToken({
         userId,
         authToken: firebaseIdToken,
+        renewalOfToken,
       });
     } else {
       // Web: Call Next.js API route
@@ -948,7 +951,7 @@ export class VaultService {
           Authorization: `Bearer ${firebaseIdToken}`,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ userId }),
+        body: JSON.stringify({ userId, renewalOfToken }),
       });
     }
   }

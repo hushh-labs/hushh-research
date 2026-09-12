@@ -78,6 +78,7 @@ import { ApiService } from "@/lib/services/api-service";
 import { AuthService } from "@/lib/services/auth-service";
 import { REQUEST_TIMESTAMP_HEADER } from "@/lib/observability/request-id";
 import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
+import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -672,6 +673,26 @@ describe("ApiService.apiFetch", () => {
     }
   });
 
+  it("does not lock a new local unlock for a late same-UID HTTP failure", async () => {
+    const pending = deferred<Response>();
+    publishValidatedAuthSessionOwner("same-owner");
+    mockFetch.mockReturnValueOnce(pending.promise);
+    const onLock = vi.fn();
+    window.addEventListener("vault-lock-requested", onLock);
+    try {
+      const request = ApiService.apiFetch("/api/one/location/state", {
+        headers: { Authorization: "Bearer HCT:old-local-session" },
+      });
+      await vi.waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(1));
+      advanceVaultSessionEpoch(); // Explicit lock/re-unlock, same authenticated UID.
+      pending.resolve(jsonResponse({ code: "AUTH_VAULT_OWNER_INVALID" }, 403));
+      await request;
+      expect(onLock).not.toHaveBeenCalled();
+    } finally {
+      window.removeEventListener("vault-lock-requested", onLock);
+    }
+  });
+
   it("ignores a delayed native HCT terminal response after account A switches to B", async () => {
     capacitorMocks.isNativePlatform.mockReturnValue(true);
     capacitorMocks.getPlatform.mockReturnValue("ios");
@@ -720,6 +741,28 @@ describe("ApiService.apiFetch", () => {
   });
 
   // 4 – Handle unchanged token safely and keep session when user is same
+  it.each(["AUTH_ACCOUNT_DELETION_IN_PROGRESS", "AUTH_ACCOUNT_STATUS_UNAVAILABLE"])(
+    "requests recoverable session verification for native stream code %s", async (code) => {
+      capacitorMocks.isNativePlatform.mockReturnValue(true);
+      publishValidatedAuthSessionOwner("stream-owner");
+      kaiMocks.streamKaiAnalysis.mockRejectedValueOnce(Object.assign(new Error("Unavailable"), { code }));
+      const onVerification = vi.fn();
+      const onLock = vi.fn();
+      window.addEventListener("auth-session-verification-required", onVerification);
+      window.addEventListener("vault-lock-requested", onLock);
+      try {
+        const response = await ApiService.streamKaiAnalysis({ userId: "stream-owner", ticker: "AAPL", riskProfile: "balanced", vaultOwnerToken: "HCT:owner-token" });
+        await expect(response.text()).rejects.toThrow("Unavailable");
+        expect(onVerification).toHaveBeenCalledTimes(1);
+        expect(onVerification.mock.calls[0][0].detail).toMatchObject({ userId: "stream-owner", reason: code });
+        expect(onLock).not.toHaveBeenCalled();
+      } finally {
+        window.removeEventListener("auth-session-verification-required", onVerification);
+        window.removeEventListener("vault-lock-requested", onLock);
+      }
+    },
+  );
+
   it.each([
     ["the unchanged initiating token", "unchanged"],
     ["no token", "missing"],
@@ -1035,8 +1078,6 @@ describe("ApiService.apiFetch", () => {
 
   it.each([
     "AUTH_VAULT_OWNER_INVALID",
-    "AUTH_ACCOUNT_DELETION_IN_PROGRESS",
-    "AUTH_ACCOUNT_STATUS_UNAVAILABLE",
   ])(
     "locks the Vault without claiming deletion for native stream code %s",
     async (bridgeCode) => {
@@ -1116,6 +1157,28 @@ describe("ApiService.apiFetch", () => {
       expect(authSideEffects).toHaveLength(0);
     } finally {
       dispatchSpy.mockRestore();
+    }
+  });
+
+  it("does not lock a new local unlock for a late same-UID native stream failure", async () => {
+    capacitorMocks.isNativePlatform.mockReturnValue(true);
+    publishValidatedAuthSessionOwner("same-owner");
+    const pending = deferred<Record<string, unknown>>();
+    kaiMocks.streamKaiAnalysis.mockReturnValueOnce(pending.promise);
+    const onLock = vi.fn();
+    window.addEventListener("vault-lock-requested", onLock);
+    try {
+      const response = await ApiService.streamKaiAnalysis({
+        userId: "same-owner", ticker: "AAPL", riskProfile: "balanced", vaultOwnerToken: "HCT:old-local-session",
+      });
+      const consumption = response.text();
+      await vi.waitFor(() => expect(kaiMocks.streamKaiAnalysis).toHaveBeenCalledTimes(1));
+      advanceVaultSessionEpoch();
+      pending.reject(Object.assign(new Error("Old session rejected"), { code: "AUTH_VAULT_OWNER_INVALID" }));
+      await expect(consumption).rejects.toThrow("Old session rejected");
+      expect(onLock).not.toHaveBeenCalled();
+    } finally {
+      window.removeEventListener("vault-lock-requested", onLock);
     }
   });
 

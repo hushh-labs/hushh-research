@@ -155,6 +155,11 @@ tests/test_account_deletion_tombstone_migration.py
 tests/test_account_deletion_release_workflow.py
 tests/test_cloud_run_image_resolution.py
 
+# First-party document renewal: expiry is not revocation, but revoked lineage
+# can never renew or regain authority through a later grant/duplicate token.
+tests/test_vault_owner_token_renewal.py
+tests/test_internal_vault_owner_token_validation.py
+
 # Contact discovery.
 #
 # `POST /api/marketplace/contacts/match` answers "is the person behind this
