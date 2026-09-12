@@ -10,6 +10,7 @@ from mcp_modules.tools.consumer_tools import (
     ConsumerCalendarEventsResult,
     ConsumerCalendarOpeningsResult,
     ConsumerCapabilitiesResult,
+    ConsumerConnectionRequestsResult,
     ConsumerConnectionResult,
     ConsumerConnectionsResult,
     ConsumerDevicesResult,
@@ -197,6 +198,23 @@ def _private_tool_definitions() -> list[Tool]:
                 }
             ),
             outputSchema=ConsumerPeopleResult.model_json_schema(),
+            annotations={
+                "readOnlyHint": True,
+                "destructiveHint": False,
+                "idempotentHint": True,
+                "openWorldHint": False,
+            },
+        ),
+        Tool(
+            name="list_hussh_connection_requests",
+            description="List bounded incoming or outgoing Hussh connection requests. It exposes request metadata only; accepting, rejecting, sending and changing scopes remain confirmed owner actions.",
+            inputSchema=schema(
+                {
+                    "direction": {"type": "string", "enum": ["incoming", "outgoing"]},
+                    "include_resolved": {"type": "boolean"},
+                }
+            ),
+            outputSchema=ConsumerConnectionRequestsResult.model_json_schema(),
             annotations={
                 "readOnlyHint": True,
                 "destructiveHint": False,

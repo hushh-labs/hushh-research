@@ -1065,6 +1065,62 @@ async def test_consumer_mcp_gmail_rejects_invalid_page_before_service_call(consu
     assert result.isError
 
 
+@pytest.mark.asyncio
+async def test_consumer_mcp_lists_connection_requests_without_scope_or_identity_leaks(
+    consumer, monkeypatch
+):
+    import mcp_server
+    from mcp_modules.developer_context import (
+        reset_current_developer_principal,
+        set_current_developer_principal,
+    )
+
+    principal, _, _ = connect(consumer)
+
+    class _Connections:
+        def list_requests(self, owner, **kwargs):
+            assert owner == "owner_a"
+            assert kwargs == {"direction": "incoming", "include_resolved": False}
+            return [
+                {
+                    "id": "request-opaque",
+                    "requesterUserId": "raw-requester",
+                    "addresseeUserId": "owner_a",
+                    "counterpartDisplayName": "Sam Example",
+                    "status": "pending",
+                    "message": "Let's connect",
+                    "createdAt": "2026-09-12T10:00:00Z",
+                    "scopes": [{"scope": "attr.secret.private"}],
+                }
+            ]
+
+    monkeypatch.setattr("hushh_mcp.services.connections_service.ConnectionsService", _Connections)
+    context = set_current_developer_principal(principal)
+    try:
+        names = {tool.name for tool in await mcp_server.list_tools()}
+        assert "list_hussh_connection_requests" in names
+        result = await mcp_server.call_tool(
+            "list_hussh_connection_requests", {"direction": "incoming"}
+        )
+    finally:
+        reset_current_developer_principal(context)
+
+    assert not result.isError
+    assert result.structuredContent["items"] == [
+        {
+            "request_id": "request-opaque",
+            "direction": "incoming",
+            "status": "pending",
+            "counterpart_display_name": "Sam Example",
+            "message": "Let's connect",
+            "created_at": "2026-09-12T10:00:00Z",
+            "scope_count": 1,
+        }
+    ]
+    assert "raw-requester" not in str(result.structuredContent)
+    assert "attr.secret.private" not in str(result.structuredContent)
+
+
 def test_receipts_are_bounded_non_bearer_owner_audit_records(consumer):
     service, _, _ = consumer
     principal, review, _ = connect(consumer)

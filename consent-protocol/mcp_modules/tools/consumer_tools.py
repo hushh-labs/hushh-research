@@ -209,6 +209,25 @@ class ConsumerGmailStatusResult(BaseModel):
     next_action: str
 
 
+class ConsumerConnectionRequestItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    request_id: str = Field(..., max_length=128)
+    direction: Literal["incoming", "outgoing"]
+    status: str = Field(..., max_length=32)
+    counterpart_display_name: str | None = Field(default=None, max_length=200)
+    message: str | None = Field(default=None, max_length=1_000)
+    created_at: str | None = Field(default=None, max_length=64)
+    scope_count: int = Field(..., ge=0, le=50)
+
+
+class ConsumerConnectionRequestsResult(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    state: Literal["available"]
+    direction: Literal["incoming", "outgoing"]
+    items: list[ConsumerConnectionRequestItem] = Field(default_factory=list, max_length=100)
+    next_action: str
+
+
 class ConsumerIntegrationConnectResult(BaseModel):
     model_config = ConfigDict(extra="forbid")
     state: Literal["approval_required", "connected"]
@@ -505,6 +524,7 @@ async def handle_list_hussh_capabilities(arguments: dict) -> CallToolResult:
         "find_hussh_calendar_openings",
         "search_hussh_people",
         "list_hussh_people_connections",
+        "list_hussh_connection_requests",
         "list_hussh_gmail_receipts",
         "get_hussh_gmail_status",
         "list_hussh_integrations",
@@ -548,6 +568,9 @@ async def handle_list_hussh_capabilities(arguments: dict) -> CallToolResult:
             execution = "consent_service"
             availability = "approval_required"
         elif name in {"search_hussh_people", "list_hussh_people_connections"}:
+            execution = "consent_service"
+            availability = "contract_available"
+        elif name == "list_hussh_connection_requests":
             execution = "consent_service"
             availability = "contract_available"
         elif name in {"list_hussh_gmail_receipts", "get_hussh_gmail_status"}:
@@ -1122,6 +1145,61 @@ async def handle_list_hussh_people_connections(arguments: dict) -> CallToolResul
         return _error("CONNECTIONS_UNAVAILABLE", "Your connections are temporarily unavailable.")
     return _result(
         _people_result(result, audience=audience, page=page, relationship_default="connected")
+    )
+
+
+async def handle_list_hussh_connection_requests(arguments: dict) -> CallToolResult:
+    """Read pending connection proposals without granting or changing scopes."""
+    if not isinstance(arguments, dict) or set(arguments) - {"direction", "include_resolved"}:
+        return _error(
+            "INVALID_CONNECTIONS_REQUEST",
+            "Only direction and include_resolved are accepted.",
+        )
+    direction = arguments.get("direction", "incoming")
+    include_resolved = arguments.get("include_resolved", False)
+    if direction not in {"incoming", "outgoing"}:
+        return _error("INVALID_CONNECTIONS_REQUEST", "direction must be incoming or outgoing.")
+    if type(include_resolved) is not bool:
+        return _error("INVALID_CONNECTIONS_REQUEST", "include_resolved must be a boolean.")
+    owner = _consumer_owner(get_current_developer_principal())
+    if owner is None:
+        return _error("OWNER_AUTH_REQUIRED", "Reconnect using your own Hussh account.")
+    try:
+        from hushh_mcp.services.connections_service import ConnectionsService  # noqa: PLC0415
+
+        result = await asyncio.to_thread(
+            ConnectionsService().list_requests,
+            owner,
+            direction=direction,
+            include_resolved=include_resolved,
+        )
+    except Exception:
+        return _error("CONNECTIONS_UNAVAILABLE", "Connection requests are temporarily unavailable.")
+    items: list[ConsumerConnectionRequestItem] = []
+    for item in list(result or [])[:100]:
+        if not isinstance(item, dict):
+            continue
+        scopes = item.get("scopes")
+        items.append(
+            ConsumerConnectionRequestItem(
+                request_id=str(item.get("id") or "")[:128],
+                direction=direction,
+                status=str(item.get("status") or "pending")[:32],
+                counterpart_display_name=(
+                    str(item.get("counterpartDisplayName") or "")[:200] or None
+                ),
+                message=(str(item.get("message") or "")[:1_000] or None),
+                created_at=_safe_gmail_timestamp(item.get("createdAt")),
+                scope_count=min(50, len(scopes)) if isinstance(scopes, list) else 0,
+            )
+        )
+    return _result(
+        ConsumerConnectionRequestsResult(
+            state="available",
+            direction=direction,
+            items=items,
+            next_action="Review or resolve this request in the secure Hussh owner flow; a connection never grants information access by itself.",
+        )
     )
 
 

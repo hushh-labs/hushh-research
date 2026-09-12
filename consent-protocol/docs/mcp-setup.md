@@ -318,6 +318,10 @@ read-only Gmail receipt service. They expose bounded purchase records and sync
 readiness without mailbox credentials, message bodies, provider identifiers or
 the connected email address; connecting, syncing and mailbox actions remain in
 the secure owner surface.
+`list_hussh_connection_requests` reads bounded incoming or outgoing request
+metadata through the canonical connection service. It returns an opaque request
+reference, counterpart label, direction, status and scope count only; it never
+accepts, rejects, sends or changes a request.
 Provider action execution, owner-pod custody, and installed-host acceptance
 remain separate gates.
 The existing developer five-tool catalog remains unchanged for application-only
@@ -355,6 +359,7 @@ The existing OAuth proxy and `/oauth/authorize` page also serve consumer review:
 | `list_hussh_people_connections` (MCP) | Owner OAuth; list existing connections with masked labels; no request or scope mutation |
 | `list_hussh_gmail_receipts` (MCP) | Owner OAuth plus connected Gmail; read bounded synced purchase receipts without mailbox content |
 | `get_hussh_gmail_status` (MCP) | Owner OAuth; read receipt-sync readiness without email identity or credentials |
+| `list_hussh_connection_requests` (MCP) | Owner OAuth; read bounded request metadata without scope values or mutation |
 | `connect_hussh_integration` (MCP) | Owner OAuth; start a short-lived, user-completed Google PKCE handoff |
 | `disconnect_hussh_integration` (MCP) | Owner OAuth; confirmation-gated service grant disconnect |
 | `disconnect_hussh_connection` (MCP) | Owner OAuth; explicit self-disconnect for the current generation |
