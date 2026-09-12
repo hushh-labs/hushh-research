@@ -336,7 +336,9 @@ export async function createReviewerSessionHarness({
         }
       }
 
-      await page.waitForTimeout(250);
+      // Keep the oracle compatible with the small page doubles used by the
+      // contract tests as well as Playwright's real Page implementation.
+      await new Promise((resolve) => setTimeout(resolve, 250));
     }
 
     const bootstrap = await safeBootstrapState();
@@ -372,7 +374,13 @@ export async function createReviewerSessionHarness({
     const acceptable = firstRunPages.has(page)
       ? new Set(["vault_unlocked", "authenticated"])
       : new Set(["vault_unlocked"]);
-    const deadline = Date.now() + VAULT_CONTINUITY_SETTLE_MS;
+    // The real Playwright Page exposes waitForTimeout; tiny contract doubles
+    // intentionally do not. Keep those doubles fast while retaining the full
+    // settling window for an installed browser session.
+    const settleTimeoutMs = typeof page.waitForTimeout === "function"
+      ? VAULT_CONTINUITY_SETTLE_MS
+      : 250;
+    const deadline = Date.now() + settleTimeoutMs;
     let state = "";
     let userMatches = false;
 
@@ -392,7 +400,9 @@ export async function createReviewerSessionHarness({
 
       if (userMatches && acceptable.has(state)) return;
       if (Date.now() >= deadline) break;
-      await page.waitForTimeout(250);
+      // Keep the oracle compatible with the small page doubles used by the
+      // contract tests as well as Playwright's real Page implementation.
+      await new Promise((resolve) => setTimeout(resolve, 250));
     }
 
     // Name what was actually seen. The previous message said only that the
@@ -401,7 +411,7 @@ export async function createReviewerSessionHarness({
     throw new Error(
       `${label} lost the expected reviewer session ` +
         `(state=${state || "(unpublished)"} uidMatch=${userMatches} ` +
-        `after ${VAULT_CONTINUITY_SETTLE_MS}ms).`,
+        `after ${settleTimeoutMs}ms).`,
     );
   }
 
@@ -488,7 +498,7 @@ export async function createReviewerSessionHarness({
         readOnlyGuard.assertNoBlockedMutation();
         capture.assertNoCriticalApiFailures("visible vault challenge");
         if (await unlockInput.isVisible().catch(() => false)) return;
-        await page.waitForTimeout(250);
+        await new Promise((resolve) => setTimeout(resolve, 250));
       }
       const diagnostics = await page.evaluate(() => ({
         path: `${window.location.pathname}${window.location.search}`,
