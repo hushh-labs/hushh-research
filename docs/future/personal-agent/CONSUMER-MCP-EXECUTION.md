@@ -41,7 +41,7 @@ Provisioning, recoverable owner-pod vault custody and client access are separate
 | Standing memory consent | Implemented; local checks pass | Durable binding, secure review, revoke/commit race and full erasure/rollback exercised in disposable PostgreSQL |
 | Resumable onboarding and provisioning | Existing setup job; custody handoff wired in source | Compose the setup job, owner-session custody approval and no duplicate infrastructure on an installed pod; MCP status now returns the opaque `job_id` and `updated_at` for host-side correlation |
 | Pod custody and canonical memory | Ceremony and local adapter implemented; live custody pending | Durable key/KMS configuration, authenticated envelope enrollment, encrypted commit, CAS and replacement recovery on an installed pod |
-| Consumer tools and Puppy adapters | Typed memory, receipt, disconnect, bounded private-agent delegation, and owner-device readiness projection wired to existing owner-pod/trusted-device seams; Puppy parity pending | Common capability execution and Puppy device acceptance |
+| Consumer tools and Puppy adapters | Typed memory, receipt, disconnect, bounded private-agent delegation, owner-device readiness projection, Calendar/Gmail/people reads, and confirmed connection-request review/actions wired to existing owner-pod/trusted-device/ConnectionsService seams; Puppy parity pending | Common capability execution and Puppy device acceptance |
 | Direct/universal transport parity | Local relay adapter implemented; live parity pending | Isolation, revocation races and non-persistence across installed transports |
 | Host acceptance and submission packages | Pending | Real Claude and ChatGPT journeys, operational receipts |
 
