@@ -2,11 +2,12 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Shield } from "lucide-react";
+import Image from "next/image";
+import { ArrowLeft, Shield } from "lucide-react";
+import { OneArcIllustration } from "@/components/onboarding/OneArcIllustration";
 import { AuthService } from "@/lib/services/auth-service";
 import { ApiService } from "@/lib/services/api-service";
 import { useAuth } from "@/lib/firebase/auth-context";
-import { useVault } from "@/lib/vault/vault-context";
 import { HushhLoader } from "@/components/app-ui/hushh-loader";
 import { SessionVerificationRecovery } from "@/components/auth/session-verification-recovery";
 import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
@@ -17,13 +18,6 @@ import { Icon } from "@/lib/morphy-ux/ui";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
 import { cn } from "@/lib/utils";
 import { AuthProviderButton } from "@/components/onboarding/AuthProviderButton";
-import {
-  FigmaBackButton,
-  FigmaIllustration,
-  FigmaPrivacyNote,
-  FigmaProviderIcon,
-} from "@/components/onboarding/FigmaOnboardingPrimitives";
-import styles from "./AuthStep.module.css";
 import { useLocalOnboardingActionHandler } from "@/lib/agent/local-onboarding-actions";
 import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 import { PostAuthRouteService } from "@/lib/services/post-auth-route-service";
@@ -53,30 +47,25 @@ import {
 } from "@/lib/testing/native-test";
 import { resolveLocalReviewerCredentials } from "@/lib/testing/local-reviewer-auth";
 
-// Firebase error codes that mean the user deliberately dismissed the provider
-// popup. These are not real failures, so we stay silent for them and only toast
-// on genuine errors (network, account-exists, blocked popup, etc.).
 const AUTH_CANCEL_CODES = new Set([
   "auth/popup-closed-by-user",
   "auth/cancelled-popup-request",
   "auth/user-cancelled",
 ]);
 
-// Provider-button treatments MATCH the theme (light surfaces in light mode,
-// dark surfaces in dark mode) so the sheet reads as one coherent material:
-// Apple/Google are white cards with ink text on the light sheet, and deep
-// charcoal cards with light text on the dark sheet. Reviewer stays a quiet
-// outlined tertiary in both themes.
 const APPLE_BTN_CLASS =
-  "!bg-white !text-[#17130C] border border-black/10 shadow-sm hover:!bg-black/[0.02] dark:!bg-[#1c1c1e] dark:!text-[#F7F3EA] dark:border-white/12 dark:hover:!bg-[#26262a]";
+  "!bg-white !text-zinc-900 border border-slate-200/90 shadow-sm hover:!bg-slate-50 h-[56px] sm:h-[60px] rounded-[20px] text-[17px] font-medium whitespace-nowrap flex items-center justify-center dark:!bg-[#1C1C1E] dark:!text-white dark:border-white/10 dark:hover:!bg-[#26262a]";
 const GOOGLE_BTN_CLASS =
-  "!bg-white !text-[#17130C] border border-black/10 shadow-sm hover:!bg-black/[0.02] dark:!bg-[#1c1c1e] dark:!text-[#F7F3EA] dark:border-white/12 dark:hover:!bg-[#26262a]";
+  "!bg-white !text-zinc-900 border border-slate-200/90 shadow-sm hover:!bg-slate-50 h-[56px] sm:h-[60px] rounded-[20px] text-[17px] font-medium whitespace-nowrap flex items-center justify-center dark:!bg-[#1C1C1E] dark:!text-white dark:border-white/10 dark:hover:!bg-[#26262a]";
 const REVIEWER_BTN_CLASS =
   "!bg-transparent !text-[#6b6b70] border border-black/10 shadow-none hover:!bg-black/[0.03] dark:!text-white/60 dark:border-white/15 dark:hover:!bg-white/[0.05]";
 
 type AuthProviderId = "google" | "apple";
 type ProviderAttemptPhase =
-  "launching" | "provider_open" | "attention_required" | "settling";
+  | "launching"
+  | "provider_open"
+  | "attention_required"
+  | "settling";
 type ProviderAttempt = {
   id: string;
   provider: AuthProviderId;
@@ -133,10 +122,6 @@ export function AuthStep({
   redirectPath: string;
   compact?: boolean;
 }) {
-  // Firebase/native persistence may settle before this Suspense subtree is
-  // hydrated. Keep the server and first client paint identical so Login never
-  // throws away its tree (and a one-shot account-recovery toast) during a
-  // hydration mismatch.
   const [hydrated, setHydrated] = useState(false);
   const nativeTestConfig = useNativeTestConfig();
   const router = useRouter();
@@ -149,12 +134,10 @@ export function AuthStep({
     beginPostAuthSettlement,
     completePostAuthSettlement,
   } = useAuth();
-  const { isVaultUnlocked } = useVault();
   const { registerSteps, completeStep, reset } = useStepProgress();
   const lastNavigationKeyRef = useRef<string | null>(null);
   const lastResolvedNavigationPathRef = useRef<string | null>(null);
   const autoReviewerLoginStartedRef = useRef(false);
-  const reviewerVaultChallengeNavigationKeyRef = useRef<string | null>(null);
   const [nativeReviewerVisible, setNativeReviewerVisible] = useState(
     nativeTestConfig.autoReviewerLogin,
   );
@@ -271,7 +254,6 @@ export function AuthStep({
   }, [updateProviderAttemptPhase, user]);
 
   const openLegalDoc = useCallback(async (docType: KaiLegalDocumentType) => {
-    // Defer open so the originating tap does not get interpreted as outside-interact.
     await new Promise<void>((resolve) => {
       requestAnimationFrame(() => {
         legalReturnControlIdRef.current =
@@ -315,15 +297,12 @@ export function AuthStep({
   );
 
   const returnToWelcome = useCallback(async () => {
-    // A stale directive must not pull the person away from an OAuth attempt.
     if (providerBusy) {
       return {
         status: "blocked" as const,
         summary: "Sign-in is still in progress.",
       };
     }
-    // A legal document is nested beneath Login, so return to Login before
-    // considering the journey parent even if an old directive arrives late.
     if (activeLegalDoc) {
       await closeLegalDoc();
       return {
@@ -331,11 +310,6 @@ export function AuthStep({
         summary: "Returned to sign-in.",
       };
     }
-    // Login has one logical parent in the app-router hierarchy: One's public
-    // introduction. Browser history can point at an external OAuth page, a
-    // protected deep link, or a stale pre-auth page, none of which is a safe
-    // back destination. Keep a valid pending destination on the welcome
-    // screen so claiming One again resumes the same journey.
     router.replace(
       buildWelcomeRoute(redirectPath === ROUTES.HOME ? null : redirectPath),
     );
@@ -394,10 +368,6 @@ export function AuthStep({
           isOnboardingFlowActiveCookieEnabled();
         const nextPath = resumeImportFlow ? ROUTES.KAI_IMPORT : resolvedPath;
 
-        // This runs only after Firebase's redirect callback has produced a
-        // user. The provider launch itself remains a `started` settlement;
-        // the durable journey is never advanced merely because a redirect was
-        // opened or a popup was requested.
         const firebaseSessionOnly = isFirebaseSessionOnlyRoute(nextPath);
         if (!firebaseSessionOnly) {
           await PreVaultUserStateService.syncOnboardingJourney({
@@ -409,25 +379,18 @@ export function AuthStep({
             callbackState: "succeeded",
             idToken: resolvedIdToken,
           }).catch((journeyError) => {
-            // The existing post-auth route remains the rollback path while the
-            // additive journey migration rolls out.
             console.warn(
               "[AuthStep] Failed to persist onboarding journey:",
               journeyError,
             );
           });
         }
-        // Product handoffs require only the settled Firebase session. They do
-        // not start or resume One setup and never create a private-place gate.
         setOnboardingRequiredCookie(
           !firebaseSessionOnly && nextPath === ROUTES.ONE_SETUP,
         );
         setOnboardingFlowActiveCookie(
           !firebaseSessionOnly && nextPath === ROUTES.KAI_IMPORT,
         );
-        // Replace, not push: the login screen must not stay on the back stack,
-        // so an onboarded user pressing Back never lands back on /login or the
-        // setup hub it forwards to.
         router.replace(nextPath);
         lastResolvedNavigationPathRef.current = nextPath;
         return nextPath;
@@ -468,54 +431,7 @@ export function AuthStep({
   useEffect(() => {
     if (authLoading || sessionVerificationRequired) return;
     completeStep();
-    // Provider popup attempts own token verification and navigation while
-    // active. The ordinary auth observer handles only restored sessions.
     if (user && !providerAttemptRef.current) {
-      // Native/reviewer automation with a supplied vault passphrase has a
-      // single bootstrap owner. It authenticates, reads the existing fixture,
-      // unlocks its memory-only key, then lands on the explicit internal
-      // target. Running ordinary post-auth resolution in parallel performs
-      // onboarding writes and races that bootstrap under the read-only
-      // reviewer guard.
-      const reviewerBootstrapOwnsNavigation =
-        shouldUseNativeTestBootstrap &&
-        nativeTestConfig.expectedUserId === user.uid;
-      if (reviewerBootstrapOwnsNavigation) {
-        if (!isVaultUnlocked) return;
-        const targetPath =
-          normalizeInternalRouteHref(redirectPath) ?? ROUTES.ONE_HOME;
-        const navigationKey = `${user.uid}:${targetPath}`;
-        if (
-          reviewerVaultChallengeNavigationKeyRef.current !== navigationKey
-        ) {
-          reviewerVaultChallengeNavigationKeyRef.current = navigationKey;
-          router.replace(targetPath);
-        }
-        return;
-      }
-      // The reviewer browser bridge authenticates its configured account before
-      // this page hydrates. When it intentionally withholds the vault
-      // passphrase, take the requested internal route directly so the real
-      // vault-lock guard can render its challenge. Do not run ordinary
-      // post-auth resolution here: that flow persists onboarding state and
-      // would violate the reviewer's read-only contract.
-      const reviewerNeedsVaultChallenge =
-        nativeTestConfig.enabled &&
-        nativeTestConfig.autoReviewerLogin &&
-        nativeTestConfig.expectedUserId === user.uid &&
-        !nativeTestConfig.vaultPassphrase;
-      if (reviewerNeedsVaultChallenge) {
-        const targetPath =
-          normalizeInternalRouteHref(redirectPath) ?? ROUTES.ONE_HOME;
-        const navigationKey = `${user.uid}:${targetPath}`;
-        if (
-          reviewerVaultChallengeNavigationKeyRef.current !== navigationKey
-        ) {
-          reviewerVaultChallengeNavigationKeyRef.current = navigationKey;
-          router.replace(targetPath);
-        }
-        return;
-      }
       if (growthJourney) {
         trackGrowthFunnelStepCompleted({
           journey: growthJourney,
@@ -537,15 +453,8 @@ export function AuthStep({
     completeStep,
     growthEntrySurface,
     growthJourney,
-    nativeTestConfig.autoReviewerLogin,
-    nativeTestConfig.enabled,
-    nativeTestConfig.expectedUserId,
-    nativeTestConfig.vaultPassphrase,
     providerAttempt?.id,
     resolveAndNavigate,
-    router,
-    isVaultUnlocked,
-    shouldUseNativeTestBootstrap,
   ]);
 
   useEffect(() => {
@@ -731,8 +640,6 @@ export function AuthStep({
       publishProviderAttempt(attempt);
       trackEvent("auth_started", { action: provider });
 
-      // This call must remain before any await/timer. The direct button and
-      // provider-specific Agent Bar action both enter here with a trusted tap.
       const providerPromise =
         provider === "google"
           ? AuthService.signInWithGoogle()
@@ -785,9 +692,6 @@ export function AuthStep({
               action: provider,
               result: "success",
             });
-            // Welcome on the first sign-in, welcome back afterwards. The server
-            // decides which; this is the one point per sign-in that asks. It is
-            // never awaited — navigation must not wait on a mail.
             void ApiService.notifyAuthMail("signed_in", { idToken });
             if (growthJourney) {
               trackGrowthFunnelStepCompleted({
@@ -1082,31 +986,18 @@ export function AuthStep({
         },
       ];
 
-  // Reviewer credentials are a governed native-test fixture, never a normal
-  // sign-in choice. Keeping this control behind the explicit test bridge
-  // prevents local/UAT configuration from leaking a fixture account into the
-  // product UI while preserving the native runner's observable test mode.
   const showReviewer = nativeTestConfig.enabled && nativeReviewerVisible;
 
   return (
     <main
-      // The outer app scroll root reserves --app-scroll-bottom-pad below this
-      // element for the fixed onboarding Agent Bar, then re-adds it as its
-      // own padding-bottom. Sizing this element to a full 100dvh on top of
-      // that reservation forced scroll on every device. Inline style (not a
-      // Tailwind arbitrary-value class) because Tailwind's arbitrary calc()
-      // parser requires escaped whitespace around the minus sign
-      // ("100dvh_-_var(...)"); without it the whole declaration is invalid
-      // CSS and silently dropped, which is what happened here before.
-      className={cn("relative w-full overflow-hidden", styles.shell)}
+      className="relative w-full overflow-hidden bg-white dark:bg-[#000000]"
       style={{
         height: "calc(100dvh - var(--app-scroll-bottom-pad, 0px))",
         minHeight: "calc(100svh - var(--app-scroll-bottom-pad, 0px))",
       }}
       data-testid="auth-step-primary"
     >
-      {/* Shared immersive gradient backdrop (welcome / login / carousel). */}
-      <OnboardingHeroBackground variant="solid" />
+      <OnboardingHeroBackground />
       <NativeTestBeacon
         routeId="/login"
         marker="native-route-login"
@@ -1131,74 +1022,47 @@ export function AuthStep({
         }
       />
 
-      <div className={styles.stage}>
-        <div className={styles.composition}>
-          <FigmaBackButton
-            onClick={handleBack}
-            disabled={providerBusy}
-            aria-label={providerBusy ? "Sign-in in progress" : "Go back"}
-            data-voice-control-id={
-              activeLegalDoc || providerBusy ? undefined : "auth_back"
-            }
-            className={styles.authBackButton}
-          />
+      <button
+        type="button"
+        onClick={handleBack}
+        disabled={providerBusy}
+        aria-label={providerBusy ? "Sign-in in progress" : "Go back"}
+        data-voice-control-id={
+          activeLegalDoc || providerBusy ? undefined : "auth_back"
+        }
+        className="fixed left-4 top-[calc(max(var(--app-safe-area-top-effective),0.75rem))] z-50 grid h-9 w-9 place-items-center rounded-full bg-black/[0.05] text-[#1d1d1f]/70 transition-colors hover:bg-black/[0.08] disabled:pointer-events-none disabled:opacity-40 dark:bg-white/10 dark:text-white/80 dark:hover:bg-white/15"
+      >
+        <ArrowLeft className="h-[18px] w-[18px]" strokeWidth={2} />
+      </button>
 
-          <div
-            className={cn(
-              "relative mx-auto flex w-full max-w-[440px] flex-col justify-center",
-              styles.authContentBlock,
-            )}
-            style={{
-              height: "calc(100dvh - var(--app-scroll-bottom-pad, 0px))",
-              minHeight: "calc(100svh - var(--app-scroll-bottom-pad, 0px))",
-              paddingTop: "78px",
-              justifyContent: "flex-start",
-            }}
-            data-auth-content-block
-          >
-        {/* Center the complete sign-in group as one visual block while the
-            fixed Back control remains independently anchored above it. Legal
-            copy is anchored separately at the bottom like a standard auth
-            footer, so it does not read as primary sign-in content. */}
-            <div
-              className={cn(
-                "flex w-full flex-none flex-col items-center gap-6 px-6 pb-6 text-center",
-                styles.authSignInClusters,
-              )}
-              data-auth-signin-clusters
-            >
-              <div className={cn("flex flex-col items-center gap-4", styles.authHero)}>
-            <FigmaIllustration variant="auth" className={styles.authIllustration} />
+      <div
+        className="relative mx-auto flex w-full max-w-[440px] flex-col justify-center px-4"
+        style={{
+          height: "calc(100dvh - var(--app-scroll-bottom-pad, 0px))",
+          minHeight: "calc(100svh - var(--app-scroll-bottom-pad, 0px))",
+        }}
+        data-auth-content-block
+      >
+        <div
+          className="flex w-full flex-none flex-col items-center gap-5 px-2 text-center"
+          data-auth-signin-clusters
+        >
+          <div className="flex w-full flex-col items-center gap-3">
+            <OneArcIllustration />
+
             <h1
               role="heading"
               aria-level={1}
               aria-label="Welcome to One"
-              className={cn(
-                "whitespace-nowrap font-[family-name:var(--font-app-display)] text-[27px] font-bold leading-[1.1] tracking-[-0.7px] text-[#0a0a0a] dark:text-[#fafafa]",
-                styles.authTitle,
-              )}
+              className="whitespace-nowrap font-bold text-[25px] sm:text-[27px] leading-[32px] tracking-[-0.5px] text-[#17130C] dark:text-[#F2F2F7]"
             >
               Welcome to One
-              <span style={{ color: "var(--app-accent)" }}>.</span>
+              <span className="text-[#387BF5]">.</span>
             </h1>
-              </div>
+          </div>
 
-          {/* Buttons sit directly on the shared hero background (no card/sheet
-              behind them), matching the welcome ("/") page's direct-on-canvas
-              CTA. The outer app scroll root already reserves clearance for the
-              fixed onboarding Agent Bar (--onboarding-agent-bar-clearance in
-              app/providers.tsx), so this is a plain content gap rather than a
-              second bar-height reservation. */}
-              <div
-                className={cn(
-                  "relative mx-auto w-full max-w-[21.5rem] space-y-4",
-                  styles.providerActionsShell,
-                )}
-              >
-                <div
-                  className={cn("space-y-3", styles.providerActions)}
-                  data-auth-provider-actions
-                >
+          <div className="relative mx-auto w-full max-w-[344px] space-y-3.5">
+            <div className="space-y-3" data-auth-provider-actions>
               {providerAttempt?.phase === "attention_required" ? (
                 <p
                   role="status"
@@ -1220,7 +1084,6 @@ export function AuthStep({
                   voiceControlId={`auth_${option.id}`}
                   className={cn(
                     option.id === "apple" ? APPLE_BTN_CLASS : GOOGLE_BTN_CLASS,
-                    styles.authProviderButton,
                   )}
                 />
               ))}
@@ -1231,30 +1094,28 @@ export function AuthStep({
                   icon={<Icon icon={Shield} size="md" />}
                   onClick={handleReviewerLogin}
                   disabled={providerBusy}
-                  className={cn(REVIEWER_BTN_CLASS, styles.reviewerButton)}
+                  className={REVIEWER_BTN_CLASS}
                 />
               ) : null}
-                </div>
-              </div>
             </div>
           </div>
-          <div
-            className={cn(
-              "absolute inset-x-6 bottom-5 z-10 flex justify-center",
-              styles.supportingShell,
-            )}
-          >
-            <div
-              className={cn("flex flex-col items-center gap-3", styles.supportingContent)}
-              data-auth-supporting-content
-            >
-              <FigmaPrivacyNote>
+        </div>
+      </div>
+
+      <div className="absolute inset-x-4 bottom-5 z-10 flex justify-center">
+        <div
+          className="flex items-center gap-3.5 text-left max-w-[24rem]"
+          data-auth-supporting-content
+        >
+          <HandshakePrivacyIcon className="h-[26px] w-[32px] shrink-0" />
+          <p className="text-xs sm:text-[13px] leading-[1.35] text-[#8E8E93] dark:text-white/90">
             By continuing you agree to our{" "}
+            <br />
             <button
               type="button"
               onClick={() => void openLegalDoc("terms")}
               data-voice-control-id="auth_terms"
-              className="font-semibold text-[color:var(--app-accent-deep)] transition-opacity hover:opacity-70 dark:text-[color:var(--app-accent-deep)]"
+              className="font-semibold text-[#387BF5] transition-opacity hover:opacity-75"
             >
               Terms
             </button>
@@ -1263,14 +1124,12 @@ export function AuthStep({
               type="button"
               onClick={() => void openLegalDoc("privacy")}
               data-voice-control-id="auth_privacy"
-              className="font-semibold text-[color:var(--app-accent-deep)] transition-opacity hover:opacity-70 dark:text-[color:var(--app-accent-deep)]"
+              className="font-semibold text-[#387BF5] transition-opacity hover:opacity-75"
             >
               Privacy Policy
             </button>
             .
-              </FigmaPrivacyNote>
-            </div>
-          </div>
+          </p>
         </div>
       </div>
       <AuthLegalDialog
@@ -1285,9 +1144,52 @@ export function AuthStep({
 }
 
 function GoogleIcon() {
-  return <FigmaProviderIcon provider="google" />;
+  return (
+    <svg className="h-5 w-5" viewBox="0 0 24 24" aria-hidden>
+      <title>Google</title>
+      <path
+        fill="#4285F4"
+        d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
+      />
+      <path
+        fill="#34A853"
+        d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
+      />
+      <path
+        fill="#FBBC05"
+        d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"
+      />
+      <path
+        fill="#EA4335"
+        d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
+      />
+    </svg>
+  );
 }
 
 function AppleIcon() {
-  return <FigmaProviderIcon provider="apple" />;
+  return (
+    <svg
+      className="h-5 w-5"
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      aria-hidden
+    >
+      <title>Apple</title>
+      <path d="M17.05 20.28c-.98.95-2.05.88-3.08.38-1.07-.52-2.07-.51-3.2 0-1.01.43-2.1.49-2.98-.38C5.22 17.63 2.7 12 5.45 8.04c1.47-2.09 3.8-2.31 5.33-1.18 1.1.75 3.3.73 4.45-.04 2.1-1.31 3.55-.95 4.5 1.14-.15.08.2.14 0 .2-2.63 1.34-3.35 6.03.95 7.84-.46 1.4-1.25 2.89-2.26 4.4l-.07.08-.05-.2zM12.03 7.25c-.15-2.23 1.66-4.07 3.74-4.25.17 2.22-1.8 4.19-3.74 4.25z" />
+    </svg>
+  );
+}
+
+function HandshakePrivacyIcon({ className = "h-[26px] w-[32px] shrink-0" }: { className?: string }) {
+  return (
+    <Image
+      src="/privacy-handshake.png"
+      alt="Privacy Handshake"
+      width={65}
+      height={52}
+      className={cn("object-contain", className)}
+      unoptimized
+    />
+  );
 }
