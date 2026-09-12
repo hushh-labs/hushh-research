@@ -472,3 +472,10 @@ their provisional statements while preserving the original evidence trail.
 
 - Using the authenticated owner account to describe `one-pod-ha1-7o6wt3s4mtydneyytqfswsxtafdlpjwz` showed `POD_LOCAL_PKM_ENABLED=true`, `POD_DURABLE_IDENTITY_ENABLED=true`, `POD_STORAGE_BACKEND=commit_log`, `POD_MEMORY_BACKEND=memory_bank`, and `GOOGLE_CLOUD_PROJECT=hussh-one-pod`.
 - The revision environment contains neither `PUPPY_RELAY_URL` nor `PUPPY_RELAY_RENDEZVOUS_URL`. A Puppy connection therefore cannot be inferred from the installed service configuration; actual relay enrollment and inference remain unverified. No service update, secret read, IAM change or deployment was attempted.
+
+## Claude infrastructure branch reconciliation — 12 September 2026 (branch-only)
+
+- The private infrastructure branch is `claude/hushh-infrastructure-analysis-7o991c` at `9f8c11938`; its common ancestor with this branch is `883327eaf`. Patch comparison shows that the substantive pod/Puppy fixes (model-step streaming, direct Puppy capability refusal, device eviction, memory acknowledgement recovery, incarnation fencing, upgrade safety and reviewer timing) are already present on `feat/consumer-mcp` under equivalent commits.
+- The pod-architecture merge guard and client-environment parity guard are also already present through the branch's existing guard/parity commits. The only compatible missing change was the operator runbook correction, applied as `e2c3c8ff8`. A wholesale merge was intentionally not performed because the private branch removes the consumer-MCP surfaces this branch owns.
+- Hermes remains separate at clean `main` revision `c63ddfb08`. Its relay implementation and 14-test contract suite are present, but the active local gateway process exposes no `PUPPY_*` relay configuration and no `dev-puppy` relay process was found. This confirms source compatibility only; it does not prove an enrolled device or live inference connection.
+- This reconciliation changed only this branch's documentation. No Hermes edit, ADK worktree edit, deployment, service update, secret/IAM mutation, main/UAT/production promotion or hosted migration occurred.
