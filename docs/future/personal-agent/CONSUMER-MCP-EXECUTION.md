@@ -362,4 +362,5 @@ their provisional statements while preserving the original evidence trail.
 ## Pod route review receipt — 12 September 2026
 
 - Remote protocol validation run `34689003660` evaluated code-equivalent head `6f9bd5c99`; its only failure was the reviewed-route allowlist missing the three intentionally mounted durable-task paths. `tests/test_pod_server.py` now records `/api/one/pod/tasks`, `/api/one/pod/tasks/{task_id}` and `/api/one/pod/tasks/{task_id}/cancel` as hub-machine-only routes. The focused pod-server check passes **31 tests** locally.
-- No owner-direct wall expansion, deployment, migration, IAM change, main/UAT/production promotion, Hermes or ADK worktree change occurred. A fresh remote validation is required for the final code head after this review-ledger correction.
+- Remote backend validation run `34689537038` passed for final implementation head `b9f0c4a64`: governance, secret scan, upstream sync, integration, MCP package, protocol Python and CI status gate all succeeded. The web/iOS jobs were correctly skipped by the requested backend scope.
+- No owner-direct wall expansion, deployment, migration, IAM change, main/UAT/production promotion, Hermes or ADK worktree change occurred.
