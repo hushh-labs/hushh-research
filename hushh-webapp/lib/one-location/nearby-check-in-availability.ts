@@ -1,4 +1,5 @@
 import { resolveAppEnvironment } from "@/lib/app-env";
+import { isNativeUiTestSession } from "@/lib/testing/native-test";
 
 /**
  * Hard ceiling for a usable check-in fix, mirroring the backend's
@@ -24,18 +25,40 @@ export const ONE_LOCATION_NEARBY_COARSE_ACCURACY_METERS = 200;
 /**
  * Whether to offer nearby check-in in this build.
  *
- * Outside production the flow is always on. Production is off unless the build
- * opts in, because the check-in point is client-supplied and cannot be
- * attested: the backend bounds a roaming attack through its continuity guard
- * but cannot prove any single check-in is honest.
+ * Every lane except local development has to opt in. The check-in point is
+ * client-supplied and cannot be attested: the backend bounds a roaming attack
+ * through its continuity guard but cannot prove any single check-in is honest,
+ * and `docs/reference/architecture/one-location-agent.md` is explicit that this
+ * is "a visibly labelled local/UAT simulation" which needs organizer admission
+ * proof, replay resistance, shared abuse limits and bidirectional Block/Report
+ * before trusted attendance or spoof resistance may be claimed.
  *
- * The backend remains authoritative and admits production callers by cohort.
- * This gate only avoids collecting a location for a flow that would then be
- * refused, so it is deliberately the looser of the two — a build with the flag
- * on still gets a 404 from the backend unless that account is admitted.
+ * The gate used to be an environment comparison against production, which
+ * offered the flow to every public App Store and Play Store install. Those
+ * binaries are stamped `NEXT_PUBLIC_APP_ENV=uat` because they ship against the
+ * UAT backend (`release-ios-appstore.yml`, `ship-android-playstore-v1.yml`), so
+ * an environment-shaped gate reads a store install as non-production and hands
+ * a real person a presence feature we do not yet claim is spoof-resistant —
+ * and against the UAT backend it does not fail closed either. Distribution and
+ * backend environment are separate facts, exactly as in
+ * `lib/testing/location-map-demo.ts`.
+ *
+ * The deployed web lanes are unaffected: both already pass
+ * `_ONE_LOCATION_NEARBY_CHECK_IN` through `deploy/frontend.cloudbuild.yaml`.
+ * The store lanes simply never set it, which is the point.
+ *
+ * The backend remains authoritative and admits callers by cohort. This gate
+ * only avoids collecting a location for a flow that would then be refused, so
+ * it stays the looser of the two — a build with the flag on still gets a 404
+ * unless that account is admitted.
  */
 export function isOneLocationNearbyCheckInAvailable(): boolean {
-  if (resolveAppEnvironment() !== "production") return true;
+  // XCUITest / Espresso automation, which is launch-arg gated and unreachable
+  // for a real store user. Native UI tests build from `.env.uat.local` and are
+  // therefore UAT-stamped like a store binary; without this a nearby test added
+  // later would fail for a reason that has nothing to do with the feature.
+  if (isNativeUiTestSession()) return true;
+  if (resolveAppEnvironment() === "development") return true;
   return (
     String(process.env.NEXT_PUBLIC_ONE_LOCATION_NEARBY_CHECK_IN ?? "")
       .trim()
