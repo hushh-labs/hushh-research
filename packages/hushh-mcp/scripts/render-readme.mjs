@@ -127,6 +127,7 @@ The private \`feat/consumer-mcp\` branch adds a separate owner-bound catalog for
 
 - \`get_hussh_connection\` and \`get_hussh_setup_status\` — secure setup handoff and resumable status;
 - \`list_hussh_capabilities\`, \`list_hussh_connections\`, and \`list_hussh_receipts\` — bounded discovery, connection metadata, and non-bearer audit metadata;
+- \`list_hussh_integrations\`, \`connect_hussh_integration\`, and \`disconnect_hussh_integration\` — owner-scoped Google integration status, secure OAuth handoff, and confirmation-gated service revocation;
 - \`read_hussh_memory\`, \`save_hussh_memory\`, \`correct_hussh_memory\`, and \`export_hussh_memory\` — owner-pod PKM operations;
 - \`delegate_hussh_task\` — one bounded private-agent turn with a separate \`cap.one.invoke\` approval. A registered Puppy device can be selected explicitly with \`runtime_provider=puppy\` and \`puppy_device_id\`; arbitrary providers are rejected and the pod remains the execution authority;
 - \`disconnect_hussh_connection\` — explicit self-disconnect for the current assistant generation.

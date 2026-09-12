@@ -11,6 +11,9 @@ from mcp_modules.tools.consumer_tools import (
     ConsumerConnectionResult,
     ConsumerConnectionsResult,
     ConsumerDisconnectResult,
+    ConsumerIntegrationConnectResult,
+    ConsumerIntegrationDisconnectResult,
+    ConsumerIntegrationsResult,
     ConsumerMemoryResult,
     ConsumerReceiptsResult,
     ConsumerSetupStatusResult,
@@ -85,6 +88,60 @@ def _private_tool_definitions() -> list[Tool]:
             annotations={
                 "readOnlyHint": True,
                 "destructiveHint": False,
+                "idempotentHint": True,
+                "openWorldHint": False,
+            },
+        ),
+        Tool(
+            name="list_hussh_integrations",
+            description="List supported owner Google integrations without returning provider credentials.",
+            inputSchema=empty,
+            outputSchema=ConsumerIntegrationsResult.model_json_schema(),
+            annotations={
+                "readOnlyHint": True,
+                "destructiveHint": False,
+                "idempotentHint": True,
+                "openWorldHint": False,
+            },
+        ),
+        Tool(
+            name="connect_hussh_integration",
+            description="Start a secure owner-approved Google integration handoff. The assistant receives a short-lived approval URL and cannot approve access itself.",
+            inputSchema=schema(
+                {
+                    "service": {
+                        "type": "string",
+                        "enum": ["gmail", "calendar", "drive", "contacts"],
+                    },
+                    "access_level": {"type": "string", "enum": ["read", "manage"]},
+                },
+                ["service"],
+            ),
+            outputSchema=ConsumerIntegrationConnectResult.model_json_schema(),
+            annotations={
+                "readOnlyHint": False,
+                "destructiveHint": False,
+                "idempotentHint": True,
+                "openWorldHint": True,
+            },
+        ),
+        Tool(
+            name="disconnect_hussh_integration",
+            description="Disconnect one owner Google integration after explicit confirmation. Other provider grants and the private agent remain intact.",
+            inputSchema=schema(
+                {
+                    "service": {
+                        "type": "string",
+                        "enum": ["gmail", "calendar", "drive", "contacts"],
+                    },
+                    "confirm": {"type": "boolean", "const": True},
+                },
+                ["service", "confirm"],
+            ),
+            outputSchema=ConsumerIntegrationDisconnectResult.model_json_schema(),
+            annotations={
+                "readOnlyHint": False,
+                "destructiveHint": True,
                 "idempotentHint": True,
                 "openWorldHint": False,
             },

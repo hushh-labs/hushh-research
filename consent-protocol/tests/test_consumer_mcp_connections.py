@@ -374,6 +374,9 @@ async def test_mcp_dispatch_returns_owner_handoff_without_granting_access(consum
         assert projected["delegate_hussh_task"]["availability"] == "approval_required"
         assert projected["request-consent"]["execution"] == "consent_service"
         assert projected["get_hussh_connection"]["execution"] == "secure_handoff"
+        assert projected["list_hussh_integrations"]["execution"] == "consent_service"
+        assert projected["connect_hussh_integration"]["execution"] == "secure_handoff"
+        assert projected["disconnect_hussh_integration"]["availability"] == "approval_required"
         connections = await mcp_server.call_tool("list_hussh_connections", {})
         assert not connections.isError
         assert connections.structuredContent["state"] == "available"
@@ -534,6 +537,91 @@ async def test_consumer_mcp_reads_resumable_setup_status_without_starting_a_job(
         {"stage": "applying_iam", "at": "2026-09-11T00:00:00+00:00"}
     ]
     assert "bootstrap_sa" not in result.structuredContent["stages"][0]
+
+
+@pytest.mark.asyncio
+async def test_consumer_mcp_google_integrations_use_existing_owner_service_boundary(
+    consumer, monkeypatch
+):
+    import mcp_server
+    from mcp_modules.developer_context import (
+        reset_current_developer_principal,
+        set_current_developer_principal,
+    )
+    from mcp_modules.tools import consumer_tools
+
+    principal, _, _ = connect(consumer)
+
+    class _Google:
+        def __init__(self):
+            self.disconnected: list[tuple[str, str]] = []
+
+        def status(self, *, user_id, service):
+            return {
+                "configured": True,
+                "connected": service == "calendar",
+                "status": "connected" if service == "calendar" else "disconnected",
+                "access_level": "manage" if service == "calendar" else None,
+            }
+
+        async def start(self, **kwargs):
+            assert kwargs["user_id"] == "owner_a"
+            assert kwargs["service"] == "gmail"
+            assert kwargs["access_level"] == "read"
+            assert kwargs["redirect_uri"] is None
+            assert kwargs["login_hint"] is None
+            return {
+                "authorize_url": "https://accounts.google.com/o/oauth2/v2/auth?state=opaque",
+                "expires_at": "2026-09-11T00:10:00+00:00",
+            }
+
+        def disconnect_service(self, *, user_id, service):
+            self.disconnected.append((user_id, service))
+            return {"status": "disconnected"}
+
+    google = _Google()
+    monkeypatch.setattr(consumer_tools, "GoogleConnectionService", lambda: google)
+    context = set_current_developer_principal(principal)
+    try:
+        names = {tool.name for tool in await mcp_server.list_tools()}
+        assert {
+            "list_hussh_integrations",
+            "connect_hussh_integration",
+            "disconnect_hussh_integration",
+        }.issubset(names)
+
+        listed = await mcp_server.call_tool("list_hussh_integrations", {})
+        assert not listed.isError
+        assert listed.structuredContent["state"] == "available"
+        assert listed.structuredContent["items"][1] == {
+            "service": "calendar",
+            "configured": True,
+            "connected": True,
+            "status": "connected",
+            "access_level": "manage",
+        }
+        assert "google_email" not in listed.structuredContent["items"][0]
+        assert "scope_csv" not in listed.structuredContent["items"][0]
+
+        connected = await mcp_server.call_tool("connect_hussh_integration", {"service": "gmail"})
+        assert not connected.isError
+        assert connected.structuredContent["state"] == "approval_required"
+        assert connected.structuredContent["secure_url"].startswith("https://accounts.google.com/")
+
+        refused = await mcp_server.call_tool(
+            "disconnect_hussh_integration", {"service": "calendar", "confirm": False}
+        )
+        assert refused.isError
+        assert google.disconnected == []
+
+        disconnected = await mcp_server.call_tool(
+            "disconnect_hussh_integration", {"service": "calendar", "confirm": True}
+        )
+        assert not disconnected.isError
+        assert disconnected.structuredContent["state"] == "disconnected"
+        assert google.disconnected == [("owner_a", "calendar")]
+    finally:
+        reset_current_developer_principal(context)
 
 
 def test_receipts_are_bounded_non_bearer_owner_audit_records(consumer):

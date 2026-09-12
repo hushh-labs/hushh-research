@@ -26,6 +26,10 @@ from hushh_mcp.services.consumer_mcp_tasks import (
     ConsumerTaskApprovalRequired,
     ConsumerTaskUnavailable,
 )
+from hushh_mcp.services.google_connection_service import (
+    GoogleConnectionError,
+    GoogleConnectionService,
+)
 from mcp_modules.developer_context import get_current_developer_principal
 
 
@@ -106,6 +110,43 @@ class ConsumerDisconnectResult(BaseModel):
     state: Literal["disconnected"]
     connection_id: str
     generation: int
+    next_action: str
+
+
+_GOOGLE_SERVICES = ("gmail", "calendar", "drive", "contacts")
+_GOOGLE_ACCESS_LEVELS = ("read", "manage")
+
+
+class ConsumerIntegrationItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    service: Literal["gmail", "calendar", "drive", "contacts"]
+    configured: bool
+    connected: bool
+    status: str = Field(..., max_length=32)
+    access_level: str | None = Field(default=None, max_length=16)
+
+
+class ConsumerIntegrationsResult(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    state: Literal["available"]
+    items: list[ConsumerIntegrationItem] = Field(default_factory=list, max_length=4)
+    next_action: str
+
+
+class ConsumerIntegrationConnectResult(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    state: Literal["approval_required", "connected"]
+    service: Literal["gmail", "calendar", "drive", "contacts"]
+    access_level: Literal["read", "manage"]
+    secure_url: str | None = None
+    expires_at: str | None = Field(default=None, max_length=64)
+    next_action: str
+
+
+class ConsumerIntegrationDisconnectResult(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    state: Literal["disconnected"]
+    service: Literal["gmail", "calendar", "drive", "contacts"]
     next_action: str
 
 
@@ -328,6 +369,9 @@ async def handle_list_hussh_capabilities(arguments: dict) -> CallToolResult:
     consumer_names = {
         "get_hussh_connection",
         "get_hussh_setup_status",
+        "list_hussh_integrations",
+        "connect_hussh_integration",
+        "disconnect_hussh_integration",
         "read_hussh_memory",
         "save_hussh_memory",
         "correct_hussh_memory",
@@ -353,9 +397,15 @@ async def handle_list_hussh_capabilities(arguments: dict) -> CallToolResult:
         name = str(tool.name)
         if name not in consumer_names and name not in public_names:
             continue
-        if name in {"get_hussh_connection", "get_hussh_setup_status"}:
+        if name in {"get_hussh_connection", "get_hussh_setup_status", "connect_hussh_integration"}:
             execution = "secure_handoff"
             availability = "secure_handoff"
+        elif name == "list_hussh_integrations":
+            execution = "consent_service"
+            availability = "contract_available"
+        elif name == "disconnect_hussh_integration":
+            execution = "consent_service"
+            availability = "approval_required"
         elif name in {
             "read_hussh_memory",
             "save_hussh_memory",
@@ -489,6 +539,153 @@ async def handle_disconnect_hussh_connection(arguments: dict) -> CallToolResult:
             connection_id=str(result["connection_id"]),
             generation=int(result["generation"]),
             next_action="This assistant is disconnected. The private agent and its information remain available to you.",
+        )
+    )
+
+
+def _consumer_owner(principal: object | None) -> str | None:
+    if not has_consumer_oauth_identity(principal):
+        return None
+    owner = str(getattr(principal, "subject_firebase_uid", "") or "").strip()
+    return owner or None
+
+
+def _validate_google_service(
+    arguments: dict, *, allow_access_level: bool = False
+) -> tuple[str, str | None]:
+    if not isinstance(arguments, dict):
+        raise ValueError("arguments must be an object")
+    allowed = {"service", "access_level"} if allow_access_level else {"service"}
+    if not set(arguments).issubset(allowed) or "service" not in arguments:
+        raise ValueError("only service and access_level are accepted")
+    service = arguments.get("service")
+    if not isinstance(service, str) or service not in _GOOGLE_SERVICES:
+        raise ValueError("service must be gmail, calendar, drive, or contacts")
+    access_level = arguments.get("access_level") if allow_access_level else None
+    if access_level is not None and (
+        not isinstance(access_level, str) or access_level not in _GOOGLE_ACCESS_LEVELS
+    ):
+        raise ValueError("access_level must be read or manage")
+    if access_level == "manage" and service != "calendar":
+        raise ValueError("manage access is currently supported for calendar only")
+    return service, access_level
+
+
+async def handle_list_hussh_integrations(arguments: dict) -> CallToolResult:
+    """List supported owner Google integrations without returning credentials."""
+    if arguments:
+        return _error("INVALID_ARGUMENTS", "This tool accepts no arguments.")
+    owner = _consumer_owner(get_current_developer_principal())
+    if owner is None:
+        return _error("OWNER_AUTH_REQUIRED", "Reconnect using your own Hussh account.")
+    service = GoogleConnectionService()
+    try:
+        items = [
+            ConsumerIntegrationItem(
+                service=name,
+                configured=bool(result.get("configured")),
+                connected=bool(result.get("connected")),
+                status=str(result.get("status") or "disconnected")[:32],
+                access_level=(str(result.get("access_level") or "")[:16] or None),
+            )
+            for name in _GOOGLE_SERVICES
+            for result in [service.status(user_id=owner, service=name)]
+        ]
+    except Exception:
+        return _error(
+            "INTEGRATIONS_UNAVAILABLE",
+            "Connected-service status is temporarily unavailable.",
+        )
+    return _result(
+        ConsumerIntegrationsResult(
+            state="available",
+            items=items,
+            next_action="Use connect_hussh_integration for a secure provider approval or disconnect_hussh_integration to revoke one service.",
+        )
+    )
+
+
+async def handle_connect_hussh_integration(arguments: dict) -> CallToolResult:
+    """Start provider OAuth; the user completes approval in the secure URL."""
+    try:
+        service_name, access_level = _validate_google_service(arguments, allow_access_level=True)
+    except ValueError as error:
+        return _error("INVALID_ARGUMENTS", str(error))
+    owner = _consumer_owner(get_current_developer_principal())
+    if owner is None:
+        return _error("OWNER_AUTH_REQUIRED", "Reconnect using your own Hussh account.")
+    level = access_level or "read"
+    try:
+        current = GoogleConnectionService().status(user_id=owner, service=service_name)
+        if current.get("connected") and (
+            level == "read" or current.get("access_level") == "manage"
+        ):
+            return _result(
+                ConsumerIntegrationConnectResult(
+                    state="connected",
+                    service=service_name,
+                    access_level=level,
+                    next_action="This integration is already connected. Use the owner-pod task or typed service capability next.",
+                )
+            )
+        result = await GoogleConnectionService().start(
+            user_id=owner,
+            service=service_name,
+            access_level=level,
+            redirect_uri=None,
+            login_hint=None,
+        )
+    except GoogleConnectionError as error:
+        return _error("INTEGRATION_CONNECT_UNAVAILABLE", str(error))
+    except Exception:
+        return _error(
+            "INTEGRATION_CONNECT_UNAVAILABLE", "Provider approval is temporarily unavailable."
+        )
+    return _result(
+        ConsumerIntegrationConnectResult(
+            state="approval_required",
+            service=service_name,
+            access_level=level,
+            secure_url=str(result.get("authorize_url") or "") or None,
+            expires_at=str(result.get("expires_at") or "")[:64] or None,
+            next_action="Open the secure link and approve the provider. The assistant cannot approve access on your behalf.",
+        )
+    )
+
+
+async def handle_disconnect_hussh_integration(arguments: dict) -> CallToolResult:
+    """Disable one provider grant after explicit user confirmation."""
+    if not isinstance(arguments, dict) or arguments.get("confirm") is not True:
+        return _error(
+            "CONFIRMATION_REQUIRED",
+            "Set confirm=true to disconnect this provider. Other integrations remain intact.",
+        )
+    try:
+        service_name, _ = _validate_google_service(
+            {"service": arguments.get("service")}, allow_access_level=False
+        )
+    except ValueError as error:
+        return _error("INVALID_ARGUMENTS", str(error))
+    if set(arguments) != {"service", "confirm"}:
+        return _error("INVALID_ARGUMENTS", "Only service and confirm are accepted.")
+    owner = _consumer_owner(get_current_developer_principal())
+    if owner is None:
+        return _error("OWNER_AUTH_REQUIRED", "Reconnect using your own Hussh account.")
+    try:
+        await asyncio.to_thread(
+            GoogleConnectionService().disconnect_service,
+            user_id=owner,
+            service=service_name,
+        )
+    except GoogleConnectionError as error:
+        return _error("INTEGRATION_DISCONNECT_UNAVAILABLE", str(error))
+    except Exception:
+        return _error("INTEGRATION_DISCONNECT_UNAVAILABLE", "Provider access could not be revoked.")
+    return _result(
+        ConsumerIntegrationDisconnectResult(
+            state="disconnected",
+            service=service_name,
+            next_action="This provider grant is disconnected. The private agent and other integrations remain available.",
         )
     )
 

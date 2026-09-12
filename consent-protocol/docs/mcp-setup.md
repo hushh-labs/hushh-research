@@ -281,8 +281,8 @@ isolated `feat/consumer-mcp` branch now contains the typed owner-pod memory
 execution seam, but no hosted migration, installed pod acceptance, or marketplace
 review has occurred.
 Owner-bound, resource-aware OAuth sessions additionally discover
-`get_hussh_connection`, `get_hussh_setup_status`, and
-`list_hussh_capabilities`, and `list_hussh_receipts`. The connection tool returns
+`get_hussh_connection`, `get_hussh_setup_status`, `list_hussh_capabilities`,
+`list_hussh_receipts`, and the typed Google integration tools. The connection tool returns
 an authenticated setup or memory-approval link; the status tool reads the
 existing resumable setup job and exposes only sanitized stage state. Neither tool
 approves permission, reads memory or provisions infrastructure. The
@@ -295,6 +295,13 @@ assistant. `delegate_hussh_task` requires a separate approved
 `cap.one.invoke` grant and forwards one bounded task to the existing owner pod;
 it does not provide durable task status/cancellation, replay interrupted work,
 or fall back to shared intelligence.
+`list_hussh_integrations` returns owner-scoped Google service status without
+credentials. `connect_hussh_integration` starts the existing PKCE OAuth handoff
+and returns only its short-lived approval URL and expiry.
+`disconnect_hussh_integration` requires `confirm: true` and disables one service
+grant through `GoogleConnectionService`; it does not revoke sibling grants.
+Provider action execution, owner-pod custody, and installed-host acceptance
+remain separate gates.
 The existing developer five-tool catalog remains unchanged for application-only
 credentials. Account creation, pod custody, installed owner-pod acceptance and
 full consumer coverage remain incomplete. On the isolated branch, typed memory
@@ -322,6 +329,9 @@ The existing OAuth proxy and `/oauth/authorize` page also serve consumer review:
 | `get_hussh_setup_status` (MCP) | Owner OAuth; read the existing setup job without provisioning or creating a second job |
 | `list_hussh_capabilities` (MCP) | Owner OAuth; read the authored consumer capability boundaries |
 | `list_hussh_receipts` (MCP) | Owner OAuth; read bounded consent receipt metadata without bearer tokens |
+| `list_hussh_integrations` (MCP) | Owner OAuth; read Google integration status without credentials |
+| `connect_hussh_integration` (MCP) | Owner OAuth; start a short-lived, user-completed Google PKCE handoff |
+| `disconnect_hussh_integration` (MCP) | Owner OAuth; confirmation-gated service grant disconnect |
 | `disconnect_hussh_connection` (MCP) | Owner OAuth; explicit self-disconnect for the current generation |
 | `delegate_hussh_task` (MCP) | Owner OAuth plus separate `cap.one.invoke`; one bounded owner-pod task, no replay or shared fallback |
 | `POST /oauth/consumer-connections/prepare` | Current owner OAuth; resume a binding to the existing serving pod |
