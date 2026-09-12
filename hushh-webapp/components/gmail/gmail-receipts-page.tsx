@@ -1697,7 +1697,7 @@ export default function GmailReceiptsPage({
                 <Button
                   onClick={() => void handleSyncNow()}
                   disabled={syncing || gmailActionBusy !== null}
-                  className="min-w-[150px]"
+                  className="w-full sm:w-auto sm:min-w-[150px]"
                   data-voice-control-id="sync_gmail_receipts"
                   data-voice-action-id="profile.gmail.sync_now"
                   data-voice-label={primaryActionLabel}
@@ -1715,7 +1715,7 @@ export default function GmailReceiptsPage({
                   effect="fade"
                   onClick={() => setShowDisconnectConfirm(true)}
                   disabled={syncing || gmailActionBusy !== null}
-                  className="min-w-[150px]"
+                  className="w-full sm:w-auto sm:min-w-[150px]"
                   data-voice-control-id="disconnect_gmail"
                   data-voice-label="Disconnect Gmail"
                   data-voice-purpose="disconnects Gmail sync while keeping stored receipts available."
@@ -2264,9 +2264,9 @@ export default function GmailReceiptsPage({
               renderMobileCard={(receipt) => (
                 <SurfaceInset
                   key={receipt.id}
-                  className="space-y-2.5 rounded-xl border border-border/70 bg-card p-3.5 shadow-sm"
+                  className="w-full min-w-0 max-w-full space-y-2.5 overflow-hidden rounded-xl border border-border/70 bg-card p-3.5 shadow-sm"
                 >
-                  <div className="flex items-start justify-between gap-2">
+                  <div className="flex w-full min-w-0 items-start justify-between gap-2">
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-sm font-semibold text-foreground">
                         {receipt.merchant_name ||
@@ -2282,18 +2282,18 @@ export default function GmailReceiptsPage({
                     </Badge>
                   </div>
                   {receipt.subject ? (
-                    <p className="truncate text-xs text-muted-foreground">
+                    <p className="w-full min-w-0 truncate text-xs text-muted-foreground">
                       {receipt.subject}
                     </p>
                   ) : null}
-                  <div className="flex items-center justify-between border-t border-border/50 pt-2 text-[11.5px] text-muted-foreground">
-                    <span>
+                  <div className="flex w-full min-w-0 items-center justify-between gap-2 border-t border-border/50 pt-2 text-[11.5px] text-muted-foreground">
+                    <span className="truncate">
                       {formatDate(
                         receipt.receipt_date || receipt.gmail_internal_date,
                       )}
                     </span>
                     {receipt.order_id ? (
-                      <span className="max-w-[150px] truncate font-mono text-[11px]">
+                      <span className="max-w-[150px] shrink-0 truncate font-mono text-[11px]">
                         Order: {receipt.order_id}
                       </span>
                     ) : null}

@@ -235,7 +235,7 @@ export function DataTable<TData, TValue>({
 
   return (
     <div
-      className="space-y-[var(--data-table-controls-gap)]"
+      className="w-full min-w-0 max-w-full space-y-[var(--data-table-controls-gap)]"
       data-no-route-swipe={hasMultiplePages ? "true" : undefined}
     >
       {(enableSearch || (filterKey && filterOptions)) && (
@@ -299,7 +299,7 @@ export function DataTable<TData, TValue>({
       )}
 
       {renderMobileCard ? (
-        <div className="grid gap-3 md:hidden" data-slot="data-table-mobile-list">
+        <div className="grid w-full min-w-0 grid-cols-1 gap-3 md:hidden" data-slot="data-table-mobile-list">
           {table.getRowModel().rows?.length ? (
             table.getRowModel().rows.map((row, index) => (
               <React.Fragment key={row.id}>
@@ -362,6 +362,7 @@ export function DataTable<TData, TValue>({
       <div
         className={cn(
           surfaceDataTableShellClassName,
+          "w-full min-w-0 max-w-full [-webkit-overflow-scrolling:touch]",
           renderMobileCard && "hidden md:block",
           resolvedTableShellClassName,
         )}

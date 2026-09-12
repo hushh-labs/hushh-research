@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Shield } from "lucide-react";
+import { ArrowLeft, Shield, Sun, Moon, Users } from "lucide-react";
+import { OneArcIllustration } from "@/components/onboarding/OneArcIllustration";
 import { AuthService } from "@/lib/services/auth-service";
 import { ApiService } from "@/lib/services/api-service";
 import { useAuth } from "@/lib/firebase/auth-context";
@@ -60,9 +61,9 @@ const AUTH_CANCEL_CODES = new Set([
 // charcoal cards with light text on the dark sheet. Reviewer stays a quiet
 // outlined tertiary in both themes.
 const APPLE_BTN_CLASS =
-  "!bg-white !text-[#17130C] border border-black/10 shadow-sm hover:!bg-black/[0.02] dark:!bg-[#1c1c1e] dark:!text-[#F7F3EA] dark:border-white/12 dark:hover:!bg-[#26262a]";
+  "!bg-white !text-zinc-900 border border-slate-200/90 shadow-sm hover:!bg-slate-50 h-[56px] sm:h-[60px] rounded-[20px] text-[17px] font-medium whitespace-nowrap flex items-center justify-center dark:!bg-[#1C1C1E] dark:!text-white dark:border-white/10 dark:hover:!bg-[#26262a]";
 const GOOGLE_BTN_CLASS =
-  "!bg-white !text-[#17130C] border border-black/10 shadow-sm hover:!bg-black/[0.02] dark:!bg-[#1c1c1e] dark:!text-[#F7F3EA] dark:border-white/12 dark:hover:!bg-[#26262a]";
+  "!bg-white !text-zinc-900 border border-slate-200/90 shadow-sm hover:!bg-slate-50 h-[56px] sm:h-[60px] rounded-[20px] text-[17px] font-medium whitespace-nowrap flex items-center justify-center dark:!bg-[#1C1C1E] dark:!text-white dark:border-white/10 dark:hover:!bg-[#26262a]";
 const REVIEWER_BTN_CLASS =
   "!bg-transparent !text-[#6b6b70] border border-black/10 shadow-none hover:!bg-black/[0.03] dark:!text-white/60 dark:border-white/15 dark:hover:!bg-white/[0.05]";
 
@@ -191,8 +192,26 @@ export function AuthStep({
   const legalReturnControlIdRef = useRef<string | null>(null);
   const legalCloseResolversRef = useRef<Array<() => void>>([]);
 
+  const [isDark, setIsDark] = useState(false);
+
   useEffect(() => {
     setHydrated(true);
+    if (typeof document !== "undefined") {
+      setIsDark(document.documentElement.classList.contains("dark"));
+    }
+  }, []);
+
+  const toggleTheme = useCallback(() => {
+    if (typeof document !== "undefined") {
+      const root = document.documentElement;
+      const nextDark = !root.classList.contains("dark");
+      if (nextDark) {
+        root.classList.add("dark");
+      } else {
+        root.classList.remove("dark");
+      }
+      setIsDark(nextDark);
+    }
   }, []);
 
   const publishProviderAttempt = useCallback(
@@ -1036,7 +1055,7 @@ export function AuthStep({
       // parser requires escaped whitespace around the minus sign
       // ("100dvh_-_var(...)"); without it the whole declaration is invalid
       // CSS and silently dropped, which is what happened here before.
-      className="relative w-full overflow-hidden"
+      className="relative w-full overflow-hidden bg-white dark:bg-[#000000]"
       style={{
         height: "calc(100dvh - var(--app-scroll-bottom-pad, 0px))",
         minHeight: "calc(100svh - var(--app-scroll-bottom-pad, 0px))",
@@ -1077,57 +1096,39 @@ export function AuthStep({
         data-voice-control-id={
           activeLegalDoc || providerBusy ? undefined : "auth_back"
         }
-        className="fixed left-4 top-[calc(max(var(--app-safe-area-top-effective),0.5rem))] z-50 grid h-9 w-9 place-items-center rounded-full bg-black/[0.05] text-[#1d1d1f]/70 transition-colors hover:bg-black/[0.08] disabled:pointer-events-none disabled:opacity-40 dark:bg-white/10 dark:text-white/80 dark:hover:bg-white/15"
+        className="fixed left-4 top-[calc(max(var(--app-safe-area-top-effective),0.75rem))] z-50 grid h-9 w-9 place-items-center rounded-full bg-black/[0.05] text-[#1d1d1f]/70 transition-colors hover:bg-black/[0.08] disabled:pointer-events-none disabled:opacity-40 dark:bg-white/10 dark:text-white/80 dark:hover:bg-white/15"
       >
         <ArrowLeft className="h-[18px] w-[18px]" strokeWidth={2} />
       </button>
 
       <div
-        className="relative mx-auto flex w-full max-w-[440px] flex-col justify-center"
+        className="relative mx-auto flex w-full max-w-[440px] flex-col justify-center px-4"
         style={{
           height: "calc(100dvh - var(--app-scroll-bottom-pad, 0px))",
           minHeight: "calc(100svh - var(--app-scroll-bottom-pad, 0px))",
         }}
         data-auth-content-block
       >
-        {/* Center the complete sign-in group as one visual block while the
-            fixed Back control remains independently anchored above it. Legal
-            copy is anchored separately at the bottom like a standard auth
-            footer, so it does not read as primary sign-in content. */}
         <div
-          className="flex w-full flex-none flex-col items-center gap-6 px-6 pb-6 text-center"
+          className="flex w-full flex-none flex-col items-center gap-5 px-2 text-center"
           data-auth-signin-clusters
         >
-          <div className="flex flex-col items-center gap-4">
-            {/* Quiet mark: the bare 🤫 over a soft accent glow, no medallion
-                chrome (badge circle removed by design). */}
-            <div
-              className="relative flex h-[92px] w-[92px] items-center justify-center"
-              aria-hidden="true"
-            >
-              <span className="pointer-events-none absolute h-28 w-28 rounded-full bg-accent/20 blur-2xl" />
-              <span className="hushh-brand-mark relative select-none text-[56px] leading-none drop-shadow-[0_6px_14px_rgba(0,0,0,0.25)]">
-                🤫
-              </span>
-            </div>
+          <div className="flex w-full flex-col items-center gap-3">
+            {/* The open box with fan arc of app icons matching design */}
+            <OneArcIllustration />
+
             <h1
               role="heading"
               aria-level={1}
               aria-label="Welcome to One"
-              className="font-[family-name:var(--font-app-display)] text-[34px] font-extrabold leading-[1.05] tracking-[-1.1px] text-[#17130C] dark:text-[#FAF6EE]"
+              className="whitespace-nowrap font-bold text-[25px] sm:text-[27px] leading-[32px] tracking-[-0.5px] text-[#17130C] dark:text-[#F2F2F7]"
             >
               Welcome to One
-              <span style={{ color: "var(--app-accent)" }}>.</span>
+              <span className="text-[#387BF5]">.</span>
             </h1>
           </div>
 
-          {/* Buttons sit directly on the shared hero background (no card/sheet
-              behind them), matching the welcome ("/") page's direct-on-canvas
-              CTA. The outer app scroll root already reserves clearance for the
-              fixed onboarding Agent Bar (--onboarding-agent-bar-clearance in
-              app/providers.tsx), so this is a plain content gap rather than a
-              second bar-height reservation. */}
-          <div className="relative mx-auto w-full max-w-[21.5rem] space-y-4">
+          <div className="relative mx-auto w-full max-w-[344px] space-y-3.5">
             <div className="space-y-3" data-auth-provider-actions>
               {providerAttempt?.phase === "attention_required" ? (
                 <p
@@ -1167,18 +1168,22 @@ export function AuthStep({
           </div>
         </div>
       </div>
-      <div className="absolute inset-x-6 bottom-5 z-10 flex justify-center">
+
+      {/* Footer Legal Note */}
+      <div className="absolute inset-x-4 bottom-5 z-10 flex justify-center">
         <div
-          className="flex flex-col items-center gap-3"
+          className="flex items-center gap-3.5 text-left max-w-[24rem]"
           data-auth-supporting-content
         >
-          <p className="type-footnote mx-auto max-w-[24rem] text-center leading-5 text-[#86868b] dark:text-white/45">
+          <HandshakePrivacyIcon className="h-[26px] w-[32px] shrink-0" />
+          <p className="text-xs sm:text-[13px] leading-[1.35] text-[#8E8E93] dark:text-white/90">
             By continuing you agree to our{" "}
+            <br />
             <button
               type="button"
               onClick={() => void openLegalDoc("terms")}
               data-voice-control-id="auth_terms"
-              className="font-semibold text-[color:var(--app-accent-deep)] transition-opacity hover:opacity-70 dark:text-[color:var(--app-accent-deep)]"
+              className="font-semibold text-[#387BF5] transition-opacity hover:opacity-75"
             >
               Terms
             </button>
@@ -1187,10 +1192,11 @@ export function AuthStep({
               type="button"
               onClick={() => void openLegalDoc("privacy")}
               data-voice-control-id="auth_privacy"
-              className="font-semibold text-[color:var(--app-accent-deep)] transition-opacity hover:opacity-70 dark:text-[color:var(--app-accent-deep)]"
+              className="font-semibold text-[#387BF5] transition-opacity hover:opacity-75"
             >
               Privacy Policy
             </button>
+            .
           </p>
         </div>
       </div>
@@ -1239,6 +1245,23 @@ function AppleIcon() {
     >
       <title>Apple</title>
       <path d="M17.05 20.28c-.98.95-2.05.88-3.08.38-1.07-.52-2.07-.51-3.2 0-1.01.43-2.1.49-2.98-.38C5.22 17.63 2.7 12 5.45 8.04c1.47-2.09 3.8-2.31 5.33-1.18 1.1.75 3.3.73 4.45-.04 2.1-1.31 3.55-.95 4.5 1.14-.15.08.2.14 0 .2-2.63 1.34-3.35 6.03.95 7.84-.46 1.4-1.25 2.89-2.26 4.4l-.07.08-.05-.2zM12.03 7.25c-.15-2.23 1.66-4.07 3.74-4.25.17 2.22-1.8 4.19-3.74 4.25z" />
+    </svg>
+  );
+}
+
+function HandshakePrivacyIcon({ className = "h-[26px] w-[32px] shrink-0" }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 33 26" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      {/* Left Person Head & Body */}
+      <path d="M5.14 0C2.3 0 0 2.3 0 5.14C0 7.98 2.3 10.28 5.14 10.28C7.98 10.28 10.28 7.98 10.28 5.14C10.28 2.3 7.98 0 5.14 0Z" fill="#387BF5" />
+      <path d="M0 25.96V16.14C0 12.82 2.68 10.14 6 10.14H9.5C11.71 10.14 13.62 11.33 14.65 13.11L10.5 17.5L5.5 14V25.96H0Z" fill="#387BF5" />
+
+      {/* Right Person Head & Body */}
+      <path d="M27.86 0.04C25.02 0.04 22.72 2.34 22.72 5.18C22.72 8.02 25.02 10.32 27.86 10.32C30.7 10.32 33 8.02 33 5.18C33 2.34 30.7 0.04 27.86 0.04Z" fill="#A4C9FA" />
+      <path d="M33 25.96V16.14C33 12.82 30.32 10.14 27 10.14H23.5C21.29 10.14 19.38 11.33 18.35 13.11L22.5 17.5L27.5 14V25.96H33Z" fill="#A4C9FA" />
+
+      {/* Connection Handshake */}
+      <path d="M10.5 17.5L16.5 13.5L22.5 17.5L16.5 21.5L10.5 17.5Z" fill="#387BF5" />
     </svg>
   );
 }
