@@ -2385,6 +2385,37 @@ class PKMAgentLabService:
         registry_choices: list[dict[str, Any]],
         current_domains: list[str],
     ) -> dict[str, Any]:
+        """Take the intent agent's frame, falling back only where it did not speak.
+
+        The block below this one adopts every field the model returned that is
+        valid for its enum, which is the right shape. What followed it was not:
+        five separate rules let `_fallback_intent_frame` -- a keyword and regex
+        classifier -- overwrite `save_class`, `intent_class` and
+        `mutation_intent` outright, and none of them consulted the model's
+        confidence, only the fallback's own.
+
+        The widest of them fired whenever the fallback scored >= 0.76 and
+        wanted no confirmation, for 11 of the 14 intent classes. Measured
+        2026-09-11 over twelve ordinary sentences, it outranked the model on
+        four: "I prefer espresso without sugar", "Remind me to renew my Costco
+        membership", "I sleep badly when I eat late" and one other. On the
+        third of those the rule files a sleep observation as `preference`
+        whatever the model concluded, which is how a health signal ends up
+        shelved beside a coffee order.
+
+        That is the first shape named in AGENTS.md principle 9: a rule that
+        DECIDES INSTEAD OF the model. So each of those rules now applies only
+        when the model did not answer -- where the fallback is the only
+        judgement that exists and is therefore correct, the exception principle
+        9 states explicitly.
+
+        A rule that WOULD have fired against a real answer is logged rather
+        than dropped in silence. The disagreement rate is the number that says
+        whether the prompt needs work, and it cannot be read off a rule that
+        wins invisibly.
+        """
+        model_answered = isinstance(raw, dict) and bool(raw)
+        suppressed: list[str] = []
         frame = deepcopy(fallback)
         if isinstance(raw, dict):
             save_class = str(raw.get("save_class") or frame["save_class"]).strip().lower()
@@ -2446,11 +2477,14 @@ class PKMAgentLabService:
         if frame["save_class"] == "ephemeral":
             frame["mutation_intent"] = "no_op"
         fallback_confidence = cls._clamp_confidence(fallback.get("confidence"), default=0.0)
-        if (
+        wide_override = (
             fallback_confidence >= 0.76
             and fallback.get("save_class") in _SAVE_CLASSES
             and not fallback.get("requires_confirmation")
-        ):
+        )
+        if wide_override and model_answered:
+            suppressed.append("fallback_confidence_override")
+        if wide_override and not model_answered:
             fallback_choices = fallback.get("candidate_domain_choices") or []
             if fallback_choices:
                 frame["candidate_domain_choices"] = deepcopy(fallback_choices)
@@ -2484,6 +2518,8 @@ class PKMAgentLabService:
             frame["requires_confirmation"] = False
             frame["confirmation_reason"] = ""
             frame["confidence"] = max(0.98, float(frame.get("confidence") or 0.0))
+        elif fallback.get("save_class") == "ambiguous" and model_answered:
+            suppressed.append("fallback_ambiguous_override")
         elif fallback.get("save_class") == "ambiguous":
             frame["save_class"] = "ambiguous"
             frame["intent_class"] = "ambiguous"
@@ -2496,6 +2532,8 @@ class PKMAgentLabService:
                 float(frame.get("confidence") or 0.0),
                 float(fallback.get("confidence") or 0.0),
             )
+        elif fallback.get("save_class") == "ephemeral" and model_answered:
+            suppressed.append("fallback_ephemeral_override")
         elif fallback.get("save_class") == "ephemeral":
             frame["save_class"] = "ephemeral"
             frame["intent_class"] = fallback.get("intent_class") or frame["intent_class"]
@@ -2511,6 +2549,24 @@ class PKMAgentLabService:
             and fallback.get("mutation_intent") in {"correct", "delete"}
             and frame.get("mutation_intent") != fallback.get("mutation_intent")
         ):
+            # DELIBERATELY NOT gated on model_answered, unlike the three rules
+            # above it. This is the one place the fallback is catching an
+            # explicit cue rather than substituting a judgement.
+            #
+            # `test_obvious_location_correction_recovers_from_model_no_op`
+            # holds the case: the model answers `ephemeral` / `ambiguous` /
+            # `no_op` to "Actually I live in New York City now." A correction
+            # dropped is the person's own record left wrong, and it is silent
+            # -- nothing tells them the update did not land. That is a
+            # data-integrity guard, which AGENTS.md principle 9 and
+            # backend-semantic-boundary.md both place outside this doctrine,
+            # the same way a security guard sits outside it.
+            #
+            # The durable fix is still the prompt: "Actually" and "No, ..."
+            # opening a sentence are corrections, and the intent agent should
+            # say so without help. When the live disagreement rate for this
+            # rule reaches zero, it can go. Until then it stays, because the
+            # failure it prevents is one-directional and unrecoverable.
             frame["save_class"] = "durable"
             frame["intent_class"] = fallback["intent_class"]
             frame["mutation_intent"] = fallback["mutation_intent"]
@@ -2523,6 +2579,14 @@ class PKMAgentLabService:
             frame["candidate_domain_choices"] = deepcopy(
                 fallback.get("candidate_domain_choices") or []
             )
+        elif (
+            fallback.get("save_class") == "durable"
+            and fallback.get("mutation_intent") == "extend"
+            and frame.get("mutation_intent") in {"create", "no_op"}
+            and not frame.get("requires_confirmation")
+            and model_answered
+        ):
+            suppressed.append("fallback_extend_override")
         elif (
             fallback.get("save_class") == "durable"
             and fallback.get("mutation_intent") == "extend"
@@ -2541,6 +2605,27 @@ class PKMAgentLabService:
                 float(frame.get("confidence") or 0.0),
                 float(fallback.get("confidence") or 0.0),
             )
+        elif (
+            fallback.get("save_class") == "durable"
+            and not fallback.get("requires_confirmation")
+            and cls._clamp_confidence(fallback.get("confidence"), default=0.0) >= 0.73
+            and (
+                frame.get("intent_class") != fallback.get("intent_class")
+                or frame.get("mutation_intent") != fallback.get("mutation_intent")
+            )
+            and model_answered
+        ):
+            # The widest rule in the method, and the clearest case of the
+            # doctrine's first shape: its trigger condition IS disagreement
+            # with the model, and it resolved that disagreement in the rule's
+            # favour every time, at a lower bar (0.73) than the confidence
+            # rule above it (0.76).
+            #
+            # Measured: "I sleep badly when I eat late." The intent agent
+            # returns `health` at 0.93 confidence; the keyword classifier says
+            # `preference` at 0.76; this rule filed it as `preference`. The
+            # model's own confidence was never part of the comparison.
+            suppressed.append("fallback_disagreement_override")
         elif (
             fallback.get("save_class") == "durable"
             and not fallback.get("requires_confirmation")
@@ -2583,6 +2668,18 @@ class PKMAgentLabService:
             frame["confirmation_reason"] = (
                 "Kai needs a quick confirmation before writing this memory into the PKM."
             )
+        if suppressed:
+            # INFO, not a hint on the frame: the frame is persisted and its
+            # shape is a schema. A rate rising here says the prompt and the
+            # keyword classifier disagree more often than they used to, which
+            # is a prompt to fix, not a rule to restore.
+            logger.info(
+                "pkm_intent_rule_suppressed rules=%s intent_class=%s save_class=%s",
+                ",".join(suppressed),
+                frame.get("intent_class"),
+                frame.get("save_class"),
+            )
+
         return frame
 
     @classmethod
