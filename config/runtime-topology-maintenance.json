@@ -439,6 +439,14 @@
       "evidence": "consent-protocol/mcp_modules/tools/definitions.py; consent-protocol/mcp_modules/tools/consumer_tools.py; consent-protocol/mcp_server.py"
     },
     {
+      "id": "finance_analysis",
+      "tool_name": "analyze_hussh_finance",
+      "operation": "analyze_hussh_finance",
+      "owner": "consumer_mcp",
+      "disposition": "executable",
+      "evidence": "consent-protocol/mcp_modules/tools/definitions.py; consent-protocol/mcp_modules/tools/consumer_tools.py; consent-protocol/mcp_server.py; consent-protocol/hushh_mcp/services/consumer_mcp_finance.py"
+    },
+    {
       "id": "tool.list_hussh_email_workflows",
       "tool_name": "list_hussh_email_workflows",
       "operation": "list_hussh_email_workflows",
@@ -477,14 +485,6 @@
       "disposition": "secure_handoff",
       "evidence": "consent-protocol/mcp_modules/tools/consumer_tools.py; consent-protocol/api/routes/one/email.py; consent-protocol/hushh_mcp/services/one_email_kyc_service.py",
       "reason": "Typed status reads are exposed; consequential draft, approval, send and archive actions use the authenticated owner handoff so the existing confirmation boundary remains authoritative."
-    },
-    {
-      "id": "finance_analysis",
-      "operation": "Kai finance analysis and bounded result retrieval",
-      "owner": "Kai portfolio and analysis services",
-      "disposition": "missing",
-      "evidence": "consent-protocol/api/routes/kai/portfolio.py; consent-protocol/api/routes/kai/stream.py",
-      "reason": "Existing MCP Kai handlers are UI intents and do not expose an owner-scoped analysis job/result contract."
     },
     {
       "id": "delegated_task_lifecycle",

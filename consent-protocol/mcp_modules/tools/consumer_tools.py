@@ -17,6 +17,10 @@ from hushh_mcp.services.consumer_mcp_connections import (
     ConsumerSetupRequired,
     has_consumer_oauth_identity,
 )
+from hushh_mcp.services.consumer_mcp_finance import (
+    ConsumerFinanceInvalid,
+    ConsumerMcpFinance,
+)
 from hushh_mcp.services.consumer_mcp_memory import (
     ConsumerMcpMemory,
     ConsumerMemoryConflict,
@@ -476,6 +480,23 @@ class ConsumerTaskResult(BaseModel):
     next_action: str = Field(..., max_length=512)
 
 
+class ConsumerFinanceResult(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    state: Literal["completed"]
+    operation: Literal["stock_analysis"]
+    execution_target: Literal["owner_pod"]
+    deployment_id: str = Field(..., min_length=1, max_length=128)
+    conversation_id: str = Field(..., min_length=1, max_length=128)
+    ticker: str = Field(..., min_length=1, max_length=20)
+    risk_profile: Literal["conservative", "balanced", "aggressive"]
+    response: str = Field(..., max_length=16_000)
+    runtime_mode: str = Field(..., max_length=64)
+    provider: str | None = Field(default=None, max_length=64)
+    model: str | None = Field(default=None, max_length=128)
+    delegation: dict[str, bool] | None = None
+    next_action: str = Field(..., max_length=512)
+
+
 def _result(payload: BaseModel) -> CallToolResult:
     result = payload.model_dump()
     return CallToolResult(
@@ -684,6 +705,7 @@ async def handle_list_hussh_capabilities(arguments: dict) -> CallToolResult:
         "list_hussh_receipts",
         "disconnect_hussh_connection",
         "delegate_hussh_task",
+        "analyze_hussh_finance",
     }
     public_names = {
         "search-user-scopes",
@@ -759,6 +781,9 @@ async def handle_list_hussh_capabilities(arguments: dict) -> CallToolResult:
             execution = "consent_service"
             availability = "contract_available"
         elif name == "delegate_hussh_task":
+            execution = "owner_pod"
+            availability = "approval_required"
+        elif name == "analyze_hussh_finance":
             execution = "owner_pod"
             availability = "approval_required"
         elif name == "list_hussh_connections":
@@ -2103,6 +2128,31 @@ async def handle_delegate_hussh_task(arguments: dict) -> CallToolResult:
         ConsumerTaskResult(
             **result,
             next_action="The owner pod completed the task; interrupted work is never replayed automatically.",
+        )
+    )
+
+
+async def handle_analyze_hussh_finance(arguments: dict) -> CallToolResult:
+    """Run one bounded finance analysis through the owner's private agent."""
+    principal = get_current_developer_principal()
+    if not has_consumer_oauth_identity(principal):
+        return _error("OWNER_AUTH_REQUIRED", "Reconnect using your own Hussh account.")
+    try:
+        result = await ConsumerMcpFinance().execute(principal, arguments=arguments)
+    except ConsumerFinanceInvalid as error:
+        return _error("INVALID_FINANCE_REQUEST", str(error))
+    except ConsumerTaskApprovalRequired as error:
+        return _error("ONE_APPROVAL_REQUIRED", str(error))
+    except ConsumerTaskUnavailable as error:
+        return _error("OWNER_POD_UNAVAILABLE", str(error))
+    except ConsumerConnectionDenied as error:
+        return _error("FINANCE_ACCESS_REFUSED", str(error))
+    except Exception:
+        return _error("FINANCE_UNAVAILABLE", "Finance analysis is temporarily unavailable.")
+    return _result(
+        ConsumerFinanceResult(
+            **result,
+            next_action="The owner pod completed the finance analysis; no trade or connected-service mutation was performed.",
         )
     )
 

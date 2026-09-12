@@ -65,6 +65,7 @@ The private `feat/consumer-mcp` branch adds a separate owner-bound catalog for t
 - `list_hussh_integrations`, `connect_hussh_integration`, and `disconnect_hussh_integration` — owner-scoped Google integration status, secure OAuth handoff, and confirmation-gated service revocation;
 - `read_hussh_memory`, `save_hussh_memory`, `correct_hussh_memory`, and `export_hussh_memory` — owner-pod PKM operations;
 - `delegate_hussh_task` — one bounded private-agent turn with a separate `cap.one.invoke` approval. A registered Puppy device can be selected explicitly with `runtime_provider=puppy` and `puppy_device_id`; arbitrary providers are rejected and the pod remains the execution authority;
+- `analyze_hussh_finance` — run one bounded, non-mutating stock analysis through the owner pod and Kai specialist. It requires the separate Agent One approval and does not allow caller-selected providers;
 - `disconnect_hussh_connection` — explicit self-disconnect for the current assistant generation.
 
 The consumer branch fails closed when the owner pod is unavailable and never substitutes shared or cloud memory. Puppy/Hermes uses the same capability contracts through its registered-device bridge; installed-device and marketplace acceptance remain pending. See the branch execution record at [CONSUMER-MCP-EXECUTION.md](../../docs/future/personal-agent/CONSUMER-MCP-EXECUTION.md).

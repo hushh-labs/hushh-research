@@ -163,6 +163,7 @@ def build_index() -> dict[str, Any]:
             "correct_hussh_",
             "export_hussh_",
             "delegate_hussh_",
+            "analyze_hussh_",
             "connect_hussh_",
             "disconnect_hussh_",
         ))

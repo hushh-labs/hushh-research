@@ -20,6 +20,7 @@ from mcp_modules.tools.consumer_tools import (
     ConsumerEmailWorkflowActionResult,
     ConsumerEmailWorkflowResult,
     ConsumerEmailWorkflowsResult,
+    ConsumerFinanceResult,
     ConsumerGmailReceiptsResult,
     ConsumerGmailStatusResult,
     ConsumerIntegrationConnectResult,
@@ -549,6 +550,34 @@ def _private_tool_definitions() -> list[Tool]:
                 "destructiveHint": False,
                 "idempotentHint": False,
                 "openWorldHint": False,
+            },
+        ),
+        Tool(
+            name="analyze_hussh_finance",
+            description="Run one bounded stock analysis through your owner pod and Kai specialist. Requires the separate Agent One approval; the operation never trades or mutates connected services, and the caller cannot select a provider.",
+            inputSchema=schema(
+                {
+                    "ticker": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 20,
+                        "pattern": "^[A-Za-z][A-Za-z0-9.\\-]{0,5}$",
+                    },
+                    "risk_profile": {
+                        "type": "string",
+                        "enum": ["conservative", "balanced", "aggressive"],
+                    },
+                    "conversation_id": {"type": "string", "minLength": 1, "maxLength": 128},
+                    "timezone": {"type": "string", "maxLength": 64},
+                },
+                ["ticker"],
+            ),
+            outputSchema=ConsumerFinanceResult.model_json_schema(),
+            annotations={
+                "readOnlyHint": True,
+                "destructiveHint": False,
+                "idempotentHint": False,
+                "openWorldHint": True,
             },
         ),
         Tool(
