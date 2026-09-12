@@ -17,7 +17,6 @@ from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
-
 REPO_ROOT = Path(__file__).resolve().parents[2]
 AUTHORED_CONTRACT = REPO_ROOT / "config/runtime-topology-maintenance.json"
 OUTPUT = REPO_ROOT / "contracts/architecture/runtime-topology-index.v1.json"
@@ -32,6 +31,9 @@ INPUTS = {
     "a2a_scope_map": REPO_ROOT / "consent-protocol/hushh_mcp/adk_bridge/delegation.py",
     "in_process_dispatch": REPO_ROOT / "consent-protocol/hushh_mcp/adk_bridge/__init__.py",
     "one_specialist_tools": REPO_ROOT / "consent-protocol/hushh_mcp/one_adk/action_tools.py",
+    "consumer_mcp_definitions": REPO_ROOT / "consent-protocol/mcp_modules/tools/definitions.py",
+    "consumer_mcp_handlers": REPO_ROOT / "consent-protocol/mcp_modules/tools/consumer_tools.py",
+    "consumer_mcp_server": REPO_ROOT / "consent-protocol/mcp_server.py",
     "data_plane": REPO_ROOT / "docs/reference/architecture/runtime-db-data-plane-contract.json",
     "world_model_compat": REPO_ROOT / "consent-protocol/api/routes/world_model.py",
 }
@@ -124,6 +126,9 @@ def build_index() -> dict[str, Any]:
     agent_registry = read_json(INPUTS["agent_registry"])
     data_plane = read_json(INPUTS["data_plane"])
     world_model_source = INPUTS["world_model_compat"].read_text(encoding="utf-8")
+    consumer_definitions_source = INPUTS["consumer_mcp_definitions"].read_text(encoding="utf-8")
+    consumer_handlers_source = INPUTS["consumer_mcp_handlers"].read_text(encoding="utf-8")
+    consumer_server_source = INPUTS["consumer_mcp_server"].read_text(encoding="utf-8")
     runtime_wiring = parse_runtime_wiring()
 
     if authored.get("schema_version") != "hushh.runtime_topology_maintenance.v1":
@@ -136,6 +141,78 @@ def build_index() -> dict[str, Any]:
     agents_by_id = as_map(agent_registry.get("agents", []), "id", label="agent registry")
     families_by_id = as_map(data_plane.get("table_families", []), "id", label="data-plane family")
     actions_by_id = as_map(action_gateway.get("actions", []), "action_id", label="action gateway action")
+
+    consumer_rows = authored.get("consumer_mcp_capabilities", [])
+    consumer_by_id = as_map(consumer_rows, "id", label="consumer MCP capability")
+    allowed_consumer_dispositions = {"executable", "secure_handoff", "not_applicable", "missing"}
+    defined_consumer_tools = {
+        name
+        for name in re.findall(r'\bname="([a-z][a-z0-9_-]*)"', consumer_definitions_source)
+        if name.startswith((
+            "get_hussh_",
+            "list_hussh_",
+            "find_hussh_",
+            "search_hussh_",
+            "send_hussh_",
+            "accept_hussh_",
+            "reject_hussh_",
+            "cancel_hussh_",
+            "read_hussh_",
+            "save_hussh_",
+            "correct_hussh_",
+            "export_hussh_",
+            "delegate_hussh_",
+            "connect_hussh_",
+            "disconnect_hussh_",
+        ))
+    }
+    defined_consumer_handlers = set(
+        re.findall(r"^async def handle_([a-z0-9_]+)\(", consumer_handlers_source, flags=re.MULTILINE)
+    )
+    registered_consumer_handlers = set(
+        re.findall(r'"([a-z0-9_]+)":\s*handle_([a-z0-9_]+)', consumer_server_source)
+    )
+    registered_consumer_handlers = {
+        tool_name
+        for tool_name, handler_name in registered_consumer_handlers
+        if handler_name.removeprefix("handle_") == tool_name
+    }
+
+    def require_consumer_tool(capability_id: str, tool_name: Any) -> None:
+        if not isinstance(tool_name, str) or not tool_name:
+            raise ValueError(f"consumer MCP capability {capability_id} requires tool_name")
+        if tool_name not in defined_consumer_tools:
+            raise ValueError(f"consumer MCP capability {capability_id} references unknown tool {tool_name}")
+        handler_name = f"handle_{tool_name}"
+        if (
+            tool_name not in registered_consumer_handlers
+            or handler_name.removeprefix("handle_") not in defined_consumer_handlers
+        ):
+            raise ValueError(
+                f"consumer MCP capability {capability_id} is not registered by the consumer handler"
+            )
+
+    for capability_id, capability in consumer_by_id.items():
+        for field in ("operation", "owner", "disposition", "evidence"):
+            if not isinstance(capability.get(field), str) or not capability[field].strip():
+                raise ValueError(f"consumer MCP capability {capability_id} requires {field}")
+        disposition = capability["disposition"]
+        if disposition not in allowed_consumer_dispositions:
+            raise ValueError(
+                f"consumer MCP capability {capability_id} has unsupported disposition {disposition!r}"
+            )
+        tool_name = capability.get("tool_name")
+        if disposition == "executable":
+            require_consumer_tool(capability_id, tool_name)
+        elif disposition == "secure_handoff" and tool_name is not None:
+            require_consumer_tool(capability_id, tool_name)
+        elif disposition in {"not_applicable", "missing"} and tool_name is not None:
+            raise ValueError(
+                f"consumer MCP capability {capability_id} cannot assign tool_name to {disposition}"
+            )
+    consumer_tool_names = [row.get("tool_name") for row in consumer_rows if row.get("tool_name")]
+    if len(consumer_tool_names) != len(set(consumer_tool_names)):
+        raise ValueError("consumer MCP capability tool_name values must be unique")
 
     unknown_wiring_agents = sorted(set(runtime_wiring) - set(agents_by_id))
     if unknown_wiring_agents:
@@ -404,6 +481,13 @@ def build_index() -> dict[str, Any]:
             "one_specialist_tools": sum(
                 1 for wiring in runtime_wiring.values() if wiring["one_specialist_tool"] is not None
             ),
+            "consumer_mcp_capabilities": len(consumer_by_id),
+            "consumer_mcp_executable": sum(
+                1 for row in consumer_by_id.values() if row["disposition"] == "executable"
+            ),
+            "consumer_mcp_missing": sum(
+                1 for row in consumer_by_id.values() if row["disposition"] == "missing"
+            ),
             "table_families": len(table_family_rows),
             "decision_required": len(findings),
         },
@@ -413,6 +497,7 @@ def build_index() -> dict[str, Any]:
         "database_families": table_family_rows,
         "compatibility_surfaces": [compatibility_by_id[key] for key in sorted(compatibility_by_id)],
         "database_retirements": [retirements_by_table[key] for key in sorted(retirements_by_table)],
+        "consumer_mcp_capabilities": [consumer_by_id[key] for key in sorted(consumer_by_id)],
         "findings": findings,
     }
 

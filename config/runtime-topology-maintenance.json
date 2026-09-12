@@ -212,5 +212,295 @@
       "table_family_ids": ["one_email_kyc_workflow", "enterprise_crm_registry", "connected_system_workflows", "information_marketplace_requests"],
       "evidence_lanes": ["backend_architect", "data_model_architect", "security_consent_auditor", "product_docs_architect"]
     }
+  ],
+  "consumer_mcp_capabilities": [
+    {
+      "id": "tool.get_hussh_connection",
+      "tool_name": "get_hussh_connection",
+      "operation": "get_hussh_connection",
+      "owner": "consumer_mcp",
+      "disposition": "secure_handoff",
+      "evidence": "consent-protocol/mcp_modules/tools/definitions.py; consent-protocol/mcp_modules/tools/consumer_tools.py; consent-protocol/mcp_server.py"
+    },
+    {
+      "id": "tool.get_hussh_setup_status",
+      "tool_name": "get_hussh_setup_status",
+      "operation": "get_hussh_setup_status",
+      "owner": "consumer_mcp",
+      "disposition": "executable",
+      "evidence": "consent-protocol/mcp_modules/tools/definitions.py; consent-protocol/mcp_modules/tools/consumer_tools.py; consent-protocol/mcp_server.py"
+    },
+    {
+      "id": "tool.list_hussh_devices",
+      "tool_name": "list_hussh_devices",
+      "operation": "list_hussh_devices",
+      "owner": "consumer_mcp",
+      "disposition": "executable",
+      "evidence": "consent-protocol/mcp_modules/tools/definitions.py; consent-protocol/mcp_modules/tools/consumer_tools.py; consent-protocol/mcp_server.py"
+    },
+    {
+      "id": "tool.list_hussh_calendar_events",
+      "tool_name": "list_hussh_calendar_events",
+      "operation": "list_hussh_calendar_events",
+      "owner": "consumer_mcp",
+      "disposition": "executable",
+      "evidence": "consent-protocol/mcp_modules/tools/definitions.py; consent-protocol/mcp_modules/tools/consumer_tools.py; consent-protocol/mcp_server.py"
+    },
+    {
+      "id": "tool.find_hussh_calendar_openings",
+      "tool_name": "find_hussh_calendar_openings",
+      "operation": "find_hussh_calendar_openings",
+      "owner": "consumer_mcp",
+      "disposition": "executable",
+      "evidence": "consent-protocol/mcp_modules/tools/definitions.py; consent-protocol/mcp_modules/tools/consumer_tools.py; consent-protocol/mcp_server.py"
+    },
+    {
+      "id": "tool.search_hussh_people",
+      "tool_name": "search_hussh_people",
+      "operation": "search_hussh_people",
+      "owner": "consumer_mcp",
+      "disposition": "executable",
+      "evidence": "consent-protocol/mcp_modules/tools/definitions.py; consent-protocol/mcp_modules/tools/consumer_tools.py; consent-protocol/mcp_server.py"
+    },
+    {
+      "id": "tool.get_hussh_person_profile",
+      "tool_name": "get_hussh_person_profile",
+      "operation": "get_hussh_person_profile",
+      "owner": "consumer_mcp",
+      "disposition": "executable",
+      "evidence": "consent-protocol/mcp_modules/tools/definitions.py; consent-protocol/mcp_modules/tools/consumer_tools.py; consent-protocol/mcp_server.py"
+    },
+    {
+      "id": "tool.list_hussh_people_connections",
+      "tool_name": "list_hussh_people_connections",
+      "operation": "list_hussh_people_connections",
+      "owner": "consumer_mcp",
+      "disposition": "executable",
+      "evidence": "consent-protocol/mcp_modules/tools/definitions.py; consent-protocol/mcp_modules/tools/consumer_tools.py; consent-protocol/mcp_server.py"
+    },
+    {
+      "id": "tool.list_hussh_connection_requests",
+      "tool_name": "list_hussh_connection_requests",
+      "operation": "list_hussh_connection_requests",
+      "owner": "consumer_mcp",
+      "disposition": "executable",
+      "evidence": "consent-protocol/mcp_modules/tools/definitions.py; consent-protocol/mcp_modules/tools/consumer_tools.py; consent-protocol/mcp_server.py"
+    },
+    {
+      "id": "tool.get_hussh_connection_request",
+      "tool_name": "get_hussh_connection_request",
+      "operation": "get_hussh_connection_request",
+      "owner": "consumer_mcp",
+      "disposition": "executable",
+      "evidence": "consent-protocol/mcp_modules/tools/definitions.py; consent-protocol/mcp_modules/tools/consumer_tools.py; consent-protocol/mcp_server.py"
+    },
+    {
+      "id": "tool.send_hussh_connection_request",
+      "tool_name": "send_hussh_connection_request",
+      "operation": "send_hussh_connection_request",
+      "owner": "consumer_mcp",
+      "disposition": "executable",
+      "evidence": "consent-protocol/mcp_modules/tools/definitions.py; consent-protocol/mcp_modules/tools/consumer_tools.py; consent-protocol/mcp_server.py"
+    },
+    {
+      "id": "tool.accept_hussh_connection_request",
+      "tool_name": "accept_hussh_connection_request",
+      "operation": "accept_hussh_connection_request",
+      "owner": "consumer_mcp",
+      "disposition": "executable",
+      "evidence": "consent-protocol/mcp_modules/tools/definitions.py; consent-protocol/mcp_modules/tools/consumer_tools.py; consent-protocol/mcp_server.py"
+    },
+    {
+      "id": "tool.reject_hussh_connection_request",
+      "tool_name": "reject_hussh_connection_request",
+      "operation": "reject_hussh_connection_request",
+      "owner": "consumer_mcp",
+      "disposition": "executable",
+      "evidence": "consent-protocol/mcp_modules/tools/definitions.py; consent-protocol/mcp_modules/tools/consumer_tools.py; consent-protocol/mcp_server.py"
+    },
+    {
+      "id": "tool.cancel_hussh_connection_request",
+      "tool_name": "cancel_hussh_connection_request",
+      "operation": "cancel_hussh_connection_request",
+      "owner": "consumer_mcp",
+      "disposition": "executable",
+      "evidence": "consent-protocol/mcp_modules/tools/definitions.py; consent-protocol/mcp_modules/tools/consumer_tools.py; consent-protocol/mcp_server.py"
+    },
+    {
+      "id": "tool.list_hussh_gmail_receipts",
+      "tool_name": "list_hussh_gmail_receipts",
+      "operation": "list_hussh_gmail_receipts",
+      "owner": "consumer_mcp",
+      "disposition": "executable",
+      "evidence": "consent-protocol/mcp_modules/tools/definitions.py; consent-protocol/mcp_modules/tools/consumer_tools.py; consent-protocol/mcp_server.py"
+    },
+    {
+      "id": "tool.get_hussh_gmail_status",
+      "tool_name": "get_hussh_gmail_status",
+      "operation": "get_hussh_gmail_status",
+      "owner": "consumer_mcp",
+      "disposition": "executable",
+      "evidence": "consent-protocol/mcp_modules/tools/definitions.py; consent-protocol/mcp_modules/tools/consumer_tools.py; consent-protocol/mcp_server.py"
+    },
+    {
+      "id": "tool.list_hussh_integrations",
+      "tool_name": "list_hussh_integrations",
+      "operation": "list_hussh_integrations",
+      "owner": "consumer_mcp",
+      "disposition": "executable",
+      "evidence": "consent-protocol/mcp_modules/tools/definitions.py; consent-protocol/mcp_modules/tools/consumer_tools.py; consent-protocol/mcp_server.py"
+    },
+    {
+      "id": "tool.connect_hussh_integration",
+      "tool_name": "connect_hussh_integration",
+      "operation": "connect_hussh_integration",
+      "owner": "consumer_mcp",
+      "disposition": "secure_handoff",
+      "evidence": "consent-protocol/mcp_modules/tools/definitions.py; consent-protocol/mcp_modules/tools/consumer_tools.py; consent-protocol/mcp_server.py"
+    },
+    {
+      "id": "tool.disconnect_hussh_integration",
+      "tool_name": "disconnect_hussh_integration",
+      "operation": "disconnect_hussh_integration",
+      "owner": "consumer_mcp",
+      "disposition": "executable",
+      "evidence": "consent-protocol/mcp_modules/tools/definitions.py; consent-protocol/mcp_modules/tools/consumer_tools.py; consent-protocol/mcp_server.py"
+    },
+    {
+      "id": "tool.read_hussh_memory",
+      "tool_name": "read_hussh_memory",
+      "operation": "read_hussh_memory",
+      "owner": "consumer_mcp",
+      "disposition": "executable",
+      "evidence": "consent-protocol/mcp_modules/tools/definitions.py; consent-protocol/mcp_modules/tools/consumer_tools.py; consent-protocol/mcp_server.py"
+    },
+    {
+      "id": "tool.save_hussh_memory",
+      "tool_name": "save_hussh_memory",
+      "operation": "save_hussh_memory",
+      "owner": "consumer_mcp",
+      "disposition": "executable",
+      "evidence": "consent-protocol/mcp_modules/tools/definitions.py; consent-protocol/mcp_modules/tools/consumer_tools.py; consent-protocol/mcp_server.py"
+    },
+    {
+      "id": "tool.correct_hussh_memory",
+      "tool_name": "correct_hussh_memory",
+      "operation": "correct_hussh_memory",
+      "owner": "consumer_mcp",
+      "disposition": "executable",
+      "evidence": "consent-protocol/mcp_modules/tools/definitions.py; consent-protocol/mcp_modules/tools/consumer_tools.py; consent-protocol/mcp_server.py"
+    },
+    {
+      "id": "tool.export_hussh_memory",
+      "tool_name": "export_hussh_memory",
+      "operation": "export_hussh_memory",
+      "owner": "consumer_mcp",
+      "disposition": "executable",
+      "evidence": "consent-protocol/mcp_modules/tools/definitions.py; consent-protocol/mcp_modules/tools/consumer_tools.py; consent-protocol/mcp_server.py"
+    },
+    {
+      "id": "tool.list_hussh_capabilities",
+      "tool_name": "list_hussh_capabilities",
+      "operation": "list_hussh_capabilities",
+      "owner": "consumer_mcp",
+      "disposition": "executable",
+      "evidence": "consent-protocol/mcp_modules/tools/definitions.py; consent-protocol/mcp_modules/tools/consumer_tools.py; consent-protocol/mcp_server.py"
+    },
+    {
+      "id": "tool.list_hussh_connections",
+      "tool_name": "list_hussh_connections",
+      "operation": "list_hussh_connections",
+      "owner": "consumer_mcp",
+      "disposition": "executable",
+      "evidence": "consent-protocol/mcp_modules/tools/definitions.py; consent-protocol/mcp_modules/tools/consumer_tools.py; consent-protocol/mcp_server.py"
+    },
+    {
+      "id": "tool.list_hussh_receipts",
+      "tool_name": "list_hussh_receipts",
+      "operation": "list_hussh_receipts",
+      "owner": "consumer_mcp",
+      "disposition": "executable",
+      "evidence": "consent-protocol/mcp_modules/tools/definitions.py; consent-protocol/mcp_modules/tools/consumer_tools.py; consent-protocol/mcp_server.py"
+    },
+    {
+      "id": "tool.disconnect_hussh_connection",
+      "tool_name": "disconnect_hussh_connection",
+      "operation": "disconnect_hussh_connection",
+      "owner": "consumer_mcp",
+      "disposition": "executable",
+      "evidence": "consent-protocol/mcp_modules/tools/definitions.py; consent-protocol/mcp_modules/tools/consumer_tools.py; consent-protocol/mcp_server.py"
+    },
+    {
+      "id": "tool.delegate_hussh_task",
+      "tool_name": "delegate_hussh_task",
+      "operation": "delegate_hussh_task",
+      "owner": "consumer_mcp",
+      "disposition": "executable",
+      "evidence": "consent-protocol/mcp_modules/tools/definitions.py; consent-protocol/mcp_modules/tools/consumer_tools.py; consent-protocol/mcp_server.py"
+    },
+    {
+      "id": "source_library",
+      "operation": "Source Library query, upload, organization and revision-pinned sharing",
+      "owner": "Hermes Source Library Steward",
+      "disposition": "secure_handoff",
+      "evidence": "docs/reference/one/one-agent-hierarchy.md; docs/reference/iam/hermes-trusted-device-vault-enrollment.md",
+      "reason": "The Source Library is owner-local and device-custodied; no cloud MCP adapter is exposed."
+    },
+    {
+      "id": "email_workflows",
+      "operation": "Email workflow read, draft, approval and delivery status",
+      "owner": "One Email/KYC service",
+      "disposition": "missing",
+      "evidence": "consent-protocol/api/routes/one/email.py; consent-protocol/hushh_mcp/services/one_email_kyc_service.py",
+      "reason": "Gmail receipt reads are exposed; tracked draft/send workflows still need a typed consumer adapter."
+    },
+    {
+      "id": "finance_analysis",
+      "operation": "Kai finance analysis and bounded result retrieval",
+      "owner": "Kai portfolio and analysis services",
+      "disposition": "missing",
+      "evidence": "consent-protocol/api/routes/kai/portfolio.py; consent-protocol/api/routes/kai/stream.py",
+      "reason": "Existing MCP Kai handlers are UI intents and do not expose an owner-scoped analysis job/result contract."
+    },
+    {
+      "id": "delegated_task_lifecycle",
+      "operation": "Delegated task status, result retrieval and cancellation",
+      "owner": "Owner-pod task lifecycle",
+      "disposition": "missing",
+      "evidence": "consent-protocol/hushh_mcp/services/consumer_mcp_tasks.py; consent-protocol/api/routes/one/pod_turn.py",
+      "reason": "The current consumer delegation is bounded and synchronous; no compatible durable task seam is present."
+    },
+    {
+      "id": "device_lifecycle",
+      "operation": "Trusted-device enrollment, revocation and recovery",
+      "owner": "TrustedDeviceService and secure owner interface",
+      "disposition": "secure_handoff",
+      "evidence": "consent-protocol/hushh_mcp/services/trusted_device_service.py; consent-protocol/api/routes/account.py",
+      "reason": "Enrollment and revocation require device proof and remain in the authenticated owner surface."
+    },
+    {
+      "id": "location_actions",
+      "operation": "Location acquisition, background tracking and consequential sharing actions",
+      "owner": "Native location services",
+      "disposition": "secure_handoff",
+      "evidence": "consent-protocol/api/routes/one/location.py; docs/reference/architecture/private-agent-north-star.md",
+      "reason": "MCP can only expose a typed adapter after native permission and action confirmation contracts are complete."
+    },
+    {
+      "id": "wallet_management",
+      "operation": "Wallet-card protected management and native installation",
+      "owner": "OneWalletCardService and native wallet surface",
+      "disposition": "secure_handoff",
+      "evidence": "consent-protocol/api/routes/one/wallet_card.py; consent-protocol/hushh_mcp/services/one_wallet_card_service.py",
+      "reason": "Protected wallet material and native installation cannot be exposed as generic MCP output."
+    },
+    {
+      "id": "enterprise_crm",
+      "operation": "Business connected-system records and mutations",
+      "owner": "ConnectedSystemsService",
+      "disposition": "not_applicable",
+      "evidence": "consent-protocol/hushh_mcp/services/connected_systems_service.py; docs/future/personal-agent/CONSUMER-MCP-EXECUTION.md",
+      "reason": "The consumer contract preserves partner/developer integrations without expanding business-operator scope."
+    }
   ]
 }

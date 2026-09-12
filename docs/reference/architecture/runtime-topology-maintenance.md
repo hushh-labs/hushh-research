@@ -35,8 +35,17 @@ decrypted PKM, request payloads, vault material, or executable action policy.
 | Product agents | `consent-protocol/hushh_mcp/agents/*/agent.yaml` plus declared One/A2A/dispatch wiring | product-agent registry and runtime topology index |
 | Database families | `runtime-db-data-plane-contract.json` | runtime topology index |
 | Compatibility and retirement decisions | `config/runtime-topology-maintenance.json` | runtime topology index |
+| Consumer MCP capability dispositions | `config/runtime-topology-maintenance.json` plus canonical MCP definitions/handlers | runtime topology index |
 
 Generated output: `contracts/architecture/runtime-topology-index.v1.json`.
+
+The `consumer_mcp_capabilities` section is a coverage ledger, not a second
+catalog or router. Each executable or secure-handoff row names the canonical
+tool and is checked against its definition, handler and server registration.
+Rows without a tool classify a deliberately secure handoff, missing adapter or
+out-of-scope business surface. The generator rejects duplicate tool names,
+unclassified dispositions and broken handler references, so a new consumer
+surface must be classified before it can pass the topology check.
 
 Run:
 

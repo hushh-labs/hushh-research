@@ -35,7 +35,7 @@ Provisioning, recoverable owner-pod vault custody and client access are separate
 | Checkpoint | Status | Next evidence |
 |---|---|---|
 | Isolation and committed baseline | Done | Baseline above; clean source when created |
-| Consumer capability coverage | Inventory complete; implementation pending | Baseline table below; no executable coverage claimed |
+| Consumer capability coverage | Mechanically classified; 26 executable, 6 secure handoffs, 3 missing adapters, 1 not applicable | Generated topology check validates every executable/handoff tool against its definition, handler and server registration; missing adapters remain open |
 | OAuth owner/client/resource binding | Local checks pass | 55 focused checks; live host acceptance pending |
 | Owner connection review and disconnect | Local checks pass | Portal disconnect plus confirmation-gated MCP self-disconnect are fenced by owner, client and generation |
 | Standing memory consent | Implemented; local checks pass | Durable binding, secure review, revoke/commit race and full erasure/rollback exercised in disposable PostgreSQL |
@@ -74,6 +74,13 @@ The baseline action gateway has 214 authored actions (186 wired, 28 unwired). Of
 | Marketplace / RIA | Existing marketplace and RIA services | Consumer ownership must not grant advisor/business-operator roles |
 
 The topology generator remains the existing coverage join: `scripts/ops/generate_runtime_topology_index.py`. A future MCP mapping must classify every authored consumer capability without making this projection a router.
+
+The current topology receipt now records the consumer MCP coverage ledger in
+`config/runtime-topology-maintenance.json` and emits it in
+`contracts/architecture/runtime-topology-index.v1.json`. The generator rejects
+an executable or handoff row whose canonical definition, handler, or server
+registration is missing. This closes the classification gap; it does not claim
+that the three missing adapters or live-host acceptance are complete.
 
 ## Current correction and receipts
 
