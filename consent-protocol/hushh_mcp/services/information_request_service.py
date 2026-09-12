@@ -304,6 +304,44 @@ class InformationRequestService:
             "items": output,
         }
 
+    async def list_outgoing(
+        self, *, requester_user_id: str, limit: int = 10
+    ) -> list[dict[str, Any]]:
+        """Requests this person sent that are still open, newest first.
+
+        ``cancel`` takes a bundle id and nothing could produce one: there was
+        no listing on this side of the lifecycle, so "withdraw the request I
+        just sent" had no way to name its target. Cancelled bundles are
+        excluded because withdrawing a withdrawn request is not a thing anyone
+        means, and a list that offers it invites the model to try.
+
+        Deliberately a projection, not a row dump: the subject's user id and
+        the connector key stay here. The person is named the way the requester
+        already knows them.
+        """
+        rows = await self._rows(
+            """SELECT bundle.bundle_id, bundle.purpose, bundle.created_at,
+                      profile.public_person_ref, identity.display_name
+               FROM one_information_request_bundles bundle
+               JOIN actor_profiles profile ON profile.user_id = bundle.subject_user_id
+               LEFT JOIN actor_identity_cache identity ON identity.user_id = bundle.subject_user_id
+               WHERE bundle.requester_user_id = :requester
+                 AND bundle.cancelled_at IS NULL
+               ORDER BY bundle.created_at DESC
+               LIMIT :limit""",
+            {"requester": requester_user_id, "limit": max(1, min(int(limit or 10), 50))},
+        )
+        return [
+            {
+                "bundleId": str(row["bundle_id"]),
+                "personRef": str(row["public_person_ref"]),
+                "displayName": str(row.get("display_name") or "that person"),
+                "purpose": row.get("purpose"),
+                "sentAt": row.get("created_at"),
+            }
+            for row in rows
+        ]
+
     async def cancel(self, *, requester_user_id: str, bundle_id: str) -> dict[str, Any]:
         bundle, items = await self._bundle(requester_user_id, bundle_id)
         for item in items:

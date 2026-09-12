@@ -21,13 +21,18 @@ logger = logging.getLogger(__name__)
 # Mirrors the frontend's derived AVAILABLE_ACTION_IDS_CAP in
 # hushh-webapp/lib/voice/screen-context-builder.ts:
 #   ACTION_ID_SCREEN_SEGMENT_CAP (48) + len(GLOBAL_NAV_ACTION_IDS) (10)
-#   + len(GLOBAL_SESSION_ACTION_IDS) (1).
+#   + len(GLOBAL_SESSION_ACTION_IDS) (2).
 # There is no automated cross-language sync for this -- bump both together,
 # in the same commit, whenever either grows on the TS side. Consumed by
 # live_context.py's LIVE_CONTEXT_ARRAY_CAP, onboarding/agent.py's
 # OnboardingJourneyContext.available_action_ids max_length, and
 # one_adk/agent_tree.py's two render-time slices.
-AVAILABLE_ACTION_IDS_CAP = 59
+#
+# 59 -> 60 on 2026-09-11: GLOBAL_SESSION_ACTION_IDS gained `consent.request`,
+# which is mounted app-wide rather than owned by a screen. The TS side grew and
+# this side did not, exactly the drift the note above warns about, and the
+# cross-language test caught it.
+AVAILABLE_ACTION_IDS_CAP = 60
 
 # Mirrors GLOBAL_SESSION_ACTION_IDS in
 # hushh-webapp/lib/voice/screen-context-builder.ts. These are session verbs the

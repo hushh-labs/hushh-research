@@ -681,3 +681,41 @@ describe("SettingsDetailPanel", () => {
     expect(screen.queryByRole("button", { name: "Close" })).toBeNull();
   });
 });
+
+describe("row hover surface", () => {
+  /**
+   * A row with an interactive trailing control splits: the primary action
+   * becomes an inner button so the control beside it stays independently
+   * operable. That split used to change how the row LOOKED on hover, because
+   * the inner button painted the highlight itself -- at `rounded-xl` instead of
+   * the row radius, and inside padding the grid cell had already applied.
+   *
+   * The founder reported it twice, on two different surfaces, in the same
+   * words: the highlight has to reach the edges rather than float as a pill.
+   * Both times the cause was a component drawing a radius of its own instead of
+   * inheriting the shape it sits in.
+   */
+  it("spans the whole row at the row's own radius, split or not", () => {
+    const { container } = render(
+      <SettingsGroup>
+        <SettingsRow
+          title="Financial"
+          onClick={() => undefined}
+          chevron
+          trailing={<input type="checkbox" aria-label="Everything in Financial" />}
+        />
+      </SettingsGroup>,
+    );
+
+    const overlay = container.querySelector('[aria-hidden="true"].absolute.inset-0');
+    expect(overlay, "a split row must still draw a full-bleed hover surface").not.toBeNull();
+    expect(overlay?.className).toContain("inset-0");
+    expect(overlay?.className).toContain("rounded-[inherit]");
+
+    // The inner button must not paint a competing highlight.
+    const primary = container.querySelector("button");
+    expect(primary?.className ?? "").not.toContain("rounded-xl");
+    expect(primary?.className ?? "").not.toContain("hover:bg-foreground");
+  });
+});
+

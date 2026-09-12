@@ -1498,10 +1498,8 @@ export function AgentChatWorkspace({
     useState<SpecialistDirectiveEvent | null>(null);
   const [pendingAppAction, setPendingAppAction] = useState<{
     event: AgentChatToolEvent;
-    receipt?: string;
-    authorize?: () => Promise<string>;
     cancel?: () => Promise<void>;
-    execute: (receipt?: string) => Promise<AgentActionRuntimeResult>;
+    execute: () => Promise<AgentActionRuntimeResult>;
   } | null>(null);
   const [appActionBusy, setAppActionBusy] = useState(false);
   const [specialistBusy, setSpecialistBusy] = useState(false);
@@ -3875,7 +3873,12 @@ export function AgentChatWorkspace({
         setPendingAppAction({
           event: toolEvent,
           cancel: () => aguiResume("cancelled", { reason: "user_cancelled" }),
-          authorize: async () => `agui:${toolEvent.callId}`,
+          // No `authorize` step. There used to be one, and it did nothing: it
+          // returned the template string `agui:${callId}`, stored it as a
+          // receipt, and told the person to tap again. No signature, no
+          // permission check, no ledger proof -- a second tap that bought
+          // exactly nothing and read as a security step. Confirming IS the
+          // authorization here; the directive ledger is what actually binds it.
           execute: async () => {
             if (executedToolCalls.has(callKey)) {
               throw new Error("This action was already completed.");
@@ -5876,30 +5879,14 @@ export function AgentChatWorkspace({
                     pendingAppAction.event.message ||
                     `One is ready to ${pendingAppAction.event.label || "continue"}. Nothing runs until you confirm.`
                   }
-                  confirmLabel={
-                    pendingAppAction.authorize && !pendingAppAction.receipt
-                      ? "Authorize"
-                      : pendingAppAction.event.label || "Run"
-                  }
+                  confirmLabel={pendingAppAction.event.label || "Run"}
                   busy={appActionBusy}
                   onConfirm={async () => {
                     const pending = pendingAppAction;
                     if (!pending || appActionBusy) return;
                     setAppActionBusy(true);
                     try {
-                      if (pending.authorize && !pending.receipt) {
-                        const receipt = await pending.authorize();
-                        setPendingAppAction((current) =>
-                          current === pending
-                            ? { ...current, receipt }
-                            : current,
-                        );
-                        toast.success(
-                          `Authorized. Tap "${pending.event.label || "Run"}" to continue.`,
-                        );
-                        return;
-                      }
-                      await pending.execute(pending.receipt);
+                      await pending.execute();
                       setPendingAppAction(null);
                     } catch {
                       setPendingAppAction(null);

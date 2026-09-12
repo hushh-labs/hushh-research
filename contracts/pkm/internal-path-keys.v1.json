@@ -1,0 +1,85 @@
+{
+  "$comment": "One shared truth table for which stored keys are internal plumbing and must never be offered as information a person can share. Read by the TypeScript predicate (hushh-webapp/lib/pkm/internal-path-keys.ts) and the Python one (consent-protocol/hushh_mcp/consent/internal_path_keys.py). The Memory route has filtered these since it was written; the consent catalogue never did, and offered a person's onboarding checkpoints and router telemetry to anyone who asked. Two implementations that must agree need one list of truths.",
+  "version": 1,
+  "why_this_exists": "Measured 2026-09-11 against live UAT: asking One for 'finance information' about a connected person returned 24 rows, of which roughly 5 were information about anybody. The rest were 'Profile Setup Completed At', 'Profile Setup Nav Skipped At' and six 'Domain Intent' rows. A later capture of the same catalogue showed 50. The Memory tab already hid the domain_intent ones by name.",
+
+  "internal_keys": [
+    "algorithm", "artifact_id", "card_id", "ciphertext", "confidence",
+    "contract_version", "created_at", "domain_contract_version", "domain_intent",
+    "hash", "id", "iv", "last_content_at", "last_structured_at",
+    "manifest_revision", "manifest_version", "path_count", "pkm_contract_version",
+    "readable_projection_version", "readable_summary_version", "schema_version",
+    "source_agent", "tag", "updated_at", "upgraded_at", "version"
+  ],
+
+  "$comment_app_state": "Application state, not knowledge about a person. These are written into the PKM by the Kai profile and history writers and describe the APP's progress through onboarding, never the person. They are the clearest expression of the boundary: a personal knowledge model holds what is true about someone, not what a wizard has finished.",
+  "internal_key_suffixes": [
+    "_selected_at",
+    "_anchor_at",
+    "_completed_at",
+    "_skipped_at",
+    "_dismissed_at",
+    "_seen_at"
+  ],
+
+  "$comment_branches": "Whole branches that are app state wherever they appear, at any depth. `domain_intent` is already in internal_keys, but it was reaching the catalogue nested as `profile.domain_intent.primary` because the only structural check looked at depth 1 only.",
+  "internal_branches": ["setup", "domain_intent", "nav", "onboarding_state"],
+
+  "cases": [
+    {
+      "path": "profile.setup.completed",
+      "internal": true,
+      "why": "Whether a wizard finished. Offered as requestable information about a person; it is a fact about the app."
+    },
+    {
+      "path": "profile.setup.nav_skipped_at",
+      "internal": true,
+      "why": "A timestamp of a skipped navigation step, rendered to the owner as 'Profile Setup Nav Skipped At'."
+    },
+    {
+      "path": "profile.domain_intent.primary",
+      "internal": true,
+      "why": "The exact near-miss. `domain_intent` was already known structural, but the check rejected any path containing a dot, so only the depth-1 form was caught."
+    },
+    {
+      "path": "analysis.domain_intent.source",
+      "internal": true,
+      "why": "Same shape under a different branch. Six of these reached one screen."
+    },
+    {
+      "path": "profile.preferences.investment_horizon_selected_at",
+      "internal": true,
+      "why": "The timestamp of an answer, listed as a sibling of the answer. Three rows for one fact is what read as duplicates."
+    },
+    {
+      "path": "profile.preferences.investment_horizon",
+      "internal": false,
+      "why": "The answer itself. This is a real preference and must survive the filter -- a denylist that eats the signal is worse than none."
+    },
+    {
+      "path": "profile.preferences.risk_profile",
+      "internal": false,
+      "why": "Second real preference, held for the same reason."
+    },
+    {
+      "path": "portfolio.holdings.equities",
+      "internal": false,
+      "why": "Ordinary holdings. Nothing about the filter may touch the domain it exists to protect."
+    },
+    {
+      "path": "student_id",
+      "internal": false,
+      "why": "The one _id that is genuinely about a person. The Memory predicate already carves it out and the two must not disagree."
+    },
+    {
+      "path": "wallet.secrets.pan",
+      "internal": true,
+      "why": "Secret-shaped. Already covered by the secret pattern; pinned here so a refactor cannot quietly drop it."
+    },
+    {
+      "path": "_private_scratch",
+      "internal": true,
+      "why": "Leading underscore is the repo's convention for internal, and normalisation strips underscores, so it must be tested before normalising."
+    }
+  ]
+}

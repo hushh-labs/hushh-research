@@ -394,7 +394,7 @@ Using a different Node or Python locally can cause â€œpass locally, fail in CIâ€
 | Phone verification regression | `npm run verify:phone-verification` | Yes |
 | Build (web) | `npm run build` (Next.js) | Yes |
 | Security audit budget | `npm audit --json` + budget gate (`moderate/high/critical`) | Yes |
-| Tests | `npm run test:ci` (manifest-driven curated suites) | Yes |
+| Tests | `npm run test:ci` (manifest-driven curated suites, plus a whole-tree collection gate) | Yes |
 
 **Build env (CI):** `NEXT_PUBLIC_BACKEND_URL` and all six `NEXT_PUBLIC_FIREBASE_*` vars are set to placeholders in the workflow so the build does not depend on real secrets.
 
@@ -417,7 +417,7 @@ Using a different Node or Python locally can cause â€œpass locally, fail in CIâ€
 | Lint | `uv run ruff check .` | Yes |
 | Type check | `uv run mypy --config-file pyproject.toml --ignore-missing-imports` | Yes |
 | Security | `uv run bandit -r hushh_mcp/ api/ -c pyproject.toml -ll` | Yes |
-| Tests | `bash scripts/run-test-ci.sh` (manifest-driven curated suites) | Yes |
+| Tests | `bash scripts/run-test-ci.sh` (manifest-driven curated suites, plus a whole-tree collection gate) | Yes |
 
 Blocking backend manifest:
 
@@ -588,3 +588,25 @@ The optional consent-protocol mirror has its own full CI pipeline at [hushh-labs
 The monorepo is authoritative. Its protocol and release gates determine merge
 and deploy readiness. Mirror publication and mirror CI are optional maintainer
 operations and must not delay a monorepo release or UAT deploy.
+
+## The collection gate
+
+`consent-protocol/scripts/run-test-ci.sh` runs `pytest --collect-only -q tests/` over the whole
+tree before it runs the curated manifest. The manifest is an allowlist, so a
+test file that is not listed is simply never executed, and a file that cannot
+be IMPORTED is worse than that: pytest reports `no tests ran` for it, which in
+CI is indistinguishable from a file that passed.
+
+Measured 2026-09-11. `consent-protocol/tests/test_consent_lifecycle_chat.py`
+imported a symbol deleted two days earlier. All 438 of its lines collected zero
+tests and reported nothing, and a behavioural change to the proposal path drifted
+away from an assertion in the same file with nothing going red.
+
+It also distorts any whole-suite measurement taken against a branch that has
+the broken file. A collection error aborts the entire run, so `pytest -q tests/`
+returns a single error and executes nothing, and the run reads as one failure
+rather than as no coverage at all. Compare failure counts only after confirming
+the suite actually ran.
+
+The gate is deliberately separate from the manifest: the manifest answers "which
+suites gate a merge", and the gate answers "can every test file still be loaded".

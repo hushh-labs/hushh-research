@@ -29,6 +29,7 @@ import { CacheProvider } from "@/lib/cache/cache-context";
 import { useDeepLinkReturn } from "@/lib/navigation/use-deep-link-return";
 import { ConsentNotificationProvider } from "@/components/consent/notification-provider";
 import { GlobalVoiceActionHandlers } from "@/components/agent/global-voice-action-handlers";
+import { GlobalConsentActionHandlers } from "@/components/agent/global-consent-action-handlers";
 import { ConsentSheetProvider } from "@/components/consent/consent-sheet-controller";
 import { resolveTopShellRouteProfile } from "@/components/app-ui/top-shell-metrics";
 import { resolveAppRouteLayout } from "@/lib/navigation/app-route-layout";
@@ -700,6 +701,15 @@ function AppShellFrame({ children }: ProvidersProps) {
                 </Suspense>
               </ContactInvitationSessionProvider>
               </AgentPopoverProvider>
+              {/*
+                Inside VaultProvider, not beside GlobalVoiceActionHandlers.
+                Signing out needs only the session, so that one sits above the
+                vault. Asking someone for information needs the vault key to mint
+                the connector the request is encrypted to, so mounting it in the
+                same place threw "useVault must be used within a VaultProvider"
+                and took the whole app down with it.
+              */}
+              <GlobalConsentActionHandlers />
             </AgentRuntimeStateProvider>
           </OneLocationInteractionSurfaceProvider>
         </VaultProvider>

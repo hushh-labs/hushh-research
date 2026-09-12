@@ -60,6 +60,7 @@ describe("Navbar bottom chrome contract", () => {
     // being true, or Puppy One becomes the primary agent there, this name is
     // the first thing that should be revisited.
     expect(agentBar).toContain("aria-label={`Chat with One. ${hint}`}");
+    expect(agentBar).toContain('title="Chat with One"');
     expect(agentBar).toContain('data-testid="one-agent-chat-label"');
     expect(agentBar).not.toContain("openSearchAndChat");
     expect(agentBar).not.toContain("openKaiCommandBar");

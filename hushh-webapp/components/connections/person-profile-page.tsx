@@ -21,13 +21,14 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import {
   SectionCard,
   StatusPill,
 } from "@/lib/morphy-ux/ui/surface-primitives";
 import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
+import { ConsentScopeNestedList } from "@/components/consent/consent-scope-nested-list";
+import { scopeItemsFromRequestable } from "@/lib/consent/consent-scope-items";
 import {
   PersonProfileService,
   type PublicPersonProfile,
@@ -44,10 +45,6 @@ import { VOICE_CONFIRM_DATA_KEY } from "@/lib/voice/voice-action-card";
 
 type Props = { personRef: string; initialProfile: PublicPersonProfile | null };
 
-function scopeTitle(scope: ViewerPersonProfile["requestableScopes"][number]) {
-  return scope.label || scope.domain || "Information";
-}
-
 /** Bound to the backend's real range (1 hour to 30 days, whole hours). */
 const REQUEST_DURATION_OPTIONS = [
   { hours: 24, label: "24 hours" },
@@ -56,27 +53,9 @@ const REQUEST_DURATION_OPTIONS = [
   { hours: 720, label: "30 days" },
 ] as const;
 const DEFAULT_REQUEST_DURATION_HOURS = 168;
-/** Search and domain chips appear once the catalog is long enough to need them. */
-const SCOPE_SEARCH_THRESHOLD = 6;
 
 function requestDurationLabel(hours: number): string {
   return REQUEST_DURATION_OPTIONS.find((option) => option.hours === hours)?.label ?? `${hours} hours`;
-}
-
-function scopeMatchesQuery(
-  scope: ViewerPersonProfile["requestableScopes"][number],
-  query: string,
-): boolean {
-  const needle = query.trim().toLowerCase();
-  if (!needle) return true;
-  return [scope.label, scope.description, scope.domain]
-    .some((value) => String(value || "").toLowerCase().includes(needle));
-}
-
-function domainChipClass(active: boolean): string {
-  return active
-    ? "rounded-full border border-[var(--app-accent)] bg-[var(--app-accent)]/10 px-3 py-1 text-xs font-medium capitalize"
-    : "rounded-full border border-border px-3 py-1 text-xs font-medium capitalize text-muted-foreground";
 }
 
 export function PersonProfilePage({ personRef, initialProfile }: Props) {
@@ -109,8 +88,6 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
   const [reviewOpen, setReviewOpen] = useState(false);
   const [purpose, setPurpose] = useState("");
   const [durationHours, setDurationHours] = useState<number>(DEFAULT_REQUEST_DURATION_HOURS);
-  const [scopeQuery, setScopeQuery] = useState("");
-  const [scopeDomain, setScopeDomain] = useState<string | null>(null);
   const [bundleDetails, setBundleDetails] = useState<Record<string, InformationRequestBundle>>({});
   const [loadingBundleId, setLoadingBundleId] = useState<string | null>(null);
   const searchParams = useSearchParams();
@@ -168,8 +145,6 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
     setReviewOpen(false);
     setPurpose("");
     setDurationHours(DEFAULT_REQUEST_DURATION_HOURS);
-    setScopeQuery("");
-    setScopeDomain(null);
     setBundleDetails({});
     setDecryptedByRequest({});
     setRevealedRequests(new Set());
@@ -190,28 +165,16 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
   }, [requestIntent, viewerProfile]);
 
   const allScopes = useMemo(() => viewerProfile?.requestableScopes || [], [viewerProfile]);
-  const scopeDomains = useMemo(
-    () => [...new Set(allScopes.map((scope) => scope.domain || "Other"))],
-    [allScopes],
-  );
-  const filteredScopes = useMemo(
-    () =>
-      allScopes.filter(
-        (scope) =>
-          (!scopeDomain || (scope.domain || "Other") === scopeDomain) &&
-          scopeMatchesQuery(scope, scopeQuery),
-      ),
-    [allScopes, scopeDomain, scopeQuery],
-  );
-  const scopeToolsVisible = allScopes.length > SCOPE_SEARCH_THRESHOLD;
-  const groupedScopes = useMemo(() => {
-    const groups = new Map<string, ViewerPersonProfile["requestableScopes"]>();
-    for (const scope of filteredScopes) {
-      const domain = scope.domain || "Other";
-      groups.set(domain, [...(groups.get(domain) || []), scope]);
-    }
-    return [...groups.entries()];
-  }, [filteredScopes]);
+
+  /**
+   * The catalogue in the one shape every scope surface reads.
+   *
+   * The adapter already existed and already took this exact payload type --
+   * `scopeItemsFromRequestable` imports `RequestablePersonScope` from this
+   * page's own service. Search, grouping and the threshold moved with it, which
+   * is why the local copies of all three are gone.
+   */
+  const scopeItems = useMemo(() => scopeItemsFromRequestable(allScopes), [allScopes]);
 
   const selectedScopes = useMemo(
     () => (viewerProfile?.requestableScopes || []).filter((scope) => selectedScopeRefs.has(scope.scopeRef)),
@@ -410,7 +373,7 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
   }, { enabled: viewerProfile?.relationship.status === "connected" });
   useLocalOnboardingActionHandler("people.profile.review_information_request", async () => {
     if (!selectedScopeRefs.size) {
-      return { status: "blocked", summary: "Select at least one field before reviewing the request." };
+      return { status: "blocked", summary: "Choose at least one thing before reviewing the request." };
     }
     if (!isVaultUnlocked) {
       return { status: "blocked", summary: "Unlock the vault before reviewing an information request." };
@@ -436,7 +399,7 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
         id: "review-information-request",
         label: "Review information request",
         actionId: "people.profile.review_information_request",
-        purpose: "Review selected fields before sending a consent request.",
+        purpose: "Review what you chose before asking for it.",
       },
     ];
     if (viewerProfile.relationship.status === "none") {
@@ -459,7 +422,7 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
           spokenSubject: null,
           sections: [
             { id: "shared", title: "Shared with you", summary: `${viewerProfile.grants.length} active grants` },
-            { id: "requestable", title: "Available to request", summary: `${viewerProfile.requestableScopes.length} requestable fields` },
+            { id: "requestable", title: "Available to request", summary: `${viewerProfile.requestableScopes.length} things you can ask for` },
             { id: "history", title: "Request history", summary: `${viewerProfile.requestHistory.length} request records` },
           ],
           actions: surfaceActions,
@@ -710,104 +673,37 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
                 title="Available to request"
                 description="Choose only what is needed. The person reviews every request before access is granted."
               />
-              {scopeToolsVisible ? (
-                <div className="space-y-3">
-                  <Input
-                    value={scopeQuery}
-                    onChange={(event) => setScopeQuery(event.target.value)}
-                    placeholder="Search fields"
-                    aria-label="Search fields"
-                    data-testid="person-profile-scope-search"
-                  />
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div className="flex flex-wrap gap-2" role="group" aria-label="Filter by domain">
-                      <button
-                        type="button"
-                        aria-pressed={!scopeDomain}
-                        className={domainChipClass(!scopeDomain)}
-                        onClick={() => setScopeDomain(null)}
-                      >
-                        All
-                      </button>
-                      {scopeDomains.map((domain) => (
-                        <button
-                          key={domain}
-                          type="button"
-                          aria-pressed={scopeDomain === domain}
-                          className={domainChipClass(scopeDomain === domain)}
-                          onClick={() => setScopeDomain((current) => (current === domain ? null : domain))}
-                          data-testid={`person-profile-domain-chip-${domain}`}
-                        >
-                          {domain.replaceAll("_", " ")}
-                        </button>
-                      ))}
-                    </div>
-                    <p className="text-xs text-muted-foreground font-medium" data-testid="person-profile-scope-count">
-                      {filteredScopes.length} of {allScopes.length} fields
-                    </p>
-                  </div>
-                </div>
-              ) : null}
-              {groupedScopes.length ? (
-                <div className="space-y-4">
-                  {groupedScopes.map(([domain, scopes]) => (
-                    <SectionCard key={domain}>
-                      <h3 className="font-semibold capitalize">{domain.replaceAll("_", " ")}</h3>
-                      <div className="mt-3 divide-y divide-border/60">
-                        {scopes.map((scope) => (
-                          <button
-                            type="button"
-                            key={scope.scopeRef}
-                            className="grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-4 rounded-xl px-3.5 py-3.5 text-left outline-none transition-colors hover:bg-muted/50 focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]"
-                            aria-pressed={selectedScopeRefs.has(scope.scopeRef)}
-                            onClick={() => setSelectedScopeRefs((current) => {
-                              const next = new Set(current);
-                              if (next.has(scope.scopeRef)) next.delete(scope.scopeRef);
-                              else next.add(scope.scopeRef);
-                              return next;
-                            })}
-                          >
-                            <div className="min-w-0">
-                              <p className="text-sm font-semibold">{scopeTitle(scope)}</p>
-                              {scope.description ? (
-                                <p className="mt-1 text-sm text-muted-foreground">{scope.description}</p>
-                              ) : null}
-                            </div>
-                            <StatusPill
-                              tone={selectedScopeRefs.has(scope.scopeRef) ? "ready" : "neutral"}
-                              className="shrink-0 justify-self-end"
-                            >
-                              {selectedScopeRefs.has(scope.scopeRef) ? "Selected" : "Ask first"}
-                            </StatusPill>
-                          </button>
-                        ))}
-                      </div>
-                    </SectionCard>
-                  ))}
-                </div>
-              ) : allScopes.length ? (
-                <SectionCard>
-                  <p className="text-sm text-muted-foreground" data-testid="person-profile-scope-no-match">
-                    No fields match.{" "}
-                    <button
-                      type="button"
-                      className="font-medium text-foreground underline underline-offset-4"
-                      onClick={() => {
-                        setScopeQuery("");
-                        setScopeDomain(null);
-                      }}
-                    >
-                      Clear
-                    </button>
-                  </p>
-                </SectionCard>
-              ) : (
-                <SectionCard>
-                  <p className="text-sm text-muted-foreground">
-                    This person has no information available to request.
-                  </p>
-                </SectionCard>
-              )}
+              {/*
+                One nested list, the same one the Memory route uses.
+
+                This section used to hand-roll its own search, its own domain
+                chips, its own grouping map and its own row, which meant a
+                person met a flat two-level list here and an unbounded drill-in
+                on their own Memory -- the same information, two products. The
+                catalogue is a set of `attr.<domain>.<path...>` references, so
+                it already knew how to nest; the page just threw the path away.
+              */}
+              <ConsentScopeNestedList
+                items={scopeItems}
+                rootLabel="All"
+                emptyText="This person has nothing available to ask for."
+                testIdPrefix="person-profile-scope"
+                selection={{
+                  selectedIds: selectedScopeRefs,
+                  // A branch arrives as every reference underneath it, so
+                  // "everything financial" is one gesture rather than four
+                  // folders and eleven taps.
+                  onToggleMany: (ids, select) =>
+                    setSelectedScopeRefs((current) => {
+                      const next = new Set(current);
+                      for (const id of ids) {
+                        if (select) next.add(id);
+                        else next.delete(id);
+                      }
+                      return next;
+                    }),
+                }}
+              />
               {allScopes.length ? (
                 <div className="flex justify-end pt-1">
                   <Button
@@ -904,11 +800,11 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
-            <SectionCard title="Fields">
+            <SectionCard title="What you are asking for">
               <div className="space-y-2">
                 {selectedScopes.map((scope) => (
                   <div key={scope.scopeRef} className="flex items-center justify-between gap-3 text-sm">
-                    <span>{scopeTitle(scope)}</span>
+                    <span>{scope.label || scope.scopeRef}</span>
                     <StatusPill tone="neutral">{scope.sensitivity || "Standard"}</StatusPill>
                   </div>
                 ))}
@@ -935,7 +831,7 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
                 value={purpose}
                 onChange={(event) => setPurpose(event.target.value)}
                 maxLength={500}
-                placeholder="Explain why these fields are needed and how they will be used."
+                placeholder="Explain why you need these and how you will use them."
               />
             </label>
           </div>

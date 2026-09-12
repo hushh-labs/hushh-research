@@ -585,9 +585,20 @@ export function SettingsRow({
       "transition-[border-color,box-shadow] focus:outline-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70 focus-visible:ring-offset-2",
   );
   const primaryActionClassName = cn(
-    "relative isolate min-w-0 overflow-hidden border-0 bg-transparent px-[var(--settings-row-px)] py-[var(--settings-row-py)] text-left outline-hidden ring-0 transition-[background-color,border-color,box-shadow] [-webkit-tap-highlight-color:transparent] focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
-    "rounded-[inherit] [@media(hover:hover)]:rounded-xl",
-    "[@media(hover:hover)]:hover:bg-foreground/[0.04] active:bg-foreground/[0.065]",
+    // No background and no radius of its own.
+    //
+    // This button used to paint the hover itself, with
+    // `[@media(hover:hover)]:rounded-xl` overriding the row radius and its own
+    // `px-[var(--settings-row-px)]` sitting INSIDE a grid cell that already has
+    // that padding. The result was a 12px-rounded pill inset from the row on
+    // every side and stopping short of the trailing controls -- a highlight
+    // that pointed at part of a row while the whole row was the target.
+    //
+    // The hover now comes from the same full-bleed overlay the non-split row
+    // uses, so both shapes of row light up identically: edge to edge, at the
+    // row's own corner radius.
+    "relative isolate min-w-0 border-0 bg-transparent px-[var(--settings-row-px)] py-[var(--settings-row-py)] text-left outline-hidden ring-0 [-webkit-tap-highlight-color:transparent] focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+    "rounded-[inherit]",
     resolvedDensity === "compact" ? "min-h-[56px]" : "min-h-[60px]",
     layout === "person" && "min-h-11 p-0",
   );
@@ -626,6 +637,20 @@ export function SettingsRow({
   if (splitPrimaryAction) {
     return (
       <div className={rowShellClassName} {...rowDataProps}>
+        {/*
+          The same hover surface the non-split row draws. It sits on the shell,
+          so it spans the full row and takes the shell's radius, rather than
+          being painted by the inner button at a radius of its own.
+        */}
+        {!disabled ? (
+          <span
+            aria-hidden
+            className={cn(
+              "pointer-events-none absolute inset-0 z-[1] rounded-[inherit] bg-transparent transition-[background-color]",
+              "[@media(hover:hover)]:group-hover/settings-row:bg-foreground/[0.04] group-active/settings-row:bg-foreground/[0.065]",
+            )}
+          />
+        ) : null}
         <div
           className={cn(
             "relative z-10 grid w-full px-[var(--settings-row-px)] py-[var(--settings-row-py)]",

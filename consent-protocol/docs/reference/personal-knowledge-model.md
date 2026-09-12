@@ -263,6 +263,48 @@ memory policy above. The submitted KYC step remains complete even if background
 fact organization needs a retry; a transient PKM failure must never reopen KYC
 and make an owner repeat onboarding.
 
+## Information about the person, never application state
+
+The PKM's whole claim is that it holds what is true about someone. Whether that
+person finished a setup wizard is true about the app. The two had been drifting
+into the same store, because the onboarding flow wrote its own progress beside
+the answers it collected.
+
+Measured 2026-09-11 for one person's `financial` domain: twenty-four stored leaf
+values, of which eight were information about anybody. The other sixteen were six
+routing-telemetry rows, five timestamps recording when each answer was given, and
+five wizard checkpoints, one of which had been initialised and never set. All
+twenty-four were being offered to that person as things they could share with
+someone else.
+
+**The rule.** A stored key becomes a declared, requestable path only if it is a
+record about the person. Application state, routing telemetry, and the timestamp
+of an answer are not, and must not reach a catalogue.
+
+**Where it is enforced.** At the manifest walk, which is the moment a stored key
+first becomes a declared path. That is deliberately upstream of display: filtering
+the catalogue stops a person being OFFERED their own checkpoints, but a store that
+holds them is already wrong even if nothing renders them.
+
+**How the two sides agree.** `contracts/pkm/internal-path-keys.v1.json` is one
+hand-authored truth table read by both implementations,
+`hushh-webapp/lib/pkm/internal-path-keys.ts` and
+`hushh_mcp/consent/internal_path_keys.py`. Same precedent as
+`contracts/pkm/segment-humanization.v1.json`, and for the same reason: two
+implementations of one rule drift, a shared table cannot.
+
+**Two near-misses worth remembering**, because each looked correct alone:
+
+1. The catalogue filter already knew `domain_intent` was structural, but compared
+   only the first path segment, so `profile.domain_intent.primary` published
+   freely while `domain_intent` was blocked.
+2. A field initialised to `null` and never written was recorded as
+   exposure-eligible, because the walk returned early only on `undefined`.
+
+**Not yet done:** the cleanup of already-stored records. The rule stops new
+application state entering the model and stops the existing rows being offered;
+evicting what is already stored is an upgrade step that has not run.
+
 ## Storage rules
 
 - New writes are PKM-only.

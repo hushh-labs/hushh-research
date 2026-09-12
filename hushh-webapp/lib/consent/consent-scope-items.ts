@@ -39,6 +39,19 @@ export type ConsentScopeItem = {
   description?: string | null;
   /** Raw grouping key, never shown to a person. */
   domainKey: string;
+  /**
+   * The path BELOW the domain, one entry per segment.
+   *
+   * `attr.saved_places.locations.home` -> ["locations", "home"]. This is the
+   * half of every scope the interface used to throw away: `parseConsentScope`
+   * has always returned it, and until now no caller read it, so a five-segment
+   * scope and a two-segment scope rendered as the same single flat row. It is
+   * carried here so a level view can be resolved from the list itself, with no
+   * materialised tree, the way the Memory route resolves one level at a time.
+   *
+   * Empty for a scope with nothing below the domain.
+   */
+  pathSegments: string[];
   /** The heading a person reads. Humanised once, here. */
   domainLabel: string;
   badge?: string | null;
@@ -49,6 +62,37 @@ export type ConsentScopeItem = {
 
 function haystack(parts: Array<string | null | undefined>): string {
   return parts.filter(Boolean).join(" ").toLowerCase();
+}
+
+/**
+ * "locations.home" -> ["locations", "home"].
+ *
+ * A TRAILING "*" is dropped rather than kept as a segment. In the scope grammar
+ * it is not a name, it is the sentence ending in "and everything under here" --
+ * so `attr.professional.*` addresses the same place as `attr.professional`, one
+ * level up from where a literal segment would put it. Keeping it would bury a
+ * domain whose only grant is the broad one inside a folder holding exactly one
+ * row, which is the folder-for-one-file problem the level view exists to avoid.
+ *
+ * Only the trailing one: `attr.a.*.b` is not a shape the grammar produces, and
+ * if it ever appears we would rather show it than silently reinterpret it.
+ *
+ * Nothing is lost by this. `ConsentScopeItem.id` remains the FULL scope
+ * reference, so every grant, revocation and selection still names the exact
+ * wildcard scope the protocol authorised.
+ */
+function splitScopePath(path: string): string[] {
+  const segments = String(path || "")
+    .split(".")
+    .map((segment) => segment.trim())
+    .filter(Boolean);
+  if (segments[segments.length - 1] === "*") segments.pop();
+  return segments;
+}
+
+/** The segments below the domain for one scope reference. */
+export function scopePathSegments(scopeRef: string | null | undefined): string[] {
+  return splitScopePath(parseConsentScope(scopeRef).path);
 }
 
 /** "saved_places" -> "Saved places". The one place a domain key becomes words. */
@@ -83,6 +127,8 @@ export function scopeItemsFromPermissions(
     label: permission.label,
     description: permission.description,
     domainKey: permission.domainKey || "",
+    // The permission key is "<domain>:<path>"; the path half is the nesting.
+    pathSegments: splitScopePath(String(permission.key || "").split(":").slice(1).join(":")),
     domainLabel: permission.domainTitle || domainLabelFor(permission.domainKey),
     badge: permission.stateLabel || null,
     disabled: Boolean(permission.disabledReason),
@@ -101,6 +147,7 @@ export function scopeItemsFromRequestable(
       label: scope.label || scope.scopeRef,
       description: scope.description,
       domainKey,
+      pathSegments: scopePathSegments(scope.scopeRef),
       domainLabel: domainLabelFor(domainKey),
       badge: sensitivityBadge(scope.sensitivity),
       searchText: haystack([scope.label, scope.description, domainKey]),
@@ -121,6 +168,7 @@ export function scopeItemFromPendingConsent(
     label,
     description: item.reason ?? null,
     domainKey,
+    pathSegments: scopePathSegments(item.scope),
     domainLabel: domainLabelFor(domainKey),
     badge: null,
     searchText: haystack([label, item.reason, domainKey]),

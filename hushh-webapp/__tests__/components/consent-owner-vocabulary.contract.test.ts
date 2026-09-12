@@ -33,6 +33,13 @@ const SURFACES = [
   "components/agent/agent-structured-experience.tsx",
   "components/agent/specialist-directive-card.tsx",
   "components/consent/consent-scope-list.tsx",
+  "components/consent/consent-scope-nested-list.tsx",
+  // Added after the gate was found silent on the one screen a person actually
+  // meets when deciding what to ask someone for. It said "requestable fields",
+  // "Search fields", "No fields match." and "Fields" as a heading -- four of the
+  // exact words agent.yaml forbids the model to say -- and passed, because a
+  // per-surface gate only guards the surfaces someone remembered to list.
+  "components/connections/person-profile-page.tsx",
 ];
 
 function bannedWords(): string[] {
@@ -77,7 +84,22 @@ function ownerFacingText(source: string): string[] {
     .filter((text) => !/^[a-z-]+(\s[a-z-]+)*$/.test(text) || /\b(the|your|you|a|an)\b/i.test(text))
     .filter((text) => !/[:;{}]/.test(text));
 
-  return [...jsxText, ...prose];
+  // Template literals, with their ${...} holes removed.
+  //
+  // Added after this gate was extended to person-profile-page and reported
+  // PASS on a line that read "N requestable fields" -- because that sentence
+  // lives in a template literal, and the two matchers above only see
+  // double-quoted strings and JSX text. The gate could not fail on the exact
+  // string that prompted the audit. Interpolations are dropped rather than
+  // kept: they are identifiers, and matching them would flag `scope.domain`
+  // as prose and train everyone to ignore this test.
+  const templates = [...withoutComments.matchAll(/`([^`]*)`/g)]
+    .map((m) => m[1]!.replace(/\$\{[^}]*\}/g, " "))
+    .filter((text) => text.trim().length > 5)
+    .filter((text) => text.includes(" "))
+    .filter((text) => !text.includes("/"));
+
+  return [...jsxText, ...prose, ...templates];
 }
 
 describe("owner-facing consent vocabulary", () => {

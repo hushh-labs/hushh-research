@@ -289,7 +289,10 @@ describe("PersonProfilePage native profile route", () => {
     expect(shareButton.querySelector(".inline-flex.items-center.gap-2")).not.toBeNull();
   });
 
-  it("aligns requestable scope pills in a stable trailing column", async () => {
+  it("opens the catalogue nested, one row per area rather than every scope at once", async () => {
+    // Replaces an assertion about a hand-rolled grid row. The page no longer
+    // owns a row: it renders the same nested list the Memory route uses, so a
+    // person meets one screen per level instead of the whole catalogue flat.
     mocks.user = {
       uid: "viewer",
       getIdToken: vi.fn().mockResolvedValue("viewer-token"),
@@ -309,15 +312,19 @@ describe("PersonProfilePage native profile route", () => {
     );
 
     await screen.findByRole("heading", { name: "Available to request" });
-    const scopeRows = document.querySelectorAll('button[aria-pressed="false"]');
-    expect(scopeRows).toHaveLength(2);
-    for (const row of scopeRows) {
-      expect(row).toHaveClass("grid");
-      expect(row).toHaveClass("items-center");
-      expect(row).toHaveClass("grid-cols-[minmax(0,1fr)_auto]");
-      expect(row).not.toHaveClass("items-start");
-      expect(row.querySelector(".justify-self-end")).not.toBeNull();
-    }
+
+    // Both scopes live under one area, so the top level is that one area and
+    // neither leaf is on screen yet.
+    const area = screen.getByRole("button", { name: "Open Financial" });
+    expect(area).toBeTruthy();
+    expect(screen.queryByText("Risk profile")).toBeNull();
+
+    fireEvent.click(area);
+
+    // One level in: the leaves, and a back control named for where it returns
+    // to rather than the word "Back".
+    expect(screen.getByText("Risk profile")).toBeTruthy();
+    expect(screen.getByTestId("person-profile-scope-back")).toHaveTextContent("All");
   });
 
   it("renders Review request after Financial rows without sticky viewport positioning", async () => {
@@ -390,20 +397,34 @@ describe("PersonProfilePage request catalog tools", () => {
     vi.clearAllMocks();
   });
 
-  it("filters a long catalog by search text and domain chips, and clears back", async () => {
+  it("drills into an area, walks back out, and lets search cut across every level", async () => {
+    // The domain chips are gone. They were a flat filter standing in for
+    // navigation; the level view navigates for real. Search survives because it
+    // answers a different question -- someone typing has already said they do
+    // not know where the thing lives, so search deliberately flattens.
     render(<PersonProfilePage personRef="actual-public-ref" initialProfile={null} />);
-    const search = await screen.findByTestId("person-profile-scope-search");
-    expect(screen.getByTestId("person-profile-scope-count")).toHaveTextContent("9 of 9 fields");
+
+    const professional = await screen.findByRole("button", { name: "Open Professional" });
+    expect(screen.queryByText("Employment status")).toBeNull();
+
+    fireEvent.click(professional);
+    expect(screen.getByText("Employment status")).toBeTruthy();
+    expect(screen.queryByText("Field 1")).toBeNull(); // lives under the other area
+
+    fireEvent.click(screen.getByTestId("person-profile-scope-back"));
+    expect(screen.queryByText("Employment status")).toBeNull();
+    expect(screen.getByRole("button", { name: "Open Professional" })).toBeTruthy();
+
+    // Search reaches a leaf without navigating to it.
+    const search = screen.getByTestId("person-profile-scope-search");
     fireEvent.change(search, { target: { value: "employment" } });
-    expect(screen.getByTestId("person-profile-scope-count")).toHaveTextContent("1 of 9 fields");
-    expect(screen.getByRole("button", { name: /Employment status/ })).toBeTruthy();
-    fireEvent.change(search, { target: { value: "" } });
-    fireEvent.click(screen.getByTestId("person-profile-domain-chip-food"));
-    expect(screen.getByTestId("person-profile-scope-count")).toHaveTextContent("4 of 9 fields");
+    expect(screen.getByText("Employment status")).toBeTruthy();
+
     fireEvent.change(search, { target: { value: "zzz-nothing" } });
     expect(screen.getByTestId("person-profile-scope-no-match")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Clear" }));
-    expect(screen.getByTestId("person-profile-scope-count")).toHaveTextContent("9 of 9 fields");
+
+    fireEvent.change(search, { target: { value: "" } });
+    expect(screen.getByRole("button", { name: "Open Professional" })).toBeTruthy();
   });
 
   it("offers an access duration inside the review sheet and sends it in hours", async () => {
@@ -412,7 +433,8 @@ describe("PersonProfilePage request catalog tools", () => {
     (OneKycClientZkService.ensureConnector as ReturnType<typeof vi.fn>).mockResolvedValue({ connector_key_id: "ck_1" });
     (PersonProfileService.createInformationRequest as ReturnType<typeof vi.fn>).mockResolvedValue({ bundleId: "b1" });
     render(<PersonProfilePage personRef="actual-public-ref" initialProfile={null} />);
-    fireEvent.click(await screen.findByRole("button", { name: /Employment status/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "Open Professional" }));
+    fireEvent.click(screen.getByRole("button", { name: /Employment status/ }));
     fireEvent.click(screen.getByRole("button", { name: /Review request \(1\)/ }));
     const duration = screen.getByTestId("person-profile-duration-select") as HTMLSelectElement;
     expect(duration.value).toBe("168");

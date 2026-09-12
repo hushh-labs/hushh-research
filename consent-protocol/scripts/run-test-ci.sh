@@ -65,3 +65,17 @@ VAULT_DATA_KEY="${VAULT_DATA_KEY:-0000000000000000000000000000000000000000000000
 HUSHH_DEVELOPER_TOKEN="${HUSHH_DEVELOPER_TOKEN:-test_hushh_developer_token_for_ci}" \
 PYTHONPATH=. \
 "$PYTHON_BIN" -m pytest -q "${TESTS[@]}"
+
+# Every test file must at least IMPORT, listed in the manifest or not.
+#
+# The manifest above names the files CI runs. A file outside it can rot to the
+# point of not importing and nothing notices: tests/test_consent_lifecycle_chat.py
+# collected ZERO tests for days after `_BackendDirectConfirmationNeeded` was
+# removed by an unrelated change, silently dropping twenty functions covering the
+# spoken-yes gate on every consent mutation and the fail-closed VAULT_OWNER check.
+#
+# Collection is cheap -- no test bodies run -- and it is the one check that cannot
+# be passed by a file nobody remembered to list. Same defect class as the DCO hook
+# that was correct, tracked, and had never run.
+echo "== Verifying every test file still imports =="
+PYTHONPATH=. "$PYTHON_BIN" -m pytest --collect-only -q tests/ >/dev/null

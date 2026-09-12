@@ -361,6 +361,7 @@
       "model": "gemini-default",
       "name": "Connections Agent",
       "native_requirements": [],
+      "one_exposure": null,
       "optional_scopes": [],
       "outputs": [],
       "owner": "backend",
@@ -557,6 +558,7 @@
       "model": "gemini-default",
       "name": "Financial Guard Agent",
       "native_requirements": [],
+      "one_exposure": null,
       "optional_scopes": [],
       "outputs": [
         {
@@ -1310,6 +1312,7 @@
       "model": "gemini-default",
       "name": "Memory Intent Agent",
       "native_requirements": [],
+      "one_exposure": null,
       "optional_scopes": [],
       "outputs": [
         {
@@ -1467,6 +1470,7 @@
       "model": "gemini-default",
       "name": "Memory Merge Agent",
       "native_requirements": [],
+      "one_exposure": null,
       "optional_scopes": [],
       "outputs": [
         {
@@ -1604,6 +1608,7 @@
       "model": "gemini-default",
       "name": "Memory Segmentation Agent",
       "native_requirements": [],
+      "one_exposure": null,
       "optional_scopes": [],
       "outputs": [
         {
@@ -1829,6 +1834,7 @@
       "model": "gemini-default",
       "name": "Onboarding Specialist",
       "native_requirements": [],
+      "one_exposure": null,
       "optional_scopes": [],
       "outputs": [
         {
@@ -1965,6 +1971,7 @@
       },
       "name": "Agent One",
       "native_requirements": [],
+      "one_exposure": null,
       "optional_scopes": [],
       "outputs": [],
       "owner": "backend",
@@ -2017,7 +2024,7 @@
         "voice": true,
         "web": true
       },
-      "system_instruction_sha256": "bc6bf795c019546bb1414aab403fb1e0ab11a892e293773ab33ae01b0a7d1fc3",
+      "system_instruction_sha256": "be1704900d3f4b6cfd09bfc2a12771e68eacb4c38c4f4dcf4f29f4acd32bbd78",
       "telemetry_namespace": "agent.one",
       "tools": [],
       "ui_type": "chat",
@@ -2058,6 +2065,7 @@
       "model": "gemini-default",
       "name": "Information Marketplace",
       "native_requirements": [],
+      "one_exposure": null,
       "optional_scopes": [
         "cap.pkm.marketplace.manage"
       ],
@@ -2220,6 +2228,7 @@
       "model": "gemini-default",
       "name": "PKM Structure Agent",
       "native_requirements": [],
+      "one_exposure": null,
       "optional_scopes": [],
       "outputs": [
         {
@@ -2352,6 +2361,7 @@
       "model": "gemini-default",
       "name": "Portfolio Import Agent",
       "native_requirements": [],
+      "one_exposure": null,
       "optional_scopes": [],
       "outputs": [
         {
@@ -2497,6 +2507,7 @@
       "model": "gemini-default",
       "name": "PKM Summary Reducer",
       "native_requirements": [],
+      "one_exposure": null,
       "optional_scopes": [],
       "outputs": [
         {

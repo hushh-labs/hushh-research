@@ -80,8 +80,13 @@ def _single_segment(message: str):
 
 
 def test_default_preview_budget_outlives_one_tail_contract_without_unbounded_wait() -> None:
-    assert pkm_agent_lab_module._AGENT_CONTRACT_TIMEOUT_SECONDS == 10.0
-    assert pkm_agent_lab_module._PREVIEW_TOTAL_BUDGET_SECONDS == 35.0
+    # Both pins were stale on main: d1af7b695 raised the contract timeout from
+    # ten to thirty and the budget from thirty-five to forty-five while
+    # stabilizing the Gmail and PKM setup flows, and updated neither this test
+    # nor the two comments that justify the values. The test was failing on
+    # main itself, not only after a merge.
+    assert pkm_agent_lab_module._AGENT_CONTRACT_TIMEOUT_SECONDS == 30.0
+    assert pkm_agent_lab_module._PREVIEW_TOTAL_BUDGET_SECONDS == 45.0
     assert (
         pkm_agent_lab_module._PREVIEW_TOTAL_BUDGET_SECONDS
         < pkm_agent_lab_module._AGENT_CONTRACT_TIMEOUT_SECONDS * 4
