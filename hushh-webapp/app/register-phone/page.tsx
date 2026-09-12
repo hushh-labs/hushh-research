@@ -9,7 +9,6 @@ import { HushhLoader } from "@/components/app-ui/hushh-loader";
 import { NativeRouteMarker } from "@/components/app-ui/native-route-marker";
 import { PhoneVerificationFlow } from "@/components/auth/phone-verification-flow";
 import { FigmaIllustration } from "@/components/onboarding/FigmaOnboardingPrimitives";
-import { OnboardingHeroBackground } from "@/components/onboarding/OnboardingHeroBackground";
 import { VaultLockGuard } from "@/components/vault/vault-lock-guard";
 import {
   DropdownMenu,
@@ -244,7 +243,7 @@ export function PhoneMandatePageContent() {
                   {
                     id: "phone_mandate.submit_number",
                     actionId: "phone_mandate.submit_number",
-                    label: "Send verification code",
+                    label: "Send a verification code",
                     purpose: "Send a code after the phone form is completed.",
                   },
                 ]
@@ -309,29 +308,10 @@ export function PhoneMandatePageContent() {
   }
 
   const shell = (
-    // Inline styles (not Tailwind arbitrary-value classes) for every
-    // computed height/offset here: Tailwind's arbitrary calc() parser
-    // requires escaped whitespace around +/- operators ("18px_+_var(...)");
-    // without it the whole declaration is invalid CSS and silently dropped,
-    // which produced 0px paddings/heights and forced full-page scroll.
-    // The outer app scroll root reserves --app-scroll-bottom-pad below this
-    // element for the fixed onboarding Agent Bar, then re-adds it as its own
-    // padding-bottom, so this element is exactly one viewport minus that
-    // reservation.
     <main
-      className={cn(
-        "relative w-full overflow-hidden bg-[#f6f5fc] dark:bg-black",
-        styles.shell,
-      )}
-      style={{
-        height: "calc(100dvh - var(--app-scroll-bottom-pad, 0px))",
-        minHeight: "calc(100svh - var(--app-scroll-bottom-pad, 0px))",
-      }}
+      className={styles.shell}
       data-testid="phone-mandate-screen"
     >
-      {/* Verification is a focused task, not a hero; the Figma illustration
-          is a compact visual anchor above the form rather than a new flow. */}
-      <OnboardingHeroBackground variant="solid" />
       <NativeRouteMarker
         routeId={ROUTES.PHONE_MANDATE}
         marker="native-route-register-phone"
@@ -339,35 +319,16 @@ export function PhoneMandatePageContent() {
         dataState="loaded"
       />
 
-      <div className={styles.stage}>
-        <div
-          className={cn(
-            "relative mx-auto flex w-full max-w-[440px] flex-col",
-            styles.composition,
-          )}
-          style={{
-            height: "calc(100dvh - var(--app-scroll-bottom-pad, 0px))",
-            minHeight: "calc(100svh - var(--app-scroll-bottom-pad, 0px))",
-          }}
-        >
+      <div className={styles.composition}>
         {/* Top bar: back + account actions */}
-        <div
-          className={cn(
-            "absolute inset-x-0 z-30 flex items-center justify-between px-5",
-            styles.topBar,
-          )}
-          style={{
-            top: "max(0px, calc(54px - var(--app-safe-area-top-effective, 0px)))",
-            paddingTop: "calc(18px + var(--app-safe-area-top-effective, 0px))",
-          }}
-        >
+        <div className={styles.topBar}>
           <button
             type="button"
             aria-label="Go back"
             onClick={() => router.back()}
             className={cn(
-              "grid h-11 w-11 place-items-center rounded-full bg-white/[0.52] text-[#1d1d1f]/70 shadow-[0_4px_15px_rgba(150,196,255,0.22)] transition-colors hover:bg-white/[0.75] active:scale-95 dark:bg-[#1c1c1e]/85 dark:text-white/90 dark:shadow-none dark:hover:bg-[#303034]",
-              styles.phoneBackButton,
+              styles.backButton,
+              "transition-transform active:scale-95",
             )}
           >
             <ChevronLeft className="h-5 w-5" />
@@ -378,8 +339,8 @@ export function PhoneMandatePageContent() {
                 type="button"
                 aria-label="Account actions"
                 className={cn(
-                  "grid h-11 w-11 place-items-center rounded-full bg-white/[0.52] text-[#1d1d1f]/70 shadow-[0_4px_15px_rgba(150,196,255,0.22)] transition-colors hover:bg-white/[0.75] active:scale-95 dark:bg-[#1c1c1e]/85 dark:text-white/90 dark:shadow-none dark:hover:bg-[#303034]",
                   styles.accountButton,
+                  "transition-transform active:scale-95",
                 )}
               >
                 <MoreHorizontal className="h-5 w-5" />
@@ -394,26 +355,21 @@ export function PhoneMandatePageContent() {
           </DropdownMenu>
         </div>
 
-        <div className={cn("absolute left-1/2 top-[78px] -translate-x-1/2", styles.phoneIllustrationSlot)}>
-          <FigmaIllustration variant="phone" className={styles.phoneIllustration} />
-        </div>
-
-        <div className={cn("absolute inset-x-6 top-[373px] text-center", styles.phoneTitle)}>
-          <h1
-            role="heading"
-            aria-level={1}
-            aria-label={
-              verificationStep === "code"
-                ? "Enter verification code"
-                : "Verify your phone number"
-            }
-            className="whitespace-nowrap font-[family-name:var(--font-app-display)] text-[27px] font-bold leading-[1.1] tracking-[-0.7px] text-[#0a0a0a] dark:text-[#fafafa]"
-          >
-            {verificationStep === "code"
+        <FigmaIllustration variant="phone" className={styles.hero} />
+        <h1
+          role="heading"
+          aria-level={1}
+          aria-label={
+            verificationStep === "code"
               ? "Enter verification code"
-              : "Verify your phone number"}
-          </h1>
-        </div>
+              : "Verify your phone number"
+          }
+          className={styles.title}
+        >
+          {verificationStep === "code"
+            ? "Enter verification code"
+            : "Verify your phone number"}
+        </h1>
 
         {/* The active field group owns the keyboard clearance. The keyboard
             plugin leaves the WebView frame stable, so padding—not a `dvh`
@@ -421,14 +377,7 @@ export function PhoneMandatePageContent() {
             Android keyboards. Tiny screens may scroll this one form region. */}
         <div
           data-phone-mandate-input-region="true"
-          className={cn(
-            `absolute inset-x-0 bottom-0 top-[438px] overflow-y-auto overscroll-contain px-6 pt-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden ${verificationStep === "code" ? "top-[432px]" : ""}`,
-            styles.inputRegion,
-          )}
-          style={{
-            paddingBottom:
-              "max(calc(1rem + var(--app-safe-area-bottom-effective, 0px)), calc(1rem + var(--kb-height, 0px)))",
-          }}
+          className={styles.inputRegion}
         >
           <PhoneVerificationFlow
             key={user.uid}
@@ -441,12 +390,11 @@ export function PhoneMandatePageContent() {
             onStepChange={setVerificationStep}
             sendCodeLabel="Send a verification code"
             confirmLabel="Verify"
-            primaryActionClassName={cn("mx-auto max-w-[21.5rem]", styles.phoneSubmitButton)}
-            className={cn("flex flex-col gap-5", styles.phoneForm)}
+            primaryActionClassName={styles.primaryAction}
+            className={styles.phoneForm}
             helperText=""
           />
           <div id="recaptcha-container" className={cn("mt-3 min-h-0", styles.recaptcha)} />
-        </div>
         </div>
       </div>
     </main>

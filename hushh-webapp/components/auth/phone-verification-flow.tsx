@@ -1008,9 +1008,15 @@ export function PhoneVerificationFlow({
         </div>
         <Button
           onClick={() => void onContinueExisting?.()}
+          variant="none"
+          effect="fill"
           size="default"
           fullWidth
-          className={`type-headline mt-6 h-12 ${FLOW_SURFACE_RADIUS_CLASS_NAME}`}
+          className={cn(
+            "type-headline mt-6",
+            FLOW_CTA_CLASS_NAME,
+            primaryActionClassName,
+          )}
         >
           Continue
         </Button>
