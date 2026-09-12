@@ -36,6 +36,23 @@ _GAVE_UP_MESSAGE = "I couldn't finish that — please try rephrasing."
 
 ModelCall = Callable[[Any, Any], Awaitable[Any]]
 
+# Same wording ConnectionsService.search_directory's own `relationship()`
+# produces (connections_service.py) turned into the hint text a disambiguation
+# option shows. "none" -> no hint: an unrelated match needs no qualifier.
+# Two same-named candidates otherwise render identically even when one is
+# already mid-flight and the other is not (#5377, Jhumma: "if redundancy of
+# names found bring other cases as well, 1 requested other don't").
+_RELATIONSHIP_HINTS = {
+    "connected": "already connected",
+    "pending_outgoing": "already requested",
+    "pending_incoming": "requested you",
+}
+
+
+def _relationship_hint(relationship: str | None) -> str | None:
+    return _RELATIONSHIP_HINTS.get(str(relationship or "").strip())
+
+
 # Authoritative system prompt for this specialist. agents/connections/agent.yaml carries a declarative copy (not loaded in v1); keep them in sync.
 _SYSTEM_PROMPT = (
     "You are the user's Connections assistant inside hushh One. You manage the "
@@ -391,6 +408,7 @@ class ConnectionsChatService:
                     {
                         "userId": str(p.get("userId")),
                         "displayName": str(p.get("displayName") or "Someone"),
+                        "relationship": str(p.get("relationship") or "none"),
                     }
                     for p in people
                 ],
@@ -419,7 +437,7 @@ class ConnectionsChatService:
                         "addresseeUserId": c["userId"],
                         "label": c["displayName"],
                     },
-                    "hint": None,
+                    "hint": _relationship_hint(c.get("relationship", "")),
                 }
                 for c in (result.get("candidates") or [])
                 if c.get("userId")
