@@ -62,9 +62,11 @@ class ConsumerSetupStatusResult(BaseModel):
     state: Literal["not_started", "running", "waiting_for_pod", "ready", "failed", "stale"]
     status: str
     stage: str
+    job_id: str | None = Field(default=None, max_length=128)
     project_id: str | None = None
     stages: list[dict[str, str]]
     error_code: str | None = None
+    updated_at: str | None = Field(default=None, max_length=64)
     next_action: str
 
 
@@ -259,6 +261,7 @@ async def handle_get_hussh_setup_status(arguments: dict) -> CallToolResult:
                 state="not_started",
                 status="none",
                 stage="",
+                job_id=None,
                 stages=[],
                 next_action=(
                     "Open the secure setup page to connect your cloud and private agent. "
@@ -301,9 +304,11 @@ async def handle_get_hussh_setup_status(arguments: dict) -> CallToolResult:
             state=state,
             status=status[:32],
             stage=stage,
+            job_id=str(row.get("job_id") or "")[:128] or None,
             project_id=str(row.get("project_id") or "")[:64] or None,
             stages=safe_stages,
             error_code=str(row.get("error_code") or "")[:64] or None,
+            updated_at=str(row.get("updated_at") or "")[:64] or None,
             next_action=next_action,
         )
     )

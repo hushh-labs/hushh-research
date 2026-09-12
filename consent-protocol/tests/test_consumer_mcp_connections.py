@@ -501,6 +501,7 @@ async def test_consumer_mcp_reads_resumable_setup_status_without_starting_a_job(
             return {
                 "status": "recorded",
                 "stage": "awaiting_agent_record",
+                "job_id": "setup-job-1",
                 "project_id": "owner-project",
                 "stages": [
                     {
@@ -510,6 +511,7 @@ async def test_consumer_mcp_reads_resumable_setup_status_without_starting_a_job(
                     }
                 ],
                 "error_code": None,
+                "updated_at": "2026-09-11T00:01:00+00:00",
             }
 
     monkeypatch.setattr(jobs, "ByocSetupJobRepo", _Repo)
@@ -525,7 +527,9 @@ async def test_consumer_mcp_reads_resumable_setup_status_without_starting_a_job(
 
     assert not result.isError
     assert result.structuredContent["state"] == "waiting_for_pod"
+    assert result.structuredContent["job_id"] == "setup-job-1"
     assert result.structuredContent["project_id"] == "owner-project"
+    assert result.structuredContent["updated_at"] == "2026-09-11T00:01:00+00:00"
     assert result.structuredContent["stages"] == [
         {"stage": "applying_iam", "at": "2026-09-11T00:00:00+00:00"}
     ]
