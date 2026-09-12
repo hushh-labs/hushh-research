@@ -39,8 +39,11 @@ const webOnlyPlugins = new Set(["HushhDatabase", "HushhAgent"]);
 // The TypeScript adapter returns unsupported/no pending invocation elsewhere.
 const iosOnlyPlugins = new Set(["HushhVoiceInvocation"]);
 const ignoredTsMethodsByPlugin = new Map([
+  // Listener registration is inherited from CAPPlugin / Plugin, not a custom
+  // @objc or @PluginMethod operation on these streaming/event plugins.
   ["Kai", new Set(["addListener"])],
   ["HushhVoiceInvocation", new Set(["addListener"])],
+  ["HushhSessionPrivacy", new Set(["addListener"])],
 ]);
 
 const failures = [];

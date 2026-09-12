@@ -3,11 +3,12 @@
  * =====================================================
  *
  * SECURITY MODEL (BYOK - Bring Your Own Key):
- * - Vault Key: Stored in React state (memory only) - XSS cannot access
- * - VAULT_OWNER Token: Stored in React state (memory only) - XSS cannot access
+ * - Browser Vault Key and VAULT_OWNER token: memory-only, never persisted.
+ * - iOS publishes the separately governed, user-presence-protected Messages
+ *   custody entry. That exception is not browser session persistence.
  *
  * CRITICAL: Neither vault key NOR token are stored in sessionStorage/localStorage.
- * This prevents XSS attacks from stealing credentials.
+ * Memory-only storage limits persistence exposure; it is not an XSS boundary.
  *
  * Services that need the token MUST receive it as a parameter from components
  * that have access to useVault() hook. This ensures the token never leaves
@@ -48,10 +49,16 @@ import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge
 import { PkmUpgradeOrchestrator } from "@/lib/services/pkm-upgrade-orchestrator";
 import { UnlockWarmOrchestrator } from "@/lib/services/unlock-warm-orchestrator";
 import { VaultService } from "@/lib/services/vault-service";
+import { apiErrorCode } from "@/lib/services/api-client";
+import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
+import { dispatchAuthSessionVerificationRequired, snapshotValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import { CacheService, CACHE_KEYS } from "@/lib/services/cache-service";
 import { appInteractionCoordinator } from "@/lib/interaction/interaction-intent-coordinator";
 import {
   AUTH_SESSION_INVALIDATED_EVENT,
+  authSessionInvalidationCodeFromFirebaseError,
+  authSessionInvalidationCodeFromBackendPayload,
+  dispatchAuthSessionInvalidated,
   isAuthSessionInvalidationCode,
   type AuthSessionInvalidationDetail,
 } from "@/lib/auth/session-invalidation";
@@ -73,10 +80,14 @@ interface VaultContextType {
   /** Whether the vault is currently unlocked */
   isVaultUnlocked: boolean;
 
-  /** Set the vault key and VAULT_OWNER token after successful authentication */
-  unlockVault: (key: string, token: string, expiresAt: number) => void;
+  /** Local unlock survives temporary loss/renewal of server authority. */
+  ownerTokenStatus: "locked" | "valid" | "renewing" | "unavailable";
+  retryOwnerTokenRenewal: () => Promise<void>;
 
-  /** Clear the vault key and token (on logout or timeout) */
+  /** Set the vault key and VAULT_OWNER token after successful authentication */
+  unlockVault: (key: string, token: string, expiresAt: number) => boolean;
+
+  /** Clear the key/token on explicit lock or a terminal identity boundary. */
   lockVault: () => void;
 
   /** Get the vault key for encryption operations */
@@ -84,6 +95,24 @@ interface VaultContextType {
 
   /** Get the VAULT_OWNER token for agent requests */
   getVaultOwnerToken: () => string | null;
+}
+
+const OWNER_TOKEN_RENEWAL_LEAD_MS = 5 * 60_000;
+const OWNER_TOKEN_RETRY_MS = 30_000;
+const OWNER_TOKEN_RENEWAL_BUDGET_MS = 10_000;
+
+async function boundedRenewal<T>(operation: Promise<T>): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      operation,
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(() => reject(new Error("Owner token renewal timed out")), OWNER_TOKEN_RENEWAL_BUDGET_MS);
+      }),
+    ]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
 }
 
 // ============================================================================
@@ -111,10 +140,20 @@ function isGmailRoute(routePath: string): boolean {
 
 export function VaultProvider({ children }: VaultProviderProps) {
   // Access Auth Context to listen for logout
-  const { user } = useAuth();
+  const { user, loading: authLoading, sessionVerificationRequired } = useAuth();
+  const authReady = !authLoading && !sessionVerificationRequired;
+  const authStateRef = useRef({ user, ready: authReady });
+  authStateRef.current = { user, ready: authReady };
+  const sessionEpochRef = useRef(0);
+  const mountedRef = useRef(true);
+  const renewalRef = useRef<{ epoch: number; promise: Promise<void> } | null>(null);
+  const [renewalState, setRenewalState] = useState<"idle" | "renewing" | "unavailable">("idle");
+  const [, updateTokenClock] = useState(0);
+  const [renewalAttempt, setRenewalAttempt] = useState(0);
+  const nativeGenerationRef = useRef<Promise<number | null>>(Promise.resolve(null));
 
   // SECURITY: Vault key stored in React state = memory only
-  // This is NOT accessible via sessionStorage.getItem() - XSS protection
+  // Never persisted to browser storage.
   const [storedVaultKey, setVaultKey] = useState<string | null>(null);
 
   // VAULT_OWNER consent token (also memory-only for security)
@@ -128,7 +167,8 @@ export function VaultProvider({ children }: VaultProviderProps) {
   // Never expose credentials across an auth identity transition, including the
   // render before the cleanup effect below has run.
   const vaultKey = vaultIdentityMatches ? storedVaultKey : null;
-  const vaultOwnerToken = vaultIdentityMatches ? storedVaultOwnerToken : null;
+  const tokenIsValid = Boolean(storedTokenExpiresAt && Date.now() < storedTokenExpiresAt);
+  const vaultOwnerToken = vaultIdentityMatches && tokenIsValid ? storedVaultOwnerToken : null;
   const tokenExpiresAt = vaultIdentityMatches ? storedTokenExpiresAt : null;
   const lastUpgradeKickoffKeyRef = useRef<string | null>(null);
   const tokenExpiresAtRef = useRef<number | null>(null);
@@ -137,6 +177,14 @@ export function VaultProvider({ children }: VaultProviderProps) {
   // instead of from the useCallback capture.
   const vaultUserIdRef = useRef<string | null>(vaultUserId);
   const storedVaultOwnerTokenRef = useRef<string | null>(storedVaultOwnerToken);
+  const storedVaultKeyRef = useRef<string | null>(storedVaultKey);
+
+  const clearNativeSession = useCallback(() => {
+    if (Capacitor.getPlatform() !== "ios") return;
+    nativeGenerationRef.current = HushhConsent.clearIMessageSession()
+      .then((result) => result.sessionGeneration ?? null)
+      .catch(() => null);
+  }, []);
 
   useEffect(() => {
     tokenExpiresAtRef.current = tokenExpiresAt;
@@ -152,6 +200,14 @@ export function VaultProvider({ children }: VaultProviderProps) {
     // the latest values — never stale closure captures.
     const lockedUserId = vaultUserIdRef.current;
     const lockedOwnerToken = storedVaultOwnerTokenRef.current;
+    sessionEpochRef.current += 1;
+    advanceVaultSessionEpoch();
+    renewalRef.current = null;
+    storedVaultKeyRef.current = null;
+    storedVaultOwnerTokenRef.current = null;
+    tokenExpiresAtRef.current = null;
+    vaultUserIdRef.current = null;
+    setRenewalState("idle");
     console.log("🔒 Vault locked (key + token cleared from memory)");
     if (lockedUserId && lockedOwnerToken) {
       void PkmUpgradeOrchestrator.pauseForLocalAuthResume({
@@ -180,11 +236,7 @@ export function VaultProvider({ children }: VaultProviderProps) {
     setVaultUserId(null);
     lastUpgradeKickoffKeyRef.current = null;
 
-    if (Capacitor.getPlatform() === "ios") {
-      void HushhConsent.clearIMessageSession().catch((error) => {
-        console.warn("[VaultProvider] Failed to clear shared iMessage session:", error);
-      });
-    }
+    clearNativeSession();
 
     if (lockedUserId) {
       CacheSyncService.onVaultStateChanged(lockedUserId);
@@ -200,7 +252,22 @@ export function VaultProvider({ children }: VaultProviderProps) {
         .catch(() => undefined);
     }
     VaultService.invalidateVaultStateCache();
-  }, []);
+  }, [clearNativeSession]);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    clearNativeSession();
+    return () => {
+      mountedRef.current = false;
+      // Clear decrypted consumers on disposal too. StrictMode's empty initial
+      // cleanup does not invalidate the first rendered unlock callback.
+      if (storedVaultKeyRef.current) lockVault();
+      else {
+        advanceVaultSessionEpoch();
+        clearNativeSession();
+      }
+    };
+  }, [clearNativeSession, lockVault]);
 
   // Auto-lock on sign-out or account switch. The public context is already
   // fail-closed during the render where the UID changes; this effect erases the
@@ -222,36 +289,132 @@ export function VaultProvider({ children }: VaultProviderProps) {
     vaultUserId,
   ]);
 
-  // InteractionRuntime owns native/browser lifecycle collection. VaultProvider
-  // remains the security authority and only reacts to its active transition.
-  // This avoids competing Capacitor listeners while preserving the memory-only
-  // expiry rule on iOS, Android, and web.
-  useEffect(() => {
-    const relockIfTokenExpired = () => {
-      const expiresAt = tokenExpiresAtRef.current;
-      // Only act when a token exists AND is actually past expiry. A missing
-      // token means the vault is already locked (guard handles it).
-      if (expiresAt !== null && Date.now() >= expiresAt) {
-        console.warn(
-          "🔒 [VaultProvider] VAULT_OWNER token expired while backgrounded — locking to prompt re-unlock.",
-        );
-        lockVault();
-      }
-    };
+  const publishNativeSession = useCallback(async (
+    epoch: number, owner: NonNullable<typeof user>, key: string, token: string, expiresAt: number,
+  ) => {
+    if (Capacitor.getPlatform() !== "ios") return;
+    const sessionGeneration = await nativeGenerationRef.current;
+    const firebaseIDToken = await owner.getIdToken(false).catch(() => null);
+    if (
+      sessionGeneration === null || !mountedRef.current ||
+      sessionEpochRef.current !== epoch || authStateRef.current.user?.uid !== owner.uid ||
+      storedVaultKeyRef.current !== key || storedVaultOwnerTokenRef.current !== token ||
+      Date.now() >= expiresAt
+    ) return;
+    await HushhConsent.publishIMessageSession({
+      userId: owner.uid, vaultOwnerToken: token, vaultKey: key, expiresAt,
+      sessionGeneration, firebaseIDToken: firebaseIDToken ?? undefined,
+      displayName: owner.displayName, email: owner.email, avatarURL: owner.photoURL,
+    }).catch(() => undefined);
+  }, []);
 
-    relockIfTokenExpired();
+  const retryOwnerTokenRenewal = useCallback((): Promise<void> => {
+    const owner = authStateRef.current.user;
+    const epoch = sessionEpochRef.current;
+    const key = storedVaultKeyRef.current;
+    const priorToken = storedVaultOwnerTokenRef.current;
+    const sessionOwner = snapshotValidatedAuthSessionOwner();
+    if (!owner || !key || !priorToken || !authStateRef.current.ready || vaultUserIdRef.current !== owner.uid) {
+      return Promise.resolve();
+    }
+    if (renewalRef.current?.epoch === epoch) return renewalRef.current.promise;
+    const stillCurrent = () => mountedRef.current && sessionEpochRef.current === epoch &&
+      authStateRef.current.user?.uid === owner.uid && storedVaultKeyRef.current === key;
+    setRenewalState("renewing");
+    const promise = (async () => {
+      try {
+        const issued = await boundedRenewal((async () => {
+          const firebaseToken = await owner.getIdToken(false);
+          if (!stillCurrent() || !authStateRef.current.ready) return null;
+          return VaultService.issueVaultOwnerToken(owner.uid, firebaseToken, priorToken);
+        })());
+        if (!stillCurrent()) return;
+        if (!authStateRef.current.ready || issued?.renewalValidated !== true || !issued?.token || !Number.isFinite(issued.expiresAt) || issued.expiresAt <= Date.now()) {
+          setRenewalState("unavailable");
+          return;
+        }
+        // A response for the replaced credential must not invalidate its
+        // successor. Identical-token reuse keeps revocation responses current.
+        if (issued.token !== priorToken) advanceVaultSessionEpoch();
+        storedVaultOwnerTokenRef.current = issued.token;
+        tokenExpiresAtRef.current = issued.expiresAt;
+        setVaultOwnerToken(issued.token);
+        setTokenExpiresAt(issued.expiresAt);
+        setRenewalState("idle");
+        void publishNativeSession(epoch, owner, key, issued.token, issued.expiresAt);
+      } catch (error) {
+        if (!stillCurrent()) return;
+        const backendCode = apiErrorCode(error) ?? (
+          error && typeof error === "object" && "code" in error && typeof error.code === "string"
+            ? error.code : null
+        );
+        const code = authSessionInvalidationCodeFromFirebaseError(error) ??
+          authSessionInvalidationCodeFromBackendPayload({ code: backendCode });
+        if (code) {
+          dispatchAuthSessionInvalidated({ code, userId: owner.uid, path: "vault_owner_renewal" });
+          lockVault();
+        } else if (backendCode === "AUTH_VAULT_OWNER_INVALID") {
+          lockVault();
+        } else {
+          setRenewalState("unavailable");
+          if (sessionOwner && (backendCode === "AUTH_ACCOUNT_STATUS_UNAVAILABLE" ||
+              backendCode === "AUTH_ACCOUNT_DELETION_IN_PROGRESS")) {
+            dispatchAuthSessionVerificationRequired(sessionOwner, backendCode);
+          }
+        }
+      } finally {
+        if (renewalRef.current?.epoch === epoch) renewalRef.current = null;
+      }
+    })();
+    renewalRef.current = { epoch, promise };
+    return promise;
+  }, [lockVault, publishNativeSession]);
+
+  // A local unlock lasts for this document/runtime. Expiry withdraws server
+  // authority immediately, then renews without asking for the key again.
+  useEffect(() => {
     return appInteractionCoordinator.subscribeLifecycle(() => {
       if (appInteractionCoordinator.getLifecycleSnapshot().state === "active") {
-        relockIfTokenExpired();
+        updateTokenClock((value) => value + 1);
+        setRenewalAttempt((value) => value + 1);
       }
     });
-  }, [lockVault]);
+  }, []);
 
-  // Listen for vault-lock-requested events (e.g., when VAULT_OWNER token is revoked)
+  useEffect(() => {
+    if (!vaultKey || !storedTokenExpiresAt) return;
+    const timer = setTimeout(() => updateTokenClock((value) => value + 1), Math.max(0, storedTokenExpiresAt - Date.now()));
+    return () => clearTimeout(timer);
+  }, [vaultKey, storedTokenExpiresAt]);
+
+  useEffect(() => {
+    if (!vaultKey || !authReady || !storedTokenExpiresAt) return;
+    const delay = renewalState === "unavailable" ? OWNER_TOKEN_RETRY_MS :
+      Math.max(0, storedTokenExpiresAt - Date.now() - OWNER_TOKEN_RENEWAL_LEAD_MS);
+    const timer = setTimeout(() => void retryOwnerTokenRenewal(), delay);
+    return () => clearTimeout(timer);
+  }, [authReady, vaultKey, storedTokenExpiresAt, renewalState, renewalAttempt, retryOwnerTokenRenewal]);
+
+  // Native bridges can collapse expiry and revocation into the same invalid
+  // owner code. Expiry withdraws authority, not local key custody; authenticated
+  // renewal decides whether that expired lineage was actually revoked.
   useEffect(() => {
     const handleLockRequest = (event: Event) => {
-      const customEvent = event as CustomEvent<{ reason: string }>;
+      const customEvent = event as CustomEvent<{ reason: string; path?: string }>;
 
+      if (
+        typeof customEvent.detail?.path === "string" &&
+        storedVaultKeyRef.current && storedVaultOwnerTokenRef.current &&
+        vaultUserIdRef.current === authStateRef.current.user?.uid &&
+        tokenExpiresAtRef.current !== null && Date.now() >= tokenExpiresAtRef.current
+      ) {
+        updateTokenClock((value) => value + 1);
+        void retryOwnerTokenRenewal();
+        return;
+      }
+
+      // Explicit owner-revoke events have no API path and always clear custody,
+      // as do validation failures for a still-live current token.
       console.log(
         `🔒 [VaultProvider] Lock requested: ${customEvent.detail?.reason}`
       );
@@ -261,7 +424,7 @@ export function VaultProvider({ children }: VaultProviderProps) {
     window.addEventListener("vault-lock-requested", handleLockRequest);
     return () =>
       window.removeEventListener("vault-lock-requested", handleLockRequest);
-  }, [lockVault]);
+  }, [lockVault, retryOwnerTokenRenewal]);
 
   // Terminal session invalidation is also an immediate memory boundary. The
   // AuthProvider hides protected routes and signs out; VaultProvider erases the
@@ -455,7 +618,7 @@ export function VaultProvider({ children }: VaultProviderProps) {
    * Declared before unlockVault so it can be called from it (react-hooks/immutability).
    */
   const prefetchDashboardData = useCallback(
-    async (userId: string, token: string, key: string, routePath?: string) => {
+    async (userId: string, token: string, key: string, routePath?: string, epoch = sessionEpochRef.current) => {
       try {
         // Agent history must not wait on Firebase token resolution. The Agent
         // workspace joins this protected, memory-only single-flight cache, so
@@ -483,6 +646,7 @@ export function VaultProvider({ children }: VaultProviderProps) {
         const firebaseIdToken = await AuthService.getIdToken(false).catch(
           () => null
         );
+        if (!mountedRef.current || sessionEpochRef.current !== epoch || authStateRef.current.user?.uid !== userId) return;
         await UnlockWarmOrchestrator.run({
           userId,
           vaultKey: key,
@@ -497,20 +661,25 @@ export function VaultProvider({ children }: VaultProviderProps) {
     []
   );
 
+  const unlockEpoch = sessionEpochRef.current;
   const unlockVault = useCallback(
     (key: string, token: string, expiresAt: number) => {
       const unlockingUserId = user?.uid?.trim() ?? "";
-      if (!unlockingUserId) {
-        setVaultKey(null);
-        setVaultOwnerToken(null);
-        setTokenExpiresAt(null);
-        setVaultUserId(null);
-        console.warn("[VaultProvider] Refused vault unlock without an authenticated user.");
-        return;
+      if (!unlockingUserId || !mountedRef.current ||
+          unlockEpoch !== sessionEpochRef.current ||
+          authStateRef.current.user?.uid !== unlockingUserId || !authStateRef.current.ready ||
+          !key || !token || !Number.isFinite(expiresAt) || expiresAt <= Date.now()) {
+        return false;
       }
-      console.log(
-        "🔓 Vault unlocked (key + token in memory only - XSS protected)"
-      );
+      sessionEpochRef.current += 1;
+      advanceVaultSessionEpoch();
+      const epoch = sessionEpochRef.current;
+      storedVaultKeyRef.current = key;
+      storedVaultOwnerTokenRef.current = token;
+      tokenExpiresAtRef.current = expiresAt;
+      vaultUserIdRef.current = unlockingUserId;
+      renewalRef.current = null;
+      setRenewalState("idle");
       setVaultKey(key);
       setVaultOwnerToken(token);
       setTokenExpiresAt(expiresAt);
@@ -522,35 +691,7 @@ export function VaultProvider({ children }: VaultProviderProps) {
         detail: { userId: unlockingUserId },
       }));
 
-      if (user?.uid && Capacitor.getPlatform() === "ios") {
-        void (async () => {
-          const firebaseIDToken = await AuthService.getIdToken(true).catch(
-            (error) => {
-              console.warn(
-                "[VaultProvider] Failed to refresh Firebase token for iMessage session:",
-                error
-              );
-              return null;
-            }
-          );
-
-          await HushhConsent.publishIMessageSession({
-            userId: user.uid,
-            vaultOwnerToken: token,
-            vaultKey: key,
-            expiresAt,
-            firebaseIDToken: firebaseIDToken ?? undefined,
-            displayName: user.displayName,
-            email: user.email,
-            avatarURL: user.photoURL,
-          });
-        })().catch((error) => {
-          console.warn(
-            "[VaultProvider] Failed to publish shared iMessage session:",
-            error
-          );
-        });
-      }
+      if (user) void publishNativeSession(epoch, user, key, token, expiresAt);
 
       const routePath =
         typeof window !== "undefined" ? window.location.pathname : "";
@@ -566,7 +707,8 @@ export function VaultProvider({ children }: VaultProviderProps) {
       if (user?.uid && !routePath.startsWith("/one/setup")) {
         const warmRoutePath = routePath || undefined;
         const scheduleWarm = () => {
-          void prefetchDashboardData(user.uid, token, key, warmRoutePath);
+          if (!mountedRef.current || sessionEpochRef.current !== epoch || authStateRef.current.user?.uid !== user.uid) return;
+          void prefetchDashboardData(user.uid, token, key, warmRoutePath, epoch);
         };
 
         if (isGmailRoute(routePath)) {
@@ -582,7 +724,7 @@ export function VaultProvider({ children }: VaultProviderProps) {
           } else {
             globalThis.setTimeout(scheduleWarm, 1_000);
           }
-          return;
+          return true;
         }
 
         // Warm the current route's caches immediately after unlock so the first
@@ -593,28 +735,31 @@ export function VaultProvider({ children }: VaultProviderProps) {
         // that reveals the page, but we no longer wait for idle time.
         globalThis.setTimeout(scheduleWarm, 0);
       }
+      return true;
     },
-    [user, prefetchDashboardData]
+    [user, unlockEpoch, prefetchDashboardData, publishNativeSession]
   );
 
   const getVaultKey = useCallback(() => {
-    return vaultKey;
-  }, [vaultKey]);
+    return mountedRef.current && vaultUserIdRef.current === authStateRef.current.user?.uid
+      ? storedVaultKeyRef.current : null;
+  }, []);
 
   const getVaultOwnerToken = useCallback(() => {
     // Check expiry
-    if (tokenExpiresAt && Date.now() >= tokenExpiresAt) {
-      console.warn("⚠️ VAULT_OWNER token expired");
-      return null;
-    }
-    return vaultOwnerToken;
-  }, [vaultOwnerToken, tokenExpiresAt]);
+    return mountedRef.current && vaultUserIdRef.current === authStateRef.current.user?.uid &&
+      tokenExpiresAtRef.current !== null && Date.now() < tokenExpiresAtRef.current
+      ? storedVaultOwnerTokenRef.current : null;
+  }, []);
 
   const value: VaultContextType = {
     vaultKey,
     vaultOwnerToken,
     tokenExpiresAt,
-    isVaultUnlocked: !!vaultKey && !!vaultOwnerToken,
+    isVaultUnlocked: !!vaultKey,
+    ownerTokenStatus: !vaultKey ? "locked" : vaultOwnerToken ? "valid" :
+      renewalState === "renewing" ? "renewing" : "unavailable",
+    retryOwnerTokenRenewal,
     unlockVault,
     lockVault,
     getVaultKey,

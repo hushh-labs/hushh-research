@@ -220,12 +220,14 @@ export interface HushhConsentPlugin {
    */
   issueVaultOwnerToken(options: {
     userId: string;
+    renewalOfToken?: string; // Prior owner grant; renewal must not bypass revocation.
     authToken?: string; // Firebase ID token (legacy name)
     idToken?: string; // Firebase ID token (preferred)
   }): Promise<{
     token: string;
     expiresAt: number;
     scope: string;
+    renewalValidated?: boolean;
   }>;
 
   /**
@@ -234,6 +236,7 @@ export interface HushhConsentPlugin {
    */
   publishIMessageSession(options: {
     userId: string;
+    sessionGeneration: number;
     vaultOwnerToken?: string;
     accessToken?: string; // Legacy alias for vaultOwnerToken.
     vaultKey?: string;
@@ -247,7 +250,7 @@ export interface HushhConsentPlugin {
   }): Promise<{ published: boolean }>;
 
   /** Clear the shared iMessage session when the vault locks or user signs out. */
-  clearIMessageSession(): Promise<{ cleared: boolean }>;
+  clearIMessageSession(): Promise<{ cleared: boolean; sessionGeneration: number }>;
 
   getPending(options: {
     userId: string;
@@ -466,6 +469,8 @@ export interface HushhVaultPlugin {
     userId: string;
     displayName: string;
     rpId: string;
+    /** Opaque UI attempt token used only to scope cancellation. */
+    requestId?: string;
   }): Promise<{
     credentialId: string;
     prfSalt: string;
@@ -477,10 +482,21 @@ export interface HushhVaultPlugin {
     rpId: string;
     credentialId?: string;
     prfSalt: string;
+    /** Opaque UI attempt token used only to scope cancellation. */
+    requestId?: string;
   }): Promise<{
     credentialId: string;
     vaultKeyHex: string;
   }>;
+
+  /**
+   * Dismiss the active native passkey ceremony, if this request owns it.
+   * Native implementations keep their in-flight lease until the original
+   * system callback settles so a replacement sheet cannot race dismissal.
+   */
+  cancelPasskeyAuthentication(options?: {
+    requestId?: string;
+  }): Promise<{ cancelled: boolean }>;
 
   // Consents (New)
   /**
@@ -587,12 +603,23 @@ export interface HushhKeychainPlugin {
     options: KeychainSetOptions & { promptMessage: string },
   ): Promise<void>;
 
+  /** Delete the separate biometric-protected value for this key. */
+  deleteBiometric(options: KeychainDeleteOptions): Promise<void>;
+
   /**
    * Retrieve a biometric-protected value
    */
   getBiometric(
-    options: KeychainGetOptions & { promptMessage: string },
+    options: KeychainGetOptions & { promptMessage: string; requestId?: string },
   ): Promise<KeychainGetResult>;
+
+  /**
+   * Dismiss the active biometric prompt. A requestId only cancels the matching
+   * UI attempt; no active request is a successful no-op.
+   */
+  cancelBiometricAuthentication(options?: {
+    requestId?: string;
+  }): Promise<{ cancelled: boolean }>;
 }
 
 export const HushhKeychain = registerPlugin<HushhKeychainPlugin>(

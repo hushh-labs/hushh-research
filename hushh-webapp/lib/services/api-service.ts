@@ -72,8 +72,10 @@ import {
   type AuthSessionOwnerSnapshot,
   isValidatedAuthSessionOwnerCurrent,
   snapshotValidatedAuthSessionOwner,
+  dispatchAuthSessionVerificationRequired,
 } from "@/lib/auth/session-owner";
 import { resolveSlowRequestTimeoutMs } from "@/lib/utils/request-timeouts";
+import { isVaultSessionEpochCurrent, snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
 
 const AUTH_REFRESH_RETRY_HEADER = "X-Hushh-Auth-Refresh-Retry";
 const VAULT_LOCK_REQUESTED_EVENT = "vault-lock-requested";
@@ -86,13 +88,12 @@ const ACCOUNT_SESSION_STATUS_TIMEOUT_MS = resolveSlowRequestTimeoutMs(8_000, {
 
 type VaultOwnerAuthFailure = {
   shouldLockVault: boolean;
+  verificationRequired?: boolean;
   reason: string | null;
 };
 
 const NATIVE_STREAM_VAULT_LOCK_CODES = new Set([
   "AUTH_VAULT_OWNER_INVALID",
-  "AUTH_ACCOUNT_DELETION_IN_PROGRESS",
-  "AUTH_ACCOUNT_STATUS_UNAVAILABLE",
 ]);
 
 function nativeStreamBridgeErrorCode(error: unknown): string | null {
@@ -115,6 +116,11 @@ function dispatchVaultLockRequestedForPath(path: string, reason: string): void {
   );
 }
 
+function snapshotVaultOwnerStreamSession() {
+  const owner = snapshotValidatedAuthSessionOwner();
+  return owner ? { ...owner, vaultEpoch: snapshotVaultSessionEpoch() } : null;
+}
+
 /**
  * Settle auth failures raised by a native SSE bridge. The owner snapshot binds
  * every side effect to the identity that started the stream, so a delayed
@@ -123,7 +129,7 @@ function dispatchVaultLockRequestedForPath(path: string, reason: string): void {
 function handleNativeVaultOwnerStreamError(
   error: unknown,
   path: string,
-  requestOwner: AuthSessionOwnerSnapshot | null,
+  requestOwner: (AuthSessionOwnerSnapshot & { vaultEpoch: number }) | null,
 ): void {
   if (!requestOwner || !isValidatedAuthSessionOwnerCurrent(requestOwner)) {
     return;
@@ -144,9 +150,18 @@ function handleNativeVaultOwnerStreamError(
   }
 
   if (
-    (bridgeCode && NATIVE_STREAM_VAULT_LOCK_CODES.has(bridgeCode)) ||
+    bridgeCode === "AUTH_ACCOUNT_STATUS_UNAVAILABLE" ||
+    bridgeCode === "AUTH_ACCOUNT_DELETION_IN_PROGRESS" ||
     isAccountDeletionInProgressBackendPayload(error)
   ) {
+    dispatchAuthSessionVerificationRequired(
+      requestOwner,
+      bridgeCode || "AUTH_ACCOUNT_DELETION_IN_PROGRESS",
+    );
+    return;
+  }
+  if (bridgeCode && NATIVE_STREAM_VAULT_LOCK_CODES.has(bridgeCode) &&
+      isVaultSessionEpochCurrent(requestOwner.vaultEpoch)) {
     dispatchVaultLockRequestedForPath(
       path,
       bridgeCode || "AUTH_ACCOUNT_DELETION_IN_PROGRESS",
@@ -444,10 +459,20 @@ async function classifyVaultOwnerAuthFailure(
     const contentType = response.headers.get("content-type") || "";
     if (contentType.includes("application/json")) {
       const payload = (await response.json().catch(() => null)) as {
+        code?: unknown;
         error?: unknown;
         detail?: unknown;
         details?: unknown;
       } | null;
+      const detail = payload?.detail;
+      const code = typeof payload?.code === "string" ? payload.code :
+        detail && typeof detail === "object" && "code" in detail ? String(detail.code) : null;
+      if (code === "AUTH_ACCOUNT_STATUS_UNAVAILABLE" || code === "AUTH_ACCOUNT_DELETION_IN_PROGRESS") {
+        return { shouldLockVault: false, verificationRequired: true, reason: code };
+      }
+      if (code === "AUTH_VAULT_OWNER_INVALID") {
+        return { shouldLockVault: true, reason: code };
+      }
       const reasonCandidates = [
         typeof payload?.error === "string" ? payload.error : null,
         typeof payload?.detail === "string" ? payload.detail : null,
@@ -595,6 +620,7 @@ async function apiFetch(
   // this request. A delayed response from account A must never invalidate or
   // replay its request under a newly authenticated account B.
   const requestAuthorizationBearer = getAuthorizationBearer();
+  const requestVaultEpoch = snapshotVaultSessionEpoch();
   const isVaultOwnerRequest = requestAuthorizationBearer.startsWith("HCT:");
   const requestSessionOwner = isVaultOwnerRequest
     ? snapshotValidatedAuthSessionOwner()
@@ -639,12 +665,13 @@ async function apiFetch(
   };
 
   const dispatchVaultLockRequested = (reason: string) => {
+    if (!isVaultSessionEpochCurrent(requestVaultEpoch)) return;
     dispatchVaultLockRequestedForPath(path, reason);
   };
 
   const handleVaultOwnerAuthFailure = async (response: Response) => {
     if (
-      (response.status !== 401 && response.status !== 403) ||
+      ![401, 403, 423, 503].includes(response.status) ||
       !isVaultOwnerRequest ||
       !vaultOwnerRequestStillBelongsToSession()
     ) {
@@ -652,6 +679,11 @@ async function apiFetch(
     }
 
     const failure = await classifyVaultOwnerAuthFailure(response.clone());
+    if (!vaultOwnerRequestStillBelongsToSession()) return;
+    if (failure.verificationRequired && requestSessionOwner) {
+      dispatchAuthSessionVerificationRequired(requestSessionOwner, failure.reason!);
+      return;
+    }
     if (failure.shouldLockVault) {
       dispatchVaultLockRequested(
         failure.reason || "Vault access token is no longer valid",
@@ -3594,7 +3626,7 @@ export class ApiService {
     // Native: use Kai plugin for real-time SSE (WKWebView buffers fetch() response body)
     if (Capacitor.isNativePlatform()) {
       const nativeStreamPath = "/api/kai/portfolio/import/stream";
-      const requestOwner = snapshotValidatedAuthSessionOwner();
+      const requestOwner = snapshotVaultOwnerStreamSession();
       try {
         const file = params.formData.get("file") as File;
         const userId = params.formData.get("user_id") as string;
@@ -3865,7 +3897,7 @@ export class ApiService {
     });
     if (Capacitor.isNativePlatform()) {
       const nativeStreamPath = `/api/kai/portfolio/import/run/${encodeURIComponent(params.runId)}/stream`;
-      const requestOwner = snapshotValidatedAuthSessionOwner();
+      const requestOwner = snapshotVaultOwnerStreamSession();
       try {
         const vaultOwnerToken = params.vaultOwnerToken;
         if (!vaultOwnerToken) {
@@ -4603,7 +4635,7 @@ export class ApiService {
     // Native: use Kai plugin for real-time SSE (WKWebView buffers fetch() response body)
     if (Capacitor.isNativePlatform()) {
       const nativeStreamPath = "/api/kai/portfolio/analyze-losers/stream";
-      const requestOwner = snapshotValidatedAuthSessionOwner();
+      const requestOwner = snapshotVaultOwnerStreamSession();
       try {
         const vaultOwnerToken = data.vaultOwnerToken;
         if (!vaultOwnerToken) {
@@ -4834,7 +4866,7 @@ export class ApiService {
     // Native: use Kai plugin and expose a ReadableStream of SSE text
     if (Capacitor.isNativePlatform()) {
       const nativeStreamPath = "/api/kai/analyze/stream";
-      const requestOwner = snapshotValidatedAuthSessionOwner();
+      const requestOwner = snapshotVaultOwnerStreamSession();
       try {
         const vaultOwnerToken = data.vaultOwnerToken;
         if (!vaultOwnerToken) {
@@ -5070,7 +5102,7 @@ export class ApiService {
 
     if (Capacitor.isNativePlatform()) {
       const nativeStreamPath = `/api/kai/analyze/run/${encodeURIComponent(data.runId)}/stream`;
-      const requestOwner = snapshotValidatedAuthSessionOwner();
+      const requestOwner = snapshotVaultOwnerStreamSession();
       try {
         const vaultOwnerToken = data.vaultOwnerToken;
         if (!vaultOwnerToken) {

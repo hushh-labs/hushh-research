@@ -301,15 +301,21 @@ public class HushhConsentPlugin: CAPPlugin, CAPBridgedPlugin {
 
         // Bootstrap-only: Firebase ID token required
         let backendUrl = resolvedBackendUrl(call)
-        let body: [String: Any] = ["userId": userId]
+        var body: [String: Any] = ["userId": userId]
+        if let renewalOfToken = call.getString("renewalOfToken") {
+            body["renewalOfToken"] = renewalOfToken
+        }
         
         print("[\(TAG)] Requesting VAULT_OWNER token")
         
         performRequest(url: "\(backendUrl)/api/consent/vault-owner-token", body: body, authToken: authToken) { result, error in
-            if let error = error {
-                let errorMsg = "Failed to issue VAULT_OWNER token: \(error) | backendUrl: \(backendUrl)"
+            if error != nil {
+                let payload = result as? [String: Any]
+                let detail = payload?["detail"] as? [String: Any]
+                let code = detail?["code"] as? String ?? payload?["code"] as? String
+                let errorMsg = "Failed to issue VAULT_OWNER token"
                 print("❌ [\(self.TAG)] VAULT_OWNER token request failed")
-                call.reject(errorMsg)
+                call.reject(errorMsg, code)
                 return
             }
             
@@ -323,30 +329,21 @@ public class HushhConsentPlugin: CAPPlugin, CAPBridgedPlugin {
             }
             
             print("✅ [\(self.TAG)] VAULT_OWNER token issued successfully")
-            HusshIMessageSessionStore.shared.publishIdentitySilently(
-                userID: userId,
-                displayName: nil,
-                email: nil,
-                avatarURL: nil,
-                firebaseIDToken: authToken,
-                firebaseIDTokenExpiresAt: nil
-            )
-            HusshIMessageSessionStore.shared.publishVaultSilently(
-                userID: userId,
-                vaultOwnerToken: token,
-                expiresAt: expiresAt.int64Value
-            )
+            // Issuance alone is not publication authority. VaultProvider
+            // publishes only after its local session epoch accepts this result.
             
             call.resolve([
                 "token": token,
                 "expiresAt": expiresAt.int64Value,
-                "scope": scope
+                "scope": scope,
+                "renewalValidated": json["renewalValidated"] as? Bool ?? false
             ])
         }
     }
     
     @objc func publishIMessageSession(_ call: CAPPluginCall) {
         guard let userId = call.getString("userId"),
+              let sessionGeneration = call.getInt("sessionGeneration"),
               let vaultOwnerToken = call.getString("vaultOwnerToken") ?? call.getString("accessToken"),
               let expiresAtValue = call.getDouble("expiresAt") else {
             call.reject("Missing required parameters: userId, vaultOwnerToken, and expiresAt")
@@ -354,6 +351,10 @@ public class HushhConsentPlugin: CAPPlugin, CAPBridgedPlugin {
         }
 
         let expiresAt = Int64(expiresAtValue)
+        guard expiresAt > Int64(Date().timeIntervalSince1970 * 1000) else {
+            call.resolve(["published": false])
+            return
+        }
         let firebaseIDToken = call.getString("firebaseIDToken") ?? call.getString("idToken")
         let displayName = call.getString("displayName")
         let email = call.getString("email")
@@ -361,6 +362,7 @@ public class HushhConsentPlugin: CAPPlugin, CAPBridgedPlugin {
         let vaultKey = call.getString("vaultKey")
 
         do {
+          let published = try HusshIMessageSessionStore.shared.publishIfCurrent(generation: sessionGeneration) {
             if let firebaseIDToken, !firebaseIDToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 try HusshIMessageSessionStore.shared.publishIdentity(
                     userID: userId,
@@ -377,7 +379,8 @@ public class HushhConsentPlugin: CAPPlugin, CAPBridgedPlugin {
                 expiresAt: expiresAt,
                 vaultKey: vaultKey
             )
-            call.resolve(["published": true])
+          }
+            call.resolve(["published": published])
         } catch {
             call.reject("Failed to publish shared iMessage session: \(error)")
         }
@@ -385,8 +388,8 @@ public class HushhConsentPlugin: CAPPlugin, CAPBridgedPlugin {
 
     @objc func clearIMessageSession(_ call: CAPPluginCall) {
         do {
-            try HusshIMessageSessionStore.shared.clear()
-            call.resolve(["cleared": true])
+            let generation = try HusshIMessageSessionStore.shared.clear()
+            call.resolve(["cleared": true, "sessionGeneration": generation])
         } catch {
             call.reject("Failed to clear shared iMessage session: \(error)")
         }
@@ -621,21 +624,19 @@ public class HushhConsentPlugin: CAPPlugin, CAPBridgedPlugin {
         }
         
         urlSession.dataTask(with: request) { data, response, error in
-            if let error = error {
-                let errorMsg = "\(error.localizedDescription) | backendUrl: \(url)"
-                completion(nil, errorMsg)
+            if error != nil {
+                completion(nil, "Network request failed")
                 return
             }
             
             if let httpResponse = response as? HTTPURLResponse, !(200...299).contains(httpResponse.statusCode) {
-                var errorMsg = "HTTP Error: \(httpResponse.statusCode)"
-                if let data = data, let bodyStr = String(data: data, encoding: .utf8) {
-                    let truncatedBody = bodyStr.count > 200 ? String(bodyStr.prefix(200)) + "..." : bodyStr
-                    errorMsg += " | body: \(truncatedBody)"
-                }
-                errorMsg += " | backendUrl: \(url)"
+                let errorMsg = "HTTP Error: \(httpResponse.statusCode)"
+                // Preserve typed authority failures for the owning caller. A
+                // revoked renewal must lock the Vault, not retry as a network
+                // failure. Never include the response body in error text.
+                let payload = data.flatMap { try? JSONSerialization.jsonObject(with: $0) }
                 print("❌ [HushhConsent] Request failed")
-                completion(nil, errorMsg)
+                completion(payload, errorMsg)
                 return
             }
             

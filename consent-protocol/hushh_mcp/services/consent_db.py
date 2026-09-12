@@ -44,6 +44,8 @@ import os
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
+from sqlalchemy import text
+
 from db.db_client import DatabaseExecutionError, get_db
 from hushh_mcp.consent.export_envelope import normalize_refresh_policy
 from hushh_mcp.consent.pkm_scope_policy import is_source_library_pkm_scope
@@ -69,6 +71,20 @@ _BACKGROUND_CONSENT_COLUMNS = (
 _REVOCATION_CONSENT_COLUMNS = (
     "id,token_id,request_id,user_id,scope,agent_id,scope_description,action,issued_at,expires_at"
 )
+
+
+class VaultOwnerRenewalRejected(ValueError):
+    """A signed prior owner grant has no intact durable renewal lineage."""
+
+
+def _lock_owner_lineage(connection, user_id: str) -> None:
+    # One canonical ledger transaction, shared with owner revocation writers.
+    # Keep this DB authority if a future Redis/Memorystore admission layer is added.
+    if connection.dialect.name == "postgresql":
+        connection.execute(
+            text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
+            {"key": f"vault-owner-renewal:{user_id}"},
+        )
 
 
 def _token_fingerprint(token: str) -> str:
@@ -1063,7 +1079,9 @@ class ConsentDBService:
 
             key = (row_agent_id, row_scope)
             current = latest_per_agent_scope.get(key)
-            if current is None or (row.get("issued_at") or 0) > (current.get("issued_at") or 0):
+            # Owner renewal/revocation uses insertion order, not worker clocks.
+            order_field = "id" if key == ("self", "vault.owner") else "issued_at"
+            if current is None or (row.get(order_field) or 0) > (current.get(order_field) or 0):
                 latest_per_agent_scope[key] = row
 
         results = []
@@ -1129,17 +1147,54 @@ class ConsentDBService:
         *,
         token_id: Optional[str] = None,
     ) -> bool:
-        """Check that the presented token is the latest active grant.
+        """Check the exact grant under its principal's revocation policy.
 
         ``token_id`` remains optional for callers asking whether any grant
         exists. Critical validation supplies it so a prior same-app/same-scope
         token cannot become valid again after reapproval or key rebinding.
+        Self-owner renewals alone may overlap to each token's original expiry;
+        any later owner revocation breaks every earlier grant's lineage.
         """
         now_ms = int(datetime.now(tz=timezone.utc).timestamp() * 1000)
         normalized_scope = str(scope or "").strip()
         if is_source_library_pkm_scope(normalized_scope):
             return False
         normalized_agent_id = agent_id or None
+        if normalized_agent_id == "self" and normalized_scope == "vault.owner" and token_id:
+            # One statement sees exact grant + subsequent revocations together.
+            # No fallback to a different ledger or a merely newer owner grant.
+            def owner_lineage_is_active():
+                rows = (
+                    self._get_db()
+                    .execute_raw(
+                        """
+                    SELECT grant_event.id FROM internal_access_events AS grant_event
+                    WHERE grant_event.user_id = :user_id AND grant_event.agent_id = 'self'
+                      AND grant_event.scope = 'vault.owner'
+                      AND grant_event.action = 'CONSENT_GRANTED'
+                      AND grant_event.token_id = :token_id
+                      AND grant_event.expires_at > :now_ms
+                      AND grant_event.id = (
+                        SELECT MIN(original.id) FROM internal_access_events AS original
+                        WHERE original.user_id = grant_event.user_id
+                          AND original.agent_id = 'self' AND original.scope = 'vault.owner'
+                          AND original.action = 'CONSENT_GRANTED'
+                          AND original.token_id = grant_event.token_id
+                      )
+                      AND NOT EXISTS (
+                        SELECT 1 FROM internal_access_events AS revoked
+                        WHERE revoked.user_id = grant_event.user_id
+                          AND revoked.agent_id = 'self' AND revoked.scope = 'vault.owner'
+                          AND revoked.action = 'REVOKED' AND revoked.id > grant_event.id
+                      ) LIMIT 1
+                """,
+                        {"user_id": user_id, "token_id": token_id, "now_ms": now_ms},
+                    )
+                    .data
+                )
+                return bool(rows)
+
+            return await asyncio.to_thread(owner_lineage_is_active)
         is_internal_lookup = self._is_internal_event(
             agent_id=normalized_agent_id,
             action="CONSENT_GRANTED",
@@ -1160,8 +1215,13 @@ class ConsentDBService:
                 )
                 if normalized_agent_id:
                     query = query.eq("agent_id", normalized_agent_id)
+                order_field = (
+                    "id"
+                    if normalized_agent_id == "self" and normalized_scope == "vault.owner"
+                    else "issued_at"
+                )
                 rows = await asyncio.to_thread(
-                    lambda: query.order("issued_at", desc=True).limit(1).execute().data or []
+                    lambda: query.order(order_field, desc=True).limit(1).execute().data or []
                 )
             except DatabaseExecutionError as exc:
                 if not self._is_missing_internal_access_events_error(exc):
@@ -1546,6 +1606,24 @@ class ConsentDBService:
         }
         data = {k: v for k, v in data.items() if v is not None}
 
+        if agent_id == "self" and scope == "vault.owner" and action == "REVOKED":
+
+            def insert_owner_revocation():
+                # No legacy fallback: renewal and revocation must use one authority.
+                with db.engine.begin() as connection:
+                    _lock_owner_lineage(connection, user_id)
+                    columns = ", ".join(data)
+                    values = ", ".join(f":{key}" for key in data)
+                    return connection.execute(
+                        text(
+                            f"INSERT INTO internal_access_events ({columns}) "
+                            f"VALUES ({values}) RETURNING id"
+                        ),
+                        data,
+                    ).scalar_one()
+
+            return await asyncio.to_thread(insert_owner_revocation)
+
         def insert_event():
             try:
                 return db.table("internal_access_events").insert(data).execute()
@@ -1569,6 +1647,99 @@ class ConsentDBService:
             issued_at,
         )
         return issued_at
+
+    async def renew_vault_owner_token(self, user_id: str, prior_token: str) -> dict:
+        """Renew an authenticated proof only while its durable lineage is intact.
+
+        The caller verifies signature and Firebase identity first. This transaction
+        permits expired evidence but never treats it as usable data authorization.
+        Revocation after the original grant breaks the lineage permanently, even
+        when a later explicit unlock established a different grant.
+        """
+        from hushh_mcp.consent.token import (
+            issue_token,
+            validate_owner_renewal_proof,
+            validate_token,
+        )
+
+        valid, _, _ = validate_owner_renewal_proof(prior_token, user_id)
+        if not valid:
+            raise VaultOwnerRenewalRejected("Invalid owner renewal proof")
+
+        def renew():
+            with self._get_db().engine.begin() as connection:
+                _lock_owner_lineage(connection, user_id)
+                params = {"user_id": user_id, "prior_token": prior_token}
+                prior_id = connection.execute(
+                    text("""
+                    SELECT id FROM internal_access_events
+                    WHERE user_id = :user_id AND agent_id = 'self'
+                      AND scope = 'vault.owner' AND action = 'CONSENT_GRANTED'
+                      AND token_id = :prior_token ORDER BY id ASC LIMIT 1
+                """),
+                    params,
+                ).scalar_one_or_none()
+                if prior_id is None:
+                    raise VaultOwnerRenewalRejected("Owner grant not found")
+                revoked = connection.execute(
+                    text("""
+                    SELECT id FROM internal_access_events
+                    WHERE user_id = :user_id AND agent_id = 'self'
+                      AND scope = 'vault.owner' AND action = 'REVOKED'
+                      AND id > :prior_id LIMIT 1
+                """),
+                    {"user_id": user_id, "prior_id": prior_id},
+                ).first()
+                if revoked is not None:
+                    raise VaultOwnerRenewalRejected("Owner grant lineage revoked")
+                latest = (
+                    connection.execute(
+                        text("""
+                    SELECT token_id, expires_at FROM internal_access_events
+                    WHERE user_id = :user_id AND agent_id = 'self'
+                      AND scope = 'vault.owner' AND action = 'CONSENT_GRANTED'
+                    ORDER BY id DESC LIMIT 1
+                """),
+                        params,
+                    )
+                    .mappings()
+                    .first()
+                )
+                now_ms = int(datetime.now(tz=timezone.utc).timestamp() * 1000)
+                if latest and int(latest["expires_at"] or 0) > now_ms + 60 * 60 * 1000:
+                    valid, _, payload = validate_token(latest["token_id"], "vault.owner")
+                    if (
+                        valid
+                        and payload
+                        and str(payload.user_id) == user_id
+                        and str(payload.agent_id) == "self"
+                        and payload.scope_str == "vault.owner"
+                        and not payload.commercial
+                    ):
+                        return {
+                            "token": latest["token_id"],
+                            "expiresAt": latest["expires_at"],
+                            "scope": "vault.owner",
+                        }
+                token = issue_token(user_id, "self", "vault.owner", expires_in_ms=86400000)
+                connection.execute(
+                    text("""
+                    INSERT INTO internal_access_events
+                    (token_id, user_id, agent_id, scope, action, issued_at, expires_at,
+                     scope_description)
+                    VALUES (:token_id, :user_id, 'self', 'vault.owner', 'CONSENT_GRANTED',
+                            :issued_at, :expires_at, 'Vault owner session')
+                """),
+                    {
+                        "token_id": token.token,
+                        "user_id": user_id,
+                        "issued_at": token.issued_at,
+                        "expires_at": token.expires_at,
+                    },
+                )
+                return {"token": token.token, "expiresAt": token.expires_at, "scope": "vault.owner"}
+
+        return await asyncio.to_thread(renew)
 
     async def get_timed_out_requests(self) -> List[Dict]:
         """

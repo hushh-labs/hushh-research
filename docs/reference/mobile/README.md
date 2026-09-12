@@ -67,15 +67,38 @@ The vault key and VAULT_OWNER token remain memory-only. A normal background/resu
   stale authenticated or vault content cannot appear in an app-switcher
   snapshot or the first resumed frame. Android also owns `FLAG_SECURE` while
   the cover is visible.
-- Every inactive cycle receives a monotonically increasing, process-local
-  generation. The shared `AuthProvider` captures that generation, completes
-  the bounded account/session validation, and asks `HushhSessionPrivacy` to
-  release only that exact generation. A delayed acknowledgement from an older
-  cycle can never uncover a newer shield.
+- Every inactive cycle receives a process-local generation and a cause:
+  `inactive`, `background`, or `restart`. An inactive-only return, including a
+  biometric or permission sheet, reuses settled account validation. Actual
+  backgrounding requires bounded account/session validation; that debt survives
+  later transient inactivity until acknowledged. `HushhSessionPrivacy` publishes
+  retained state events after actual activation, independently of the shared
+  interaction coordinator's background-only `pause`/`resume` events.
+- `AuthProvider` reconciles a subscription with a state read, treats unknown
+  bridge state as recovery, and checks refused acknowledgements. It acknowledges
+  the current generation only after React commits the validated destination or
+  safe recovery gate. Older acknowledgements cannot uncover a newer shield.
+- The shared Vault guard's checking/recovery surface is an opaque browser-modal
+  top-layer dialog. Previously mounted and newly appended route portals remain
+  covered and implicitly inert; focus and Escape stay with the safe gate. This
+  preserves mounted route state on supported hosts. If modal isolation is
+  unavailable, the guard drops retained route descendants before showing its
+  ordinary modal fallback; it never assumes a hidden parent contains portals.
 - Resume itself never removes the cover. Native code accepts release only while
   the app/activity is active and the requested generation is current. A
   terminal account or session result keeps the cover in place through the
   document replacement that returns the person to Login.
+- If a cover remains for eight seconds after activation, native controls expose
+  `Try again` and `Restart session`, stop the progress indicator, and explain
+  that verification could not complete. Retry starts another bounded check
+  without removing those escape controls. Restart
+  advances the generation and retires the observed JavaScript document IDs
+  before reloading the current app document, keeps the cover present, and
+  preserves Firebase identity. An old document cannot acknowledge even a newly
+  read restart generation. The fresh JavaScript runtime
+  has no decrypted main-vault key and uses the normal unlock/recovery flow; only
+  its rendered safe destination can release the cover. Neither action grants
+  access or releases the cover on a timer.
 - The cover is visual and accessible: iOS presents it as a modal accessibility
   surface; Android hides the underlying WebView descendants from TalkBack and
   restores the WebView's previous accessibility mode only after an accepted
@@ -84,6 +107,37 @@ The vault key and VAULT_OWNER token remain memory-only. A normal background/resu
   expose. The normal auth/loading gates still withhold authenticated surfaces
   during cold restoration; the shield is not authentication persistence and
   never stores a credential, vault key, or account identifier.
+
+## Vault setup and runtime session
+
+- Setup creates the existing passphrase/recovery wrappers once. Existing Vaults
+  are opened, never recreated. The optional quick-unlock choice is applied from
+  the final recovery-key continuation; cancellation does not invalidate setup.
+- The app-root `VaultProvider` owns the memory-only unlocked main-app key. Route
+  changes, focus, transient OS sheets and background returns preserve it. There
+  is no inactivity lock. Explicit lock, sign-out, account change and a fresh
+  document/process require unlock again. Browser storage never holds the key.
+- Owner-token validity is separate from local key availability. Expired tokens
+  cannot authorize calls. Temporary validation/renewal outages hide protected
+  UI behind retryable recovery without discarding the key; terminal invalidation
+  clears it. Late unlock, renewal and native Messages publication are scoped to
+  the current identity/runtime epoch.
+- Native enrollment prefers the available Face ID/Touch ID Keychain path;
+  existing native passkeys remain supported. New protected secrets have unique
+  device-wrapper references and retain `WhenUnlockedThisDeviceOnly` plus
+  `biometryCurrentSet`. Enrollment verifies Keychain recovery and persisted
+  encrypted-wrapper readback before changing the primary method. Legacy
+  `default` references remain compatible; another device's wrapper is not
+  selected as a local biometric enrollment.
+- `Unlock One` exposes the actual biometric label, passphrase, recovery key and
+  the hard gate's sign-out escape. Native quick unlock gets one automatic
+  attempt; cancellation requires an explicit retry. Browser passkeys start only
+  from an explicit button. Switching methods invalidates the current attempt
+  and cancels its native/WebAuthn request. The form scrolls within the available
+  safe-area/keyboard space instead of pushing fallback controls below it.
+- The existing Messages extension custody contract remains a distinct native
+  Keychain exception, not a way to restore the main-app key after process death.
+  Native generation checks reject publication after clearing that custody entry.
 
 ## Native Test Safety Contract
 

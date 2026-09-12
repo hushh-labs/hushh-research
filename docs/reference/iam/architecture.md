@@ -243,6 +243,28 @@ Canonical enrollment, custody, failure, and UAT verification contract:
 
 ## Change Control
 
+### First-party owner document session renewal
+
+Browser/mobile document Vault keys remain memory-only for that runtime (the
+separately governed iMessage user-presence custody exception is unchanged).
+Temporary auth/ledger unavailability hides protected UI and pauses authority,
+without destroying the local unlock. Renewing the existing 24-hour self-owner
+capability requires the same verified Firebase UID plus signed prior owner
+evidence and an intact `internal_access_events` grant/revocation lineage.
+Expiry is waived only for renewal evidence, never data access. A prior grant
+cannot renew after an intervening owner revocation or upgrade a device/scoped
+principal. Renewal and self-owner revocation serialize on one Postgres transaction
+lock; ledger failure is recoverable/fail-closed, not initial issuance. The ledger
+remains authority if a future Redis/Memorystore admission layer is introduced.
+Late unlock, renewal, and iMessage publication are rejected by the local session
+epoch/generation after lock, sign-out, identity switch, or document disposal.
+Self-owner grants in the same intact lineage may overlap only to each original
+signed expiry, preventing a lost renewal response or another tab from simulating
+revocation. Every later owner revocation invalidates every earlier grant.
+Delegated and device principals retain latest-token-only validation. A new client
+requires `renewalValidated: true` and never accepts a legacy bootstrap response
+as renewal; deploy the matching backend first and coordinate server rollback.
+
 Any IAM contract change must update, in the same PR:
 
 1. This architecture doc

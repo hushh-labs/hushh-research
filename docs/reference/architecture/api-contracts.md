@@ -141,6 +141,32 @@ flowchart TB
 
 ### Firebase Auth (Bootstrap)
 
+`POST /api/consent/vault-owner-token` accepts `{userId, renewalOfToken?}`.
+Omitting `renewalOfToken` retains the existing explicit local-unlock issuance
+contract; the server verifies Firebase identity, not a new vault-key proof.
+While the same verified user remains locally unlocked in one app document,
+clients renew with the prior owner token. Renewal requires a signed, same-user,
+non-device `self` / `vault.owner` grant and its intact canonical
+`internal_access_events` lineage. Expired evidence may renew, but never authorizes
+a data request. Any later owner revocation permanently rejects that lineage,
+including after a different explicit unlock. Renewal and owner revocation use
+one Postgres transaction lock; no new session store or key persistence is added.
+Invalid/revoked renewal returns `403 AUTH_VAULT_OWNER_INVALID`; ledger uncertainty
+returns no-store `503 AUTH_ACCOUNT_STATUS_UNAVAILABLE` without bootstrap fallback.
+Web proxy and iOS/Android plugins preserve these typed errors. A reload/new app
+document starts locked; short interruptions and route changes retain the local
+key, with unavailable authority gated for retry.
+
+For self-owner grants only, multiple signed grants in the intact lineage remain
+usable up to each token's **original** expiry; renewing does not extend old
+credentials. This tolerates a lost response or another tab renewing. Delegated
+and device capabilities keep their latest-token validation rules. A successful
+renewal adds `renewalValidated: true`; clients reject missing/false acknowledgment.
+Deploy the backend before the matching web/native clients and coordinate rollback:
+an older backend ignores the new input and must not be used for renewal traffic.
+The acknowledgment fails closed on receipt but cannot prevent an older server
+from attempting its legacy issuance before returning the incompatible response.
+
 | Method | Path                                                  | Description                                                                                                                                                     |
 | ------ | ----------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | POST   | `/api/consent/vault-owner-token`                      | Issue VAULT_OWNER token                                                                                                                                         |

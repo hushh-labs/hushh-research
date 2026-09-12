@@ -18,6 +18,28 @@ function between(value: string, start: string, end: string): string {
 }
 
 describe("native resumed-session privacy shield contract", () => {
+  it("forwards typed HTTP renewal failures on iOS without exposing error bodies", () => {
+    const plugin = source("ios/App/App/Plugins/HushhConsentPlugin.swift");
+    const request = plugin.slice(plugin.indexOf("private func performRequest("));
+    const httpFailure = between(
+      request,
+      "if let httpResponse = response as? HTTPURLResponse",
+      "guard let data = data else",
+    );
+    const renewal = between(
+      plugin,
+      "@objc func issueVaultOwnerToken",
+      "@objc func publishIMessageSession",
+    );
+    expect(httpFailure).toContain("JSONSerialization.jsonObject(with: $0)");
+    expect(httpFailure).toContain("completion(payload, errorMsg)");
+    expect(httpFailure).not.toContain("completion(nil, errorMsg)");
+    expect(httpFailure).not.toContain("bodyStr");
+    expect(httpFailure).not.toContain("backendUrl:");
+    expect(renewal).toContain('detail?["code"] as? String');
+    expect(renewal).toContain("call.reject(errorMsg, code)");
+  });
+
   it("never attempts a reviewer Vault unlock for anonymous native recovery", () => {
     const uiTests = source("ios/App/AppUITests/AppUITests.swift");
     const recovery = between(
@@ -63,7 +85,7 @@ describe("native resumed-session privacy shield contract", () => {
     expect(bridge).toContain('"HushhSessionPrivacy"');
     expect(bridge).toContain("getNativeSessionPrivacyState");
     expect(bridge).toContain("completeNativeSessionPrivacyValidation");
-    expect(bridge).toContain("completeSessionValidation({ generation })");
+    expect(bridge).toContain("generation, documentId: privacyDocumentId()");
     expect(bridge).toContain("Number.isSafeInteger(generation)");
     expect(bridge).toContain("if (!Capacitor.isNativePlatform())");
   });
@@ -73,12 +95,16 @@ describe("native resumed-session privacy shield contract", () => {
 
     expect(authContext).toContain("getNativeSessionPrivacyState()");
     expect(authContext).toContain(
-      "validateActiveSession({ force: privacyState.shielded })",
+      "validateActiveSession({ force: true })",
     );
     expect(authContext).toContain("completeNativeSessionPrivacyValidation(");
     expect(authContext).toContain("privacyState.generation");
     expect(authContext).toContain("!terminalInvalidationLatchRef.current");
     expect(authContext).toContain("!signOutPromiseRef.current");
+    expect(authContext).toContain("subscribeNativeSessionPrivacy");
+    expect(authContext).toContain('privacyState.cause !== "inactive"');
+    expect(authContext).toContain("requestAnimationFrame");
+    expect(authContext).toContain("nativePrivacyReconcileRef.current()");
   });
 
   it("covers iOS before inactivity and releases only an active matching generation", () => {
@@ -131,6 +157,19 @@ describe("native resumed-session privacy shield contract", () => {
       "registerPluginInstance(HushhSessionPrivacyPlugin())",
     );
     expect(project).toContain("HushhSessionPrivacyPlugin.swift in Sources");
+    expect(delegate).toContain("HushhSessionPrivacyShield.shared.markAppBackgrounded()");
+    expect(controller).toContain("retainUntilConsumed: true");
+    expect(controller).toContain('retry.setTitle("Try again"');
+    expect(controller).toContain('restart.setTitle("Restart session"');
+    expect(controller).toContain(".now() + 8");
+    expect(controller).toContain("self.recoveryProgress?.stopAnimating()");
+    expect(controller).toContain('self.recoveryTitle?.text = "Unable to verify your session"');
+    expect(controller).toContain("retry.heightAnchor.constraint(greaterThanOrEqualToConstant: 44)");
+    expect(controller).toContain("title.numberOfLines = 0");
+    expect(controller.indexOf("state.restartSession()")).toBeLessThan(controller.indexOf("reloadDocument?()"));
+    expect(controller.indexOf("documents.restart()")).toBeLessThan(controller.indexOf("reloadDocument?()"));
+    expect(controller).toContain("guard documents.accepts(documentId)");
+    expect(bridgeController).toContain("self?.webView?.reload()");
   });
 
   it("covers Android before Capacitor pause and never auto-releases on resume", () => {
@@ -204,5 +243,12 @@ describe("native resumed-session privacy shield contract", () => {
     expect(plugin).toContain("fun getState(call: PluginCall)");
     expect(plugin).toContain("fun completeSessionValidation(call: PluginCall)");
     expect(plugin).toContain("generation <= 0");
+    expect(plugin).toContain('notifyListeners("privacyStateChanged"');
+    expect(activity).toContain('sessionPrivacyCause = "background"');
+    expect(activity).toContain('sessionPrivacyCause = "restart"');
+    expect(activity).toContain("nativeTestHandler.postDelayed(work, 8_000)");
+    expect(activity).toContain("sessionPrivacyProgress?.visibility = View.GONE");
+    expect(activity).toContain('sessionPrivacyTitle?.text = "Unable to verify your session"');
+    expect(activity).toContain("bridge?.webView?.reload()");
   });
 });

@@ -56,6 +56,19 @@ class _FakeDb:
         self.requested_tables.append(table_name)
         return _FakeQuery(table_name, self.response_rows, self.execute_thread_ids)
 
+    def execute_raw(self, sql, params):
+        assert "internal_access_events" in sql
+        self.requested_tables.append("internal_access_events")
+        self.execute_thread_ids.append(threading.get_ident())
+        return _FakeResponse(
+            [
+                row
+                for row in self.response_rows.get("internal_access_events", [])
+                if row.get("token_id") == params["token_id"]
+                and row.get("expires_at", 0) > params["now_ms"]
+            ]
+        )
+
 
 @pytest.mark.asyncio
 async def test_token_validation_does_not_execute_sync_database_io_on_event_loop(monkeypatch):
