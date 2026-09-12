@@ -155,6 +155,26 @@ class ConsumerDevicesResult(BaseModel):
     next_action: str
 
 
+class ConsumerPersonItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    public_person_ref: str | None = Field(default=None, max_length=128)
+    display_name: str | None = Field(default=None, max_length=200)
+    masked_email: str | None = Field(default=None, max_length=320)
+    masked_phone: str | None = Field(default=None, max_length=32)
+    relationship: Literal["connected", "pending_outgoing", "pending_incoming", "none"]
+    is_ria: bool
+
+
+class ConsumerPeopleResult(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    state: Literal["available"]
+    items: list[ConsumerPersonItem] = Field(default_factory=list, max_length=100)
+    page: int = Field(..., ge=1)
+    has_more: bool
+    audience: Literal["all", "people", "ria"]
+    next_action: str
+
+
 class ConsumerIntegrationConnectResult(BaseModel):
     model_config = ConfigDict(extra="forbid")
     state: Literal["approval_required", "connected"]
@@ -449,6 +469,8 @@ async def handle_list_hussh_capabilities(arguments: dict) -> CallToolResult:
         "list_hussh_devices",
         "list_hussh_calendar_events",
         "find_hussh_calendar_openings",
+        "search_hussh_people",
+        "list_hussh_people_connections",
         "list_hussh_integrations",
         "connect_hussh_integration",
         "disconnect_hussh_integration",
@@ -489,6 +511,9 @@ async def handle_list_hussh_capabilities(arguments: dict) -> CallToolResult:
         elif name in {"list_hussh_calendar_events", "find_hussh_calendar_openings"}:
             execution = "consent_service"
             availability = "approval_required"
+        elif name in {"search_hussh_people", "list_hussh_people_connections"}:
+            execution = "consent_service"
+            availability = "contract_available"
         elif name == "disconnect_hussh_integration":
             execution = "consent_service"
             availability = "approval_required"
@@ -953,6 +978,111 @@ async def handle_list_hussh_devices(arguments: dict) -> CallToolResult:
             items=items,
             next_action="Use a device_id with delegate_hussh_task only when inference_ready is true; enrollment and revocation remain in the secure owner interface.",
         )
+    )
+
+
+def _people_arguments(arguments: dict, *, connected: bool = False) -> tuple[str, int, int, str]:
+    if not isinstance(arguments, dict):
+        raise ValueError("arguments must be an object")
+    allowed = {"query", "page", "limit", "audience"}
+    if set(arguments) - allowed:
+        raise ValueError("only query, page, limit, and audience are accepted")
+    query = arguments.get("query", "")
+    if not isinstance(query, str) or len(query.strip()) > 160:
+        raise ValueError("query must be a string no longer than 160 characters")
+    page = arguments.get("page", 1)
+    max_limit = 100 if connected else 50
+    limit = arguments.get("limit", 50 if connected else 20)
+    if type(page) is not int or page < 1:
+        raise ValueError("page must be a positive integer")
+    if type(limit) is not int or not 1 <= limit <= max_limit:
+        raise ValueError(f"limit must be an integer between 1 and {max_limit}")
+    audience = arguments.get("audience", "all")
+    allowed_audiences = {"all", "ria"} if connected else {"all", "people", "ria"}
+    if not isinstance(audience, str) or audience not in allowed_audiences:
+        raise ValueError("audience is invalid")
+    return query.strip(), page, limit, audience
+
+
+def _people_result(
+    raw: dict, *, audience: str, page: int, relationship_default: str = "none"
+) -> ConsumerPeopleResult:
+    items: list[ConsumerPersonItem] = []
+    for item in list(raw.get("items") or [])[:100]:
+        if not isinstance(item, dict):
+            continue
+        relationship = str(item.get("relationship") or relationship_default)
+        if relationship not in {"connected", "pending_outgoing", "pending_incoming", "none"}:
+            relationship = "none"
+        items.append(
+            ConsumerPersonItem(
+                public_person_ref=(str(item.get("publicPersonRef") or "")[:128] or None),
+                display_name=(str(item.get("displayName") or "")[:200] or None),
+                masked_email=(str(item.get("maskedEmail") or "")[:320] or None),
+                masked_phone=(str(item.get("maskedPhone") or "")[:32] or None),
+                relationship=relationship,
+                is_ria=bool(item.get("isRia")),
+            )
+        )
+    return ConsumerPeopleResult(
+        state="available",
+        items=items,
+        page=max(1, page),
+        has_more=bool(raw.get("hasMore")),
+        audience=audience,
+        next_action="Use the secure Hussh owner flow to send, accept, or change a connection; this read does not grant information access.",
+    )
+
+
+async def handle_search_hussh_people(arguments: dict) -> CallToolResult:
+    """Search the owner-visible Connect directory without exposing raw IDs."""
+    try:
+        query, page, limit, audience = _people_arguments(arguments)
+    except ValueError as error:
+        return _error("INVALID_CONNECTIONS_REQUEST", str(error))
+    owner = _consumer_owner(get_current_developer_principal())
+    if owner is None:
+        return _error("OWNER_AUTH_REQUIRED", "Reconnect using your own Hussh account.")
+    try:
+        from hushh_mcp.services.connections_service import ConnectionsService  # noqa: PLC0415
+
+        result = await asyncio.to_thread(
+            ConnectionsService().search_directory,
+            owner,
+            query=query,
+            page=page,
+            limit=limit,
+            audience=audience,
+        )
+    except Exception:
+        return _error("CONNECTIONS_UNAVAILABLE", "The people directory is temporarily unavailable.")
+    return _result(_people_result(result, audience=audience, page=page))
+
+
+async def handle_list_hussh_people_connections(arguments: dict) -> CallToolResult:
+    """List existing owner connections through the canonical graph service."""
+    try:
+        query, page, limit, audience = _people_arguments(arguments, connected=True)
+    except ValueError as error:
+        return _error("INVALID_CONNECTIONS_REQUEST", str(error))
+    owner = _consumer_owner(get_current_developer_principal())
+    if owner is None:
+        return _error("OWNER_AUTH_REQUIRED", "Reconnect using your own Hussh account.")
+    try:
+        from hushh_mcp.services.connections_service import ConnectionsService  # noqa: PLC0415
+
+        result = await asyncio.to_thread(
+            ConnectionsService().list_connections_page,
+            owner,
+            query=query,
+            page=page,
+            limit=limit,
+            audience=audience,
+        )
+    except Exception:
+        return _error("CONNECTIONS_UNAVAILABLE", "Your connections are temporarily unavailable.")
+    return _result(
+        _people_result(result, audience=audience, page=page, relationship_default="connected")
     )
 
 

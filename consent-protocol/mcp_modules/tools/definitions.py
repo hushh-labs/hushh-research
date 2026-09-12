@@ -18,6 +18,7 @@ from mcp_modules.tools.consumer_tools import (
     ConsumerIntegrationDisconnectResult,
     ConsumerIntegrationsResult,
     ConsumerMemoryResult,
+    ConsumerPeopleResult,
     ConsumerReceiptsResult,
     ConsumerSetupStatusResult,
     ConsumerTaskResult,
@@ -161,6 +162,44 @@ def _private_tool_definitions() -> list[Tool]:
                 "destructiveHint": False,
                 "idempotentHint": True,
                 "openWorldHint": True,
+            },
+        ),
+        Tool(
+            name="search_hussh_people",
+            description="Search the owner-visible Hussh people directory. Results use masked contact labels and opaque public references; this does not send a request or grant information access.",
+            inputSchema=schema(
+                {
+                    "query": {"type": "string", "maxLength": 160},
+                    "page": {"type": "integer", "minimum": 1},
+                    "limit": {"type": "integer", "minimum": 1, "maximum": 50},
+                    "audience": {"type": "string", "enum": ["all", "people", "ria"]},
+                }
+            ),
+            outputSchema=ConsumerPeopleResult.model_json_schema(),
+            annotations={
+                "readOnlyHint": True,
+                "destructiveHint": False,
+                "idempotentHint": True,
+                "openWorldHint": False,
+            },
+        ),
+        Tool(
+            name="list_hussh_people_connections",
+            description="List the owner's existing Hussh connections with bounded, masked identity labels. Sending requests, accepting them, and changing shared scopes remain separate confirmed owner actions.",
+            inputSchema=schema(
+                {
+                    "query": {"type": "string", "maxLength": 160},
+                    "page": {"type": "integer", "minimum": 1},
+                    "limit": {"type": "integer", "minimum": 1, "maximum": 100},
+                    "audience": {"type": "string", "enum": ["all", "ria"]},
+                }
+            ),
+            outputSchema=ConsumerPeopleResult.model_json_schema(),
+            annotations={
+                "readOnlyHint": True,
+                "destructiveHint": False,
+                "idempotentHint": True,
+                "openWorldHint": False,
             },
         ),
         Tool(

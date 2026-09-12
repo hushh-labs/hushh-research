@@ -128,6 +128,7 @@ The private \`feat/consumer-mcp\` branch adds a separate owner-bound catalog for
 - \`get_hussh_connection\` and \`get_hussh_setup_status\` — secure setup handoff and resumable status;
 - \`list_hussh_devices\` — owner-scoped registered-device and Puppy readiness status without device keys;
 - \`list_hussh_calendar_events\` and \`find_hussh_calendar_openings\` — bounded live Calendar reads and availability suggestions; event changes still require owner confirmation;
+- \`search_hussh_people\` and \`list_hussh_people_connections\` — bounded owner-visible directory and connection reads with masked labels; sending requests and changing shared scopes remain confirmed owner actions;
 - \`list_hussh_capabilities\`, \`list_hussh_connections\`, and \`list_hussh_receipts\` — bounded discovery, connection metadata, and non-bearer audit metadata;
 - \`list_hussh_integrations\`, \`connect_hussh_integration\`, and \`disconnect_hussh_integration\` — owner-scoped Google integration status, secure OAuth handoff, and confirmation-gated service revocation;
 - \`read_hussh_memory\`, \`save_hussh_memory\`, \`correct_hussh_memory\`, and \`export_hussh_memory\` — owner-pod PKM operations;

@@ -848,6 +848,115 @@ async def test_consumer_mcp_calendar_refuses_invalid_arguments_without_provider_
     assert "owner_b" not in result.content[0].text
 
 
+@pytest.mark.asyncio
+async def test_consumer_mcp_exposes_masked_owner_people_and_connections(consumer, monkeypatch):
+    import mcp_server
+    from mcp_modules.developer_context import (
+        reset_current_developer_principal,
+        set_current_developer_principal,
+    )
+
+    principal, _, _ = connect(consumer)
+
+    class _Connections:
+        def search_directory(self, owner, **kwargs):
+            assert owner == "owner_a"
+            assert kwargs == {"query": "sam", "page": 1, "limit": 2, "audience": "people"}
+            return {
+                "items": [
+                    {
+                        "userId": "raw-user-id",
+                        "publicPersonRef": "person_public_1",
+                        "displayName": "Sam Example",
+                        "email": "sam@example.test",
+                        "maskedEmail": "s***@example.test",
+                        "maskedPhone": "•••-•••-1234",
+                        "relationship": "none",
+                        "isRia": False,
+                    }
+                ],
+                "page": 1,
+                "hasMore": False,
+            }
+
+        def list_connections_page(self, owner, **kwargs):
+            assert owner == "owner_a"
+            assert kwargs == {"query": "", "page": 1, "limit": 50, "audience": "all"}
+            return {
+                "items": [
+                    {
+                        "connectionId": "raw-connection-id",
+                        "userId": "raw-user-id",
+                        "publicPersonRef": "person_public_1",
+                        "displayName": "Sam Example",
+                        "email": "sam@example.test",
+                        "isRia": True,
+                    }
+                ],
+                "page": 1,
+                "hasMore": False,
+            }
+
+    monkeypatch.setattr("hushh_mcp.services.connections_service.ConnectionsService", _Connections)
+    context = set_current_developer_principal(principal)
+    try:
+        names = {tool.name for tool in await mcp_server.list_tools()}
+        assert {"search_hussh_people", "list_hussh_people_connections"}.issubset(names)
+        search = await mcp_server.call_tool(
+            "search_hussh_people",
+            {"query": "sam", "page": 1, "limit": 2, "audience": "people"},
+        )
+        connected = await mcp_server.call_tool("list_hussh_people_connections", {})
+    finally:
+        reset_current_developer_principal(context)
+
+    assert not search.isError
+    assert search.structuredContent["items"] == [
+        {
+            "public_person_ref": "person_public_1",
+            "display_name": "Sam Example",
+            "masked_email": "s***@example.test",
+            "masked_phone": "•••-•••-1234",
+            "relationship": "none",
+            "is_ria": False,
+        }
+    ]
+    assert not connected.isError
+    assert connected.structuredContent["items"][0]["relationship"] == "connected"
+    assert connected.structuredContent["items"][0]["is_ria"] is True
+    assert "raw-user-id" not in str(connected.structuredContent)
+    assert "raw-connection-id" not in str(connected.structuredContent)
+    assert "sam@example.test" not in str(search.structuredContent)
+
+
+@pytest.mark.asyncio
+async def test_consumer_mcp_people_rejects_unbounded_or_injected_arguments(consumer, monkeypatch):
+    import mcp_server
+    from mcp_modules.developer_context import (
+        reset_current_developer_principal,
+        set_current_developer_principal,
+    )
+
+    principal, _, _ = connect(consumer)
+
+    class _Connections:
+        def search_directory(self, *_args, **_kwargs):
+            raise AssertionError("directory must not receive invalid input")
+
+    monkeypatch.setattr("hushh_mcp.services.connections_service.ConnectionsService", _Connections)
+    context = set_current_developer_principal(principal)
+    try:
+        result = await mcp_server.call_tool(
+            "search_hussh_people",
+            {"query": "x", "user_id": "owner_b"},
+        )
+    finally:
+        reset_current_developer_principal(context)
+
+    assert result.isError
+    assert "owner_b" not in result.content[0].text
+
+
 def test_receipts_are_bounded_non_bearer_owner_audit_records(consumer):
     service, _, _ = consumer
     principal, review, _ = connect(consumer)

@@ -69,9 +69,11 @@ from mcp_modules.tools.consumer_tools import (
     handle_list_hussh_connections,
     handle_list_hussh_devices,
     handle_list_hussh_integrations,
+    handle_list_hussh_people_connections,
     handle_list_hussh_receipts,
     handle_read_hussh_memory,
     handle_save_hussh_memory,
+    handle_search_hussh_people,
 )
 from mcp_modules.tools.definitions import get_tool_definitions
 from mcp_modules.tools.kai_tools import (
@@ -136,6 +138,8 @@ HANDLERS = {
     "list_hussh_calendar_events": handle_list_hussh_calendar_events,
     "find_hussh_calendar_openings": handle_find_hussh_calendar_openings,
     "list_hussh_integrations": handle_list_hussh_integrations,
+    "search_hussh_people": handle_search_hussh_people,
+    "list_hussh_people_connections": handle_list_hussh_people_connections,
     "connect_hussh_integration": handle_connect_hussh_integration,
     "disconnect_hussh_integration": handle_disconnect_hussh_integration,
     "list_hussh_capabilities": handle_list_hussh_capabilities,

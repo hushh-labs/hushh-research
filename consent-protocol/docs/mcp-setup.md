@@ -283,7 +283,7 @@ review has occurred.
 Owner-bound, resource-aware OAuth sessions additionally discover
 `get_hussh_connection`, `get_hussh_setup_status`, `list_hussh_devices`,
 `list_hussh_calendar_events`, `find_hussh_calendar_openings`, `list_hussh_capabilities`,
-`list_hussh_receipts`, and the typed Google integration tools. The connection tool returns
+`search_hussh_people`, `list_hussh_people_connections`, `list_hussh_receipts`, and the typed Google integration tools. The connection tool returns
 an authenticated setup or memory-approval link; the status tool reads the
 existing resumable setup job and exposes only sanitized stage state. The
 `list_hussh_devices` tool projects the current owner's registered devices and
@@ -309,6 +309,10 @@ grant through `GoogleConnectionService`; it does not revoke sibling grants.
 owner-scoped Google Calendar service for bounded live reads. They never create,
 edit or delete events; event changes continue through the existing confirmation
 and proposal routes.
+`search_hussh_people` and `list_hussh_people_connections` reuse the canonical
+privacy-filtered connection service. They return only masked labels and opaque
+public references; sending requests, accepting them, and changing shared scopes
+remain separate confirmed owner actions.
 Provider action execution, owner-pod custody, and installed-host acceptance
 remain separate gates.
 The existing developer five-tool catalog remains unchanged for application-only
@@ -342,6 +346,8 @@ The existing OAuth proxy and `/oauth/authorize` page also serve consumer review:
 | `list_hussh_integrations` (MCP) | Owner OAuth; read Google integration status without credentials |
 | `list_hussh_calendar_events` (MCP) | Owner OAuth plus connected Calendar; read bounded live events without mutation |
 | `find_hussh_calendar_openings` (MCP) | Owner OAuth plus connected Calendar; calculate bounded free slots without mutation |
+| `search_hussh_people` (MCP) | Owner OAuth; search the privacy-filtered people directory with masked labels and opaque references |
+| `list_hussh_people_connections` (MCP) | Owner OAuth; list existing connections with masked labels; no request or scope mutation |
 | `connect_hussh_integration` (MCP) | Owner OAuth; start a short-lived, user-completed Google PKCE handoff |
 | `disconnect_hussh_integration` (MCP) | Owner OAuth; confirmation-gated service grant disconnect |
 | `disconnect_hussh_connection` (MCP) | Owner OAuth; explicit self-disconnect for the current generation |
