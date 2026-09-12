@@ -344,7 +344,11 @@ OWNER_REACHABLE_PATHS = frozenset(
     {
         "/health",
         "/health/ready",
-        "/health/capabilities",
+        # `/health/capabilities` was here until 2026-09-11 and is now WALLED.
+        # Liveness is fine to serve the internet; "which features this person's
+        # agent can deliver" is a fingerprint of one named individual, and the
+        # direct ingress axis turns the owner surface into the public one.
+        # Founder decision: some of the health surface world-readable, not all.
         "/api/one/pod/status",
         "/api/one/pod/config",
         "/api/one/pod/turn",

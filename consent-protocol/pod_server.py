@@ -572,7 +572,18 @@ async def _heartbeat_once(client: Any) -> bool:
         # against the row, and it is what lets an update be detected honestly.
         response = await asyncio.to_thread(client.post, "/api/one/pod/heartbeat", json=body)
     except PodHubUnavailable as exc:
-        logger.info("pod.heartbeat_unavailable %s", type(exc).__name__)
+        # The MESSAGE, not the wrapper's class name. `PodHubUnavailable` is always
+        # `PodHubUnavailable`; the useful half is what it wraps -- "metadata server
+        # unreachable: ConnectTimeout" versus "metadata identity failed: HTTP 403"
+        # are different defects with different fixes, and the old line rendered
+        # both as the same four words.
+        #
+        # This is not cosmetic. The beat is the pod's ONLY self-report of which
+        # build it runs, so while it fails the hub's `observed.imageTag` stays
+        # null and every upgrade decision is made on stale information. On
+        # 2026-09-11 the owner pod emitted this three times per turn and nothing
+        # said why. `PodHubUnavailable` carries no endpoint, token or owner data.
+        logger.info("pod.heartbeat_unavailable %s", exc)
         return False
     except Exception as exc:  # noqa: BLE001 - a heartbeat must never take the pod down
         logger.info("pod.heartbeat_failed %s", type(exc).__name__)
