@@ -281,10 +281,14 @@ isolated `feat/consumer-mcp` branch now contains the typed owner-pod memory
 execution seam, but no hosted migration, installed pod acceptance, or marketplace
 review has occurred.
 Owner-bound, resource-aware OAuth sessions additionally discover
-`get_hussh_connection`, `get_hussh_setup_status`, `list_hussh_capabilities`,
+`get_hussh_connection`, `get_hussh_setup_status`, `list_hussh_devices`, `list_hussh_capabilities`,
 `list_hussh_receipts`, and the typed Google integration tools. The connection tool returns
 an authenticated setup or memory-approval link; the status tool reads the
-existing resumable setup job and exposes only sanitized stage state. Neither tool
+existing resumable setup job and exposes only sanitized stage state. The
+`list_hussh_devices` tool projects the current owner's registered devices and
+the existing Puppy relay's truthful `ready`, `busy`, `offline`, or `revoked`
+state. It returns no public keys, vault material, or credentials; enrollment and
+revocation remain in the secure owner interface. Neither tool
 approves permission, reads memory or provisions infrastructure. The
 capability tool projects the authored catalog and labels owner-pod, consent
 service, and secure-handoff boundaries without claiming installed readiness.
@@ -327,6 +331,7 @@ The existing OAuth proxy and `/oauth/authorize` page also serve consumer review:
 | Endpoint | Authority and behavior |
 |---|---|
 | `get_hussh_setup_status` (MCP) | Owner OAuth; read the existing setup job without provisioning or creating a second job |
+| `list_hussh_devices` (MCP) | Owner OAuth; read registered-device and Puppy readiness metadata without keys or credentials |
 | `list_hussh_capabilities` (MCP) | Owner OAuth; read the authored consumer capability boundaries |
 | `list_hussh_receipts` (MCP) | Owner OAuth; read bounded consent receipt metadata without bearer tokens |
 | `list_hussh_integrations` (MCP) | Owner OAuth; read Google integration status without credentials |

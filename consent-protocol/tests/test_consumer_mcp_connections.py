@@ -624,6 +624,95 @@ async def test_consumer_mcp_google_integrations_use_existing_owner_service_bound
         reset_current_developer_principal(context)
 
 
+@pytest.mark.asyncio
+async def test_consumer_mcp_lists_owner_devices_with_truthful_puppy_readiness(
+    consumer, monkeypatch
+):
+    import mcp_server
+    from api.routes.one import puppy_relay
+    from mcp_modules.developer_context import (
+        reset_current_developer_principal,
+        set_current_developer_principal,
+    )
+
+    principal, _, _ = connect(consumer)
+
+    class _Devices:
+        def list_devices(self, *, user_id):
+            assert user_id == "owner_a"
+            return [
+                {
+                    "device_id": "tdv_puppy",
+                    "device_name": "Puppy One",
+                    "platform": "macos",
+                    "status": "active",
+                    "last_heartbeat_at": 123,
+                    "device_public_key": "must-not-leak",
+                },
+                {
+                    "device_id": "tdv_revoked",
+                    "device_name": "Old Puppy",
+                    "platform": "macos",
+                    "status": "revoked",
+                    "last_heartbeat_at": None,
+                },
+            ]
+
+    class _Broker:
+        async def status(self, key):
+            assert key == ("owner_a", "tdv_puppy")
+            return {
+                "connected": True,
+                "state": "ready",
+                "busy": False,
+                "model": "puppy-local",
+                "capabilities": {
+                    "tool_calling": True,
+                    "json_schema": False,
+                    "unknown": True,
+                },
+            }
+
+    monkeypatch.setattr("hushh_mcp.services.trusted_device_service.TrustedDeviceService", _Devices)
+    monkeypatch.setattr(puppy_relay, "BROKER", _Broker())
+    context = set_current_developer_principal(principal)
+    try:
+        names = {tool.name for tool in await mcp_server.list_tools()}
+        assert "list_hussh_devices" in names
+        result = await mcp_server.call_tool("list_hussh_devices", {})
+    finally:
+        reset_current_developer_principal(context)
+
+    assert not result.isError
+    assert result.structuredContent["items"] == [
+        {
+            "device_id": "tdv_puppy",
+            "device_name": "Puppy One",
+            "platform": "macos",
+            "status": "active",
+            "puppy_state": "ready",
+            "inference_ready": True,
+            "execution_target": "puppy",
+            "model": "puppy-local",
+            "capabilities": {"tool_calling": True, "json_schema": False},
+            "last_heartbeat_at": 123,
+        },
+        {
+            "device_id": "tdv_revoked",
+            "device_name": "Old Puppy",
+            "platform": "macos",
+            "status": "revoked",
+            "puppy_state": "revoked",
+            "inference_ready": False,
+            "execution_target": "unavailable",
+            "model": None,
+            "capabilities": {},
+            "last_heartbeat_at": None,
+        },
+    ]
+    assert "device_public_key" not in str(result.structuredContent)
+
+
 def test_receipts_are_bounded_non_bearer_owner_audit_records(consumer):
     service, _, _ = consumer
     principal, review, _ = connect(consumer)

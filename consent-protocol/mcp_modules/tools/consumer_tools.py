@@ -133,6 +133,27 @@ class ConsumerIntegrationsResult(BaseModel):
     next_action: str
 
 
+class ConsumerDeviceItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    device_id: str = Field(..., max_length=128)
+    device_name: str = Field(..., max_length=100)
+    platform: str = Field(..., max_length=32)
+    status: str = Field(..., max_length=32)
+    puppy_state: Literal["ready", "busy", "offline", "revoked", "unavailable"]
+    inference_ready: bool
+    execution_target: Literal["puppy", "unavailable"]
+    model: str | None = Field(default=None, max_length=128)
+    capabilities: dict[str, bool] = Field(default_factory=dict)
+    last_heartbeat_at: int | None = None
+
+
+class ConsumerDevicesResult(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    state: Literal["available"]
+    items: list[ConsumerDeviceItem] = Field(default_factory=list, max_length=100)
+    next_action: str
+
+
 class ConsumerIntegrationConnectResult(BaseModel):
     model_config = ConfigDict(extra="forbid")
     state: Literal["approval_required", "connected"]
@@ -369,6 +390,7 @@ async def handle_list_hussh_capabilities(arguments: dict) -> CallToolResult:
     consumer_names = {
         "get_hussh_connection",
         "get_hussh_setup_status",
+        "list_hussh_devices",
         "list_hussh_integrations",
         "connect_hussh_integration",
         "disconnect_hussh_integration",
@@ -400,6 +422,9 @@ async def handle_list_hussh_capabilities(arguments: dict) -> CallToolResult:
         if name in {"get_hussh_connection", "get_hussh_setup_status", "connect_hussh_integration"}:
             execution = "secure_handoff"
             availability = "secure_handoff"
+        elif name == "list_hussh_devices":
+            execution = "consent_service"
+            availability = "contract_available"
         elif name == "list_hussh_integrations":
             execution = "consent_service"
             availability = "contract_available"
@@ -601,6 +626,92 @@ async def handle_list_hussh_integrations(arguments: dict) -> CallToolResult:
             state="available",
             items=items,
             next_action="Use connect_hussh_integration for a secure provider approval or disconnect_hussh_integration to revoke one service.",
+        )
+    )
+
+
+async def handle_list_hussh_devices(arguments: dict) -> CallToolResult:
+    """List the owner's registered devices and truthful Puppy readiness."""
+    if arguments:
+        return _error("INVALID_ARGUMENTS", "This tool accepts no arguments.")
+    owner = _consumer_owner(get_current_developer_principal())
+    if owner is None:
+        return _error("OWNER_AUTH_REQUIRED", "Reconnect using your own Hussh account.")
+    try:
+        from api.routes.one.puppy_relay import BROKER  # noqa: PLC0415
+        from hushh_mcp.services.trusted_device_service import (  # noqa: PLC0415
+            TrustedDeviceService,
+        )
+
+        devices = await asyncio.to_thread(TrustedDeviceService().list_devices, user_id=owner)
+        items: list[ConsumerDeviceItem] = []
+        for raw in list(devices or [])[:100]:
+            device_id = str(raw.get("device_id") or "").strip()
+            if not device_id:
+                continue
+            status = str(raw.get("status") or "unavailable").strip().lower()[:32]
+            if status != "active":
+                items.append(
+                    ConsumerDeviceItem(
+                        device_id=device_id,
+                        device_name=str(raw.get("device_name") or "")[:100],
+                        platform=str(raw.get("platform") or "")[:32],
+                        status=status,
+                        puppy_state="revoked",
+                        inference_ready=False,
+                        execution_target="unavailable",
+                        last_heartbeat_at=(
+                            int(raw["last_heartbeat_at"])
+                            if raw.get("last_heartbeat_at") is not None
+                            else None
+                        ),
+                    )
+                )
+                continue
+            try:
+                relay = await BROKER.status((owner, device_id))
+            except Exception:  # noqa: BLE001 - status must fail closed
+                relay = {"state": "unavailable", "connected": False, "busy": False}
+            relay_state = str(relay.get("state") or "unavailable").lower()
+            if relay_state not in {"ready", "busy", "offline"}:
+                relay_state = "unavailable"
+            ready = relay_state in {"ready", "busy"} and bool(relay.get("connected"))
+            capabilities = relay.get("capabilities")
+            safe_capabilities = (
+                {
+                    str(key): bool(value)
+                    for key, value in capabilities.items()
+                    if key in {"tool_calling", "json_schema", "streaming"}
+                    and isinstance(value, bool)
+                }
+                if isinstance(capabilities, dict)
+                else {}
+            )
+            items.append(
+                ConsumerDeviceItem(
+                    device_id=device_id,
+                    device_name=str(raw.get("device_name") or "")[:100],
+                    platform=str(raw.get("platform") or "")[:32],
+                    status=status,
+                    puppy_state=relay_state,
+                    inference_ready=ready,
+                    execution_target="puppy" if ready else "unavailable",
+                    model=(str(relay.get("model") or "")[:128] or None),
+                    capabilities=safe_capabilities,
+                    last_heartbeat_at=(
+                        int(raw["last_heartbeat_at"])
+                        if raw.get("last_heartbeat_at") is not None
+                        else None
+                    ),
+                )
+            )
+    except Exception:
+        return _error("DEVICES_UNAVAILABLE", "Registered-device status is temporarily unavailable.")
+    return _result(
+        ConsumerDevicesResult(
+            state="available",
+            items=items,
+            next_action="Use a device_id with delegate_hussh_task only when inference_ready is true; enrollment and revocation remain in the secure owner interface.",
         )
     )
 

@@ -56,6 +56,7 @@ The promoted UAT `/mcp/` endpoint currently publishes the application-only gener
 The private `feat/consumer-mcp` branch adds a separate owner-bound catalog for the consumer experience. It is not deployed to UAT, main, or production. Only an owner-authenticated OAuth session can discover these tools; developer tokens and client credentials do not receive personal-agent authority:
 
 - `get_hussh_connection` and `get_hussh_setup_status` — secure setup handoff and resumable status;
+- `list_hussh_devices` — owner-scoped registered-device and Puppy readiness status without device keys;
 - `list_hussh_capabilities`, `list_hussh_connections`, and `list_hussh_receipts` — bounded discovery, connection metadata, and non-bearer audit metadata;
 - `list_hussh_integrations`, `connect_hussh_integration`, and `disconnect_hussh_integration` — owner-scoped Google integration status, secure OAuth handoff, and confirmation-gated service revocation;
 - `read_hussh_memory`, `save_hussh_memory`, `correct_hussh_memory`, and `export_hussh_memory` — owner-pod PKM operations;

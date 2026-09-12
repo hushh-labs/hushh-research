@@ -10,6 +10,7 @@ from mcp_modules.tools.consumer_tools import (
     ConsumerCapabilitiesResult,
     ConsumerConnectionResult,
     ConsumerConnectionsResult,
+    ConsumerDevicesResult,
     ConsumerDisconnectResult,
     ConsumerIntegrationConnectResult,
     ConsumerIntegrationDisconnectResult,
@@ -85,6 +86,18 @@ def _private_tool_definitions() -> list[Tool]:
                 }
             ),
             outputSchema=ConsumerConnectionsResult.model_json_schema(),
+            annotations={
+                "readOnlyHint": True,
+                "destructiveHint": False,
+                "idempotentHint": True,
+                "openWorldHint": False,
+            },
+        ),
+        Tool(
+            name="list_hussh_devices",
+            description="List your registered devices and truthful Puppy readiness without exposing device keys or credentials.",
+            inputSchema=empty,
+            outputSchema=ConsumerDevicesResult.model_json_schema(),
             annotations={
                 "readOnlyHint": True,
                 "destructiveHint": False,
