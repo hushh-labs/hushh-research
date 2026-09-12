@@ -252,6 +252,47 @@ async def test_agentforce_oauth_tools_list_has_the_uat_catalog_and_output_schema
         )
 
 
+@pytest.mark.asyncio
+async def test_owner_oauth_tools_list_exposes_the_consumer_catalog(monkeypatch):
+    """Remote owner OAuth must expose the same catalog as local owner context."""
+    monkeypatch.setenv("CONSENT_API_PUBLIC_ORIGIN", "https://mcp.example.test")
+    from mcp_modules.consumer_catalog import CONSUMER_MCP_TOOL_NAME_SET
+
+    owner_principal = DeveloperPrincipal(
+        app_id="app_consumer_owner",
+        agent_id="developer:app_consumer_owner",
+        display_name="Consumer Owner",
+        allowed_tool_groups=("core_consent",),
+        auth_source="oauth",
+        oauth_grant_type="authorization_code",
+        mcp_execution_mode="execute",
+        subject_firebase_uid="owner_firebase_uid",
+        authorization_id=42,
+        oauth_resource="https://mcp.example.test/mcp",
+    )
+
+    class _OAuth:
+        def authenticate_access_token(self, raw_token, **_kwargs):
+            return owner_principal if raw_token == "hdo_at_consumer_owner" else None
+
+    app, inner = _build_app(inner_app=_ToolsListInnerApp())
+    monkeypatch.setattr(mcp_remote_module, "DeveloperOAuthService", _OAuth)
+    monkeypatch.setattr(app._registry, "authenticate_token", lambda *_args, **_kwargs: None)
+    send = _CapturingSend()
+
+    await app(
+        _http_scope(headers=[(b"authorization", b"Bearer hdo_at_consumer_owner")]),
+        _noop_receive,
+        send,
+    )
+
+    assert send.status == 200
+    assert inner.calls == 1
+    names = {tool["name"] for tool in send.body_json["tools"]}
+    assert CONSUMER_MCP_TOOL_NAME_SET <= names
+    assert "search-user-scopes" in names
+
+
 def test_agentforce_timeout_settles_before_the_host_limit():
     assert mcp_remote_module._request_timeout_seconds(AGENTFORCE_PROFILE) == 55.0
     assert mcp_remote_module._request_timeout_seconds("standard") == (
