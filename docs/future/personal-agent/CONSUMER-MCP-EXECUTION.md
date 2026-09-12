@@ -475,6 +475,7 @@ their provisional statements while preserving the original evidence trail.
 
 ## Claude infrastructure branch reconciliation — 12 September 2026 (branch-only)
 
+- Publication completed at clean `feat/consumer-mcp` head `bbf3949f8`, matching `origin/feat/consumer-mcp`; this branch remains separate from `main`, UAT, production, Hermes and ADK.
 - The private infrastructure branch is `claude/hushh-infrastructure-analysis-7o991c` at `9f8c11938`; its common ancestor with this branch is `883327eaf`. Patch comparison shows that the substantive pod/Puppy fixes (model-step streaming, direct Puppy capability refusal, device eviction, memory acknowledgement recovery, incarnation fencing, upgrade safety and reviewer timing) are already present on `feat/consumer-mcp` under equivalent commits.
 - The pod-architecture merge guard and client-environment parity guard are also already present through the branch's existing guard/parity commits. The only compatible missing change was the operator runbook correction, applied as `e2c3c8ff8`. A wholesale merge was intentionally not performed because the private branch removes the consumer-MCP surfaces this branch owns.
 - Hermes remains separate at clean `main` revision `c63ddfb08`. Its relay implementation and 14-test contract suite are present, but the active local gateway process exposes no `PUPPY_*` relay configuration and no `dev-puppy` relay process was found. This confirms source compatibility only; it does not prove an enrolled device or live inference connection.
