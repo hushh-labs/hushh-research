@@ -2754,9 +2754,20 @@ class PKMAgentLabService:
         intent_used_fallback: bool = False,
         merge_used_fallback: bool = False,
         structure_used_fallback: bool = False,
+        intent_skipped: bool = False,
+        merge_skipped: bool = False,
+        structure_skipped: bool = False,
     ) -> dict[str, bool]:
         hints = {cls._normalize_segment(str(hint)) for hint in validation_hints if hint}
         return {
+            # Deliberately NOT folded into fallback_used. A fallback means the
+            # model answered badly or not at all; a skip means it was never
+            # consulted. Collapsing them would hide the second behind a metric
+            # that looks healthy precisely when the intelligence is absent.
+            "stage_skipped": bool(intent_skipped or merge_skipped or structure_skipped),
+            "intent_skipped": bool(intent_skipped),
+            "merge_skipped": bool(merge_skipped),
+            "structure_skipped": bool(structure_skipped),
             "fallback_used": bool(
                 fallback_used
                 or intent_used_fallback
@@ -4224,6 +4235,9 @@ class PKMAgentLabService:
                     intent_used_fallback=bool(preview.get("intent_used_fallback")),
                     merge_used_fallback=bool(preview.get("merge_used_fallback")),
                     structure_used_fallback=bool(preview.get("structure_used_fallback")),
+                    intent_skipped=bool(preview.get("intent_skipped")),
+                    merge_skipped=bool(preview.get("merge_skipped")),
+                    structure_skipped=bool(preview.get("structure_skipped")),
                 )
             ),
             "intent_frame": deepcopy(intent_frame),
@@ -4528,6 +4542,13 @@ class PKMAgentLabService:
             execution_trace=execution_trace,
         )
         financial_guard_used_fallback = financial_guard_raw is None
+        # Whether each stage was ROUTED AROUND, as distinct from whether it ran
+        # and fell back. A skip means no model judgement exists for that stage
+        # at all, and an unobservable substitution is indistinguishable from a
+        # model answer, which is why these are never folded into fallback_used.
+        intent_skipped = False
+        merge_skipped = False
+        structure_skipped = False
         financial_guard = self._sanitize_financial_guard_decision(
             message=message,
             raw=financial_guard_raw,
@@ -4560,6 +4581,11 @@ class PKMAgentLabService:
             intent_used_fallback = False
             merge_used_fallback = False
             structure_used_fallback = False
+            # Financial-core never consults any of the three. Recorded as three
+            # skips rather than silence.
+            intent_skipped = True
+            merge_skipped = True
+            structure_skipped = True
             normalized_preview = self._build_financial_core_preview(
                 message=message,
                 current_domains=normalized_domains,
@@ -4575,6 +4601,8 @@ class PKMAgentLabService:
                     financial_guard=financial_guard,
                 )
                 intent_used_fallback = False
+                # Derived from the guard, not asked of the intent agent.
+                intent_skipped = True
             else:
                 intent_raw = await self._run_agent_contract(
                     manifest=self.memory_intent_manifest,
@@ -4609,6 +4637,7 @@ class PKMAgentLabService:
             if intent_frame.get("mutation_intent") == "no_op":
                 merge_raw = None
                 merge_used_fallback = False
+                merge_skipped = True
             else:
                 merge_raw = await self._run_agent_contract(
                     manifest=self.memory_merge_manifest,
@@ -4648,6 +4677,10 @@ class PKMAgentLabService:
             ):
                 structure_raw = None
                 structure_used_fallback = False
+                # The model was never asked. That is not the same as the model
+                # answering and needing no fallback, and until now both wrote
+                # False here, so a skipped stage reported as a successful run.
+                structure_skipped = True
             else:
                 structure_raw = await self._run_agent_contract(
                     manifest=self.structure_manifest,
@@ -4707,6 +4740,9 @@ class PKMAgentLabService:
             intent_used_fallback=intent_used_fallback,
             merge_used_fallback=merge_used_fallback,
             structure_used_fallback=structure_used_fallback,
+            intent_skipped=intent_skipped,
+            merge_skipped=merge_skipped,
+            structure_skipped=structure_skipped,
         )
 
         return {
@@ -4717,6 +4753,9 @@ class PKMAgentLabService:
             "intent_used_fallback": intent_used_fallback,
             "merge_used_fallback": merge_used_fallback,
             "structure_used_fallback": structure_used_fallback,
+            "intent_skipped": intent_skipped,
+            "merge_skipped": merge_skipped,
+            "structure_skipped": structure_skipped,
             "drift_flags": drift_flags,
             "error": "; ".join(errors) or None,
             "routing_decision": financial_guard["routing_decision"],
