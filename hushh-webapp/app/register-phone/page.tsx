@@ -8,7 +8,7 @@ import { toast } from "sonner";
 import { HushhLoader } from "@/components/app-ui/hushh-loader";
 import { NativeRouteMarker } from "@/components/app-ui/native-route-marker";
 import { PhoneVerificationFlow } from "@/components/auth/phone-verification-flow";
-import { FigmaIllustration } from "@/components/onboarding/FigmaOnboardingPrimitives";
+import { OneArcIllustration } from "@/components/onboarding/OneArcIllustration";
 import { VaultLockGuard } from "@/components/vault/vault-lock-guard";
 import {
   DropdownMenu,
@@ -355,7 +355,9 @@ export function PhoneMandatePageContent() {
           </DropdownMenu>
         </div>
 
-        <FigmaIllustration variant="phone" className={styles.hero} />
+        <div className="pt-10 sm:pt-12 pb-2">
+          <OneArcIllustration />
+        </div>
         <h1
           role="heading"
           aria-level={1}
@@ -364,7 +366,7 @@ export function PhoneMandatePageContent() {
               ? "Enter verification code"
               : "Verify your phone number"
           }
-          className={styles.title}
+          className={cn(styles.title, "text-[#17130C] dark:text-[#F2F2F7]")}
         >
           {verificationStep === "code"
             ? "Enter verification code"
