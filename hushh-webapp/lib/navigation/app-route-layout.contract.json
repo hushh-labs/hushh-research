@@ -2,6 +2,7 @@
   {
     "route": "/",
     "mode": "hidden",
+    "persistentChrome": "none",
     "exemptionReason": "Anonymous auth-split entry route redirects signed-in users to /one and intentionally does not own the signed-in dashboard shell.",
     "voicePlaybook": {
       "playbookId": "route.one.intro",
@@ -256,6 +257,7 @@
   {
     "route": "/login",
     "mode": "hidden",
+    "persistentChrome": "none",
     "interactionLayerPolicy": {
       "allowedFamilies": [
         "legal_document"
@@ -1091,6 +1093,7 @@
   {
     "route": "/register-phone",
     "mode": "hidden",
+    "persistentChrome": "none",
     "interactionLayerPolicy": {
       "allowedFamilies": [
         "country_picker"

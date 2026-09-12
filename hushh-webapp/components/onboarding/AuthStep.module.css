@@ -1,0 +1,79 @@
+.shell {
+  min-block-size: 100%;
+  background: #f6f5fc;
+  color: #0a0a0a;
+}
+
+:global(.dark) .shell { background: #000; color: #fafafa; }
+
+.authBackButton {
+  position: fixed;
+  inset-block-start: max(16px, calc(var(--app-safe-area-top-effective, 0px) + 12px));
+  inset-inline-start: clamp(16px, 5vw, 24px);
+  z-index: 50;
+}
+
+.shell :global([data-auth-content-block]) {
+  min-block-size: 100%;
+  padding: max(76px, calc(var(--app-safe-area-top-effective, 0px) + 68px)) clamp(16px, 6vw, 24px) max(24px, calc(var(--app-safe-area-bottom-effective, 0px) + 24px));
+}
+
+.shell :global([data-auth-signin-clusters]) {
+  min-block-size: 100%;
+  justify-content: center;
+  gap: clamp(26px, 5vh, 42px);
+  padding: 0 !important;
+}
+
+.shell :global([data-auth-hero]) { inline-size: 100%; gap: clamp(18px, 3vh, 28px); }
+.authIllustration {
+  inline-size: min(80vw, 357px);
+  /* The light export has blank canvas beneath the artwork. Crop only that
+     trailing whitespace so the Figma artwork keeps its authored scale while
+     the legal note remains in the viewport. */
+  block-size: min(calc(80vw * 1.6), 500px);
+  overflow: hidden;
+  aspect-ratio: auto !important;
+}
+.authIllustration :global(img) { block-size: auto !important; height: auto !important; }
+
+:global(.dark) .authIllustration {
+  block-size: min(calc(80vw * 238 / 357), 238px);
+  overflow: visible;
+  aspect-ratio: 357 / 238 !important;
+}
+
+:global(.dark) .authIllustration :global(img) { block-size: 100% !important; height: 100% !important; }
+.authTitle { margin: 0; }
+
+.shell :global([data-auth-provider-actions-shell]) { inline-size: min(100%, 344px); }
+.shell :global([data-auth-provider-actions]) { inline-size: 100%; gap: 12px; }
+.authProviderButton {
+  min-block-size: 60px !important;
+  border-radius: 16px !important;
+  font-size: 17px !important;
+  font-weight: 510 !important;
+}
+
+.supportingContent {
+  display: flex;
+  min-block-size: 28px;
+  justify-content: center;
+  margin-block-start: clamp(4px, 2vh, 16px);
+}
+
+@media (max-height: 700px) {
+  .shell :global([data-auth-content-block]) { padding-block-start: max(60px, calc(var(--app-safe-area-top-effective, 0px) + 48px)); }
+  .shell :global([data-auth-signin-clusters]) { justify-content: start; gap: 20px; }
+  .authIllustration {
+    inline-size: min(45vw, 172px);
+    block-size: min(calc(45vw * 1.6), 275px);
+  }
+
+  :global(.dark) .authIllustration { block-size: min(calc(45vw * 238 / 357), 172px); }
+  .supportingContent { margin-block-start: 0; }
+}
+
+@media (min-width: 768px) {
+  .shell :global([data-auth-content-block]) { max-inline-size: 440px; }
+}

@@ -1,0 +1,186 @@
+.themeLight {
+  display: block;
+}
+
+.themeDark {
+  display: none;
+}
+
+:global(.dark) .themeLight {
+  display: none;
+}
+
+:global(.dark) .themeDark {
+  display: block;
+}
+
+:global(html:not(.dark)) .themeDark {
+  display: none;
+}
+
+.illustration {
+  position: relative;
+  flex: none;
+  overflow: visible;
+  aspect-ratio: 950 / 1198;
+}
+
+.illustrationIntro {
+  width: min(76.533vw, 287px);
+}
+
+.illustrationCompact {
+  width: min(58.34vw, 219px);
+}
+
+.illustrationImage {
+  display: block;
+  width: 100%;
+  height: 100%;
+  /* Preserve the complete Figma export. `cover` clipped the outer icons on
+     the dark artwork because that export has a wider source canvas. */
+  object-fit: contain;
+  object-position: center;
+  user-select: none;
+}
+
+.hushhLogo {
+  display: block;
+  width: 97px;
+  height: 27px;
+  user-select: none;
+}
+
+.oneLogo {
+  display: block;
+  width: 221px;
+  height: auto;
+  user-select: none;
+}
+
+.backButton {
+  position: absolute;
+  top: 72px;
+  left: 23px;
+  z-index: 30;
+  display: grid;
+  width: 44px;
+  height: 44px;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  color: rgba(10, 10, 10, 0.72);
+  background: rgba(255, 255, 255, 0.52);
+  box-shadow: 0 4px 15px rgba(150, 196, 255, 0.22);
+  backdrop-filter: blur(10px);
+  transition:
+    transform var(--motion-duration-sm) var(--motion-ease-standard),
+    background-color var(--motion-duration-sm) var(--motion-ease-standard);
+}
+
+.backButton:hover {
+  background: rgba(255, 255, 255, 0.75);
+}
+
+.backButton:active {
+  transform: scale(0.94);
+}
+
+.backButton:disabled {
+  pointer-events: none;
+  opacity: 0.4;
+}
+
+.backIcon {
+  width: 18px;
+  height: 18px;
+}
+
+:global(.dark) .backButton {
+  color: rgba(255, 255, 255, 0.88);
+  background: rgba(28, 28, 30, 0.82);
+  box-shadow: none;
+}
+
+:global(.dark) .backButton:hover {
+  background: rgba(48, 48, 52, 0.9);
+}
+
+.privacyNote {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  max-width: 260px;
+  color: rgba(122, 122, 128, 0.92);
+  font-size: 9px;
+  font-weight: 400;
+  line-height: 1.35;
+  text-align: left;
+}
+
+:global(.dark) .privacyNote {
+  width: 233px;
+  max-width: 233px;
+  gap: 12px;
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.privacyIcon {
+  display: block;
+  width: 32px;
+  height: 26px;
+  flex: none;
+}
+
+.providerIcon {
+  display: block;
+  width: 23px;
+  height: 23px;
+  flex: none;
+  object-fit: contain;
+}
+
+.appleIcon {
+  width: 23px;
+}
+
+.googleIcon {
+  width: 23px;
+}
+
+:global(.dark) .appleIcon {
+  filter: invert(1);
+}
+
+.countryFlag {
+  display: block;
+  width: 31px;
+  height: 22px;
+  flex: none;
+  object-fit: cover;
+  border-radius: 3px;
+}
+
+@media (max-height: 740px) {
+  .backButton {
+    top: 58px;
+  }
+
+  .illustrationIntro {
+    width: min(66vw, 245px);
+  }
+
+  .illustrationCompact {
+    width: min(52vw, 190px);
+  }
+
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .backButton {
+    transition: none;
+  }
+}

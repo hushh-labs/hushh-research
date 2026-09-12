@@ -1,0 +1,20 @@
+.shell { position: relative; min-block-size: 100%; overflow: hidden; background: #f6f5fc; color: #0a0a0a; isolation: isolate; }
+:global(.dark) .shell { background: #000; color: #f2f2f7; }
+.composition { position: relative; min-block-size: 100%; max-inline-size: 402px; margin-inline: auto; overflow: hidden; }
+.topBar { position: absolute; inset-inline: clamp(16px, 6vw, 27px); inset-block-start: max(13px, calc(var(--app-safe-area-top-effective, 0px) + 13px)); z-index: 20; display: flex; inline-size: calc(100% - clamp(32px, 12vw, 54px)); align-items: center; justify-content: space-between; }
+.backButton, .accountButton { display: grid; inline-size: 43px; block-size: 43px; place-items: center; border: 0; border-radius: 999px; color: #17130c; background: rgba(255,255,255,.72); box-shadow: 0 4px 15px rgba(150,196,255,.22); backdrop-filter: blur(10px); }
+:global(.dark) .backButton, :global(.dark) .accountButton { color: #fff; background: #1c1c1e; box-shadow: none; }
+.hero { position: absolute; inset-inline-start: 50%; inset-block-start: max(64px, calc(var(--app-safe-area-top-effective, 0px) + 40px)); inline-size: min(58vw, 219px) !important; transform: translateX(-50%); }
+.title { position: absolute; inset-inline: 16px; inset-block-start: clamp(290px, 78vw, 345px); z-index: 2; margin: 0; color: inherit; font-family: var(--font-app-display); font-size: clamp(23px, 6.7vw, 27px); font-weight: 700; letter-spacing: -.7px; line-height: 1.2; text-align: center; }
+.inputRegion { position: absolute; inset-inline: 0; inset-block-start: clamp(362px, 96vw, 426px); inset-block-end: var(--kb-height, 0px); z-index: 5; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; padding: 0 clamp(16px, 7.2vw, 29px) max(24px, calc(16px + var(--app-safe-area-bottom-effective, 0px))); -webkit-overflow-scrolling: touch; scrollbar-width: none; }
+.inputRegion::-webkit-scrollbar { display: none; }
+.phoneForm { inline-size: 100%; }
+.phoneForm :global([data-slot="field-set"]) { gap: clamp(24px, 8vw, 37px) !important; }
+.phoneForm :global([data-slot="field-group"]) { gap: 11px !important; }
+.phoneForm :global([data-slot="field"]) { gap: 9px !important; }
+.phoneForm :global([data-slot="field-label"]) { padding-inline-start: 11px; color: #6f6f77 !important; font-size: 13px !important; font-weight: 600 !important; }
+.phoneForm :global([data-slot="input-group"]) { block-size: 60px !important; min-block-size: 60px; border-radius: 16px !important; }
+.primaryAction { min-block-size: 52px !important; inline-size: min(100%, 330px) !important; margin-inline: auto !important; border-radius: 999px !important; }
+.recaptcha { display: none; }
+:global(.dark) .phoneForm :global([data-slot="input-group"]) { border: 0 !important; background: #1c1c1e !important; box-shadow: none !important; }
+@media (max-height: 700px) { .hero { inline-size: min(45vw, 180px) !important; inset-block-start: max(54px, calc(var(--app-safe-area-top-effective, 0px) + 24px)); } .title { inset-block-start: clamp(230px, 66vw, 290px); } .inputRegion { inset-block-start: clamp(290px, 82vw, 360px); } }

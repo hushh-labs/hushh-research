@@ -103,7 +103,9 @@ type PhoneVerificationFlowProps = {
   onCompleted: (user?: User | null) => Promise<void> | void;
   onContinueExisting?: () => Promise<void> | void;
   onCancel?: () => void;
+  sendCodeLabel?: string;
   confirmLabel?: string;
+  primaryActionClassName?: string;
   className?: string;
   helperText?: string;
   style?: CSSProperties;
@@ -352,7 +354,9 @@ export function PhoneVerificationFlow({
   onCompleted,
   onContinueExisting,
   onCancel,
+  sendCodeLabel,
   confirmLabel,
+  primaryActionClassName,
   className,
   helperText,
   style,
@@ -1091,7 +1095,7 @@ export function PhoneVerificationFlow({
           </FieldGroup>
 
           <FieldDescription className="type-callout text-[rgba(0,0,0,0.56)] dark:text-[rgba(245,245,247,0.60)]">
-            {helperText ||
+            {helperText ??
               "Choose your country code and enter your phone number. We’ll send you a verification code."}
           </FieldDescription>
           <div className="grid gap-3">
@@ -1102,12 +1106,12 @@ export function PhoneVerificationFlow({
               effect="fill"
               size="default"
               fullWidth
-              className={`type-headline ${FLOW_CTA_CLASS_NAME}`}
+              className={cn("type-headline", FLOW_CTA_CLASS_NAME, primaryActionClassName)}
             >
               {busy ? (
                 <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
               ) : (
-                "Send verification code"
+                sendCodeLabel || "Send verification code"
               )}
             </Button>
             {onCancel ? (
@@ -1138,7 +1142,7 @@ export function PhoneVerificationFlow({
           <Field className="gap-2.5">
             <FieldLabel htmlFor="phone-flow-code">One-time code</FieldLabel>
             <div className="relative">
-              <div className="flex gap-2.5">
+              <div className="grid grid-cols-6 gap-1.5 sm:gap-2.5">
                 {Array.from({ length: 6 }).map((_, index) => {
                   const active = index === Math.min(verificationCode.length, 5);
                   const filled = index < verificationCode.length;
@@ -1146,7 +1150,7 @@ export function PhoneVerificationFlow({
                     <div
                       key={index}
                       className={cn(
-                        "flex h-[58px] flex-1 items-center justify-center rounded-2xl border-[1.5px] text-[24px] font-bold text-[#0A0A0A] transition-colors dark:text-white",
+                        "flex min-w-0 h-[clamp(44px,14vw,58px)] items-center justify-center rounded-xl sm:rounded-2xl border-[1.5px] text-[clamp(18px,6vw,24px)] font-bold text-[#0A0A0A] transition-colors dark:text-white",
                         active
                           ? "border-[color:var(--app-accent)] bg-white shadow-[0_0_0_4px_var(--app-accent-ring)] dark:bg-white/[0.06]"
                           : "border-black/10 bg-black/[0.02] dark:border-white/15 dark:bg-white/[0.04]",
@@ -1189,7 +1193,7 @@ export function PhoneVerificationFlow({
             effect="fill"
             size="default"
             fullWidth
-            className={`type-headline ${FLOW_CTA_CLASS_NAME}`}
+            className={cn("type-headline", FLOW_CTA_CLASS_NAME, primaryActionClassName)}
           >
             {busy ? (
               <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
