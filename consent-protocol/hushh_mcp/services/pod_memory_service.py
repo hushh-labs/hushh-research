@@ -1166,12 +1166,30 @@ def build_pod_memory_service(
                 self._raw_seqs.append((seq, rec.memory_id))
                 written += 1
             self.last_written = written
+            # WHY THESE TWO BRANCHES LOG.
+            #
+            # The response does say which one fired, and that was judged enough.
+            # It is not: on 2026-09-11 a live turn on the owner pod completed
+            # cleanly, memory hydrated, and the provider was never written. The
+            # only visible evidence was the ABSENCE of `add_failed`, which reads
+            # exactly like "nothing to report". Diagnosing it took a fleet of
+            # agents and a direct read of the durable record, for a fact one log
+            # line settles. A skip is a decision; a decision nobody can see after
+            # the fact is indistinguishable from a bug.
+            #
+            # Neither line carries content: `no_bank` and the consent flag are
+            # both shape, never a remembered fact.
             if self.bank is None:
                 self.provider_report["generate"] = "no_bank"
+                logger.info("pod_memory_bank.generate_skipped reason=no_bank written=%s", written)
             elif not self.provider_consent:
                 # K12: the owner's provider processes nothing without a recorded
                 # consent. Skipped, and SAID on the response, never a silent fallback.
                 self.provider_report["generate"] = "skipped_no_consent"
+                logger.info(
+                    "pod_memory_bank.generate_skipped reason=skipped_no_consent written=%s",
+                    written,
+                )
             else:
                 await self._require_open_log()
                 try:
@@ -1189,8 +1207,10 @@ def build_pod_memory_service(
             await self._ensure_hydrated()
             if self.bank is None:
                 self.provider_report["recall"] = "no_bank"
+                logger.info("pod_memory_bank.recall_skipped reason=no_bank")
             elif not self.provider_consent:
                 self.provider_report["recall"] = "skipped_no_consent"
+                logger.info("pod_memory_bank.recall_skipped reason=skipped_no_consent")
             elif self._stale_for_provider():
                 # A tombstone newer than the last engine rebuild: the bank may still
                 # answer with what the owner removed, so it is not asked at all.

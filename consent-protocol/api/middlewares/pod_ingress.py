@@ -47,9 +47,23 @@ logger = logging.getLogger(__name__)
 #: health) and are therefore reachable without a hub identity.
 APP_SURFACE_EXACT: frozenset[str] = frozenset(
     {
+        # Liveness only, and Cloud Run's own startup probe hits `/health`
+        # (gcp_backend.py:334), so these two cannot move behind the wall.
+        # Neither body carries anything about the person.
         "/health",
         "/health/ready",
-        "/health/capabilities",
+        # `/health/capabilities` is DELIBERATELY NOT HERE.
+        #
+        # Its docstring says the body is safe to serve to a browser, and that is
+        # true of the OWNER's browser. Once a pod takes the direct ingress axis
+        # the same surface faces the internet, and "which features this person's
+        # agent can currently deliver" is a fingerprint of one named individual
+        # even with no provider name or error text in it. The two claims are not
+        # the same claim, and the second one has to be made deliberately.
+        #
+        # Nothing in production reads it: the only references outside this file
+        # are its own tests. Founder decision 2026-09-11, on being asked whether
+        # the health surface should be world-readable: "some, not all".
         "/api/one/pod/status",
         "/api/one/pod/config",
         "/api/one/pod/turn",
