@@ -240,7 +240,7 @@ The topology generator remains the existing coverage join: `scripts/ops/generate
 - Added `get_hussh_person_profile` through the existing `PersonProfileService`. It returns only the viewer-relative public projection, relationship state, bounded requestable scope labels and current grant status; raw connection/request identifiers and consent tokens are not returned.
 - Focused affected verification passed: `37` tests across consumer connections, MCP entitlement dispatch and the public contract. Ruff, pre-commit lint, package README generation/check and whitespace checks pass. No deployment, hosted migration, credential mutation, main/UAT/production promotion, Hermes change or ADK worktree change occurred; a fresh branch CI receipt is still required for this source.
 
-## Branch documentation receipt — 12 September 2026 (head `e39224a01`)
+## Branch documentation receipt — 12 September 2026 (head `dd5b81f48`)
 
-- Updated this execution record and the action-item references to identify the viewer-relative profile slice and the current branch head. The code was unchanged from `1d57b5b11`; its affected 37-test result and branch CI receipt remain the authoritative validation evidence.
+- Updated this execution record and the action-item references to identify the viewer-relative profile slice and the current branch head. The code was unchanged from `1d57b5b11`; its affected 37-test result and branch CI receipt remain the authoritative validation evidence. `e39224a01` remains the implementation-documentation checkpoint, while `dd5b81f48` is the later documentation-only branch head.
 - This documentation-only commit was pushed to `origin/feat/consumer-mcp`. No deployment, hosted migration, credential mutation, main/UAT/production promotion, Hermes change or ADK worktree change occurred.
