@@ -174,22 +174,33 @@ jobs:
         run: |
           set -euo pipefail
 
-          backend_revision="$(gcloud run services describe "${{ env.BACKEND_SERVICE }}" \
+          if ! gcloud run services describe "${{ env.BACKEND_SERVICE }}" \
             --project="${{ env.GCP_PROJECT_ID }}" \
             --region="${{ env.GCP_REGION }}" \
-            --format='value(status.traffic[0].revisionName)' 2>/dev/null || true)"
-          backend_url="$(gcloud run services describe "${{ env.BACKEND_SERVICE }}" \
+            --format=json > /tmp/dev-backend-predeploy-service.json 2>/dev/null; then
+            printf '{}\n' > /tmp/dev-backend-predeploy-service.json
+          fi
+          if ! gcloud run services describe "${{ env.FRONTEND_SERVICE }}" \
             --project="${{ env.GCP_PROJECT_ID }}" \
             --region="${{ env.GCP_REGION }}" \
-            --format='value(status.url)' 2>/dev/null || true)"
-          frontend_revision="$(gcloud run services describe "${{ env.FRONTEND_SERVICE }}" \
-            --project="${{ env.GCP_PROJECT_ID }}" \
-            --region="${{ env.GCP_REGION }}" \
-            --format='value(status.traffic[0].revisionName)' 2>/dev/null || true)"
-          frontend_url="$(gcloud run services describe "${{ env.FRONTEND_SERVICE }}" \
-            --project="${{ env.GCP_PROJECT_ID }}" \
-            --region="${{ env.GCP_REGION }}" \
-            --format='value(status.url)' 2>/dev/null || true)"
+            --format=json > /tmp/dev-frontend-predeploy-service.json 2>/dev/null; then
+            printf '{}\n' > /tmp/dev-frontend-predeploy-service.json
+          fi
+
+          backend_state="$(python3 scripts/ci/resolve-cloud-run-serving-state.py \
+            --service-json /tmp/dev-backend-predeploy-service.json \
+            --allow-missing \
+            --github-output "$GITHUB_OUTPUT" \
+            --output-prefix backend)"
+          frontend_state="$(python3 scripts/ci/resolve-cloud-run-serving-state.py \
+            --service-json /tmp/dev-frontend-predeploy-service.json \
+            --allow-missing \
+            --github-output "$GITHUB_OUTPUT" \
+            --output-prefix frontend)"
+          backend_revision="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["revision"])' <<<"${backend_state}")"
+          frontend_revision="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["revision"])' <<<"${frontend_state}")"
+          backend_url="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["url"])' <<<"${backend_state}")"
+          frontend_url="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["url"])' <<<"${frontend_state}")"
 
           backend_sha=""
           if [ -n "${backend_revision}" ]; then
@@ -456,22 +467,38 @@ jobs:
         run: |
           set -euo pipefail
 
-          backend_revision="$(gcloud run services describe "${{ env.BACKEND_SERVICE }}" \
+          gcloud run services describe "${{ env.BACKEND_SERVICE }}" \
             --project="${{ env.GCP_PROJECT_ID }}" \
             --region="${{ env.GCP_REGION }}" \
-            --format='value(status.traffic[0].revisionName)')"
-          backend_url="$(gcloud run services describe "${{ env.BACKEND_SERVICE }}" \
+            --format=json > /tmp/dev-backend-promoted-service.json
+          gcloud run services describe "${{ env.FRONTEND_SERVICE }}" \
             --project="${{ env.GCP_PROJECT_ID }}" \
             --region="${{ env.GCP_REGION }}" \
-            --format='value(status.url)')"
-          frontend_revision="$(gcloud run services describe "${{ env.FRONTEND_SERVICE }}" \
-            --project="${{ env.GCP_PROJECT_ID }}" \
-            --region="${{ env.GCP_REGION }}" \
-            --format='value(status.traffic[0].revisionName)')"
-          frontend_url="$(gcloud run services describe "${{ env.FRONTEND_SERVICE }}" \
-            --project="${{ env.GCP_PROJECT_ID }}" \
-            --region="${{ env.GCP_REGION }}" \
-            --format='value(status.url)')"
+            --format=json > /tmp/dev-frontend-promoted-service.json
+
+          backend_state="$(python3 scripts/ci/resolve-cloud-run-serving-state.py \
+            --service-json /tmp/dev-backend-promoted-service.json \
+            --github-output "$GITHUB_OUTPUT" \
+            --output-prefix backend)"
+          frontend_state="$(python3 scripts/ci/resolve-cloud-run-serving-state.py \
+            --service-json /tmp/dev-frontend-promoted-service.json \
+            --github-output "$GITHUB_OUTPUT" \
+            --output-prefix frontend)"
+          backend_revision="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["revision"])' <<<"${backend_state}")"
+          frontend_revision="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["revision"])' <<<"${frontend_state}")"
+          backend_url="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["url"])' <<<"${backend_state}")"
+          frontend_url="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["url"])' <<<"${frontend_state}")"
+
+          if [ "${{ steps.scope.outputs.deploy_backend }}" = "true" ] \
+             && [ "${backend_revision}" != "${{ steps.candidate-state.outputs.backend_revision }}" ]; then
+            echo "Promoted backend revision mismatch: expected ${{ steps.candidate-state.outputs.backend_revision }}, got ${backend_revision}" >&2
+            exit 1
+          fi
+          if [ "${{ steps.scope.outputs.deploy_frontend }}" = "true" ] \
+             && [ "${frontend_revision}" != "${{ steps.candidate-state.outputs.frontend_revision }}" ]; then
+            echo "Promoted frontend revision mismatch: expected ${{ steps.candidate-state.outputs.frontend_revision }}, got ${frontend_revision}" >&2
+            exit 1
+          fi
 
           echo "backend_revision=${backend_revision}" >> "$GITHUB_OUTPUT"
           echo "backend_url=${backend_url}" >> "$GITHUB_OUTPUT"
@@ -894,26 +921,28 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          backend_revision="$(gcloud run services describe "${{ env.BACKEND_SERVICE }}" \
+          if ! gcloud run services describe "${{ env.BACKEND_SERVICE }}" \
             --project="${{ env.GCP_PROJECT_ID }}" \
             --region="${{ env.GCP_REGION }}" \
-            --format='value(status.traffic[0].revisionName)' 2>/dev/null || true)"
-          backend_url="$(gcloud run services describe "${{ env.BACKEND_SERVICE }}" \
+            --format=json > /tmp/dev-backend-final-service.json 2>/dev/null; then
+            printf '{}\n' > /tmp/dev-backend-final-service.json
+          fi
+          if ! gcloud run services describe "${{ env.FRONTEND_SERVICE }}" \
             --project="${{ env.GCP_PROJECT_ID }}" \
             --region="${{ env.GCP_REGION }}" \
-            --format='value(status.url)' 2>/dev/null || true)"
-          frontend_revision="$(gcloud run services describe "${{ env.FRONTEND_SERVICE }}" \
-            --project="${{ env.GCP_PROJECT_ID }}" \
-            --region="${{ env.GCP_REGION }}" \
-            --format='value(status.traffic[0].revisionName)' 2>/dev/null || true)"
-          frontend_url="$(gcloud run services describe "${{ env.FRONTEND_SERVICE }}" \
-            --project="${{ env.GCP_PROJECT_ID }}" \
-            --region="${{ env.GCP_REGION }}" \
-            --format='value(status.url)' 2>/dev/null || true)"
-          echo "backend_revision=${backend_revision}" >> "$GITHUB_OUTPUT"
-          echo "backend_url=${backend_url}" >> "$GITHUB_OUTPUT"
-          echo "frontend_revision=${frontend_revision}" >> "$GITHUB_OUTPUT"
-          echo "frontend_url=${frontend_url}" >> "$GITHUB_OUTPUT"
+            --format=json > /tmp/dev-frontend-final-service.json 2>/dev/null; then
+            printf '{}\n' > /tmp/dev-frontend-final-service.json
+          fi
+          python3 scripts/ci/resolve-cloud-run-serving-state.py \
+            --service-json /tmp/dev-backend-final-service.json \
+            --allow-missing \
+            --github-output "$GITHUB_OUTPUT" \
+            --output-prefix backend
+          python3 scripts/ci/resolve-cloud-run-serving-state.py \
+            --service-json /tmp/dev-frontend-final-service.json \
+            --allow-missing \
+            --github-output "$GITHUB_OUTPUT" \
+            --output-prefix frontend
 
       - name: Write dev release status artifact
         if: always()
