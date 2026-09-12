@@ -16,6 +16,11 @@ flowchart LR
 
 GitHub action item: [#6719 Build consumer Hussh MCP with owner-pod memory and Puppy interoperability](https://github.com/hushh-labs/hushh-research/issues/6719). Board status is In Progress; assigned to `kushaltrivedi5`. Local standing-consent checkpoint: `253e89abe`.
 
+Evidence precedence: the checkpoint table, generated topology ledger, and the
+latest dated receipt sections below describe current branch truth. Earlier
+checkpoint bullets are retained as history; when one conflicts with a later
+receipt, the later receipt supersedes it.
+
 ## Baseline and boundaries
 
 - Worktree: sibling `hushh-consumer-mcp`; branch `feat/consumer-mcp`.
@@ -106,7 +111,11 @@ The branch also exposes read-only owner-scoped email workflow status through the
 
 ## Active custody slice
 
-- Reused the existing X25519/SHA-256/AES-GCM key-unwrapping primitive; 19 export compatibility checks passed. No vault key enrollment is exposed yet.
+The entries in this section are an early custody checkpoint. Later entries under
+“Custody implementation continuation” and “Latest execution evidence” supersede
+their provisional statements while preserving the original evidence trail.
+
+- Reused the existing X25519/SHA-256/AES-GCM key-unwrapping primitive; 19 export compatibility checks passed. At this checkpoint vault-key enrollment was not yet exposed; the later custody continuation records the owner-session enrollment routes.
 - Added a synchronous internal commit-log precondition evaluated against the captured, verified HEAD history on every CAS attempt. Existing 113 log tests and four new race/corruption cases passed. This is an atomic persistence seam, not completed custody authority.
 - Independent vault/identity review found no blocking defect. The custody consumer now has owner-session challenge/enrollment routes; it still requires durable pod key/KMS configuration and installed-host exercise before acceptance.
 - Original private branch advanced to `4ba7cae5a` during work (four commits covering pod build restoration, test isolation, merge protection and client-env checks). It remains untouched. None changes this slice's files; review these explicit dependencies before integration or deployment.
@@ -145,8 +154,8 @@ The branch also exposes read-only owner-scoped email workflow status through the
 - The consumer delegation seam now carries an explicit, validated Puppy lane: `delegate_hussh_task` accepts `runtime_provider=puppy` only with a registered `puppy_device_id`, propagates both through the existing owner-pod relay, and rejects arbitrary providers or incomplete device selection. The hub relay verifies the trusted device is active, mints the existing short-lived `cap.puppy.inference` grant bound to `device:<id>`, and ignores caller-supplied Puppy credentials before the pod/provider admission. This reuses the pod's provider/capability authority instead of adding a consumer-side router; focused task, connection and pod-turn checks pass `23` tests.
 - `list_hussh_receipts` reads the existing `consent_audit` ledger through the owner-bound connection fence, returning only receipt reference, action, timing, and event class. Bearer token IDs and private payloads are excluded; the new receipt regression passes against disposable PostgreSQL.
 - `disconnect_hussh_connection` reuses the same `consent_audit` and connection-generation fence for the current external assistant. An assistant cannot revoke another client, omit confirmation, or replay an older generation; the private agent and canonical PKM remain intact.
-- `delegate_hussh_task` is a bounded, typed handoff to the existing owner-pod turn. It requires a separate owner-approved `cap.one.invoke` token for the external assistant, derives the deployment from the current OAuth binding, forwards no external bearer to the pod, and rejects a revocation or generation change before releasing a late result. It does not create a second router, durable task queue, automatic replay, or shared/cloud fallback; task status and cancellation remain a separate incomplete surface.
-- The task adapter now consumes the canonical relay response field (`text`) and rejects an empty result; a regression uses the same response shape emitted by `pod_turn.py`. This is source-level evidence only. The 120-second bounded MCP call remains synchronous, and durable status/cancellation is still deliberately unimplemented until an existing owner-task seam is identified.
+- Historical synchronous delegation slice: `delegate_hussh_task` was a bounded, typed handoff to the existing owner-pod turn and task status/cancellation were then incomplete. Commits `359dd79f2`, `d51e0e429` and `8a62ef979` supersede that limitation with durable start/status/cancellation snapshots in the existing sealed pod log; replacement marks uncertain work interrupted and never replays it.
+- The historical task adapter consumed the canonical relay response field (`text`) and rejected an empty result. The current durable task path retains that response validation and adds the lifecycle receipts recorded in the latest bounded capability slice below.
 - `get_hussh_setup_status` now projects the existing durable setup record's opaque `job_id` and `updated_at` alongside its sanitized state. This lets an external host correlate and resume the already-authorized setup operation without exposing bootstrap credentials or adding a second coordinator; the focused consumer contract test covers the projection.
 - Read-only Cloud Run inspection succeeded for `hushh-pda-dev` in `us-central1`: backend revision `consent-protocol-00084-xj9` is ready with image digest `sha256:7b105896bf5747785dc45112bf4e6a8d648fcd6bfb9c75e70c639968d20cf797` and runtime service account `consent-protocol-runtime@hushh-pda-dev.iam.gserviceaccount.com`; web revision `hushh-webapp-00059-bw7` is ready with its recorded digest. These are the installed dev baseline, not this branch: no hosted migration, candidate deployment, or owner-pod custody journey was performed.
 - Fresh read-only inspection on 11 September 2026 found dev backend revision `consent-protocol-00085-f6h`, image `gcr.io/hushh-pda-dev/consent-protocol@sha256:ff9745e5f8bc8893b3cbefab32f5f88e2cc79ea849e9082a09885a29fa653a41`, tag `dev-bd81d88cf98baafafb5001eaad048ee0979368b4` (private-infrastructure commit `bd81d88cf`), and web revision `hushh-webapp-00060-5s9` with the matching dev tag. The active gcloud context is UAT, so these explicit project reads do not authorize deployment. The installed images are not consumer candidate `c685c0cb0`; no migration, candidate deployment, or owner-pod custody journey was performed.
