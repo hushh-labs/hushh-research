@@ -14,6 +14,8 @@ from mcp_modules.tools.consumer_tools import (
     ConsumerConnectionsResult,
     ConsumerDevicesResult,
     ConsumerDisconnectResult,
+    ConsumerGmailReceiptsResult,
+    ConsumerGmailStatusResult,
     ConsumerIntegrationConnectResult,
     ConsumerIntegrationDisconnectResult,
     ConsumerIntegrationsResult,
@@ -195,6 +197,35 @@ def _private_tool_definitions() -> list[Tool]:
                 }
             ),
             outputSchema=ConsumerPeopleResult.model_json_schema(),
+            annotations={
+                "readOnlyHint": True,
+                "destructiveHint": False,
+                "idempotentHint": True,
+                "openWorldHint": False,
+            },
+        ),
+        Tool(
+            name="list_hussh_gmail_receipts",
+            description="List bounded synced Gmail purchase receipts for the owner. Mailbox credentials, message bodies and provider identifiers are never returned.",
+            inputSchema=schema(
+                {
+                    "page": {"type": "integer", "minimum": 1},
+                    "per_page": {"type": "integer", "minimum": 1, "maximum": 100},
+                }
+            ),
+            outputSchema=ConsumerGmailReceiptsResult.model_json_schema(),
+            annotations={
+                "readOnlyHint": True,
+                "destructiveHint": False,
+                "idempotentHint": True,
+                "openWorldHint": True,
+            },
+        ),
+        Tool(
+            name="get_hussh_gmail_status",
+            description="Read owner Gmail receipt-sync readiness without returning the connected email, tokens or mailbox content.",
+            inputSchema=empty,
+            outputSchema=ConsumerGmailStatusResult.model_json_schema(),
             annotations={
                 "readOnlyHint": True,
                 "destructiveHint": False,

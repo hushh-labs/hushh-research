@@ -313,6 +313,11 @@ and proposal routes.
 privacy-filtered connection service. They return only masked labels and opaque
 public references; sending requests, accepting them, and changing shared scopes
 remain separate confirmed owner actions.
+`list_hussh_gmail_receipts` and `get_hussh_gmail_status` reuse the existing
+read-only Gmail receipt service. They expose bounded purchase records and sync
+readiness without mailbox credentials, message bodies, provider identifiers or
+the connected email address; connecting, syncing and mailbox actions remain in
+the secure owner surface.
 Provider action execution, owner-pod custody, and installed-host acceptance
 remain separate gates.
 The existing developer five-tool catalog remains unchanged for application-only
@@ -348,6 +353,8 @@ The existing OAuth proxy and `/oauth/authorize` page also serve consumer review:
 | `find_hussh_calendar_openings` (MCP) | Owner OAuth plus connected Calendar; calculate bounded free slots without mutation |
 | `search_hussh_people` (MCP) | Owner OAuth; search the privacy-filtered people directory with masked labels and opaque references |
 | `list_hussh_people_connections` (MCP) | Owner OAuth; list existing connections with masked labels; no request or scope mutation |
+| `list_hussh_gmail_receipts` (MCP) | Owner OAuth plus connected Gmail; read bounded synced purchase receipts without mailbox content |
+| `get_hussh_gmail_status` (MCP) | Owner OAuth; read receipt-sync readiness without email identity or credentials |
 | `connect_hussh_integration` (MCP) | Owner OAuth; start a short-lived, user-completed Google PKCE handoff |
 | `disconnect_hussh_integration` (MCP) | Owner OAuth; confirmation-gated service grant disconnect |
 | `disconnect_hussh_connection` (MCP) | Owner OAuth; explicit self-disconnect for the current generation |

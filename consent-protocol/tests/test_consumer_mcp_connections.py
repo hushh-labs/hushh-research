@@ -957,6 +957,114 @@ async def test_consumer_mcp_people_rejects_unbounded_or_injected_arguments(consu
     assert "owner_b" not in result.content[0].text
 
 
+@pytest.mark.asyncio
+async def test_consumer_mcp_exposes_sanitized_gmail_receipts_and_status(consumer, monkeypatch):
+    import mcp_server
+    from mcp_modules.developer_context import (
+        reset_current_developer_principal,
+        set_current_developer_principal,
+    )
+
+    principal, _, _ = connect(consumer)
+
+    class _Gmail:
+        async def list_receipts(self, **kwargs):
+            assert kwargs == {"user_id": "owner_a", "page": 2, "per_page": 2}
+            return {
+                "items": [
+                    {
+                        "merchant_name": "Example Store",
+                        "amount": "42.50",
+                        "currency": "USD",
+                        "receipt_date": "2026-09-12",
+                        "order_id": "order-123",
+                        "subject": "Your receipt",
+                        "gmail_message_id": "must-not-leak",
+                        "from_email": "store@example.test",
+                        "snippet": "private mailbox body",
+                    }
+                ],
+                "page": 2,
+                "per_page": 2,
+                "total": 3,
+                "has_more": True,
+            }
+
+        async def get_status(self, **kwargs):
+            assert kwargs == {"user_id": "owner_a"}
+            return {
+                "connected": True,
+                "status": "connected",
+                "connection_state": "connected",
+                "sync_state": "healthy",
+                "last_sync_status": "completed",
+                "last_sync_at": "2026-09-12T10:00:00Z",
+                "receipt_counts": {"total": 3},
+                "google_email": "owner@example.test",
+                "scope_csv": "mail.google.com",
+            }
+
+    monkeypatch.setattr(
+        "hushh_mcp.services.gmail_receipts_service.get_gmail_receipts_service",
+        lambda: _Gmail(),
+    )
+    context = set_current_developer_principal(principal)
+    try:
+        names = {tool.name for tool in await mcp_server.list_tools()}
+        assert {"list_hussh_gmail_receipts", "get_hussh_gmail_status"}.issubset(names)
+        receipts = await mcp_server.call_tool(
+            "list_hussh_gmail_receipts", {"page": 2, "per_page": 2}
+        )
+        status = await mcp_server.call_tool("get_hussh_gmail_status", {})
+    finally:
+        reset_current_developer_principal(context)
+
+    assert not receipts.isError
+    assert receipts.structuredContent["items"][0] == {
+        "merchant": "Example Store",
+        "amount": "42.50",
+        "currency": "USD",
+        "receipt_date": "2026-09-12",
+        "order_id": "order-123",
+        "subject": "Your receipt",
+    }
+    assert "gmail_message_id" not in str(receipts.structuredContent)
+    assert "private mailbox body" not in str(receipts.structuredContent)
+    assert not status.isError
+    assert status.structuredContent["receipt_count"] == 3
+    assert "owner@example.test" not in str(status.structuredContent)
+    assert "scope_csv" not in str(status.structuredContent)
+
+
+@pytest.mark.asyncio
+async def test_consumer_mcp_gmail_rejects_invalid_page_before_service_call(consumer, monkeypatch):
+    import mcp_server
+    from mcp_modules.developer_context import (
+        reset_current_developer_principal,
+        set_current_developer_principal,
+    )
+
+    principal, _, _ = connect(consumer)
+
+    class _Gmail:
+        async def list_receipts(self, **_kwargs):
+            raise AssertionError("Gmail service must not receive invalid input")
+
+    monkeypatch.setattr(
+        "hushh_mcp.services.gmail_receipts_service.get_gmail_receipts_service",
+        lambda: _Gmail(),
+    )
+    context = set_current_developer_principal(principal)
+    try:
+        result = await mcp_server.call_tool(
+            "list_hussh_gmail_receipts", {"page": 0, "per_page": 101}
+        )
+    finally:
+        reset_current_developer_principal(context)
+
+    assert result.isError
+
+
 def test_receipts_are_bounded_non_bearer_owner_audit_records(consumer):
     service, _, _ = consumer
     principal, review, _ = connect(consumer)

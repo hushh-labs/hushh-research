@@ -175,6 +175,40 @@ class ConsumerPeopleResult(BaseModel):
     next_action: str
 
 
+class ConsumerGmailReceipt(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    merchant: str = Field(default="Unknown merchant", max_length=256)
+    amount: str | None = Field(default=None, max_length=64)
+    currency: str | None = Field(default=None, max_length=16)
+    receipt_date: str | None = Field(default=None, max_length=64)
+    order_id: str | None = Field(default=None, max_length=128)
+    subject: str | None = Field(default=None, max_length=512)
+
+
+class ConsumerGmailReceiptsResult(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    state: Literal["available"]
+    items: list[ConsumerGmailReceipt] = Field(default_factory=list, max_length=100)
+    page: int = Field(..., ge=1)
+    per_page: int = Field(..., ge=1, le=100)
+    total: int = Field(..., ge=0)
+    has_more: bool
+    next_action: str
+
+
+class ConsumerGmailStatusResult(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    state: Literal["available"]
+    connected: bool
+    status: str = Field(..., max_length=32)
+    connection_state: str = Field(..., max_length=32)
+    sync_state: str = Field(..., max_length=32)
+    last_sync_status: str = Field(..., max_length=32)
+    last_sync_at: str | None = Field(default=None, max_length=64)
+    receipt_count: int = Field(..., ge=0)
+    next_action: str
+
+
 class ConsumerIntegrationConnectResult(BaseModel):
     model_config = ConfigDict(extra="forbid")
     state: Literal["approval_required", "connected"]
@@ -471,6 +505,8 @@ async def handle_list_hussh_capabilities(arguments: dict) -> CallToolResult:
         "find_hussh_calendar_openings",
         "search_hussh_people",
         "list_hussh_people_connections",
+        "list_hussh_gmail_receipts",
+        "get_hussh_gmail_status",
         "list_hussh_integrations",
         "connect_hussh_integration",
         "disconnect_hussh_integration",
@@ -514,6 +550,9 @@ async def handle_list_hussh_capabilities(arguments: dict) -> CallToolResult:
         elif name in {"search_hussh_people", "list_hussh_people_connections"}:
             execution = "consent_service"
             availability = "contract_available"
+        elif name in {"list_hussh_gmail_receipts", "get_hussh_gmail_status"}:
+            execution = "consent_service"
+            availability = "approval_required"
         elif name == "disconnect_hussh_integration":
             execution = "consent_service"
             availability = "approval_required"
@@ -1083,6 +1122,107 @@ async def handle_list_hussh_people_connections(arguments: dict) -> CallToolResul
         return _error("CONNECTIONS_UNAVAILABLE", "Your connections are temporarily unavailable.")
     return _result(
         _people_result(result, audience=audience, page=page, relationship_default="connected")
+    )
+
+
+def _gmail_page_arguments(arguments: dict) -> tuple[int, int]:
+    if not isinstance(arguments, dict):
+        raise ValueError("arguments must be an object")
+    if set(arguments) - {"page", "per_page"}:
+        raise ValueError("only page and per_page are accepted")
+    page = arguments.get("page", 1)
+    per_page = arguments.get("per_page", 25)
+    if type(page) is not int or page < 1:
+        raise ValueError("page must be a positive integer")
+    if type(per_page) is not int or not 1 <= per_page <= 100:
+        raise ValueError("per_page must be an integer between 1 and 100")
+    return page, per_page
+
+
+def _safe_gmail_timestamp(value: object) -> str | None:
+    if value is None:
+        return None
+    if hasattr(value, "isoformat"):
+        try:
+            return str(value.isoformat())[:64]
+        except Exception:  # noqa: BLE001 - projection must fail closed
+            return None
+    return str(value)[:64] or None
+
+
+def _gmail_receipt(value: object) -> ConsumerGmailReceipt:
+    raw = value if isinstance(value, dict) else {}
+    return ConsumerGmailReceipt(
+        merchant=str(raw.get("merchant_name") or "Unknown merchant")[:256],
+        amount=(str(raw.get("amount") or "")[:64] or None),
+        currency=(str(raw.get("currency") or "")[:16] or None),
+        receipt_date=_safe_gmail_timestamp(raw.get("receipt_date")),
+        order_id=(str(raw.get("order_id") or "")[:128] or None),
+        subject=(str(raw.get("subject") or "")[:512] or None),
+    )
+
+
+async def handle_list_hussh_gmail_receipts(arguments: dict) -> CallToolResult:
+    """Read bounded, synced purchase receipts without exposing mailbox data."""
+    try:
+        page, per_page = _gmail_page_arguments(arguments)
+    except ValueError as error:
+        return _error("INVALID_GMAIL_REQUEST", str(error))
+    owner = _consumer_owner(get_current_developer_principal())
+    if owner is None:
+        return _error("OWNER_AUTH_REQUIRED", "Reconnect using your own Hussh account.")
+    try:
+        from hushh_mcp.services.gmail_receipts_service import (  # noqa: PLC0415
+            get_gmail_receipts_service,
+        )
+
+        result = await get_gmail_receipts_service().list_receipts(
+            user_id=owner, page=page, per_page=per_page
+        )
+    except Exception:
+        return _error("GMAIL_UNAVAILABLE", "Synced Gmail receipts are temporarily unavailable.")
+    return _result(
+        ConsumerGmailReceiptsResult(
+            state="available",
+            items=[_gmail_receipt(item) for item in list(result.get("items") or [])[:100]],
+            page=int(result.get("page") or page),
+            per_page=int(result.get("per_page") or per_page),
+            total=max(0, int(result.get("total") or 0)),
+            has_more=bool(result.get("has_more")),
+            next_action="These are synced purchase receipts only; connect, disconnect, and mailbox actions remain in the secure owner flow.",
+        )
+    )
+
+
+async def handle_get_hussh_gmail_status(arguments: dict) -> CallToolResult:
+    """Read Gmail receipt-sync readiness without returning mailbox identity."""
+    if arguments:
+        return _error("INVALID_GMAIL_REQUEST", "This tool accepts no arguments.")
+    owner = _consumer_owner(get_current_developer_principal())
+    if owner is None:
+        return _error("OWNER_AUTH_REQUIRED", "Reconnect using your own Hussh account.")
+    try:
+        from hushh_mcp.services.gmail_receipts_service import (  # noqa: PLC0415
+            get_gmail_receipts_service,
+        )
+
+        result = await get_gmail_receipts_service().get_status(user_id=owner)
+    except Exception:
+        return _error("GMAIL_UNAVAILABLE", "Gmail receipt-sync status is temporarily unavailable.")
+    counts = result.get("receipt_counts")
+    receipt_count = int(counts.get("total") or 0) if isinstance(counts, dict) else 0
+    return _result(
+        ConsumerGmailStatusResult(
+            state="available",
+            connected=bool(result.get("connected")),
+            status=str(result.get("status") or "disconnected")[:32],
+            connection_state=str(result.get("connection_state") or "unknown")[:32],
+            sync_state=str(result.get("sync_state") or "unknown")[:32],
+            last_sync_status=str(result.get("last_sync_status") or "idle")[:32],
+            last_sync_at=_safe_gmail_timestamp(result.get("last_sync_at")),
+            receipt_count=max(0, receipt_count),
+            next_action="Use the secure owner flow to connect or repair Gmail receipt sync; this status never exposes mailbox credentials.",
+        )
     )
 
 
