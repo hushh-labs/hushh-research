@@ -46,6 +46,8 @@ Using the existing owner account `kushaltrivedi1711@gmail.com` without changing 
 
 The service template names `sha256:bd541305ba767169e3f2d0a5f06b6624bfbcc011addb608f585d2847f7b853d9`, while the serving revision resolves to `sha256:7bef8f48b0ad8d1c9729447c92b0412f6e8536469cec0beabe9643fd78a75f29`. Treat the revision-level digest as the installed evidence and reconcile this desired-template drift before any acceptance run. The consumer-MCP branch remains source-only; no image, migration, or owner service was changed.
 
+Read-only `/health` probes using an identity token minted for the IAM-listed UAT runtime service account returned `403` on both Cloud Run URL forms. Administrative service visibility therefore does not yet prove runtime reachability from the current session; no owner data or inference request was sent.
+
 Previous focused checks passed: 99 provider/turn/fleet tests, 38 pod/Live/release-probe tests, and 70 tests after the Live grant correction. They overlap and must not be summed into unique coverage. No test suites were rerun in this read-only planning scan.
 
 The Vertex diagnostic and Live-ticket mint passed previously. The Live socket closed before setup; the hub rejected its own expanded specialist-grant set. Commit `7be51b7dc` aligns that allowlist, but the owner image still predates it. Actual bidirectional audio remains unverified.
