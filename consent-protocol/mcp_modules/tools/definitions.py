@@ -9,6 +9,7 @@ from mcp_modules.public_contract import get_public_contract
 from mcp_modules.tools.consumer_tools import (
     ConsumerCapabilitiesResult,
     ConsumerConnectionResult,
+    ConsumerConnectionsResult,
     ConsumerDisconnectResult,
     ConsumerMemoryResult,
     ConsumerReceiptsResult,
@@ -64,6 +65,23 @@ def _private_tool_definitions() -> list[Tool]:
             description="List the authored Hussh consumer capabilities and their execution boundary. This is read-only and does not claim pod readiness.",
             inputSchema=empty,
             outputSchema=ConsumerCapabilitiesResult.model_json_schema(),
+            annotations={
+                "readOnlyHint": True,
+                "destructiveHint": False,
+                "idempotentHint": True,
+                "openWorldHint": False,
+            },
+        ),
+        Tool(
+            name="list_hussh_connections",
+            description="List this owner's connected external assistants and current memory-access status. Returns metadata only; no tokens or private information.",
+            inputSchema=schema(
+                {
+                    "limit": {"type": "integer", "minimum": 1, "maximum": 100},
+                    "after": {"type": "string", "maxLength": 128},
+                }
+            ),
+            outputSchema=ConsumerConnectionsResult.model_json_schema(),
             annotations={
                 "readOnlyHint": True,
                 "destructiveHint": False,

@@ -41,6 +41,22 @@ class ConsumerConnectionResult(BaseModel):
     grant_receipt: str | None = None
 
 
+class ConsumerConnectionItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    connection_id: str = Field(..., max_length=128)
+    generation: int = Field(..., ge=1)
+    client_name: str = Field(..., max_length=160)
+    memory_access: bool
+
+
+class ConsumerConnectionsResult(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    state: Literal["available"]
+    items: list[ConsumerConnectionItem] = Field(default_factory=list, max_length=100)
+    next_cursor: str | None = Field(default=None, max_length=128)
+    next_action: str
+
+
 class ConsumerSetupStatusResult(BaseModel):
     model_config = ConfigDict(extra="forbid")
     state: Literal["not_started", "running", "waiting_for_pod", "ready", "failed", "stale"]
@@ -312,6 +328,7 @@ async def handle_list_hussh_capabilities(arguments: dict) -> CallToolResult:
         "correct_hussh_memory",
         "export_hussh_memory",
         "list_hussh_capabilities",
+        "list_hussh_connections",
         "list_hussh_receipts",
         "disconnect_hussh_connection",
         "delegate_hussh_task",
@@ -348,6 +365,9 @@ async def handle_list_hussh_capabilities(arguments: dict) -> CallToolResult:
         elif name == "delegate_hussh_task":
             execution = "owner_pod"
             availability = "approval_required"
+        elif name == "list_hussh_connections":
+            execution = "consent_service"
+            availability = "contract_available"
         else:
             execution = "consent_service"
             availability = "contract_available"
@@ -364,6 +384,45 @@ async def handle_list_hussh_capabilities(arguments: dict) -> CallToolResult:
             state="available",
             capabilities=capabilities,
             next_action="Use the secure handoff for setup or approval-required owner-pod tools before attempting them.",
+        )
+    )
+
+
+async def handle_list_hussh_connections(arguments: dict) -> CallToolResult:
+    """List the current owner's external-assistant connections, without secrets."""
+    if not isinstance(arguments, dict):
+        return _error("INVALID_ARGUMENTS", "Arguments must be an object.")
+    if set(arguments) - {"limit", "after"}:
+        return _error("INVALID_ARGUMENTS", "Only limit and after are accepted.")
+    limit = arguments.get("limit", 25)
+    after = arguments.get("after", "")
+    if type(limit) is not int or limit < 1 or limit > 100:
+        return _error("INVALID_ARGUMENTS", "limit must be an integer between 1 and 100.")
+    if not isinstance(after, str) or len(after) > 128:
+        return _error("INVALID_ARGUMENTS", "after must be a cursor no longer than 128 characters.")
+    principal = get_current_developer_principal()
+    if not has_consumer_oauth_identity(principal):
+        return _error("OWNER_AUTH_REQUIRED", "Reconnect using your own Hussh account.")
+    owner = str(principal.subject_firebase_uid or "")
+    if not owner:
+        return _error("OWNER_AUTH_REQUIRED", "Reconnect using your own Hussh account.")
+    try:
+        result = await asyncio.to_thread(
+            ConsumerMcpConnections().list_connections,
+            owner=owner,
+            limit=limit,
+            after=after,
+        )
+    except ConsumerConnectionDenied as error:
+        return _error("CONNECTIONS_ACCESS_REFUSED", str(error))
+    except Exception:
+        return _error("CONNECTIONS_UNAVAILABLE", "Connections are temporarily unavailable.")
+    return _result(
+        ConsumerConnectionsResult(
+            state="available",
+            items=[ConsumerConnectionItem.model_validate(item) for item in result.get("items", [])],
+            next_cursor=result.get("next_cursor"),
+            next_action="Use disconnect_hussh_connection with the current generation to revoke one assistant.",
         )
     )
 
