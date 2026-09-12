@@ -109,6 +109,11 @@ receipt, the later receipt supersedes it.
 - `feat/consumer-mcp` is clean and remote-matched at `ff4d48d49fad384026ede0c64b7db82bf2ed52df`. Issue [#6719](https://github.com/hushh-labs/hushh-research/issues/6719) remains open and **In Progress** on both Hussh project boards.
 - No pull request or CI run exists for this latest documentation head. The branch remains intentionally 139 commits behind `origin/main`; no main merge, hosted deployment or release promotion was performed.
 
+## Remote owner-catalog parity receipt — 12 September 2026 (`3c72f66f9`)
+
+- Added a remote `/mcp` ASGI regression proving an owner OAuth principal receives the same canonical consumer catalog as the local owner context, while retaining the five public consent tools. The test binds the configured MCP audience and uses a synthetic authorization-code principal; no database, hosted endpoint or owner credential is used.
+- The focused remote-endpoint and consumer-connection suite passed **42 tests** with nine existing dependency warnings. This closes a source-level transport-parity blind spot; live host behavior remains unverified.
+
 ## Approved product contract
 
 External assistants authenticate as owner-bound clients. Registered Puppy devices retain their distinct native authority. One owner approval permits reads, routine additions and corrections of current and future personal memory until the client is disconnected. Credentials remain short-lived. Deletion, permission changes and consequential external actions require fresh confirmation. Secrets are never personal memory.
