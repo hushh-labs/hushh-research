@@ -82,6 +82,11 @@ def test_pod_surface_stays_within_reviewed_routes():
         "/api/one/pod/consumer/memory",
         "/api/one/pod/custody/challenge",
         "/api/one/pod/custody/enroll",
+        # Durable delegated-task lifecycle is hub-machine-only; these routes
+        # are reviewed here without widening the owner-direct app surface.
+        "/api/one/pod/tasks",
+        "/api/one/pod/tasks/{task_id}",
+        "/api/one/pod/tasks/{task_id}/cancel",
         # The app surface: owner-local sessions, status, configuration (Lane A).
         "/api/one/pod/session/challenge",
         "/api/one/pod/session/admit",
