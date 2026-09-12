@@ -16,6 +16,13 @@ vi.mock("@/lib/services/personal-knowledge-model-service", () => ({
   },
 }));
 
+const pkmGetStaleFirstMock = vi.fn();
+vi.mock("@/lib/pkm/pkm-domain-resource", () => ({
+  PkmDomainResourceService: {
+    getStaleFirst: (...args: unknown[]) => pkmGetStaleFirstMock(...args),
+  },
+}));
+
 const pkmSavePreparedDomainMock = vi.fn();
 vi.mock("@/lib/services/pkm-write-coordinator", () => ({
   PkmWriteCoordinator: {
@@ -75,6 +82,14 @@ describe("agent PKM memory helpers", () => {
       preferences: {
         writing: {
           default_style: "concise summaries",
+        },
+      },
+    });
+    pkmGetStaleFirstMock.mockResolvedValue({
+      data: {
+        identity_profile: {
+          full_name: "Akshat Kumar",
+          declared_age: "23",
         },
       },
     });
@@ -142,6 +157,41 @@ describe("agent PKM memory helpers", () => {
     );
   });
 
+  it("loads only the identity profile segment for a targeted KYC lookup", async () => {
+    const context = await loadAgentPkmContext({
+      userId: "user_1",
+      vaultOwnerToken: "vault_token",
+      vaultKey: "vault_key",
+      message: "Find my legal name and age for this KYC request",
+    });
+
+    expect(pkmGetStaleFirstMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: "user_1",
+        domain: "identity",
+        segmentIds: ["identity_profile"],
+        backgroundRefresh: false,
+      }),
+    );
+    expect(pkmLoadFullBlobMock).not.toHaveBeenCalled();
+    expect(context.text).toContain("Akshat Kumar");
+  });
+
+  it("serves a warm targeted KYC lookup without another encrypted-segment request", async () => {
+    const params = {
+      userId: "user_1",
+      vaultOwnerToken: "vault_token",
+      vaultKey: "vault_key",
+      message: "Find my legal name and age for this KYC request",
+    };
+
+    await loadAgentPkmContext(params);
+    await loadAgentPkmContext(params);
+
+    expect(pkmGetStaleFirstMock).toHaveBeenCalledTimes(1);
+    expect(pkmLoadFullBlobMock).not.toHaveBeenCalled();
+  });
+
   it("checks duplicates only against an already-unlocked local inventory", async () => {
     expect(
       AgentPkmContextStore.findLocalDuplicate({
@@ -180,16 +230,17 @@ describe("agent PKM memory helpers", () => {
     expect(context.coverage).toMatchObject({ inventoryOnly: true, selectedFactCount: 0 });
   });
 
-  it("warms the Agent working set only in process memory", async () => {
+  it("warms only PKM metadata until a chat request selects encrypted segments", async () => {
     await warmAgentPkmContext({
       userId: "user_1",
       vaultOwnerToken: "vault_token",
       vaultKey: "vault_key",
     });
 
-    expect(pkmLoadFullBlobMock).toHaveBeenCalledTimes(1);
+    expect(pkmGetMetadataMock).toHaveBeenCalledTimes(1);
+    expect(pkmLoadFullBlobMock).not.toHaveBeenCalled();
     expect(peekAgentPkmContext({ userId: "user_1", message: "writing preferences" }))
-      .not.toBeNull();
+      .toBeNull();
   });
 
   it("serves an expired session working set immediately while one refresh is shared", async () => {

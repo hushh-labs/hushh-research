@@ -15,6 +15,7 @@ Options:
   --backend-service <name>           Backend service name (default: consent-protocol)
   --frontend-service <name>          Frontend service name (default: hushh-webapp)
   --uat-project <project-id>         UAT project id (default: hushh-pda-uat)
+  --uat-genai-project <project-id>   UAT managed Vertex project (default: hushh-vertex-personal54)
   --dev-project <project-id>         Dev project id (default: hushh-pda-dev)
   --prod-project <project-id>        Prod project id (default: hushh-pda)
   --force                            Re-copy templates before hydration
@@ -48,6 +49,7 @@ REGION="${REGION:-us-central1}"
 BACKEND_SERVICE="${BACKEND_SERVICE:-consent-protocol}"
 FRONTEND_SERVICE="${FRONTEND_SERVICE:-hushh-webapp}"
 UAT_PROJECT_ID="${UAT_PROJECT_ID:-hushh-pda-uat}"
+UAT_GENAI_PROJECT_ID="${UAT_GENAI_PROJECT_ID:-hushh-vertex-personal54}"
 DEV_PROJECT_ID="${DEV_PROJECT_ID:-hushh-pda-dev}"
 PROD_PROJECT_ID="${PROD_PROJECT_ID:-hushh-pda}"
 FORCE=false
@@ -74,6 +76,10 @@ while [ "$#" -gt 0 ]; do
       ;;
     --uat-project)
       UAT_PROJECT_ID="${2:-}"
+      shift 2
+      ;;
+    --uat-genai-project)
+      UAT_GENAI_PROJECT_ID="${2:-}"
       shift 2
       ;;
     --dev-project)
@@ -941,6 +947,19 @@ hydrate_backend_cloud_reference() {
     set_if_non_empty "$file" "$key" "$(resolve_cloud_or_cached_env_value "$project" "$BACKEND_SERVICE" "$key" "$cache_file")"
   done
 
+  # UAT owns the managed Vertex routing decision. Read the deployed service
+  # first, then use the approved fallback instead of carrying a stale cached
+  # project through a temporary GCP outage.
+  local managed_vertex_project=""
+  managed_vertex_project="$(run_env_value "$project" "$BACKEND_SERVICE" "GENAI_GOOGLE_CLOUD_PROJECT")"
+  if is_placeholder_value "$managed_vertex_project"; then
+    managed_vertex_project=""
+  fi
+  if [ -z "$managed_vertex_project" ] && [ "$project" = "$UAT_PROJECT_ID" ]; then
+    managed_vertex_project="$UAT_GENAI_PROJECT_ID"
+  fi
+  set_if_non_empty "$file" "GENAI_GOOGLE_CLOUD_PROJECT" "$managed_vertex_project"
+
   if [ -z "$(read_env_value "$file" "CORS_ALLOWED_ORIGINS")" ] && [ -n "$front_secret" ]; then
     upsert_env_value "$file" "CORS_ALLOWED_ORIGINS" "$front_secret"
   fi
@@ -962,6 +981,10 @@ hydrate_backend_cloud_reference() {
   set_secret_key_or_cached "$file" "$profile" "$project" "GMAIL_OAUTH_CLIENT_SECRET" "false" "$cache_file"
   set_secret_key_or_cached "$file" "$profile" "$project" "GMAIL_OAUTH_REDIRECT_URI" "false" "$cache_file"
   set_mapped_secret_key_or_cached "$file" "$profile" "$project" "GMAIL_OAUTH_TOKEN_KEY" "false" "$cache_file" GMAIL_OAUTH_TOKEN_KEY GMAIL_TOKEN_ENCRYPTION_KEY
+  set_secret_key_or_cached "$file" "$profile" "$project" "GOOGLE_OAUTH_CLIENT_ID" "false" "$cache_file"
+  set_secret_key_or_cached "$file" "$profile" "$project" "GOOGLE_OAUTH_CLIENT_SECRET" "false" "$cache_file"
+  set_secret_key_or_cached "$file" "$profile" "$project" "GOOGLE_OAUTH_REDIRECT_URI" "false" "$cache_file"
+  set_mapped_secret_key_or_cached "$file" "$profile" "$project" "GOOGLE_OAUTH_TOKEN_KEY" "false" "$cache_file" GOOGLE_OAUTH_TOKEN_KEY GMAIL_OAUTH_TOKEN_KEY
   set_secret_key_or_cached "$file" "$profile" "$project" "OPENAI_API_KEY" "false" "$cache_file"
   set_secret_key_or_cached "$file" "$profile" "$project" "VOICE_RUNTIME_CONFIG_JSON" "false" "$cache_file"
   # Managed Omni Gateway credentials are only materialized into the ignored,
@@ -998,6 +1021,7 @@ hydrate_backend_local_uatdb() {
   upsert_env_value "$file" "APP_FRONTEND_ORIGIN" "http://localhost:3000"
   upsert_env_value "$file" "CORS_ALLOWED_ORIGINS" "http://localhost:3000"
   upsert_env_value "$file" "GMAIL_OAUTH_REDIRECT_URI" "http://localhost:3000/one/profile/gmail/oauth/return"
+  upsert_env_value "$file" "GOOGLE_OAUTH_REDIRECT_URI" "http://localhost:3000/one/profile/google/oauth/return"
   upsert_env_value "$file" "APP_RUNTIME_PROFILE" "local"
   upsert_env_value "$file" "ENVIRONMENT" "development"
   upsert_env_value "$file" "PORT" "8000"

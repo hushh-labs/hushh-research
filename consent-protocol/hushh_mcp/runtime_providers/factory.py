@@ -16,6 +16,11 @@ from typing import Any, Literal
 
 from google.genai.types import HttpOptionsDict
 
+from .live_capacity_pool import (
+    ManagedGeminiLiveSelection,
+    resolve_managed_live_api_key,
+    resolve_vertex_target_credentials,
+)
 from .registry import ProviderId, normalize_provider
 from .vertex_failover import VertexRegionalClient
 
@@ -392,6 +397,99 @@ def build_managed_gemini_adk_model(
         model,
         location=vertex_location,
     )
+
+
+def build_managed_gemini_live_adk_model(
+    selection: ManagedGeminiLiveSelection,
+) -> Any:
+    """Build one server-selected Gemini Live ADK model.
+
+    This is deliberately separate from ``build_managed_gemini_adk_model``.
+    The latter is the stable single-project default for text and existing
+    callers; this function is used only after the Live capacity pool selected
+    an approved target while opening a new voice session.  It accepts a typed
+    selection rather than user data, and never exposes its project, target id,
+    service account, or credential reference to a browser.
+    """
+    from google.adk.models import Gemini
+
+    target = selection.target
+    model = str(selection.model or "").strip()
+    if not model or not _MODEL_ID_RE.fullmatch(model):
+        raise ValueError("Managed Gemini Live model identifier is invalid")
+
+    # Import from the declarative compatibility matrix instead of inferring
+    # transport from a model-name prefix. A fallback model is valid only after
+    # its Live transport has explicitly been rehearsed and registered.
+    from .live_compatibility import GEMINI_LIVE_COMPATIBILITY
+
+    compatibility = GEMINI_LIVE_COMPATIBILITY.get(model)
+    if compatibility is None or compatibility.transport != target.transport:
+        raise RuntimeError("managed_live_target_transport_mismatch")
+
+    if target.transport == "developer_api":
+        # The pool stores an environment *name*, not the key. Resolution stays
+        # on the server at session setup and pins the SDK away from ambient
+        # Vertex configuration.
+        return Gemini(
+            model=model,
+            client_kwargs={
+                "vertexai": False,
+                "api_key": resolve_managed_live_api_key(target),
+            },
+        )
+
+    client_kwargs: dict[str, Any] = {
+        "vertexai": True,
+        "project": target.project,
+        "location": target.location,
+    }
+    credentials = resolve_vertex_target_credentials(target)
+    if credentials is not None:
+        client_kwargs["credentials"] = credentials
+    return Gemini(model=model, client_kwargs=client_kwargs)
+
+
+def build_managed_gemini_live_client(
+    selection: ManagedGeminiLiveSelection,
+) -> Any:
+    """Build one direct server-owned Gemini Live client for a selected target.
+
+    The dedicated Location command relay needs the native ``google-genai``
+    Live session because it is a text-transcription transport, not an ADK
+    conversational agent.  Keep target validation and credentials in this
+    central factory so the relay cannot silently fall back to ambient keys or
+    a different GCP project.
+    """
+
+    from google import genai
+
+    target = selection.target
+    model = str(selection.model or "").strip()
+    if not model or not _MODEL_ID_RE.fullmatch(model):
+        raise ValueError("Managed Gemini Live model identifier is invalid")
+
+    from .live_compatibility import GEMINI_LIVE_COMPATIBILITY
+
+    compatibility = GEMINI_LIVE_COMPATIBILITY.get(model)
+    if compatibility is None or compatibility.transport != target.transport:
+        raise RuntimeError("managed_live_target_transport_mismatch")
+
+    if target.transport == "developer_api":
+        return genai.Client(
+            vertexai=False,
+            api_key=resolve_managed_live_api_key(target),
+        )
+
+    client_kwargs: dict[str, Any] = {
+        "vertexai": True,
+        "project": target.project,
+        "location": target.location,
+    }
+    credentials = resolve_vertex_target_credentials(target)
+    if credentials is not None:
+        client_kwargs["credentials"] = credentials
+    return genai.Client(**client_kwargs)
 
 
 def build_gemini_byok_adk_model(

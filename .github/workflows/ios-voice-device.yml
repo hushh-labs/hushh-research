@@ -143,6 +143,8 @@ jobs:
 
       - name: Materialize UAT iOS build contract
         shell: bash
+        env:
+          LOCATION_COMMAND_RUNTIME_ENABLED: ${{ vars.LOCATION_COMMAND_RUNTIME_ENABLED_UAT || 'false' }}
         run: bash scripts/ci/materialize-ios-uat-build-contract.sh
 
       - name: Decode App Store Connect signing key

@@ -493,6 +493,8 @@ class GmailDeliveryService:
                         status_code=409,
                     )
 
+        provider_attempted = False
+        provider_accepted = False
         try:
             access_token = await self.gmail_service.get_send_access_token(user_id=user_id)
             raw = base64.urlsafe_b64encode(
@@ -503,6 +505,7 @@ class GmailDeliveryService:
                 send_payload["threadId"] = reply_context.thread_id
             timeout = httpx.Timeout(20.0, connect=8.0)
             async with httpx.AsyncClient(timeout=timeout) as client:
+                provider_attempted = True
                 response = await client.post(
                     _GMAIL_SEND_URL,
                     headers={"Authorization": f"Bearer {access_token}"},
@@ -515,6 +518,7 @@ class GmailDeliveryService:
                 raise GmailDeliveryError(
                     "GMAIL_SEND_FAILED", "Gmail could not send this email.", status_code=502
                 )
+            provider_accepted = True
             response_payload = response.json() if response.content else {}
             message_id = (
                 _text(response_payload.get("id")) if isinstance(response_payload, dict) else ""
@@ -525,39 +529,47 @@ class GmailDeliveryService:
                 else ""
             )
             if reply_context and sent_thread_id != reply_context.thread_id:
-                await self._set_terminal(
+                await self._set_outcome_unknown(
                     action_id=action_id,
-                    state="failed",
                     error_code="reply_thread_mismatch",
                     message_id=message_id or None,
                     thread_id=sent_thread_id or None,
                 )
-                raise GmailDeliveryError(
-                    "GMAIL_REPLY_THREAD_MISMATCH",
-                    "Gmail could not keep this reply in the original thread.",
-                    status_code=502,
-                )
+                return {"action_id": action_id, "state": "outcome_unknown", "outcome_unknown": True}
             if not message_id:
-                await self._set_terminal(
-                    action_id=action_id, state="outcome_unknown", error_code="missing_message_id"
+                await self._set_outcome_unknown(
+                    action_id=action_id, error_code="missing_message_id"
                 )
                 return {"action_id": action_id, "state": "outcome_unknown", "outcome_unknown": True}
-            await self._set_terminal(
-                action_id=action_id,
-                state="sent",
-                message_id=message_id,
-                thread_id=sent_thread_id or None,
-            )
+            try:
+                await self._set_terminal(
+                    action_id=action_id,
+                    state="sent",
+                    message_id=message_id,
+                    thread_id=sent_thread_id or None,
+                )
+            except Exception:
+                # Gmail accepted the message but the durable result could not
+                # be written. A retry could send a duplicate, so surface only
+                # the safe ambiguous outcome.
+                await self._set_outcome_unknown(
+                    action_id=action_id,
+                    error_code="terminal_persist_failed",
+                    message_id=message_id,
+                    thread_id=sent_thread_id or None,
+                )
+                return {"action_id": action_id, "state": "outcome_unknown", "outcome_unknown": True}
             return {"action_id": action_id, "state": "sent", "outcome_unknown": False}
         except asyncio.TimeoutError:
-            await self._set_terminal(
-                action_id=action_id, state="outcome_unknown", error_code="provider_timeout"
-            )
+            await self._set_outcome_unknown(action_id=action_id, error_code="provider_timeout")
             return {"action_id": action_id, "state": "outcome_unknown", "outcome_unknown": True}
         except httpx.TimeoutException:
-            await self._set_terminal(
-                action_id=action_id, state="outcome_unknown", error_code="provider_timeout"
-            )
+            await self._set_outcome_unknown(action_id=action_id, error_code="provider_timeout")
+            return {"action_id": action_id, "state": "outcome_unknown", "outcome_unknown": True}
+        except httpx.TransportError:
+            # A connection may fail after Gmail accepted the POST but before
+            # the response arrived. Never turn that ambiguity into a retry.
+            await self._set_outcome_unknown(action_id=action_id, error_code="provider_transport")
             return {"action_id": action_id, "state": "outcome_unknown", "outcome_unknown": True}
         except GmailApiError as exc:
             await self._set_terminal(
@@ -572,12 +584,42 @@ class GmailDeliveryService:
             logger.warning(
                 "gmail.delivery.send_failed action_id=%s error=%s", action_id, type(exc).__name__
             )
+            if provider_attempted or provider_accepted:
+                await self._set_outcome_unknown(
+                    action_id=action_id, error_code="provider_outcome_ambiguous"
+                )
+                return {"action_id": action_id, "state": "outcome_unknown", "outcome_unknown": True}
             await self._set_terminal(
                 action_id=action_id, state="failed", error_code="delivery_failed"
             )
             raise GmailDeliveryError(
                 "DELIVERY_FAILED", "Gmail could not send this email.", status_code=502
             ) from exc
+
+    async def _set_outcome_unknown(
+        self,
+        *,
+        action_id: str,
+        error_code: str,
+        message_id: str | None = None,
+        thread_id: str | None = None,
+    ) -> None:
+        try:
+            await self._set_terminal(
+                action_id=action_id,
+                state="outcome_unknown",
+                error_code=error_code,
+                message_id=message_id,
+                thread_id=thread_id,
+            )
+        except Exception as exc:
+            # Keep the original action non-retryable even when a transient DB
+            # issue prevents recording its terminal state immediately.
+            logger.error(
+                "gmail.delivery.outcome_unknown_persist_failed action_id=%s error=%s",
+                action_id,
+                type(exc).__name__,
+            )
 
     async def _set_terminal(
         self,

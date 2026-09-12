@@ -784,12 +784,12 @@ class ConsentDBService:
 
         # Fetch all CONSENT_GRANTED and REVOKED actions
         query = db.table("consent_audit").select("*")
-        response = (
+        built_query = (
             self._apply_user_filter(query, user_id, user_ids)
             .in_("action", ["CONSENT_GRANTED", "REVOKED"])
             .order("issued_at", desc=True)
-            .execute()
         )
+        response = await asyncio.to_thread(built_query.execute)
 
         # Post-process to get latest per (agent_id, scope) (DISTINCT ON equivalent)
         latest_per_agent_scope = {}
@@ -2082,10 +2082,11 @@ class ConsentDBService:
             }
             if export_id:
                 export_row["export_id"] = export_id
-            db.table("consent_exports").upsert(
+            query = db.table("consent_exports").upsert(
                 export_row,
                 on_conflict="consent_token",
-            ).execute()
+            )
+            await asyncio.to_thread(query.execute)
 
             logger.info(
                 "Stored consent export for token_fp=%s",
@@ -2109,14 +2110,14 @@ class ConsentDBService:
         db = self._get_db()
 
         try:
-            response = (
+            query = (
                 db.table("consent_exports")
                 .select("*")
                 .eq("consent_token", consent_token)
                 .gt("expires_at", datetime.now(timezone.utc).isoformat())
                 .limit(1)
-                .execute()
             )
+            response = await asyncio.to_thread(query.execute)
 
             if response.data and len(response.data) > 0:
                 return self._normalize_export_row(response.data[0])
@@ -2135,7 +2136,7 @@ class ConsentDBService:
 
         db = self._get_db()
         try:
-            response = (
+            query = (
                 db.table("consent_exports")
                 .select("*")
                 .eq("grant_id", grant_id)
@@ -2143,8 +2144,8 @@ class ConsentDBService:
                 .gt("expires_at", datetime.now(timezone.utc).isoformat())
                 .order("export_revision", desc=True)
                 .limit(1)
-                .execute()
             )
+            response = await asyncio.to_thread(query.execute)
             return self._normalize_export_row(response.data[0]) if response.data else None
         except Exception as exc:
             logger.error("Failed to resolve app-bound consent export: %s", type(exc).__name__)
@@ -2185,14 +2186,14 @@ class ConsentDBService:
 
         db = self._get_db()
         try:
-            response = (
+            query = (
                 db.table("consent_exports")
                 .select("*")
                 .eq("export_id", export_id)
                 .gt("expires_at", datetime.now(timezone.utc).isoformat())
                 .limit(1)
-                .execute()
             )
+            response = await asyncio.to_thread(query.execute)
             return self._normalize_export_row(response.data[0]) if response.data else None
         except Exception as exc:
             logger.error(
@@ -2204,12 +2205,12 @@ class ConsentDBService:
     async def mark_export_refresh_status(self, consent_token: str, refresh_status: str) -> bool:
         db = self._get_db()
         try:
-            (
+            query = (
                 db.table("consent_exports")
                 .update({"refresh_status": self._normalize_refresh_status(refresh_status)})
                 .eq("consent_token", consent_token)
-                .execute()
             )
+            await asyncio.to_thread(query.execute)
             return True
         except Exception as exc:
             logger.error("Failed to update consent export refresh_status: %s", exc)
@@ -2228,7 +2229,8 @@ class ConsentDBService:
         db = self._get_db()
 
         try:
-            db.table("consent_exports").delete().eq("consent_token", consent_token).execute()
+            query = db.table("consent_exports").delete().eq("consent_token", consent_token)
+            await asyncio.to_thread(query.execute)
 
             logger.info(
                 "Deleted consent export for token_fp=%s",
@@ -2318,7 +2320,7 @@ class ConsentDBService:
             except Exception:
                 attempt_count = 0
 
-            db.table("consent_export_refresh_jobs").upsert(
+            query = db.table("consent_export_refresh_jobs").upsert(
                 {
                     "user_id": user_id,
                     "consent_token": consent_token,
@@ -2335,7 +2337,8 @@ class ConsentDBService:
                     "expected_export_revision": int(export_metadata.get("export_revision") or 1),
                 },
                 on_conflict="consent_token",
-            ).execute()
+            )
+            await asyncio.to_thread(query.execute)
             await self.mark_export_refresh_status(consent_token, "refresh_pending")
             return True
         except Exception as exc:

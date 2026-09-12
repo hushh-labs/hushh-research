@@ -24,6 +24,12 @@ function resolveFlag(raw: string | undefined, defaultValue: boolean): boolean {
 
 export type VoiceV2Flags = {
   enabled: boolean;
+  /**
+   * Client-side eligibility only. The managed relay remains the authority and
+   * rejects a command protocol request unless its UAT runtime is enabled and
+   * configured with approved capacity.
+   */
+  locationCommandRuntimeEnabled: boolean;
   autoturnEnabled: boolean;
   submitDebugVisible: boolean;
   clientVadFallbackEnabled: boolean;
@@ -42,9 +48,7 @@ function resolveLocalRuntimeMode(): VoiceV2Flags["localRuntimeMode"] {
   )
     .trim()
     .toLowerCase();
-  return raw === "shadow" ||
-    raw === "local_known_actions" ||
-    raw === "hybrid"
+  return raw === "shadow" || raw === "local_known_actions" || raw === "hybrid"
     ? raw
     : "off";
 }
@@ -57,6 +61,18 @@ export function getVoiceV2Flags(): VoiceV2Flags {
   );
   return {
     enabled,
+    // Do not infer this from an environment-shaped default. A UAT client must
+    // opt in explicitly, while development and production stay on the
+    // established conversational transport even if a stray public flag leaks
+    // into their build configuration.
+    locationCommandRuntimeEnabled:
+      String(process.env.NEXT_PUBLIC_APP_ENV || "")
+        .trim()
+        .toLowerCase() === "uat" &&
+      resolveFlag(
+        process.env.NEXT_PUBLIC_LOCATION_COMMAND_RUNTIME_ENABLED,
+        false,
+      ),
     autoturnEnabled: resolveFlag(
       process.env.NEXT_PUBLIC_VOICE_V2_AUTOTURN_ENABLED,
       enabled,

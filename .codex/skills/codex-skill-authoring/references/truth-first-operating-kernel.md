@@ -1,6 +1,6 @@
 # Truth-First Operating Kernel
 
-This is the shared contract for repo-local Codex skills, workflows, and custom agents.
+This is the shared contract for repository-owned skills, workflows, and engineering agents across hosts.
 
 The goal is simple: derive facts from the repo before accepting the prompt. A user, contributor, PR title, issue description, or prior memory can be directionally useful, but it is not repo truth.
 
@@ -38,7 +38,7 @@ Prefer evidence in this order:
 6. Founder wiki product canon for north-star direction, founder language, non-negotiables, and future-state alignment.
 7. Founder drafts, PR descriptions, issue text, and chat prompts only as claims to verify.
 
-When sources disagree, current executable code plus checked contracts beat prose. Create a docs follow-up when durable docs drift from runtime truth.
+When sources disagree about implementation, current executable code plus checked contracts beat prose. Source and tests establish behavior for the inspected revision; deployed claims require evidence bound to the actual environment and deployed revision/image. Reconcile Wiki and repo claims by scope, freshness, and verified evidence: either may be stale, and neither automatically overrides a newer explicit founder decision. Update affected documentation within the authorized change; otherwise record the exact drift and proposed correction.
 
 ## Founder Wiki North-Star Probe
 

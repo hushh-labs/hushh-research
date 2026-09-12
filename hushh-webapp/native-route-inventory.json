@@ -1245,7 +1245,7 @@
     {
       "route": "/one/wallet",
       "classification": "native-required-functional",
-      "initialRoute": "/login?redirect=%2Fone%2Fcards",
+      "initialRoute": "/login?redirect=%2Fone%2Fwallet",
       "expectedMarker": "native-route-one-wallet",
       "expectedRoute": "/one/wallet",
       "autoReviewerLogin": true,

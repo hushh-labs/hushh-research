@@ -586,6 +586,7 @@ describe("ProfileReceiptsPage", () => {
     vi.mocked(GmailReceiptsService.startNativeConnect).mockResolvedValue({
       configured: true,
       server_client_id: "native-client-id",
+      purpose: "read",
     });
     vi.mocked(GmailReceiptsService.completeNativeConnect).mockResolvedValue(
       buildGmailView().status,
@@ -1072,6 +1073,7 @@ describe("ProfileReceiptsPage", () => {
         userId: "user-123",
         loginHint: "akshat@example.com",
         includeGrantedScopes: true,
+        purpose: "read",
       });
     });
     expect(mocks.gmailOAuthPopup.navigate).toHaveBeenCalledWith(
@@ -1080,6 +1082,37 @@ describe("ProfileReceiptsPage", () => {
     );
     expect(assignWindowLocation).not.toHaveBeenCalled();
     expect(mocks.routerPush).not.toHaveBeenCalled();
+  });
+
+  it("retries a transient Gmail status failure without starting OAuth", async () => {
+    const gmailViewWithStatusError = makeGmailView({
+      status: null,
+      statusError:
+        "We couldn't check your Gmail connection right now. Please try again in a moment.",
+      presentation: {
+        state: "error",
+        badgeLabel: "Unavailable",
+        description: "We couldn't check Gmail right now.",
+        latestSyncText: "Connection status is temporarily unavailable.",
+        latestSyncBadge: null,
+        isConnected: false,
+      },
+    });
+    mocks.useGmailConnectorStatus.mockReturnValue(gmailViewWithStatusError);
+
+    render(<ProfileReceiptsPage initialWorkspace="receipts" />);
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Retry Gmail status" }),
+    );
+
+    await waitFor(() => {
+      expect(gmailViewWithStatusError.refreshStatus).toHaveBeenCalledWith({
+        force: true,
+        reconcile: false,
+      });
+    });
+    expect(GmailReceiptsService.startConnect).not.toHaveBeenCalled();
   });
 
   it("keeps a connect recovery action visible in every disconnected Gmail workspace", async () => {
@@ -1159,6 +1192,7 @@ describe("ProfileReceiptsPage", () => {
           userId: "user-123",
           loginHint: "akshat@example.com",
           includeGrantedScopes: true,
+          purpose: "read",
         });
         expect(assignWindowLocation).toHaveBeenCalledWith(
           "https://accounts.google.com/o/oauth2/v2/auth",
@@ -1205,9 +1239,11 @@ describe("ProfileReceiptsPage", () => {
     await waitFor(() => {
       expect(GmailReceiptsService.startNativeConnect).toHaveBeenCalledWith({
         idToken: "token-abc",
+        purpose: "read",
       });
       expect(mocks.hushhAuth.connectGmail).toHaveBeenCalledWith({
         serverClientId: "native-client-id",
+        purpose: "read",
       });
       expect(GmailReceiptsService.completeNativeConnect).toHaveBeenCalledWith({
         idToken: "token-abc",
@@ -1342,7 +1378,7 @@ describe("ProfileReceiptsPage", () => {
     ).toBeGreaterThan(0);
   });
 
-  it("disconnects Gmail from the receipts page without clearing stored receipts", async () => {
+  it("deletes the Gmail receipt cache when disconnecting", async () => {
     vi.mocked(GmailReceiptsService.listReceipts).mockResolvedValue({
       items: [makeReceipt(1, "Stored Shop")],
       page: 1,
@@ -1381,9 +1417,11 @@ describe("ProfileReceiptsPage", () => {
       expect.any(Promise),
       expect.objectContaining({
         loading: "Disconnecting Gmail...",
-        success: "Gmail disconnected. Saved receipts stay available here.",
+        success: "Gmail disconnected and Gmail receipt data was deleted.",
       }),
     );
-    expect(screen.getAllByText("Stored Shop").length).toBeGreaterThan(0);
+    await waitFor(() => {
+      expect(screen.queryByText("Stored Shop")).toBeNull();
+    });
   });
 });

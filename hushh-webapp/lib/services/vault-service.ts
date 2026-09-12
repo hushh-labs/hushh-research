@@ -14,6 +14,7 @@ import {
   isPasskeyRpIdCompatibleWithHost,
   resolvePasskeyRpId,
 } from "@/lib/vault/passkey-rp";
+import { VAULT_WRITE_PROTOCOL_VERSION } from "@/lib/vault/write-protocol-version";
 import { auth } from "@/lib/firebase/config";
 import { apiJson } from "@/lib/services/api-client";
 import {
@@ -1345,8 +1346,7 @@ export class VaultService {
       const authToken = await this.getFirebaseToken();
       const headers: HeadersInit = {
         "Content-Type": "application/json",
-        "x-hushh-client-version":
-          process.env.NEXT_PUBLIC_CLIENT_VERSION || "2.0.0",
+        "x-hushh-client-version": VAULT_WRITE_PROTOCOL_VERSION,
       };
       if (authToken) {
         headers.Authorization = `Bearer ${authToken}`;
@@ -1419,8 +1419,7 @@ export class VaultService {
         const authToken = await this.getFirebaseToken();
         const headers: HeadersInit = {
           "Content-Type": "application/json",
-          "x-hushh-client-version":
-            process.env.NEXT_PUBLIC_CLIENT_VERSION || "2.0.0",
+          "x-hushh-client-version": VAULT_WRITE_PROTOCOL_VERSION,
         };
         if (authToken) headers.Authorization = `Bearer ${authToken}`;
 
@@ -1504,8 +1503,7 @@ export class VaultService {
         const authToken = await this.getFirebaseToken();
         const headers: HeadersInit = {
           "Content-Type": "application/json",
-          "x-hushh-client-version":
-            process.env.NEXT_PUBLIC_CLIENT_VERSION || "2.0.0",
+          "x-hushh-client-version": VAULT_WRITE_PROTOCOL_VERSION,
         };
         if (authToken) headers.Authorization = `Bearer ${authToken}`;
         headers["X-Hushh-Consent"] = `Bearer ${params.vaultOwnerToken}`;
@@ -1565,8 +1563,7 @@ export class VaultService {
         const authToken = await this.getFirebaseToken();
         const headers: HeadersInit = {
           "Content-Type": "application/json",
-          "x-hushh-client-version":
-            process.env.NEXT_PUBLIC_CLIENT_VERSION || "2.0.0",
+          "x-hushh-client-version": VAULT_WRITE_PROTOCOL_VERSION,
         };
         if (authToken) headers.Authorization = `Bearer ${authToken}`;
 

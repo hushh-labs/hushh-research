@@ -323,7 +323,7 @@ describe("Connect — People", () => {
     });
     expect(
       screen
-        .getByRole("heading", { name: "My connections (0)" })
+        .getByRole("button", { name: "My connections (0)" })
         .compareDocumentPosition(selector) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
     expect(
@@ -341,6 +341,54 @@ describe("Connect — People", () => {
       ).toHaveLength(1);
     }
     await screen.findByText("Person 0");
+  });
+
+  it("keeps My connections collapsed until its disclosure pill is pressed", async () => {
+    mocks.listConnections.mockResolvedValue([
+      {
+        connectionId: "c-disclosure",
+        userId: "u-disclosure",
+        displayName: "Collapsed Friend",
+        photoUrl: null,
+      },
+    ]);
+
+    render(<ConnectPageClient />);
+
+    const toggle = await screen.findByRole("button", {
+      name: "My connections (1)",
+    });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(toggle).toHaveAttribute(
+      "aria-controls",
+      "connect-my-connections-panel",
+    );
+    const panel = document.getElementById(
+      "connect-my-connections-panel",
+    );
+    expect(panel).toBeTruthy();
+    expect(
+      panel?.closest('[data-slot="settings-group-shell"]'),
+    ).toHaveClass("hidden");
+
+    fireEvent.click(toggle);
+
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    expect(
+      panel?.closest('[data-slot="settings-group-shell"]'),
+    ).not.toHaveClass("hidden");
+    expect(
+      await screen.findByRole("button", {
+        name: "Remove connection with Collapsed Friend",
+      }),
+    ).toBeTruthy();
+
+    fireEvent.click(toggle);
+
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(
+      panel?.closest('[data-slot="settings-group-shell"]'),
+    ).toHaveClass("hidden");
   });
 
   it("discards a late append after a new search starts", async () => {
@@ -454,6 +502,9 @@ describe("Connect — People", () => {
     const myConnections = await screen.findByTestId(
       "connect-my-connections-group",
     );
+    fireEvent.click(
+      screen.getByRole("button", { name: "My connections (1)" }),
+    );
     const connectionName =
       await within(myConnections).findByText("Scoped Friend");
     const connectionAction = connectionName.closest("button");
@@ -510,7 +561,10 @@ describe("Connect — People", () => {
 
     render(<ConnectPageClient />);
 
-    expect(await screen.findByText("My connections (5000)")).toBeTruthy();
+    const connectionsToggle = await screen.findByRole("button", {
+      name: "My connections (5000)",
+    });
+    fireEvent.click(connectionsToggle);
     fireEvent.click(
       screen.getByRole("button", { name: "Load more connections" }),
     );
@@ -595,6 +649,9 @@ describe("Connect — People", () => {
     render(<ConnectPageClient />);
 
     expect(await screen.findByText("Current Person")).toBeTruthy();
+    fireEvent.click(
+      screen.getByRole("button", { name: "My connections (3)" }),
+    );
     fireEvent.click(
       screen.getByRole("button", { name: "Load more connections" }),
     );
@@ -705,22 +762,17 @@ describe("Connect — People", () => {
     expect(await screen.findByText("Current Person")).toBeTruthy();
     expect(mocks.listConnectionsPage).toHaveBeenCalledTimes(1);
 
-    // Refresh is a control, not part of the heading text. It used to be a
-    // child of the `title` node, which SettingsGroup renders inside an element
-    // carrying `role="heading"` -- a button there is folded into the heading's
-    // accessible name and is never offered as something to press. The two
-    // assertions below are what keep it out: the heading's name is the plain
-    // text, and the button is not a descendant of it.
-    const connectionsHeading = screen
-      .getAllByRole("heading")
-      .find((node) => node.textContent?.includes("connections"));
-    expect(connectionsHeading).toBeTruthy();
+    // The disclosure and refresh controls are siblings. This prevents an
+    // interactive refresh button from being folded into the disclosure's
+    // accessible name.
+    const connectionsDisclosure = screen.getByRole("button", {
+      name: "My connections (1)",
+    });
     expect(
-      connectionsHeading?.contains(
+      connectionsDisclosure.contains(
         screen.getByRole("button", { name: "Refresh contacts" }),
       ),
     ).toBe(false);
-    expect(connectionsHeading?.textContent).not.toContain("Refresh");
 
     fireEvent.click(screen.getByRole("button", { name: "Refresh contacts" }));
 
@@ -826,6 +878,9 @@ describe("Connect — People", () => {
     render(<ConnectPageClient />);
 
     expect(await screen.findByText("First Person")).toBeTruthy();
+    fireEvent.click(
+      screen.getByRole("button", { name: "My connections (2)" }),
+    );
     fireEvent.click(
       screen.getByRole("button", { name: "Load more connections" }),
     );

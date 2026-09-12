@@ -4,42 +4,33 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 describe("/register-phone safe-area shell contract", () => {
-  it("sizes the page to exactly one viewport and keeps the compact OTP step above the native keyboard", () => {
+  it("owns a full viewport without persistent Talk to One chrome and keeps the form above the native keyboard", () => {
     const source = readFileSync(
       join(process.cwd(), "app/register-phone/page.tsx"),
       "utf8",
     );
+    const routeContract = readFileSync(
+      join(process.cwd(), "lib/navigation/app-route-layout.contract.json"),
+      "utf8",
+    );
+    const styles = readFileSync(
+      join(process.cwd(), "app/register-phone/page.module.css"),
+      "utf8",
+    );
 
-    // The outer app scroll root (app/providers.tsx) already reserves
-    // --app-scroll-bottom-pad for the fixed onboarding Agent Bar on every
-    // hidden-shell route, including /register-phone. Reserving it a second
-    // time (or via --onboarding-agent-bar-clearance directly) doubled the
-    // bottom clearance and caused visible excess scroll on mobile.
+    // This is an immersive verification route, not a hidden-shell route that
+    // still carries the persistent Agent Bar. The route contract makes the
+    // provider unmount that chrome and clears its reserved scroll padding.
+    expect(routeContract).toContain('"route": "/register-phone"');
+    expect(routeContract).toContain('"persistentChrome": "none"');
     expect(source).not.toContain("var(--onboarding-agent-bar-clearance)");
-    expect(source).toContain("var(--app-safe-area-top-effective");
+    expect(source).not.toContain("--app-scroll-bottom-pad");
     expect(source).not.toContain("--phone-mandate-agent-bar-clearance");
-    // Height/offsets are inline styles, not Tailwind arbitrary-value
-    // classes: Tailwind's arbitrary calc() parser requires escaped
-    // whitespace around +/- operators ("100dvh_-_var(...)"); without it the
-    // declaration is invalid CSS and silently dropped, which is what
-    // produced 0px paddings/heights and forced full-page scroll here.
-    expect(source).toContain(
-      "calc(100dvh - var(--app-scroll-bottom-pad, 0px))",
-    );
-    expect(source).toContain(
-      "calc(100svh - var(--app-scroll-bottom-pad, 0px))",
-    );
-    expect(source).toContain(
-      "calc(18px + var(--app-safe-area-top-effective, 0px))",
-    );
     expect(source).toContain('data-phone-mandate-input-region="true"');
-    expect(source).toContain("var(--kb-height, 0px)");
-    expect(source).not.toContain("mt-auto");
-    // The active field region owns keyboard clearance; it can scroll only as a
-    // compact-screen fallback instead of letting fields slip beneath iOS.
-    expect(source).toContain("overflow-y-auto overscroll-contain");
-    expect(source).not.toContain("min-h-[24rem]");
-    expect(source).not.toContain("4vh");
+    expect(styles).toContain("block-size: 100dvh");
+    expect(styles).toContain("min-block-size: 100svh");
+    expect(styles).toContain("bottom: var(--kb-height, 0px)");
+    expect(styles).toContain("overflow-y: auto");
   });
 
   it("exposes a signed-in sign-out escape without account deletion", () => {
@@ -56,14 +47,24 @@ describe("/register-phone safe-area shell contract", () => {
     expect(source).not.toContain("Delete account");
   });
 
-  it("keeps phone verification focused without decorative artwork", () => {
+  it("uses the measured Figma phone composition and shared primary CTA", () => {
     const source = readFileSync(
       join(process.cwd(), "app/register-phone/page.tsx"),
+      "utf8",
+    );
+    const styles = readFileSync(
+      join(process.cwd(), "app/register-phone/page.module.css"),
       "utf8",
     );
 
     expect(source).not.toContain("🤫");
     expect(source).not.toContain("one-quiet-emoji.png");
-    expect(source).toContain("Verification is a focused task, not a hero");
+    expect(source).toContain('sendCodeLabel="Send a verification code"');
+    expect(source).toContain("primaryActionClassName={styles.primaryAction}");
+    expect(styles).toContain("max-inline-size: 402px");
+    expect(styles).toContain("inline-size: min(357px");
+    expect(styles).toContain("top: clamp(406px, 105.97vw, 426px)");
+    expect(styles).toContain("max-inline-size: 330px");
+    expect(styles).toContain("min-block-size: clamp(48px, 12.935vw, 52px)");
   });
 });

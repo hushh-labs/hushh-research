@@ -866,7 +866,22 @@ textarea {
   --data-table-cell-px: 12px;
   --data-table-cell-py: 10px;
 
-  /* Motion tokens (GSAP + CSS). Change once to retune the whole app. */
+  /* Motion tokens (GSAP + CSS). Change once to retune the whole app.
+   *
+   * NOT retuned, deliberately, though the app does read as slow. Dropping this
+   * scale ~30% made components/vault/vault-flow.tsx re-fire a cancelled web
+   * passkey prompt on remount: with these values the guard holds for at least
+   * 300ms, with the faster ones a second navigator.credentials.get went out
+   * inside 20ms. A 30% duration change cannot account for a 15x timing shift,
+   * so something here is coupled to these values in a way nobody has traced.
+   *
+   * The sluggishness had a larger and better-understood cause, now fixed: the
+   * page-enter reveal staggered 14ms PER ELEMENT across up to 140 of them,
+   * a ~2s tail. See lib/morphy-ux/hooks/use-page-enter.ts.
+   *
+   * Retune this only after the passkey coupling is understood. Shipping a
+   * duplicate passkey prompt to make screens feel quicker is not a trade worth
+   * making. */
   --motion-duration-xs: 120ms;
   --motion-duration-sm: 180ms;
   --motion-duration-md: 240ms;

@@ -26,7 +26,7 @@ const verifyProductAssetsScript = path.join(
 );
 const DEFAULT_UAT_BACKEND_URL = "https://consent-protocol-f2gsa4kfsq-uc.a.run.app";
 const DEFAULT_UAT_APP_URL = "https://uat.one.hushh.ai";
-const DEFAULT_PASSKEY_RP_ID = "one.hushh.ai";
+const DEFAULT_PASSKEY_RP_ID = "uat.one.hushh.ai";
 
 function isLocalBackend(value) {
   try {
@@ -71,6 +71,13 @@ function firstConfiguredValue(key, sources, fallback = "") {
   return fallback;
 }
 
+function normalizeBuildBoolean(value, key) {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (["", "0", "false", "no", "off"].includes(normalized)) return "false";
+  if (["1", "true", "yes", "on"].includes(normalized)) return "true";
+  throw new Error(`${key} must be a boolean build value.`);
+}
+
 export function buildIosUatRuntimeEnv({
   processEnv = process.env,
   uatValues = parseEnvFile(uatEnvPath),
@@ -96,17 +103,23 @@ export function buildIosUatRuntimeEnv({
     ),
     APP_RUNTIME_PROFILE: "uat",
     NEXT_PUBLIC_APP_ENV: "uat",
+    NEXT_PUBLIC_LOCATION_COMMAND_RUNTIME_ENABLED: normalizeBuildBoolean(
+      firstConfiguredValue(
+        "NEXT_PUBLIC_LOCATION_COMMAND_RUNTIME_ENABLED",
+        [processEnv, uatValues],
+        "false",
+      ),
+      "NEXT_PUBLIC_LOCATION_COMMAND_RUNTIME_ENABLED",
+    ),
     NEXT_PUBLIC_BACKEND_URL: backendUrl,
     NEXT_PUBLIC_APP_URL: firstConfiguredValue(
       "NEXT_PUBLIC_APP_URL",
       [processEnv, uatValues],
       DEFAULT_UAT_APP_URL,
     ),
-    NEXT_PUBLIC_PASSKEY_RP_ID: firstConfiguredValue(
-      "NEXT_PUBLIC_PASSKEY_RP_ID",
-      [processEnv, uatValues],
-      DEFAULT_PASSKEY_RP_ID,
-    ),
+    // UAT enrollment must not inherit a production RP from shell/local files.
+    // Existing credentials retain their stored RP ID during unlock.
+    NEXT_PUBLIC_PASSKEY_RP_ID: DEFAULT_PASSKEY_RP_ID,
     NEXT_PUBLIC_FIREBASE_API_KEY: firstConfiguredValue(
       "NEXT_PUBLIC_FIREBASE_API_KEY",
       publicSources,

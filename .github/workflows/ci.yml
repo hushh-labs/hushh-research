@@ -282,7 +282,9 @@ jobs:
   web-core-check:
     name: "Web Core (Next.js)"
     needs: [preflight-gate]
-    if: needs.preflight-gate.outputs.frontend == 'true'
+    if: >-
+      !cancelled() && needs['preflight-gate'].result == 'success' &&
+      (needs['preflight-gate'].outputs.frontend == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
@@ -326,7 +328,9 @@ jobs:
   web-targeted-check:
     name: "Web Targeted Contracts"
     needs: [preflight-gate]
-    if: needs.preflight-gate.outputs.frontend == 'true'
+    if: >-
+      !cancelled() && needs['preflight-gate'].result == 'success' &&
+      (needs['preflight-gate'].outputs.frontend == 'true')
     runs-on: ubuntu-latest
     # Was 15, which the job could not fit. Downloading Chromium and WebKit
     # took 13-15 minutes on its own, so the lane either died mid-download or
@@ -345,6 +349,16 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: "npm"
           cache-dependency-path: hushh-webapp/package-lock.json
+
+      # The One Voice verification includes the checked-in CapabilityGraphV1
+      # compiler.  It is deliberately a source-of-truth check, so the
+      # frontend-targeted lane must use the same locked runtime dependencies
+      # rather than falling back to the runner's ambient Python installation.
+      - uses: ./consent-protocol/.github/actions/setup-python-uv
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          protocol-dir: ./consent-protocol
+          sync-dev-group: "false"
 
       # The browsers are the whole cost of this lane, and they only change when
       # the Playwright dependency does. Keying on the lockfile means a normal
@@ -392,7 +406,9 @@ jobs:
   ios-native-check:
     name: "iOS Native (Xcode)"
     needs: [preflight-gate]
-    if: needs.preflight-gate.outputs.ios == 'true'
+    if: >-
+      !cancelled() && needs['preflight-gate'].result == 'success' &&
+      (needs['preflight-gate'].outputs.ios == 'true')
     runs-on: macos-15
     timeout-minutes: 45
     env:
@@ -593,7 +609,9 @@ jobs:
   protocol-check:
     name: "Protocol (Python)"
     needs: [preflight-gate]
-    if: needs.preflight-gate.outputs.backend == 'true'
+    if: >-
+      !cancelled() && needs['preflight-gate'].result == 'success' &&
+      (needs['preflight-gate'].outputs.backend == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
@@ -616,7 +634,9 @@ jobs:
   mcp-package-check:
     name: "MCP Package"
     needs: [preflight-gate]
-    if: needs.preflight-gate.outputs.backend == 'true'
+    if: >-
+      !cancelled() && needs['preflight-gate'].result == 'success' &&
+      (needs['preflight-gate'].outputs.backend == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -642,7 +662,9 @@ jobs:
   integration-check:
     name: "Integration"
     needs: [preflight-gate]
-    if: needs.preflight-gate.outputs.frontend == 'true' || needs.preflight-gate.outputs.backend == 'true'
+    if: >-
+      !cancelled() && needs['preflight-gate'].result == 'success' &&
+      (needs['preflight-gate'].outputs.frontend == 'true' || needs['preflight-gate'].outputs.backend == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:

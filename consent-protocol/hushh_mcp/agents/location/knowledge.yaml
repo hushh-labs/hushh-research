@@ -1,0 +1,341 @@
+schema_version: one.service_knowledge_package.v2
+package_id: location.brain
+package_version: 2
+service_id: location
+label: Location with Agent One
+description: Manage private location setup, sharing, circles, places, check-ins, safety, and recovery through verified product capabilities.
+semantic_profile:
+  language: en
+  purpose: Help the person safely use every Location feature through Agent One without inventing product state or authority.
+  user_goals:
+    - Complete Location setup and recover it after interruption.
+    - Share, request, review, pause, or stop private location access.
+    - Create and manage Circles, invitations, saved places, links, and check-ins.
+    - Open safety and emergency controls without falsely claiming an alert was sent.
+  boundaries:
+    - Only verified backend or native bindings may claim an action completed.
+    - Operating system permission and protected choices always require the real user interaction surface.
+    - The package never exposes coordinates, contact identifiers, credentials, receipts, leases, or endpoints to a model.
+    - Legacy action phrases are compatibility material and never execution authority.
+feature_groups:
+  - feature_group_id: onboarding
+    label: Location onboarding
+    description: Set up permission, position, a saved place, a personal Circle, and verified completion.
+  - feature_group_id: overview
+    label: Location overview
+    description: Open the primary Location surfaces and refresh current presentation state.
+  - feature_group_id: sharing
+    label: Private sharing
+    description: Start, manage, pause, resume, and stop private live location sharing.
+  - feature_group_id: requests
+    label: Location requests and people
+    description: Ask for location, review incoming requests, and find trusted people.
+  - feature_group_id: circles
+    label: Circles and invitations
+    description: Create, join, manage, and invite people to private Circles.
+  - feature_group_id: links
+    label: Temporary links
+    description: Open the approved temporary public link flow without exposing a raw link endpoint.
+  - feature_group_id: places
+    label: Saved places and map
+    description: Open the map and manage private saved places.
+  - feature_group_id: checkins
+    label: Nearby check-ins
+    description: Start, confirm, send, and end nearby check-in flows.
+  - feature_group_id: safety
+    label: Safety and emergency controls
+    description: Open and manage Save My Soul controls without treating screen navigation as an emergency alert.
+  - feature_group_id: support
+    label: Location support
+    description: Use the bounded Location support surface when no generated product capability applies.
+  - feature_group_id: backend_api
+    label: Location backend inventory
+    description: Track discovered Location API endpoints as known but unbound implementation inventory.
+capabilities:
+  - { capability_id: workflow.setup.location, kind: workflow, feature_group_id: onboarding }
+  - { capability_id: setup.open_location, kind: action, feature_group_id: onboarding }
+  - { capability_id: setup.finish_location, kind: action, feature_group_id: onboarding }
+  - { capability_id: setup.skip_location, kind: action, feature_group_id: onboarding }
+  - { capability_id: native.request_device_location_permission, kind: native_action, feature_group_id: onboarding }
+  - capability_id: location.onboarding.choose_place
+    kind: action
+    feature_group_id: onboarding
+    semantic_source: package
+    intent: Choose how to handle a place during Location setup
+    semantic_boundary: Applies only while Location setup is waiting for a place choice. It can use Home or Work, request a custom label, or skip saving the optional place. The choice is completed only after the approved interaction finishes; it never declares the entire setup complete.
+  - { capability_id: location.open_now, kind: action, feature_group_id: overview }
+  - { capability_id: location.open_people, kind: action, feature_group_id: overview }
+  - { capability_id: location.open_links, kind: action, feature_group_id: overview }
+  - { capability_id: location.open_map, kind: action, feature_group_id: overview }
+  - { capability_id: location.refresh, kind: action, feature_group_id: overview }
+  - { capability_id: location.open_share, kind: action, feature_group_id: sharing }
+  - { capability_id: location.select_share_recipient, kind: action, feature_group_id: sharing }
+  - { capability_id: location.share_selected, kind: action, feature_group_id: sharing }
+  - { capability_id: location.open_active_shares, kind: action, feature_group_id: sharing }
+  - { capability_id: location.stop_share, kind: action, feature_group_id: sharing }
+  - { capability_id: location.change_share_duration, kind: action, feature_group_id: sharing }
+  - { capability_id: location.pause_updates, kind: action, feature_group_id: sharing }
+  - { capability_id: location.resume_updates, kind: action, feature_group_id: sharing }
+  - { capability_id: location.open_ask, kind: action, feature_group_id: requests }
+  - { capability_id: location.select_ask_recipient, kind: action, feature_group_id: requests }
+  - { capability_id: location.send_request, kind: action, feature_group_id: requests }
+  - { capability_id: location.open_needs_review, kind: action, feature_group_id: requests }
+  - { capability_id: location.approve_request, kind: action, feature_group_id: requests }
+  - { capability_id: location.decline_request, kind: action, feature_group_id: requests }
+  - { capability_id: location.set_auto_share, kind: action, feature_group_id: requests }
+  - { capability_id: location.open_shared_with_me, kind: action, feature_group_id: requests }
+  - { capability_id: location.find_contacts, kind: action, feature_group_id: requests }
+  - { capability_id: location.add_connections, kind: action, feature_group_id: requests }
+  - { capability_id: location.open_invite, kind: action, feature_group_id: circles }
+  - { capability_id: location.open_create_circle, kind: action, feature_group_id: circles }
+  - { capability_id: location.open_join_circle, kind: action, feature_group_id: circles }
+  - { capability_id: location.create_circle, kind: action, feature_group_id: circles }
+  - { capability_id: location.add_to_circle, kind: action, feature_group_id: circles }
+  - { capability_id: location.remove_from_circle, kind: action, feature_group_id: circles }
+  - { capability_id: location.rename_circle, kind: action, feature_group_id: circles }
+  - { capability_id: location.leave_circle, kind: action, feature_group_id: circles }
+  - { capability_id: location.delete_circle, kind: action, feature_group_id: circles }
+  - { capability_id: location.accept_circle_invite, kind: action, feature_group_id: circles }
+  - { capability_id: location.decline_circle_invite, kind: action, feature_group_id: circles }
+  - { capability_id: location.open_temporary_link, kind: action, feature_group_id: links }
+  - { capability_id: location.save_current_location, kind: action, feature_group_id: places }
+  - { capability_id: location.delete_saved_location, kind: action, feature_group_id: places }
+  - { capability_id: location.open_check_in, kind: action, feature_group_id: checkins }
+  - { capability_id: location.send_check_in, kind: action, feature_group_id: checkins }
+  - { capability_id: location.nearby_check_in, kind: action, feature_group_id: checkins }
+  - { capability_id: location.confirm_nearby_check_in, kind: action, feature_group_id: checkins }
+  - { capability_id: location.checkout_nearby, kind: action, feature_group_id: checkins }
+  - { capability_id: location.open_sos, kind: action, feature_group_id: safety }
+  - { capability_id: location.open_sms_contacts, kind: action, feature_group_id: safety }
+  - { capability_id: location.open_settings, kind: action, feature_group_id: safety }
+  - { capability_id: location.add_emergency_contact, kind: action, feature_group_id: safety }
+  - { capability_id: location.remove_emergency_contact, kind: action, feature_group_id: safety }
+  - { capability_id: location.trigger_sos, kind: action, feature_group_id: safety }
+  - { capability_id: location.stop_sos, kind: action, feature_group_id: safety }
+  - { capability_id: location.sos_default, kind: action, feature_group_id: safety }
+  - { capability_id: location.chat.turn, kind: action, feature_group_id: support }
+endpoint_inventory_policy: discover_and_block
+endpoint_feature_group_id: backend_api
+supported_entrypoints: [typed, voice, siri_app_shortcut]
+workflows:
+  - workflow_id: workflow.setup.location
+    workflow_version: 2
+    intent: Complete or resume the verified Location setup workflow.
+    semantic_boundary: This workflow coordinates setup state and asks for required real user or operating system interactions; it never simulates completion.
+workflow_id: workflow.setup.location
+workflow_version: 2
+route_pattern: /one/setup/location
+screen: one_setup_location
+entry_action_id: setup.open_location
+completion_action_id: setup.finish_location
+initial_step_id: location.onboarding.preflight
+completion_receipt_schema: one.location_onboarding_completion_receipt.v1
+required_presentation_states: [welcome, features, place, ready]
+retry_policy:
+  schema_version: one.location_retry_policy.v1
+  automatic_retry_limit: 0
+  adapter_attempt_limit_per_directive: 1
+  retry_count_limit: bounded_by_run_ttl
+  retry_window_seconds: 86400
+  backoff_strategy: none_new_lease_required
+  retryable_failure_classes: [transient_backend, provider_timeout, provider_rate_limit, provider_5xx]
+  on_attempt_failure: pause_with_approved_recovery_surface
+  fresh_interaction_lease_required: true
+pause_policy:
+  schema_version: one.location_pause_policy.v1
+  pause_action: pause
+  resume_action: resume
+  resume_surface_id: one.location.paused.v2
+  preserve_run: true
+  preserve_verified_receipts: true
+  resume_cursor_policy: same_canonical_step
+  fresh_interaction_lease_required: true
+expiry_policy:
+  schema_version: one.location_expiry_policy.v1
+  run_ttl_seconds: 86400
+  interaction_lease_ttl_seconds: 300
+  secure_draft_ttl_seconds: 86400
+  on_run_expiry: expire_fail_closed_then_server_preflight
+  on_lease_expiry: issue_fresh_directive_without_replaying_action
+recovery_policy:
+  schema_version: one.location_recovery_policy.v1
+  fail_closed: true
+  stale_context_action: reload_server_run_before_dispatch
+  stale_graph_action: require_declared_migration
+  provider_failure_action: pause_with_approved_recovery_surface
+  lost_local_secret_action: recapture_position_and_place
+  invalid_or_replayed_lease_action: reject_and_reload
+  unknown_state_action: pause_without_success_claim
+  success_claim_policy: verified_backend_settlement_only
+graph_compatibility:
+  schema_version: one.location_graph_compatibility.v1
+  run_revision_mode: pin_at_creation
+  resume_mode: pinned_or_declared_migration
+  version_migration_policy: declared_cursor_map_only
+  stale_revision_action: fail_closed
+  unknown_cursor_action: fail_closed
+  source_digest_required: true
+active_run_policy:
+  schema_version: one.location_active_run_policy.v1
+  uniqueness_scope: one_open_run_per_user_and_capability
+  duplicate_start_action: resume_existing_run
+  route_change_action: preserve_run_and_interaction
+  app_background_action: stop_audio_and_preserve_run
+  app_termination_action: resume_from_server_state
+  accepted_backend_work_action: settle_once_then_reconcile
+  duplicate_dispatch_action: reject
+telemetry_policy:
+  schema_version: one.location_telemetry_policy.v1
+  event_schema: one.voice_telemetry.v2
+  event_ids:
+    - one.location.run_started
+    - one.location.step_waiting
+    - one.location.interaction_rendered
+    - one.location.interaction_settled
+    - one.location.settlement_verified
+    - one.location.run_paused
+    - one.location.run_expired
+    - one.location.run_failed
+  correlation_ids: [trace_id, activation_id, voice_session_id, turn_id, context_revision, graph_revision, action_id, directive_id]
+  allowed_value_classes: [enum, boolean, count, bucket, duration, opaque_id]
+  prohibited_sensitive_classes: [raw_audio, transcript, coordinates, precise_location, contact_identifier, financial_secret, credential, private_provider_payload, slot_value, entity_value, route_query, raw_error, arbitrary_summary]
+  error_value_policy: bounded_reason_code_only
+context_projection:
+  schema_version: one.service_context_projection.v2
+  allowed_fact_keys: [permission_status, position_receipt_status, place_status, circle_status, completion_status, current_step_id, workflow_version, run_revision]
+  max_retrieved_steps: 3
+steps:
+  - step_id: location.onboarding.preflight
+    label: Check Location setup state
+    description: Read bounded server-owned setup facts and continue from the first unmet verified state.
+    intent: Resume or inspect Location setup.
+    semantic_boundary: Reads server-owned setup state and does not claim Location completion.
+    outcome: EXECUTE
+    completion_policy: required
+    presentation_states: []
+    binding: { kind: state_resolver, ref: location.onboarding_state.v1 }
+    verifier_ref: location.onboarding.preflight.v1
+    telemetry_event: app_intelligence.location_onboarding_step
+    transitions:
+      - { when: already_complete, target: location.onboarding.preflight }
+      - { when: full_guide_requested, target: location.onboarding.introduction }
+      - { when: needs_onboarding, target: location.onboarding.permission }
+      - { when: state_unavailable, target: $paused }
+      - { when: open_location, target: $paused }
+      - { when: pause, target: $paused }
+  - step_id: location.onboarding.introduction
+    label: Review the full Location guide
+    description: Show approved Welcome and Features information only when the person asks for the full guide; fast setup bypasses this step.
+    intent: Explain the complete Location setup guide.
+    semantic_boundary: Provides approved information and never changes setup state.
+    outcome: RENDER
+    completion_policy: informational
+    presentation_states: [welcome, features]
+    binding: { kind: approved_interaction, ref: location.onboarding.introduction.v1 }
+    render_surface: render.one_location_workflow_card
+    verifier_ref: location.onboarding.introduction_ack.v1
+    telemetry_event: app_intelligence.location_onboarding_step
+    transitions:
+      - { when: continue, target: location.onboarding.permission }
+      - { when: pause, target: $paused }
+  - step_id: location.onboarding.permission
+    label: Allow device Location access
+    description: Present the approved continuation card, invoke the registered operating system permission request after a trusted tap, and wait for its real result.
+    intent: Request device Location permission.
+    semantic_boundary: Requires an actual operating system permission result and cannot be simulated.
+    outcome: RENDER
+    completion_policy: required
+    presentation_states: [features]
+    binding: { kind: native_semantic_action, ref: native.request_device_location_permission }
+    render_surface: render.one_location_workflow_card
+    verifier_ref: location.onboarding.permission_receipt.v1
+    telemetry_event: app_intelligence.location_onboarding_step
+    transitions:
+      - { when: request_permission, target: location.onboarding.permission }
+      - { when: permission_granted, target: location.onboarding.position }
+      - { when: permission_denied, target: location.onboarding.permission }
+      - { when: permission_restricted, target: location.onboarding.permission }
+      - { when: services_disabled, target: location.onboarding.permission }
+      - { when: open_settings, target: location.onboarding.permission }
+      - { when: settings_returned, target: location.onboarding.permission }
+      - { when: retry_permission, target: location.onboarding.permission }
+      - { when: pause, target: $paused }
+  - step_id: location.onboarding.position
+    label: Capture current position
+    description: Capture the real device position after permission and expose only an opaque run-bound receipt to the orchestration runtime.
+    intent: Capture a fresh device position for setup.
+    semantic_boundary: Keeps the actual position private and accepts only a bounded native observation.
+    outcome: EXECUTE
+    completion_policy: required
+    presentation_states: [features]
+    binding: { kind: native_interaction, ref: location.capture_current_position.v1 }
+    verifier_ref: location.onboarding.position_receipt.v1
+    telemetry_event: app_intelligence.location_onboarding_step
+    transitions:
+      - { when: position_captured, target: location.onboarding.place }
+      - { when: position_unavailable, target: $paused }
+      - { when: retry_position, target: location.onboarding.position }
+      - { when: pause, target: $paused }
+  - step_id: location.onboarding.place
+    label: Choose a saved place
+    description: Ask for Home, Work, another label, or an explicit Skip through the approved place form, then verify persistence or the skip receipt.
+    intent: Save a setup place or explicitly skip it.
+    semantic_boundary: Requires an approved choice and never exposes a place label or coordinates to the model.
+    outcome: RENDER
+    completion_policy: explicit_skip_allowed
+    presentation_states: [place]
+    binding: { kind: approved_interaction, ref: location.onboarding.place_form.v1 }
+    render_surface: render.one_location_workflow_card
+    verifier_ref: location.onboarding.place_receipt.v1
+    telemetry_event: app_intelligence.location_onboarding_step
+    transitions:
+      - { when: save_place, target: location.onboarding.place }
+      - { when: skip_place, target: location.onboarding.circle }
+      - { when: vault_unavailable, target: location.onboarding.circle }
+      - { when: pause, target: $paused }
+  - step_id: location.onboarding.circle
+    label: Provision personal Circle
+    description: Idempotently reuse or provision the personal Circle and active invite, then wait for a backend-verified settlement receipt.
+    intent: Provision the personal Location Circle.
+    semantic_boundary: Uses only the audited backend adapter and must wait for verified settlement.
+    outcome: EXECUTE
+    completion_policy: required
+    presentation_states: [ready]
+    binding: { kind: backend_adapter, ref: location.provision_personal_circle.v1 }
+    verifier_ref: location.onboarding.circle_receipt.v1
+    telemetry_event: app_intelligence.location_onboarding_step
+    transitions:
+      - { when: provisioned, target: location.onboarding.complete }
+      - { when: failed, target: location.onboarding.circle }
+      - { when: retry_circle, target: location.onboarding.circle }
+      - { when: pause, target: $paused }
+  - step_id: location.onboarding.complete
+    label: Verify Location onboarding
+    description: Re-read every required predicate, persist the Location setup marker idempotently, and claim success only after the completion receipt verifies.
+    intent: Verify and complete Location setup.
+    semantic_boundary: Completion is valid only after persisted server settlement, never after a client claim.
+    outcome: EXECUTE
+    completion_policy: required
+    presentation_states: [ready]
+    binding: { kind: backend_adapter, ref: location.complete_onboarding.v1 }
+    verifier_ref: location.onboarding.completion_receipt.v1
+    telemetry_event: app_intelligence.location_onboarding_step
+    transitions:
+      - { when: verified, target: $verified_succeeded }
+      - { when: failed, target: location.onboarding.complete }
+      - { when: skip_place, target: location.onboarding.complete }
+      - { when: draft_unavailable, target: location.onboarding.position }
+      - { when: retry_completion, target: location.onboarding.complete }
+      - { when: pause, target: $paused }
+migrations:
+  - from_workflow_version: 1
+    policy: map_known_cursor_fail_closed
+    cursor_map:
+      location.navigate: location.onboarding.preflight
+      location.interaction_required: location.onboarding.permission
+      location.verifying_persisted_state: location.onboarding.complete
+      location.settlement_received: location.onboarding.complete
+      location.verified: location.onboarding.preflight
+evaluation:
+  dataset: location-brain-en-v1
+  threshold: 1.0

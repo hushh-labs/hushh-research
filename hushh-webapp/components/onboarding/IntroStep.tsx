@@ -2,24 +2,18 @@
 
 import Link from "next/link";
 import { useCallback } from "react";
-import { HushhWordmark } from "@/components/app-ui/hushh-wordmark";
 import { OnboardingHeroBackground } from "@/components/onboarding/OnboardingHeroBackground";
+import {
+  FigmaHushhLogo,
+  FigmaIllustration,
+  FigmaOneLogo,
+  FigmaPrivacyNote,
+} from "@/components/onboarding/FigmaOnboardingPrimitives";
 import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
 import { useLocalOnboardingActionHandler } from "@/lib/agent/local-onboarding-actions";
 import { ROUTES } from "@/lib/navigation/routes";
 import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 import styles from "./IntroStep.module.css";
-
-/* ────────────────────────────────────────────────────────────
- * Welcome ("/"). A restrained, Foundation-warm canvas carries one centered
- * brand anchor, one "One" moment, and one clear next action. The public
- * destinations below the CTA are a real navigation group with equal targets,
- * not footer text that happens to be clickable.
- * ──────────────────────────────────────────────────────────── */
-
-// One's four motions, shown as a quiet typographic rhythm — never as chips,
-// never labeled "framework". Matches docs/vision/agent-ontology.md.
-const MOTIONS = ["Listens", "Remembers", "Decides", "Acts"];
 
 export function IntroStep({ onLogin }: { onLogin?: () => void }) {
   const claimOne = useCallback(() => {
@@ -79,112 +73,68 @@ export function IntroStep({ onLogin }: { onLogin?: () => void }) {
   });
 
   return (
-    <main className={styles.shell}>
-      <OnboardingHeroBackground />
+    <main className={styles.shell} data-testid="one-intro-screen">
+      <OnboardingHeroBackground variant="solid" />
 
       <div className={styles.stage}>
-        {/* One centered brand anchor keeps the page calm on both compact and
-            wide surfaces; the old wordmark/emoji pair read as two competing
-            logos rather than one header. */}
-        <div className={styles.brand}>
-          <HushhWordmark className={styles.wordmark} />
-        </div>
+        <div className={styles.composition}>
+          <FigmaHushhLogo className={styles.brand} />
+          <FigmaIllustration variant="intro" className={styles.illustration} />
 
-        {/* ── Typography-led hero. No cards, no fake metrics. ── */}
-        <div className={styles.hero}>
-          <span
-            aria-hidden="true"
-            className={`hushh-brand-mark ${styles.emoji}`}
-          >
-            🤫
-          </span>
-
-          <h1 className={styles.title}>
-            <span className={styles.molten}>
-              One
+          <div className={styles.hero}>
+            {/* The artwork contains the visible mark; this hidden text preserves
+                the existing heading and voice/test accessibility contract. */}
+            <span aria-hidden="true" className={styles.quietMark}>
+              🤫
             </span>
-          </h1>
 
-          <div
-            aria-hidden
-            className={styles.divider}
-          />
+            <h1 className={styles.title} aria-label="One">
+              <span className={styles.srOnly}>One</span>
+              <FigmaOneLogo />
+            </h1>
 
-          {/* Approved durable product line (docs/vision/agent-ontology.md
-              Founder Copy Rules; brand punchline). Not ad-hoc copy. */}
-          <p className={styles.tagline}>
-            Your agents. Yours to own.
-          </p>
-
-          {/* Quiet rhythm line: the four motions, typographic not chip-like. */}
-          <div className={styles.motions}>
-            {MOTIONS.map((motion, i) => (
-              <span key={motion} className={styles.motionItem}>
-                {i > 0 && (
-                  <span aria-hidden className={styles.motionDot}>
-                    &middot;
-                  </span>
-                )}
-                <span>{motion}</span>
-              </span>
-            ))}
+            <p className={styles.tagline}>
+              Your agents. Yours to own.
+            </p>
+            <p className={styles.subtitle}>Your private network of AI agents</p>
           </div>
 
-          {/* Plain words only. "Encrypted" and "consent" are the mechanism and
-              the legal term; "locked" and "your yes" are what a person actually
-              pictures. "Vault" is a code noun and never appears in copy. */}
-          <p className={styles.description}>
-            Everything you save stays locked.
-            <br />
-            Nothing moves without your yes.
-          </p>
-        </div>
+          <div className={styles.footer}>
+            <div className={styles.privacy}>
+              <FigmaPrivacyNote>
+                You have full control over your data.
+                <br />
+                Your data. Your rules.
+              </FigmaPrivacyNote>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                void claimOne();
+              }}
+              data-voice-control-id="onboarding_claim_one"
+              aria-label="Claim your One"
+              className={styles.cta}
+            >
+              <span className="relative z-0 inline-flex items-center gap-2">
+                Create your One
+                <span aria-hidden>&rarr;</span>
+              </span>
+              <MaterialRipple variant="gradient" effect="fill" className="z-10" />
+            </button>
 
-        {/* ── CTA: Morphy Button, ink surface, gradient ripple. Sits in the
-              flex column normally (no absolute anchoring needed without the
-              glass root constraint). Bottom padding clears the agent bar. ── */}
-        <div className={styles.footer}>
-          <button
-            type="button"
-            onClick={() => {
-              void claimOne();
-            }}
-            data-voice-control-id="onboarding_claim_one"
-            className={styles.cta}
-          >
-            <span className="relative z-0 inline-flex items-center gap-2">
-              Claim your One
-              <span aria-hidden>&rarr;</span>
-            </span>
-            <MaterialRipple variant="gradient" effect="fill" className="z-10" />
-          </button>
-
-          {/* Public destinations share the CTA width and use equal hit areas.
-              That preserves discoverable navigation on small screens without
-              letting the longest label push its siblings out of rhythm. */}
-          <nav
-            aria-label="Explore Hussh"
-            className={styles.links}
-          >
-            <Link
-              href={ROUTES.RESEARCH}
-              className={styles.link}
-            >
-              Research
-            </Link>
-            <Link
-              href={ROUTES.BLOG}
-              className={styles.link}
-            >
-              Blog
-            </Link>
-            <Link
-              href={ROUTES.DEVELOPERS}
-              className={styles.link}
-            >
-              Developers
-            </Link>
-          </nav>
+            <nav aria-label="Explore Hussh" className={styles.links}>
+              <Link href={ROUTES.RESEARCH} className={styles.link}>
+                Research
+              </Link>
+              <Link href={ROUTES.BLOG} className={styles.link}>
+                Blog
+              </Link>
+              <Link href={ROUTES.DEVELOPERS} className={styles.link}>
+                Developers
+              </Link>
+            </nav>
+          </div>
         </div>
       </div>
     </main>

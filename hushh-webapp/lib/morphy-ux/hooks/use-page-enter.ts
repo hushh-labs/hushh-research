@@ -13,6 +13,11 @@ const useIsoLayoutEffect =
 
 const AUTO_FADE_DATASET_KEY = "gsapAutoFadeReady";
 const AUTO_FADE_MAX_TARGETS = 140;
+// A switch owns the thumb's transform. GSAP can bake its CSS `translate`
+// into an inline transform, doubling the travel and leaving stale geometry
+// when checked changes. Animate its surrounding section, never the control.
+const AUTO_FADE_EXCLUDE_SELECTOR =
+  "[data-no-auto-fade='true'], [role='switch']";
 
 function collectFadeTargets(root: HTMLElement): HTMLElement[] {
   const candidates: HTMLElement[] = [root];
@@ -38,7 +43,7 @@ function collectFadeTargets(root: HTMLElement): HTMLElement[] {
     // A controlled pager is already animating its rail. Staggering every
     // mounted descendant while the user drags competes with that transform,
     // particularly in a native WebView.
-    if (node.closest("[data-no-auto-fade='true']")) continue;
+    if (node.closest(AUTO_FADE_EXCLUDE_SELECTOR)) continue;
     if (
       (node.dataset as Record<string, string | undefined>)[
         AUTO_FADE_DATASET_KEY
@@ -68,6 +73,7 @@ export function usePageEnterAnimation(
     if (prefersReducedMotion()) return;
     const el = ref.current;
     if (!el) return;
+    if (el.closest(AUTO_FADE_EXCLUDE_SELECTOR)) return;
 
     let revert: null | (() => void) = null;
     let observer: MutationObserver | null = null;
@@ -91,7 +97,7 @@ export function usePageEnterAnimation(
                 opacity: 1,
                 y: 0,
                 duration: pageEnterDurationMs / 1000,
-                stagger: 0.014,
+                stagger: { amount: 0.16 },
                 ease: getMorphyEaseName("emphasized"),
                 overwrite: "auto",
                 clearProps: "opacity,transform",
@@ -142,7 +148,7 @@ export function usePageEnterAnimation(
           for (const record of records) {
             for (const node of Array.from(record.addedNodes)) {
               if (!(node instanceof HTMLElement)) continue;
-              if (node.closest("[data-no-auto-fade='true']")) continue;
+              if (node.closest(AUTO_FADE_EXCLUDE_SELECTOR)) continue;
               for (const target of collectFadeTargets(node)) {
                 added.push(target);
                 if (added.length >= AUTO_FADE_MAX_TARGETS) break;
@@ -159,7 +165,7 @@ export function usePageEnterAnimation(
               opacity: 1,
               y: 0,
               duration: pageEnterDurationMs / 1000,
-              stagger: 0.014,
+              stagger: { amount: 0.16 },
               ease: getMorphyEaseName("emphasized"),
               overwrite: "auto",
               clearProps: "opacity,transform",

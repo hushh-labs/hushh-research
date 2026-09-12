@@ -137,17 +137,13 @@ import type { HushhLocationPermissionState } from "@/lib/capacitor";
 import { ContactDiscoverabilityConsentDialog } from "@/components/connections/contact-discoverability-consent-dialog";
 import {
   googleContactsAvailability,
-  googlePeopleContactSource,
 } from "@/lib/contacts/google-people-source";
 import {
-  isGoogleContactsConsentCancelled,
   preloadGoogleContactsAuth,
-  requestGoogleContactsToken,
 } from "@/lib/contacts/google-contacts-token";
 import { resolveContactSourceProbeFailure } from "@/lib/contacts/contact-source-availability";
 import { createContactSyncAccountPhoneResolver } from "@/lib/contacts/contact-sync-identity";
 import { useContactDiscoverabilityConsent } from "@/lib/contacts/use-contact-discoverability-consent";
-import type { MarketplaceContactSource } from "@/lib/marketplace/contact-matching";
 import { isWeb } from "@/lib/capacitor/platform";
 import { apiErrorCode } from "@/lib/services/api-client";
 import { appInteractionCoordinator } from "@/lib/interaction/interaction-intent-coordinator";
@@ -382,6 +378,7 @@ import {
 } from "@/lib/one-location/drive-session-store";
 import { AccountIdentityService } from "@/lib/services/account-identity-service";
 import { ConnectionsService } from "@/lib/services/connections-service";
+import { useGoogleContactSync } from "@/lib/contacts/use-google-contact-sync-session";
 import { ContactSyncResultsSheet } from "@/components/one-location/contact-sync-results-sheet";
 import {
   clearPendingCircleJoin,
@@ -2419,6 +2416,17 @@ function savedLocationPromptKey(prefix: string, userId: string): string {
  */
 const NEARBY_CHECKOUT_DEDUPE_MS = 10_000;
 
+function googleOnboardingOutcome(result: OneLocationContactSignalResult, owner: string | null): OnboardingContactSyncResult {
+  const outcome = describeContactSyncOutcome(result);
+  const matches = result.matches.map((match) => ({
+    userId: match.userId, displayName: match.displayName || "Hushh user", connectionStatus: match.outcome,
+  })).filter((match) => match.userId && match.userId !== owner);
+  if (matches.length) return { status: "matched", matches, partial: result.partial,
+    ...(result.partial || result.mutationOutcomeUnknown ? { summary: outcome.description } : {}) };
+  if (result.mutationOutcomeUnknown) return { status: "failed", message: "Some contact results need confirmation. Try contact sync again.", canOpenSettings: false };
+  return { status: "none", partial: result.partial, ...(result.partial ? { summary: outcome.description } : {}) };
+}
+
 export function OneLocationAgentPageContent({
   mode = "workspace",
   surface = "hub",
@@ -2813,17 +2821,22 @@ export function OneLocationAgentPageContent({
   >([]);
   const [contactSignal, setContactSignal] =
     useState<OneLocationContactSignalState>(INITIAL_CONTACT_SIGNAL_STATE);
-  const [contactSyncResult, setContactSyncResult] =
+  const [deviceContactSyncResult, setContactSyncResult] =
     useState<OneLocationContactSignalResult | null>(null);
   const [onboardingContactResult, setOnboardingContactResult] =
     useState<OnboardingContactSyncResult | null>(null);
+  const googleContactSync = useGoogleContactSync(contactSyncUserId);
+  const { run: runGoogleContactSync, clear: clearGoogleContactSync } = googleContactSync;
+  const contactSyncResult = googleContactSync.result ?? deviceContactSyncResult;
   const contactInvitations = useContactInvitations(contactSyncUserId);
   const { clear: clearContactInvitations, beginSync: beginContactInvites, open: openContactInvitations, captureSession: captureContactInviteSession } = contactInvitations;
-  const [contactSyncResultsOpen, setContactSyncResultsOpenState] = useState(false);
+  const [deviceContactSyncResultsOpen, setContactSyncResultsOpenState] = useState(false);
+  const contactSyncResultsOpen = googleContactSync.phase !== "idle" ? googleContactSync.open : deviceContactSyncResultsOpen;
   const setContactSyncResultsOpen = useCallback((open: boolean) => {
+    if (!open) clearGoogleContactSync();
     if (!open) clearContactInvitations();
     setContactSyncResultsOpenState(open);
-  }, [clearContactInvitations]);
+  }, [clearContactInvitations, clearGoogleContactSync]);
   const contactResultOwnerUserIdRef = useRef(contactSyncUserId);
   useLayoutEffect(() => {
     if (contactResultOwnerUserIdRef.current === contactSyncUserId) return;
@@ -7147,13 +7160,32 @@ export function OneLocationAgentPageContent({
         read: () => contactGraphReadRef.current(),
       }, fresh);
     } catch {
-      if (isCurrent()) toast.info("Contacts synced. Could not refresh connections.", {
+      if (isCurrent()) toast.info("Contacts synced. Matches are saved; refresh connections to update.", {
         id: "contact-sync-refresh",
-        description: "Your matches are saved. Retry to update the list.",
         action: { label: "Refresh connections", onClick: () => { void reconcileSyncedConnections(owner); } },
       });
     }
   }, [contactGraphReconciler]);
+
+  useEffect(() => {
+    if (googleContactSync.busy) setBusy("contactSync");
+    else setBusy((current) => current === "contactSync" ? null : current);
+  }, [googleContactSync.busy]);
+  useEffect(() => {
+    const completed = googleContactSync.result;
+    if (!completed) return;
+    setOnboardingContactResult(googleOnboardingOutcome(completed, contactSyncUserId));
+    setContactSignal({
+      status: completed.matchedUserIds.length ? "matched" : "empty",
+      matchedUserIds: completed.matchedUserIds, matchedCount: completed.matchedUserIds.length,
+      totalContacts: completed.totalContacts, inviteCandidateCount: completed.inviteCandidateCount,
+      sourcePlatform: completed.sourcePlatform, limited: completed.limited, truncated: completed.truncated,
+      error: null, syncedAt: new Date().toISOString(),
+    });
+    if (contactSyncUserId && (completed.autoConnectedCount + completed.alreadyConnectedCount > 0 || completed.mutationOutcomeUnknown)) {
+      void reconcileSyncedConnections(contactSyncUserId, true);
+    }
+  }, [googleContactSync.result, contactSyncUserId, reconcileSyncedConnections]);
 
   const handleSyncOnboardingContacts =
     useCallback(async (): Promise<OnboardingContactSyncResult> => {
@@ -7184,36 +7216,28 @@ export function OneLocationAgentPageContent({
           getCurrentIdentity: () => contactSyncIdentityRef.current,
           hydrateAccountPhoneNumber: auth.resolveVerifiedPhoneNumber,
         });
+      if (googleContactsFallback || googleContactSync.phase !== "idle") {
+        const result = await runGoogleContactSync({
+          routeId: "one_location", resolveIdToken: () => auth.user!.getIdToken(),
+          accountEmail: auth.user.email, accountPhoneNumber,
+          resolveAccountPhoneNumber: resolveLatestAccountPhoneNumber,
+          beginInvites: beginContactInvites,
+        });
+        if (!result) return { status: "cancelled" };
+        return publishResult(googleOnboardingOutcome(result, initiatingUserId));
+      }
       // The inline action, named sheet, Settings return, and hub share one
       // mutation guard even when Finish unmounts the onboarding component.
       contactSyncInFlightRef.current = true;
       const onInviteCandidates = beginContactInvites();
       setBusy("contactSync");
       try {
-        let googleSource: MarketplaceContactSource | undefined;
-        if (googleContactsFallback) {
-          try {
-            // This call invokes GIS synchronously before its promise is
-            // awaited. Keep it ahead of Firebase/network work so Safari still
-            // recognises the explicit button tap that requested the popup.
-            googleSource = googlePeopleContactSource(
-              await requestGoogleContactsToken(),
-            );
-          } catch (error) {
-            if (isGoogleContactsConsentCancelled(error)) {
-              return { status: "cancelled" };
-            }
-            throw error;
-          }
-        }
-
         const result = await syncOneLocationContactSignals({
           accountEmail: auth.user?.email,
           ...(onInviteCandidates ? { onInviteCandidates } : {}),
           // Read the picker/source before Firebase or backend identity can
           // consume the browser tap's transient activation.
           resolveIdToken: () => auth.user!.getIdToken(),
-          ...(googleSource ? { source: googleSource } : {}),
           accountPhoneNumber,
           resolveAccountPhoneNumber: resolveLatestAccountPhoneNumber,
         });
@@ -7314,6 +7338,8 @@ export function OneLocationAgentPageContent({
       auth.resolveVerifiedPhoneNumber,
       contactSyncUserId,
       googleContactsFallback,
+      runGoogleContactSync,
+      googleContactSync.phase,
       reconcileSyncedConnections,
       requestContactCheck,
     ]);
@@ -7434,6 +7460,19 @@ export function OneLocationAgentPageContent({
       return;
     }
     if (!requestContactCheck()) return;
+    if (googleContactsFallback || googleContactSync.phase !== "idle") {
+      await runGoogleContactSync({
+        routeId: "one_location", resolveIdToken: () => auth.user!.getIdToken(),
+        accountEmail: auth.user.email, accountPhoneNumber,
+        resolveAccountPhoneNumber: createContactSyncAccountPhoneResolver({
+          initiatingUserId: contactSyncUserId,
+          getCurrentIdentity: () => contactSyncIdentityRef.current,
+          hydrateAccountPhoneNumber: auth.resolveVerifiedPhoneNumber,
+        }),
+        beginInvites: beginContactInvites,
+      });
+      return;
+    }
     if (contactSyncInFlightRef.current) return;
     contactSyncInFlightRef.current = true;
     const onInviteCandidates = beginContactInvites();
@@ -7447,38 +7486,6 @@ export function OneLocationAgentPageContent({
       });
 
     try {
-      // Google Contacts, only where there is no address book to read.
-      //
-      // `navigator.contacts.select` ships enabled by default in Chrome on
-      // Android and nowhere else — iOS Safari has it behind a flag, no desktop
-      // browser has it at all. On those, this control had nothing to read and
-      // said so. A Google account is not a device capability, so it works
-      // everywhere a browser does.
-      //
-      // Deliberately a fallback rather than a second button. The device book is
-      // the better source when it exists: it is the person's actual phone
-      // contacts rather than whichever of them Google happens to hold, and it
-      // needs no consent sheet. This only fires where the alternative is
-      // nothing at all, and only when the build is configured for it —
-      // `googleContactsAvailability()` is "unconfigured" without
-      // NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID, which keeps the feature invisible
-      // until the console work behind it is finished.
-      let googleSource: MarketplaceContactSource | undefined;
-      if (googleContactsFallback) {
-        try {
-          // Invokes GIS before any await or state transition so Safari keeps
-          // the click's transient activation for the popup.
-          const googleToken = requestGoogleContactsToken();
-          setBusy("contactSync");
-          googleSource = googlePeopleContactSource(await googleToken);
-        } catch (error) {
-          // Closing the sheet is a choice, not a failed sync. A blocked popup
-          // is intentionally not AbortError and is surfaced by the catch below.
-          if (!isGoogleContactsConsentCancelled(error)) throw error;
-          return;
-        }
-      }
-
       setBusy("contactSync");
       setContactSignal((current) => ({
         ...current,
@@ -7492,7 +7499,6 @@ export function OneLocationAgentPageContent({
         // Preserve transient activation for Chrome Android's Contact Picker;
         // token and phone hydration happen inside the pipeline after reading.
         resolveIdToken: () => auth.user!.getIdToken(),
-        ...(googleSource ? { source: googleSource } : {}),
         // Tells the normalizer which region a bare "9876543210" belongs to.
         // Without it every 10-digit contact was read as North American.
         accountPhoneNumber,
@@ -7639,6 +7645,8 @@ export function OneLocationAgentPageContent({
     contactSyncUserId,
     contactSignal,
     googleContactsFallback,
+    runGoogleContactSync,
+    googleContactSync.phase,
     openContactSettingsAndWatch,
     requestContactCheck,
   ]);
@@ -13780,6 +13788,7 @@ export function OneLocationAgentPageContent({
           {...contactDiscoverabilityConsentDialogProps}
         />
         <ContactSyncResultsSheet
+          googleSync={googleContactSync}
           takeover
           invitations={contactInvitations}
           open={contactSyncResultsOpen}
@@ -14181,6 +14190,7 @@ export function OneLocationAgentPageContent({
           )}
         </AppPageContentRegion>
         <ContactSyncResultsSheet
+          googleSync={googleContactSync}
           open={contactSyncResultsOpen}
           invitations={contactInvitations}
           onOpenChange={setContactSyncResultsOpen}

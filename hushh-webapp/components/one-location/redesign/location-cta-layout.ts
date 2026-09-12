@@ -6,7 +6,7 @@
  */
 
 /** Keeps the public-link controls together and aligned to the card's content edge. */
-export const PUBLIC_LINK_CONTROLS_CLASSNAME = "w-full max-w-[280px] space-y-3";
+export const PUBLIC_LINK_CONTROLS_CLASSNAME = "w-full space-y-3 sm:max-w-[280px]";
 
 export const PUBLIC_LINK_PRIMARY_CTA_CLASSNAME =
   "h-11 min-h-11 w-full rounded-[13px] bg-[color:var(--app-accent)] text-[16px] font-semibold leading-[21px] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90";

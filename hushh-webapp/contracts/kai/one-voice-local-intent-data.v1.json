@@ -1222,6 +1222,71 @@
       "agent_namespace": "agent_one"
     },
     {
+      "utterance": "Continue the active Location setup place step",
+      "action_id": "location.onboarding.choose_place",
+      "agent_namespace": "agent_one"
+    },
+    {
+      "utterance": "save this as home",
+      "action_id": "location.onboarding.choose_place",
+      "agent_namespace": "agent_one"
+    },
+    {
+      "utterance": "save this as work",
+      "action_id": "location.onboarding.choose_place",
+      "agent_namespace": "agent_one"
+    },
+    {
+      "utterance": "save my location as home",
+      "action_id": "location.onboarding.choose_place",
+      "agent_namespace": "agent_one"
+    },
+    {
+      "utterance": "save my location as work",
+      "action_id": "location.onboarding.choose_place",
+      "agent_namespace": "agent_one"
+    },
+    {
+      "utterance": "use home for this place",
+      "action_id": "location.onboarding.choose_place",
+      "agent_namespace": "agent_one"
+    },
+    {
+      "utterance": "use work for this place",
+      "action_id": "location.onboarding.choose_place",
+      "agent_namespace": "agent_one"
+    },
+    {
+      "utterance": "save this as the gym",
+      "action_id": "location.onboarding.choose_place",
+      "agent_namespace": "agent_one"
+    },
+    {
+      "utterance": "remember this as school",
+      "action_id": "location.onboarding.choose_place",
+      "agent_namespace": "agent_one"
+    },
+    {
+      "utterance": "save this with another name",
+      "action_id": "location.onboarding.choose_place",
+      "agent_namespace": "agent_one"
+    },
+    {
+      "utterance": "save this as another place",
+      "action_id": "location.onboarding.choose_place",
+      "agent_namespace": "agent_one"
+    },
+    {
+      "utterance": "skip saving this place",
+      "action_id": "location.onboarding.choose_place",
+      "agent_namespace": "agent_one"
+    },
+    {
+      "utterance": "don't save this place",
+      "action_id": "location.onboarding.choose_place",
+      "agent_namespace": "agent_one"
+    },
+    {
       "utterance": "Open active location shares",
       "action_id": "location.open_active_shares",
       "agent_namespace": "agent_one"
@@ -3892,6 +3957,11 @@
       "agent_namespace": "agent_one"
     },
     {
+      "utterance": "complete location onboarding",
+      "action_id": "setup.finish_location",
+      "agent_namespace": "agent_one"
+    },
+    {
       "utterance": "Finish RIA setup",
       "action_id": "setup.finish_ria",
       "agent_namespace": "agent_one"
@@ -4217,7 +4287,7 @@
       "agent_namespace": "agent_one"
     },
     {
-      "utterance": "Skip Location setup",
+      "utterance": "Pause Location setup",
       "action_id": "setup.skip_location",
       "agent_namespace": "agent_one"
     },
@@ -4228,6 +4298,11 @@
     },
     {
       "utterance": "skip location",
+      "action_id": "setup.skip_location",
+      "agent_namespace": "agent_one"
+    },
+    {
+      "utterance": "pause location onboarding",
       "action_id": "setup.skip_location",
       "agent_namespace": "agent_one"
     },

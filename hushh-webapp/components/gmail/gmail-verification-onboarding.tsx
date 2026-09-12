@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Check, Copy, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
 
@@ -10,7 +10,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/lib/morphy-ux/button";
 import { PkmDomainResourceService } from "@/lib/pkm/pkm-domain-resource";
 import {
-  isKycIdentityPrefaceComplete,
+  hasCompletedKycIdentityIntake,
   KycIdentityProfilePkmService,
 } from "@/lib/services/kyc-identity-profile-pkm-service";
 import { copyToClipboard } from "@/lib/utils/clipboard";
@@ -43,6 +43,7 @@ export function GmailVerificationOnboarding({
   const [checking, setChecking] = useState(true);
   const [saving, setSaving] = useState(false);
   const [copied, setCopied] = useState(false);
+  const saveStartedRef = useRef(false);
 
   useEffect(() => {
     setChecking(true);
@@ -58,10 +59,15 @@ export function GmailVerificationOnboarding({
       domain: "identity",
       vaultKey,
       vaultOwnerToken,
+      // This is a one-time onboarding gate, not a list that can safely show
+      // stale information. Refresh before deciding whether to ask again so a
+      // completed background import never reopens this form on a later visit.
+      forceRefresh: true,
+      backgroundRefresh: false,
     })
       .then((snapshot) => {
         const profile = snapshot?.data?.identity_profile;
-        if (!cancelled && isKycIdentityPrefaceComplete(profile)) {
+        if (!cancelled && hasCompletedKycIdentityIntake(profile)) {
           setProfileReady(true);
         }
       })
@@ -88,31 +94,55 @@ export function GmailVerificationOnboarding({
     window.setTimeout(() => setCopied(false), 2_000);
   };
 
-  const save = async () => {
-    if (!userId || !vaultKey || !vaultOwnerToken || !details.trim()) return;
-    setSaving(true);
-    try {
-      const result = await KycIdentityProfilePkmService.saveProfile({
-        userId,
-        vaultKey,
-        vaultOwnerToken,
-        profile: { aboutMe: details.trim() },
-      });
-      if (!result.success) {
-        throw new Error(result.message || "We couldn't save those details.");
-      }
-      setProfileReady(true);
-      onDetailsChange("");
-      toast.success("KYC details saved privately.");
-    } catch (error) {
-      toast.error(
-        error instanceof Error
-          ? error.message
-          : "We couldn't save those details.",
-      );
-    } finally {
-      setSaving(false);
+  const save = () => {
+    const aboutMe = details.trim();
+    if (
+      !userId ||
+      !vaultKey ||
+      !vaultOwnerToken ||
+      !aboutMe ||
+      saveStartedRef.current
+    ) {
+      return;
     }
+
+    saveStartedRef.current = true;
+    setSaving(true);
+    const saveTask = KycIdentityProfilePkmService.saveProfile({
+      userId,
+      vaultKey,
+      vaultOwnerToken,
+      profile: { aboutMe },
+    });
+
+    // The person has explicitly approved this import. Continue into the KYC
+    // workspace immediately while the encrypted PKM write completes without
+    // holding their navigation hostage.
+    setProfileReady(true);
+    onDetailsChange("");
+    toast.info("Saving your KYC details privately in the background…");
+    void saveTask
+      .then((result) => {
+        if (!result.success) {
+          console.error("[PKM_INGEST] kyc_background_save_failed", {
+            source: "kyc_identity_onboarding",
+            error_code: "save_incomplete",
+          });
+          toast.error(
+            result.message || "We couldn't save your KYC details to Memory. Nothing new was added.",
+          );
+          return;
+        }
+        toast.success(result.message || "KYC details saved privately.");
+      })
+      .catch(() => {
+        console.error("[PKM_INGEST] kyc_background_save_failed", {
+          source: "kyc_identity_onboarding",
+          error_code: "background_task_rejected",
+        });
+        toast.error("We couldn't save your KYC details to Memory. Nothing new was added.");
+      })
+      .finally(() => setSaving(false));
   };
 
   if (checking) {
@@ -205,7 +235,7 @@ export function GmailVerificationOnboarding({
       <div className="flex flex-wrap gap-2">
         <Button
           type="button"
-          onClick={() => void save()}
+          onClick={save}
           disabled={saving || !details.trim()}
         >
           {saving ? "Saving…" : "Save KYC details"}

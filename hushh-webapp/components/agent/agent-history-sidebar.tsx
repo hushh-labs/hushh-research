@@ -33,6 +33,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
+import { SearchClearButton } from "@/components/app-ui/search-clear-button";
 import type { AgentChatConversation } from "@/lib/services/agent-chat-client";
 import { cn } from "@/lib/utils";
 
@@ -45,6 +46,19 @@ type AgentHistorySidebarProps = {
   className?: string;
   collapsed?: boolean;
   mode?: "desktop" | "mobile";
+  /**
+   * Which agent is on screen beside this list.
+   *
+   * Every row here belongs to One. Puppy One keeps its transcript on the
+   * owner's machine and contributes none, so with Puppy showing a list headed
+   * only "Chats" reads either as "my on-device chats are saved into One's
+   * cloud history" or as "the local chat I am having is one of these rows".
+   * Neither is true, and the list is not hidden in Puppy mode because the
+   * desktop aside is a 288px flex sibling: unmounting it would slide the whole
+   * workspace sideways on every toggle, and it is the only route back to a One
+   * conversation.
+   */
+  surface?: "one" | "puppy";
   onClose?: () => void;
   onToggleCollapsed?: () => void;
   onCreateNew: () => void;
@@ -123,6 +137,7 @@ export function AgentHistorySidebar({
   className,
   collapsed = false,
   mode = "desktop",
+  surface = "one",
   onClose,
   onToggleCollapsed,
   onCreateNew,
@@ -131,6 +146,14 @@ export function AgentHistorySidebar({
   onDeleteConversation,
 }: AgentHistorySidebarProps) {
   const isMobileMode = mode === "mobile";
+  // Neutral on the default path, owned when the other agent is on screen.
+  const listTitle = surface === "puppy" ? "One chats" : "Chats";
+  const puppyFootnote =
+    surface === "puppy" ? (
+      <p className="mt-1 text-[12px] text-muted-foreground">
+        Puppy One&apos;s chats stay on your machine.
+      </p>
+    ) : null;
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [deleteTarget, setDeleteTarget] = useState<AgentChatConversation | null>(null);
@@ -345,7 +368,7 @@ export function AgentHistorySidebar({
                   <MessageSquare className="h-[18px] w-[18px]" strokeWidth={1.8} aria-hidden="true" />
                 </span>
                 <h2 className="truncate text-[17px] font-semibold tracking-[-0.01em] text-foreground">
-                  Chats
+                  {listTitle}
                 </h2>
               </div>
               {onClose ? (
@@ -360,6 +383,7 @@ export function AgentHistorySidebar({
                 </ShellActionSurface>
               ) : null}
             </div>
+            {puppyFootnote}
             <ShellActionSurface
               variant="pill"
               className="mt-3 h-10 w-full justify-start rounded-xl px-3.5 text-[15px] font-semibold"
@@ -372,7 +396,16 @@ export function AgentHistorySidebar({
             </ShellActionSurface>
           </div>
         ) : (
-          <div className="flex items-center gap-2 p-3">
+          <div className="p-3">
+          {!collapsed && surface === "puppy" ? (
+            <div className="mb-2 px-1">
+              <h2 className="text-[13px] font-semibold tracking-[-0.01em] text-foreground">
+                {listTitle}
+              </h2>
+              {puppyFootnote}
+            </div>
+          ) : null}
+          <div className="flex items-center gap-2">
           {collapsed && !isMobileMode ? (
             <div className="flex w-full flex-col items-center gap-2">
               <Button
@@ -447,6 +480,7 @@ export function AgentHistorySidebar({
             </Button>
           ) : null}
           </div>
+          </div>
         )}
 
         {!collapsed ? (
@@ -466,11 +500,16 @@ export function AgentHistorySidebar({
                 autoCorrect="off"
                 spellCheck={false}
                 className={cn(
-                  "h-10 rounded-xl pl-9 text-[15px] text-foreground placeholder:text-muted-foreground",
+                  "h-10 rounded-xl pl-9 pr-11 text-[15px] text-foreground placeholder:text-muted-foreground",
                   isMobileMode
                     ? "border-transparent bg-foreground/[0.055] shadow-[inset_0_1px_0_rgba(255,255,255,0.45)] dark:bg-white/[0.07]"
                     : "border-transparent bg-foreground/[0.045] shadow-none dark:bg-white/[0.05]"
                 )}
+              />
+              <SearchClearButton
+                visible={searchQuery.length > 0}
+                label="Clear chat search"
+                onClear={() => setSearchQuery("")}
               />
             </div>
           </div>

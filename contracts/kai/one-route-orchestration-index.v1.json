@@ -4971,7 +4971,6 @@
           "setup.open_email",
           "setup.open_finance",
           "setup.open_ria",
-          "setup.open_connected_systems",
           "setup.hub_master_ack"
         ],
         "required_inputs": [],
@@ -5493,6 +5492,7 @@
       "canonical_screen": "one_setup_location",
       "voice_contract_file": "app/one/setup/location/page.voice-action-contract.json",
       "action_ids": [
+        "location.onboarding.choose_place",
         "setup.finish_location",
         "setup.skip_location"
       ],

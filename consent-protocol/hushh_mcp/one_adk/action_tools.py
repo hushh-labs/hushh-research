@@ -2236,12 +2236,14 @@ async def propose_information_request(
             "durationHours": hours,
             "connectorReady": connector_ready,
             "nextStep": (
-                "Read back the person, the fields, the purpose, and the duration, then ask for a yes. "
+                "Read back who you are asking, what you are asking for, why, and for how long, in "
+                "plain words, then ask for a yes. Name the things themselves, never a path or an id. "
                 "After the yes, call run_app_action with action_id consent.request and slots "
                 "the in-app confirmation control. Say nothing was sent until that result confirms it."
                 if connector_ready
-                else "This request cannot be sent from chat yet: their secure connector is not set up. "
-                "Send them to profilePath once to set it up, then they can ask again."
+                else "The owner's secure key is not ready yet, so nothing can be asked for. "
+                "Say exactly that in plain words, tell them to unlock their private agent and try "
+                "again, and do not use the word connector: it means nothing to them."
             ),
         }
     except ConsentLifecycleError as exc:
@@ -4157,6 +4159,32 @@ async def set_preferred_model(model_id: str, tool_context: ToolContext) -> dict[
     }
 
 
+async def add_to_pkm(memory_text: str, reason: str, tool_context: ToolContext) -> dict[str, Any]:
+    """Save or queue durable personal context to the user's encrypted PKM through the frontend PKM writer.
+
+    Use only when the user explicitly asks to save, remember, store, or add information to PKM or memory.
+    """
+    clean_text = str(memory_text or "").strip()
+    if not clean_text:
+        return {
+            "status": "missing_text",
+            "message": "Specify the exact information to save to memory.",
+        }
+
+    # If PKM write uses source_text in slots, let's match the AgentChatActionPlan logic:
+    tool_context.state[f"{_STATE_PENDING_DIRECTIVE}:pkm_add"] = {
+        "kind": "action",
+        "payload": {
+            "actionId": "pkm.add",
+            "slots": {"source_text": clean_text[:50_000]},
+        },
+    }
+    return {
+        "status": "directive_parked",
+        "message": "Opening Memory to save this information.",
+    }
+
+
 def _resolve_timezone(tool_context: ToolContext) -> str:
     """Read the person's declared IANA timezone, defaulting to UTC.
 
@@ -4217,7 +4245,7 @@ async def report_no_app_action(reason: str, spoken_reply: str) -> dict[str, Any]
     """
     clean_reason = str(reason or "").strip()[:120] or "no_matching_action"
     clean_reply = str(spoken_reply or "").strip()[:600]
-    logger.info("one_adk_action_decision status=no_app_action reason=%s", clean_reason)
+    logger.info("one_adk_action_decision status=no_app_action")
     return {
         "status": "no_app_action",
         "reason": clean_reason,

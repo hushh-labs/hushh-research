@@ -4,7 +4,7 @@
 
 The executable lifecycle route is `./bin/hushh codex route-task product-agent-development`.
 Runtime product agents live under `consent-protocol/hushh_mcp/agents`; repo-scoped
-engineering evidence agents live under `.codex/agents`. They are separate namespaces.
+engineering evidence agents live under `agents/`. They are separate namespaces.
 
 `agent.yaml` is the only authored product-agent source. The strict
 `AgentManifestV2` loader rejects unknown fields, and
@@ -18,6 +18,29 @@ PKM behavior, surface applicability, privacy allowlist, telemetry namespace,
 evaluation threshold, performance budget, kill switch, rollout, and rollback.
 Invocation authority never implies private-data access or mutation authority.
 
+
+## One authored fleet, explicit runtime dependencies
+
+Keep each specialist's existing task and result contract. Register an optional
+`service_handler` through `adk_bridge.dispatch.register_specialist` when the
+same handler needs replaceable dependencies. Without a bound runtime, dispatch
+continues through the existing shared handler.
+
+Authenticated ingress may bind `SpecialistRuntime` for one invocation. Dispatch
+checks owner identity and active invocation authority before obtaining services,
+checks access before and after execution, and restores the previous context on
+exit. Missing runtime services fail closed. Information and Location chat
+services accept explicit `service_ports` and `scope_tokens`; bind these from
+verified ingress, never model arguments. Tool-specific consent remains required.
+In this shared-runtime branch, omitted individual ports retain shared defaults;
+these hooks alone do not establish private isolation. No ingress binding is added
+by the generic dependency seam.
+
+This branch retains Location, Nav and Personal Information registrations.
+Dependency hooks do not register additional agents, grant information access,
+or establish deployment readiness. Preserve shared defaults when transferring
+portable changes from a private deployment branch; keep deployment adapters and
+pod admission policy with their owning topology.
 
 ## Visual Context
 

@@ -156,6 +156,7 @@ export function AgentTurnStreamPanel({
           </p>
         ) : null
       }
+      thinkingClassName="bg-transparent dark:bg-transparent"
       responsePendingLabel="One is preparing your response."
       isStreaming={isStreaming}
       isError={isError}

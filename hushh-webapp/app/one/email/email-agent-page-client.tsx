@@ -96,7 +96,13 @@ export function EmailAgentPageClient() {
     <AppPageShell
       as="main"
       width="reading"
-      className="min-h-[calc(100dvh-var(--top-shell-reserved-height,4rem))] pb-[calc(var(--app-bottom-fixed-ui,96px)+1.25rem)] sm:pb-10"
+      // Subtract BOTH edges the scroll root spends, not just the top bar. The
+      // shell renders a top spacer of --app-top-content-offset AND pads the
+      // scroll root by --app-bottom-content-clearance; a floor that only
+      // subtracts the bar turns the rest into empty travel. No pb- either: the
+      // scroll root already owns the bottom bars.
+      // Canonical idiom: components/calendar/calendar-agent-page-layout.ts:48.
+      className="min-h-[calc(100dvh-var(--app-top-content-offset,6rem)-var(--app-bottom-content-clearance,7rem))]"
       nativeTest={{
         routeId: ROUTES.EMAIL_AGENT,
         marker: "native-route-email-agent",

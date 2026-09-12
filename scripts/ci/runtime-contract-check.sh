@@ -86,6 +86,36 @@ if ! grep -q 'https://one.hushh.ai/.well-known/assetlinks.json' "$android_string
   exit 1
 fi
 
+# Universal Link / App Link claim. The block above proves passkey association
+# and stops one assertion short of link routing, which is a different
+# delegation. Both halves must exist on both platforms or an OAuth return opens
+# a browser instead of the app -- and it fails silently: an unclaimed domain
+# produces no error, the OS simply declines to hand the URL over. That is how
+# the Plaid return shipped broken. This runs unconditionally, unlike the
+# path-filtered web packs, so it holds for every change.
+aasa_route="$REPO_ROOT/hushh-webapp/app/.well-known/apple-app-site-association/route.ts"
+assetlinks_route="$REPO_ROOT/hushh-webapp/app/.well-known/assetlinks.json/route.ts"
+for entitlements in \
+  "$REPO_ROOT/hushh-webapp/ios/App/App/App.entitlements" \
+  "$REPO_ROOT/hushh-webapp/ios/App/App/AppRelease.entitlements"; do
+  if ! grep -q 'applinks:one.hushh.ai' "$entitlements"; then
+    echo "❌ $(basename "$entitlements") must declare applinks:one.hushh.ai; webcredentials alone does not route links."
+    exit 1
+  fi
+done
+if ! grep -q 'UNIVERSAL_LINK_PATHS' "$aasa_route"; then
+  echo "❌ The served apple-app-site-association must publish a non-empty applinks details block."
+  exit 1
+fi
+if ! grep -q 'delegate_permission/common.handle_all_urls' "$assetlinks_route"; then
+  echo "❌ assetlinks.json must delegate handle_all_urls, or Android can never verify the autoVerify filter."
+  exit 1
+fi
+if ! grep -q 'android:autoVerify="true"' "$android_manifest"; then
+  echo "❌ Android manifest must declare an autoVerify https intent filter for the OAuth returns."
+  exit 1
+fi
+
 if ! grep -q -- '--set-env-vars=NEXT_PUBLIC_APP_ENV=' "$frontend_cloudbuild"; then
   echo "❌ frontend Cloud Run deploy must inject NEXT_PUBLIC_APP_ENV at runtime."
   exit 1

@@ -1,8 +1,11 @@
 "use client";
 
 import type { OneVoiceContextSnapshot } from "@/lib/voice/screen-context-builder";
+import type { OneVoiceRealtimeAudioInput } from "@/lib/voice/realtime-audio-input";
 import type { OneVoiceUiState } from "@/lib/voice/voice-ui-state-machine";
 import type { OneVoiceSpeechAdapter } from "@/lib/voice/transcript-events";
+import type { LocationOnboardingRunResultV1 } from "@/lib/services/one-location-onboarding-run-client";
+import type { LocationCircleNameDirectiveV1 } from "@/lib/services/location-circle-name-interaction-client";
 
 export type OneVoiceProvider = "gemini_live";
 export type OneVoiceAccessTier =
@@ -10,6 +13,45 @@ export type OneVoiceAccessTier =
   | "anon_browsing"
   | "signed_locked"
   | "signed_unlocked";
+
+/**
+ * The activation boundary supplied to the server relay.  It can only record
+ * meaningful activity (thereby suppressing a greeting); the server remains
+ * the sole authority that may issue a greeting directive.
+ */
+export type OneVoiceActivationSource =
+  | "foreground_warm"
+  | "tap"
+  | "siri_app_shortcut"
+  | "action_button"
+  | "recovery";
+
+/**
+ * A server-derived, graph-registered Location navigation. The route is
+ * deliberately query-free; Agent Bar compares it to the compiled action
+ * registry again before it requests a client-side transition.
+ */
+export type LocationCommandNavigationDirectiveV1 = {
+  schemaVersion: "one.location_navigation_directive.v1";
+  capabilityId: string;
+  route: string;
+  settlement: "route_settlement_required";
+};
+
+/**
+ * Identifier-only proof of a server-verified Location mutation. Static client
+ * copy owns all visible text; no server/model prose or private values ride
+ * this display contract.
+ */
+export type LocationCommandStatusCardV1 = {
+  schemaVersion: "one.location_command_status_card.v1";
+  surfaceId: "render.data_card";
+  cardId:
+    | "one.location.command.circle_verified.v1"
+    | "one.location.command.location_verified.v1";
+  actionId: "location.create_circle" | "workflow.setup.location";
+  settlement: "verified";
+};
 
 export type OneVoiceSessionEvent =
   | {
@@ -83,6 +125,40 @@ export type OneVoiceSessionEvent =
       sourceSeq?: number | null;
     }
   | {
+      /**
+       * Fixed server control output for an eligible foreground session. It is
+       * not a Gemini turn, user text, or executable client directive.
+       */
+      type: "greeting";
+      provider: OneVoiceProvider;
+      greeting: {
+        kind: "fresh_session";
+        text: string;
+        followUpWindowMs: number;
+      };
+      sessionId?: string | null;
+      sourceId?: string | null;
+      sourceSeq?: number | null;
+    }
+  | {
+      /**
+       * Emitted only after the fixed greeting's output lane has either drained
+       * or conclusively failed to start. Capture must wait for this boundary
+       * so One never hears its own welcome through the microphone.
+       */
+      type: "greeting_playback_settled";
+      provider: OneVoiceProvider;
+      greeting: {
+        kind: "fresh_session";
+        text: string;
+        followUpWindowMs: number;
+      };
+      played: boolean;
+      sessionId?: string | null;
+      sourceId?: string | null;
+      sourceSeq?: number | null;
+    }
+  | {
       type: "handoff";
       provider: OneVoiceProvider;
       target: "chat" | "consent" | "route";
@@ -101,6 +177,83 @@ export type OneVoiceSessionEvent =
         /** Owning specialist from the relay envelope; never injected into model payload. */
         delegateAgentId?: string | null;
       };
+      /**
+       * Present for a manual Location command. A directive without the
+       * matching completed command turn must never reach an app executor.
+       */
+      turnId?: string | null;
+      sessionId?: string | null;
+      sourceId?: string | null;
+      sourceSeq?: number | null;
+    }
+  | {
+      /**
+       * A completed Location command deliberately rotates its untagged Live
+       * provider session before a later command tap. This is a normal ready-for-next-
+       * command boundary, never an error or conversational reply.
+       */
+      type: "location_command_session_rollover";
+      provider: OneVoiceProvider;
+      sessionId?: string | null;
+      sourceId?: string | null;
+      sourceSeq?: number | null;
+    }
+  | {
+      /**
+       * The relay accepted the transcript-first command after its relay,
+       * provider, and context barriers. This is control-plane state only;
+       * it contains no transcript, slots, entity values, or action result.
+       */
+      type: "location_command_ready";
+      provider: OneVoiceProvider;
+      turnId: string;
+      sessionId?: string | null;
+      sourceId?: string | null;
+      sourceSeq?: number | null;
+    }
+  | {
+      /**
+       * Gemini Live, not the browser/native client, detected speech end for
+       * this command. It is a transcript-free control boundary: the client
+       * stops capture, then still waits for final transcript + turnComplete
+       * before any result/card can be surfaced.
+       */
+      type: "location_command_endpointed";
+      provider: OneVoiceProvider;
+      turnId: string;
+      sessionId?: string | null;
+      sourceId?: string | null;
+      sourceSeq?: number | null;
+    }
+  | {
+      /**
+       * The server-owned Location runtime's terminal routing outcome. Any
+       * executable directive remains separately typed and is emitted only
+       * after the matching command turn fence has opened.
+       */
+      type: "location_command_result";
+      provider: OneVoiceProvider;
+      turnId: string;
+      outcome:
+        | "execute_started"
+        | "interaction_required"
+        | "navigate"
+        | "ask"
+        | "blocked"
+        | "failed";
+      reasonCode?: string | null;
+      /**
+       * Already validated against the generated Location run/card contracts.
+       * It is presentation-only; it never asks the client to execute a
+       * backend action.
+       */
+      result?: LocationOnboardingRunResultV1 | null;
+      /** A fixed, server-leased Circle-name form; never a generic chat ask. */
+      circleNameDirective?: LocationCircleNameDirectiveV1 | null;
+      /** A bounded route from the compiled Location capability registry. */
+      navigation?: LocationCommandNavigationDirectiveV1 | null;
+      /** A static approved display card after verified server settlement. */
+      statusCard?: LocationCommandStatusCardV1 | null;
       sessionId?: string | null;
       sourceId?: string | null;
       sourceSeq?: number | null;
@@ -132,6 +285,16 @@ export type OneVoiceTransportStartOptions = {
   context?: OneVoiceContextSnapshot | null;
   accessTier?: OneVoiceAccessTier | null;
   relayUrl?: string | null;
+  /**
+   * A relay URL that is being minted concurrently with a physical microphone
+   * tap.  Command transports may begin *local* bounded PCM capture before
+   * this resolves, but must not open a socket or send PCM until it does.
+   *
+   * This is deliberately URL-only: the caller retains any companion
+   * lifecycle metadata and no credential or provider routing authority is
+   * added to the client contract.
+   */
+  relayUrlPromise?: Promise<string> | null;
   sessionMirrorId?: string | null;
   allowedActionIds?: string[] | null;
   /**
@@ -160,9 +323,45 @@ export type OneVoiceTransportStartOptions = {
   /** A Gemini TTS prebuilt voice name from voice-persona-options.ts, or null/absent for the deployment default. */
   voiceName?: string | null;
   /**
-   * Optional platform speech adapter. When present, it owns microphone input
-   * and the transport forwards final transcript turns through the same Agent
-   * One resolver; Gemini remains output/fallback only.
+   * Whether the relay may issue its server-owned idle greeting for this
+   * socket. This changes output only: it never represents user speech and
+   * does not arm microphone capture. Absent keeps the existing greeting
+   * behavior for ordinary, tap-started sessions.
+   */
+  initialGreetingEnabled?: boolean;
+  /**
+   * Trusted only as a suppressive activity signal. ``foreground_warm`` and
+   * ``recovery`` never reset the server's five-minute greeting eligibility.
+   */
+  activationSource?: OneVoiceActivationSource;
+  /**
+   * Platform PCM ingress for the shared Live session. On iOS this is the
+   * Capacitor bridge around AVAudioEngine; on web the transport owns the
+   * getUserMedia/AudioWorklet implementation directly. Audio is always
+   * PCM16 mono at 16 kHz by the time it reaches the transport.
+   *
+   * This deliberately replaces native transcription as the online voice
+   * gate. A platform can still expose an offline speech adapter elsewhere,
+   * but it must not decide whether Gemini receives a live utterance.
+   */
+  realtimeAudioInput?: OneVoiceRealtimeAudioInput | null;
+  /**
+   * Open and authenticate the Live socket now but keep microphone capture
+   * closed until startAudioInput() is called. This is how foreground warm
+   * sessions avoid adding a mic-permission or capture side effect before a
+   * person taps the voice control.
+   */
+  deferAudioInput?: boolean;
+  /**
+   * Location's tap-to-command, transcript-first lane. In this mode the
+   * transport never plays model output or forwards a directive before the
+   * explicit command-turn fence has opened.
+   */
+  locationCommandMode?: boolean;
+  /**
+   * Legacy offline/fallback adapter. New realtime callers should pass
+   * realtimeAudioInput instead. It remains supported during migration so a
+   * platform without PCM capture fails safely rather than losing voice.
    */
   speechAdapter?: OneVoiceSpeechAdapter | null;
   signal?: AbortSignal;
@@ -192,6 +391,16 @@ export type OneVoiceActionConfirmation = {
   expiresAt: string;
 };
 
+/**
+ * The real interaction that supplied an action confirmation. Keeping this
+ * typed across the browser, iOS bridge, and relay prevents a model transcript
+ * from being represented as a physical approval.
+ */
+export type OneVoiceConfirmationMethod =
+  | "tap"
+  | "voice"
+  | "journey_grant";
+
 export type OneVoiceContextApplyResult =
   | {
       status: "acknowledged";
@@ -203,6 +412,45 @@ export type OneVoiceContextApplyResult =
 export interface RealtimeVoiceTransport {
   readonly provider: OneVoiceProvider;
   start(options?: OneVoiceTransportStartOptions): Promise<void>;
+  /** Begin a previously deferred microphone/PCM input stream. */
+  startAudioInput?(): Promise<boolean>;
+  /**
+   * Stop only microphone/PCM capture while retaining the authenticated relay,
+   * its redacted context, and the output playback session. A subsequent tap
+   * may call startAudioInput() again without forcing a Live reconnect.
+   */
+  stopAudioInput?(): Promise<void>;
+  /**
+   * Resume this transport's owned output context while a physical control
+   * still has user activation. This affects playback only; it never opens
+   * microphone/PCM capture.
+   */
+  resumeOutputForUserGesture?(): void;
+  /**
+   * Fence a pending trusted fixed greeting before a person claims a warm
+   * transport for microphone capture. This is output-only cleanup: it must
+   * never create a user turn or start/stop PCM by itself.
+   */
+  cancelGreetingOutput?(): void;
+  /** Whether the session currently owns an open microphone/PCM input stream. */
+  isAudioInputActive?(): boolean;
+  /**
+   * Start an explicit manual Location command turn. This is distinct from
+   * opening the microphone: a warm relay may exist without a command, and
+   * every PCM frame in a command is correlated to this opaque turn id.
+   */
+  beginInputTurn?(input: { turnId: string }): boolean;
+  /**
+   * Close a manual Location command after its capture tail has drained. The
+   * transport derives the final sequence from delivered PCM when omitted.
+   * `cancelled` is used for loss of pointer ownership or lifecycle aborts;
+   * it must not be treated as permission to execute a partial utterance.
+   */
+  endInputTurn?(input: {
+    turnId: string;
+    finalSequence?: number;
+    cancelled?: boolean;
+  }): boolean;
   /**
    * Queue or send one real user text turn. Native/Siri request handoffs use
    * this path so the request is interpreted by One after app context is
@@ -229,6 +477,11 @@ export interface RealtimeVoiceTransport {
     text: string;
     turnId?: string | null;
     segmentType?: "ack" | "final";
+    /**
+     * Narrow control marker for a server-issued fixed greeting. It is never
+     * available to application action code or user text paths.
+     */
+    controlKind?: "fresh_session_greeting";
     signal?: AbortSignal;
   }): Promise<boolean>;
   /**
@@ -259,6 +512,12 @@ export interface RealtimeVoiceTransport {
     directiveId: string;
     actionId: string;
     contextRevision: string;
+    /**
+     * The actual interaction that authorized this confirmation. The relay
+     * uses this to enforce hard-card policies; it is not inferred from model
+     * text or a client-side action id.
+     */
+    confirmationMethod: OneVoiceConfirmationMethod;
   }): Promise<OneVoiceActionConfirmation>;
   /**
    * Return the browser-observed result of a One-issued action. The relay

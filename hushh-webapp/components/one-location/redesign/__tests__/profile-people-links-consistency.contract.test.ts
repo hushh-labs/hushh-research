@@ -41,7 +41,7 @@ describe("Profile, Location People, and Location Links consistency contract", ()
     expect(source).toContain("accuracyLimited: vm.locationAccuracyLimited");
   });
 
-  it("uses shared SectionLabel for People and Links section headings", () => {
+  it("keeps accessible People, Circle, and Links section headings", () => {
     const hubSource = readSource(
       "components/one-location/redesign/location-redesign-hub.tsx",
     );

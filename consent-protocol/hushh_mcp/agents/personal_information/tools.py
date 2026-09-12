@@ -29,10 +29,16 @@ def _ctx() -> HushhContext:
 
 
 def _service() -> MarketplaceInformationService:
+    context = _ctx()
+    if "marketplace_information" in context.service_ports:
+        return context.service_ports["marketplace_information"]
     return MarketplaceInformationService()
 
 
 def _requests() -> MarketplaceRequestService:
+    context = _ctx()
+    if "marketplace_requests" in context.service_ports:
+        return context.service_ports["marketplace_requests"]
     return MarketplaceRequestService()
 
 

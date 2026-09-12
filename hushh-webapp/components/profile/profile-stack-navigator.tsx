@@ -47,9 +47,11 @@ function stackPrefixMatches(
 export function ProfileStackNavigator({
   rootContent,
   entries,
+  resetScroll = true,
 }: {
   rootContent: ReactNode;
   entries: ProfileStackEntry[];
+  resetScroll?: boolean;
 }) {
   const [activeIndex, setActiveIndex] = useState(entries.length);
   const [renderedEntries, setRenderedEntries] = useState(entries);
@@ -114,12 +116,12 @@ export function ProfileStackNavigator({
     // nested scroll region of its own, so pushing a new screen must reset
     // that shared scroll position -- otherwise a detail screen mounts
     // already scrolled to wherever the previous screen left off.
-    if (typeof document === "undefined") return;
+    if (!resetScroll || typeof document === "undefined") return;
     const scrollRoot = document.querySelector<HTMLElement>(
       '[data-app-scroll-root="true"]',
     );
     scrollRoot?.scrollTo({ top: 0 });
-  }, [activeIndex]);
+  }, [activeIndex, resetScroll]);
 
   const screens = [
     {

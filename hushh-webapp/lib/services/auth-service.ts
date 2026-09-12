@@ -121,13 +121,25 @@ export class AuthService {
   static async getIdTokenWithRetry(options?: {
     retries?: number;
     delayMs?: number;
+    expectedUserId?: string;
   }): Promise<string | null> {
     const retries = options?.retries ?? 1;
     const delayMs = options?.delayMs ?? 400;
-    let token = await this.getIdToken();
+    const expectedUserId = String(options?.expectedUserId || "").trim();
+    const accept = (candidate: string | null): string | null => {
+      if (!candidate) return null;
+      if (
+        expectedUserId &&
+        !this.idTokenBelongsToUser(candidate, expectedUserId)
+      ) {
+        return null;
+      }
+      return candidate;
+    };
+    let token = accept(await this.getIdToken());
     for (let attempt = 0; !token && attempt < retries; attempt += 1) {
       await this.pause(delayMs);
-      token = await this.getIdToken();
+      token = accept(await this.getIdToken());
     }
     return token;
   }

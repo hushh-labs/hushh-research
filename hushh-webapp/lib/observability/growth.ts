@@ -15,9 +15,9 @@ import type {
   GrowthInvestorStep,
 } from "@/lib/observability/events";
 import { getLocalItem, setLocalItem } from "@/lib/utils/session-storage";
+import { resolveClientVersion } from "@/lib/observability/client-version";
 
 const GROWTH_CONTEXT_STORAGE_KEY = "hushh_growth_context_v1";
-const CLIENT_VERSION_FALLBACK = "unknown";
 
 interface GrowthJourneyContext {
   entrySurface?: GrowthEntrySurface;
@@ -167,11 +167,6 @@ function hasAttributionTag(searchParams: URLSearchParams): boolean {
     "fbclid",
     "msclkid",
   ].some((key) => searchParams.has(key));
-}
-
-function resolveClientVersion(): string {
-  const version = String(process.env.NEXT_PUBLIC_CLIENT_VERSION || "").trim();
-  return version || CLIENT_VERSION_FALLBACK;
 }
 
 export function resolveGrowthJourneyForPath(pathname: string): GrowthJourney | null {

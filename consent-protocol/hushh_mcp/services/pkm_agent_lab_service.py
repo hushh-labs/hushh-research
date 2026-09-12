@@ -13,6 +13,7 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
+from hushh_mcp.consent.segment_labels import humanize_path
 from hushh_mcp.constants import GEMINI_MODEL
 from hushh_mcp.hushh_adk.manifest import ManifestLoader
 from hushh_mcp.runtime_providers import (
@@ -31,6 +32,9 @@ logger = logging.getLogger(__name__)
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _MEMORY_INTENT_MANIFEST_PATH = _REPO_ROOT / "hushh_mcp" / "agents" / "memory_intent" / "agent.yaml"
 _PKM_STRUCTURE_MANIFEST_PATH = _REPO_ROOT / "hushh_mcp" / "agents" / "pkm_structure" / "agent.yaml"
+_KYC_IDENTITY_PROFILE_CONTRACT_PATH = (
+    _REPO_ROOT.parent / "config" / "pkm" / "kyc-identity-profile.v1.json"
+)
 _MEMORY_MERGE_MANIFEST_PATH = _REPO_ROOT / "hushh_mcp" / "agents" / "memory_merge" / "agent.yaml"
 _MEMORY_SEGMENTATION_MANIFEST_PATH = (
     _REPO_ROOT / "hushh_mcp" / "agents" / "memory_segmentation" / "agent.yaml"
@@ -71,6 +75,9 @@ _MERGE_MODES = {
     "delete_entity",
     "no_op",
 }
+# Segments the walk invents; they were never keys the owner wrote.
+_SYNTHETIC_SEGMENTS = frozenset({"_items", "_entities"})
+
 _BLOCKED_EXTERNAL_PATH_PARTS = {
     "changes",
     "created_at",
@@ -427,7 +434,7 @@ _AGENT_CONTRACT_TIMEOUT_SECONDS = max(
     # Protected UAT evidence showed valid Gemini 3.5 Flash responses regularly
     # arriving after eight seconds. Ten seconds avoids cancelling healthy tail
     # responses and then paying for a duplicate retry.
-    float(os.getenv("PKM_AGENT_LAB_AGENT_TIMEOUT_SECONDS", "10") or "10"),
+    float(os.getenv("PKM_AGENT_LAB_AGENT_TIMEOUT_SECONDS", "30") or "30"),
 )
 # One retry absorbs transient provider tail latency without introducing another
 # runtime configuration surface or extending the shared preview deadline.
@@ -441,7 +448,7 @@ _PREVIEW_TOTAL_BUDGET_SECONDS = max(
     # The graph is bounded but sequential after segmentation. Five additional
     # seconds absorb one provider-tail response without making fallback the
     # normal path for otherwise valid memory decisions.
-    float(os.getenv("PKM_AGENT_LAB_PREVIEW_BUDGET_SECONDS", "35") or "35"),
+    float(os.getenv("PKM_AGENT_LAB_PREVIEW_BUDGET_SECONDS", "45") or "45"),
 )
 _PREVIEW_CACHE: OrderedDict[str, tuple[float, dict[str, Any]]] = OrderedDict()
 _PREVIEW_INFLIGHT: dict[str, asyncio.Task[dict[str, Any]]] = {}
@@ -499,6 +506,41 @@ _SEGMENTATION_SCHEMA = {
         "contract_version": {"type": "INTEGER"},
     },
     "required": ["segments", "source_agent", "contract_version"],
+}
+
+_KYC_IDENTITY_FACT_SCHEMA = {
+    "type": "OBJECT",
+    "properties": {
+        "field_id": {"type": "STRING"},
+        "value": {"type": "STRING"},
+        "source_text": {"type": "STRING"},
+        "confidence": {"type": "NUMBER"},
+    },
+    "required": ["field_id", "value", "source_text", "confidence"],
+}
+
+_KYC_GENERAL_FALLBACK_FACT_SCHEMA = {
+    "type": "OBJECT",
+    "properties": {
+        "domain": {"type": "STRING"},
+        "field": {"type": "STRING"},
+        "value": {"type": "STRING"},
+        "source_text": {"type": "STRING"},
+        "confidence": {"type": "NUMBER"},
+    },
+    "required": ["domain", "field", "value", "source_text", "confidence"],
+}
+
+_KYC_IDENTITY_EXTRACTION_SCHEMA = {
+    "type": "OBJECT",
+    "properties": {
+        "facts": {"type": "ARRAY", "items": _KYC_IDENTITY_FACT_SCHEMA},
+        "general_fallback_facts": {
+            "type": "ARRAY",
+            "items": _KYC_GENERAL_FALLBACK_FACT_SCHEMA,
+        },
+    },
+    "required": ["facts", "general_fallback_facts"],
 }
 
 _MERGE_DECISION_SCHEMA = {
@@ -780,6 +822,7 @@ class PKMAgentLabService:
         model_override: str | None,
         strict_small_model: bool,
         domain_registry_override: list[dict[str, Any]] | None,
+        memory_profile: str = "general",
     ) -> str:
         material = json.dumps(
             {
@@ -791,6 +834,7 @@ class PKMAgentLabService:
                 "model_override": model_override or "",
                 "strict_small_model": strict_small_model,
                 "domain_registry_override": domain_registry_override or [],
+                "memory_profile": memory_profile,
             },
             sort_keys=True,
             default=str,
@@ -838,7 +882,13 @@ class PKMAgentLabService:
 
     @classmethod
     def _titleize_path(cls, value: str) -> str:
-        return " ".join(part.replace("_", " ").title() for part in value.split(".") if part)
+        """Owner-facing words for a path, built from the segments AS WRITTEN.
+
+        Must be handed the raw path, never the normalized one. Once a segment
+        has been lowercased for authorization the word boundary is gone, and no
+        resolver can tell ``addressdetails`` from a single word.
+        """
+        return humanize_path(value)
 
     @classmethod
     def _infer_sensitivity(cls, path: str) -> str | None:
@@ -3189,7 +3239,18 @@ class PKMAgentLabService:
         value: Any,
         path: list[str],
         paths: dict[str, dict[str, Any]],
+        display_path: list[str] | None = None,
     ) -> None:
+        """Record every path in a payload, with its owner-facing label.
+
+        ``display_path`` mirrors ``path`` segment for segment, spelled the way
+        the owner's data spells it. It is carried rather than derived because
+        ``path`` has already been through ``_normalize_segment``: this walk is
+        the only point where both forms exist at once, and therefore the only
+        place the label can be authored correctly.
+        """
+        if display_path is None:
+            display_path = list(path)
         if value is None:
             return
 
@@ -3206,7 +3267,12 @@ class PKMAgentLabService:
                 and not any(
                     part in _BLOCKED_EXTERNAL_PATH_PARTS for part in current_path.split(".")
                 ),
-                "consent_label": cls._titleize_path(current_path),
+                "consent_label": cls._titleize_path(".".join(display_path)),
+                "display_segment": (
+                    None
+                    if not display_path or display_path[-1] in _SYNTHETIC_SEGMENTS
+                    else display_path[-1]
+                ),
                 "sensitivity_label": cls._infer_sensitivity(current_path),
                 "segment_id": path[0] if path else "root",
                 "source_agent": "pkm_structure_agent",
@@ -3215,7 +3281,7 @@ class PKMAgentLabService:
         if isinstance(value, list):
             sample = next((item for item in value if item is not None), None)
             if sample is not None:
-                cls._walk_payload(sample, [*path, "_items"], paths)
+                cls._walk_payload(sample, [*path, "_items"], paths, [*display_path, "_items"])
             return
 
         if not isinstance(value, dict):
@@ -3224,7 +3290,10 @@ class PKMAgentLabService:
         for raw_key, child_value in value.items():
             normalized_key = cls._normalize_segment(str(raw_key))
             if normalized_key:
-                cls._walk_payload(child_value, [*path, normalized_key], paths)
+                # raw_key, not normalized_key: the spelling still exists here.
+                cls._walk_payload(
+                    child_value, [*path, normalized_key], paths, [*display_path, str(raw_key)]
+                )
 
     @classmethod
     def _payload_financial_signature(cls, payload: dict[str, Any]) -> bool:
@@ -4204,6 +4273,363 @@ class PKMAgentLabService:
             "manifest_draft": deepcopy(manifest_draft),
         }
 
+    @staticmethod
+    def _kyc_identity_fields() -> dict[str, dict[str, Any]]:
+        """Load the shared, value-free KYC alias contract used by web and API."""
+        try:
+            payload = json.loads(_KYC_IDENTITY_PROFILE_CONTRACT_PATH.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            logger.error("pkm.kyc_identity_contract_unavailable error=%s", type(exc).__name__)
+            return {}
+        fields = payload.get("fields") if isinstance(payload, dict) else []
+        return {
+            str(field.get("id") or "").strip(): field
+            for field in fields
+            if isinstance(field, dict)
+            and str(field.get("id") or "").strip()
+            and str(field.get("domain") or "").strip()
+            and str(field.get("path") or "").strip()
+        }
+
+    @classmethod
+    def _kyc_identity_prompt(cls, *, message: str, fields: dict[str, dict[str, Any]]) -> str:
+        allowed = [
+            {"field_id": field_id, "aliases": list(field.get("aliases") or [])}
+            for field_id, field in fields.items()
+        ]
+        return (
+            "Extract only explicit, durable KYC identity facts from the user's supplied text. "
+            "Return no inference, no summaries, no raw about-me blob, no government ID numbers, "
+            "no passwords, tokens, banking details, or unsupported fields. Each fact must use exactly "
+            "one allowed field_id, preserve a direct source_text excerpt from the user, and use a value "
+            "directly stated in that excerpt. If uncertain or conflicting, omit the fact.\n\n"
+            "If an explicit durable fact does not fit an allowed KYC field, put it in "
+            "general_fallback_facts instead. Each fallback must have one small factual value, a stable "
+            "lowercase field label, a direct source_text excerpt, and one of these domains: identity, "
+            "professional, location, health, travel, food, shopping, entertainment, social, general. "
+            "Fallback facts are review-first. Do not emit prose paragraphs, secrets, identifiers, or "
+            "anything ambiguous.\n\n"
+            f"Allowed fields: {json.dumps(allowed, ensure_ascii=False)}\n\n"
+            f"User supplied text:\n{message}"
+        )
+
+    @classmethod
+    def _set_nested_value(cls, payload: dict[str, Any], path: str, value: str) -> None:
+        cursor = payload
+        parts = [part for part in cls._normalize_path(path).split(".") if part]
+        for part in parts[:-1]:
+            nested = cursor.get(part)
+            if not isinstance(nested, dict):
+                nested = {}
+                cursor[part] = nested
+            cursor = nested
+        if parts:
+            cursor[parts[-1]] = value
+
+    @staticmethod
+    def _safe_kyc_general_domain(value: Any) -> str:
+        allowed = {
+            "identity",
+            "professional",
+            "location",
+            "health",
+            "travel",
+            "food",
+            "shopping",
+            "entertainment",
+            "social",
+            _GENERAL_DOMAIN_KEY,
+        }
+        domain = PKMAgentLabService._normalize_segment(str(value or ""))
+        return domain if domain in allowed else ""
+
+    @classmethod
+    def _safe_kyc_general_field(cls, value: Any) -> str:
+        field = cls._normalize_segment(str(value or ""))
+        if not field or field in _BLOCKED_EXTERNAL_PATH_PARTS or field in _STRUCTURAL_SCOPE_TOKENS:
+            return ""
+        return field
+
+    async def _generate_kyc_identity_preview(
+        self,
+        *,
+        user_id: str,
+        message: str,
+        current_domains: list[str],
+        model_override: str | None,
+        execution_trace: list[dict[str, Any]] | None,
+    ) -> dict[str, Any]:
+        """One constrained model pass for explicit KYC facts; no generic fan-out."""
+        fields = self._kyc_identity_fields()
+        started_at = time.perf_counter()
+        secret_kind = self._contains_sensitive_secret(message)
+        raw = (
+            None
+            if secret_kind or not fields
+            else await self._run_agent_contract(
+                manifest=self.structure_manifest,
+                prompt=self._kyc_identity_prompt(message=message, fields=fields),
+                response_schema=_KYC_IDENTITY_EXTRACTION_SCHEMA,
+                model_override=model_override,
+                timeout_seconds=_AGENT_CONTRACT_TIMEOUT_SECONDS,
+                execution_trace=execution_trace,
+            )
+        )
+        facts = (
+            raw.get("facts") if isinstance(raw, dict) and isinstance(raw.get("facts"), list) else []
+        )
+        general_fallback_facts = (
+            raw.get("general_fallback_facts")
+            if isinstance(raw, dict) and isinstance(raw.get("general_fallback_facts"), list)
+            else []
+        )
+        message_normalized = self._safe_excerpt(message, limit=50000).casefold()
+        cards: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for index, fact in enumerate(facts, start=1):
+            if not isinstance(fact, dict):
+                continue
+            field_id = str(fact.get("field_id") or "").strip()
+            field = fields.get(field_id)
+            value = str(fact.get("value") or "").strip()
+            source_text = str(fact.get("source_text") or "").strip()
+            if not field or not value or not source_text:
+                continue
+            # Provider output is only a proposal. It must be anchored in the
+            # exact user-entered text before becoming a PKM candidate.
+            if (
+                source_text.casefold() not in message_normalized
+                or value.casefold() not in source_text.casefold()
+            ):
+                continue
+            dedupe_key = f"{field_id}:{value.casefold()}"
+            if dedupe_key in seen:
+                continue
+            seen.add(dedupe_key)
+            confidence = self._clamp_confidence(fact.get("confidence"), default=0.0)
+            domain = self._normalize_segment(str(field["domain"]))
+            path = self._normalize_path(str(field["path"]))
+            candidate_payload: dict[str, Any] = {}
+            self._set_nested_value(candidate_payload, path, value)
+            intent_frame = {
+                "save_class": "durable",
+                "intent_class": "profile_fact",
+                "mutation_intent": "extend" if domain in current_domains else "create",
+                "requires_confirmation": confidence < _AUTO_SAVE_MIN_CONFIDENCE,
+                "confirmation_reason": "Review this low-confidence KYC extraction before saving."
+                if confidence < _AUTO_SAVE_MIN_CONFIDENCE
+                else "",
+                "candidate_domain_choices": [],
+                "confidence": confidence,
+            }
+            structure_decision = self._fallback_structure_decision(
+                message=source_text,
+                current_domains=current_domains,
+                intent_frame=intent_frame,
+                target_domain=domain,
+                candidate_payload=candidate_payload,
+            )
+            structure_decision["confidence"] = confidence
+            manifest_draft = self._build_manifest_from_payload(
+                user_id=user_id,
+                domain=domain,
+                payload=candidate_payload,
+                structure_decision=structure_decision,
+            )
+            preview = {
+                "routing_decision": "non_financial_or_ephemeral",
+                "intent_frame": intent_frame,
+                "merge_decision": {
+                    "merge_mode": "extend_entity" if domain in current_domains else "create_entity",
+                    "target_domain": domain,
+                    "target_entity_id": "identity_profile" if domain == "identity" else "profile",
+                },
+                "candidate_payload": candidate_payload,
+                "structure_decision": structure_decision,
+                "manifest_draft": manifest_draft,
+                "write_mode": "can_save"
+                if confidence >= _AUTO_SAVE_MIN_CONFIDENCE
+                else "confirm_first",
+                "primary_json_path": path,
+                "target_entity_scope": path.rsplit(".", 1)[0] if "." in path else path,
+                "validation_hints": ["kyc_identity_v1", "explicit_user_statement"],
+            }
+            card = self._build_preview_card(
+                card_id=f"kyc_identity_{index:02d}",
+                source_text=source_text,
+                preview=preview,
+                simulated_state=None,
+            )
+            card.update(
+                {
+                    "canonical_field_id": field_id,
+                    "confidence": confidence,
+                    "source_disposition": "explicit_user_statement",
+                    "retrieval_hints": {
+                        "domain": domain,
+                        "path": path,
+                        "aliases": list(field.get("aliases") or []),
+                        "segment_ids": list(card.get("candidate_segment_ids") or []),
+                    },
+                }
+            )
+            cards.append(card)
+        for index, fact in enumerate(general_fallback_facts, start=1):
+            if not isinstance(fact, dict):
+                continue
+            domain = self._safe_kyc_general_domain(fact.get("domain"))
+            field = self._safe_kyc_general_field(fact.get("field"))
+            value = str(fact.get("value") or "").strip()
+            source_text = str(fact.get("source_text") or "").strip()
+            if (
+                not domain
+                or not field
+                or not value
+                or len(value) > 240
+                or not source_text
+                or source_text.casefold() not in message_normalized
+                or value.casefold() not in source_text.casefold()
+                or self._contains_sensitive_secret(value)
+            ):
+                continue
+            path = f"facts.{field}" if domain == _GENERAL_DOMAIN_KEY else f"profile.{field}"
+            dedupe_key = f"{domain}:{path}:{value.casefold()}"
+            if dedupe_key in seen:
+                continue
+            seen.add(dedupe_key)
+            confidence = self._clamp_confidence(fact.get("confidence"), default=0.0)
+            candidate_payload: dict[str, Any] = {}
+            self._set_nested_value(candidate_payload, path, value)
+            intent_frame = {
+                "save_class": "durable",
+                "intent_class": "profile_fact",
+                "mutation_intent": "extend" if domain in current_domains else "create",
+                "requires_confirmation": True,
+                "confirmation_reason": "Review this KYC detail before saving.",
+                "candidate_domain_choices": [],
+                "confidence": confidence,
+            }
+            structure_decision = self._fallback_structure_decision(
+                message=source_text,
+                current_domains=current_domains,
+                intent_frame=intent_frame,
+                target_domain=domain,
+                candidate_payload=candidate_payload,
+            )
+            structure_decision["confidence"] = confidence
+            manifest_draft = self._build_manifest_from_payload(
+                user_id=user_id,
+                domain=domain,
+                payload=candidate_payload,
+                structure_decision=structure_decision,
+            )
+            preview = {
+                "routing_decision": "non_financial_or_ephemeral",
+                "intent_frame": intent_frame,
+                "merge_decision": {
+                    "merge_mode": "extend_entity" if domain in current_domains else "create_entity",
+                    "target_domain": domain,
+                    "target_entity_id": "profile",
+                },
+                "candidate_payload": candidate_payload,
+                "structure_decision": structure_decision,
+                "manifest_draft": manifest_draft,
+                "write_mode": "confirm_first",
+                "primary_json_path": path,
+                "target_entity_scope": path.rsplit(".", 1)[0],
+                "validation_hints": [
+                    "kyc_identity_v1",
+                    "general_pkm_fallback",
+                    "explicit_user_statement",
+                ],
+            }
+            card = self._build_preview_card(
+                card_id=f"kyc_general_{index:02d}",
+                source_text=source_text,
+                preview=preview,
+                simulated_state=None,
+            )
+            card.update(
+                {
+                    "confidence": confidence,
+                    "source_disposition": "general_pkm_fallback",
+                    "retrieval_hints": {
+                        "domain": domain,
+                        "path": path,
+                        "aliases": [field],
+                        "segment_ids": list(card.get("candidate_segment_ids") or []),
+                    },
+                }
+            )
+            cards.append(card)
+        summary = self._aggregate_preview_summary(
+            preview_cards=cards,
+            split_recommended=False,
+            total_segments_detected=len(cards),
+        )
+        context_plan = self._context_plan_from_cards(cards)
+        used_fallback = raw is None
+        empty_manifest = self._build_manifest_from_payload(
+            user_id=user_id,
+            domain="identity",
+            payload={},
+            structure_decision={
+                "action": "create_domain",
+                "target_domain": "identity",
+                "json_paths": [],
+                "top_level_scope_paths": [],
+                "externalizable_paths": [],
+                "summary_projection": {},
+                "sensitivity_labels": {},
+                "confidence": 0.0,
+                "source_agent": "pkm_structure_agent",
+                "contract_version": DYNAMIC_DOMAIN_CONTRACT_VERSION,
+            },
+        )
+        primary = cards[0] if cards else {}
+        elapsed_ms = round((time.perf_counter() - started_at) * 1000, 2)
+        return {
+            "agent_id": self.structure_manifest.id,
+            "agent_name": self.structure_manifest.name,
+            "model": model_override
+            or _manifest_model_name(self.structure_manifest)
+            or GEMINI_MODEL,
+            "used_fallback": used_fallback,
+            "intent_used_fallback": False,
+            "merge_used_fallback": False,
+            "structure_used_fallback": used_fallback,
+            "error": "sensitive_input_rejected"
+            if secret_kind
+            else ("kyc_identity_extraction_unavailable" if used_fallback else None),
+            "routing_decision": primary.get("routing_decision", "non_financial_or_ephemeral"),
+            "intent_frame": primary.get("intent_frame", {}),
+            "merge_decision": primary.get("merge_decision", {}),
+            "candidate_payload": primary.get("candidate_payload", {}),
+            "structure_decision": primary.get(
+                "structure_decision", empty_manifest["structure_decision"]
+            ),
+            "write_mode": primary.get("write_mode", "do_not_save"),
+            "primary_json_path": primary.get("primary_json_path"),
+            "target_entity_scope": primary.get("target_entity_scope"),
+            "validation_hints": [
+                "kyc_identity_v1",
+                *([f"sensitive_{secret_kind}_rejected"] if secret_kind else []),
+            ],
+            "manifest_draft": primary.get("manifest_draft", empty_manifest),
+            "preview_cards": cards,
+            "preview_summary": summary,
+            "performance": {
+                "total_latency_ms": elapsed_ms,
+                "stage_latencies_ms": {"kyc_identity_extraction": elapsed_ms},
+                "cards_returned": len(cards),
+                "extraction_call_count": 0 if secret_kind or not fields else 1,
+                "strategy": "single_constrained_kyc_identity_extraction",
+                "context_domains_loaded": context_plan.get("candidate_domains") or [],
+                "context_segments_loaded": context_plan.get("candidate_segment_ids") or [],
+            },
+            "context_plan": context_plan,
+        }
+
     def _build_memory_intent_prompt(
         self,
         *,
@@ -4710,6 +5136,7 @@ class PKMAgentLabService:
         strict_small_model: bool = False,
         domain_registry_override: list[dict[str, Any]] | None = None,
         capture_execution_trace: bool = False,
+        memory_profile: str = "general",
     ) -> dict[str, Any]:
         total_started_at = time.perf_counter()
         normalized_domains = [
@@ -4724,6 +5151,7 @@ class PKMAgentLabService:
             model_override=model_override,
             strict_small_model=strict_small_model,
             domain_registry_override=domain_registry_override,
+            memory_profile=memory_profile,
         )
         if not capture_execution_trace:
             cached_preview = self._get_cached_structure_preview(preview_cache_key)
@@ -4738,6 +5166,21 @@ class PKMAgentLabService:
         async def _build_preview() -> dict[str, Any]:
             errors: list[str] = []
             execution_trace: list[dict[str, Any]] | None = [] if capture_execution_trace else None
+            if memory_profile == "kyc_identity_v1":
+                response_payload = await self._generate_kyc_identity_preview(
+                    user_id=user_id,
+                    message=message,
+                    current_domains=normalized_domains,
+                    model_override=model_override,
+                    execution_trace=execution_trace,
+                )
+                if execution_trace is not None:
+                    response_payload.setdefault("performance", {})["agent_execution"] = (
+                        execution_trace
+                    )
+                if not capture_execution_trace:
+                    self._set_cached_structure_preview(preview_cache_key, response_payload)
+                return response_payload
             preview_deadline = time.perf_counter() + _PREVIEW_TOTAL_BUDGET_SECONDS
 
             segmentation_started_at = time.perf_counter()

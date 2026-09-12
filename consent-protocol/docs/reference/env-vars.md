@@ -68,7 +68,7 @@ What is in `.env` / GCP Secret Manager must match exactly what the code reads --
 | `GMAIL_OAUTH_CLIENT_SECRET` | `hushh_mcp/services/gmail_receipts_service.py` | Yes (Gmail sync) | Gmail OAuth client secret. Same key name across local, UAT, and production. |
 | `GMAIL_OAUTH_REDIRECT_URI` | `hushh_mcp/services/gmail_receipts_service.py` | Yes (Gmail receipts and owner-approved send) | Environment-owned Gmail OAuth callback. It must equal `APP_FRONTEND_ORIGIN + /one/profile/gmail/oauth/return`; register that exact URI in the Google OAuth client for every environment. |
 | `GMAIL_OAUTH_TOKEN_KEY` | `hushh_mcp/services/gmail_receipts_service.py` | Yes (Gmail sync) | Encryption key for persisted Gmail OAuth tokens. Same key name across local, UAT, and production. |
-| `GOOGLE_OAUTH_CLIENT_ID` | `hushh_mcp/services/google_connection_service.py` | Preferred for Google integrations | Google OAuth web-client id for Calendar, Drive, Contacts, and future Gmail migration. Falls back to `GMAIL_OAUTH_CLIENT_ID` during the compatibility transition. |
+| `GOOGLE_OAUTH_CLIENT_ID` | `hushh_mcp/services/google_connection_service.py` | Preferred for Google integrations | Google OAuth web-client id for Calendar, Contacts, and future Gmail migration. Falls back to `GMAIL_OAUTH_CLIENT_ID` during the compatibility transition. |
 | `GOOGLE_OAUTH_CLIENT_SECRET` | `hushh_mcp/services/google_connection_service.py` | Preferred for Google integrations | Google OAuth web-client secret. Falls back to the Gmail-named secret during the compatibility transition. |
 | `GOOGLE_OAUTH_REDIRECT_URI` | `hushh_mcp/services/google_connection_service.py` | Preferred for Google integrations | Optional explicit override. If unset, Calendar derives `APP_FRONTEND_ORIGIN + /one/profile/google/oauth/return`; register that exact URI in the OAuth client. |
 | `GOOGLE_OAUTH_TOKEN_KEY` | `hushh_mcp/services/google_connection_service.py` | Preferred for Google integrations | AES-GCM key for normalized Google provider credentials and PKCE verifier envelopes. Falls back to `GMAIL_OAUTH_TOKEN_KEY` only while Gmail remains on its legacy table. |
@@ -319,6 +319,10 @@ watch renewal schedule, strict client-side ZK env parity, and a real UAT smoke.
 Local runtime bootstrap:
 
 - `bash scripts/env/bootstrap_profiles.sh` hydrates Gmail and voice backend secrets into `consent-protocol/.env` from the selected cloud project when those secrets are available.
+- For the local profile, bootstrap also mirrors UAT's non-secret
+  `GENAI_GOOGLE_CLOUD_PROJECT` override so managed Gemini uses the same
+  separately billed Vertex project as UAT. The local ADC identity must still
+  have Vertex prediction access in that project.
 - The key names are identical across local, UAT, and production. Only the secret values differ by project.
 - Missing Gmail/voice values are warnings by default and become failures only when bootstrap is run with `--strict`.
 
@@ -335,6 +339,7 @@ Local runtime bootstrap:
 | `APP_FRONTEND_ORIGIN` | Yes | GCP Secret Manager |
 | `HUSHH_GENAI_AUTH_MODE` | No | Cloud Run env var (`vertex_adc`) |
 | `GOOGLE_CLOUD_PROJECT` | No | Cloud Run env var |
+| `GENAI_GOOGLE_CLOUD_PROJECT` | No | Cloud Run env var; explicitly allowlisted managed Vertex billing/routing project |
 | `GOOGLE_CLOUD_LOCATION` | No | Cloud Run env var |
 | `GOOGLE_MAPS_API_KEY` | Yes | GCP Secret Manager |
 | `FIREBASE_ADMIN_CREDENTIALS_JSON` | Yes | GCP Secret Manager |

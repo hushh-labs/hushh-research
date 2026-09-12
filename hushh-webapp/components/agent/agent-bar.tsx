@@ -2,7 +2,7 @@
 // Persistent, screen-aware agent launcher bar.
 //
 // A small dock that sits above the bottom navbar + search on every
-// authenticated screen. Voice and Chat are separate sibling actions: Voice owns
+// authenticated screen. Voice and Chat share one segmented pill: Voice owns
 // the waveform/effects, Chat owns the text conversation entry point.
 
 "use client";
@@ -25,6 +25,7 @@ import { AgentVoiceWaveform } from "@/components/agent/agent-voice-waveform";
 import { VoiceActionCard } from "@/components/agent/voice-action-card";
 import { VoiceWalkthroughPanel } from "@/components/agent/voice-walkthrough-panel";
 import { VoiceErrorCard } from "@/components/agent/voice-error-card";
+import { useOptionalOneLocationInteractionSurface } from "@/components/one-location/onboarding/location-onboarding-interaction-surface";
 import { useAuth } from "@/hooks/use-auth";
 import {
   executeAgentGatewayAction,
@@ -35,6 +36,10 @@ import { settleAgentGatewayAction } from "@/lib/agent/agent-gateway-action-settl
 import { useAgentRuntimeStateOptional } from "@/lib/agent/agent-runtime-context";
 import { registerOneSystemActionExecutor } from "@/lib/agent/one-system-action-executor";
 import { executeOneSystemActionThroughGateway } from "@/lib/agent/one-system-action-gateway-adapter";
+import {
+  dispatchServerDirectCapability,
+  isServerDirectCapability,
+} from "@/lib/agent/server-direct-capability-runtime";
 import { requiresHardTapConfirmation } from "@/lib/agent/confirmation-tap-policy";
 import {
   readVoicePreferences,
@@ -53,6 +58,7 @@ import {
 import {
   AGENT_CONVERSATION_CANCEL_EVENT,
   AGENT_CONVERSATION_REQUEST_EVENT,
+  AGENT_CONVERSATION_STOP_EVENT,
   acknowledgeAgentConversation,
   markAgentConversationOwnerReady,
   type AgentConversationRequest,
@@ -61,6 +67,7 @@ import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
 import { validateMorphyAxAssessment } from "@/lib/morphy-ax";
 import { snapKaiBottomChromeVisible } from "@/lib/navigation/kai-bottom-chrome-visibility";
 import { getKaiChromeState } from "@/lib/navigation/kai-chrome-state";
+import { requestInternalAppNavigation } from "@/lib/utils/browser-navigation";
 import {
   KAI_MARKET_PATH,
   ROUTES,
@@ -83,17 +90,9 @@ import {
 } from "@/lib/connections/gemini-runtime-configuration";
 import { getVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 import { deriveVoiceRouteScreen } from "@/lib/voice/route-screen-derivation";
-import {
-  getKaiActionById,
-  KAI_ACTION_GATEWAY_SCHEMA_VERSION,
-} from "@/lib/voice/kai-action-gateway";
-import {
-  resolveLocalIntentAsync,
-  type IntentResolution,
-  type LocalIntentResolverInput,
-  type OneVoiceIntentResolver,
-} from "@/lib/voice/local-intent-resolver";
-import { prepareLocalIntentResolver } from "@/lib/voice/local-intent-runtime";
+import { getKaiActionById } from "@/lib/voice/kai-action-gateway";
+import type { LocationOnboardingRunResultV1 } from "@/lib/services/one-location-onboarding-run-client";
+import { publishLocationCommandStatusCard } from "@/lib/one-location/location-command-status-card";
 import {
   parseToolTraceCard,
   parseVoiceSubject,
@@ -115,11 +114,20 @@ import {
   nextThemePreference,
   resolveThemePreference,
 } from "@/lib/theme/theme-preference";
-import { createRealtimeVoiceTransport } from "@/lib/voice/one-voice-transport-factory";
-import { createOneVoiceSpeechAdapter } from "@/lib/voice/speech-adapter-factory";
-import { getVoiceV2Flags } from "@/lib/voice/voice-feature-flags";
+import {
+  createRealtimeVoiceTransport,
+  primeRealtimeVoiceOutput,
+} from "@/lib/voice/one-voice-transport-factory";
+import {
+  oneVoiceSessionLifecycle,
+  type OneVoiceFollowUpWindow,
+} from "@/lib/voice/one-voice-session-lifecycle";
+import { createOneVoiceRealtimeAudioInput } from "@/lib/voice/native-realtime-audio-input";
+import type { OneVoiceRealtimeAudioInput } from "@/lib/voice/realtime-audio-input";
 import type { OneVoiceContextSnapshot } from "@/lib/voice/screen-context-builder";
 import type {
+  OneVoiceConfirmationMethod,
+  OneVoiceActivationSource,
   OneVoiceSessionEvent,
   RealtimeVoiceTransport,
 } from "@/lib/voice/one-voice-transport";
@@ -128,19 +136,38 @@ import type {
   AgentVoiceStatus,
 } from "@/lib/agent/agent-voice-state";
 import { redactSensitiveVoiceTranscript } from "@/lib/voice/voice-sensitive-redaction";
+import { createVoiceTurnId, logVoiceMetric } from "@/lib/voice/voice-telemetry";
 
-type PrewarmedGeminiRelay = {
-  relayUrl: string;
+type PrewarmedGeminiSession = {
+  client: RealtimeVoiceTransport;
   expiresAtMs: number;
-  snapshotId: string;
   accessTier: string;
+  contextKey: string;
+  runtimeMode: "hushh_managed_vertex" | "byok";
+  /** Never persisted; rejects a warm socket after an auth-owner transition. */
+  ownerEpoch: number;
+  /** Server-minted HMAC scope, never a Firebase uid. */
+  voiceSessionScope: string | null;
 };
 
+type ForegroundGreetingFollowUpState =
+  "arming" | "tap_required" | "listening" | null;
+
+/**
+ * The lifecycle needs to distinguish an actual person activation from an
+ * automatic recovery.  A recovery must preserve a durable task, but it must
+ * not reset the five-minute greeting gate simply because a socket renewed.
+ */
 type PendingVoiceConfirmation = {
   directiveId: string;
   actionId: string;
   slots?: Record<string, unknown>;
-  route: string | null;
+  /**
+   * This card is owned by the app-root interaction host, never by the route
+   * that happened to be visible when One proposed it. Navigation may update
+   * runtime context, but only an explicit settlement, superseding directive,
+   * auth boundary, or closed session may remove a pending confirmation.
+   */
   leaseId: string;
   ledgerSessionId: string;
   actionRunId: string;
@@ -150,67 +177,31 @@ type PendingVoiceConfirmation = {
   /** Set once the person has gone quiet on this card past the nudge window. */
   nudgedAt?: number | null;
   /**
+   * The server's hard-card policy. Unlike a normal confirmation, this action
+   * may only be authorized by the physical card button, never spoken text or
+   * a carried journey approval.
+   */
+  requiresTrustedTapConfirmation?: boolean;
+  /**
    * The journey this directive opens, when it opens one. Present means the
    * card shows the whole plan and one approval covers its batchable steps.
    */
   plan?: JourneyPlan | null;
 };
 
-function isLocallyHandledIntent(
-  resolution: IntentResolution | null,
-): resolution is IntentResolution {
-  return Boolean(
-    resolution &&
-      (resolution.disposition === "action" ||
-        resolution.disposition === "read_answer" ||
-        resolution.disposition === "clarify" ||
-        resolution.reason === "sos_send_blocked"),
-  );
-}
-
-function localIntentResponse(resolution: IntentResolution): string {
-  const circleCount =
-    typeof resolution.slots.count === "number"
-      ? resolution.slots.count
-      : null;
-  if (resolution.disposition === "read_answer") {
-    if (circleCount !== null) {
-      return `You have ${circleCount} ${circleCount === 1 ? "Circle" : "Circles"}.`;
-    }
-    if (resolution.readCapability === "read_location_status") {
-      return resolution.slots.enabled === true
-        ? "Location sharing is on."
-        : "Location sharing is paused.";
-    }
-    if (resolution.readCapability === "read_location_permission") {
-      const permission = resolution.slots.permission;
-      return permission === "granted"
-        ? "Location permission is granted."
-        : permission === "denied"
-          ? "Location permission is denied."
-          : permission === "restricted"
-            ? "Location permission is restricted."
-            : "I need fresh Location permission state to answer that safely.";
-    }
-    if (resolution.readCapability === "read_current_location_status") {
-      return resolution.slots.available === true
-        ? "Your current location is available."
-        : "Your current location is not available right now.";
-    }
-    return "I need fresh Location data to answer that safely.";
-  }
-  if (resolution.reason === "sos_send_blocked") {
-    return "I cannot send an SOS by voice. I can open the SOS review screen instead.";
-  }
-  if (resolution.missingSlots?.includes("name")) {
-    return "What should I call the new circle?";
-  }
-  if (resolution.reason === "action_unavailable") {
-    return "That action is not available in the current Agent One context.";
-  }
-  return "What would you like me to do with your location?";
-}
-
+/**
+ * Local, RAM-only ownership of one tap-started command. It contains no
+ * transcript or slot data: the opaque id only correlates the visible command
+ * with the server-owned final-transcript boundary. Speech end is never
+ * inferred from a pointer release or a client RMS threshold.
+ */
+type LocationCommandActivation = {
+  turnId: string;
+  cancelled: boolean;
+  /** Set only by the relay's authoritative speech-end control event. */
+  endpointed: boolean;
+  completed: boolean;
+};
 
 function readBrowserVoiceRoute() {
   if (typeof window === "undefined") return undefined;
@@ -233,6 +224,37 @@ function routeMatchesVoiceContext(
     (!expectedRoute || context.route.route_family === expectedRoute) &&
     (!expectedScreen || context.route.screen === expectedScreen)
   );
+}
+
+/**
+ * A foreground welcome is allowed to arm capture only when it can do so
+ * without manufacturing a browser permission prompt outside a user gesture.
+ * The native bridge has its own reviewed permission flow; its `start` result
+ * remains the authoritative device check. Browser callers must have already
+ * granted microphone permission, otherwise the visible pill is the required
+ * user gesture rather than a silent, empty follow-up timer.
+ */
+async function canAutoArmGreetingFollowUp(
+  realtimeAudioInput: OneVoiceRealtimeAudioInput | null,
+): Promise<boolean> {
+  if (realtimeAudioInput?.source === "ios_native_pcm") return true;
+  if (
+    typeof navigator === "undefined" ||
+    !navigator.mediaDevices?.getUserMedia ||
+    !navigator.permissions?.query
+  ) {
+    return false;
+  }
+  try {
+    const permission = await navigator.permissions.query({
+      name: "microphone" as PermissionName,
+    });
+    return permission.state === "granted";
+  } catch {
+    // Safari and embedded webviews can omit the Permissions API. Treat that
+    // as tap-required instead of probing getUserMedia from a server directive.
+    return false;
+  }
 }
 
 async function waitForDestinationVoiceContext(input: {
@@ -269,6 +291,80 @@ async function settleAgentBarAction(
   });
 }
 
+const DESTINATION_CONTEXT_UNSETTLED_SUMMARY =
+  "I couldn't verify the next screen. Please try again.";
+
+function failedDestinationContextResult(
+  result: AgentActionRuntimeResult,
+  reason:
+    "destination_context_unsettled" | "destination_context_unacknowledged",
+): AgentActionRuntimeResult {
+  return {
+    ...result,
+    // A `started` settlement is deliberately non-terminal in the relay so it
+    // cannot honestly conclude the action. This client has no background
+    // settlement continuation after this bounded barrier, therefore sending
+    // `started` here would leave the directive open until server-side garbage
+    // collection. Report a terminal verification failure instead: the route
+    // may have begun, but One must not claim it reached the usable screen.
+    status: "failed",
+    reason,
+    resultSummary: DESTINATION_CONTEXT_UNSETTLED_SUMMARY,
+  };
+}
+
+/**
+ * A navigation action cannot truthfully be settled as successful until the
+ * destination has both rendered a matching redacted context and had that
+ * context acknowledged by the relay that owns the spoken outcome. This is
+ * shared by direct and confirmation-card actions so neither path announces a
+ * screen transition before the UI can actually accept the next turn.
+ */
+async function settleAgentBarActionWithDestination(input: {
+  result: AgentActionRuntimeResult;
+  readContext: () => OneVoiceContextSnapshot | null;
+  transport: RealtimeVoiceTransport | null | undefined;
+  signal?: AbortSignal;
+}): Promise<{
+  result: AgentActionRuntimeResult;
+  destinationContextId: string | null;
+}> {
+  const result = await settleAgentBarAction(input.result);
+  if (!result.routeAfter || result.status !== "succeeded") {
+    return { result, destinationContextId: null };
+  }
+
+  const destinationContext = await waitForDestinationVoiceContext({
+    readContext: input.readContext,
+    result,
+    signal: input.signal,
+  });
+  if (!destinationContext) {
+    return {
+      result: failedDestinationContextResult(
+        result,
+        "destination_context_unsettled",
+      ),
+      destinationContextId: null,
+    };
+  }
+
+  const applied = await input.transport?.applyContextAndWait?.(
+    destinationContext,
+    { signal: input.signal },
+  );
+  if (applied?.status !== "acknowledged") {
+    return {
+      result: failedDestinationContextResult(
+        result,
+        "destination_context_unacknowledged",
+      ),
+      destinationContextId: null,
+    };
+  }
+
+  return { result, destinationContextId: applied.contextId };
+}
 
 // A confirmation card waits for an explicit tap; this only decides when to
 // nudge someone who's gone quiet on it. Nudging is a same-card text change,
@@ -320,23 +416,23 @@ function directiveFingerprint(input: {
   actionId: string;
   goalId: string | null;
   needsConfirmation: boolean;
+  requiresTrustedTapConfirmation: boolean;
   slots: Record<string, unknown> | undefined;
 }): string {
   // Directive ledgers must never retain action inputs. Slot names/types are
   // enough to reject conflicting reuse of an ID without retaining OTPs or
   // other sensitive values in client memory beyond the execution itself.
   const slots: Array<[string, string]> = Object.entries(input.slots ?? {})
-    .map(
-      ([key, value]): [string, string] => [
-        key,
-        Array.isArray(value) ? "array" : typeof value,
-      ],
-    )
+    .map(([key, value]): [string, string] => [
+      key,
+      Array.isArray(value) ? "array" : typeof value,
+    ])
     .sort((left, right) => left[0].localeCompare(right[0]));
   return JSON.stringify({
     actionId: input.actionId,
     goalId: input.goalId,
     needsConfirmation: input.needsConfirmation,
+    requiresTrustedTapConfirmation: input.requiresTrustedTapConfirmation,
     slots,
   });
 }
@@ -362,6 +458,28 @@ function resolveAgentBarHint(pathname: string | null): string {
   return AGENT_BAR_DEFAULT_HINT;
 }
 
+// The command relay may select only a compiled, lease-bound Location workflow
+// directive. Its actual card/device behavior is owned by the app-root command
+// bridge, never by route-specific chat UI.
+const LOCATION_COMMAND_WORKFLOW_ID = "workflow.setup.location";
+
+function isLocationCommandWorkflowDirective(
+  result: LocationOnboardingRunResultV1,
+): boolean {
+  const directive = result.directive;
+  const pendingDirective = result.run.pendingDirective;
+  return Boolean(
+    result.run.workflowId === LOCATION_COMMAND_WORKFLOW_ID &&
+    directive &&
+    pendingDirective &&
+    directive.directiveId === pendingDirective.directiveId &&
+    directive.contractId === pendingDirective.contractId &&
+    directive.lease.leaseId === pendingDirective.lease.leaseId &&
+    directive.lease.runRevision === result.run.revision &&
+    pendingDirective.lease.runRevision === result.run.revision,
+  );
+}
+
 export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
   const agentBarShellRef = useRef<HTMLDivElement | null>(null);
   const pathname = usePathname();
@@ -371,6 +489,10 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
   // for tier-aware presentation and to detect the home/onboarding surfaces
   // consistently with the chat workspace, instead of recomputing locally.
   const runtime = useAgentRuntimeStateOptional();
+  // The durable Location workflow surface is app-root-owned, so a command
+  // started from any route can safely render its server-issued card without
+  // mounting legacy conversational UI or losing the task on navigation.
+  const locationInteractionSurface = useOptionalOneLocationInteractionSurface();
   const { user, loading: authLoading } = useAuth();
   const { theme, setTheme } = useTheme();
   const { vaultOwnerToken, vaultKey, isVaultUnlocked } = useVault();
@@ -390,6 +512,22 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
   // the bar highlights and an ambient waveform animates in place, reacting to
   // the user's voice (listening) and the agent's reply (speaking).
   const [conversationActive, setConversationActive] = useState(false);
+  // The relay remains the author of this message. Keeping its first returned
+  // text visible means a WebAudio policy that declines background playback
+  // still leaves a person with the same welcome, without synthesizing a turn.
+  const [foregroundGreeting, setForegroundGreeting] = useState<string | null>(
+    null,
+  );
+  // A completed relay greeting deliberately leaves the launcher idle: this is
+  // the explicit "tap to talk" state, not an open microphone or a second
+  // hidden conversation. It also gives audio-output-restricted devices a
+  // visible affordance after the server response completes.
+  const [foregroundGreetingReady, setForegroundGreetingReady] = useState(false);
+  // Presentation only. This never changes server greeting eligibility or
+  // persists microphone/permission state; it tells a person whether the
+  // directive's ten-second follow-up can actually hear them.
+  const [foregroundGreetingFollowUpState, setForegroundGreetingFollowUpState] =
+    useState<ForegroundGreetingFollowUpState>(null);
   // Bumped to trigger a deferred (re)start -- manual retry or automatic
   // reconnect -- once conversationActive has genuinely settled. See the
   // effect near startConversation for why this can't just call it directly.
@@ -412,20 +550,58 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
     clearJourneyApproval(reason);
   }, []);
   const activeActionRun = useActiveActionRun();
+  // This is populated only from the authenticated relay-session response.
+  // It intentionally never receives a Firebase uid or a browser-generated id.
+  const voiceSessionScopeRef = useRef<string | null>(null);
+  // Keeps an in-memory warm socket from crossing an auth-owner transition
+  // without retaining the owner identity alongside the socket.
+  const voiceSessionOwnerEpochRef = useRef(0);
+  // A direct relay-ticket request is cancellable independently from an open
+  // socket. Stopping, backgrounding, or changing auth must not leave a stale
+  // ticket request able to install an old owner's opaque scope afterward.
+  const relaySessionAbortControllerRef = useRef<AbortController | null>(null);
+  // The lifecycle module owns the opaque timing record. This timer owns only
+  // this mounted transport's capture lease: after a reply it closes cloud PCM
+  // without closing the authenticated relay or throwing away the durable run.
+  // The epoch makes a late timer from a prior reply/session a harmless no-op.
+  const followUpCaptureTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
+  const followUpCaptureEpochRef = useRef(0);
+  const clearFollowUpCaptureTimer = useCallback(() => {
+    followUpCaptureEpochRef.current += 1;
+    if (followUpCaptureTimerRef.current) {
+      clearTimeout(followUpCaptureTimerRef.current);
+      followUpCaptureTimerRef.current = null;
+    }
+  }, []);
   // Read directly rather than through AgentRuntimeState's snapshot: that
   // snapshot is deliberately the subset of preferences the backend relay
   // needs to see, and walk-through mode is a purely client-side rendering
   // choice with nothing for the relay to act on.
-  const [walkthroughModeEnabled, setWalkthroughModeEnabled] = useState(
-    () => readVoicePreferences(user?.uid).walkthroughMode,
+  const [voicePreferences, setVoicePreferences] = useState(() =>
+    readVoicePreferences(user?.uid),
   );
+  const walkthroughModeEnabled = voicePreferences.walkthroughMode;
   useEffect(() => {
-    setWalkthroughModeEnabled(readVoicePreferences(user?.uid).walkthroughMode);
+    setVoicePreferences(readVoicePreferences(user?.uid));
     if (!user?.uid) return;
-    return subscribeVoicePreferences(user.uid, (next) =>
-      setWalkthroughModeEnabled(next.walkthroughMode),
-    );
+    return subscribeVoicePreferences(user.uid, setVoicePreferences);
   }, [user?.uid]);
+  useEffect(() => {
+    relaySessionAbortControllerRef.current?.abort();
+    relaySessionAbortControllerRef.current = null;
+    const previousScope = voiceSessionScopeRef.current;
+    if (previousScope) {
+      oneVoiceSessionLifecycle.clearUser(previousScope);
+    }
+    voiceSessionScopeRef.current = null;
+    voiceSessionOwnerEpochRef.current += 1;
+    clearFollowUpCaptureTimer();
+    setForegroundGreeting(null);
+    setForegroundGreetingReady(false);
+    setForegroundGreetingFollowUpState(null);
+  }, [clearFollowUpCaptureTimer, user?.uid]);
   // Present only while the current screen has genuinely stopped -- e.g. no
   // connections to share location with -- and names the one action that
   // unsticks it. Already computed and reactive (screen-context-builder.ts
@@ -437,7 +613,7 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
   // Temporarily switched off -- gated here rather than deleted, since the
   // backend/context plumbing is unchanged and this is meant to come back.
   const deadEnd = DEAD_END_INSIGHTS_ENABLED
-    ? runtime?.oneVoiceContextSnapshot.ui.dead_end ?? null
+    ? (runtime?.oneVoiceContextSnapshot.ui.dead_end ?? null)
     : null;
   const deadEndRemedyAction = deadEnd
     ? getKaiActionById(deadEnd.remedy_action_id)
@@ -451,23 +627,27 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
   const setVoiceLevel = useAgentVoiceState((s) => s.setLevel);
   const resetVoice = useAgentVoiceState((s) => s.reset);
   const liveClientRef = useRef<RealtimeVoiceTransport | null>(null);
-  const localIntentResolverRef = useRef<OneVoiceIntentResolver | null>(null);
-  const localIntentResolverGenerationRef = useRef(0);
-  const disposeLocalIntentResolver = useCallback(() => {
-    localIntentResolverGenerationRef.current += 1;
-    const resolver = localIntentResolverRef.current;
-    localIntentResolverRef.current = null;
-    resolver?.dispose?.();
-  }, []);
-  const resolveActiveLocalIntent = useCallback(
-    (input: LocalIntentResolverInput): Promise<IntentResolution> => {
-      const resolver = localIntentResolverRef.current;
-      return resolver
-        ? resolver.resolve(input)
-        : resolveLocalIntentAsync(input);
-    },
-    [],
+  const locationInteractionSurfaceRef = useRef(locationInteractionSurface);
+  useEffect(() => {
+    locationInteractionSurfaceRef.current = locationInteractionSurface;
+  }, [locationInteractionSurface]);
+  const locationCommandActivationRef = useRef<LocationCommandActivation | null>(
+    null,
   );
+  const ensureLocationCommandActivation = useCallback(() => {
+    const existing = locationCommandActivationRef.current;
+    if (existing && !existing.cancelled && !existing.completed) {
+      return existing;
+    }
+    const activation: LocationCommandActivation = {
+      turnId: `location_command_${createVoiceTurnId()}`,
+      cancelled: false,
+      endpointed: false,
+      completed: false,
+    };
+    locationCommandActivationRef.current = activation;
+    return activation;
+  }, []);
   const latestVoiceContextRef = useRef<OneVoiceContextSnapshot | null>(
     runtime?.oneVoiceContextSnapshot ?? null,
   );
@@ -478,9 +658,17 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
   // UI state updates after async credential resolution. This lease reserves
   // microphone/transport ownership synchronously at the actual tap boundary.
   const voiceLeaseRef = useRef<VoiceSessionLease | null>(null);
-  const activeRuntimeModeRef = useRef<"hushh_managed_vertex" | "byok" | null>(null);
+  const activeRuntimeModeRef = useRef<"hushh_managed_vertex" | "byok" | null>(
+    null,
+  );
   const lastTranscriptRef = useRef<{ text: string; atMs: number } | null>(null);
-  const prewarmedRelayRef = useRef<PrewarmedGeminiRelay | null>(null);
+  const prewarmedSessionRef = useRef<PrewarmedGeminiSession | null>(null);
+  // The exact warm transport currently draining a fixed server greeting. This
+  // is an in-memory audio-safety fence only; it is not a greeting eligibility
+  // reservation and never survives a page/app lifecycle boundary.
+  const foregroundGreetingOutputClientRef =
+    useRef<RealtimeVoiceTransport | null>(null);
+  const prewarmAbortControllerRef = useRef<AbortController | null>(null);
   // A system invocation can only request this existing owner. Correlation
   // metadata stays in memory until the Live transport either listens or fails.
   const externalStartRequestRef = useRef<AgentConversationRequest | null>(null);
@@ -512,9 +700,58 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
     const bridge = window.__HUSHH_NATIVE_TEST__;
     if (!bridge?.enabled) return undefined;
 
-    const dispatch = async (actionId: string, slots?: Record<string, unknown>) => {
+    const dispatch = async (
+      actionId: string,
+      slots?: Record<string, unknown>,
+    ) => {
       bridge.dispatchAgentActionStatus = `running:${actionId}`;
       bridge.dispatchAgentActionError = "";
+      if (isServerDirectCapability(actionId)) {
+        // The physical-device/E2E bridge is a caller, never an alternate
+        // action engine. Keep its Circle coverage on the same server runtime
+        // that Siri uses, and fail closed if that runtime is unavailable.
+        const serverResult = await dispatchServerDirectCapability({
+          actionId,
+          slots: slots ?? {},
+          vaultOwnerToken,
+          invocationId: `native_test_${Date.now()}_${Math.random()
+            .toString(36)
+            .slice(2, 14)}`,
+        });
+        const currentRoute = runtime?.appRuntimeState.route ?? null;
+        const action = getKaiActionById(actionId);
+        const result: AgentActionRuntimeResult = {
+          status:
+            serverResult.status === "completed"
+              ? "succeeded"
+              : serverResult.status === "settling" ||
+                  serverResult.status === "paused"
+                ? "started"
+                : serverResult.status === "input_needed" ||
+                    serverResult.status === "blocked"
+                  ? "blocked"
+                  : "failed",
+          actionId,
+          label: action?.label ?? null,
+          routeBefore: currentRoute?.pathname ?? null,
+          screenBefore: currentRoute?.screen ?? null,
+          resultSummary: serverResult.message,
+          reason:
+            serverResult.status === "completed"
+              ? null
+              : `server_direct_${serverResult.status}`,
+          data: {
+            ...(serverResult.runId
+              ? { capabilityRunId: serverResult.runId }
+              : {}),
+            ...(serverResult.missingSlot
+              ? { missingSlot: serverResult.missingSlot }
+              : {}),
+          },
+        };
+        bridge.dispatchAgentActionStatus = `ok:${actionId}`;
+        return result;
+      }
       const runtimeState = runtime?.appRuntimeState;
       if (!runtimeState) {
         const message = "App runtime state is not ready.";
@@ -547,7 +784,9 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
       } catch (error) {
         bridge.dispatchAgentActionStatus = `error:${actionId}`;
         bridge.dispatchAgentActionError =
-          error instanceof Error ? error.message : "native action dispatch failed";
+          error instanceof Error
+            ? error.message
+            : "native action dispatch failed";
         throw error;
       }
     };
@@ -560,7 +799,15 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
         currentBridge.dispatchAgentAction = null;
       }
     };
-  }, [runtime, user?.uid, router, busyOperations, setAnalysisParams, switchPersona]);
+  }, [
+    runtime,
+    user?.uid,
+    router,
+    busyOperations,
+    setAnalysisParams,
+    switchPersona,
+    vaultOwnerToken,
+  ]);
 
   // Siri/App Intents are a structured invocation surface, not another action
   // engine. Register the existing Agent Bar owner as the only executor and
@@ -597,7 +844,8 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
         ),
         hasPortfolioData:
           runtimeState.portfolio.has_portfolio_data ||
-          currentRuntime?.oneVoiceContextSnapshot.cache.portfolio_ready === true,
+          currentRuntime?.oneVoiceContextSnapshot.cache.portfolio_ready ===
+            true,
         busyOperations,
         setAnalysisParams,
         switchPersona,
@@ -609,6 +857,50 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
           runtimeState.route,
         getCurrentSurfaceMetadata: getVoiceSurfaceMetadata,
       });
+    };
+
+    const executeServerDirect = async (
+      actionId: string,
+      slots: Record<string, unknown>,
+      invocationId: string,
+    ): Promise<AgentActionRuntimeResult> => {
+      // This intentionally does not require a mounted route/runtime state.
+      // Siri can open the app while React is restoring, but the server-owned
+      // Circle capability has its own authenticated context, run, and
+      // settlement proof. A client route must not become its executor.
+      const currentRoute =
+        latestSystemActionRuntimeRef.current?.appRuntimeState.route ?? null;
+      const action = getKaiActionById(actionId);
+      const result = await dispatchServerDirectCapability({
+        actionId,
+        slots,
+        vaultOwnerToken,
+        invocationId,
+      });
+      const runtimeStatus: AgentActionRuntimeResult["status"] =
+        result.status === "completed"
+          ? "succeeded"
+          : result.status === "settling" || result.status === "paused"
+            ? "started"
+            : result.status === "input_needed" || result.status === "blocked"
+              ? "blocked"
+              : "failed";
+      return {
+        status: runtimeStatus,
+        actionId,
+        label: action?.label ?? null,
+        routeBefore: currentRoute?.pathname ?? null,
+        screenBefore: currentRoute?.screen ?? null,
+        resultSummary: result.message,
+        reason:
+          runtimeStatus === "succeeded"
+            ? null
+            : `server_direct_${result.status}`,
+        data: {
+          ...(result.runId ? { capabilityRunId: result.runId } : {}),
+          ...(result.missingSlot ? { missingSlot: result.missingSlot } : {}),
+        },
+      };
     };
 
     const waitForScreen = async (screen: string): Promise<boolean> => {
@@ -625,17 +917,22 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
       return false;
     };
 
-    const executor = (invocation: Parameters<typeof executeOneSystemActionThroughGateway>[0]["invocation"]) =>
+    const executor = (
+      invocation: Parameters<
+        typeof executeOneSystemActionThroughGateway
+      >[0]["invocation"],
+    ) =>
       executeOneSystemActionThroughGateway({
         invocation,
         execute,
+        executeServerDirect,
         getCurrentRoute: () => ({
           pathname:
             latestSystemActionRuntimeRef.current?.appRuntimeState.route
               .pathname ?? null,
           screen:
-            latestSystemActionRuntimeRef.current?.appRuntimeState.route.screen ??
-            null,
+            latestSystemActionRuntimeRef.current?.appRuntimeState.route
+              .screen ?? null,
         }),
         waitForScreen,
         afterSelection: () =>
@@ -647,10 +944,14 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
       });
 
     return registerOneSystemActionExecutor(executor);
-  }, [busyOperations, router, setAnalysisParams, switchPersona, user?.uid]);
-  const relayMintInFlightRef = useRef(false);
-  const relayMintCooldownUntilRef = useRef(0);
-  const relayMintBackoffMsRef = useRef(5_000);
+  }, [
+    busyOperations,
+    router,
+    setAnalysisParams,
+    switchPersona,
+    user?.uid,
+    vaultOwnerToken,
+  ]);
   // Voice stays active regardless of silence -- only explicit user action
   // (disabling voice, ending the call) closes the session now. This ref and
   // the schedule/clear helpers below are kept as inert no-ops rather than
@@ -661,9 +962,9 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
   // Nudges a confirmation card once if the person hasn't tapped Confirm/Cancel
   // within PENDING_CONFIRMATION_NUDGE_MS. Cleared the instant the card
   // resolves or is superseded, so it can never fire against a stale card.
-  const pendingConfirmationNudgeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
-    null,
-  );
+  const pendingConfirmationNudgeTimerRef = useRef<ReturnType<
+    typeof setTimeout
+  > | null>(null);
   // Last actionable context pushed into the live session. Do not dedupe on
   // snapshot_id: it intentionally changes on every voice-state transition.
   const lastPushedContextRef = useRef<string | null>(null);
@@ -697,15 +998,23 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
   // handleTransportEvent needs to be able to trigger a reconnect the moment
   // a resumable session closes.
   const startConversationRef = useRef<() => void>(() => {});
+  // Retrying a command must preserve its command-only transport. In
+  // particular, an error card must never turn a Talk-to-One retry into the
+  // retired conversational relay merely because the deferred retry has no
+  // physical click event left to inspect.
+  const retryActivationSourceRef = useRef<OneVoiceActivationSource>("tap");
   const handleTransportEventRef = useRef<(event: OneVoiceSessionEvent) => void>(
     () => {},
   );
   // Same indirection, same reason: a spoken yes is read inside
   // handleTransportEvent, and settlePendingConfirmation is declared well below
   // it.
-  const settlePendingConfirmationRef = useRef<(confirmed: boolean) => void>(
-    () => {},
-  );
+  const settlePendingConfirmationRef = useRef<
+    (
+      confirmed: boolean,
+      confirmationMethod?: OneVoiceConfirmationMethod,
+    ) => void
+  >(() => {});
 
   useEffect(() => {
     latestVoiceContextRef.current = runtime?.oneVoiceContextSnapshot ?? null;
@@ -724,6 +1033,164 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
       pendingConfirmationNudgeTimerRef.current = null;
     }
   }, []);
+
+  /**
+   * Leave the relay/session/context warm after One answers, but never keep
+   * cloud microphone capture open indefinitely. A later pill tap reuses this
+   * exact transport through startConversation's inactive-input branch.
+   *
+   * This intentionally does not claim foreground wake-word support: until a
+   * reviewed local KWS pack exists, expiry returns to the visible tap-ready
+   * state rather than pretending that "Hey One" is listening.
+   */
+  const scheduleFollowUpCaptureClose = useCallback(
+    (scope: string, window: OneVoiceFollowUpWindow) => {
+      clearFollowUpCaptureTimer();
+      const timerEpoch = followUpCaptureEpochRef.current;
+      const remainingMs = Math.max(0, window.expiresAtMs - Date.now());
+      followUpCaptureTimerRef.current = setTimeout(() => {
+        followUpCaptureTimerRef.current = null;
+        if (followUpCaptureEpochRef.current !== timerEpoch) return;
+        if (voiceSessionScopeRef.current !== scope) return;
+
+        // Make the local lifecycle agree with the capture boundary before the
+        // asynchronous device/browser release. It contains timing only; no
+        // audio, transcript, route, or user identifier is persisted here.
+        oneVoiceSessionLifecycle.closeFollowUpWindow(scope);
+        const transport = liveClientRef.current;
+        if (!transport?.stopAudioInput) return;
+        void transport.stopAudioInput().then(() => {
+          if (
+            followUpCaptureEpochRef.current !== timerEpoch ||
+            voiceSessionScopeRef.current !== scope ||
+            liveClientRef.current !== transport ||
+            transport.isAudioInputActive?.() === true
+          ) {
+            return;
+          }
+          setVoiceLevel(0);
+          setVoiceStatus("idle", "Tap to talk");
+        });
+      }, remainingMs);
+    },
+    [clearFollowUpCaptureTimer, setVoiceLevel, setVoiceStatus],
+  );
+
+  /**
+   * Promote an authenticated foreground-warm transport only after the server
+   * has issued its fixed greeting directive. This is deliberately separate
+   * from greeting eligibility: the server has already made that decision.
+   * Here we only decide whether this device can honestly open the promised
+   * capture window without bypassing browser user-activation rules.
+   */
+  const armServerGreetingFollowUp = useCallback(
+    async (input: {
+      client: RealtimeVoiceTransport;
+      scope: string;
+      realtimeAudioInput: OneVoiceRealtimeAudioInput | null;
+      ownerEpoch: number;
+      runtimeMode: "hushh_managed_vertex" | "byok";
+    }): Promise<boolean> => {
+      if (
+        input.ownerEpoch !== voiceSessionOwnerEpochRef.current ||
+        voiceSessionScopeRef.current !== input.scope
+      ) {
+        return false;
+      }
+
+      const alreadyCapturing = input.client.isAudioInputActive?.() === true;
+      if (!alreadyCapturing) {
+        setForegroundGreetingFollowUpState("arming");
+        const autoCaptureEligible = await canAutoArmGreetingFollowUp(
+          input.realtimeAudioInput,
+        );
+        if (
+          input.ownerEpoch !== voiceSessionOwnerEpochRef.current ||
+          voiceSessionScopeRef.current !== input.scope
+        ) {
+          return false;
+        }
+        if (!autoCaptureEligible) {
+          // Do not create a timer that cannot hear anything. In particular,
+          // getUserMedia may only prompt after a browser gesture; the visible
+          // pill is that gesture and remains usable with this warm relay.
+          setForegroundGreetingFollowUpState("tap_required");
+          setVoiceStatus("idle", "Tap to enable microphone for replies.");
+          return false;
+        }
+      }
+
+      // A genuine active conversation always owns its own lease. A warm
+      // greeting may promote its exact client, but it may never steal a lease
+      // from a concurrent tap or Siri handoff.
+      if (voiceLeaseRef.current && liveClientRef.current !== input.client) {
+        return false;
+      }
+      let lease = voiceLeaseRef.current;
+      if (!lease) {
+        lease = appInteractionCoordinator.acquireVoiceLease({
+          owner: "one_live",
+          onRevoked: () => stopConversationRef.current(),
+        });
+        if (!lease.isCurrent()) {
+          setForegroundGreetingFollowUpState("tap_required");
+          setVoiceStatus("idle", "Tap to enable microphone for replies.");
+          return false;
+        }
+        voiceLeaseRef.current = lease;
+      }
+
+      if (liveClientRef.current && liveClientRef.current !== input.client) {
+        if (voiceLeaseRef.current?.id === lease.id) {
+          lease.release("greeting_follow_up_superseded");
+          voiceLeaseRef.current = null;
+        }
+        return false;
+      }
+
+      // From this point the warm connection is a real session owner. Remove
+      // only this reference; do not stop the socket we are about to arm.
+      if (prewarmedSessionRef.current?.client === input.client) {
+        prewarmedSessionRef.current = null;
+      }
+      liveClientRef.current = input.client;
+      activeRuntimeModeRef.current = input.runtimeMode;
+      setConversationActive(true);
+
+      const started =
+        alreadyCapturing || (await input.client.startAudioInput?.()) === true;
+      if (
+        !started ||
+        input.ownerEpoch !== voiceSessionOwnerEpochRef.current ||
+        voiceSessionScopeRef.current !== input.scope ||
+        liveClientRef.current !== input.client
+      ) {
+        if (liveClientRef.current === input.client) {
+          liveClientRef.current = null;
+        }
+        if (voiceLeaseRef.current?.id === lease.id) {
+          lease.release("greeting_follow_up_capture_unavailable");
+          voiceLeaseRef.current = null;
+        }
+        activeRuntimeModeRef.current = null;
+        setConversationActive(false);
+        setForegroundGreetingFollowUpState("tap_required");
+        setVoiceStatus("idle", "Tap to enable microphone for replies.");
+        return false;
+      }
+
+      const followUpWindow = oneVoiceSessionLifecycle.openFollowUpWindow(
+        input.scope,
+      );
+      if (followUpWindow) {
+        scheduleFollowUpCaptureClose(input.scope, followUpWindow);
+      }
+      setForegroundGreetingFollowUpState("listening");
+      setVoiceStatus("listening", "Listening");
+      return true;
+    },
+    [scheduleFollowUpCaptureClose, setVoiceStatus],
+  );
 
   // No auto-close on silence: voice stays active until the user explicitly
   // disables it. Kept as a callback (rather than removing every call site)
@@ -774,6 +1241,8 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
         event.type === "state" ||
         event.type === "transcript_final" ||
         event.type === "assistant_text" ||
+        event.type === "greeting" ||
+        event.type === "greeting_playback_settled" ||
         event.type === "client_directive" ||
         event.type === "tool_trace" ||
         event.type === "handoff"
@@ -786,6 +1255,178 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
           "sourceId" in event ? (event.sourceId ?? null) : event.provider,
         sourceSeq: "sourceSeq" in event ? (event.sourceSeq ?? null) : null,
       };
+      const activeLocationCommand = locationCommandActivationRef.current;
+      if (event.type === "location_command_ready") {
+        if (
+          activeLocationCommand?.turnId === event.turnId &&
+          !activeLocationCommand.cancelled &&
+          !activeLocationCommand.completed
+        ) {
+          setVoiceStatus("listening", "Listening", eventOptions);
+        }
+        return;
+      }
+      if (event.type === "location_command_endpointed") {
+        // The relay—not the browser UI—owns speech-end detection. Capture is
+        // already closing on the transport side; this is only the visible
+        // transition into the final-transcript/routing wait state.
+        if (
+          activeLocationCommand?.turnId === event.turnId &&
+          !activeLocationCommand.cancelled &&
+          !activeLocationCommand.completed
+        ) {
+          activeLocationCommand.endpointed = true;
+          setVoiceLevel(0);
+          setVoiceStatus("thinking", "Transcribing", eventOptions);
+        }
+        return;
+      }
+      if (event.type === "location_command_session_rollover") {
+        setVoiceStatus("idle", "Ready for next command", eventOptions);
+        return;
+      }
+      if (event.type === "location_command_result") {
+        // The transport has already enforced the authenticated speech-end,
+        // final transcription, and completion boundary for this opaque turn.
+        // Retain a second UI fence so no stale/malicious result can render a
+        // card, navigate, or claim a verified mutation for another tap.
+        if (
+          activeLocationCommand?.turnId !== event.turnId ||
+          activeLocationCommand.cancelled ||
+          activeLocationCommand.completed ||
+          (!activeLocationCommand.endpointed && event.outcome !== "failed")
+        ) {
+          return;
+        }
+        activeLocationCommand.completed = true;
+        let navigated = false;
+        let workflowHandoff = false;
+        let workflowHandoffUnavailable = false;
+        let circleNameHandoff = false;
+        if (
+          event.outcome === "interaction_required" &&
+          event.circleNameDirective?.actionId === "location.create_circle"
+        ) {
+          // The app-root owner revalidates this fixed relay projection before
+          // it enters durable presentation state. AgentBar deliberately owns
+          // neither the lease nor the form, so a route transition cannot
+          // dismiss an active Circle-name task.
+          circleNameHandoff = Boolean(
+            locationInteractionSurfaceRef.current?.presentCircleNameDirective(
+              event.circleNameDirective,
+            ),
+          );
+          if (circleNameHandoff) {
+            snapKaiBottomChromeVisible();
+          }
+        }
+        const workflowResult =
+          event.outcome !== "navigate" &&
+          event.result &&
+          isLocationCommandWorkflowDirective(event.result)
+            ? event.result
+            : null;
+        if (workflowResult) {
+          const surface = locationInteractionSurfaceRef.current;
+          // The app-root Location command bridge consumes this exact server
+          // projection and binds its card to real OS permission/GPS callbacks.
+          // It never delegates a live lease to the legacy setup page, whose
+          // coarse completion state is not a verified runtime settlement.
+          if (surface) {
+            surface.presentServerResult(workflowResult);
+            workflowHandoff = true;
+            snapKaiBottomChromeVisible();
+          } else {
+            workflowHandoffUnavailable = true;
+          }
+        }
+        if (event.outcome === "navigate" && event.navigation) {
+          const action = getKaiActionById(event.navigation.capabilityId);
+          const target = action?.execution_target;
+          if (
+            target?.status === "wired" &&
+            target.path === "route" &&
+            target.target === event.navigation.route
+          ) {
+            navigated = true;
+            const requested = requestInternalAppNavigation({
+              href: event.navigation.route,
+              source: "voice",
+              transitionMode: "contextual",
+              scroll: false,
+            });
+            if (!requested) {
+              router.push(event.navigation.route, { scroll: false });
+            }
+          }
+        }
+        // Non-workflow results remain display-only. Workflow directives above
+        // are consumed by the global command bridge, which owns their real
+        // device/card callbacks.
+        const rejectedWorkflowDirective = Boolean(
+          event.result?.directive && !workflowResult,
+        );
+        if (
+          event.outcome !== "navigate" &&
+          event.result &&
+          !workflowResult &&
+          !event.result.directive
+        ) {
+          locationInteractionSurfaceRef.current?.presentServerResult(
+            event.result,
+          );
+        }
+        const renderedStatusCard = event.statusCard
+          ? publishLocationCommandStatusCard(event.statusCard)
+          : false;
+        const missingRequiredWorkflowHandoff =
+          (event.outcome === "interaction_required" ||
+            event.outcome === "ask") &&
+          !workflowHandoff &&
+          !circleNameHandoff;
+        const statusMessage = renderedStatusCard
+          ? event.statusCard?.cardId ===
+            "one.location.command.circle_verified.v1"
+            ? "Circle ready"
+            : "Location ready"
+          : workflowHandoff
+            ? "Location setup needs your next step"
+            : circleNameHandoff
+              ? "Name your Circle"
+              : workflowHandoffUnavailable ||
+                  missingRequiredWorkflowHandoff ||
+                  rejectedWorkflowDirective
+                ? "Location task is unavailable"
+                : event.outcome === "execute_started"
+                  ? "Working"
+                  : event.outcome === "interaction_required"
+                    ? "Your input is needed"
+                    : event.outcome === "navigate"
+                      ? navigated
+                        ? "Opening Location"
+                        : "Location route is unavailable"
+                      : event.outcome === "ask"
+                        ? "Choose an option"
+                        : event.outcome === "blocked"
+                          ? "Location needs your attention"
+                          : "Location command could not finish";
+        setVoiceStatus(
+          event.outcome === "failed" ||
+            (event.outcome === "navigate" && !navigated) ||
+            workflowHandoffUnavailable ||
+            missingRequiredWorkflowHandoff ||
+            rejectedWorkflowDirective
+            ? "error"
+            : workflowHandoff
+              ? "idle"
+              : renderedStatusCard || event.result || circleNameHandoff
+                ? "idle"
+                : "thinking",
+          statusMessage,
+          eventOptions,
+        );
+        return;
+      }
       if (event.type === "state") {
         const status: AgentVoiceStatus =
           event.state === "opening"
@@ -825,6 +1466,9 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
         return;
       }
       if (event.type === "error") {
+        if (activeLocationCommand && !activeLocationCommand.completed) {
+          activeLocationCommand.cancelled = true;
+        }
         actionAbortControllerRef.current?.abort();
         clearJourneyGrant("transport_error");
         abandonPendingConfirmation(
@@ -837,16 +1481,98 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
         finishExternalStart("failed");
         return;
       }
+      if (event.type === "greeting") {
+        foregroundGreetingOutputClientRef.current = liveClientRef.current;
+        setForegroundGreeting(event.greeting.text);
+        setForegroundGreetingReady(true);
+        // Do not arm capture yet. The transport emits a separate settled
+        // boundary after the greeting's output drains so One cannot hear its
+        // own welcome through the microphone.
+        setForegroundGreetingFollowUpState("arming");
+        return;
+      }
+      if (event.type === "greeting_playback_settled") {
+        if (
+          foregroundGreetingOutputClientRef.current === liveClientRef.current
+        ) {
+          foregroundGreetingOutputClientRef.current = null;
+        }
+        const voiceSessionScope = voiceSessionScopeRef.current;
+        const client = liveClientRef.current;
+        if (!event.played || !voiceSessionScope || !client) {
+          setForegroundGreetingFollowUpState("tap_required");
+          setVoiceStatus("idle", "Tap to enable microphone for replies.");
+          return;
+        }
+        void armServerGreetingFollowUp({
+          client,
+          scope: voiceSessionScope,
+          // A currently promoted client is already capturing or falls back to
+          // the explicit tap path. Warm sessions pass their concrete native
+          // input from the prewarm handler below.
+          realtimeAudioInput: null,
+          ownerEpoch: voiceSessionOwnerEpochRef.current,
+          runtimeMode: activeRuntimeModeRef.current ?? "hushh_managed_vertex",
+        });
+        return;
+      }
       if (event.type === "assistant_text") {
+        if (activeLocationCommand && !activeLocationCommand.cancelled) {
+          // Location command turns are visual-only. The transport suppresses
+          // model output too; this is a second UI fence for mixed/legacy relay
+          // frames so an unexpected response cannot become chatty audio/UI.
+          return;
+        }
+        const voiceSessionScope = voiceSessionScopeRef.current;
+        if (voiceSessionScope) {
+          // A reply opens the bounded hands-free continuation window. This is
+          // timing-only local state; microphone ownership remains with the
+          // existing transport and no response text enters persistence.
+          const followUpWindow =
+            oneVoiceSessionLifecycle.openFollowUpWindow(voiceSessionScope);
+          if (followUpWindow) {
+            scheduleFollowUpCaptureClose(voiceSessionScope, followUpWindow);
+          }
+        }
         appendMirrorEvent({
           role: "assistant",
           text: event.text,
           source: "gemini_live",
           turnId: event.turnId ?? null,
         });
+        // When iOS output is unavailable or muted, the reply must still be
+        // visible in the active One Voice bar instead of looking like a stuck
+        // "Thinking" state. This is local presentation of One's response;
+        // nothing is persisted or added to telemetry here.
+        setVoiceStatus("speaking", event.text, eventOptions);
         return;
       }
       if (event.type === "transcript_final") {
+        if (activeLocationCommand) {
+          if (
+            activeLocationCommand.cancelled ||
+            (event.turnId && event.turnId !== activeLocationCommand.turnId)
+          ) {
+            return;
+          }
+          // Do not mirror, classify confirmations, or send this transcript
+          // into the legacy conversational path. The relay's Location Brain
+          // owns semantic selection after its authoritative speech-end
+          // boundary; only location_command_endpointed opens the UI result
+          // fence for this turn.
+          return;
+        }
+        const voiceSessionScope = voiceSessionScopeRef.current;
+        if (voiceSessionScope) {
+          // Speech inside the follow-up window extends its local capture
+          // deadline. Server-side activity is recorded independently by the
+          // authenticated relay, so this browser never owns greeting timing.
+          const extendedFollowUp =
+            oneVoiceSessionLifecycle.extendFollowUpOnSpeech(voiceSessionScope);
+          if (extendedFollowUp) {
+            scheduleFollowUpCaptureClose(voiceSessionScope, extendedFollowUp);
+          }
+        }
         // A confirmation that is waiting gets first refusal on this utterance.
         //
         // This is what makes the flow hands-free without giving up the
@@ -860,7 +1586,15 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
         // also report whether you agreed would have it witness its own
         // authorization. Anything that is not unmistakably an answer falls
         // through to be treated as ordinary speech, exactly as before.
-        if (pendingConfirmationRef.current) {
+        const pendingConfirmation = pendingConfirmationRef.current;
+        if (pendingConfirmation?.requiresTrustedTapConfirmation) {
+          // The relay will reject non-tap approval for a hard-card action;
+          // retain the approved UI instead of treating "yes" as either an
+          // authorization or a new request.
+          setVoiceStatus("thinking", "Tap to confirm", eventOptions);
+          return;
+        }
+        if (pendingConfirmation) {
           const answer = classifySpokenConfirmation(event.text);
           // The only record that a spoken yes was even considered. Without it
           // a confirmation settled by tap and one settled by voice are the
@@ -869,7 +1603,7 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
           // whole hands-free claim rested on not knowing the difference.
           // Word count only; the transcript itself never goes to telemetry.
           console.info(
-            `[VOICE_CONFIRM] action=${pendingConfirmationRef.current.actionId} ` +
+            `[VOICE_CONFIRM] action=${pendingConfirmation.actionId} ` +
               `classified=${answer} words=${event.text.trim().split(/\s+/).length}`,
           );
           if (answer === "affirm" || answer === "decline") {
@@ -882,7 +1616,7 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
               source: "gemini_live",
               turnId: event.turnId ?? null,
             });
-            settlePendingConfirmationRef.current(answer === "affirm");
+            settlePendingConfirmationRef.current(answer === "affirm", "voice");
             return;
           }
         }
@@ -890,9 +1624,10 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
         // A fresh request supersedes the plan the person approved for the last
         // one. Approval was for a named list, not for whatever One does next.
         clearJourneyGrant("new_user_intent");
-        // Mirror the user's transcript into the conversation session. A
-        // platform speech adapter may route a known generated action locally;
-        // unresolved conversation is the only path that becomes provider text.
+        // Gemini Live produced this display transcript from the PCM it already
+        // received. It owns the conversational turn, including clarification
+        // and multi-turn slot filling; the client never sends it back as a
+        // second text turn.
         const transcript = event.text.trim();
         const previous = lastTranscriptRef.current;
         if (
@@ -915,91 +1650,33 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
           turnId: event.turnId ?? null,
         });
         if (event.source === "input") {
-          const context = latestVoiceContextRef.current;
           const transport = liveClientRef.current;
-          if (context && transport) {
-            const resolverContext = {
-              contextRevision: `${context.revisions.route}:${context.revisions.ui}`,
-              catalogVersion: KAI_ACTION_GATEWAY_SCHEMA_VERSION,
-              route: {
-                pathname: context.route.route_family,
-                screen: context.route.screen,
-              },
-              availableActionIds: context.available_action_ids,
-              executableActionIds:
-                transport.getExecutableActionIds?.() ??
-                context.executable_action_ids,
-              redactedState: {
-                circleCount: context.redacted_state?.circle_count ?? null,
-                permissionState:
-                  context.redacted_state?.permission_state ?? "unknown",
-                currentLocationState:
-                  context.redacted_state?.current_location_state ?? "unknown",
-                shareState: context.redacted_state?.share_state ?? "unknown",
-              },
-            };
-            // Candidate generation and ranking are asynchronous. Do not send
-            // the same turn to Gemini while the local resolver is deciding;
-            // only its explicit unsupported/low-confidence result reaches the
-            // provider fallback.
-            setVoiceStatus("thinking", "Understanding", eventOptions);
-            void resolveActiveLocalIntent({
-              utterance: transcript,
-              context: resolverContext,
-              catalogVersion: resolverContext.catalogVersion,
-            }).then((localResolution) => {
-              if (liveClientRef.current !== transport) return;
-              if (isLocallyHandledIntent(localResolution)) {
-                if (localResolution.disposition === "action" && localResolution.actionId) {
-                  const action = getKaiActionById(localResolution.actionId);
-                  const proposal = transport.proposeLocalAction?.({
-                    actionId: localResolution.actionId,
-                    slots: localResolution.slots,
-                    contextRevision: localResolution.contextRevision,
-                    needsConfirmation: action?.execution_policy === "confirm_required",
-                    trustedActivationRequired:
-                      action?.activation_policy === "trusted_activation_required",
-                    goalId: action?.goal.goal_id,
-                  });
-                  void Promise.resolve(proposal).then((accepted) => {
-                    if (accepted === true) return;
-                    appendMirrorEvent({
-                      role: "assistant",
-                      text: "I could not safely stage that action from the current app state.",
-                      source: "one_voice_orchestrator",
-                      turnId: event.turnId ?? null,
-                    });
-                    setVoiceStatus("error", "The action could not be staged safely.");
-                  });
-                  setVoiceStatus("thinking", "Preparing that action", eventOptions);
-                  return;
-                }
-                const message = localIntentResponse(localResolution);
-                appendMirrorEvent({
-                  role: "assistant",
-                  text: message,
-                  source: "one_voice_orchestrator",
-                  turnId: event.turnId ?? null,
-                });
-                setVoiceStatus("thinking", message, eventOptions);
-                return;
-              }
-              transport.sendUserText?.(transcript);
-              setVoiceStatus("thinking", "Understanding", eventOptions);
-            }).catch(() => {
-              // Resolver failure is explicitly provider-backed; it is not an
-              // authorization failure and cannot broaden the action set.
-              transport.sendUserText?.(transcript);
-              setVoiceStatus("thinking", "Understanding", eventOptions);
-            });
-            return;
-          }
+          // Apple Speech only captures audio. Gemini Live owns the complete
+          // conversational turn immediately so it can ask for a missing name,
+          // retain the follow-up, and use the governed server action path.
+          // Do not wait on local ranking here: it may be slow or unavailable,
+          // and it must never turn an agent conversation into a dead end.
+          logVoiceMetric({
+            metric: "voice_turn_delegated_to_agent",
+            value: 1,
+            // Relay/model turn labels are not a browser telemetry contract.
+            // Mint a local opaque correlation id instead of trusting one.
+            turnId: createVoiceTurnId(),
+            tags: {
+              entrypoint: "native_final",
+            },
+          });
           transport?.sendUserText?.(transcript);
+          setVoiceStatus("thinking", "Understanding", eventOptions);
+          return;
         }
         setVoiceStatus("thinking", "Understanding", eventOptions);
         return;
       }
       if (event.type === "tool_trace") {
+        if (activeLocationCommand && !activeLocationCommand.cancelled) {
+          return;
+        }
         // Display-only: a read tool's answer, illustrated alongside the
         // spoken readout. Nothing to execute, nothing to authorize -- unlike
         // client_directive below, this never reaches the governed gateway.
@@ -1008,6 +1685,12 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
         return;
       }
       if (event.type === "client_directive") {
+        if (activeLocationCommand) {
+          // Command mode is visual-only. A typed command result is the sole
+          // path allowed to render a card, navigate, or start a verified
+          // action; conversational Gemini directives are never a fallback.
+          return;
+        }
         // One's tools decided this (single decision-maker); the client only
         // executes through the same governed gateway the app uses.
         if (event.directive.kind === "navigate") {
@@ -1015,7 +1698,9 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
           // Do not let a legacy ADK tool bypass the active route's verified
           // control inventory; every live route transition now enters through
           // an `action` directive and executeAgentGatewayAction.
-          console.warn("[AgentBar] Rejected legacy direct navigation directive.");
+          console.warn(
+            "[AgentBar] Rejected legacy direct navigation directive.",
+          );
           return;
         }
         if (event.directive.kind === "action_result") {
@@ -1034,11 +1719,15 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
               ? event.directive.payload.message
               : null;
           if (!actionId || !message) {
-            console.warn("[AgentBar] Rejected malformed action_result directive.");
+            console.warn(
+              "[AgentBar] Rejected malformed action_result directive.",
+            );
             return;
           }
           const resultPhase =
-            event.directive.payload?.status === "failed" ? "failed" : "completed";
+            event.directive.payload?.status === "failed"
+              ? "failed"
+              : "completed";
           const action = getKaiActionById(actionId);
           const subject = parseVoiceSubject(
             event.directive.payload as Record<string, unknown> | undefined,
@@ -1106,11 +1795,13 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
             // visible card explaining the publish itself failed, using the
             // same action-run mechanism the completed card used, rather than
             // silently leaving a grant with no location on it.
-            const message = result.detail || "Couldn't finish sharing your location.";
+            const message =
+              result.detail || "Couldn't finish sharing your location.";
             const failedActionId = "location.share_selected";
             const run = appInteractionCoordinator.startActionRun({
               actionId: failedActionId,
-              label: getKaiActionById(failedActionId)?.label ?? "Share location",
+              label:
+                getKaiActionById(failedActionId)?.label ?? "Share location",
               source: "voice",
               message,
             });
@@ -1155,7 +1846,10 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
             //
             // Absent or malformed means confirm. A directive that cannot say
             // it is safe to run directly does not get to run directly.
+            const requiresTrustedTapConfirmation =
+              event.directive.payload?.requiresTrustedTapConfirmation === true;
             const needsConfirmation =
+              requiresTrustedTapConfirmation ||
               event.directive.payload?.needsConfirmation !== false;
             const goalId =
               typeof event.directive.payload?.goalId === "string"
@@ -1170,9 +1864,9 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
               : null;
             const isSettledJourneyDirective = Boolean(
               directiveJourney &&
-                goalId === directiveJourney.goalId &&
-                runtime?.appRuntimeState.route.screen ===
-                  directiveJourney.destinationScreen,
+              goalId === directiveJourney.goalId &&
+              runtime?.appRuntimeState.route.screen ===
+                directiveJourney.destinationScreen,
             );
             if (!directiveId || !contextRevision) {
               console.warn(
@@ -1195,10 +1889,10 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
             // for the whole plan up front -- so this holds the receipt minted
             // for it without a second card.
             let journeyGrantReceipt: string | undefined;
-            const reportDirectiveSettlement = (settlement: DirectiveSettlement) => {
-              if (
-                voiceLeaseRef.current?.id !== directiveLeaseId
-              ) {
+            const reportDirectiveSettlement = (
+              settlement: DirectiveSettlement,
+            ) => {
+              if (voiceLeaseRef.current?.id !== directiveLeaseId) {
                 return;
               }
               directiveTransport?.reportActionSettlement?.({
@@ -1206,7 +1900,9 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
                 actionId,
                 contextRevision,
                 ...settlement,
-                receipt: pendingConfirmationRef.current?.receipt ?? journeyGrantReceipt,
+                receipt:
+                  pendingConfirmationRef.current?.receipt ??
+                  journeyGrantReceipt,
               });
               appInteractionCoordinator.settleDirective(
                 directiveLedgerSessionId,
@@ -1227,6 +1923,7 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
                 actionId,
                 goalId,
                 needsConfirmation,
+                requiresTrustedTapConfirmation,
                 slots,
               }),
             });
@@ -1311,10 +2008,11 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
             // plan runs without asking again. The grant names the goal AND the
             // action, so a directive that drifts to a different goal or a step
             // outside the approved list still gets its own card.
-            const coveredByJourneyGrant = isCoveredByJourneyApproval(
-              goalId,
-              actionId,
-            );
+            // A hard-card action must never inherit an earlier journey
+            // approval. Its own card tap is the policy boundary.
+            const coveredByJourneyGrant =
+              !requiresTrustedTapConfirmation &&
+              isCoveredByJourneyApproval(goalId, actionId);
             if (needsConfirmation && !coveredByJourneyGrant) {
               // Keep sensitive arguments transient in component memory. The
               // confirmation card never renders slots (including OTP values).
@@ -1335,12 +2033,12 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
                 directiveId,
                 actionId,
                 slots,
-                route: pathname,
                 leaseId: directiveLeaseId,
                 ledgerSessionId: directiveLedgerSessionId,
                 actionRunId: actionRun.id,
                 transport: directiveTransport,
                 contextRevision,
+                requiresTrustedTapConfirmation,
                 plan:
                   journeyPlan && journeyPlan.goalId === goalId
                     ? journeyPlan
@@ -1348,6 +2046,17 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
               };
               pendingConfirmationRef.current = pending;
               setPendingConfirmation(pending);
+              // Render is an explicit runtime outcome, not a model-generated
+              // UI escape hatch. Log only the registered action id and
+              // opaque session correlation -- never the pending slots.
+              logVoiceMetric({
+                metric: "voice_confirmation_rendered",
+                value: 1,
+                turnId: createVoiceTurnId(),
+                correlation: {
+                  voice_session_id: eventOptions.sessionId,
+                },
+              });
               // A confirmation card holds until the person acts. Silence must
               // not kill the whole voice session out from under someone who's
               // just reading it -- suspend the global idle timer for as long
@@ -1382,6 +2091,11 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
               return;
             }
             void (async () => {
+              const isCurrentDirectiveRun = () =>
+                voiceLeaseRef.current?.id === directiveLeaseId &&
+                appInteractionCoordinator.getActiveActionRun()?.id ===
+                  actionRun.id;
+              let isCurrentDirectiveExecution: (() => boolean) | null = null;
               try {
                 // The person approved this whole plan at the batch card, so no
                 // second card is shown -- but the ledger still needs the
@@ -1394,8 +2108,10 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
                       directiveId,
                       actionId,
                       contextRevision,
+                      confirmationMethod: "journey_grant",
                     });
                   journeyGrantReceipt = confirmation?.receipt;
+                  if (!isCurrentDirectiveRun()) return;
                   if (!journeyGrantReceipt) {
                     // Nothing runs without ledger authority, approval or not.
                     reportDirectiveSettlement({
@@ -1410,7 +2126,14 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
                   phase: "executing",
                 });
                 actionAbortControllerRef.current?.abort();
-                actionAbortControllerRef.current = new AbortController();
+                const actionController = new AbortController();
+                actionAbortControllerRef.current = actionController;
+                const actionSignal = actionController.signal;
+                const currentDirectiveExecution = () =>
+                  actionAbortControllerRef.current === actionController &&
+                  !actionSignal.aborted &&
+                  isCurrentDirectiveRun();
+                isCurrentDirectiveExecution = currentDirectiveExecution;
                 const executionResult = await executeAgentGatewayAction({
                   actionId,
                   slots,
@@ -1431,7 +2154,7 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
                   setAnalysisParams,
                   switchPersona,
                   executionContext: { directiveId },
-                  signal: actionAbortControllerRef.current.signal,
+                  signal: actionSignal,
                   goalAuthorization:
                     isSettledJourneyDirective && directiveJourney
                       ? {
@@ -1440,6 +2163,7 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
                         }
                       : null,
                 });
+                if (!currentDirectiveExecution()) return;
                 // A handler that resolved who this run is about (a matched
                 // recipient, a person a request just went to) says so through
                 // the same `data` bag the confirm/disambiguation cards read.
@@ -1458,45 +2182,44 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
                     message: `Opening ${action?.label ?? "your request"}`,
                   });
                 }
-                const result = await settleAgentBarAction(executionResult);
-                let destinationContextId: string | null = null;
-                if (result.routeAfter) {
-                  const destinationContext = await waitForDestinationVoiceContext({
+                const { result, destinationContextId } =
+                  await settleAgentBarActionWithDestination({
+                    result: executionResult,
                     readContext: () => latestVoiceContextRef.current,
-                    result,
-                    signal: actionAbortControllerRef.current?.signal,
+                    transport: directiveTransport,
+                    signal: actionSignal,
                   });
-                  if (destinationContext) {
-                    const applied =
-                      await directiveTransport?.applyContextAndWait?.(
-                        destinationContext,
-                        { signal: actionAbortControllerRef.current?.signal },
-                      );
-                    if (applied?.status === "acknowledged") {
-                      destinationContextId = applied.contextId;
-                    }
-                  }
-                }
+                if (!currentDirectiveExecution()) return;
                 reportDirectiveSettlement({
-                    status: result.status,
-                    summary: result.resultSummary,
-                    reason: result.reason,
-                    routeAfter: result.routeAfter,
-                    screenAfter: result.screenAfter,
-                    destinationContextId,
+                  status: result.status,
+                  summary: result.resultSummary,
+                  reason: result.reason,
+                  routeAfter: result.routeAfter,
+                  screenAfter: result.screenAfter,
+                  destinationContextId,
                 });
               } catch {
+                if (!isCurrentDirectiveRun()) return;
+                if (
+                  isCurrentDirectiveExecution &&
+                  !isCurrentDirectiveExecution()
+                ) {
+                  return;
+                }
                 reportDirectiveSettlement({
-                    status: "failed",
-                    summary: "The app could not complete that action.",
-                    reason: "client_execution_failed",
+                  status: "failed",
+                  summary: "The app could not complete that action.",
+                  reason: "client_execution_failed",
                 });
               }
             })();
             return;
           }
         }
-        if (event.directive.kind !== "action" && event.directive.kind !== "prompt") {
+        if (
+          event.directive.kind !== "action" &&
+          event.directive.kind !== "prompt"
+        ) {
           return;
         }
         // Specialist directive (location share/check-in/SOS, device
@@ -1522,7 +2245,10 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
         // Voice's job here is to get someone to the control fast, not to
         // stand in for it. Open SOS and stop; the press-and-hold stays the
         // only thing that sends.
-        if (delegateAgentId === "agent_location" && directiveType === "sos_panic") {
+        if (
+          delegateAgentId === "agent_location" &&
+          directiveType === "sos_panic"
+        ) {
           router.push("/one/location?action=sos");
           return;
         }
@@ -1572,13 +2298,13 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
       if (event.type === "closed") {
         actionAbortControllerRef.current?.abort();
         clearVoiceIdleTimer();
+        clearFollowUpCaptureTimer();
         clearJourneyGrant("session_closed");
         abandonPendingConfirmation(
           "session_closed",
           "The confirmation was cancelled when the voice session closed.",
         );
         liveClientRef.current = null;
-        disposeLocalIntentResolver();
         voiceLeaseRef.current?.release("transport_closed");
         voiceLeaseRef.current = null;
         activeRuntimeModeRef.current = null;
@@ -1590,7 +2316,8 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
           // of the relay bothering to say "resumable" in the first place.
           if (lastErrorResumableRef.current && !autoReconnectedRef.current) {
             autoReconnectedRef.current = true;
-            pendingResumptionHandleRef.current = lastResumptionHandleRef.current;
+            pendingResumptionHandleRef.current =
+              lastResumptionHandleRef.current;
             erroredRef.current = false;
             lastErrorResumableRef.current = false;
             // Not just skipped this time -- startConversation's own guard
@@ -1612,14 +2339,14 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
       clearJourneyGrant,
       busyOperations,
       clearPendingConfirmationNudgeTimer,
+      clearFollowUpCaptureTimer,
       clearVoiceIdleTimer,
       createHandoff,
-      resolveActiveLocalIntent,
-      disposeLocalIntentResolver,
-      pathname,
       router,
       runtime,
+      armServerGreetingFollowUp,
       scheduleVoiceIdleTimer,
+      scheduleFollowUpCaptureClose,
       setAnalysisParams,
       setVoiceLevel,
       setVoiceStatus,
@@ -1633,6 +2360,23 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
   useEffect(() => {
     handleTransportEventRef.current = handleTransportEvent;
   }, [handleTransportEvent]);
+
+  /**
+   * A foreground warm session has no microphone lease and must be disposable
+   * independently from an active conversation. Keeping that distinction lets
+   * us pre-authenticate the relay without silently listening or blocking the
+   * actual voice owner.
+   */
+  const stopPrewarmedSession = useCallback(() => {
+    prewarmAbortControllerRef.current?.abort();
+    prewarmAbortControllerRef.current = null;
+    const warmed = prewarmedSessionRef.current;
+    prewarmedSessionRef.current = null;
+    if (foregroundGreetingOutputClientRef.current === warmed?.client) {
+      foregroundGreetingOutputClientRef.current = null;
+    }
+    warmed?.client.stop();
+  }, []);
 
   // Narrower than stopConversation: aborts whatever the walkthrough panel is
   // currently showing without ending the voice session it belongs to. The
@@ -1649,9 +2393,22 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
   }, [abandonPendingConfirmation]);
 
   const stopConversation = useCallback(() => {
+    const activeLocationCommand = locationCommandActivationRef.current;
+    if (activeLocationCommand && !activeLocationCommand.completed) {
+      activeLocationCommand.cancelled = true;
+      liveClientRef.current?.endInputTurn?.({
+        turnId: activeLocationCommand.turnId,
+        cancelled: true,
+      });
+    }
+    relaySessionAbortControllerRef.current?.abort();
+    relaySessionAbortControllerRef.current = null;
     actionAbortControllerRef.current?.abort();
-    appInteractionCoordinator.cancelActiveActionRuns("Action cancelled when the voice session ended");
+    appInteractionCoordinator.cancelActiveActionRuns(
+      "Action cancelled when the voice session ended",
+    );
     clearVoiceIdleTimer();
+    clearFollowUpCaptureTimer();
     erroredRef.current = false;
     abandonPendingConfirmation(
       "session_cancelled",
@@ -1659,18 +2416,23 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
     );
     liveClientRef.current?.stop();
     liveClientRef.current = null;
-    disposeLocalIntentResolver();
+    const voiceSessionScope = voiceSessionScopeRef.current;
+    if (voiceSessionScope) {
+      oneVoiceSessionLifecycle.closeFollowUpWindow(voiceSessionScope);
+    }
     voiceLeaseRef.current?.release("voice_session_stopped");
     voiceLeaseRef.current = null;
     activeRuntimeModeRef.current = null;
-    prewarmedRelayRef.current = null;
+    stopPrewarmedSession();
     setConversationActive(false);
+    setForegroundGreetingFollowUpState(null);
     resetVoice();
   }, [
     abandonPendingConfirmation,
+    clearFollowUpCaptureTimer,
     clearVoiceIdleTimer,
-    disposeLocalIntentResolver,
     resetVoice,
+    stopPrewarmedSession,
   ]);
 
   const runDeadEndRemedy = useCallback(() => {
@@ -1717,9 +2479,20 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
   ]);
 
   const settlePendingConfirmation = useCallback(
-    (confirmed: boolean) => {
+    (
+      confirmed: boolean,
+      confirmationMethod: OneVoiceConfirmationMethod = "tap",
+    ) => {
       const pending = pendingConfirmationRef.current;
       if (!pending) return;
+      if (
+        confirmed &&
+        pending.requiresTrustedTapConfirmation === true &&
+        confirmationMethod !== "tap"
+      ) {
+        setVoiceStatus("thinking", "Tap to confirm");
+        return;
+      }
       pendingConfirmationRef.current = null;
       clearPendingConfirmationNudgeTimer();
       setPendingConfirmation(null);
@@ -1777,21 +2550,27 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
         setVoiceStatus("thinking", "Authorizing confirmation");
         // Invoke through its owning transport. Extracting this class method and
         // calling it bare loses the GeminiLiveClient receiver (`this.ws`).
-        void confirmationTransport.confirmActionDirective({
-          directiveId: pending.directiveId,
-          actionId: pending.actionId,
-          contextRevision: pending.contextRevision,
-        })
+        void confirmationTransport
+          .confirmActionDirective({
+            directiveId: pending.directiveId,
+            actionId: pending.actionId,
+            contextRevision: pending.contextRevision,
+            confirmationMethod,
+          })
           .then((confirmation) => {
             if (voiceLeaseRef.current?.id !== pending.leaseId) return;
             const authorized = { ...pending, receipt: confirmation.receipt };
             const confirmingAction = getKaiActionById(pending.actionId);
-            const requiresRealTap = requiresHardTapConfirmation(
-              confirmingAction,
-              runtime?.oneVoiceContextSnapshot.voice_settings.require_tap_confirmation ===
-                true,
-            );
-            if (requiresRealTap) {
+            const requiresAdditionalActivationTap =
+              requiresHardTapConfirmation(
+                confirmingAction,
+                runtime?.oneVoiceContextSnapshot.voice_settings
+                  .require_tap_confirmation === true,
+              ) &&
+              (confirmationMethod !== "tap" ||
+                confirmingAction?.activation_policy ===
+                  "trusted_activation_required");
+            if (requiresAdditionalActivationTap) {
               // A popup must be opened during a fresh physical gesture. The
               // first tap only receives ledger authority; preserve the second
               // tap as the platform-required activation boundary.
@@ -1808,7 +2587,7 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
             // the receipt in the same pending slot and immediately take the
             // normal authorized execution path exactly once.
             pendingConfirmationRef.current = authorized;
-            settlePendingConfirmationRef.current(true);
+            settlePendingConfirmationRef.current(true, confirmationMethod);
           })
           .catch(() => {
             reportPendingSettlement({
@@ -1842,7 +2621,15 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
       }
 
       actionAbortControllerRef.current?.abort();
-      actionAbortControllerRef.current = new AbortController();
+      const actionController = new AbortController();
+      actionAbortControllerRef.current = actionController;
+      const actionSignal = actionController.signal;
+      const isCurrentPendingExecution = () =>
+        actionAbortControllerRef.current === actionController &&
+        !actionSignal.aborted &&
+        voiceLeaseRef.current?.id === pending.leaseId &&
+        appInteractionCoordinator.getActiveActionRun()?.id ===
+          pending.actionRunId;
 
       // For trusted-activation actions this call synchronously invokes the
       // mounted popup handler before the first promise boundary. Do not move it
@@ -1866,20 +2653,26 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
         setAnalysisParams,
         switchPersona,
         executionContext: { directiveId: pending.directiveId },
-        signal: actionAbortControllerRef.current.signal,
+        signal: actionSignal,
       });
-      void settlement
-        .then((executionResult) => {
+      void (async () => {
+        try {
+          const executionResult = await settlement;
+          if (!isCurrentPendingExecution()) return;
           if (executionResult.routeAfter) {
             appInteractionCoordinator.updateActionRun(pending.actionRunId, {
               phase: "navigating",
               message: `Opening ${getKaiActionById(pending.actionId)?.label ?? "your request"}`,
             });
           }
-          return executionResult;
-        })
-        .then(settleAgentBarAction)
-        .then((result) => {
+          const { result, destinationContextId } =
+            await settleAgentBarActionWithDestination({
+              result: executionResult,
+              readContext: () => latestVoiceContextRef.current,
+              transport: pending.transport,
+              signal: actionSignal,
+            });
+          if (!isCurrentPendingExecution()) return;
           scheduleVoiceIdleTimer();
           reportPendingSettlement({
             status: result.status,
@@ -1887,16 +2680,18 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
             reason: result.reason,
             routeAfter: result.routeAfter,
             screenAfter: result.screenAfter,
+            destinationContextId,
           });
-        })
-        .catch(() => {
+        } catch {
+          if (!isCurrentPendingExecution()) return;
           scheduleVoiceIdleTimer();
           reportPendingSettlement({
             status: "failed",
             summary: "The app could not complete the confirmed action.",
             reason: "client_execution_failed",
           });
-        });
+        }
+      })();
     },
     [
       busyOperations,
@@ -1920,272 +2715,612 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
     settlePendingConfirmationRef.current = settlePendingConfirmation;
   }, [settlePendingConfirmation]);
 
-  useEffect(() => {
-    const pending = pendingConfirmationRef.current;
-    if (!pending || pending.route === pathname) return;
-    abandonPendingConfirmation(
-      "route_changed",
-      "The confirmation was cancelled because the screen changed.",
-    );
-  }, [abandonPendingConfirmation, pathname]);
-
-  const startConversation = useCallback(async (externalRequest?: AgentConversationRequest) => {
-    const isSiriRequest =
-      externalRequest?.source === "siri_app_shortcut" &&
-      Boolean(externalRequest.requestId);
-    if (
-      isSiriRequest &&
-      externalRequest?.requestId &&
-      cancelledExternalRequestIdsRef.current.has(externalRequest.requestId)
-    ) {
-      return;
-    }
-    // Toggle off when a session (live OR an error still on screen) exists.
-    if (voiceLeaseRef.current && !liveClientRef.current && !conversationActive) {
-      // A second native tap while credentials are resolving is the same start
-      // request, not a toggle. Coalesce it so one mic/socket survives.
-      if (isSiriRequest) {
-        externalStartRequestRef.current = externalRequest ?? null;
+  const startConversation = useCallback(
+    async (
+      externalRequest?: AgentConversationRequest,
+      activationSource: OneVoiceActivationSource = "recovery",
+    ) => {
+      if (activationSource !== "recovery") {
+        retryActivationSourceRef.current = activationSource;
       }
-      return;
-    }
-    if (liveClientRef.current || erroredRef.current || conversationActive) {
-      if (isSiriRequest) {
-        externalStartRequestRef.current = externalRequest ?? null;
-        if (externalRequest?.initialRequestText) {
-          liveClientRef.current?.sendUserText?.(
-            externalRequest.initialRequestText,
-          );
-        }
-        finishExternalStart(
-          liveClientRef.current || conversationActive ? "accepted" : "failed",
-        );
+      // A tap may still be resolving a relay ticket while capture begins. Keep
+      // the opaque command in a ref so this async path can begin it or fail it
+      // closed; React state is intentionally not command authority.
+      // The visible Talk-to-One control is command-only. A client may never
+      // silently downgrade its PCM to the conversational relay when a server
+      // deployment is unavailable; that condition gets a truthful command
+      // retry result instead. Non-launcher entrypoints retain their explicit
+      // source and do not inherit a tap command by accident.
+      const requestedLocationCommand =
+        activationSource === "tap" || activationSource === "action_button"
+          ? ensureLocationCommandActivation()
+          : null;
+      const locationCommandTurnId = requestedLocationCommand?.turnId ?? null;
+      const isSiriRequest =
+        externalRequest?.source === "siri_app_shortcut" &&
+        Boolean(externalRequest.requestId);
+      const isPersonInitiated =
+        activationSource === "tap" ||
+        activationSource === "siri_app_shortcut" ||
+        activationSource === "action_button";
+      if (
+        isSiriRequest &&
+        externalRequest?.requestId &&
+        cancelledExternalRequestIdsRef.current.has(externalRequest.requestId)
+      ) {
         return;
       }
-      stopConversation();
-      return;
-    }
-    if (isSiriRequest) {
-      externalStartRequestRef.current = externalRequest ?? null;
-    }
-    const lease = appInteractionCoordinator.acquireVoiceLease({
-      owner: "one_live",
-      onRevoked: () => stopConversationRef.current(),
-    });
-    voiceLeaseRef.current = lease;
-    const runtimeConnection = await resolveGeminiRuntimeConnection({
-      userId: user?.uid,
-      vaultKey,
-      vaultOwnerToken,
-    });
-    if (!lease.isCurrent() || voiceLeaseRef.current?.id !== lease.id) {
-      return;
-    }
-    if (runtimeConnection.mode === "byok" && !runtimeConnection.credential) {
-      erroredRef.current = true;
-      setVoiceStatus("error", "Your Gemini key is unavailable. Open Connections settings.");
-      lease.release("missing_runtime_credential");
-      voiceLeaseRef.current = null;
-      finishExternalStart("failed");
-      return;
-    }
-    if (runtimeConnection.transport === "vertex_api_key") {
-      erroredRef.current = true;
-      setVoiceStatus(
-        "error",
-        "Your Google Cloud Vertex key is ready for typed turns. Use managed Gemini for voice.",
-      );
-      lease.release("unsupported_voice_transport");
-      voiceLeaseRef.current = null;
-      finishExternalStart("failed");
-      return;
-    }
-    // A Siri request can arrive while an ordinary in-app start is still
-    // resolving credentials. In that race the earlier call returns through
-    // the lease guard above, so take the latest external request from the ref
-    // when this session is finally created.
-    const externalRequestForSession =
-      externalRequest ?? externalStartRequestRef.current;
-    if (externalRequestForSession?.source === "siri_app_shortcut") {
-      externalStartRequestRef.current = externalRequestForSession;
-    }
-    erroredRef.current = false;
-    setConversationActive(true);
-    scheduleVoiceIdleTimer();
-    const context = runtime?.oneVoiceContextSnapshot ?? null;
-    const prewarmedRelay = prewarmedRelayRef.current;
-    // The prewarmed ticket is context-free (context rides in app_context
-    // frames after connect), so only tier match and freshness gate reuse.
-    const relayUrl =
-      prewarmedRelay &&
-      prewarmedRelay.accessTier === runtime?.tier &&
-      prewarmedRelay.expiresAtMs > Date.now()
-        ? prewarmedRelay.relayUrl
-        : null;
-    prewarmedRelayRef.current = null;
-    const speechAdapter = createOneVoiceSpeechAdapter({
-      onEvent: () => undefined,
-    });
-    const client = createRealtimeVoiceTransport({
-      onEvent: (event) => {
-        if (!lease.isCurrent() || voiceLeaseRef.current?.id !== lease.id) {
-          return;
-        }
-        handleTransportEventRef.current(event);
-      },
-    });
-    liveClientRef.current = client;
-    disposeLocalIntentResolver();
-    const resolverGeneration = localIntentResolverGenerationRef.current;
-    if (getVoiceV2Flags().localRuntimeMode !== "off") {
-      void prepareLocalIntentResolver().then((resolver) => {
-        if (
-          resolverGeneration !== localIntentResolverGenerationRef.current ||
-          liveClientRef.current !== client
-        ) {
-          resolver.dispose();
-          return;
-        }
-        localIntentResolverRef.current = resolver;
-      });
-    }
-    activeRuntimeModeRef.current = runtimeConnection.mode;
-    // The client pushes the starting snapshot as app_context on setupComplete.
-    lastPushedContextRef.current = context
-      ? actionableContextKey(context)
-      : null;
-    // Consumed once: a resumption handle belongs to the session that just
-    // ended, not to whatever the person starts after it. Reading it here
-    // and clearing it in the same breath means an ordinary, unrelated later
-    // start never accidentally inherits a stale one.
-    const resumptionHandle = pendingResumptionHandleRef.current;
-    pendingResumptionHandleRef.current = null;
-    await client.start({
-      context,
-      accessTier: runtime?.tier ?? null,
-      relayUrl,
-      sessionMirrorId: mirrorSessionId,
-      allowedActionIds:
-        context?.executable_action_ids ?? context?.available_action_ids ?? null,
-      consentToken: vaultOwnerToken ?? null,
-      runtimeCredentialMode: runtimeConnection.mode,
-      runtimeCredential: runtimeConnection.credential,
-      runtimeCredentialTransport: runtimeConnection.transport,
-      runtimeVertexProject: runtimeConnection.vertexProject,
-      runtimeVertexLocation: runtimeConnection.vertexLocation,
-      resumptionHandle,
-      voiceName: readVoicePreferences(user?.uid).voiceName,
-      speechAdapter,
-    });
-    const initialRequestText = externalRequestForSession?.initialRequestText?.trim();
-    const initialContextReady = initialRequestText
-      ? Boolean(
-          context &&
-            (await client.waitForContextReady?.({ timeoutMs: 2_000 })),
-        )
-      : true;
-    if (initialRequestText && !initialContextReady) {
-      setVoiceStatus(
-        "error",
-        "Agent One could not verify the current screen before handling that request.",
-      );
-      client.stop();
-      finishExternalStart("failed");
-      return;
-    }
-    const localResolution =
-      initialRequestText && context && initialContextReady
-        ? await resolveActiveLocalIntent({
-            utterance: initialRequestText,
-            catalogVersion: KAI_ACTION_GATEWAY_SCHEMA_VERSION,
-            context: {
-              contextRevision: `${context.revisions.route}:${context.revisions.ui}`,
-              catalogVersion: KAI_ACTION_GATEWAY_SCHEMA_VERSION,
-              route: {
-                pathname: context.route.route_family,
-                screen: context.route.screen,
-              },
-              availableActionIds: context.available_action_ids,
-              executableActionIds:
-                client.getExecutableActionIds?.() ?? context.executable_action_ids,
-              redactedState: {
-                circleCount: context.redacted_state?.circle_count ?? null,
-                permissionState:
-                  context.redacted_state?.permission_state ?? "unknown",
-                currentLocationState:
-                  context.redacted_state?.current_location_state ?? "unknown",
-                shareState: context.redacted_state?.share_state ?? "unknown",
-              },
-            },
-          })
-        : null;
-    const localRequestHandled = Boolean(
-      localResolution &&
-        (localResolution.disposition === "action" ||
-          localResolution.disposition === "read_answer" ||
-          localResolution.disposition === "clarify" ||
-          localResolution.reason === "sos_send_blocked"),
-    );
-    if (localResolution && localRequestHandled) {
-      if (initialRequestText) {
-        appendMirrorEvent({
-          role: "user",
-          text: redactSensitiveVoiceTranscript(initialRequestText, runtime?.screen),
-          source: "one_voice_orchestrator",
-          turnId: null,
-        });
+      // A real activation clears only the local capture timer. The relay gets
+      // the typed source below and records meaningful activity atomically on
+      // the server; this browser never advances the five-minute greeting gate.
+      if (isPersonInitiated) {
+        clearFollowUpCaptureTimer();
       }
-      if (localResolution.disposition === "action" && localResolution.actionId) {
-        const action = getKaiActionById(localResolution.actionId);
-        const accepted = await client.proposeLocalAction?.({
-          actionId: localResolution.actionId,
-          slots: localResolution.slots,
-          contextRevision: localResolution.contextRevision,
-          needsConfirmation: action?.execution_policy === "confirm_required",
-          trustedActivationRequired:
-            action?.activation_policy === "trusted_activation_required",
-          goalId: action?.goal.goal_id,
-        });
-        if (accepted !== true) {
-          appendMirrorEvent({
-            role: "assistant",
-            text: "I could not safely stage that action from the current app state.",
-            source: "one_voice_orchestrator",
-            turnId: null,
+      if (locationCommandTurnId) {
+        // Both physical microphone entrypoints (the persistent Talk control
+        // and Agent Chat's mic) enter the same visible command state before
+        // any relay or microphone await. Siri remains a typed handoff.
+        setVoiceStatus("listening", "Listening");
+      }
+      // Toggle off when a session (live OR an error still on screen) exists.
+      if (
+        voiceLeaseRef.current &&
+        !liveClientRef.current &&
+        !conversationActive
+      ) {
+        // A second native tap while credentials are resolving is the same start
+        // request, not a toggle. Coalesce it so one mic/socket survives.
+        if (isSiriRequest) {
+          externalStartRequestRef.current = externalRequest ?? null;
+        }
+        return;
+      }
+      if (liveClientRef.current || erroredRef.current || conversationActive) {
+        if (isSiriRequest) {
+          externalStartRequestRef.current = externalRequest ?? null;
+          if (externalRequest?.initialRequestText) {
+            liveClientRef.current?.sendUserText?.(
+              externalRequest.initialRequestText,
+            );
+          }
+          finishExternalStart(
+            liveClientRef.current || conversationActive ? "accepted" : "failed",
+          );
+          return;
+        }
+        // A Siri/App Intent text handoff may intentionally keep the warmed
+        // session microphone-free. The first real voice tap arms that existing
+        // session instead of tearing it down and paying the relay handshake
+        // again; a later tap while capture is active remains the normal stop.
+        const activeClient = liveClientRef.current;
+        if (locationCommandTurnId) {
+          if (
+            !activeClient?.beginInputTurn?.({ turnId: locationCommandTurnId })
+          ) {
+            setVoiceStatus(
+              "error",
+              "Command input is not ready. Tap to try again.",
+            );
+            return;
+          }
+          const audioStarted =
+            activeClient.isAudioInputActive?.() === true
+              ? true
+              : await activeClient.startAudioInput?.();
+          if (audioStarted !== true) {
+            setVoiceStatus("error", "Voice could not start the microphone.");
+            return;
+          }
+          setVoiceStatus("listening", "Listening");
+          return;
+        }
+        if (
+          activeClient?.startAudioInput &&
+          activeClient.isAudioInputActive?.() === false
+        ) {
+          void activeClient.startAudioInput().then((started) => {
+            if (started !== true) {
+              setVoiceStatus("error", "Voice could not start the microphone.");
+            }
           });
-          setVoiceStatus("error", "The action could not be staged safely.");
+          return;
+        }
+        stopConversation();
+        return;
+      }
+      if (isSiriRequest) {
+        externalStartRequestRef.current = externalRequest ?? null;
+      }
+      setForegroundGreeting(null);
+      setForegroundGreetingReady(false);
+      setForegroundGreetingFollowUpState(null);
+      const lease = appInteractionCoordinator.acquireVoiceLease({
+        owner: "one_live",
+        onRevoked: () => stopConversationRef.current(),
+      });
+      voiceLeaseRef.current = lease;
+      const ownerEpoch = voiceSessionOwnerEpochRef.current;
+      const context = runtime?.oneVoiceContextSnapshot ?? null;
+      const contextKey = context ? actionableContextKey(context) : null;
+      // The command surface deliberately owns a fresh transcript-only relay
+      // session for every tap. A previously warmed conversational socket may
+      // have different setup semantics and must never receive command PCM or
+      // reintroduce a greeting/chat turn while this feature flag is enabled.
+      if (locationCommandTurnId) {
+        stopPrewarmedSession();
+      }
+      const warmed = locationCommandTurnId ? null : prewarmedSessionRef.current;
+      if (
+        warmed &&
+        warmed.accessTier === runtime?.tier &&
+        warmed.expiresAtMs > Date.now() &&
+        warmed.contextKey === contextKey &&
+        warmed.ownerEpoch === voiceSessionOwnerEpochRef.current
+      ) {
+        // Claim the already-authenticated socket before touching the mic. The
+        // warm client has been intentionally silent until this tap; once it is
+        // installed as the active owner, its normal event handler updates UI.
+        prewarmedSessionRef.current = null;
+        liveClientRef.current = warmed.client;
+        // If the fixed greeting is still waiting for audio or draining, stop it
+        // before the same physical tap opens PCM. This fences local self-capture
+        // even when the provider control frame and launcher tap race.
+        if (foregroundGreetingOutputClientRef.current === warmed.client) {
+          warmed.client.cancelGreetingOutput?.();
+          foregroundGreetingOutputClientRef.current = null;
+        }
+        // This call is still in the physical launcher tap's synchronous stack
+        // (there has been no await in startConversation yet). A warm greeting
+        // may already own a suspended WKWebView output context, so resume that
+        // exact client before asking it to open PCM capture below.
+        if (!isSiriRequest) {
+          warmed.client.resumeOutputForUserGesture?.();
+        }
+        // A person-originated activation reaches the relay through
+        // `activationSource`; no browser timing record is allowed to suppress a
+        // server-owned greeting. Keep the opaque scope only for the local
+        // follow-up capture timer.
+        if (warmed.voiceSessionScope) {
+          voiceSessionScopeRef.current = warmed.voiceSessionScope;
+        }
+        activeRuntimeModeRef.current = warmed.runtimeMode;
+        erroredRef.current = false;
+        setConversationActive(true);
+        scheduleVoiceIdleTimer();
+        lastPushedContextRef.current = contextKey;
+        const warmedRequest =
+          externalRequest ?? externalStartRequestRef.current;
+        const warmedInitialText = warmedRequest?.initialRequestText?.trim();
+        if (
+          locationCommandTurnId &&
+          !warmed.client.beginInputTurn?.({ turnId: locationCommandTurnId })
+        ) {
+          erroredRef.current = true;
+          setVoiceStatus(
+            "error",
+            "Command input is not ready. Tap to try again.",
+          );
+          warmed.client.stop();
+          liveClientRef.current = null;
+          voiceLeaseRef.current?.release("warm_location_command_unavailable");
+          voiceLeaseRef.current = null;
+          activeRuntimeModeRef.current = null;
+          setConversationActive(false);
+          return;
+        }
+        const audioStarted = warmedInitialText
+          ? true
+          : await warmed.client.startAudioInput?.();
+        if (!lease.isCurrent() || voiceLeaseRef.current?.id !== lease.id) {
+          warmed.client.stop();
+          return;
+        }
+        if (audioStarted !== true) {
+          erroredRef.current = true;
+          setVoiceStatus("error", "Voice could not start the microphone.");
+          warmed.client.stop();
+          liveClientRef.current = null;
+          voiceLeaseRef.current?.release("warm_audio_input_failed");
+          voiceLeaseRef.current = null;
+          activeRuntimeModeRef.current = null;
+          setConversationActive(false);
+          finishExternalStart("failed");
+          return;
+        }
+        if (!warmedInitialText) {
+          // The warm transport received its pre-claim state events while the
+          // launcher intentionally remained idle. Starting its already-warm
+          // audio input can therefore be a no-op at the transport state layer
+          // and emit no fresh `listening` event. Mirror the successful physical
+          // tap here so the active pill never remains visually idle; this does
+          // not open or capture from the microphone until startAudioInput above
+          // has returned true.
+          setVoiceStatus("listening", "Listening");
+        }
+        if (warmedInitialText) {
+          logVoiceMetric({
+            metric: "voice_turn_delegated_to_agent",
+            value: 1,
+            turnId: createVoiceTurnId(),
+            tags: {
+              entrypoint: "siri_initial_request",
+            },
+          });
+          warmed.client.sendUserText?.(warmedInitialText);
+          finishExternalStart("accepted");
+        }
+        return;
+      }
+      // A stale/expired warm socket must not compete with the explicit session
+      // for provider capacity or accidentally receive later context updates.
+      if (warmed) stopPrewarmedSession();
+      // A Location command is always organization-managed. Start its local
+      // microphone capture and bounded command queue while the relay ticket is
+      // minted rather than showing Listening with no capture behind it. The
+      // transport retains every frame locally and cannot open/send command PCM
+      // until its relay, provider, and context barriers all complete.
+      if (locationCommandTurnId) {
+        const relaySessionController = new AbortController();
+        relaySessionAbortControllerRef.current?.abort();
+        relaySessionAbortControllerRef.current = relaySessionController;
+        const relaySessionPromise = ApiService.getOneAdkLiveRelaySession({
+          signal: relaySessionController.signal,
+        });
+        const realtimeAudioInput = createOneVoiceRealtimeAudioInput();
+        const client = createRealtimeVoiceTransport({
+          onEvent: (event) => {
+            if (!lease.isCurrent() || voiceLeaseRef.current?.id !== lease.id) {
+              return;
+            }
+            handleTransportEventRef.current(event);
+          },
+        });
+        liveClientRef.current = client;
+        // Claim the command boundary before `start()` opens local capture. The
+        // transport supports this pre-start claim specifically so the bounded
+        // onset queue has an active turn while the relay ticket is still being
+        // minted; without it, early PCM would be intentionally discarded.
+        if (!client.beginInputTurn?.({ turnId: locationCommandTurnId })) {
+          relaySessionController.abort();
+          if (
+            relaySessionAbortControllerRef.current === relaySessionController
+          ) {
+            relaySessionAbortControllerRef.current = null;
+          }
+          // The aborted ticket is no longer observed by a transport, so consume
+          // its expected rejection without surfacing a cancellation as an error.
+          void relaySessionPromise.catch(() => undefined);
+          erroredRef.current = true;
+          setVoiceStatus(
+            "error",
+            "Command input is not ready. Tap to try again.",
+          );
+          client.stop();
+          if (liveClientRef.current === client) {
+            liveClientRef.current = null;
+          }
+          voiceLeaseRef.current?.release("location_command_unavailable");
+          voiceLeaseRef.current = null;
+          activeRuntimeModeRef.current = null;
+          setConversationActive(false);
+          return;
+        }
+        activeRuntimeModeRef.current = "hushh_managed_vertex";
+        erroredRef.current = false;
+        setConversationActive(true);
+        scheduleVoiceIdleTimer();
+        // The client pushes the starting snapshot as app_context on setupComplete.
+        lastPushedContextRef.current = context
+          ? actionableContextKey(context)
+          : null;
+        const resumptionHandle = pendingResumptionHandleRef.current;
+        pendingResumptionHandleRef.current = null;
+        const startPromise = client.start({
+          context,
+          accessTier: runtime?.tier ?? null,
+          // Do not await relay-ticket minting before starting the microphone.
+          // The transport awaits this promise only after it has opened local
+          // capture, then flushes its bounded PCM queue after full readiness.
+          relayUrlPromise: relaySessionPromise.then(({ relayUrl }) => relayUrl),
+          sessionMirrorId: mirrorSessionId,
+          allowedActionIds:
+            context?.executable_action_ids ??
+            context?.available_action_ids ??
+            null,
+          consentToken: vaultOwnerToken ?? null,
+          runtimeCredentialMode: "hushh_managed_vertex",
+          runtimeCredential: null,
+          runtimeCredentialTransport: "developer_api",
+          runtimeVertexProject: null,
+          runtimeVertexLocation: null,
+          resumptionHandle,
+          voiceName: readVoicePreferences(user?.uid).voiceName,
+          initialGreetingEnabled: false,
+          activationSource,
+          realtimeAudioInput,
+          locationCommandMode: true,
+          deferAudioInput: false,
+        });
+        try {
+          const relaySession = await relaySessionPromise;
+          if (
+            relaySessionAbortControllerRef.current === relaySessionController
+          ) {
+            relaySessionAbortControllerRef.current = null;
+          }
+          if (
+            !lease.isCurrent() ||
+            voiceLeaseRef.current?.id !== lease.id ||
+            ownerEpoch !== voiceSessionOwnerEpochRef.current ||
+            liveClientRef.current !== client
+          ) {
+            return;
+          }
+          voiceSessionScopeRef.current = relaySession.voiceSessionScope;
+          await startPromise;
+        } catch {
+          if (
+            relaySessionAbortControllerRef.current === relaySessionController
+          ) {
+            relaySessionAbortControllerRef.current = null;
+          }
+          // A user cancellation/background transition has already stopped the
+          // transport and revoked the lease. Never replace it with an error.
+          if (
+            relaySessionController.signal.aborted ||
+            !lease.isCurrent() ||
+            voiceLeaseRef.current?.id !== lease.id ||
+            ownerEpoch !== voiceSessionOwnerEpochRef.current
+          ) {
+            return;
+          }
+          // `GeminiLiveTransport.start` emits the safe retry state for a relay
+          // failure; this branch only releases the owner if setup threw before
+          // it could do so itself.
+          client.stop();
+          if (liveClientRef.current === client) {
+            liveClientRef.current = null;
+          }
+          voiceLeaseRef.current?.release(
+            "location_command_relay_session_failed",
+          );
+          voiceLeaseRef.current = null;
+          activeRuntimeModeRef.current = null;
+          setConversationActive(false);
           finishExternalStart("failed");
         }
-      } else {
-        const message = localIntentResponse(localResolution);
-        appendMirrorEvent({
-          role: "assistant",
-          text: message,
-          source: "one_voice_orchestrator",
-          turnId: null,
-        });
-        setVoiceStatus("thinking", message);
+        return;
       }
-    } else if (initialRequestText) {
-      client.sendUserText?.(initialRequestText);
-    }
-  }, [
-    conversationActive,
-    runtime?.oneVoiceContextSnapshot,
-    runtime?.screen,
-    runtime?.tier,
-    mirrorSessionId,
-    scheduleVoiceIdleTimer,
-    stopConversation,
-    vaultOwnerToken,
-    vaultKey,
-    user?.uid,
-    setVoiceStatus,
-    finishExternalStart,
-    appendMirrorEvent,
-    resolveActiveLocalIntent,
-    disposeLocalIntentResolver,
-  ]);
+
+      const runtimeConnection = await resolveGeminiRuntimeConnection({
+        userId: user?.uid,
+        vaultKey,
+        vaultOwnerToken,
+      });
+      if (
+        !lease.isCurrent() ||
+        voiceLeaseRef.current?.id !== lease.id ||
+        ownerEpoch !== voiceSessionOwnerEpochRef.current
+      ) {
+        if (lease.isCurrent() && voiceLeaseRef.current?.id === lease.id) {
+          lease.release("voice_owner_changed");
+          voiceLeaseRef.current = null;
+        }
+        return;
+      }
+      if (runtimeConnection.mode === "byok" && !runtimeConnection.credential) {
+        erroredRef.current = true;
+        setVoiceStatus(
+          "error",
+          "Your Gemini key is unavailable. Open Connections settings.",
+        );
+        lease.release("missing_runtime_credential");
+        voiceLeaseRef.current = null;
+        finishExternalStart("failed");
+        return;
+      }
+      // Location commands are an organization-managed, server-authorized
+      // product path.  Do not silently borrow a personal Gemini connection
+      // even if one is configured for ordinary conversational experiments.
+      if (
+        locationCommandTurnId &&
+        runtimeConnection.mode !== "hushh_managed_vertex"
+      ) {
+        erroredRef.current = true;
+        setVoiceStatus(
+          "error",
+          "Location commands use the managed secure voice service. Tap to try again.",
+        );
+        lease.release("location_command_requires_managed_runtime");
+        voiceLeaseRef.current = null;
+        finishExternalStart("failed");
+        return;
+      }
+      if (runtimeConnection.transport === "vertex_api_key") {
+        erroredRef.current = true;
+        setVoiceStatus(
+          "error",
+          "Your Google Cloud Vertex key is ready for typed turns. Use managed Gemini for voice.",
+        );
+        lease.release("unsupported_voice_transport");
+        voiceLeaseRef.current = null;
+        finishExternalStart("failed");
+        return;
+      }
+      // A Siri request can arrive while an ordinary in-app start is still
+      // resolving credentials. In that race the earlier call returns through
+      // the lease guard above, so take the latest external request from the ref
+      // when this session is finally created.
+      const externalRequestForSession =
+        externalRequest ?? externalStartRequestRef.current;
+      if (externalRequestForSession?.source === "siri_app_shortcut") {
+        externalStartRequestRef.current = externalRequestForSession;
+      }
+      // Mint the relay URL and the server-owned lifecycle scope together. The
+      // scope never rides in the WebSocket URL, app context, model prompt, or
+      // telemetry; it only keys local timing metadata after the response is
+      // structurally validated by ApiService.
+      let relaySession: Awaited<
+        ReturnType<typeof ApiService.getOneAdkLiveRelaySession>
+      >;
+      const relaySessionController = new AbortController();
+      relaySessionAbortControllerRef.current?.abort();
+      relaySessionAbortControllerRef.current = relaySessionController;
+      try {
+        relaySession = await ApiService.getOneAdkLiveRelaySession({
+          signal: relaySessionController.signal,
+        });
+      } catch {
+        if (relaySessionAbortControllerRef.current === relaySessionController) {
+          relaySessionAbortControllerRef.current = null;
+        }
+        if (
+          !lease.isCurrent() ||
+          voiceLeaseRef.current?.id !== lease.id ||
+          ownerEpoch !== voiceSessionOwnerEpochRef.current
+        ) {
+          return;
+        }
+        erroredRef.current = true;
+        setVoiceStatus(
+          "error",
+          "Voice could not reach the secure voice relay.",
+        );
+        lease.release("relay_session_failed");
+        voiceLeaseRef.current = null;
+        finishExternalStart("failed");
+        return;
+      }
+      if (relaySessionAbortControllerRef.current === relaySessionController) {
+        relaySessionAbortControllerRef.current = null;
+      }
+      if (
+        !lease.isCurrent() ||
+        voiceLeaseRef.current?.id !== lease.id ||
+        ownerEpoch !== voiceSessionOwnerEpochRef.current
+      ) {
+        if (lease.isCurrent() && voiceLeaseRef.current?.id === lease.id) {
+          lease.release("voice_owner_changed");
+          voiceLeaseRef.current = null;
+        }
+        return;
+      }
+      const { relayUrl, voiceSessionScope } = relaySession;
+      voiceSessionScopeRef.current = voiceSessionScope;
+      erroredRef.current = false;
+      setConversationActive(true);
+      scheduleVoiceIdleTimer();
+      // iOS provides the same PCM16/16 kHz contract as the browser's
+      // AudioWorklet. It is intentionally not a native transcript adapter:
+      // Gemini Live receives the audio first and owns endpointing/dialogue.
+      const realtimeAudioInput = createOneVoiceRealtimeAudioInput();
+      const client = createRealtimeVoiceTransport({
+        onEvent: (event) => {
+          if (!lease.isCurrent() || voiceLeaseRef.current?.id !== lease.id) {
+            return;
+          }
+          handleTransportEventRef.current(event);
+        },
+      });
+      liveClientRef.current = client;
+      if (locationCommandTurnId) {
+        if (!client.beginInputTurn?.({ turnId: locationCommandTurnId })) {
+          erroredRef.current = true;
+          setVoiceStatus(
+            "error",
+            "Command input is not ready. Tap to try again.",
+          );
+          client.stop();
+          voiceLeaseRef.current?.release("location_command_unavailable");
+          voiceLeaseRef.current = null;
+          liveClientRef.current = null;
+          setConversationActive(false);
+          return;
+        }
+      }
+      activeRuntimeModeRef.current = runtimeConnection.mode;
+      // The client pushes the starting snapshot as app_context on setupComplete.
+      lastPushedContextRef.current = context
+        ? actionableContextKey(context)
+        : null;
+      // Consumed once: a resumption handle belongs to the session that just
+      // ended, not to whatever the person starts after it. Reading it here
+      // and clearing it in the same breath means an ordinary, unrelated later
+      // start never accidentally inherits a stale one.
+      const resumptionHandle = pendingResumptionHandleRef.current;
+      pendingResumptionHandleRef.current = null;
+      await client.start({
+        context,
+        accessTier: runtime?.tier ?? null,
+        relayUrl,
+        sessionMirrorId: mirrorSessionId,
+        allowedActionIds:
+          context?.executable_action_ids ??
+          context?.available_action_ids ??
+          null,
+        consentToken: vaultOwnerToken ?? null,
+        runtimeCredentialMode: runtimeConnection.mode,
+        runtimeCredential: runtimeConnection.credential,
+        runtimeCredentialTransport: runtimeConnection.transport,
+        runtimeVertexProject: runtimeConnection.vertexProject,
+        runtimeVertexLocation: runtimeConnection.vertexLocation,
+        resumptionHandle,
+        voiceName: readVoicePreferences(user?.uid).voiceName,
+        // Explicitly started sessions already have a person at the mic. The
+        // fresh-session welcome belongs only to the foreground warm socket, so
+        // a later tap or Siri handoff can never trigger a second greeting.
+        initialGreetingEnabled: false,
+        activationSource,
+        realtimeAudioInput,
+        locationCommandMode: Boolean(locationCommandTurnId),
+        deferAudioInput: Boolean(externalRequestForSession?.initialRequestText),
+      });
+      const initialRequestText =
+        externalRequestForSession?.initialRequestText?.trim();
+      const initialContextReady = initialRequestText
+        ? Boolean(
+            context &&
+            (await client.waitForContextReady?.({ timeoutMs: 2_000 })),
+          )
+        : true;
+      if (initialRequestText && !initialContextReady) {
+        setVoiceStatus(
+          "error",
+          "Agent One could not verify the current screen before handling that request.",
+        );
+        client.stop();
+        finishExternalStart("failed");
+        return;
+      }
+      if (initialRequestText) {
+        logVoiceMetric({
+          metric: "voice_turn_delegated_to_agent",
+          value: 1,
+          turnId: createVoiceTurnId(),
+          tags: {
+            entrypoint: "siri_initial_request",
+          },
+        });
+        client.sendUserText?.(initialRequestText);
+      }
+    },
+    [
+      conversationActive,
+      runtime?.oneVoiceContextSnapshot,
+      runtime?.tier,
+      mirrorSessionId,
+      scheduleVoiceIdleTimer,
+      clearFollowUpCaptureTimer,
+      ensureLocationCommandActivation,
+      stopConversation,
+      vaultOwnerToken,
+      vaultKey,
+      user?.uid,
+      setVoiceStatus,
+      finishExternalStart,
+      stopPrewarmedSession,
+    ],
+  );
 
   // Retrying from an error is stop-then-start, but not in the same tick:
   // startConversation's own guard reads `conversationActive` from THIS
@@ -2198,7 +3333,8 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
   // regardless of whether conversationActive does, so the effect below is
   // guaranteed to run on every retry.
   useEffect(() => {
-    startConversationRef.current = () => void startConversation();
+    startConversationRef.current = () =>
+      void startConversation(undefined, retryActivationSourceRef.current);
   }, [startConversation]);
   // A manual retry gets the same continuation token an automatic reconnect
   // would use, and resets the one-per-session automatic budget: a person
@@ -2230,7 +3366,7 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
     const context = runtime?.oneVoiceContextSnapshot;
     const client = liveClientRef.current;
     if (!context || !client?.updateContext) return;
-    const contextKey = actionableContextKey(context);
+    const contextKey = actionableContextKey(context!);
     if (lastPushedContextRef.current === contextKey) return;
     if (client.updateContext(context)) {
       lastPushedContextRef.current = contextKey;
@@ -2255,26 +3391,87 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
     }
   }, [conversationActive, vaultOwnerToken]);
 
+  const beginLocationCommandTap = useCallback(() => {
+    const activation = ensureLocationCommandActivation();
+    const turnId = activation.turnId;
+    // This runs inside the physical click gesture. The command transport has
+    // no output lane, but priming here preserves a valid platform activation
+    // for any existing output-context cleanup.
+    primeRealtimeVoiceOutput();
+    logVoiceMetric({
+      metric: "voice_tap",
+      value: 1,
+      turnId,
+      tags: { entrypoint: "location_tap" },
+    });
+    // The tap opens one command turn. Show the promised state in the same
+    // event turn so people can start speaking naturally; server-side speech
+    // endpointing—not a second tap or a client timer—closes that turn.
+    // Capture remains locally buffered until relay, provider, and trusted
+    // context each acknowledge readiness, and a real failure replaces this
+    // with the specific retry state below.
+    setVoiceStatus("listening", "Listening");
+    void startConversation(undefined, "tap");
+  }, [ensureLocationCommandActivation, setVoiceStatus, startConversation]);
+
   const handleVoiceStartClick = useCallback(
     (event: MouseEvent<HTMLButtonElement>) => {
       event.stopPropagation();
-      void startConversation();
+      const activeCommand = locationCommandActivationRef.current;
+      if (
+        activeCommand &&
+        !activeCommand.cancelled &&
+        !activeCommand.completed
+      ) {
+        // A second tap is an explicit cancellation. It closes capture and
+        // preserves the command runtime's fail-closed cancellation path; it
+        // is never interpreted as a speech-end boundary.
+        stopConversation();
+        return;
+      }
+      beginLocationCommandTap();
     },
-    [startConversation],
+    [
+      beginLocationCommandTap,
+      stopConversation,
+    ],
   );
 
   useEffect(() => {
     const handleConversationRequest = (event: Event) => {
       const request = (event as CustomEvent<AgentConversationRequest>).detail;
+      const isSiriRequest = request?.source === "siri_app_shortcut";
       void startConversation(
-        request?.source === "siri_app_shortcut" ? request : undefined,
+        isSiriRequest ? request : undefined,
+        isSiriRequest ? "siri_app_shortcut" : "action_button",
       );
     };
+    // A stop that is a no-op unless something is actually live, so it cannot
+    // become a general-purpose cancel. `stopConversation` also aborts the
+    // in-flight action run and cancels active action runs, so an unconditional
+    // call would kill a typed action run every time someone looked at another
+    // surface. The lease check is the half that matters: it covers the window
+    // where the mic is leased but the transport is not live yet, and releasing
+    // the lease makes the in-flight `startConversation` abort at its own
+    // post-await `lease.isCurrent()` check.
+    const handleConversationStop = () => {
+      if (
+        !voiceLeaseRef.current &&
+        !liveClientRef.current &&
+        !erroredRef.current &&
+        !conversationActive
+      ) {
+        return;
+      }
+      stopConversation();
+    };
     const handleConversationCancel = (event: Event) => {
-      const cancellation = (event as CustomEvent<{
-        source?: string;
-        requestId?: string;
-      }>).detail;
+      const cancellation = (
+        event as CustomEvent<{
+          source?: string;
+          requestId?: string;
+        }>
+      ).detail;
       if (
         cancellation?.source !== "siri_app_shortcut" ||
         typeof cancellation.requestId !== "string" ||
@@ -2283,7 +3480,9 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
         return;
       }
       cancelledExternalRequestIdsRef.current.add(cancellation.requestId);
-      if (externalStartRequestRef.current?.requestId !== cancellation.requestId) {
+      if (
+        externalStartRequestRef.current?.requestId !== cancellation.requestId
+      ) {
         return;
       }
       externalStartRequestRef.current = null;
@@ -2292,6 +3491,10 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
     window.addEventListener(
       AGENT_CONVERSATION_REQUEST_EVENT,
       handleConversationRequest,
+    );
+    window.addEventListener(
+      AGENT_CONVERSATION_STOP_EVENT,
+      handleConversationStop,
     );
     window.addEventListener(
       AGENT_CONVERSATION_CANCEL_EVENT,
@@ -2305,11 +3508,15 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
         handleConversationRequest,
       );
       window.removeEventListener(
+        AGENT_CONVERSATION_STOP_EVENT,
+        handleConversationStop,
+      );
+      window.removeEventListener(
         AGENT_CONVERSATION_CANCEL_EVENT,
         handleConversationCancel,
       );
     };
-  }, [startConversation]);
+  }, [conversationActive, startConversation, stopConversation]);
 
   const openAgentChat = useCallback(() => {
     if (conversationActive) return;
@@ -2331,85 +3538,42 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
   }, [isVaultUnlocked, stopConversation]);
 
   useEffect(() => {
-    const context = runtime?.oneVoiceContextSnapshot ?? null;
-    const accessTier = runtime?.tier ?? null;
-    if (!context || !accessTier || conversationActive || erroredRef.current) {
-      return;
-    }
-    if (
-      typeof document !== "undefined" &&
-      document.visibilityState !== "visible"
-    ) {
-      return;
-    }
-    if (
-      typeof window !== "undefined" &&
-      window.__HUSHH_NATIVE_TEST__?.enabled === true
-    ) {
-      return;
-    }
-
-    const controller = new AbortController();
-    const timer = window.setTimeout(() => {
-      // The snapshot identity churns on every navigation and cache event, so
-      // this effect re-fires constantly. The ticket is context-free (context
-      // rides in post-connect app_context frames) — reuse an unexpired one,
-      // never mint concurrently, and back off after a rate limit instead of
-      // hammering the relay endpoint on every snapshot change.
-      const existing = prewarmedRelayRef.current;
-      if (
-        existing &&
-        existing.accessTier === accessTier &&
-        existing.expiresAtMs > Date.now()
-      ) {
+    const handleLifecycleChange = () => {
+      const lifecycle = appInteractionCoordinator.getLifecycleSnapshot();
+      if (lifecycle.state === "background") {
+        setForegroundGreeting(null);
+        setForegroundGreetingReady(false);
+        setForegroundGreetingFollowUpState(null);
+        stopPrewarmedSession();
+        if (liveClientRef.current || conversationActive) {
+          stopConversation();
+        }
         return;
       }
-      if (relayMintInFlightRef.current) return;
-      if (Date.now() < relayMintCooldownUntilRef.current) return;
-      relayMintInFlightRef.current = true;
-      void ApiService.getOneAdkLiveRelayUrl({ signal: controller.signal })
-        .then((relayUrl) => {
-          relayMintInFlightRef.current = false;
-          relayMintBackoffMsRef.current = 5_000;
-          if (controller.signal.aborted) return;
-          prewarmedRelayRef.current = {
-            relayUrl,
-            expiresAtMs: Date.now() + 45_000,
-            snapshotId: context.snapshot_id,
-            accessTier,
-          };
-        })
-        .catch((error: unknown) => {
-          relayMintInFlightRef.current = false;
-          const status =
-            typeof error === "object" && error !== null
-              ? Number((error as { status?: unknown }).status)
-              : NaN;
-          if (status === 429) {
-            relayMintCooldownUntilRef.current =
-              Date.now() + relayMintBackoffMsRef.current;
-            relayMintBackoffMsRef.current = Math.min(
-              relayMintBackoffMsRef.current * 2,
-              60_000,
-            );
-          }
-          if (!controller.signal.aborted) {
-            prewarmedRelayRef.current = null;
-          }
-        });
-    }, 300);
-
-    return () => {
-      controller.abort();
-      window.clearTimeout(timer);
     };
-  }, [conversationActive, runtime?.oneVoiceContextSnapshot, runtime?.tier]);
+
+    return appInteractionCoordinator.subscribeLifecycle(handleLifecycleChange);
+  }, [conversationActive, stopConversation, stopPrewarmedSession]);
+
+  // Talk-to-One is a command surface, not a foreground live-chat surface.
+  // Clear any residual greeting/prewarm state on mount and whenever its
+  // owner changes; every microphone activation creates an explicit command
+  // turn below.
+  useEffect(() => {
+    setForegroundGreeting(null);
+    setForegroundGreetingReady(false);
+    setForegroundGreetingFollowUpState(null);
+    stopPrewarmedSession();
+  }, [stopPrewarmedSession]);
 
   useEffect(() => {
     if (typeof document === "undefined") return;
     const handleVisibilityChange = () => {
       if (document.visibilityState === "visible") return;
-      prewarmedRelayRef.current = null;
+      setForegroundGreeting(null);
+      setForegroundGreetingReady(false);
+      setForegroundGreetingFollowUpState(null);
+      stopPrewarmedSession();
       if (liveClientRef.current || conversationActive) {
         stopConversation();
       }
@@ -2418,7 +3582,7 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
     return () => {
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, [conversationActive, stopConversation]);
+  }, [conversationActive, stopConversation, stopPrewarmedSession]);
 
   // Tear down the live session if the bar unmounts (route change, sign-out).
   // Also clear the shared voice store so a stale status (e.g. "error",
@@ -2429,6 +3593,7 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
         clearTimeout(idleTimeoutRef.current);
         idleTimeoutRef.current = null;
       }
+      clearFollowUpCaptureTimer();
       abandonPendingConfirmation(
         "component_unmounted",
         "The confirmation was cancelled when the voice surface closed.",
@@ -2436,11 +3601,17 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
       );
       liveClientRef.current?.stop();
       liveClientRef.current = null;
-      disposeLocalIntentResolver();
-      prewarmedRelayRef.current = null;
+      relaySessionAbortControllerRef.current?.abort();
+      relaySessionAbortControllerRef.current = null;
+      stopPrewarmedSession();
       resetVoice();
     };
-  }, [abandonPendingConfirmation, disposeLocalIntentResolver, resetVoice]);
+  }, [
+    abandonPendingConfirmation,
+    clearFollowUpCaptureTimer,
+    resetVoice,
+    stopPrewarmedSession,
+  ]);
 
   const chromeState = useMemo(() => getKaiChromeState(pathname), [pathname]);
   // The root intro screen ("/") has no bottom nav, exactly like the onboarding
@@ -2455,7 +3626,7 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
   // must not ride a scroll-hide translation there.
   const isLoginRoute = (pathname ?? "").startsWith(ROUTES.LOGIN);
   const isFoundationPublic = isFoundationPublicRoute(pathname ?? "");
-  
+
   // The visual styling of the bar (width, aurora, etc.) aligns with the chat
   // workspace's concept of onboarding.
   const visualOnboardingChrome =
@@ -2535,12 +3706,17 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [onboardingGreeterMode]);
 
+  // A pending server-issued card has a higher continuity requirement than the
+  // launcher. The dedicated Agent route may hide its ordinary dock, but it
+  // must not hide the person's next required decision behind that navigation.
+  // Logout/auth-loading and an explicit runtime suppression remain hard
+  // boundaries and deliberately do not inherit this visual exception.
   const unmountBar =
     !agentPopover ||
     authLoading ||
     // Focused onboarding routes retain voice but use the voice-only rendering
     // branch above, so Agent Chat never appears over setup or phone entry.
-    path === ROUTES.AGENT ||
+    (path === ROUTES.AGENT && !pendingConfirmation) ||
     // "/login" keeps the bar (signed-out onboarding greeter, parity with "/");
     // only the logout transition unmounts it.
     path.startsWith(ROUTES.LOGOUT) ||
@@ -2556,7 +3732,7 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
   // While the agent window is active, keep the bar mounted but visually faded
   // and non-interactive. When the window finishes closing it eases back in over
   // the same envelope instead of popping in from a fresh mount.
-  const barHidden = Boolean(agentWindowActive);
+  const barHidden = Boolean(agentWindowActive && !pendingConfirmation);
   const activeInteractionLayer =
     runtime?.oneVoiceContextSnapshot.ui.interaction_layer ?? null;
   const barAmbient = activeInteractionLayer?.agent_continuity === "ambient";
@@ -2578,11 +3754,13 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
   // confirmation pending for a tap); without this second check, a card in
   // that state rendered "say yes to continue" with no Cancel/Authorize
   // buttons at all -- a real dead end, since a spoken yes never settles it.
-  const pendingActionNeedsHardTap = requiresHardTapConfirmation(
-    pendingAction,
-    runtime?.oneVoiceContextSnapshot.voice_settings.require_tap_confirmation ===
-      true,
-  );
+  const pendingActionNeedsHardTap =
+    pendingConfirmation?.requiresTrustedTapConfirmation === true ||
+    requiresHardTapConfirmation(
+      pendingAction,
+      runtime?.oneVoiceContextSnapshot.voice_settings
+        .require_tap_confirmation === true,
+    );
   const pendingActionLabel = pendingAction?.label || "Continue this action";
 
   // The specific reason (mic blocked, no device, setup timeout) now lives in
@@ -2590,20 +3768,24 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
   // strip with real estate for maybe half a sentence -- long enough to
   // truncate any real reason into an ellipsis that told nobody what to do.
   const voiceStatusLabel =
-    activeActionRun?.message ?? getAgentVoiceStatusLabel(voiceStatus);
-  const nativeVoiceMode = !conversationActive
-    ? "idle"
-    : voiceStatus === "connecting"
-      ? "opening"
-      : voiceStatus === "listening"
-        ? "listening"
-        : voiceStatus === "thinking"
-          ? "understanding"
-          : voiceStatus === "speaking"
-            ? "speaking"
-            : voiceStatus === "error"
-              ? "error"
-              : "opening";
+    activeActionRun?.message ??
+    (voiceStatus === "speaking" && voiceMessage
+      ? voiceMessage
+      : getAgentVoiceStatusLabel(voiceStatus));
+  const nativeVoiceMode =
+    !conversationActive || voiceStatus === "idle"
+      ? "idle"
+      : voiceStatus === "connecting"
+        ? "opening"
+        : voiceStatus === "listening"
+          ? "listening"
+          : voiceStatus === "thinking"
+            ? "understanding"
+            : voiceStatus === "speaking"
+              ? "speaking"
+              : voiceStatus === "error"
+                ? "error"
+                : "opening";
 
   const currentThemePreference = resolveThemePreference(theme) ?? "system";
   const nextTheme = nextThemePreference(currentThemePreference);
@@ -2624,7 +3806,7 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
       )}
       <span
         aria-hidden
-        className="pointer-events-none absolute inset-0 overflow-hidden rounded-full"
+        className="pointer-events-none absolute inset-0 overflow-hidden rounded-[inherit]"
       >
         <MaterialRipple variant="gradient" effect="fill" />
       </span>
@@ -2650,7 +3832,7 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
       />
       <span
         aria-hidden
-        className="pointer-events-none absolute inset-0 overflow-hidden rounded-full"
+        className="pointer-events-none absolute inset-0 overflow-hidden rounded-[inherit]"
       >
         <MaterialRipple variant="gradient" effect="fill" />
       </span>
@@ -2658,147 +3840,202 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
   );
 
   // During onboarding and on foundation public routes, show the theme and accent toggles
-  const showToggles = onboardingGreeterMode || isOneSetupRoute(pathname || "") || isFoundationPublic;
+  const showToggles =
+    onboardingGreeterMode ||
+    isOneSetupRoute(pathname || "") ||
+    isFoundationPublic;
   const showAgentChatAction = Boolean(
     user?.uid &&
-      !focusedOnboardingVoiceOnly &&
-      !isHomeRoute &&
-      !isLoginRoute &&
-      !isFoundationPublic,
+    !focusedOnboardingVoiceOnly &&
+    !isHomeRoute &&
+    !isLoginRoute &&
+    !isFoundationPublic,
   );
+  const foregroundGreetingFollowUpLabel =
+    foregroundGreetingFollowUpState === "tap_required"
+      ? "Tap to enable mic"
+      : foregroundGreetingFollowUpState === "arming"
+        ? "Preparing mic"
+        : foregroundGreetingFollowUpState === "listening"
+          ? "Listening"
+          : "Tap to talk";
+  const voiceLauncherInstruction = "Tap to talk to One. I’ll listen until you finish.";
   // Dock contents for the assistant actions, one JSX source across all modes so
   // the voice/theme controls and test ids never fork.
-  const pillContents = conversationActive ? (
-    // The ENTIRE bar is the tap target to end the conversation: tapping
-    // anywhere stops it. The X icon on the left is a bare marker (no chip
-    // background) showing this is the "tap to end" affordance. On the
-    // pre-auth greeter (home route auto-greet) the theme toggle stays
-    // docked alongside it so it never disappears mid-connect.
-    <>
-      <button
-        type="button"
-        data-native-voice-control-id="one_voice_agent_bar_end"
-        data-testid="one-voice-agent-bar-end"
-        onClick={stopConversation}
-        aria-label="End conversation"
-        title="Tap to end conversation"
-        className="bottom-chrome-surface relative z-0 flex h-11 min-w-0 flex-1 items-center gap-3 overflow-hidden rounded-full pl-1 pr-2 text-left transition-[background-color,transform] duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--app-accent-ring)]"
-      >
-        <span
-          aria-hidden
-          className={cn(
-            "one-bar-aurora -z-10 transition-opacity duration-500",
-            visualOnboardingChrome
-              ? "one-bar-aurora--onboarding"
-              : "one-bar-aurora--active",
-          )}
-        />
-        <span
-          aria-hidden
-          className="pointer-events-none absolute inset-0 overflow-hidden rounded-full"
-        >
-          <MaterialRipple variant="gradient" effect="fill" />
-        </span>
-        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-current">
-          <X className="h-[18px] w-[18px]" />
-        </span>
-        <span
-          className="flex min-w-0 flex-1 items-center gap-3"
-          role="status"
-          aria-live="polite"
-          aria-label={voiceStatusLabel}
-        >
-          <AgentVoiceWaveform
-            level={voiceLevel}
-            status={voiceStatus}
-            barCount={28}
-            className="h-6 flex-1"
-          />
-          <span
-            className={cn(
-              "shrink-0 text-[12px] font-medium",
-              voiceStatus === "error"
-                ? "text-destructive/80"
-                : "tabular-nums text-current/60",
-            )}
-          >
-            {voiceStatusLabel}
-          </span>
-        </span>
-      </button>
-      {showToggles ? (
-        <div className="flex shrink-0 items-center gap-1">
-          {accentToggleButton}
-          {themeToggleButton}
-        </div>
-      ) : null}
-    </>
-  ) : (
-    // One shared idle launcher across onboarding and signed-in surfaces.
-    // Onboarding adds only its appearance controls; it does not fork the
-    // interaction hierarchy, hit target, motion, or voice entry contract.
-    <>
-      <button
-        type="button"
-        data-native-voice-control-id="one_voice_agent_bar_start"
-        data-testid="one-voice-agent-bar-start-icon"
-        data-agent-action="voice"
-        onClick={handleVoiceStartClick}
-        aria-label={`Start a voice conversation. ${hint}`}
-        title="Start a voice conversation with One"
-        className="agent-bar-voice-launcher press-scale bottom-chrome-surface relative flex h-11 min-w-0 flex-1 items-center gap-2 overflow-hidden rounded-full px-3 text-left transition-[background-color,transform] duration-200 hover:bg-current/[0.09] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--app-accent-ring)] dark:hover:bg-current/[0.12]"
-      >
-        <span
-          aria-hidden
-          className="relative z-10 flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-current"
-        >
-          <AudioLines className="h-[19px] w-[19px]" />
-        </span>
-        <span className="relative z-10 min-w-0 flex-1 truncate text-[13px] font-medium text-current/70">
-          Talk to One
-        </span>
-        <span
-          aria-hidden
-          className="pointer-events-none absolute inset-0 z-0 overflow-hidden rounded-full"
-        >
-          <MaterialRipple variant="gradient" effect="fill" />
-        </span>
-      </button>
-      {showAgentChatAction ? (
+  const pillContents =
+    conversationActive && voiceStatus !== "idle" ? (
+      // The ENTIRE bar is the tap target to end the conversation: tapping
+      // anywhere stops it. The X icon on the left is a bare marker (no chip
+      // background) showing this is the "tap to end" affordance. On the
+      // pre-auth greeter (home route auto-greet) the theme toggle stays
+      // docked alongside it so it never disappears mid-connect.
+      <>
         <button
           type="button"
-          data-testid="one-agent-chat-open"
-          data-agent-action="chat"
-          onClick={openAgentChat}
-          aria-label={`Chat with One. ${hint}`}
-          title="Chat with One"
-          className="bottom-chrome-surface press-scale relative flex h-11 min-w-[88px] shrink-0 items-center justify-center gap-1.5 overflow-hidden rounded-full px-3 text-current transition-[background-color,transform] duration-200 hover:bg-current/[0.09] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--app-accent-ring)] dark:hover:bg-current/[0.12] sm:min-w-[96px]"
+          data-native-voice-control-id="one_voice_agent_bar_end"
+          data-testid="one-voice-agent-bar-end"
+          onPointerDown={(event) => {
+            // Stop on press, before Material Web's release ripple can finish.
+            // Keyboard activation still uses onClick below.
+            event.preventDefault();
+            stopConversation();
+          }}
+          onClick={stopConversation}
+            aria-label="Cancel command"
+            title="Tap to cancel command"
+          className="bottom-chrome-surface relative z-0 flex h-11 min-w-0 flex-1 items-center gap-3 overflow-hidden rounded-full pl-1 pr-2 text-left transition-[background-color,transform] duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--app-accent-ring)]"
         >
-          <MessageCircle className="h-[17px] w-[17px]" />
-          <span
-            data-testid="one-agent-chat-label"
-            className="text-[13px] font-medium text-current/70"
-          >
-            Chat
-          </span>
           <span
             aria-hidden
-            className="pointer-events-none absolute inset-0 overflow-hidden rounded-full"
+            className={cn(
+              "one-bar-aurora -z-10 transition-opacity duration-500",
+              visualOnboardingChrome
+                ? "one-bar-aurora--onboarding"
+                : "one-bar-aurora--active",
+            )}
+          />
+          <span
+            aria-hidden
+            className="pointer-events-none absolute inset-0 overflow-hidden rounded-[inherit]"
           >
             <MaterialRipple variant="gradient" effect="fill" />
           </span>
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-current">
+            <X className="h-[18px] w-[18px]" />
+          </span>
+          <span
+            className="flex min-w-0 flex-1 items-center gap-3"
+            role="status"
+            aria-live="polite"
+            aria-label={voiceStatusLabel}
+          >
+            <AgentVoiceWaveform
+              level={voiceLevel}
+              status={voiceStatus}
+              barCount={28}
+              className="h-6 flex-1"
+            />
+            <span
+              className={cn(
+                "shrink-0 text-[12px] font-medium",
+                voiceStatus === "error"
+                  ? "text-destructive/80"
+                  : "tabular-nums text-current/60",
+              )}
+            >
+              {voiceStatusLabel}
+            </span>
+          </span>
         </button>
-      ) : null}
-      {/* Theme toggle stays available on signed-in surfaces too, matching the
-          pre-auth greeter row. */}
-      {showToggles ? (
-        <div className="flex shrink-0 items-center gap-1">
-          {accentToggleButton}
-          {themeToggleButton}
+        {showToggles ? (
+          <div className="flex shrink-0 items-center gap-1">
+            {accentToggleButton}
+            {themeToggleButton}
+          </div>
+        ) : null}
+      </>
+    ) : (
+      // One shared idle launcher across onboarding and signed-in surfaces.
+      // Onboarding adds only its appearance controls; it does not fork the
+      // interaction hierarchy, hit target, motion, or voice entry contract.
+      <>
+        <div
+          className={cn(
+            "flex min-w-0 flex-1 items-stretch",
+            showAgentChatAction && "overflow-hidden rounded-full",
+          )}
+        >
+          <button
+            type="button"
+            data-native-voice-control-id="one_voice_agent_bar_start"
+            data-testid="one-voice-agent-bar-start-icon"
+            data-agent-action="voice"
+            onClick={handleVoiceStartClick}
+            aria-label={
+              foregroundGreetingReady
+                ? voiceLauncherInstruction
+                : `${voiceLauncherInstruction} ${hint}`
+            }
+            title={
+              "Tap to start a command with One"
+            }
+            className={cn(
+              "agent-bar-voice-launcher press-scale bottom-chrome-surface relative flex h-11 min-w-0 flex-1 items-center gap-2 overflow-hidden px-3 text-left transition-[background-color,transform] duration-200 hover:bg-current/[0.09] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--app-accent-ring)] dark:hover:bg-current/[0.12]",
+              showAgentChatAction
+                ? "rounded-l-full rounded-r-none"
+                : "rounded-full",
+            )}
+          >
+            <span
+              aria-hidden
+              className="relative z-10 flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-current"
+            >
+              <AudioLines className="h-[19px] w-[19px]" />
+            </span>
+            <span
+              data-testid="one-voice-foreground-greeting"
+              role={foregroundGreeting ? "status" : undefined}
+              aria-live={foregroundGreeting ? "polite" : undefined}
+              aria-atomic={foregroundGreeting ? "true" : undefined}
+              className="relative z-10 min-w-0 flex-1 truncate text-[13px] font-medium text-current/70"
+            >
+              {foregroundGreeting ?? "Talk to One"}
+            </span>
+            {foregroundGreetingReady ? (
+              <span
+                data-testid="one-voice-talk-ready"
+                data-follow-up-state={
+                  foregroundGreetingFollowUpState ?? "ready"
+                }
+                aria-hidden
+                className="relative z-10 shrink-0 rounded-full bg-current/[0.09] px-2 py-1 text-[11px] font-semibold text-current/70"
+              >
+                {foregroundGreetingFollowUpLabel}
+              </span>
+            ) : null}
+            <span
+              aria-hidden
+              className="pointer-events-none absolute inset-0 z-0 overflow-hidden rounded-[inherit]"
+            >
+              <MaterialRipple variant="gradient" effect="fill" />
+            </span>
+          </button>
+          {showAgentChatAction ? (
+            <button
+              type="button"
+              data-testid="one-agent-chat-open"
+              data-agent-action="chat"
+              onClick={openAgentChat}
+              aria-label={`Chat with One. ${hint}`}
+              title="Chat with One"
+              className="bottom-chrome-surface press-scale relative flex h-11 min-w-[88px] shrink-0 items-center justify-center gap-1.5 overflow-hidden rounded-l-none rounded-r-full border-l border-current/15 px-3 text-current transition-[background-color,transform] duration-200 hover:bg-current/[0.09] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--app-accent-ring)] dark:hover:bg-current/[0.12] sm:min-w-[96px]"
+            >
+              <MessageCircle className="h-[17px] w-[17px]" />
+              <span
+                data-testid="one-agent-chat-label"
+                className="text-[13px] font-medium text-current/70"
+              >
+                Chat
+              </span>
+              <span
+                aria-hidden
+                className="pointer-events-none absolute inset-0 overflow-hidden rounded-[inherit]"
+              >
+                <MaterialRipple variant="gradient" effect="fill" />
+              </span>
+            </button>
+          ) : null}
         </div>
-      ) : null}
-    </>
-  );
+        {/* Theme toggle stays available on signed-in surfaces too, matching the
+          pre-auth greeter row. */}
+        {showToggles ? (
+          <div className="flex shrink-0 items-center gap-1">
+            {accentToggleButton}
+            {themeToggleButton}
+          </div>
+        ) : null}
+      </>
+    );
 
   return (
     <div
@@ -2812,7 +4049,8 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
         layout === "slot"
           ? "w-full"
           : "fixed inset-x-0 gap-3 px-4 transform-gpu",
-        layout === "fixed" && (elevatedForInteractionLayer ? "z-[540]" : "z-[118]"),
+        layout === "fixed" &&
+          (elevatedForInteractionLayer ? "z-[540]" : "z-[118]"),
       )}
       style={
         layout === "fixed"

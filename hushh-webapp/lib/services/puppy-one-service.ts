@@ -82,7 +82,6 @@ export interface PuppyModelAssignment {
   ok: boolean;
   provider?: string;
   model?: string;
-  onDevice?: boolean;
   reasoningEffort?: string | null;
   /** Hermes writes config; only a NEW session reads it. */
   appliesTo?: "next-session";

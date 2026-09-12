@@ -49,6 +49,63 @@ export type NativeFluidAudioPackPreparation = {
   reason?: string;
 };
 
+/** The shared One Voice online-input contract for the iOS audio bridge. */
+export type NativeRealtimeAudioEncoding = "pcm_s16le";
+
+export type NativeRealtimeAudioCaptureStartResult = {
+  sessionId: string;
+  sampleRate: 16000;
+  channels: 1;
+  encoding: NativeRealtimeAudioEncoding;
+  alreadyActive?: boolean;
+};
+
+export type NativeRealtimeAudioFrame = {
+  sessionId: string;
+  /** Opaque, monotonic packet sequence for the active capture session. */
+  sequence: number;
+  sampleRate: 16000;
+  channels: 1;
+  encoding: NativeRealtimeAudioEncoding;
+  frameCount: number;
+  level: number;
+  /** Transient base64-encoded PCM16 little-endian bytes. Never persist it. */
+  data: string;
+};
+
+export type NativeRealtimeAudioInputTurnEndResult = {
+  sessionId: string;
+  turnId: string;
+  /** Last packet sequence that crossed the bridge before the native tail drained. */
+  finalSequence: number;
+  cancelled: boolean;
+};
+
+export type NativeRealtimeAudioStateName =
+  | "started"
+  | "stopped"
+  | "error"
+  | "first_frame"
+  | "activity_started"
+  | "activity_ended"
+  | "delivery_backpressure"
+  | "sequence_gap"
+  | "turn_started"
+  | "turn_ended"
+  | "tail_drained";
+
+export type NativeRealtimeAudioState = {
+  sessionId: string;
+  state: NativeRealtimeAudioStateName;
+  errorCode?: string;
+  timeToFirstFrameMs?: number;
+  droppedFrames?: number;
+  level?: number;
+  turnId?: string;
+  finalSequence?: number;
+  cancelled?: boolean;
+};
+
 export interface NativeOneVoiceInvocationPlugin {
   getPendingInvocation(): Promise<Partial<PendingOneVoiceInvocation>>;
   claimInvocation(options: { id: string }): Promise<{ claimed: boolean }>;
@@ -116,6 +173,20 @@ export interface NativeOneVoiceInvocationPlugin {
   }): Promise<NativeFluidAudioPackPreparation>;
   getFluidAudioAvailability(): Promise<{ available: boolean }>;
   rollbackFluidAudioModelPack(): Promise<{ rolledBack: boolean }>;
+  startRealtimeAudioCapture(options?: {
+    sessionId?: string;
+    requiresExplicitTurn?: boolean;
+  }): Promise<NativeRealtimeAudioCaptureStartResult>;
+  stopRealtimeAudioCapture(options?: { sessionId?: string }): Promise<void>;
+  beginRealtimeAudioInputTurn(options: {
+    sessionId?: string;
+    turnId: string;
+  }): Promise<{ sessionId: string; turnId: string }>;
+  endRealtimeAudioInputTurn(options: {
+    sessionId?: string;
+    turnId: string;
+    cancelled?: boolean;
+  }): Promise<NativeRealtimeAudioInputTurnEndResult>;
   startSpeechRecognition(options?: {
     sessionId?: string;
     locale?: string;
@@ -136,6 +207,14 @@ export interface NativeOneVoiceInvocationPlugin {
   addListener(
     eventName: "oneTranscript",
     listener: (event: TranscriptEvent) => void,
+  ): Promise<PluginListenerHandle>;
+  addListener(
+    eventName: "oneVoiceAudioFrame",
+    listener: (event: NativeRealtimeAudioFrame) => void,
+  ): Promise<PluginListenerHandle>;
+  addListener(
+    eventName: "oneVoiceAudioState",
+    listener: (event: NativeRealtimeAudioState) => void,
   ): Promise<PluginListenerHandle>;
 }
 
@@ -202,6 +281,23 @@ class OneVoiceInvocationWeb extends WebPlugin {
     return { rolledBack: false };
   }
 
+  async startRealtimeAudioCapture(): Promise<NativeRealtimeAudioCaptureStartResult> {
+    throw new Error("native_audio_unsupported");
+  }
+
+  async stopRealtimeAudioCapture(): Promise<void> {}
+
+  async beginRealtimeAudioInputTurn(): Promise<{
+    sessionId: string;
+    turnId: string;
+  }> {
+    throw new Error("native_audio_unsupported");
+  }
+
+  async endRealtimeAudioInputTurn(): Promise<NativeRealtimeAudioInputTurnEndResult> {
+    throw new Error("native_audio_unsupported");
+  }
+
   async startSpeechRecognition(): Promise<{
     sessionId: string;
     provider: string;
@@ -234,6 +330,147 @@ function isPendingInvocation(
     typeof value.handoffDeadlineAt === "number" &&
     Number.isFinite(value.handoffDeadlineAt)
   );
+}
+
+function normalizeRealtimeAudioFrame(
+  value: Partial<NativeRealtimeAudioFrame> | null | undefined,
+): NativeRealtimeAudioFrame | null {
+  if (!value || typeof value.sessionId !== "string" || !value.sessionId.trim()) {
+    return null;
+  }
+  if (
+    typeof value.sequence !== "number" ||
+    !Number.isInteger(value.sequence) ||
+    value.sequence < 1 ||
+    value.sampleRate !== 16000 ||
+    value.channels !== 1 ||
+    value.encoding !== "pcm_s16le" ||
+    typeof value.frameCount !== "number" ||
+    !Number.isInteger(value.frameCount) ||
+    value.frameCount < 1 ||
+    typeof value.level !== "number" ||
+    !Number.isFinite(value.level) ||
+    typeof value.data !== "string" ||
+    value.data.length === 0 ||
+    value.data.length > 32_768
+  ) {
+    return null;
+  }
+  return {
+    sessionId: value.sessionId.trim(),
+    sequence: value.sequence,
+    sampleRate: 16000,
+    channels: 1,
+    encoding: "pcm_s16le",
+    frameCount: value.frameCount,
+    level: Math.max(0, Math.min(1, value.level)),
+    data: value.data,
+  };
+}
+
+function normalizeRealtimeAudioCaptureStartResult(
+  value: Partial<NativeRealtimeAudioCaptureStartResult> | null | undefined,
+): NativeRealtimeAudioCaptureStartResult | null {
+  if (
+    !value ||
+    typeof value.sessionId !== "string" ||
+    !value.sessionId.trim() ||
+    value.sampleRate !== 16000 ||
+    value.channels !== 1 ||
+    value.encoding !== "pcm_s16le"
+  ) {
+    return null;
+  }
+  return {
+    sessionId: value.sessionId.trim(),
+    sampleRate: 16000,
+    channels: 1,
+    encoding: "pcm_s16le",
+    ...(value.alreadyActive === true ? { alreadyActive: true } : {}),
+  };
+}
+
+function normalizeRealtimeAudioState(
+  value: Partial<NativeRealtimeAudioState> | null | undefined,
+): NativeRealtimeAudioState | null {
+  if (!value || typeof value.sessionId !== "string" || !value.sessionId.trim()) {
+    return null;
+  }
+  const validStates: readonly NativeRealtimeAudioStateName[] = [
+    "started",
+    "stopped",
+    "error",
+    "first_frame",
+    "activity_started",
+    "activity_ended",
+    "delivery_backpressure",
+    "sequence_gap",
+    "turn_started",
+    "turn_ended",
+    "tail_drained",
+  ];
+  if (!validStates.includes(value.state as NativeRealtimeAudioStateName)) {
+    return null;
+  }
+  const state: NativeRealtimeAudioState = {
+    sessionId: value.sessionId.trim(),
+    state: value.state as NativeRealtimeAudioStateName,
+  };
+  if (typeof value.errorCode === "string" && value.errorCode.trim()) {
+    state.errorCode = value.errorCode.trim().slice(0, 120);
+  }
+  if (
+    typeof value.timeToFirstFrameMs === "number" &&
+    Number.isFinite(value.timeToFirstFrameMs)
+  ) {
+    state.timeToFirstFrameMs = Math.max(0, Math.round(value.timeToFirstFrameMs));
+  }
+  if (
+    typeof value.droppedFrames === "number" &&
+    Number.isInteger(value.droppedFrames) &&
+    value.droppedFrames > 0
+  ) {
+    state.droppedFrames = value.droppedFrames;
+  }
+  if (typeof value.level === "number" && Number.isFinite(value.level)) {
+    state.level = Math.max(0, Math.min(1, value.level));
+  }
+  if (typeof value.turnId === "string" && value.turnId.trim()) {
+    state.turnId = value.turnId.trim().slice(0, 128);
+  }
+  if (
+    typeof value.finalSequence === "number" &&
+    Number.isInteger(value.finalSequence) &&
+    value.finalSequence >= 0
+  ) {
+    state.finalSequence = value.finalSequence;
+  }
+  if (value.cancelled === true) state.cancelled = true;
+  return state;
+}
+
+function normalizeRealtimeAudioInputTurnEndResult(
+  value: Partial<NativeRealtimeAudioInputTurnEndResult> | null | undefined,
+): NativeRealtimeAudioInputTurnEndResult | null {
+  if (
+    !value ||
+    typeof value.sessionId !== "string" ||
+    !value.sessionId.trim() ||
+    typeof value.turnId !== "string" ||
+    !value.turnId.trim() ||
+    typeof value.finalSequence !== "number" ||
+    !Number.isInteger(value.finalSequence) ||
+    value.finalSequence < 0 ||
+    typeof value.cancelled !== "boolean"
+  ) {
+    return null;
+  }
+  return {
+    sessionId: value.sessionId.trim(),
+    turnId: value.turnId.trim(),
+    finalSequence: value.finalSequence,
+    cancelled: value.cancelled,
+  };
 }
 
 export const OneVoiceInvocationBridge = {
@@ -299,6 +536,72 @@ export const OneVoiceInvocationBridge = {
   async stopSpeechRecognition(options: { sessionId?: string } = {}): Promise<void> {
     if (!this.isSupported()) return;
     await NativeOneVoiceInvocation.stopSpeechRecognition(options);
+  },
+
+  async startRealtimeAudioCapture(options: {
+    sessionId?: string;
+    requiresExplicitTurn?: boolean;
+  } = {}): Promise<NativeRealtimeAudioCaptureStartResult> {
+    if (!this.isSupported()) throw new Error("native_audio_unsupported");
+    const result = await NativeOneVoiceInvocation.startRealtimeAudioCapture(options);
+    const normalized = normalizeRealtimeAudioCaptureStartResult(result);
+    if (!normalized) throw new Error("native_audio_contract_invalid");
+    return normalized;
+  },
+
+  async stopRealtimeAudioCapture(options: { sessionId?: string } = {}): Promise<void> {
+    if (!this.isSupported()) return;
+    await NativeOneVoiceInvocation.stopRealtimeAudioCapture(options);
+  },
+
+  async beginRealtimeAudioInputTurn(options: {
+    sessionId?: string;
+    turnId: string;
+  }): Promise<{ sessionId: string; turnId: string }> {
+    if (!this.isSupported()) throw new Error("native_audio_unsupported");
+    const result = await NativeOneVoiceInvocation.beginRealtimeAudioInputTurn(options);
+    if (
+      !result ||
+      typeof result.sessionId !== "string" ||
+      !result.sessionId.trim() ||
+      typeof result.turnId !== "string" ||
+      !result.turnId.trim()
+    ) {
+      throw new Error("native_audio_turn_contract_invalid");
+    }
+    return { sessionId: result.sessionId.trim(), turnId: result.turnId.trim() };
+  },
+
+  async endRealtimeAudioInputTurn(options: {
+    sessionId?: string;
+    turnId: string;
+    cancelled?: boolean;
+  }): Promise<NativeRealtimeAudioInputTurnEndResult> {
+    if (!this.isSupported()) throw new Error("native_audio_unsupported");
+    const result = await NativeOneVoiceInvocation.endRealtimeAudioInputTurn(options);
+    const normalized = normalizeRealtimeAudioInputTurnEndResult(result);
+    if (!normalized) throw new Error("native_audio_turn_contract_invalid");
+    return normalized;
+  },
+
+  async addRealtimeAudioFrameListener(
+    listener: (event: NativeRealtimeAudioFrame) => void,
+  ): Promise<PluginListenerHandle> {
+    if (!this.isSupported()) return { remove: async () => undefined };
+    return NativeOneVoiceInvocation.addListener("oneVoiceAudioFrame", (event) => {
+      const normalized = normalizeRealtimeAudioFrame(event);
+      if (normalized) listener(normalized);
+    });
+  },
+
+  async addRealtimeAudioStateListener(
+    listener: (event: NativeRealtimeAudioState) => void,
+  ): Promise<PluginListenerHandle> {
+    if (!this.isSupported()) return { remove: async () => undefined };
+    return NativeOneVoiceInvocation.addListener("oneVoiceAudioState", (event) => {
+      const normalized = normalizeRealtimeAudioState(event);
+      if (normalized) listener(normalized);
+    });
   },
 
   async prepareFluidAudioModelPack(

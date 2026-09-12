@@ -10,9 +10,7 @@ import {
 import { HushhLoader } from "@/components/app-ui/hushh-loader";
 import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/lib/morphy-ux/button";
-import {
-  ROUTES,
-} from "@/lib/navigation/routes";
+import { ROUTES } from "@/lib/navigation/routes";
 import {
   buildProfileGmailReturnPath,
   isRecoverableGmailOAuthReplayError,
@@ -43,12 +41,63 @@ type OnboardingConnectorIntentRef = Pick<
   OnboardingConnectorIntent,
   "correlationId"
 >;
+const GMAIL_OAUTH_COMPLETION_TIMEOUT_MS = 35_000;
+const GMAIL_OAUTH_RECONCILIATION_ATTEMPTS = 5;
+const GMAIL_OAUTH_RECONCILIATION_DELAY_MS = 2_000;
+
+class GmailOAuthCompletionPendingError extends Error {
+  constructor() {
+    super("Gmail connection is still being saved.");
+  }
+}
 
 function resolveErrorMessage(error: unknown): string {
   if (error instanceof Error && error.message.trim()) {
     return error.message;
   }
   return "Gmail connection could not be completed.";
+}
+
+async function completeGmailOAuth(params: {
+  idToken: string;
+  userId: string;
+  code: string;
+  state: string;
+}) {
+  let timeout: ReturnType<typeof setTimeout> | null = null;
+  try {
+    return await Promise.race([
+      GmailReceiptsService.completeConnect(params),
+      new Promise<never>((_, reject) => {
+        timeout = globalThis.setTimeout(() => {
+          reject(new GmailOAuthCompletionPendingError());
+        }, GMAIL_OAUTH_COMPLETION_TIMEOUT_MS);
+      }),
+    ]);
+  } finally {
+    if (timeout !== null) globalThis.clearTimeout(timeout);
+  }
+}
+
+async function reconcileGmailConnection(idToken: string, userId: string) {
+  for (
+    let attempt = 0;
+    attempt < GMAIL_OAUTH_RECONCILIATION_ATTEMPTS;
+    attempt += 1
+  ) {
+    const status = await GmailReceiptsService.getStatus({
+      idToken,
+      userId,
+      force: true,
+    }).catch(() => null);
+    if (status?.connected) return status;
+    if (attempt + 1 < GMAIL_OAUTH_RECONCILIATION_ATTEMPTS) {
+      await new Promise<void>((resolve) => {
+        globalThis.setTimeout(resolve, GMAIL_OAUTH_RECONCILIATION_DELAY_MS);
+      });
+    }
+  }
+  return null;
 }
 
 /**
@@ -213,13 +262,12 @@ export default function ProfileGmailOAuthReturnPageClient({
             oauthError.toLowerCase() === "access_denied"
               ? "cancelled"
               : "failed",
-          message:
-            sanitizeGmailUserMessage(
-              oauthErrorDescription || oauthError,
-              {
-                fallback: "Gmail connection could not be completed.",
-              },
-            ),
+          message: sanitizeGmailUserMessage(
+            oauthErrorDescription || oauthError,
+            {
+              fallback: "Gmail connection could not be completed.",
+            },
+          ),
         });
       });
       return;
@@ -307,12 +355,17 @@ export default function ProfileGmailOAuthReturnPageClient({
         if (!completesInBackground) setStage("completing");
         const idToken = await user.getIdToken();
 
-        const status = await GmailReceiptsService.completeConnect({
+        const status = await completeGmailOAuth({
           idToken,
           userId: user.uid,
           code,
           state,
         });
+        if (!status.connected) {
+          throw new Error(
+            "Gmail authorization did not create an active connection.",
+          );
+        }
         primeConnectorStatus({
           userId: user.uid,
           status,
@@ -323,16 +376,37 @@ export default function ProfileGmailOAuthReturnPageClient({
 
         if (!completesInBackground) setStage("redirecting");
         if (popupAttempt) {
-          // A popup can close as soon as it settles, so finish its durable
-          // acknowledgement before emitting the terminal result. The retained
-          // main Gmail window remains available throughout.
-          await settleSuccessfulSetupInBackground();
+          // The opener owns setup acknowledgement and remains alive after
+          // this window closes. Do not make a successful Google callback wait
+          // on a separate onboarding database read before it can settle.
           if (settlePopupOpener({ outcome: "succeeded" })) return;
         }
 
         void settleSuccessfulSetupInBackground();
         if (!completesInBackground) router.replace(ROUTES.GMAIL);
       } catch (completeError) {
+        if (completeError instanceof GmailOAuthCompletionPendingError) {
+          const status = await reconcileGmailConnection(
+            await user.getIdToken(),
+            user.uid,
+          );
+          if (status?.connected) {
+            primeConnectorStatus({
+              userId: user.uid,
+              status,
+              routeHref: buildProfileGmailReturnPath(),
+              source: "oauth_return",
+            });
+            stashProfileGmailReturnStatus(status);
+            if (!completesInBackground) setStage("redirecting");
+            if (popupAttempt) {
+              if (settlePopupOpener({ outcome: "succeeded" })) return;
+            }
+            void settleSuccessfulSetupInBackground();
+            if (!completesInBackground) router.replace(ROUTES.GMAIL);
+            return;
+          }
+        }
         if (isRecoverableGmailOAuthReplayError(completeError)) {
           try {
             const idToken = await user.getIdToken();
@@ -351,7 +425,6 @@ export default function ProfileGmailOAuthReturnPageClient({
               stashProfileGmailReturnStatus(status);
               if (!completesInBackground) setStage("redirecting");
               if (popupAttempt) {
-                await settleSuccessfulSetupInBackground();
                 if (settlePopupOpener({ outcome: "succeeded" })) return;
               }
 
@@ -367,7 +440,8 @@ export default function ProfileGmailOAuthReturnPageClient({
           failGmailOAuthCompletion(
             user.uid,
             sanitizeGmailUserMessage(completeError, {
-              fallback: "Gmail connection could not be completed. Try again from Gmail.",
+              fallback:
+                "Gmail connection could not be completed. Try again from Gmail.",
             }),
           );
           return;

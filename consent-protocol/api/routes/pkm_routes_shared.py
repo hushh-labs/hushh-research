@@ -364,12 +364,26 @@ class EncryptedBlob(BaseModel):
 
 
 class PathDescriptorPayload(BaseModel):
+    # Every field a client may send must be declared here. Pydantic drops what
+    # it does not know about SILENTLY, so an undeclared field does not fail
+    # loudly, it simply never arrives -- which reads downstream as "the client
+    # never sent it". `segment_id` and `scope_handle` below were already being
+    # read by PersonalKnowledgeModelService._normalize_path_descriptor and had
+    # never been declared, so they were evaporating at this boundary.
     json_path: str = Field(..., min_length=1, max_length=1024)
     parent_path: Optional[str] = Field(default=None, max_length=1024)
     path_type: str = Field(default="leaf", min_length=1, max_length=64)
     exposure_eligibility: bool = True
+    # This path's own final segment, spelled as the owner's data spells it.
+    # `json_path` is lowercased for authorization, which destroys the word
+    # boundary in a key like `addressDetails` irreversibly. Carrying the original
+    # is what lets a consumer render one level of the path in the owner's words.
+    # Null for synthetic collection segments (`_items`, `_entities`).
+    display_segment: Optional[str] = Field(default=None, max_length=256)
     consent_label: Optional[str] = Field(default=None, max_length=256)
     sensitivity_label: Optional[str] = Field(default=None, max_length=256)
+    segment_id: Optional[str] = Field(default=None, max_length=256)
+    scope_handle: Optional[str] = Field(default=None, max_length=256)
     source_agent: Optional[str] = Field(default=None, max_length=256)
 
 

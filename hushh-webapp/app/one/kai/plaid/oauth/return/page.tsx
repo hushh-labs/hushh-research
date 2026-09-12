@@ -119,6 +119,17 @@ export default function KaiPlaidOauthReturnPage() {
         const Plaid = await loadPlaidLink();
         setStage("resuming");
 
+        // Plaid matches this against the redirect_uri the link token was minted
+        // with. On native that is NOT where the app now is: once the Universal
+        // Link claim hands the return to the app, window.location.href reads
+        // app://localhost/... and Plaid rejects it. The session carries the
+        // https URI the token actually used, so use that and re-attach the
+        // OAuth parameters the provider appended. On web the two are identical,
+        // which is why this went unnoticed.
+        const receivedRedirectUri = resume.redirect_uri
+          ? `${resume.redirect_uri}${window.location.search}`
+          : window.location.href;
+
         await new Promise<void>((resolve, reject) => {
           let settled = false;
           const finish = (callback: () => void) => {
@@ -129,7 +140,7 @@ export default function KaiPlaidOauthReturnPage() {
 
           const handler = Plaid.create({
             token: linkTokenValue,
-            receivedRedirectUri: window.location.href,
+            receivedRedirectUri,
             onSuccess: (publicToken: string, metadata: Record<string, unknown>) => {
               void (
                 flowKind === "funding"

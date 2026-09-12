@@ -15,6 +15,10 @@ const kaiMocks = vi.hoisted(() => ({
   cancelKaiAnalysisStream: vi.fn(),
 }));
 
+const requestTimeoutMocks = vi.hoisted(() => ({
+  resolveSlowRequestTimeoutMs: vi.fn(() => 75_000),
+}));
+
 // ---------------------------------------------------------------------------
 // Mocks – declared before any import that touches them
 // ---------------------------------------------------------------------------
@@ -60,6 +64,10 @@ vi.mock("@/lib/observability/route-map", () => ({
 vi.mock("@/lib/motion/api-progress-tracker", () => ({
   trackRequestStart: vi.fn(),
   trackRequestEnd: vi.fn(),
+}));
+
+vi.mock("@/lib/utils/request-timeouts", () => ({
+  resolveSlowRequestTimeoutMs: requestTimeoutMocks.resolveSlowRequestTimeoutMs,
 }));
 
 // ---------------------------------------------------------------------------
@@ -164,6 +172,30 @@ describe("ApiService.apiFetch", () => {
       "no-store",
     );
     expect(options.cache).toBe("no-store");
+  });
+
+  it("keeps a local account-status request alive past the deployed eight-second bound", async () => {
+    vi.useFakeTimers();
+    let signal: AbortSignal | null = null;
+    mockFetch.mockImplementationOnce((_url, options) => {
+      signal = (options as RequestInit).signal as AbortSignal;
+      return new Promise<Response>((_resolve, reject) => {
+        signal?.addEventListener("abort", () => reject(signal?.reason));
+      });
+    });
+
+    const request = ApiService.getAccountSessionStatus("cached-token");
+    const settledRequest = request.catch((error: unknown) => error);
+    await Promise.resolve();
+
+    await vi.advanceTimersByTimeAsync(8_001);
+    expect(signal?.aborted).toBe(false);
+
+    // The generic web-fetch safety ceiling remains 60 seconds; this test only
+    // proves the account-status-specific 8-second abort no longer wins first.
+    await vi.advanceTimersByTimeAsync(51_999);
+    await expect(settledRequest).resolves.toMatchObject({ name: "TimeoutError" });
+    vi.useRealTimers();
   });
 
   it("includes an x-request-id header in every request", async () => {

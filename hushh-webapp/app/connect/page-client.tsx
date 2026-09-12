@@ -61,7 +61,6 @@ import {
 } from "@/components/ui/popover";
 import { useRequireAuth } from "@/hooks/use-auth";
 import { ContactSyncResultsSheet } from "@/components/one-location/contact-sync-results-sheet";
-import { ContactInvitationNotice } from "@/components/connections/contact-invitation-notice";
 import { ContactDiscoverabilityConsentDialog } from "@/components/connections/contact-discoverability-consent-dialog";
 import { useContactSync } from "@/lib/contacts/use-contact-sync";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
@@ -558,6 +557,7 @@ export default function ConnectPageClient() {
   const [connectionsPage, setConnectionsPage] = useState(1);
   const [connectionsHasMore, setConnectionsHasMore] = useState(false);
   const [connectionsTotalCount, setConnectionsTotalCount] = useState(0);
+  const [connectionsExpanded, setConnectionsExpanded] = useState(false);
   const [connectionsLoadingMore, setConnectionsLoadingMore] = useState(false);
   const [connectionsRefreshingFirstPage, setConnectionsRefreshingFirstPage] =
     useState(false);
@@ -744,7 +744,11 @@ export default function ConnectPageClient() {
           setConnectionsHasMore(true);
           setConnectionsTotalCount((current) => Math.max(0, current - 1));
         }
-        if (!result) setConnectionsRefreshError(true);
+        if (!result) {
+          setConnectionsRefreshError(true);
+          // A collapsed panel must not conceal its only retry affordance.
+          setConnectionsExpanded(true);
+        }
         return true;
       } finally {
         if (connectionsFirstPageRequestRef.current === requestId) {
@@ -2406,18 +2410,34 @@ export default function ConnectPageClient() {
                       ) : (
                         <div className="space-y-3 sm:space-y-4">
                           <SettingsGroup
-                            title={
-                              <span className={CONNECT_WRAPPING_TEXT_CLASSNAME}>
-                                {connectionsHeading}
-                              </span>
+                            titleControl={
+                              <Button
+                                type="button"
+                                variant="none"
+                                effect="fade"
+                                aria-controls="connect-my-connections-panel"
+                                aria-expanded={connectionsExpanded}
+                                onClick={() =>
+                                  setConnectionsExpanded((expanded) => !expanded)
+                                }
+                                data-testid="connect-my-connections-toggle"
+                                className="group h-11 min-h-11 max-w-full rounded-full border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-secondary-fill)] px-3 text-[14px] font-semibold text-[color:var(--app-label)] shadow-none hover:bg-[color:var(--app-tertiary-fill)] focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)] focus-visible:ring-offset-2"
+                              >
+                                <span className={CONNECT_WRAPPING_TEXT_CLASSNAME}>
+                                  {connectionsHeading}
+                                </span>
+                                <ChevronDown
+                                  aria-hidden="true"
+                                  className={cn(
+                                    "ml-1.5 h-4 w-4 shrink-0 transition-transform duration-200",
+                                    connectionsExpanded && "rotate-180",
+                                  )}
+                                />
+                              </Button>
                             }
-                            // Refresh sits in `titleAction`, not inside `title`. It used
-                            // to be a child of the title node, which `SettingsGroup`
-                            // renders inside an element carrying `role="heading"` -- and
-                            // a control there is not a control. A screen reader folds its
-                            // label into the heading's accessible name, so the heading
-                            // announced as "Your connections Refresh contacts", and the
-                            // button itself was never offered as something to press.
+                            // Refresh stays beside the disclosure, never inside it: nested
+                            // controls are invalid and would make one of the two actions
+                            // unreachable to keyboard and assistive-technology users.
                             titleAction={
                               <Button
                                 type="button"
@@ -2442,6 +2462,10 @@ export default function ConnectPageClient() {
                               </Button>
                             }
                             separatorInset
+                            contentId="connect-my-connections-panel"
+                            shellClassName={cn(
+                              !connectionsExpanded && "hidden",
+                            )}
                             contentClassName={
                               sortedConnections.length > 0
                                 ? CONNECT_CONNECTION_LIST_CLASSNAME
@@ -2630,9 +2654,6 @@ export default function ConnectPageClient() {
                           ) : null}
 
                           <div className="space-y-4">
-                            {!isAdvisorTab && contactSync.available ? (
-                              <ContactInvitationNotice />
-                            ) : null}
                             <SettingsGroup
                               titleControl={directorySelector}
                               // People only. This one JSX node also renders the RIAs
