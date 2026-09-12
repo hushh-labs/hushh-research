@@ -34,11 +34,31 @@ So a lane's value is read from, in order:
 
 The developer overrides are still read, and still reported -- as what they are.
 
+Why UNIFORM is a question, not an answer
+----------------------------------------
+A flag with the same value in every lane still earns its keep when the CODE
+default is not that value. This script does not parse the read site, so it
+cannot see that, and the gap is not academic.
+
+Measured 2026-09-11: all four of `ONE_EMAIL_WEBHOOK_AUTH_ENABLED`,
+`ONE_EMAIL_WATCH_RENEW_AUTH_ENABLED`, `ONE_EMAIL_KYC_STRICT_CLIENT_ZK_ENABLED`
+and `GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_AUTH_ENABLED` read `true` in
+every lane that sets them, which looks exactly like four redundant switches on
+things that should always happen. They are the opposite. Their code default is
+`environment not in {"development", "dev", "local", "test"}`, so the default in
+dev is OFF -- and `deploy-dev.yml` passes `true` precisely to turn webhook
+authentication ON in an environment that would otherwise run without it.
+Deleting them as constants would have silently unauthenticated the dev lane.
+
+So UNIFORM means "read the default at the call site before concluding
+anything". It never means "delete this".
+
 This reports four classes, and deliberately deletes nothing. Which constant is
 correct -- on or off -- is a product decision, and a script that guessed would
 be worse than the flags.
 
-  UNIFORM      same value in every deployed lane. Not configuration.
+  UNIFORM      same value in every deployed lane. A CANDIDATE constant, not a
+               verdict -- see below.
   DEAD         referenced in code, set in no lane and no default. Never runs.
   ORPHANED     set in a lane, referenced by no code. Pure noise.
   LOCAL_DRIFT  a developer override that disagrees with every deployed lane.
@@ -296,7 +316,8 @@ def main() -> int:
             print(f"      {item['values']}")
 
     if report["uniform"]:
-        print("\nNOT CONFIGURATION -- same value in every lane, inline it")
+        print("\nUNIFORM -- same value in every lane. Read the code default before acting:")
+        print("   a flag that is uniformly `true` is load-bearing when the default is `false`.")
         for item in report["uniform"]:
             print(f"   {item['name']:52} = {item['value']}")
 
