@@ -220,7 +220,11 @@ class InformationChatService:
         ready: Callable[[], bool] | None = None,
         tools: list | None = None,
         system_prompt: str | None = None,
+        service_ports: dict[str, Any] | None = None,
+        scope_tokens: dict[str, str] | None = None,
     ) -> None:
+        self._service_ports = dict(service_ports or {})
+        self._scope_tokens = dict(scope_tokens or {})
         self._chat_store = chat_store if chat_store is not None else get_agent_chat_service()
 
         if model_call is not None:
@@ -292,7 +296,8 @@ class InformationChatService:
         client_action = self._build_publish_action(directives)
         # Deterministic publish card: if the model didn't stage one but the user
         # clearly asked to publish/monetize, attach it ourselves (topic-tailored).
-        if client_action is None and not errored:
+        # Injected runtimes must use their scoped authored tools for cards.
+        if client_action is None and not errored and not self._service_ports:
             intent, topic = _publish_intent_topic(message)
             if intent:
                 try:
@@ -338,7 +343,13 @@ class InformationChatService:
         errored = False
         state_changed = False
         directives: list[dict] = []
-        with HushhContext(user_id=user_id, consent_token=consent_token, vault_keys={}):
+        with HushhContext(
+            user_id=user_id,
+            consent_token=consent_token,
+            vault_keys={},
+            service_ports=self._service_ports,
+            scope_tokens=self._scope_tokens,
+        ):
             for _ in range(_MAX_TOOL_STEPS):
                 response = await self._model_call(contents, config)
                 calls = list(getattr(response, "function_calls", None) or [])

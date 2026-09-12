@@ -23,8 +23,13 @@ import {
 } from "@/components/app-ui/app-page-shell";
 import { NearbyDirectories } from "@/components/connect/nearby-directories";
 import { PageHeader } from "@/components/app-ui/page-sections";
+import { SectionLabel } from "@/components/app-ui/typography";
 import { TopShellTabs } from "@/components/app-ui/top-shell-tabs";
-import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
+import {
+  SettingsGroup,
+  SettingsPresentationProvider,
+  SettingsRow,
+} from "@/components/app-ui/settings-ui";
 import { ConnectCirclesTab } from "@/components/connect/circles/connect-circles-tab";
 import { SurfaceStack } from "@/components/app-ui/surfaces";
 import { buildInviteToOneShare } from "@/lib/connect/invite-to-one";
@@ -34,7 +39,10 @@ import {
   shareLink,
 } from "@/lib/share/share-link";
 import { useLocalOnboardingActionHandler } from "@/lib/agent/local-onboarding-actions";
-import { useScrollReset } from "@/lib/navigation/use-scroll-reset";
+import {
+  getAppScrollRoot,
+  useScrollReset,
+} from "@/lib/navigation/use-scroll-reset";
 import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -53,6 +61,7 @@ import {
 } from "@/components/ui/popover";
 import { useRequireAuth } from "@/hooks/use-auth";
 import { ContactSyncResultsSheet } from "@/components/one-location/contact-sync-results-sheet";
+import { ContactInvitationNotice } from "@/components/connections/contact-invitation-notice";
 import { ContactDiscoverabilityConsentDialog } from "@/components/connections/contact-discoverability-consent-dialog";
 import { useContactSync } from "@/lib/contacts/use-contact-sync";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
@@ -169,10 +178,13 @@ export function writeStoredConnectSearchQuery(query: string): void {
 /**
  * The pinned header: the Connect hub strip, and nothing else.
  *
- * `--top-shell-live-height` rather than `top-0` -- the scroll root clears the
- * top bar with a spacer rather than padding, so `top-0` sticks a strip to the
- * scrollport edge, which the fixed bar overlays. Same token the feed's sticky
- * day dividers use.
+ * The strip pins to the SOLID edge of the top chrome, not the end of its fade.
+ * Pinning to `--top-shell-live-height` left the whole fade tail as dead space
+ * above the tabs. On a moving list that space also exposed whichever row was
+ * passing underneath, making the navigation look detached from the app bar.
+ * `--top-shell-mask-solid-height` follows the same collapse value as the bar,
+ * but lets the tab surface itself sit behind the fade so the two read as one
+ * continuous piece of chrome.
  *
  * The negative inline margin is what makes the background reach the page
  * gutters. Without it, rows scroll past visibly in the 16-24px either side of a
@@ -184,24 +196,10 @@ export function writeStoredConnectSearchQuery(query: string): void {
  * fixes. The blur went with it -- it has nothing left to blur, and it cost a
  * compositing layer on every scroll frame.
  *
- * `::before` continues that same material UP over `--top-fade-active`, the band
- * where the fixed top mask dissolves to fully transparent. The header pins at
- * the mask's last visible pixel, so that band is chrome-coloured at the top and
- * clear glass at the bottom -- and rows slid through it in plain sight, between
- * the bar and the strips, which is the other half of the same report. Covering
- * it means the tail dissolves over empty page instead, exactly as it does when
- * the page has not been scrolled.
- *
- * Height only under `data-pinned`: an absolutely positioned box with no height
- * and empty content is 0px tall, so the cover exists and measures nothing until
- * the header is really pinned. It has to be conditional. At rest this header
- * sits `--page-header-section-gap` below the page title -- 10px at compact
- * density -- and an unconditional 22px band would take a bite out of "Connect".
- *
  * Held by e2e/connect-sticky-header.layout.spec.ts.
  */
 const CONNECT_STICKY_HEADER_CLASSNAME =
-  "sticky top-[var(--top-shell-live-height,0px)] z-20 mx-[calc(var(--page-inline-gutter-standard)*-1)] space-y-3 bg-background px-[var(--page-inline-gutter-standard)] pb-3 pt-2 before:pointer-events-none before:absolute before:inset-x-0 before:bottom-full before:bg-background data-[pinned=true]:before:h-[calc(var(--top-fade-active,0px)+1px)] sm:space-y-4";
+  "sticky top-[var(--top-shell-mask-solid-height,0px)] z-20 mx-[calc(var(--page-inline-gutter-standard)*-1)] space-y-2.5 bg-background px-[var(--page-inline-gutter-standard)] pb-2.5 pt-1.5 sm:space-y-3";
 
 /**
  * The search row pins UNDER the header, not with it.
@@ -212,13 +210,13 @@ const CONNECT_STICKY_HEADER_CLASSNAME =
  * not filter. Pinned in place instead, it arrives exactly when its own results
  * do and stays for as long as they are on screen.
  *
- * The offset is the live top shell plus whatever the header above measured.
+ * The offset is the solid chrome edge plus whatever the header above measured.
  *
  * Opaque for the same reason the header above it is: at 85% the directory rows
  * this field filters read straight through it as they scroll past.
  */
 const CONNECT_STICKY_SEARCH_CLASSNAME =
-  "sticky top-[calc(var(--top-shell-live-height,0px)+var(--connect-sticky-header-height,0px))] z-10 mx-[calc(var(--page-inline-gutter-standard)*-1)] bg-background px-[var(--page-inline-gutter-standard)] py-2";
+  "sticky top-[calc(var(--top-shell-mask-solid-height,0px)+var(--connect-sticky-header-height,0px))] z-10 mx-[calc(var(--page-inline-gutter-standard)*-1)] bg-background px-[var(--page-inline-gutter-standard)] py-2";
 
 const CONNECT_TAB_LABEL: Record<ConnectTab, string> = {
   people: "People",
@@ -285,24 +283,8 @@ async function mapWithConcurrency<T, R>(
   return results;
 }
 
-/**
- * How many people the unsearched People tab offers.
- *
- * Deliberately about a screen's worth. It exists so someone who has just joined
- * and knows nobody's exact name is not staring at an empty surface — not so
- * they can browse the register, which is the thing that stops scaling.
- */
-const SUGGESTED_PEOPLE_LIMIT = 20;
-
-/**
- * How many people a page shows, and the sizes the reader can pick.
- *
- * #5020 answered "the directory is unusably long" with a fixed sample that
- * deliberately refused to page. That solved the first screenful and left no way
- * through the rest, so this replaces it with real paging: the default is still
- * a screenful, and someone who wants to scan more can say so.
- */
-const DEFAULT_PAGE_SIZE = SUGGESTED_PEOPLE_LIMIT;
+/** Fetch one small batch at a time as browsing or search reaches the list end. */
+const DEFAULT_PAGE_SIZE = 20;
 const CONNECT_ROW_ACTION_CLASSNAME =
   "h-8 min-h-8 rounded-2xl px-2.5 text-[14px] font-semibold leading-[18px]";
 const CONNECT_INLINE_BUTTON_CLASSNAME =
@@ -511,7 +493,8 @@ export default function ConnectPageClient() {
   const isFocusedCircleTask = isFocusedConnectCircleTask(
     surface,
     circleFlowAction,
-    circleFlowId,  );
+    circleFlowId,
+  );
 
   // Every navigation on this page passes `scroll: false`, because the surface
   // strip and the Circle flows are query-only states that must not jump the
@@ -545,11 +528,11 @@ export default function ConnectPageClient() {
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const connectStackRef = useRef<HTMLDivElement | null>(null);
   const stickyHeaderRef = useRef<HTMLDivElement | null>(null);
-  const stickyPinSentinelRef = useRef<HTMLDivElement | null>(null);
   const directoryMenuRef = useRef<HTMLDivElement | null>(null);
   const directoryMenuButtonRef = useRef<HTMLButtonElement | null>(null);
   const [directoryMenuOpen, setDirectoryMenuOpen] = useState(false);
-  const useWebDirectoryPopover = !isNative();  const searchQueryParam = (searchParams.get(CONNECT_SEARCH_QUERY_PARAM) ?? "")
+  const useWebDirectoryPopover = !isNative();
+  const searchQueryParam = (searchParams.get(CONNECT_SEARCH_QUERY_PARAM) ?? "")
     .trim()
     .slice(0, 160);
   const [query, setQuery] = useState<string>(
@@ -575,6 +558,7 @@ export default function ConnectPageClient() {
   const [connectionsPage, setConnectionsPage] = useState(1);
   const [connectionsHasMore, setConnectionsHasMore] = useState(false);
   const [connectionsTotalCount, setConnectionsTotalCount] = useState(0);
+  const [connectionsExpanded, setConnectionsExpanded] = useState(false);
   const [connectionsLoadingMore, setConnectionsLoadingMore] = useState(false);
   const [connectionsRefreshingFirstPage, setConnectionsRefreshingFirstPage] =
     useState(false);
@@ -586,6 +570,9 @@ export default function ConnectPageClient() {
   const [loading, setLoading] = useState(true);
   const [hasMore, setHasMore] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
+  const directoryLoadMoreRef = useRef<HTMLDivElement | null>(null);
+  const directoryRequestPendingRef = useRef(false);
+  const [directoryRetryNonce, setDirectoryRetryNonce] = useState(0);
   const pageSize = DEFAULT_PAGE_SIZE;
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -616,60 +603,6 @@ export default function ConnectPageClient() {
     observer.observe(header);
     return () => observer.disconnect();
   }, [surface]);
-  /**
-   * Say whether the header is actually pinned, so its cover can be conditional.
-   *
-   * The cover is a band of page background continuing UP from the header over
-   * `--top-fade-active` -- the strip where the fixed top mask dissolves to
-   * nothing and rows were sliding through it in plain sight. Pinned, that band
-   * belongs to the chrome. At rest it is the gap under the "Connect" title,
-   * `--page-header-section-gap`, which is 10px at this page's density -- so an
-   * unconditional cover would sit on the title instead of on the mask's tail.
-   *
-   * An observer rather than a scroll handler: this fires twice per visit, at
-   * the pin boundary, instead of measuring on every frame the way the top app
-   * bar's own collapse tracking has to.
-   *
-   * `rootMargin` is the header's resolved `top`, read back rather than
-   * recomputed. `--top-shell-live-height` is a calc of six tokens declared at
-   * route-shell scope; anything here that re-derived it would be a second copy
-   * to keep in step with `signed-in-shell-content-offset.ts`.
-   */
-  useEffect(() => {
-    const header = stickyHeaderRef.current;
-    const sentinel = stickyPinSentinelRef.current;
-    if (!header || !sentinel) return;
-    if (typeof IntersectionObserver === "undefined") return;
-    const scrollRoot = document.querySelector<HTMLElement>(
-      '[data-app-scroll-root="true"]',
-    );
-    let observer: IntersectionObserver | null = null;
-    const attach = () => {
-      observer?.disconnect();
-      const pinnedAt = Math.max(
-        0,
-        Math.round(Number.parseFloat(getComputedStyle(header).top) || 0),
-      );
-      observer = new IntersectionObserver(
-        (entries) => {
-          const entry = entries[entries.length - 1];
-          if (!entry) return;
-          header.dataset.pinned = entry.isIntersecting ? "false" : "true";
-        },
-        { root: scrollRoot, rootMargin: `-${pinnedAt}px 0px 0px 0px` },
-      );
-      observer.observe(sentinel);
-    };
-    attach();
-    // The offset moves with the breakpoint and with the safe-area inset, and a
-    // rotation changes both at once.
-    window.addEventListener("resize", attach);
-    return () => {
-      window.removeEventListener("resize", attach);
-      observer?.disconnect();
-    };
-  }, [surface]);
-
   useEffect(() => {
     if (useWebDirectoryPopover) return;
     if (!directoryMenuOpen) return;
@@ -748,6 +681,8 @@ export default function ConnectPageClient() {
     [user],
   );
 
+  const [connectionsRefreshError, setConnectionsRefreshError] = useState(false);
+
   const loadOutgoingRequestIds = useCallback(async () => {
     if (!user) return;
     try {
@@ -795,6 +730,7 @@ export default function ConnectPageClient() {
         if (requestId !== connectionsRequestRef.current) return false;
 
         if (result) {
+          setConnectionsRefreshError(false);
           setConnections(result.items);
           setConnectionsPage(result.page);
           setConnectionsHasMore(result.hasMore);
@@ -808,6 +744,11 @@ export default function ConnectPageClient() {
           setConnectionsPage(0);
           setConnectionsHasMore(true);
           setConnectionsTotalCount((current) => Math.max(0, current - 1));
+        }
+        if (!result) {
+          setConnectionsRefreshError(true);
+          // A collapsed panel must not conceal its only retry affordance.
+          setConnectionsExpanded(true);
         }
         return true;
       } finally {
@@ -847,11 +788,11 @@ export default function ConnectPageClient() {
     // AuthContext hydrates the verified backend phone independently for
     // native/UAT verification paths where Firebase User.phoneNumber is empty.
     accountPhoneNumber: phoneNumber ?? user?.phoneNumber,
+    accountEmail: user?.email,
     resolveVerifiedAccountPhoneNumber: resolveVerifiedPhoneNumber,
     userId: user?.uid,
-    // Awaited, and its boolean dropped: the hook only needs to know the
-    // refresh finished before it announces the outcome, so the toast never
-    // claims a connection the list behind it has not caught up to.
+    // Await the display refresh. A failed read preserves the successful sync
+    // and exposes a retry beside the list rather than repeating the import.
     //
     // The audience is read from a ref rather than captured. A sync is long
     // enough to switch tabs under, and the hook snapshots its options once at
@@ -908,13 +849,8 @@ export default function ConnectPageClient() {
     };
   }, [connectionAudience, loadOutgoingRequestIds, refreshConnectionsFirstPage]);
 
-  // The directory is every account on Hussh, so listing all of it unprompted
-  // stops being useful as soon as sign-ups outgrow a screen or two: the person
-  // you came to connect with is buried among strangers, and paging through them
-  // is the tedious part. Unsearched, this surface therefore shows a short
-  // suggested sample and nothing more — enough that someone who does not yet
-  // know a name has somewhere to start, small enough that it is never the thing
-  // you have to scroll past. Naming a name is what opens the full directory.
+  // Both browsing and search load the directory in bounded server batches.
+  // Scrolling appends the next batch without replacing people already visible.
   const trimmedQuery = debouncedQuery.trim();
   const hasQuery = trimmedQuery.length > 0;
 
@@ -959,8 +895,6 @@ export default function ConnectPageClient() {
   const inviteToOneShare = useMemo(() => buildInviteToOneShare(), []);
   const canInviteToOne = tab === "people" && inviteToOneShare !== null;
 
-  const isDirectoryRefreshing = loading && people.length > 0;
-
   // A share sheet is modal but not instant: on iOS it animates in, and the
   // promise does not settle until it is dismissed. Two taps in that window
   // asked the platform to present a second sheet over the first, which iOS
@@ -997,20 +931,25 @@ export default function ConnectPageClient() {
     }
   }, [inviteToOneShare]);
 
-  const resultSetKey = `${directoryAudience}:${pageSize}:${trimmedQuery}`;
   const [directoryRefreshNonce, setDirectoryRefreshNonce] = useState(0);
+  const resultSetKey = `${user?.uid ?? ""}:${directoryAudience}:${pageSize}:${trimmedQuery}:${directoryRefreshNonce}`;
   const [renderedResultSetKey, setRenderedResultSetKey] =
     useState(resultSetKey);
   if (renderedResultSetKey !== resultSetKey) {
     setRenderedResultSetKey(resultSetKey);
     setCurrentPage(1);
+    setPeople([]);
+    setHasMore(false);
+    setError(null);
+    setLoading(true);
   }
 
   useEffect(() => {
     let cancelled = false;
     async function run() {
-      if (!user) return;
+      if (!user || surface === "circles" || tab === "nearby") return;
       try {
+        directoryRequestPendingRef.current = true;
         if (currentPage <= 1) setHasMore(false);
         setLoading(true);
         setError(null);
@@ -1023,12 +962,21 @@ export default function ConnectPageClient() {
           audience: directoryAudience,
         });
         if (!cancelled) {
-          // A page replaces the rows rather than merging into them. While this
-          // list appended, every page left its predecessors on screen, so the
-          // directory grew without limit and the sections below it moved
-          // further out of reach with each batch.
-          setPeople(page.items);
-          setHasMore(page.hasMore);
+          // Keep server order and a single row per user when an offset page
+          // overlaps after a directory update. Page one replaces the generation.
+          setPeople((previous) =>
+            currentPage === 1
+              ? page.items
+              : [
+                  ...new Map(
+                    [...previous, ...page.items].map((person) => [
+                      person.userId,
+                      person,
+                    ]),
+                  ).values(),
+                ],
+          );
+          setHasMore(page.hasMore && page.items.length > 0);
           // Selections deliberately survive this. They used to be pruned to
           // whoever the new page happened to show, on the reasoning that a
           // count the reader cannot see is a promise the surface can't account
@@ -1046,7 +994,10 @@ export default function ConnectPageClient() {
               : "Failed to load people",
           );
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) {
+          directoryRequestPendingRef.current = false;
+          setLoading(false);
+        }
       }
     }
     void run();
@@ -1063,8 +1014,11 @@ export default function ConnectPageClient() {
     // now. Their rows carry a `relationship` the server decided before the
     // sync ran, so without this the directory keeps offering "Connect" to
     // somebody it just connected you to, and the request that follows is
-    // refused. Bumping the nonce re-asks the server for the same page.
+    // refused. Bumping the nonce starts a fresh first-page generation.
     directoryRefreshNonce,
+    directoryRetryNonce,
+    surface,
+    tab,
   ]);
 
   const selectSurface = useCallback(
@@ -1099,16 +1053,44 @@ export default function ConnectPageClient() {
   );
 
   const loadNextDirectoryBatch = useCallback(() => {
-    if (surface === "circles" || tab === "nearby" || loading || !hasMore)
+    if (
+      surface === "circles" ||
+      tab === "nearby" ||
+      loading ||
+      directoryRequestPendingRef.current ||
+      (!hasMore && !error)
+    )
       return;
-    setCurrentPage((page) => page + 1);
-  }, [hasMore, loading, surface, tab]);
+    // Lock synchronously: multiple observer notifications may arrive before
+    // React commits loading state. A failed batch retries its own page.
+    directoryRequestPendingRef.current = true;
+    if (error) setDirectoryRetryNonce((nonce) => nonce + 1);
+    else setCurrentPage((page) => page + 1);
+  }, [error, hasMore, loading, surface, tab]);
 
-  const loadPreviousDirectoryBatch = useCallback(() => {
-    if (surface === "circles" || tab === "nearby" || loading) return;
-    setCurrentPage((page) => Math.max(1, page - 1));
-  }, [loading, surface, tab]);
-
+  useEffect(() => {
+    const sentinel = directoryLoadMoreRef.current;
+    if (
+      !sentinel ||
+      !hasMore ||
+      loading ||
+      error ||
+      surface === "circles" ||
+      tab === "nearby" ||
+      typeof IntersectionObserver === "undefined"
+    )
+      return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          loadNextDirectoryBatch();
+        }
+      },
+      { root: getAppScrollRoot(), rootMargin: "240px 0px" },
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [error, hasMore, loading, loadNextDirectoryBatch, surface, tab]);
 
   const sendConnectionRequest = useCallback(
     async (
@@ -1209,7 +1191,7 @@ export default function ConnectPageClient() {
           connectionId: connection.connectionId,
         });
         await refreshConnectionsFirstPage({
-          audience: connectionAudience,
+          audience: connectionAudienceRef.current,
           removedConnection: true,
         });
         CacheSyncService.onConnectionGraphMutated(user.uid);
@@ -1231,7 +1213,7 @@ export default function ConnectPageClient() {
         setPendingRemoveId(null);
       }
     },
-    [connectionAudience, refreshConnectionsFirstPage, user],
+    [refreshConnectionsFirstPage, user],
   );
 
   const handleLoadMoreConnections = useCallback(async () => {
@@ -1806,19 +1788,17 @@ export default function ConnectPageClient() {
         searching: query.trim().length > 0,
       },
     };
-  },
-    [
-      circleFlowAction,
-      circlesState.count,
-      connectionsTotalCount,
-      error,
-      isFocusedCircleTask,
-      loading,
-      query,
-      surface,
-      tab,
-    ],
-  );
+  }, [
+    circleFlowAction,
+    circlesState.count,
+    connectionsTotalCount,
+    error,
+    isFocusedCircleTask,
+    loading,
+    query,
+    surface,
+    tab,
+  ]);
   usePublishVoiceSurfaceMetadata(connectVoiceSurfaceMetadata);
 
   // Each of these brings the directory surface forward before touching the hub
@@ -2116,13 +2096,9 @@ export default function ConnectPageClient() {
 
   useLocalOnboardingActionHandler(
     "connect.remove_connection",
-    async (slots) => {
+    async (slots, context) => {
       const spokenName =
         typeof slots.person === "string" ? slots.person.trim() : "";
-      // Set by the card's destructive button and by nothing else. Voice never
-      // carries it, so a spoken sentence can raise this question but can never
-      // answer its own question.
-      const confirmed = slots.confirmed === true;
       const chosenConnectionId =
         typeof slots.connectionId === "string" ? slots.connectionId.trim() : "";
       if (!user) {
@@ -2180,7 +2156,7 @@ export default function ConnectPageClient() {
           };
         }
         const connection = matches[0]!;
-        if (!confirmed) {
+        if (!context?.directiveId && !context?.humanConfirmationToken) {
           // Ask before, not after. A name misheard once is a connection gone
           // with no undo, and this is the one action here where being wrong
           // cannot be walked back.
@@ -2248,11 +2224,11 @@ export default function ConnectPageClient() {
         role="menuitemradio"
         aria-checked={active}
         className={cn(
-          "flex min-h-11 w-full items-center justify-between px-3 text-left text-[15px] font-medium leading-5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]",
+          "flex min-h-11 w-full items-center justify-between px-3 text-left font-sans text-[length:var(--type-section-label-size)] leading-[var(--type-section-label-line)] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]",
           useWebDirectoryPopover ? "rounded-[12px]" : "rounded-[10px]",
           active
-            ? "text-[color:var(--app-accent)]"
-            : "text-[color:var(--app-primary-label)] hover:bg-[color:var(--app-secondary-fill)]",
+            ? "font-semibold text-[color:var(--app-accent)]"
+            : "font-normal text-[color:var(--app-primary-label)] hover:bg-[color:var(--app-secondary-fill)]",
         )}
         onClick={() => {
           setTab(option.value);
@@ -2267,6 +2243,77 @@ export default function ConnectPageClient() {
       </button>
     );
   });
+
+  const directorySelector = (
+    <div
+      ref={directoryMenuRef}
+      data-testid="connect-directory-menu-anchor"
+      className="relative"
+    >
+      {useWebDirectoryPopover ? (
+        <Popover open={directoryMenuOpen} onOpenChange={setDirectoryMenuOpen}>
+          <PopoverTrigger asChild>
+            <button
+              ref={directoryMenuButtonRef}
+              type="button"
+              aria-haspopup="menu"
+              aria-expanded={directoryMenuOpen}
+              aria-label={`Current directory: ${CONNECT_TAB_LABEL[tab]}`}
+              className="inline-flex min-h-11 max-w-full items-center gap-1.5 rounded-full text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]"
+            >
+              <SectionLabel as="span" compact>
+                {CONNECT_TAB_LABEL[tab]}
+              </SectionLabel>
+              <ChevronDown
+                className="h-4 w-4 text-[color:var(--app-secondary-label)]"
+                aria-hidden
+              />
+            </button>
+          </PopoverTrigger>
+          <PopoverContent
+            role="menu"
+            data-testid="connect-directory-menu"
+            align="start"
+            side="bottom"
+            sideOffset={6}
+            collisionPadding={16}
+            className={CONNECT_WEB_DIRECTORY_POPOVER_CLASSNAME}
+          >
+            {directoryMenuItems}
+          </PopoverContent>
+        </Popover>
+      ) : (
+        <>
+          <button
+            ref={directoryMenuButtonRef}
+            type="button"
+            aria-haspopup="menu"
+            aria-expanded={directoryMenuOpen}
+            aria-label={`Current directory: ${CONNECT_TAB_LABEL[tab]}`}
+            className="inline-flex min-h-11 max-w-full items-center gap-1.5 rounded-full text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]"
+            onClick={() => setDirectoryMenuOpen((current) => !current)}
+          >
+            <SectionLabel as="span" compact>
+              {CONNECT_TAB_LABEL[tab]}
+            </SectionLabel>
+            <ChevronDown
+              className="h-4 w-4 text-[color:var(--app-secondary-label)]"
+              aria-hidden
+            />
+          </button>
+          {directoryMenuOpen ? (
+            <div
+              role="menu"
+              data-testid="connect-directory-menu"
+              className={CONNECT_DIRECTORY_MENU_CLASSNAME}
+            >
+              {directoryMenuItems}
+            </div>
+          ) : null}
+        </>
+      )}
+    </div>
+  );
 
   return (
     <AppPageShell
@@ -2305,286 +2352,489 @@ export default function ConnectPageClient() {
         errorMessage: surface === "circles" ? circlesState.error : error,
       }}
     >
-      {isFocusedCircleTask ? (
-        <AppPageContentRegion className={CONNECT_PAGE_CONTENT_CLASSNAME}>
-          <div className="mx-auto w-full max-w-[560px]">            <ConnectCirclesTab
-              onStateChange={setCirclesState}
-              currentUserId={user?.uid ?? null}
-              onRequestConnection={sendConnectRequest}
-              onCancelConnectionRequest={cancelConnectionRequest}
-              refreshToken={circleRefreshToken}
-            />
-          </div>
-        </AppPageContentRegion>
-      ) : (
-        <>
-          <AppPageHeaderRegion>
-            <PageHeader
-              title="Connect"
-              titleRole="agent"
-              className="[&_[data-slot=page-header-row]]:!items-center"
-            />
-          </AppPageHeaderRegion>
-
+      <SettingsPresentationProvider density="compact">
+        {isFocusedCircleTask ? (
           <AppPageContentRegion className={CONNECT_PAGE_CONTENT_CLASSNAME}>
-            <SurfaceStack compact>          <div
-            ref={connectStackRef}
-            className="relative space-y-4 sm:space-y-5"
-          >
-            {/* Where the header sits when it is NOT pinned, held open as a 1px
-                line so an observer can watch that spot leave the scrollport.
-                Absolutely positioned, so it is out of flow: `space-y-*` gives a
-                first child `margin-block-end` only, which an absolute box with
-                `top: 0` cannot act on, and the strips below keep their rhythm.
-                Reading the header itself would prove nothing -- once pinned it
-                never leaves, which is the whole point of it. */}
-            <div
-              ref={stickyPinSentinelRef}
-              data-testid="connect-sticky-pin-sentinel"
-              aria-hidden
-              className="pointer-events-none absolute inset-x-0 top-0 h-px"
-            />
-            <div
-              ref={stickyHeaderRef}
-              data-testid="connect-sticky-header"
-              // Written by the observer above. Declared here so the attribute
-              // exists from the first paint rather than arriving a frame later,
-              // which is a frame of the cover in the wrong state.
-              data-pinned="false"
-              className={CONNECT_STICKY_HEADER_CLASSNAME}
-            >
-              <TopShellTabs
-                tabSet={{
-                  ...CONNECT_SURFACE_TAB_DEFINITION,
-                  activeValue: surface,
-                }}
-                navigationMode="push"
-              />
-              {surface !== "circles" ? (
-                <div className="flex min-h-11 items-center justify-between gap-3">
-                  <div className="min-w-0 flex-1">
-                    <div
-                      ref={directoryMenuRef}
-                      data-testid="connect-directory-menu-anchor"
-                      className="relative"
-                    >
-                      {useWebDirectoryPopover ? (
-                        <Popover
-                          open={directoryMenuOpen}
-                          onOpenChange={setDirectoryMenuOpen}                        >
-                          <PopoverTrigger asChild>
-                            <button
-                              ref={directoryMenuButtonRef}
-                              type="button"
-                              aria-haspopup="menu"
-                              aria-expanded={directoryMenuOpen}
-                              aria-label={`Current directory: ${CONNECT_TAB_LABEL[tab]}`}
-                              className="inline-flex min-h-11 items-center gap-1.5 rounded-full px-1 text-[17px] font-semibold leading-[22px] text-[color:var(--app-primary-label)] transition-colors hover:text-[color:var(--app-accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]"
-                            >
-                              {CONNECT_TAB_LABEL[tab]}
-                              <ChevronDown
-                                className="h-4 w-4 text-[color:var(--app-secondary-label)]"
-                                aria-hidden
-                              />
-                            </button>
-                          </PopoverTrigger>
-                          <PopoverContent
-                            role="menu"
-                            data-testid="connect-directory-menu"
-                            align="start"
-                            side="bottom"
-                            sideOffset={6}
-                            collisionPadding={16}
-                            className={CONNECT_WEB_DIRECTORY_POPOVER_CLASSNAME}
-                          >
-                            {directoryMenuItems}
-                          </PopoverContent>
-                        </Popover>
-                      ) : (
-                        <>
-                          <button
-                            ref={directoryMenuButtonRef}
-                            type="button"
-                            aria-haspopup="menu"
-                            aria-expanded={directoryMenuOpen}
-                            aria-label={`Current directory: ${CONNECT_TAB_LABEL[tab]}`}
-                            className="inline-flex min-h-11 items-center gap-1.5 rounded-full px-1 text-[17px] font-semibold leading-[22px] text-[color:var(--app-primary-label)] transition-colors hover:text-[color:var(--app-accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]"
-                            onClick={() =>
-                              setDirectoryMenuOpen((current) => !current)
-                            }
-                          >
-                            {CONNECT_TAB_LABEL[tab]}
-                            <ChevronDown
-                              className="h-4 w-4 text-[color:var(--app-secondary-label)]"
-                              aria-hidden
-                            />
-                          </button>
-                          {directoryMenuOpen ? (
-                            <div
-                              role="menu"
-                              data-testid="connect-directory-menu"
-                              className={CONNECT_DIRECTORY_MENU_CLASSNAME}
-                            >
-                              {directoryMenuItems}
-                            </div>
-                          ) : null}
-                        </>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              ) : null}
-            </div>
-
-            {surface === "circles" ? (
+            <div className="mx-auto w-full max-w-[560px]">
               <ConnectCirclesTab
                 onStateChange={setCirclesState}
                 currentUserId={user?.uid ?? null}
-                // The roster's Connect opens the SAME capability review the
-                // directory opens, rather than sending outright.
                 onRequestConnection={sendConnectRequest}
                 onCancelConnectionRequest={cancelConnectionRequest}
                 refreshToken={circleRefreshToken}
               />
-            ) : (
-              <>
-                {tab === "nearby" ? (
-                  <NearbyDirectories getIdToken={getIdToken} />
-                ) : (
-                  <div className="space-y-4 sm:space-y-5">
-                    <SettingsGroup
-                      title={
-                        <span className={CONNECT_WRAPPING_TEXT_CLASSNAME}>
-                          {connectionsHeading}
-                        </span>
-                      }
-                      // Refresh sits in `titleAction`, not inside `title`. It used
-                      // to be a child of the title node, which `SettingsGroup`
-                      // renders inside an element carrying `role="heading"` -- and
-                      // a control there is not a control. A screen reader folds its
-                      // label into the heading's accessible name, so the heading
-                      // announced as "Your connections Refresh contacts", and the
-                      // button itself was never offered as something to press.
-                      titleAction={
-                        <Button
-                          type="button"
-                          variant="none"
-                          effect="fade"
-                          size="sm"
-                          aria-label="Refresh contacts"
-                          aria-busy={connectionsRefreshingFirstPage}
-                          title="Refresh contacts"
-                          disabled={connectionsRefreshingFirstPage}
-                          onClick={handleRefreshConnections}
-                          className={CONNECT_REFRESH_BUTTON_CLASSNAME}
-                        >
-                          <RefreshCw
-                            aria-hidden="true"
-                            className={cn(
-                              "h-3.5 w-3.5",
-                              connectionsRefreshingFirstPage && "animate-spin",
-                            )}
-                          />
-                        </Button>
-                      }
-                      separatorInset
-                      contentClassName={
-                        sortedConnections.length > 0
-                          ? CONNECT_CONNECTION_LIST_CLASSNAME
-                          : undefined
-                      }
-                      testId="connect-my-connections-group"
-                    >
-                      {sortedConnections.length === 0 ? (
-                        <SettingsRow
-                          // No description. "Connections appear here." explained what
-                          // an empty list already showed, and the obvious replacement
-                          // -- pointing at the search box -- is the sentence the
-                          // directory section directly below already carries. Saying
-                          // it twice on one screen is what made it noise the first
-                          // time. The title is the whole message.
-                          title={
-                            isAdvisorTab ? "No RIAs yet" : "No connections yet"
-                          }
-                          density="compact"
-                          disabled
-                        />
+            </div>
+          </AppPageContentRegion>
+        ) : (
+          <>
+            <AppPageHeaderRegion>
+              <PageHeader title="Connect" titleRole="agent" />
+            </AppPageHeaderRegion>
+
+            <AppPageContentRegion className={CONNECT_PAGE_CONTENT_CLASSNAME}>
+              <SurfaceStack compact>
+                <div
+                  ref={connectStackRef}
+                  className="relative space-y-3 sm:space-y-4"
+                >
+                  <div
+                    ref={stickyHeaderRef}
+                    data-testid="connect-sticky-header"
+                    className={CONNECT_STICKY_HEADER_CLASSNAME}
+                  >
+                    <TopShellTabs
+                      tabSet={{
+                        ...CONNECT_SURFACE_TAB_DEFINITION,
+                        activeValue: surface,
+                      }}
+                      navigationMode="push"
+                    />
+                  </div>
+
+                  {surface === "circles" ? (
+                    <ConnectCirclesTab
+                      onStateChange={setCirclesState}
+                      currentUserId={user?.uid ?? null}
+                      // The roster's Connect opens the SAME capability review the
+                      // directory opens, rather than sending outright.
+                      onRequestConnection={sendConnectRequest}
+                      onCancelConnectionRequest={cancelConnectionRequest}
+                      refreshToken={circleRefreshToken}
+                    />
+                  ) : (
+                    <>
+                      {tab === "nearby" ? (
+                        <div className="space-y-3">
+                          <div className="px-1">{directorySelector}</div>
+                          <NearbyDirectories getIdToken={getIdToken} />
+                        </div>
                       ) : (
-                        sortedConnections.map((connection) => (
-                          <SettingsRow
-                            key={connection.connectionId}
-                            leading={
-                              <ConnectionPersonAvatar
-                                photoUrl={connection.photoUrl ?? null}
-                                label={
-                                  connection.displayName || connection.userId
+                        <div className="space-y-3 sm:space-y-4">
+                          <SettingsGroup
+                            titleControl={
+                              <Button
+                                type="button"
+                                variant="none"
+                                effect="fade"
+                                aria-controls="connect-my-connections-panel"
+                                aria-expanded={connectionsExpanded}
+                                onClick={() =>
+                                  setConnectionsExpanded((expanded) => !expanded)
                                 }
-                                verified={Boolean(connection.isRia)}
-                              />
-                            }
-                            // Deliberately NOT stackTrailingOnMobile. That prop drops
-                            // the trailing control onto its own line below the name on
-                            // every phone (`sm:` is 640px, so "mobile" here is every
-                            // iPhone), and it was doing so for a single 72px "Remove"
-                            // that had room to sit inline all along -- a connection
-                            // read as two rows, and the list lost its right-hand
-                            // column. The People list below has never stacked; these
-                            // two lists sit on the same screen and now agree.
-                            title={
-                              <span
-                                className={CONNECT_WRAPPING_TITLE_ROW_CLASSNAME}
+                                data-testid="connect-my-connections-toggle"
+                                className="group h-11 min-h-11 max-w-full rounded-full border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-secondary-fill)] px-3 text-[14px] font-semibold text-[color:var(--app-label)] shadow-none hover:bg-[color:var(--app-tertiary-fill)] focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)] focus-visible:ring-offset-2"
                               >
                                 <span className={CONNECT_WRAPPING_TEXT_CLASSNAME}>
-                                  {connection.displayName || connection.userId}
+                                  {connectionsHeading}
                                 </span>
-                                {connection.connectedFromContacts ? (
-                                  <ContactSourceBadge />
-                                ) : null}
-                              </span>
+                                <ChevronDown
+                                  aria-hidden="true"
+                                  className={cn(
+                                    "ml-1.5 h-4 w-4 shrink-0 transition-transform duration-200",
+                                    connectionsExpanded && "rotate-180",
+                                  )}
+                                />
+                              </Button>
                             }
-                            // SettingsRow derives `data-voice-label` from a string
-                            // title, and this one is an element so it can wrap with
-                            // its provenance badge.
-                            // Passing the name keeps the attribute the row already had.
-                            voiceLabel={
-                              connection.displayName || connection.userId
+                            // Refresh stays beside the disclosure, never inside it: nested
+                            // controls are invalid and would make one of the two actions
+                            // unreachable to keyboard and assistive-technology users.
+                            titleAction={
+                              <Button
+                                type="button"
+                                variant="none"
+                                effect="fade"
+                                size="sm"
+                                aria-label="Refresh contacts"
+                                aria-busy={connectionsRefreshingFirstPage}
+                                title="Refresh contacts"
+                                disabled={connectionsRefreshingFirstPage}
+                                onClick={handleRefreshConnections}
+                                className={CONNECT_REFRESH_BUTTON_CLASSNAME}
+                              >
+                                <RefreshCw
+                                  aria-hidden="true"
+                                  className={cn(
+                                    "h-3.5 w-3.5",
+                                    connectionsRefreshingFirstPage &&
+                                      "animate-spin",
+                                  )}
+                                />
+                              </Button>
                             }
-                            density="compact"
-                            onClick={
-                              connection.publicPersonRef
-                                ? () =>
-                                    router.push(
-                                      buildPersonProfileRoute(
-                                        connection.publicPersonRef!,
-                                        { from: ROUTES.CONNECT },
-                                      ),
-                                    )
+                            separatorInset
+                            contentId="connect-my-connections-panel"
+                            shellClassName={cn(
+                              !connectionsExpanded && "hidden",
+                            )}
+                            contentClassName={
+                              sortedConnections.length > 0
+                                ? CONNECT_CONNECTION_LIST_CLASSNAME
                                 : undefined
                             }
-                            trailing={
-                              <span className="flex shrink-0 items-center justify-end gap-1.5 whitespace-nowrap">
-                                {pendingRemoveId === connection.connectionId ? (
-                                  <>
-                                    <Button
-                                      type="button"
-                                      variant="destructive"
-                                      effect="fill"
-                                      size="sm"
+                            testId="connect-my-connections-group"
+                          >
+                            {connectionsRefreshError && (
+                              <SettingsRow
+                                title="Could not refresh connections"
+                                description="Your list may be out of date. Tap to retry."
+                                onClick={handleRefreshConnections}
+                                disabled={connectionsRefreshingFirstPage}
+                                density="compact"
+                              />
+                            )}
+                            {sortedConnections.length === 0 ? (
+                              <SettingsRow
+                                // No description. "Connections appear here." explained what
+                                // an empty list already showed, and the obvious replacement
+                                // -- pointing at the search box -- is the sentence the
+                                // directory section directly below already carries. Saying
+                                // it twice on one screen is what made it noise the first
+                                // time. The title is the whole message.
+                                title={
+                                  isAdvisorTab
+                                    ? "No RIAs yet"
+                                    : "No connections yet"
+                                }
+                                density="compact"
+                                disabled
+                              />
+                            ) : (
+                              sortedConnections.map((connection) => (
+                                <SettingsRow
+                                  key={connection.connectionId}
+                                  layout="person"
+                                  leading={
+                                    <ConnectionPersonAvatar
+                                      size="list"
+                                      photoUrl={connection.photoUrl ?? null}
+                                      label={
+                                        connection.displayName ||
+                                        connection.userId
+                                      }
+                                      verified={Boolean(connection.isRia)}
+                                    />
+                                  }
+                                  // Deliberately NOT stackTrailingOnMobile. That prop drops
+                                  // the trailing control onto its own line below the name on
+                                  // every phone (`sm:` is 640px, so "mobile" here is every
+                                  // iPhone), and it was doing so for a single 72px "Remove"
+                                  // that had room to sit inline all along -- a connection
+                                  // read as two rows, and the list lost its right-hand
+                                  // column. The People list below has never stacked; these
+                                  // two lists sit on the same screen and now agree.
+                                  title={
+                                    <span
                                       className={
-                                        CONNECT_INLINE_BUTTON_CLASSNAME
+                                        CONNECT_WRAPPING_TITLE_ROW_CLASSNAME
                                       }
-                                      disabled={
-                                        busyId === connection.connectionId
-                                      }
-                                      onClick={(event) => {
-                                        event.stopPropagation();
-                                        void handleRemove(connection);
-                                      }}
                                     >
-                                      {busyId === connection.connectionId
-                                        ? "Removing…"
-                                        : "Confirm"}
-                                    </Button>
+                                      <span
+                                        className={
+                                          CONNECT_WRAPPING_TEXT_CLASSNAME
+                                        }
+                                      >
+                                        {connection.displayName ||
+                                          connection.userId}
+                                      </span>
+                                      {connection.connectedFromContacts ? (
+                                        <ContactSourceBadge />
+                                      ) : null}
+                                    </span>
+                                  }
+                                  // SettingsRow derives `data-voice-label` from a string
+                                  // title, and this one is an element so it can wrap with
+                                  // its provenance badge.
+                                  // Passing the name keeps the attribute the row already had.
+                                  voiceLabel={
+                                    connection.displayName || connection.userId
+                                  }
+                                  density="compact"
+                                  onClick={
+                                    connection.publicPersonRef
+                                      ? () =>
+                                          router.push(
+                                            buildPersonProfileRoute(
+                                              connection.publicPersonRef!,
+                                              { from: ROUTES.CONNECT },
+                                            ),
+                                          )
+                                      : undefined
+                                  }
+                                  trailing={
+                                    <span className="flex shrink-0 items-center justify-end gap-1.5 whitespace-nowrap">
+                                      {pendingRemoveId ===
+                                      connection.connectionId ? (
+                                        <>
+                                          <Button
+                                            type="button"
+                                            variant="destructive"
+                                            effect="fill"
+                                            size="sm"
+                                            className={
+                                              CONNECT_INLINE_BUTTON_CLASSNAME
+                                            }
+                                            disabled={
+                                              busyId === connection.connectionId
+                                            }
+                                            onClick={(event) => {
+                                              event.stopPropagation();
+                                              void handleRemove(connection);
+                                            }}
+                                          >
+                                            {busyId === connection.connectionId
+                                              ? "Removing…"
+                                              : "Confirm"}
+                                          </Button>
+                                          <Button
+                                            type="button"
+                                            variant="none"
+                                            effect="fade"
+                                            size="sm"
+                                            className={
+                                              CONNECT_INLINE_BUTTON_CLASSNAME
+                                            }
+                                            disabled={
+                                              busyId === connection.connectionId
+                                            }
+                                            onClick={(event) => {
+                                              event.stopPropagation();
+                                              setPendingRemoveId(null);
+                                            }}
+                                          >
+                                            Cancel
+                                          </Button>
+                                        </>
+                                      ) : (
+                                        <Button
+                                          type="button"
+                                          variant="none"
+                                          effect="fade"
+                                          size="sm"
+                                          onClick={(event) => {
+                                            event.stopPropagation();
+                                            setPendingRemoveId(
+                                              connection.connectionId,
+                                            );
+                                          }}
+                                          aria-label={`Remove connection with ${connection.displayName || connection.userId}`}
+                                          className={cn(
+                                            CONNECT_INLINE_BUTTON_CLASSNAME,
+                                            "text-muted-foreground hover:text-destructive",
+                                          )}
+                                        >
+                                          Remove
+                                        </Button>
+                                      )}
+                                    </span>
+                                  }
+                                />
+                              ))
+                            )}
+                          </SettingsGroup>
+
+                          {connectionsHasMore ? (
+                            <div className="flex justify-center">
+                              <Button
+                                type="button"
+                                variant="none"
+                                effect="fill"
+                                size="sm"
+                                className={CONNECT_PAGER_BUTTON_CLASSNAME}
+                                disabled={
+                                  connectionsLoadingMore ||
+                                  connectionsRefreshingFirstPage
+                                }
+                                onClick={() => void handleLoadMoreConnections()}
+                              >
+                                {connectionsLoadingMore
+                                  ? "Loading…"
+                                  : "Load more connections"}
+                              </Button>
+                            </div>
+                          ) : null}
+
+                          <div className="space-y-4">
+                            {!isAdvisorTab && contactSync.available ? (
+                              <ContactInvitationNotice />
+                            ) : null}
+                            <SettingsGroup
+                              titleControl={directorySelector}
+                              // People only. This one JSX node also renders the RIAs
+                              // tab, where an address book has nothing to offer --
+                              // an advisor is found by their verified profile, not
+                              // by being in your phone. "Around you" never reaches
+                              // here at all; that tab short-circuits to its own
+                              // directories component.
+                              //
+                              // `available` is false on a desktop browser with no
+                              // Google client configured, which is the one case
+                              // where there is genuinely nothing to read. Hiding it
+                              // there is kinder than a button that exists only to
+                              // explain that it cannot work.
+                              titleAction={
+                                !isAdvisorTab && contactSync.available ? (
+                                  <Button
+                                    type="button"
+                                    variant="none"
+                                    effect="fade"
+                                    size="sm"
+                                    aria-label="Sync contacts"
+                                    aria-busy={contactSync.syncing}
+                                    title="Sync contacts"
+                                    disabled={contactSync.syncing}
+                                    onClick={() => void contactSync.sync()}
+                                    className={CONNECT_INLINE_BUTTON_CLASSNAME}
+                                  >
+                                    <BookUser
+                                      aria-hidden="true"
+                                      className="mr-1.5 h-3.5 w-3.5"
+                                    />
+                                    {contactSync.syncing
+                                      ? "Syncing\u2026"
+                                      : "Sync contacts"}
+                                  </Button>
+                                ) : null
+                              }
+                              description={
+                                isSelectionMode ? (
+                                  <span id="connect-selection-limit">
+                                    Pick up to {MAX_BULK_CONNECTION_REQUESTS},
+                                    across pages.
+                                  </span>
+                                ) : isAdvisorTab ? (
+                                  "Advisors with a verified profile."
+                                ) : hasQuery ? (
+                                  "Send a request."
+                                ) : (
+                                  "Search by name."
+                                )
+                              }
+                              separatorInset
+                              // The search row belongs to THIS list, so it is read after
+                              // the heading that names the list -- not before it. It used
+                              // to sit above "People", which put the sentence that
+                              // instructs it ("Search by name.") underneath the box it
+                              // instructs, and gave the reader a field before anything on
+                              // screen had said what it searched. It still pins under the
+                              // tab strips on scroll; it just no longer arrives first.
+                              toolbar={
+                                /* No `w-full` here any more, and it is load-bearing: this row
+                    bleeds to the page gutters with a negative inline margin, and
+                    `width: 100%` resolves against the text column, so the margin
+                    only slid the row 16px left instead of widening it. A block
+                    flex container fills its containing block on its own, and with
+                    `auto` the margins can do their job. `cn` is tailwind-merge, so
+                    a later `w-full` would have beaten anything the constant said.
+                    Held by e2e/connect-sticky-header.layout.spec.ts. */
+                                <div
+                                  data-testid="connect-search-row"
+                                  className={cn(
+                                    CONNECT_STICKY_SEARCH_CLASSNAME,
+                                    "block",
+                                  )}
+                                >
+                                  <div className="relative">
+                                    <span className="absolute inset-y-0 left-0 flex items-center pl-4 pointer-events-none text-muted-foreground/80">
+                                      <SearchIcon className="h-4.5 w-4.5" />
+                                    </span>
+                                    <Input
+                                      ref={searchInputRef}
+                                      type="text"
+                                      value={query}
+                                      onChange={(event) =>
+                                        setQuery(event.target.value)
+                                      }
+                                      placeholder={CONNECT_SEARCH_PLACEHOLDER}
+                                      aria-label="Search people"
+                                      data-voice-control-id="one-connect-search"
+                                      className={cn(
+                                        CONNECT_SEARCH_INPUT_CLASSNAME,
+                                        query
+                                          ? CONNECT_SEARCH_INPUT_CLEARABLE_CLASSNAME
+                                          : CONNECT_SEARCH_INPUT_PLAIN_CLASSNAME,
+                                      )}
+                                      enterKeyHint="search"
+                                      onKeyDown={(event) => {
+                                        // iOS soft-keyboard "return" must dismiss the keyboard;
+                                        // blurring the field is what actually closes it in the
+                                        // Capacitor webview (there is no form submit here).
+                                        if (event.key === "Enter") {
+                                          event.preventDefault();
+                                          event.currentTarget.blur();
+                                        }
+                                      }}
+                                      onFocus={(event) => {
+                                        // Keyboard-dismiss "on drag": the first scroll/drag while
+                                        // the field is focused blurs it, so an open keyboard never
+                                        // locks the results out of view. Scoped to this field's
+                                        // focus lifecycle and cleaned up on blur.
+                                        const field = event.currentTarget;
+                                        // Scroll the field into view above the on-screen keyboard.
+                                        // Tapping it otherwise leaves it hidden behind the keyboard
+                                        // until the user manually scrolls up. The delay lets the
+                                        // keyboard animate in so the shrunken viewport is measured.
+                                        window.setTimeout(() => {
+                                          field.scrollIntoView({
+                                            block: "center",
+                                            behavior: "smooth",
+                                          });
+                                        }, 300);
+                                        const dismiss = () => field.blur();
+                                        window.addEventListener(
+                                          "touchmove",
+                                          dismiss,
+                                          {
+                                            passive: true,
+                                            once: true,
+                                          },
+                                        );
+                                        field.addEventListener(
+                                          "blur",
+                                          () =>
+                                            window.removeEventListener(
+                                              "touchmove",
+                                              dismiss,
+                                            ),
+                                          { once: true },
+                                        );
+                                      }}
+                                    />
+                                    {query ? (
+                                      <button
+                                        type="button"
+                                        aria-label="Clear search"
+                                        onClick={() => {
+                                          setQuery("");
+                                          searchInputRef.current?.focus();
+                                        }}
+                                        className="press-scale absolute inset-y-0 right-0 flex w-11 items-center justify-center text-[#1d1d1f] transition-colors hover:text-black dark:text-white"
+                                      >
+                                        <X
+                                          className="h-5 w-5"
+                                          strokeWidth={2.4}
+                                        />
+                                      </button>
+                                    ) : null}
+                                  </div>
+                                </div>
+                              }
+                            >
+                              {loading && people.length === 0 ? (
+                                <SettingsRow
+                                  title="Finding people…"
+                                  density="compact"
+                                  disabled
+                                />
+                              ) : error && people.length === 0 ? (
+                                <SettingsRow
+                                  title={
+                                    isAdvisorTab
+                                      ? "Advisors are unavailable"
+                                      : "People are unavailable"
+                                  }
+                                  description={error}
+                                  trailing={
                                     <Button
                                       type="button"
                                       variant="none"
@@ -2593,839 +2843,627 @@ export default function ConnectPageClient() {
                                       className={
                                         CONNECT_INLINE_BUTTON_CLASSNAME
                                       }
-                                      disabled={
-                                        busyId === connection.connectionId
-                                      }
-                                      onClick={(event) => {
-                                        event.stopPropagation();
-                                        setPendingRemoveId(null);
-                                      }}
+                                      onClick={loadNextDirectoryBatch}
                                     >
-                                      Cancel
+                                      Try again
                                     </Button>
-                                  </>
-                                ) : (
-                                  <Button
-                                    type="button"
-                                    variant="none"
-                                    effect="fade"
-                                    size="sm"
-                                    onClick={(event) => {
-                                      event.stopPropagation();
-                                      setPendingRemoveId(
-                                        connection.connectionId,
-                                      );
-                                    }}
-                                    aria-label={`Remove connection with ${connection.displayName || connection.userId}`}
-                                    className={cn(
-                                      CONNECT_INLINE_BUTTON_CLASSNAME,
-                                      "text-muted-foreground hover:text-destructive",
-                                    )}
-                                  >
-                                    Remove
-                                  </Button>
-                                )}
-                              </span>
-                            }
-                          />
-                        ))
-                      )}
-                    </SettingsGroup>
-
-                    {connectionsHasMore ? (
-                      <div className="flex justify-center">
-                        <Button
-                          type="button"
-                          variant="none"
-                          effect="fill"
-                          size="sm"
-                          className={CONNECT_PAGER_BUTTON_CLASSNAME}
-                          disabled={
-                            connectionsLoadingMore ||
-                            connectionsRefreshingFirstPage
-                          }
-                          onClick={() => void handleLoadMoreConnections()}
-                        >
-                          {connectionsLoadingMore
-                            ? "Loading…"
-                            : "Load more connections"}
-                        </Button>
-                      </div>
-                    ) : null}
-
-                    <div className="space-y-4">
-                      <SettingsGroup
-                        title={CONNECT_TAB_LABEL[tab]}
-                        // People only. This one JSX node also renders the RIAs
-                        // tab, where an address book has nothing to offer --
-                        // an advisor is found by their verified profile, not
-                        // by being in your phone. "Around you" never reaches
-                        // here at all; that tab short-circuits to its own
-                        // directories component.
-                        //
-                        // `available` is false on a desktop browser with no
-                        // Google client configured, which is the one case
-                        // where there is genuinely nothing to read. Hiding it
-                        // there is kinder than a button that exists only to
-                        // explain that it cannot work.
-                        titleAction={
-                          !isAdvisorTab && contactSync.available ? (
-                            <Button
-                              type="button"
-                              variant="none"
-                              effect="fade"
-                              size="sm"
-                              aria-label="Sync contacts"
-                              aria-busy={contactSync.syncing}
-                              title="Sync contacts"
-                              disabled={contactSync.syncing}
-                              onClick={() => void contactSync.sync()}
-                              className={CONNECT_INLINE_BUTTON_CLASSNAME}
-                            >
-                              <BookUser
-                                aria-hidden="true"
-                                className="mr-1.5 h-3.5 w-3.5"
-                              />
-                              {contactSync.syncing
-                                ? "Syncing\u2026"
-                                : "Sync contacts"}
-                            </Button>
-                          ) : null
-                        }
-                        description={
-                          isSelectionMode ? (
-                            <span id="connect-selection-limit">
-                              Pick up to {MAX_BULK_CONNECTION_REQUESTS}, across
-                              pages.
-                            </span>
-                          ) : isAdvisorTab ? (
-                            "Advisors with a verified profile."
-                          ) : hasQuery ? (
-                            "Send a request."
-                          ) : (
-                            "Search by name."
-                          )
-                        }
-                        separatorInset
-                        // The search row belongs to THIS list, so it is read after
-                        // the heading that names the list -- not before it. It used
-                        // to sit above "People", which put the sentence that
-                        // instructs it ("Search by name.") underneath the box it
-                        // instructs, and gave the reader a field before anything on
-                        // screen had said what it searched. It still pins under the
-                        // tab strips on scroll; it just no longer arrives first.
-                        toolbar={
-                          /* No `w-full` here any more, and it is load-bearing: this row
-                    bleeds to the page gutters with a negative inline margin, and
-                    `width: 100%` resolves against the text column, so the margin
-                    only slid the row 16px left instead of widening it. A block
-                    flex container fills its containing block on its own, and with
-                    `auto` the margins can do their job. `cn` is tailwind-merge, so
-                    a later `w-full` would have beaten anything the constant said.
-                    Held by e2e/connect-sticky-header.layout.spec.ts. */
-                          <div
-                            data-testid="connect-search-row"
-                            className={cn(
-                              CONNECT_STICKY_SEARCH_CLASSNAME,
-                              "block",
-                            )}
-                          >
-                            <div className="relative">
-                              <span className="absolute inset-y-0 left-0 flex items-center pl-4 pointer-events-none text-muted-foreground/80">
-                                <SearchIcon className="h-4.5 w-4.5" />
-                              </span>
-                              <Input
-                                ref={searchInputRef}
-                                type="text"
-                                value={query}
-                              onChange={(event) => setQuery(event.target.value)}
-                                placeholder={CONNECT_SEARCH_PLACEHOLDER}
-                                aria-label="Search people"
-                                data-voice-control-id="one-connect-search"
-                                className={cn(
-                                  CONNECT_SEARCH_INPUT_CLASSNAME,
-                                  query
-                                    ? CONNECT_SEARCH_INPUT_CLEARABLE_CLASSNAME
-                                    : CONNECT_SEARCH_INPUT_PLAIN_CLASSNAME,
-                                )}
-                                enterKeyHint="search"
-                                onKeyDown={(event) => {
-                                  // iOS soft-keyboard "return" must dismiss the keyboard;
-                                  // blurring the field is what actually closes it in the
-                                  // Capacitor webview (there is no form submit here).
-                                  if (event.key === "Enter") {
-                                    event.preventDefault();
-                                    event.currentTarget.blur();
                                   }
-                                }}
-                                onFocus={(event) => {
-                                  // Keyboard-dismiss "on drag": the first scroll/drag while
-                                  // the field is focused blurs it, so an open keyboard never
-                                  // locks the results out of view. Scoped to this field's
-                                  // focus lifecycle and cleaned up on blur.
-                                  const field = event.currentTarget;
-                                  // Scroll the field into view above the on-screen keyboard.
-                                  // Tapping it otherwise leaves it hidden behind the keyboard
-                                  // until the user manually scrolls up. The delay lets the
-                                  // keyboard animate in so the shrunken viewport is measured.
-                                  window.setTimeout(() => {
-                                    field.scrollIntoView({
-                                      block: "center",
-                                      behavior: "smooth",
-                                    });
-                                  }, 300);
-                                  const dismiss = () => field.blur();
-                                window.addEventListener("touchmove", dismiss, {
-                                      passive: true,
-                                      once: true,
-                                });
-                                  field.addEventListener(
-                                    "blur",
-                                    () =>
-                                      window.removeEventListener(
-                                        "touchmove",
-                                        dismiss,
-                                      ),
-                                    { once: true },
-                                  );
-                                }}
-                              />
-                              {query ? (
-                                <button
-                                  type="button"
-                                  aria-label="Clear search"
-                                  onClick={() => {
-                                    setQuery("");
-                                    searchInputRef.current?.focus();
-                                  }}
-                                  className="press-scale absolute inset-y-0 right-0 flex w-11 items-center justify-center text-[#1d1d1f] transition-colors hover:text-black dark:text-white"
-                                >
-                                  <X className="h-5 w-5" strokeWidth={2.4} />
-                                </button>
-                              ) : null}
-                            </div>
-                          </div>
-                        }
-                      >
-                        {loading && people.length === 0 ? (
-                          <SettingsRow
-                            title="Finding people…"
-                            density="compact"
-                            disabled
-                          />
-                        ) : error ? (
-                          <SettingsRow
-                            title={
-                              isAdvisorTab
-                                ? "Advisors are unavailable"
-                                : "People are unavailable"
-                            }
-                            description={error}
-                            density="compact"
-                            tone="destructive"
-                          />
-                        ) : people.length === 0 ? (
-                          // Tested against the list that is actually rendered below,
-                          // never against the raw server page. Those were two
-                          // different lists once: the server returned 8 rows, a
-                          // client-side filter hid all 8, and this branch checked the
-                          // 8 -- so the "no one matches" row never appeared and the
-                          // section rendered as blank space under its own heading.
-                          // An empty result has to say so.
-                          hasQuery ? (
-                            <>
-                              <SettingsRow
-                                title={`No one matches "${trimmedQuery}"`}
-                                description={
-                                  isAdvisorTab
-                                    ? "Try People, or their full name."
-                                    : "Try their full name."
-                                }
-                                density="compact"
-                                disabled
-                              />
-                              {/* The row above states a fact, so it stays inert; an
+                                  density="compact"
+                                  tone="destructive"
+                                />
+                              ) : people.length === 0 ? (
+                                // Tested against the list that is actually rendered below,
+                                // never against the raw server page. Those were two
+                                // different lists once: the server returned 8 rows, a
+                                // client-side filter hid all 8, and this branch checked the
+                                // 8 -- so the "no one matches" row never appeared and the
+                                // section rendered as blank space under its own heading.
+                                // An empty result has to say so.
+                                hasQuery ? (
+                                  <>
+                                    <SettingsRow
+                                      title={`No one matches "${trimmedQuery}"`}
+                                      description={
+                                        isAdvisorTab
+                                          ? "Try People, or their full name."
+                                          : "Try their full name."
+                                      }
+                                      density="compact"
+                                      disabled
+                                    />
+                                    {/* The row above states a fact, so it stays inert; an
                           invite is a separate offer and gets its own row
                           rather than making "No one matches Bob" tappable.
                           Read together they are the two things left to try:
                           spell it out, or bring them here. */}
-                              {canInviteToOne ? (
-                                <SettingsRow
-                                  icon={Share2}
-                                  iconTone="blue"
-                                  title="Invite them to One"
-                                  description="Send them the app. You can connect once they join."
-                                  density="compact"
-                                  onClick={() => {
-                                    void handleInviteToOne();
-                                  }}
-                                  testId="connect-invite-to-one"
-                                />
-                              ) : null}
-                            </>
-                          ) : (
-                            <SettingsRow
-                              title={
-                                isAdvisorTab
-                                  ? "No advisors yet"
-                                  : "No people yet"
-                              }
-                              description="Search by name."
-                              density="compact"
-                              disabled
-                            />
-                          )
-                        ) : (
-                          people.map((person) => {
-                            const cta = relationshipCta(person.relationship);
-                            const title =
-                              person.displayName ||
-                              person.email ||
-                              person.userId;
-                            const description =
-                              getDirectoryPersonDescription(person);
-                            const isSelected = selectedPeople.has(
-                              person.userId,
-                            );
-                            return (
-                              <SettingsRow
-                                key={person.userId}
-                                // Verified is a state, and green is what this design
-                                // system already spends on a verified one. It is on the
-                                // row rather than on the tab so the mark still means
-                                // something in a search that spans both.
-                                leading={
-                                  <ConnectionPersonAvatar
-                                    photoUrl={person.photoUrl}
-                                    label={title}
-                                    verified={Boolean(person.isRia)}
-                                  />
-                                }
-                                title={
-                                  <span className={CONNECT_WRAPPING_TEXT_CLASSNAME}>
-                                    {title}
-                                  </span>
-                                }
-                                description={
-                                  description ? (
-                                    <span className={CONNECT_WRAPPING_TEXT_CLASSNAME}>
-                                      {description}
-                                    </span>
-                                  ) : undefined
-                                }
-                                density="compact"
-                                onClick={
-                                  !isSelectionMode && person.publicPersonRef
-                                    ? () =>
-                                        router.push(
-                                          buildPersonProfileRoute(
-                                            person.publicPersonRef!,
-                                            { from: ROUTES.CONNECT },
-                                          ),
-                                        )
-                                    : undefined
-                                }
-                                trailing={
-                                  isSelectionMode ? (
-                                    // A disabled checkbox alone said nothing about WHY.
-                                    // Someone already connected, already asked, or
-                                    // already asking you looked identical to someone
-                                    // selection had simply run out of room for -- both
-                                    // rendered as the same greyed box with a
-                                    // not-allowed cursor and no visible text. A row
-                                    // ineligible because of its relationship isn't a
-                                    // choice at all, so it gets no checkbox -- just the
-                                    // reason, standing in its place. The limit case
-                                    // stays a real (disabled) checkbox, since it flips
-                                    // back to selectable the moment the reader frees a
-                                    // slot, and it already has a persistent explanation
-                                    // in the section description above the list.
-                                    person.relationship !== "none" ? (
-                                      <span
-                                        className="text-xs font-medium text-emerald-700 dark:text-emerald-300"
-                                        aria-label={`${title}: ${cta.label}, not selectable`}
-                                      >
-                                        {cta.label}
-                                      </span>
-                                    ) : (
-                                      <Checkbox
-                                        checked={isSelected}
-                                        disabled={
-                                          !isSelected &&
-                                          selectedPeople.size >=
-                                            MAX_BULK_CONNECTION_REQUESTS
-                                        }
-                                        // The default unchecked border (border-input)
-                                        // reads as near-invisible on this row's light
-                                        // background -- readers couldn't tell an
-                                        // eligible, clickable checkbox from empty
-                                        // space. A darker, thicker border only changes
-                                        // that idle state; data-[state=checked] still
-                                        // wins once picked.
-                                        className="border-2 border-foreground/50"
-                                        aria-describedby="connect-selection-limit"
-                                        onCheckedChange={(checked) => {
-                                          if (
-                                            checked &&
-                                            selectedPeople.size >=
-                                              MAX_BULK_CONNECTION_REQUESTS
-                                          ) {
-                                            toast.error(
-                                              `You can select up to ${MAX_BULK_CONNECTION_REQUESTS} people.`,
-                                            );
-                                            setShowLimitBanner(true);
-                                            return;
-                                          }
-                                          setSelectedPeople((current) => {
-                                            const next = new Map(current);
-                                            if (checked) {
-                                              // The whole row, not the id: this person
-                                              // has to survive the reader turning the
-                                              // page away from them.
-                                              next.set(person.userId, person);
-                                            } else {
-                                              next.delete(person.userId);
-                                              if (
-                                                next.size <
-                                                MAX_BULK_CONNECTION_REQUESTS
-                                              ) {
-                                                setShowLimitBanner(false);
-                                              }
-                                            }
-                                            return next;
-                                          });
+                                    {canInviteToOne ? (
+                                      <SettingsRow
+                                        icon={Share2}
+                                        iconTone="blue"
+                                        title="Invite them to One"
+                                        description="Send them the app. You can connect once they join."
+                                        density="compact"
+                                        onClick={() => {
+                                          void handleInviteToOne();
                                         }}
-                                        aria-label={`Select ${title}`}
+                                        testId="connect-invite-to-one"
                                       />
-                                    )
-                                  ) : person.relationship ===
-                                    "pending_outgoing" ? (
-                                    <Button
-                                      type="button"
-                                      variant="none"
-                                      effect="fill"
-                                      size="sm"
-                                      // One word at the width of every other action in
-                                      // this column. "Cancel request" plus a 100px
-                                      // floor sized for "Cancelling…" made the widest
-                                      // control on the screen the one belonging to the
-                                      // least common row state -- 116px of a 375px row,
-                                      // against 72px for Connect directly above it. The
-                                      // in-flight state is a spinner in the same box
-                                      // rather than a longer word, so the row never
-                                      // reflows mid-tap. `loading` also sets aria-busy.
-                                      className={cn(
-                                        CONNECT_ROW_ACTION_CLASSNAME,
-                                        "w-[72px] px-0",
-                                      )}
-                                      loading={busyId === person.userId}
-                                      aria-label={`Cancel your request to ${title}`}
-                                      onClick={(event) => {
-                                        event.stopPropagation();
-                                        void cancelConnectionRequest(person);
-                                      }}
-                                    >
-                                      {busyId === person.userId ? (
-                                        <Loader2
-                                          className="h-4 w-4 animate-spin"
-                                          aria-hidden="true"
+                                    ) : null}
+                                  </>
+                                ) : (
+                                  <SettingsRow
+                                    title={
+                                      isAdvisorTab
+                                        ? "No advisors yet"
+                                        : "No people yet"
+                                    }
+                                    description="Search by name."
+                                    density="compact"
+                                    disabled
+                                  />
+                                )
+                              ) : (
+                                people.map((person) => {
+                                  const cta = relationshipCta(
+                                    person.relationship,
+                                  );
+                                  const title =
+                                    person.displayName ||
+                                    person.email ||
+                                    person.userId;
+                                  const description =
+                                    getDirectoryPersonDescription(person);
+                                  const isSelected = selectedPeople.has(
+                                    person.userId,
+                                  );
+                                  return (
+                                    <SettingsRow
+                                      key={person.userId}
+                                      layout="person"
+                                      // Verified is a state, and green is what this design
+                                      // system already spends on a verified one. It is on the
+                                      // row rather than on the tab so the mark still means
+                                      // something in a search that spans both.
+                                      leading={
+                                        <ConnectionPersonAvatar
+                                          size="list"
+                                          photoUrl={person.photoUrl}
+                                          label={title}
+                                          verified={Boolean(person.isRia)}
                                         />
-                                      ) : (
-                                        "Cancel"
-                                      )}
-                                    </Button>
+                                      }
+                                      title={
+                                        <span
+                                          className={
+                                            CONNECT_WRAPPING_TEXT_CLASSNAME
+                                          }
+                                        >
+                                          {title}
+                                        </span>
+                                      }
+                                      description={
+                                        description ? (
+                                          <span
+                                            className={
+                                              CONNECT_WRAPPING_TEXT_CLASSNAME
+                                            }
+                                          >
+                                            {description}
+                                          </span>
+                                        ) : undefined
+                                      }
+                                      density="compact"
+                                      onClick={
+                                        !isSelectionMode &&
+                                        person.publicPersonRef
+                                          ? () =>
+                                              router.push(
+                                                buildPersonProfileRoute(
+                                                  person.publicPersonRef!,
+                                                  { from: ROUTES.CONNECT },
+                                                ),
+                                              )
+                                          : undefined
+                                      }
+                                      trailing={
+                                        isSelectionMode ? (
+                                          // A disabled checkbox alone said nothing about WHY.
+                                          // Someone already connected, already asked, or
+                                          // already asking you looked identical to someone
+                                          // selection had simply run out of room for -- both
+                                          // rendered as the same greyed box with a
+                                          // not-allowed cursor and no visible text. A row
+                                          // ineligible because of its relationship isn't a
+                                          // choice at all, so it gets no checkbox -- just the
+                                          // reason, standing in its place. The limit case
+                                          // stays a real (disabled) checkbox, since it flips
+                                          // back to selectable the moment the reader frees a
+                                          // slot, and it already has a persistent explanation
+                                          // in the section description above the list.
+                                          person.relationship !== "none" ? (
+                                            <span
+                                              className="text-xs font-medium text-emerald-700 dark:text-emerald-300"
+                                              aria-label={`${title}: ${cta.label}, not selectable`}
+                                            >
+                                              {cta.label}
+                                            </span>
+                                          ) : (
+                                            <Checkbox
+                                              checked={isSelected}
+                                              disabled={
+                                                !isSelected &&
+                                                selectedPeople.size >=
+                                                  MAX_BULK_CONNECTION_REQUESTS
+                                              }
+                                              // The default unchecked border (border-input)
+                                              // reads as near-invisible on this row's light
+                                              // background -- readers couldn't tell an
+                                              // eligible, clickable checkbox from empty
+                                              // space. A darker, thicker border only changes
+                                              // that idle state; data-[state=checked] still
+                                              // wins once picked.
+                                              className="border-2 border-foreground/50"
+                                              aria-describedby="connect-selection-limit"
+                                              onCheckedChange={(checked) => {
+                                                if (
+                                                  checked &&
+                                                  selectedPeople.size >=
+                                                    MAX_BULK_CONNECTION_REQUESTS
+                                                ) {
+                                                  toast.error(
+                                                    `You can select up to ${MAX_BULK_CONNECTION_REQUESTS} people.`,
+                                                  );
+                                                  setShowLimitBanner(true);
+                                                  return;
+                                                }
+                                                setSelectedPeople((current) => {
+                                                  const next = new Map(current);
+                                                  if (checked) {
+                                                    // The whole row, not the id: this person
+                                                    // has to survive the reader turning the
+                                                    // page away from them.
+                                                    next.set(
+                                                      person.userId,
+                                                      person,
+                                                    );
+                                                  } else {
+                                                    next.delete(person.userId);
+                                                    if (
+                                                      next.size <
+                                                      MAX_BULK_CONNECTION_REQUESTS
+                                                    ) {
+                                                      setShowLimitBanner(false);
+                                                    }
+                                                  }
+                                                  return next;
+                                                });
+                                              }}
+                                              aria-label={`Select ${title}`}
+                                            />
+                                          )
+                                        ) : person.relationship ===
+                                          "pending_outgoing" ? (
+                                          <Button
+                                            type="button"
+                                            variant="none"
+                                            effect="fill"
+                                            size="sm"
+                                            // One word at the width of every other action in
+                                            // this column. "Cancel request" plus a 100px
+                                            // floor sized for "Cancelling…" made the widest
+                                            // control on the screen the one belonging to the
+                                            // least common row state -- 116px of a 375px row,
+                                            // against 72px for Connect directly above it. The
+                                            // in-flight state is a spinner in the same box
+                                            // rather than a longer word, so the row never
+                                            // reflows mid-tap. `loading` also sets aria-busy.
+                                            className={cn(
+                                              CONNECT_ROW_ACTION_CLASSNAME,
+                                              "w-[72px] px-0",
+                                            )}
+                                            loading={busyId === person.userId}
+                                            aria-label={`Cancel your request to ${title}`}
+                                            onClick={(event) => {
+                                              event.stopPropagation();
+                                              void cancelConnectionRequest(
+                                                person,
+                                              );
+                                            }}
+                                          >
+                                            {busyId === person.userId ? (
+                                              <Loader2
+                                                className="h-4 w-4 animate-spin"
+                                                aria-hidden="true"
+                                              />
+                                            ) : (
+                                              "Cancel"
+                                            )}
+                                          </Button>
+                                        ) : (
+                                          <Button
+                                            type="button"
+                                            variant="none"
+                                            effect="fill"
+                                            size="sm"
+                                            className={cn(
+                                              CONNECT_ROW_ACTION_CLASSNAME,
+                                              "min-w-[72px]",
+                                            )}
+                                            disabled={
+                                              cta.disabled ||
+                                              busyId === person.userId
+                                            }
+                                            onClick={(event) => {
+                                              event.stopPropagation();
+                                              void handleConnect(person);
+                                            }}
+                                          >
+                                            {busyId === person.userId
+                                              ? "Sending..."
+                                              : cta.label}
+                                          </Button>
+                                        )
+                                      }
+                                    />
+                                  );
+                                })
+                              )}
+                              {people.length > 0 &&
+                              (hasMore || loading || error) ? (
+                                <div
+                                  ref={directoryLoadMoreRef}
+                                  className="flex min-h-14 items-center justify-center border-t border-[color:var(--app-card-border-standard)] px-4 py-2"
+                                  data-testid="connect-load-more-row"
+                                >
+                                  {loading ? (
+                                    <span
+                                      role="status"
+                                      className="inline-flex items-center gap-2"
+                                    >
+                                      <Loader2
+                                        className="h-3.5 w-3.5 animate-spin"
+                                        aria-hidden="true"
+                                      />
+                                      <SectionLabel as="span" compact>
+                                        Loading…
+                                      </SectionLabel>
+                                    </span>
                                   ) : (
                                     <Button
                                       type="button"
                                       variant="none"
-                                      effect="fill"
+                                      effect="fade"
                                       size="sm"
-                                      className={cn(
-                                        CONNECT_ROW_ACTION_CLASSNAME,
-                                        "min-w-[72px]",
-                                      )}
-                                      disabled={
-                                        cta.disabled || busyId === person.userId
-                                      }
-                                      onClick={(event) => {
-                                        event.stopPropagation();
-                                        void handleConnect(person);
+                                      className={CONNECT_PAGER_BUTTON_CLASSNAME}
+                                      onClick={loadNextDirectoryBatch}
+                                    >
+                                      {error
+                                        ? "Retry loading people"
+                                        : "Load more people"}
+                                    </Button>
+                                  )}
+                                </div>
+                              ) : people.length > 0 ? (
+                                <span className="sr-only" role="status">
+                                  All people loaded
+                                </span>
+                              ) : null}
+                              {isSelectionMode &&
+                                selectedPeople.size > 0 &&
+                                batchConnectDraft === null && (
+                                  <div className="flex justify-center border-t border-[color:var(--app-card-border-standard)] px-3 py-4">
+                                    <Button
+                                      type="button"
+                                      variant="blue"
+                                      effect="fill"
+                                      disabled={isConnectingMultiple}
+                                      onClick={() => {
+                                        // Everyone picked, not everyone picked who is still on
+                                        // screen. Reading the selection back off the rendered
+                                        // page is what dropped page one's picks on reaching
+                                        // page two.
+                                        void openBatchConnectDraft([
+                                          ...selectedPeople.values(),
+                                        ]);
                                       }}
                                     >
-                                      {busyId === person.userId
-                                        ? "Sending..."
-                                        : cta.label}
+                                      {`Review ${selectedPeople.size}`}
                                     </Button>
-                                  )
-                                }
-                              />
-                            );
-                          })
-                        )}
-                        {people.length > 0 && (hasMore || currentPage > 1) ? (
-                          <div
-                            className="flex min-h-14 items-center justify-between gap-2 border-t border-[color:var(--app-card-border-standard)] px-4 py-2"
-                            data-testid="connect-pager-row"
-                            aria-live="polite"
-                          >
-                            <Button
-                              type="button"
-                              variant="none"
-                              effect="fade"
-                              size="sm"
-                              showRipple={false}
-                              aria-label="Show the previous page of people"
-                              className={CONNECT_PAGER_BUTTON_CLASSNAME}
-                              disabled={currentPage <= 1 || isDirectoryRefreshing}
-                              onClick={loadPreviousDirectoryBatch}
-                            >
-                              Previous
-                            </Button>
-                            {/* The directory endpoint reports `hasMore` but no
-                                total, so this names the page the reader is on
-                                and stops there. "Page 3 of 12" would be a
-                                count nothing here actually knows. */}
-                            {isDirectoryRefreshing ? (
-                              <span className="inline-flex items-center gap-2 text-[14px] font-medium leading-5 text-[color:var(--app-secondary-label)]">
-                                <Loader2
-                                  className="h-3.5 w-3.5 animate-spin"
-                                  aria-hidden="true"
-                                />
-                                Loading…
-                              </span>
-                            ) : (
-                              <span className="text-[14px] font-medium leading-5 tabular-nums text-[color:var(--app-secondary-label)]">
-                                Page {currentPage}
-                              </span>
-                            )}
-                            <Button
-                              type="button"
-                              variant="none"
-                              effect="fade"
-                              size="sm"
-                              showRipple={false}
-                              aria-label="Show the next page of people"
-                              className={CONNECT_PAGER_BUTTON_CLASSNAME}
-                              disabled={!hasMore || isDirectoryRefreshing}
-                              onClick={loadNextDirectoryBatch}
-                            >
-                              Next
-                            </Button>
+                                  </div>
+                                )}
+                            </SettingsGroup>
                           </div>
-                        ) : people.length > 0 ? (
-                          <span className="sr-only">All people loaded</span>
-                        ) : null}
-                        {isSelectionMode &&
-                          selectedPeople.size > 0 &&
-                          batchConnectDraft === null && (
-                            <div className="flex justify-center border-t border-[color:var(--app-card-border-standard)] px-3 py-4">
-                              <Button
-                                type="button"
-                                variant="blue"
-                                effect="fill"
-                                disabled={isConnectingMultiple}
-                                onClick={() => {
-                                  // Everyone picked, not everyone picked who is still on
-                                  // screen. Reading the selection back off the rendered
-                                  // page is what dropped page one's picks on reaching
-                                  // page two.
-                                  void openBatchConnectDraft([
-                                    ...selectedPeople.values(),
-                                  ]);
-                                }}
-                              >
-                                {`Review ${selectedPeople.size}`}
-                              </Button>
-                            </div>
-                          )}
-                      </SettingsGroup>
-                    </div>
-                  </div>
-                )}
-              </>
-            )}
-          </div>
-            </SurfaceStack>
-          </AppPageContentRegion>
-        </>      )}
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+              </SurfaceStack>
+            </AppPageContentRegion>
+          </>
+        )}
 
-      <Dialog
-        open={batchConnectDraft !== null}
-        onOpenChange={(open) => {
-          if (!open && !isConnectingMultiple) setBatchConnectDraft(null);
-        }}
-      >
-        <DialogContent className="gap-5 max-h-[85vh] flex flex-col overflow-hidden bg-[color:var(--app-card-surface-default-solid)]">
-          <div className="shrink-0 space-y-5">
-            <DialogHeader className="text-left">
-              <DialogTitle>Send connection requests</DialogTitle>
-              {/*
+        <Dialog
+          open={batchConnectDraft !== null}
+          onOpenChange={(open) => {
+            if (!open && !isConnectingMultiple) setBatchConnectDraft(null);
+          }}
+        >
+          <DialogContent className="gap-5 max-h-[85vh] flex flex-col overflow-hidden bg-[color:var(--app-card-surface-default-solid)]">
+            <div className="shrink-0 space-y-5">
+              <DialogHeader className="text-left">
+                <DialogTitle>Send connection requests</DialogTitle>
+                {/*
                 This said "This only sends a connection request." That was true
                 while the bulk path could not carry capabilities. It can now, so
                 the sentence became a promise the sheet no longer keeps whenever
                 a Pick is ticked below. Matches the one-person sheet's wording,
                 which is accurate either way.
               */}
-              <DialogDescription>
-                Start safe. Add sharing only if you choose.
-              </DialogDescription>
-            </DialogHeader>
-          </div>
-
-          {batchConnectDraft ? (
-            <div className="space-y-4 overflow-y-auto min-h-0 flex-1 px-1 pb-2">
-              <SettingsGroup title="Selected people" separatorInset>
-                {batchConnectDraft.people.map((person) => {
-                  const title =
-                    person.displayName || person.email || person.userId;
-                  return (
-                    <SettingsRow
-                      key={`batch-${person.userId}`}
-                      leading={
-                        <ConnectionPersonAvatar
-                          photoUrl={person.photoUrl}
-                          label={title}
-                          verified={Boolean(person.isRia)}
-                        />
-                      }
-                      title={
-                        <span className={CONNECT_WRAPPING_TEXT_CLASSNAME}>
-                          {title}
-                        </span>
-                      }
-                      density="compact"
-                      trailing={
-                        <Button
-                          type="button"
-                          variant="none"
-                          effect="fade"
-                          size="sm"
-                          disabled={isConnectingMultiple}
-                          onClick={() => {
-                            setBatchConnectDraft((current) => {
-                              if (!current) return current;
-                              const updated = current.people.filter(
-                                (p) => p.userId !== person.userId,
-                              );
-                              if (updated.length === 0) {
-                                return null;
-                              }
-                              const {
-                                [person.userId]: _dropped,
-                                ...remainingHandles
-                              } = current.requestedHandles;
-                              return {
-                                ...current,
-                                people: updated,
-                                requestedHandles: remainingHandles,
-                              };
-                            });
-                            // Keep the underlying selection synchronized so the UI
-                            // doesn't show them checked if the dialog is closed.
-                            setSelectedPeople((current) => {
-                              const next = new Map(current);
-                              next.delete(person.userId);
-                              return next;
-                            });
-                          }}
-                          className="h-8 rounded-[10px] px-3 text-[13px] font-medium text-muted-foreground hover:text-destructive"
-                        >
-                          Remove
-                        </Button>
-                      }
-                    />
-                  );
-                })}
-              </SettingsGroup>
-
-              {batchConnectDraft.loadingCatalogs ? (
-                <SettingsGroup title="Connection access" separatorInset>
-                  <SettingsRow
-                    title="Checking what they can share…"
-                    density="compact"
-                    disabled
-                  />
-                </SettingsGroup>
-              ) : batchRequestableRows.length > 0 ? (
-                // One row per person per capability, because a handle is only
-                // valid for its own owner. Asking four advisors for Picks is
-                // four separate asks, and each is shown as one.
-                <SettingsGroup
-                  title="Ask from them"
-                  description="Optional. Each person can decline."
-                  separatorInset
-                >
-                  {batchRequestableRows.map((row) => (
-                    <SettingsRow
-                      key={`batch-request-${row.userId}-${row.item.handle}`}
-                      icon={BadgeCheck}
-                      iconTone="green"
-                      title={
-                        <span className={CONNECT_WRAPPING_TEXT_CLASSNAME}>
-                          {row.title}
-                        </span>
-                      }
-                      description={row.item.label}
-                      density="compact"
-                      trailing={
-                        <Checkbox
-                          checked={(
-                            batchConnectDraft.requestedHandles[row.userId] ?? []
-                          ).includes(row.item.handle)}
-                          disabled={isConnectingMultiple}
-                          className="border-2 border-foreground/50"
-                          onCheckedChange={(checked) =>
-                            toggleBatchRequestedHandle(
-                              row.userId,
-                              row.item.handle,
-                              checked === true,
-                            )
-                          }
-                          aria-label={`Ask ${row.title} for ${row.item.label}`}
-                        />
-                      }
-                    />
-                  ))}
-                </SettingsGroup>
-              ) : null}
-
-              {!batchConnectDraft.loadingCatalogs &&
-              batchOfferableItems.length > 0 ? (
-                // Not per person: these handles are the caller's own, so one
-                // choice is the same offer to everyone selected.
-                <SettingsGroup
-                  title="Offer now"
-                  description="Offered to everyone selected. They approve first."
-                  separatorInset
-                >
-                  {batchOfferableItems.map((item) => (
-                    <SettingsRow
-                      key={`batch-offer-${item.handle}`}
-                      title={item.label}
-                      description={item.description}
-                      density="compact"
-                      trailing={
-                        <Checkbox
-                          checked={batchConnectDraft.offeredHandles.includes(
-                            item.handle,
-                          )}
-                          disabled={isConnectingMultiple}
-                          className="border-2 border-foreground/50"
-                          onCheckedChange={(checked) =>
-                            toggleBatchOfferedHandle(
-                              item.handle,
-                              checked === true,
-                            )
-                          }
-                          aria-label={`Offer ${item.label}`}
-                        />
-                      }
-                    />
-                  ))}
-                </SettingsGroup>
-              ) : null}
-
-              {!batchConnectDraft.loadingCatalogs &&
-              batchRequestableRows.length === 0 &&
-              batchOfferableItems.length === 0 ? (
-                <SettingsGroup title="Connection access" separatorInset>
-                  <SettingsRow
-                    icon={Lock}
-                    iconTone="gray"
-                    title="No access yet"
-                    description="These only send requests."
-                    density="compact"
-                    disabled
-                  />
-                </SettingsGroup>
-              ) : null}
+                <DialogDescription>
+                  Start safe. Add sharing only if you choose.
+                </DialogDescription>
+              </DialogHeader>
             </div>
-          ) : null}
 
-          <DialogFooter className="shrink-0 w-full flex-row items-center justify-between gap-3 sm:justify-between">
-            <Button
-              type="button"
-              variant="none"
-              effect="fade"
-              className="min-w-[96px]"
-              disabled={isConnectingMultiple}
-              onClick={() => setBatchConnectDraft(null)}
-            >
-              Cancel
-            </Button>
-            <Button
-              type="button"
-              variant="blue"
-              effect="fill"
-              className="min-w-[148px]"
-              // Held until the catalogs land. Sending first is not a slower
-              // version of the same thing -- it is a send with no picks
-              // attached, reported as a success, which is the exact failure
-              // this sheet exists to end.
-              disabled={
-                !batchConnectDraft ||
-                isConnectingMultiple ||
-                batchConnectDraft.loadingCatalogs
-              }
-              onClick={() => void handleConnectMultiple()}
-            >
-              {/*
+            {batchConnectDraft ? (
+              <div className="space-y-4 overflow-y-auto min-h-0 flex-1 px-1 pb-2">
+                <SettingsGroup title="Selected people" separatorInset>
+                  {batchConnectDraft.people.map((person) => {
+                    const title =
+                      person.displayName || person.email || person.userId;
+                    return (
+                      <SettingsRow
+                        key={`batch-${person.userId}`}
+                        layout="person"
+                        leading={
+                          <ConnectionPersonAvatar
+                            size="list"
+                            photoUrl={person.photoUrl}
+                            label={title}
+                            verified={Boolean(person.isRia)}
+                          />
+                        }
+                        title={
+                          <span className={CONNECT_WRAPPING_TEXT_CLASSNAME}>
+                            {title}
+                          </span>
+                        }
+                        density="compact"
+                        trailing={
+                          <Button
+                            type="button"
+                            variant="none"
+                            effect="fade"
+                            size="sm"
+                            disabled={isConnectingMultiple}
+                            onClick={() => {
+                              setBatchConnectDraft((current) => {
+                                if (!current) return current;
+                                const updated = current.people.filter(
+                                  (p) => p.userId !== person.userId,
+                                );
+                                if (updated.length === 0) {
+                                  return null;
+                                }
+                                const {
+                                  [person.userId]: _dropped,
+                                  ...remainingHandles
+                                } = current.requestedHandles;
+                                return {
+                                  ...current,
+                                  people: updated,
+                                  requestedHandles: remainingHandles,
+                                };
+                              });
+                              // Keep the underlying selection synchronized so the UI
+                              // doesn't show them checked if the dialog is closed.
+                              setSelectedPeople((current) => {
+                                const next = new Map(current);
+                                next.delete(person.userId);
+                                return next;
+                              });
+                            }}
+                            className="h-8 rounded-[10px] px-3 text-[13px] font-medium text-muted-foreground hover:text-destructive"
+                          >
+                            Remove
+                          </Button>
+                        }
+                      />
+                    );
+                  })}
+                </SettingsGroup>
+
+                {batchConnectDraft.loadingCatalogs ? (
+                  <SettingsGroup title="Connection access" separatorInset>
+                    <SettingsRow
+                      title="Checking what they can share…"
+                      density="compact"
+                      disabled
+                    />
+                  </SettingsGroup>
+                ) : batchRequestableRows.length > 0 ? (
+                  // One row per person per capability, because a handle is only
+                  // valid for its own owner. Asking four advisors for Picks is
+                  // four separate asks, and each is shown as one.
+                  <SettingsGroup
+                    title="Ask from them"
+                    description="Optional. Each person can decline."
+                    separatorInset
+                  >
+                    {batchRequestableRows.map((row) => (
+                      <SettingsRow
+                        key={`batch-request-${row.userId}-${row.item.handle}`}
+                        icon={BadgeCheck}
+                        iconTone="green"
+                        title={
+                          <span className={CONNECT_WRAPPING_TEXT_CLASSNAME}>
+                            {row.title}
+                          </span>
+                        }
+                        description={row.item.label}
+                        density="compact"
+                        trailing={
+                          <Checkbox
+                            checked={(
+                              batchConnectDraft.requestedHandles[row.userId] ??
+                              []
+                            ).includes(row.item.handle)}
+                            disabled={isConnectingMultiple}
+                            className="border-2 border-foreground/50"
+                            onCheckedChange={(checked) =>
+                              toggleBatchRequestedHandle(
+                                row.userId,
+                                row.item.handle,
+                                checked === true,
+                              )
+                            }
+                            aria-label={`Ask ${row.title} for ${row.item.label}`}
+                          />
+                        }
+                      />
+                    ))}
+                  </SettingsGroup>
+                ) : null}
+
+                {!batchConnectDraft.loadingCatalogs &&
+                batchOfferableItems.length > 0 ? (
+                  // Not per person: these handles are the caller's own, so one
+                  // choice is the same offer to everyone selected.
+                  <SettingsGroup
+                    title="Offer now"
+                    description="Offered to everyone selected. They approve first."
+                    separatorInset
+                  >
+                    {batchOfferableItems.map((item) => (
+                      <SettingsRow
+                        key={`batch-offer-${item.handle}`}
+                        title={item.label}
+                        description={item.description}
+                        density="compact"
+                        trailing={
+                          <Checkbox
+                            checked={batchConnectDraft.offeredHandles.includes(
+                              item.handle,
+                            )}
+                            disabled={isConnectingMultiple}
+                            className="border-2 border-foreground/50"
+                            onCheckedChange={(checked) =>
+                              toggleBatchOfferedHandle(
+                                item.handle,
+                                checked === true,
+                              )
+                            }
+                            aria-label={`Offer ${item.label}`}
+                          />
+                        }
+                      />
+                    ))}
+                  </SettingsGroup>
+                ) : null}
+
+                {!batchConnectDraft.loadingCatalogs &&
+                batchRequestableRows.length === 0 &&
+                batchOfferableItems.length === 0 ? (
+                  <SettingsGroup title="Connection access" separatorInset>
+                    <SettingsRow
+                      icon={Lock}
+                      iconTone="gray"
+                      title="No access yet"
+                      description="These only send requests."
+                      density="compact"
+                      disabled
+                    />
+                  </SettingsGroup>
+                ) : null}
+              </div>
+            ) : null}
+
+            <DialogFooter className="shrink-0 w-full flex-row items-center justify-between gap-3 sm:justify-between">
+              <Button
+                type="button"
+                variant="none"
+                effect="fade"
+                className="min-w-[96px]"
+                disabled={isConnectingMultiple}
+                onClick={() => setBatchConnectDraft(null)}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                variant="blue"
+                effect="fill"
+                className="min-w-[148px]"
+                // Held until the catalogs land. Sending first is not a slower
+                // version of the same thing -- it is a send with no picks
+                // attached, reported as a success, which is the exact failure
+                // this sheet exists to end.
+                disabled={
+                  !batchConnectDraft ||
+                  isConnectingMultiple ||
+                  batchConnectDraft.loadingCatalogs
+                }
+                onClick={() => void handleConnectMultiple()}
+              >
+                {/*
                 A disabled Button in this system still renders full Action
                 Blue, so a held button that kept its ready label would look
                 tappable and read as a dead tap. The label carries the state
                 instead of the colour.
               */}
-              {isConnectingMultiple
-                ? "Sending…"
-                : batchConnectDraft?.loadingCatalogs
-                  ? "Checking…"
-                  : "Send requests"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+                {isConnectingMultiple
+                  ? "Sending…"
+                  : batchConnectDraft?.loadingCatalogs
+                    ? "Checking…"
+                    : "Send requests"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
 
-      <ContactSyncResultsSheet
-        {...contactSync.resultsSheetProps}
-        onRequestConnection={requestConnectionFromContactMatch}
-      />
-      <ContactDiscoverabilityConsentDialog
-        {...contactSync.discoverabilityConsentDialogProps}
-      />
+        <ContactSyncResultsSheet
+          {...contactSync.resultsSheetProps}
+          onRequestConnection={requestConnectionFromContactMatch}
+        />
+        <ContactDiscoverabilityConsentDialog
+          {...contactSync.discoverabilityConsentDialogProps}
+        />
 
-      {showLimitBanner && (
-        <div className="fixed top-16 left-1/2 -translate-x-1/2 z-[9999] w-[92%] max-w-md rounded-2xl bg-popover/95 backdrop-blur-md p-3.5 shadow-xl border border-border/50 flex items-center justify-between gap-3 animate-in fade-in slide-in-from-top-3 duration-200">
-          <span className="text-xs font-medium text-foreground">
-            You can connect up to {MAX_BULK_CONNECTION_REQUESTS} at a time.
-          </span>
-          <div className="flex items-center gap-1.5 shrink-0">
-            <Button
-              type="button"
-              variant="none"
-              effect="fade"
-              size="sm"
-              className="h-7 rounded-xl px-2.5 text-xs font-normal text-muted-foreground hover:bg-muted"
-              onClick={() => setShowLimitBanner(false)}
-            >
-              Cancel
-            </Button>
-            <Button
-              type="button"
-              variant="blue"
-              effect="fill"
-              size="sm"
-              className="h-7 rounded-xl px-3 text-xs font-medium"
-              onClick={() => {
-                setShowLimitBanner(false);
-                if (selectedPeople.size === 0) return;
-                void openBatchConnectDraft([...selectedPeople.values()]);
-              }}
-            >
-              Review
-            </Button>
+        {showLimitBanner && (
+          <div className="fixed top-16 left-1/2 -translate-x-1/2 z-[9999] w-[92%] max-w-md rounded-2xl bg-popover/95 backdrop-blur-md p-3.5 shadow-xl border border-border/50 flex items-center justify-between gap-3 animate-in fade-in slide-in-from-top-3 duration-200">
+            <span className="text-xs font-medium text-foreground">
+              You can connect up to {MAX_BULK_CONNECTION_REQUESTS} at a time.
+            </span>
+            <div className="flex items-center gap-1.5 shrink-0">
+              <Button
+                type="button"
+                variant="none"
+                effect="fade"
+                size="sm"
+                className="h-7 rounded-xl px-2.5 text-xs font-normal text-muted-foreground hover:bg-muted"
+                onClick={() => setShowLimitBanner(false)}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                variant="blue"
+                effect="fill"
+                size="sm"
+                className="h-7 rounded-xl px-3 text-xs font-medium"
+                onClick={() => {
+                  setShowLimitBanner(false);
+                  if (selectedPeople.size === 0) return;
+                  void openBatchConnectDraft([...selectedPeople.values()]);
+                }}
+              >
+                Review
+              </Button>
+            </div>
           </div>
-        </div>
-      )}
+        )}
+      </SettingsPresentationProvider>
     </AppPageShell>
   );
 }

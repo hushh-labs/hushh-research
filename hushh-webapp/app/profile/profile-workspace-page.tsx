@@ -11,6 +11,7 @@ import {
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   AlertTriangle,
+  BriefcaseBusiness,
   CodeXml,
   ContactRound,
   ExternalLink,
@@ -39,7 +40,11 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
-import { SettingsGroup, SettingsRow } from "@/components/profile/settings-ui";
+import {
+  SettingsGroup,
+  SettingsPresentationProvider,
+  SettingsRow,
+} from "@/components/profile/settings-ui";
 import {
   AppPageContentRegion,
   AppPageHeaderRegion,
@@ -63,6 +68,7 @@ import { VoicePreferencesPanel } from "@/components/profile/voice-preferences-pa
 import { VoiceChangelogPage } from "@/components/profile/voice-changelog-page";
 import { VoiceExamplesPage } from "@/components/profile/voice-examples-page";
 import { ConnectedSystemsPanel } from "@/components/profile/connected-systems-panel";
+import { isLocalCrmBuildEnabled } from "@/lib/connected-systems/crm-product-availability";
 import { ThemeToggleLean } from "@/components/theme-toggle";
 import {
   AlertDialog,
@@ -95,6 +101,9 @@ import {
 import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
 import { PhoneVerificationFlow } from "@/components/auth/phone-verification-flow";
 import { useAuth } from "@/hooks/use-auth";
+import { useLocalOnboardingActionHandler } from "@/lib/agent/local-onboarding-actions";
+import { VOICE_CONFIRM_DATA_KEY } from "@/lib/voice/voice-action-card";
+import { getKaiActionById } from "@/lib/voice/kai-action-gateway";
 import { useStepProgress } from "@/lib/progress/step-progress-context";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { currentPkmInvalidationEpoch } from "@/lib/cache/pkm-invalidation-epoch";
@@ -128,6 +137,8 @@ import { usePersonaState } from "@/lib/persona/persona-context";
 import { Icon } from "@/lib/morphy-ux/ui";
 import { SegmentedTabs } from "@/lib/morphy-ux/ui";
 import { Button, morphyToast } from "@/lib/morphy-ux/morphy";
+import { AppleIcon, GoogleIcon } from "@/lib/morphy-ux/social-icons";
+import { shouldUseGoogleBrandMark } from "@/lib/profile/profile-auth-provider-presentation";
 import { useScrollReset } from "@/lib/navigation/use-scroll-reset";
 import { cn } from "@/lib/utils";
 import { AccountService } from "@/lib/services/account-service";
@@ -419,41 +430,23 @@ function getProvider(user: ReturnType<typeof useAuth>["user"]) {
   }
 }
 
-function ProviderIcon({ providerId }: { providerId: string }) {
+function ProviderIcon({
+  providerId,
+  email,
+}: {
+  providerId: string;
+  email: string | null | undefined;
+}) {
   if (providerId === "google") {
-    return (
-      <svg className="h-4 w-4 shrink-0" viewBox="0 0 24 24" aria-hidden>
-        <path
-          fill="currentColor"
-          d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
-        />
-        <path
-          fill="currentColor"
-          d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
-        />
-        <path
-          fill="currentColor"
-          d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"
-        />
-        <path
-          fill="currentColor"
-          d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
-        />
-      </svg>
-    );
+    if (shouldUseGoogleBrandMark(providerId, email)) {
+      return <GoogleIcon className="shrink-0" size={17} />;
+    }
+
+    return <Icon icon={BriefcaseBusiness} size="xs" className="shrink-0" />;
   }
 
   if (providerId === "apple") {
-    return (
-      <svg
-        className="h-4 w-4 shrink-0"
-        viewBox="0 0 24 24"
-        fill="currentColor"
-        aria-hidden
-      >
-        <path d="M17.05 20.28c-.98.95-2.05.88-3.08.38-1.07-.52-2.07-.51-3.2 0-1.01.43-2.1.49-2.98-.38C5.22 17.63 2.7 12 5.45 8.04c1.47-2.09 3.8-2.31 5.33-1.18 1.1.75 3.3.73 4.45-.04 2.1-1.31 3.55-.95 4.5 1.14-.15.08.2.14 0 .2-2.63 1.34-3.35 6.03.95 7.84-.46 1.4-1.25 2.89-2.26 4.4l-.07.08-.05-.2zM12.03 7.25c-.15-2.23 1.66-4.07 3.74-4.25.17 2.22-1.8 4.19-3.74 4.25z" />
-      </svg>
-    );
+    return <AppleIcon className="shrink-0" size={17} />;
   }
 
   return <Icon icon={User} size="xs" className="shrink-0" />;
@@ -579,7 +572,14 @@ function profileRouteNeedsWorkspaceData(panel: ProfilePanel | null): boolean {
   return panel === "my-data";
 }
 
-function ProfilePageContent() {
+export type ProfilePagePresentation = "route" | "pane";
+
+function ProfilePageContent({
+  presentation = "route",
+}: {
+  presentation?: ProfilePagePresentation;
+}) {
+  const isPanePresentation = presentation === "pane";
   const [canShowPkmAgentLab, setCanShowPkmAgentLab] = useState(false);
   const appAccent = useAccent();
   const router = useRouter();
@@ -624,6 +624,7 @@ function ProfilePageContent() {
     mode: "push" | "replace";
   } | null>(null);
   const [hasVault, setHasVault] = useState<boolean | null>(null);
+  const [vaultCheckFailed, setVaultCheckFailed] = useState(false);
   const [showVaultCreation, setShowVaultCreation] = useState(false);
   const [pkmMetadata, setPkmMetadata] =
     useState<PersonalKnowledgeModelMetadata | null>(null);
@@ -731,15 +732,22 @@ function ProfilePageContent() {
   const supportSuccessHeadingRef = useRef<HTMLHeadingElement | null>(null);
 
   const legacyProfileRedirectHref = useMemo(
-    () => buildCanonicalProfileRouteFromLegacyQuery(pathname, searchParams),
-    [pathname, searchParams],
+    () =>
+      isPanePresentation
+        ? null
+        : buildCanonicalProfileRouteFromLegacyQuery(pathname, searchParams),
+    [isPanePresentation, pathname, searchParams],
   );
   const profileRouteState = useMemo(
     () => resolveProfileRouteState(pathname, searchParams),
     [pathname, searchParams],
   );
-  const activePanel = profileRouteState.panel;
-  const activeDetail = profileRouteState.detail;
+  const localCrmEnabled = isLocalCrmBuildEnabled();
+  const activePanel =
+    profileRouteState.panel === "connected-systems" && !localCrmEnabled
+      ? null
+      : profileRouteState.panel;
+  const activeDetail = activePanel ? profileRouteState.detail : null;
   const supportComposeKind =
     activePanel === "support" && activeDetail?.startsWith("support-compose:")
       ? normalizeSupportKind(activeDetail.slice("support-compose:".length))
@@ -783,7 +791,7 @@ function ProfilePageContent() {
   useScrollReset(
     `${pathname}:${activePanel ?? "root"}:${activeDetail ?? "root"}`,
     {
-      enabled: true,
+      enabled: !isPanePresentation,
       behavior: "auto",
     },
   );
@@ -853,8 +861,17 @@ function ProfilePageContent() {
         isVaultUnlocked,
         vaultKey,
         vaultOwnerToken,
+        authLoading,
+        presenceFailed: vaultCheckFailed,
       }),
-    [hasVault, isVaultUnlocked, vaultKey, vaultOwnerToken],
+    [
+      authLoading,
+      hasVault,
+      isVaultUnlocked,
+      vaultCheckFailed,
+      vaultKey,
+      vaultOwnerToken,
+    ],
   );
   const routeBlockedByVault =
     hasVault === true &&
@@ -1061,10 +1078,15 @@ function ProfilePageContent() {
       if (!user?.uid) return;
       try {
         const next = await VaultService.checkVault(user.uid);
-        if (!cancelled) setHasVault(next);
+        if (!cancelled) {
+          setHasVault(next);
+          setVaultCheckFailed(false);
+        }
       } catch (error) {
         console.warn("[ProfilePage] Failed to check vault existence:", error);
-        if (!cancelled) setHasVault(false);
+        // A failed read is not an absent vault. Treating it as false opens the
+        // creation flow for users who already have a vault.
+        if (!cancelled) setVaultCheckFailed(true);
       }
     }
 
@@ -1750,10 +1772,14 @@ function ProfilePageContent() {
     updateProfileView({ panel, detail: null }, "push");
   }
 
-  async function submitSupportMessage() {
+  async function submitSupportMessage(messageOverride?: string) {
     if (!user || sendingSupportMessage) return;
 
-    const trimmedMessage = supportMessage.trim();
+    // Voice dictates the message rather than typing it into the composer, and
+    // React state set in the same tick would not be readable here. Every
+    // validation below still runs on it -- a dictated message that is too
+    // short is refused exactly like a typed one.
+    const trimmedMessage = (messageOverride ?? supportMessage).trim();
     const trimmedReplyEmail = supportReplyEmail.trim();
     const presentation = SUPPORT_INTENT_PRESENTATION[supportKind];
 
@@ -2462,6 +2488,26 @@ function ProfilePageContent() {
         preference_voice_actions_available:
           activePanel === "preferences" ? false : null,
       },
+      // Deliberately offered to the agent; screenMetadata above stays
+      // browser-local. Curated rather than copied: screenMetadata carries
+      // google_email, and this map is rendered into the model's prompt, so the
+      // person's address would have travelled into every turn on this screen.
+      // Counts, states and flags only.
+      screenState: {
+        profile_panel: activePanel,
+        profile_detail: activeDetail ?? null,
+        total_attributes: profileSummary.totalAttributes,
+        domain_count: profileSummary.totalDomains,
+        pending_consents: pendingConsents ?? 0,
+        gmail_connected: gmailPresentation.isConnected,
+        gmail_state: gmailPresentation.state,
+        marketplace_opt_in: marketplaceOptIn,
+        security_summary: securitySummaryText,
+        phone_verified: Boolean(phoneNumber),
+        email_verified: emailVerified,
+        pkm_agent_lab_available: canShowPkmAgentLab,
+        vault_needs_creation: vaultAccess.needsVaultCreation === true,
+      },
     };
   }, [
     activeDetail,
@@ -2491,6 +2537,115 @@ function ProfilePageContent() {
     vaultAccess.needsVaultCreation,
   ]);
   usePublishVoiceSurfaceMetadata(profileVoiceSurfaceMetadata);
+
+  // Profile's three remaining unwired actions. Registered here rather than in
+  // the global registrar because each genuinely needs this page's state --
+  // the delete flow's vault resolution, the support composer's kind and reply
+  // email, the current marketplace value. profile.sign_out is the exception
+  // and lives in components/agent/global-voice-action-handlers.tsx.
+  useLocalOnboardingActionHandler(
+    "profile.delete_account",
+    async (slots) => {
+      if (slots?.confirmed !== true) {
+        // Deleting an account is the one thing in this app that cannot be
+        // undone, so it never runs on a first utterance -- the person has to
+        // hear what it does and say yes. handleDeleteAccount then resolves
+        // auth and routes to vault unlock on its own, which is a second,
+        // independent gate.
+        return {
+          status: "blocked" as const,
+          summary: "Deleting your account needs a confirmation.",
+          data: {
+            [VOICE_CONFIRM_DATA_KEY]: {
+              actionId: "profile.delete_account",
+              slots: { confirmed: true },
+              prompt:
+                "Delete your account permanently? This cannot be undone.",
+              subject: { name: "Your account", detail: user?.email ?? "" },
+              consequence:
+                getKaiActionById("profile.delete_account")?.meaning ?? null,
+              confirmLabel: "Delete account",
+            },
+          },
+        };
+      }
+      void handleDeleteAccount();
+      return {
+        status: "started" as const,
+        summary: "Starting account deletion. You may need to unlock your vault.",
+      };
+    },
+    { enabled: Boolean(user) },
+  );
+
+  useLocalOnboardingActionHandler(
+    "profile.marketplace_visibility.toggle",
+    async (slots) => {
+      // handleMarketplaceOptInToggle flips the current value; it is not a
+      // setter. Wired directly, "make me discoverable" would HIDE someone who
+      // already was. So a stated intent is honoured as a target state, and
+      // only a bare "toggle" actually flips.
+      const raw = slots?.enabled;
+      const desired =
+        typeof raw === "boolean"
+          ? raw
+          : typeof raw === "string"
+            ? ["true", "on", "yes", "enabled"].includes(raw.trim().toLowerCase())
+            : null;
+      if (desired !== null && desired === marketplaceOptIn) {
+        return {
+          status: "succeeded" as const,
+          summary: desired
+            ? "Your marketplace profile is already discoverable."
+            : "Your marketplace profile is already hidden.",
+        };
+      }
+      if (slots?.confirmed !== true) {
+        const next = desired ?? !marketplaceOptIn;
+        return {
+          status: "blocked" as const,
+          summary: "Changing who can find you needs a confirmation.",
+          data: {
+            [VOICE_CONFIRM_DATA_KEY]: {
+              actionId: "profile.marketplace_visibility.toggle",
+              slots: { enabled: next, confirmed: true },
+              prompt: next
+                ? "Make your investor profile discoverable in the marketplace?"
+                : "Hide your investor profile from the marketplace?",
+              subject: { name: "Marketplace visibility", detail: "" },
+              consequence:
+                getKaiActionById("profile.marketplace_visibility.toggle")
+                  ?.meaning ?? null,
+              confirmLabel: next ? "Make discoverable" : "Hide profile",
+            },
+          },
+        };
+      }
+      void handleMarketplaceOptInToggle();
+      return { status: "started" as const, summary: "Updating your visibility." };
+    },
+    { enabled: Boolean(user) },
+  );
+
+  useLocalOnboardingActionHandler(
+    "profile.support.submit_message",
+    async (slots) => {
+      const message = String(slots?.message ?? "").trim();
+      if (message.length < 10) {
+        // The same floor the typed composer enforces. Saying so is the point:
+        // a support message that silently failed validation would be reported
+        // as sent and never arrive.
+        return {
+          status: "blocked" as const,
+          summary:
+            "Tell me a bit more about the problem and I will send it to support.",
+        };
+      }
+      await submitSupportMessage(message);
+      return { status: "succeeded" as const, summary: "Sent that to support." };
+    },
+    { enabled: Boolean(user) },
+  );
 
   useEffect(() => {
     if (!shouldRequestVaultUnlock || authLoading || hasVault === null) {
@@ -3184,23 +3339,23 @@ function ProfilePageContent() {
       <SettingsGroup title="Identity">
         <SettingsRow
           icon={User}
-          iconTone="gray"
+          iconTone="blue"
           title="Display name"
           description={user.displayName || "Not available"}
         />
         <SettingsRow
           icon={Mail}
-          iconTone="gray"
+          iconTone="orange"
           title="Email"
           description={user.email || "Not available"}
         />
         <SettingsRow
           icon={Phone}
-          iconTone="gray"
+          iconTone="green"
           title="Phone number"
           description={phoneSummaryText}
           trailing={
-            <span className="text-xs font-medium text-accent-strong">
+            <span className="profile-account-inline-action">
               {phoneNumber ? "Change" : "Add"}
             </span>
           }
@@ -3210,8 +3365,11 @@ function ProfilePageContent() {
           }
         />
         <SettingsRow
-          icon={Fingerprint}
-          iconTone="gray"
+          leading={
+            <span className="profile-account-provider-icon inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg">
+              <ProviderIcon providerId={provider.id} email={user.email} />
+            </span>
+          }
           title="Sign-in provider"
           description={provider.name}
         />
@@ -3230,7 +3388,7 @@ function ProfilePageContent() {
       <SettingsGroup title="Account actions">
         <SettingsRow
           icon={RefreshCw}
-          iconTone="gray"
+          iconTone="orange"
           className="profile-account-reset-row"
           title="Reset account"
           description={resetRowDescription}
@@ -4254,20 +4412,20 @@ function ProfilePageContent() {
     <div className="profile-home-screen">
       <AppPageHeaderRegion>
         <header
-          className="profile-home-hero flex w-full min-w-0 flex-col items-center gap-2 px-0 text-center sm:px-6"
+          className="profile-home-hero flex w-full min-w-0 items-center gap-3 px-0 text-left"
           data-slot="page-header"
           data-page-primary="true"
         >
           <ProfileAvatarEditor />
-          <div className="profile-home-copy flex w-full min-w-0 max-w-full flex-col items-center justify-center gap-1">
+          <div className="profile-home-copy flex min-w-0 flex-1 flex-col items-start justify-center gap-1">
             <h1 className="profile-home-name ui-text-identity-name [overflow-wrap:anywhere]">
               {user.displayName || "User"}
             </h1>
             <div
-              className="profile-home-meta flex w-full min-w-0 items-center justify-center gap-2 text-xs font-normal text-muted-foreground"
+              className="profile-home-meta flex w-full min-w-0 items-center justify-start gap-1.5 text-xs font-normal text-muted-foreground"
               title={provider.name}
             >
-              <ProviderIcon providerId={provider.id} />
+              <ProviderIcon providerId={provider.id} email={user.email} />
               <span className="[overflow-wrap:anywhere]">
                 {user.email || "Not available"}
               </span>
@@ -4282,7 +4440,7 @@ function ProfilePageContent() {
             <SettingsGroup title="Your settings" separatorInset>
               <SettingsRow
                 icon={UserRound}
-                iconTone="gray"
+                iconTone="blue"
                 title={PROFILE_LABELS.account}
                 chevron
                 density="compact"
@@ -4290,7 +4448,7 @@ function ProfilePageContent() {
               />
               <SettingsRow
                 icon={SlidersHorizontal}
-                iconTone="gray"
+                iconTone="purple"
                 title={PROFILE_LABELS.preferences}
                 chevron
                 density="compact"
@@ -4310,7 +4468,7 @@ function ProfilePageContent() {
               />
               <SettingsRow
                 icon={Laptop}
-                iconTone="gray"
+                iconTone="indigo"
                 title="Trusted devices"
                 chevron
                 density="compact"
@@ -4318,7 +4476,7 @@ function ProfilePageContent() {
               />
               <SettingsRow
                 icon={Users}
-                iconTone="blue"
+                iconTone="orange"
                 title={PROFILE_LABELS.referrals}
                 chevron
                 density="compact"
@@ -4335,7 +4493,7 @@ function ProfilePageContent() {
               />
               <SettingsRow
                 icon={MessageCircleQuestion}
-                iconTone="gray"
+                iconTone="blue"
                 title={PROFILE_LABELS.support}
                 chevron
                 density="compact"
@@ -4382,18 +4540,25 @@ function ProfilePageContent() {
       as="div"
       width="reading"
       fitContent
-      className="relative isolate pb-3"
-      nativeTest={{
-        routeId: profileNativeRouteId,
-        marker: "native-route-profile",
-        authState: user ? "authenticated" : "pending",
-        dataState: authLoading ? "loading" : "loaded",
-      }}
+      className={cn("relative isolate pb-3", isPanePresentation && "profile-pane-page")}
+      nativeTest={
+        isPanePresentation
+          ? undefined
+          : {
+              routeId: profileNativeRouteId,
+              marker: "native-route-profile",
+              authState: user ? "authenticated" : "pending",
+              dataState: authLoading ? "loading" : "loaded",
+            }
+      }
     >
-      <ProfileStackNavigator
-        rootContent={profileRootContent}
-        entries={profileStackEntries}
-      />
+      <SettingsPresentationProvider density="compact">
+        <ProfileStackNavigator
+          rootContent={profileRootContent}
+          entries={profileStackEntries}
+          resetScroll={!isPanePresentation}
+        />
+      </SettingsPresentationProvider>
 
       {hasVault === true && (
         <VaultUnlockDialog
@@ -4633,10 +4798,16 @@ function ProfilePageContent() {
   );
 }
 
-export default function ProfilePage() {
+export function ProfilePage({
+  presentation = "route",
+}: {
+  presentation?: ProfilePagePresentation;
+}) {
   return (
     <Suspense fallback={null}>
-      <ProfilePageContent />
+      <ProfilePageContent presentation={presentation} />
     </Suspense>
   );
 }
+
+export default ProfilePage;

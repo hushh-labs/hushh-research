@@ -307,6 +307,8 @@ async def delete_conversation(
 
 class ActionSearchRequest(BaseModel):
     query: str = Field(min_length=1, max_length=2048)
+    context: dict[str, Any] | None = None
+    limit: int = Field(default=10, ge=1, le=20)
 
 
 class ActionProposalRequest(BaseModel):
@@ -357,6 +359,19 @@ async def search_actions_endpoint(
         raise HTTPException(status_code=400, detail="Query must not be empty.")
 
     app_runtime_state: dict[str, Any] = {}
+    if isinstance(payload.context, dict):
+        # Only redacted routing fields cross this search boundary. The action
+        # gateway remains the execution authority and revalidates everything.
+        for key in ("screen", "available_action_ids", "executable_action_ids"):
+            value = payload.context.get(key)
+            if key == "screen" and isinstance(value, str):
+                app_runtime_state[key] = value
+            elif (
+                key != "screen"
+                and isinstance(value, list)
+                and all(isinstance(item, str) for item in value)
+            ):
+                app_runtime_state[key] = value[:100]
     screen = request.headers.get("x-hushh-screen")
     if screen:
         app_runtime_state["screen"] = screen
@@ -366,6 +381,7 @@ async def search_actions_endpoint(
             query,
             {"actions": list_action_gateway_actions()},
             app_runtime_state=app_runtime_state,
+            limit=payload.limit,
         )
     except Exception:
         logger.exception("action_search_failed")

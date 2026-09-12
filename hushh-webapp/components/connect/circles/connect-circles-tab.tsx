@@ -601,6 +601,7 @@ export function ConnectCirclesTab({
         }
         description={circleRowDescription(circle)}
         density="compact"
+        textOverflow="truncate"
         chevron
         onClick={() => openCircle(circle.id)}
         testId={testId}
@@ -678,8 +679,9 @@ export function ConnectCirclesTab({
             icon={Plus}
             iconTone="indigo"
             title="New circle"
-            description="Name a group and invite people you're connected to."
+            description="Create a group for your connections."
             density="compact"
+            textOverflow="truncate"
             chevron
             onClick={() => go({ action: "create-circle" })}
             testId="connect-circle-create"
@@ -688,8 +690,9 @@ export function ConnectCirclesTab({
             icon={KeyRound}
             iconTone="gray"
             title="Join with code"
-            description="Enter the 12-character code someone shared with you."
+            description="Enter a shared 12-character code."
             density="compact"
+            textOverflow="truncate"
             chevron
             onClick={() => go({ action: "join-circle" })}
             testId="connect-circle-join"

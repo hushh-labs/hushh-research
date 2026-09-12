@@ -491,11 +491,17 @@ function KaiOnboardingPageContent({
     authLoading ||
     (isStaticFinanceSetupRoute && !financeSetupCoordinator.isReady)
   ) {
-    return (
-      <SetupKaiStageRegion>
-        <SetupCapabilityLoading label="Preparing Finance setup…" />
-      </SetupKaiStageRegion>
-    );
+    // No SetupKaiStageRegion here. SetupCapabilityLoading is already a
+    // FullscreenFlowShell, and .fullscreen-flow-shell (globals.css) already sets
+    // min-height:calc(100dvh - var(--app-fullscreen-flow-content-offset)) and
+    // padding-bottom:var(--app-screen-footer-pad). Wrapping it in a region that
+    // claims the viewport AND the footer pad again applied both twice down one
+    // branch, so the first screen of Finance setup -- a spinner and one line of
+    // text -- could be scrolled about 90px into nothing.
+    //
+    // The other branches below keep the region: they render plain content that
+    // does need it.
+    return <SetupCapabilityLoading label="Preparing Finance setup…" />;
   }
 
   if (!user) {

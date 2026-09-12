@@ -23,6 +23,13 @@ import {
   CommandSeparator,
 } from "@/components/ui/command";
 import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { useIsMobile } from "@/hooks/use-mobile";
+import {
   getTickerUniverseSnapshot,
   preloadTickerUniverse,
   searchTickerUniverseRemote,
@@ -50,6 +57,7 @@ import { KAI_MARKET_PATH, ROUTES } from "@/lib/navigation/routes";
 import type { KaiCommandBarIntent } from "@/lib/navigation/kai-command-bar-events";
 import { Icon } from "@/lib/morphy-ux/ui";
 import { cn } from "@/lib/utils";
+import { useVault } from "@/lib/vault/vault-context";
 import {
   RECENT_ACTION_LIMIT,
   readActionUsage,
@@ -315,6 +323,11 @@ export function KaiCommandPalette({
   disabled = false,
   portfolioTickers = [],
 }: KaiCommandPaletteProps) {
+  // The semantic action search is a VAULT_OWNER-authenticated endpoint; the
+  // palette is rendered inside VaultProvider, so the token is available here
+  // without threading it through every caller as a prop.
+  const { vaultOwnerToken } = useVault();
+  const isMobile = useIsMobile();
   const [query, setQuery] = useState("");
   const [universe, setUniverse] = useState<TickerUniverseRow[] | null>(
     getTickerUniverseSnapshot(),
@@ -393,6 +406,10 @@ export function KaiCommandPalette({
           limit: 10,
           debounceMs: 180,
           signal: controller.signal,
+          // The semantic endpoint authenticates with a VAULT_OWNER token. A
+          // locked vault means no token, which falls back to local search
+          // rather than failing the palette.
+          vaultOwnerToken,
         });
         if (!cancelled) {
           setSemanticMatches(results);
@@ -406,7 +423,10 @@ export function KaiCommandPalette({
       cancelled = true;
       controller?.abort();
     };
-  }, [open, query, appRuntimeState, surfaceMetadata]);
+    // vaultOwnerToken is a real dependency, not decoration: the effect returns
+    // local-only results while the vault is locked, so unlocking must re-run it
+    // or the palette stays lexical for the rest of the session.
+  }, [open, query, appRuntimeState, surfaceMetadata, vaultOwnerToken]);
 
   useEffect(() => {
     if (!open) return;
@@ -920,10 +940,8 @@ export function KaiCommandPalette({
     });
   }
 
-  function submitSearchOrPrompt(event: KeyboardEvent<HTMLInputElement>) {
+  function submitCurrentQuery() {
     if (disabled) return;
-    if (event.key !== "Enter" || event.nativeEvent.isComposing) return;
-    event.preventDefault();
     const value = query.trim();
     if (!value) return;
     if (financeAnalysisIntent) {
@@ -942,6 +960,12 @@ export function KaiCommandPalette({
     onSubmitPrompt(value);
   }
 
+  function submitSearchOrPrompt(event: KeyboardEvent<HTMLInputElement>) {
+    if (event.key !== "Enter" || event.nativeEvent.isComposing) return;
+    event.preventDefault();
+    submitCurrentQuery();
+  }
+
   function submitPromptSuggestion() {
     if (disabled) return;
     const value = query.trim();
@@ -954,6 +978,189 @@ export function KaiCommandPalette({
   const commandItemClass =
     "rounded-lg border border-transparent transition-colors duration-300 hover:bg-primary/10 hover:text-foreground data-[selected=true]:border-primary/25 data-[selected=true]:bg-primary/15 data-[selected=true]:text-foreground data-[disabled=true]:pointer-events-none data-[disabled=true]:opacity-45";
 
+  // On small phones search is an input surface, not a command palette. Keep
+  // the same gateway-ranked actions, but render them as ordinary buttons so
+  // the keyboard can sit above a native-looking bottom search field.
+  const mobileActionRows = useMemo(() => {
+    if (isFiltering) {
+      return rankedActionMatches.map(({ action, availability }) => ({
+        action,
+        availability,
+      }));
+    }
+    const rows: Array<{
+      action: KaiActionDefinition;
+      availability: KaiActionAvailability;
+    }> = [];
+    const seen = new Set<string>();
+    const add = (action: KaiActionDefinition) => {
+      if (seen.has(action.action_id)) return;
+      seen.add(action.action_id);
+      rows.push({
+        action,
+        availability: evaluateKaiActionAvailability({
+          action,
+          appRuntimeState,
+          surfaceMetadata,
+        }),
+      });
+    };
+    recentActions.forEach(add);
+    offScreenActions.forEach(({ action }) => add(action));
+    suggestedActions.forEach(({ action }) => add(action));
+    return rows;
+  }, [
+    appRuntimeState,
+    isFiltering,
+    offScreenActions,
+    rankedActionMatches,
+    recentActions,
+    suggestedActions,
+    surfaceMetadata,
+  ]);
+
+  const mobileResultRowClass =
+    "flex min-h-11 w-full items-center gap-3 rounded-[14px] px-3 py-2.5 text-left text-[15px] text-foreground transition-colors hover:bg-foreground/[0.06] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)] active:scale-[0.99]";
+
+  const mobileSearchResults = (
+    <div
+      className="max-h-[min(52dvh,25rem)] overflow-y-auto overscroll-contain px-1 py-1"
+      data-testid="kai-mobile-search-results"
+    >
+      {!isFiltering && mobileActionRows.length === 0 ? (
+        <p className="px-3 py-6 text-center text-sm text-muted-foreground">
+          No suggestions yet.
+        </p>
+      ) : null}
+      {isFiltering && !financeAnalysisIntent ? (
+        <button
+          type="button"
+          className={mobileResultRowClass}
+          onClick={submitPromptSuggestion}
+          disabled={disabled}
+        >
+          <Icon icon={Search} size="sm" className="text-accent-strong" />
+          <span className="min-w-0 truncate font-medium">
+            Ask One: {query.trim()}
+          </span>
+        </button>
+      ) : null}
+      {mobileActionRows.map(({ action, availability }) => {
+        const actionDisabled =
+          disabled ||
+          availability.status === "dead" ||
+          availability.status === "unwired" ||
+          availability.status === "manual_only" ||
+          availability.status === "blocked";
+        return (
+          <button
+            type="button"
+            key={`mobile-${action.action_id}`}
+            className={mobileResultRowClass}
+            onClick={() => runAction(action.action_id)}
+            disabled={actionDisabled}
+          >
+            <Icon icon={Activity} size="sm" className="text-muted-foreground" />
+            <span className="min-w-0 truncate font-medium">{action.label}</span>
+          </button>
+        );
+      })}
+      {isFiltering && (financeSectionActive || financeAnalysisIntent) ? (
+        <>
+          {tickerMatches.map((row) => {
+            const ticker = row.ticker.toUpperCase();
+            const title = row.title || "Unknown company";
+            return (
+              <button
+                type="button"
+                key={`mobile-ticker-${ticker}:${title}`}
+                className={mobileResultRowClass}
+                onClick={() => runAction("analysis.start", { symbol: ticker })}
+                disabled={disabled}
+              >
+                <Icon icon={TrendingUp} size="sm" className="text-muted-foreground" />
+                <span className="font-semibold">{ticker}</span>
+                <span className="min-w-0 truncate text-xs text-muted-foreground">
+                  {title}
+                </span>
+              </button>
+            );
+          })}
+          {!loadingUniverse && tickerMatches.length === 0 ? (
+            <p className="px-3 py-6 text-center text-sm text-muted-foreground">
+              {universeError || remoteSearchError || "No matching market results."}
+            </p>
+          ) : null}
+        </>
+      ) : null}
+    </div>
+  );
+
+  if (isMobile) {
+    return (
+      <Dialog open={open} onOpenChange={onOpenChange} modal>
+        <DialogContent
+          showCloseButton={false}
+          srDescription="Search or ask One"
+          data-keyboard-anchor="bottom"
+          data-search-surface="ios-mobile"
+          className="!top-auto !bottom-[calc(var(--kb-height,0px)+var(--bottom-chrome-stack-height,0px)+0.5rem)] !left-2 !w-[calc(100%-1rem)] !max-w-none !translate-x-0 !translate-y-0 !overflow-hidden !rounded-[26px] !border-black/[0.08] !bg-background/96 !p-2 !shadow-[0_18px_52px_-28px_rgba(0,0,0,.52)]"
+        >
+          <DialogHeader className="sr-only">
+            <DialogTitle>Search or ask One</DialogTitle>
+          </DialogHeader>
+          {mobileSearchResults}
+          <form
+            className="relative flex h-12 items-center gap-2 rounded-[20px] bg-foreground/[0.045] px-3"
+            onSubmit={(event) => {
+              event.preventDefault();
+              submitCurrentQuery();
+            }}
+          >
+            <Search className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+            <input
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" && event.nativeEvent.isComposing) return;
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  submitCurrentQuery();
+                }
+              }}
+              type="search"
+              autoFocus
+              enterKeyHint="send"
+              disabled={disabled}
+              placeholder={financeAnalysisIntent ? "Analyze a stock" : "Ask One or search"}
+              aria-label="Search or ask One"
+              className="h-full min-w-0 flex-1 bg-transparent text-[16px] text-foreground outline-none placeholder:text-muted-foreground"
+            />
+            {query.length > 0 ? (
+              <button
+                type="button"
+                aria-label="Clear search input"
+                data-testid="kai-mobile-search-clear"
+                onClick={() => setQuery("")}
+                className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-foreground/[0.08] hover:text-foreground"
+              >
+                <X className="h-4 w-4" strokeWidth={1.9} aria-hidden="true" />
+              </button>
+            ) : null}
+            <button
+              type="button"
+              aria-label="Close search"
+              onClick={() => onOpenChange(false)}
+              className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-foreground/[0.08] hover:text-foreground"
+            >
+              <X className="h-4 w-4" strokeWidth={1.9} aria-hidden="true" />
+            </button>
+          </form>
+        </DialogContent>
+      </Dialog>
+    );
+  }
+
   return (
     <CommandDialog
       open={open}
@@ -961,7 +1168,8 @@ export function KaiCommandPalette({
       showCloseButton={false}
       title="Search or ask One"
       data-keyboard-anchor="bottom"
-      className="top-auto bottom-[calc(var(--kb-height,0px)+var(--bottom-chrome-stack-height,0px)+0.5rem)] max-h-[min(calc(100dvh-var(--kb-height,0px)-var(--bottom-chrome-stack-height,0px)-1rem),34rem)] w-[calc(100%-1rem)] max-sm:!translate-y-0 sm:top-1/2 sm:bottom-auto sm:w-full sm:max-h-none sm:-translate-y-1/2"
+      data-search-surface="command"
+      className="top-auto bottom-[calc(var(--kb-height,0px)+var(--bottom-chrome-stack-height,0px)+0.5rem)] max-h-[min(calc(100dvh-var(--kb-height,0px)-var(--bottom-chrome-stack-height,0px)-1rem),34rem)] w-[calc(100%-1rem)] max-sm:!left-2 max-sm:!translate-x-0 max-sm:!translate-y-0 max-sm:rounded-[26px] max-sm:border-black/[0.08] max-sm:bg-background/96 max-sm:p-1.5 max-sm:shadow-[0_18px_52px_-28px_rgba(0,0,0,.52)] sm:top-1/2 sm:bottom-auto sm:w-full sm:max-h-none sm:-translate-y-1/2"
     >
       <CommandList className="max-h-[min(56dvh,24rem)] sm:max-h-[300px]">
         <CommandEmpty className={isFiltering ? undefined : "hidden"}>
@@ -1190,7 +1398,7 @@ export function KaiCommandPalette({
           </>
         ) : null}
       </CommandList>
-      <div className="relative border-t border-border/70">
+      <div className="relative border-t border-border/70 max-sm:border-0 max-sm:px-0.5 max-sm:pb-0.5">
         <CommandInput
           value={query}
           onValueChange={setQuery}
@@ -1199,11 +1407,23 @@ export function KaiCommandPalette({
           placeholder={
             financeAnalysisIntent ? "Analyze a stock" : "Ask One or search"
           }
-          className="pr-28"
+          className="pr-28 max-sm:h-12 max-sm:rounded-[20px] max-sm:bg-foreground/[0.045] max-sm:px-3 max-sm:text-[16px]"
+          wrapperClassName="max-sm:h-12 max-sm:rounded-[20px] max-sm:border-0 max-sm:bg-foreground/[0.045]"
           enterKeyHint="send"
           autoFocus
         />
         <div className="absolute right-2.5 top-1/2 flex -translate-y-1/2 items-center gap-1.5">
+          {query.length > 0 ? (
+            <button
+              type="button"
+              aria-label="Clear search input"
+              data-testid="kai-search-clear"
+              onClick={() => setQuery("")}
+              className="inline-flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-black/[0.045] hover:text-foreground dark:hover:bg-white/10"
+            >
+              <X className="h-4 w-4" strokeWidth={1.9} aria-hidden="true" />
+            </button>
+          ) : null}
           <button
             type="button"
             aria-label="Close search"

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+from datetime import datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
@@ -30,6 +31,7 @@ def contact_routes(monkeypatch):
         match_one_network_contact_lookups_exact=AsyncMock(return_value=[]),
     )
     graph = SimpleNamespace(
+        begin_contact_sync=Mock(return_value=datetime.now(timezone.utc)),
         reserve_contact_sync_lookup_budget=Mock(),
         sync_contact_matches=Mock(return_value={"items": [], "matchedCount": 0}),
     )

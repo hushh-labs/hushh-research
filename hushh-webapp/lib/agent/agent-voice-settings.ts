@@ -6,20 +6,43 @@
 export const AGENT_CONVERSATION_REQUEST_EVENT =
   "hushh:agent-conversation-request";
 export const AGENT_CONVERSATION_READY_EVENT = "hushh:agent-conversation-ready";
+/**
+ * An explicit STOP, not the toggle.
+ *
+ * `requestAgentConversation` asks the owner to toggle, which starts a session
+ * when none is running and no-ops during the window where the mic lease is
+ * held but the transport is not live yet. Neither is what a caller means when
+ * it needs a live One session to end, so the broker carries its own verb. The
+ * caller still owns no audio: this is the same window-event shape.
+ */
+export const AGENT_CONVERSATION_STOP_EVENT = "hushh:agent-conversation-stop";
 export const AGENT_CONVERSATION_OUTCOME_EVENT =
   "hushh:agent-conversation-outcome";
+export const AGENT_CONVERSATION_CANCEL_EVENT =
+  "hushh:agent-conversation-cancel";
 
 export type AgentConversationRequestSource = "agent_chat" | "siri_app_shortcut";
 
 export type AgentConversationRequest = {
   source?: AgentConversationRequestSource;
   requestId?: string;
+  /**
+   * A one-time request captured by a trusted native handoff. This remains in
+   * memory and is sent as a real user turn after the live session accepts its
+   * initial app context; it is never treated as app-composed speech.
+   */
+  initialRequestText?: string;
 };
 
 export type AgentConversationOutcome = {
   source: AgentConversationRequestSource;
   requestId: string;
   outcome: "accepted" | "failed";
+};
+
+export type AgentConversationCancellation = {
+  source: "siri_app_shortcut";
+  requestId: string;
 };
 
 export type AgentConversationDispatchResult =
@@ -32,9 +55,11 @@ const knownRequestIds = new Set<string>();
 function normalizedRequest(
   request: AgentConversationRequest = {},
 ): AgentConversationRequest {
+  const initialRequestText = request.initialRequestText?.trim();
   return {
     source: request.source ?? "agent_chat",
     requestId: request.requestId?.trim() || undefined,
+    ...(initialRequestText ? { initialRequestText } : {}),
   };
 }
 
@@ -70,6 +95,19 @@ export function requestAgentConversation(
   return "dispatched";
 }
 
+/**
+ * Ask the persistent Agent Bar to END One Live now.
+ *
+ * Unqueued and unconditional on purpose. It is a no-op when nothing is
+ * running, and being unconditional is the only shape that also covers the
+ * window between the microphone lease being acquired and the transport coming
+ * alive, where the shared voice store still reads "idle".
+ */
+export function requestAgentConversationStop(): void {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new Event(AGENT_CONVERSATION_STOP_EVENT));
+}
+
 export function markAgentConversationOwnerReady(): () => void {
   if (typeof window === "undefined") return () => undefined;
   ownerReady = true;
@@ -99,6 +137,26 @@ export function acknowledgeAgentConversation(
     new CustomEvent<AgentConversationOutcome>(
       AGENT_CONVERSATION_OUTCOME_EVENT,
       { detail: outcome },
+    ),
+  );
+}
+
+/**
+ * Cancel a pending external handoff before the sole voice owner accepts it.
+ * This is an in-memory signal only: the native coordinator remains the
+ * authority for the one-time request claim and completion record.
+ */
+export function cancelAgentConversationRequest(
+  cancellation: AgentConversationCancellation,
+): void {
+  if (typeof window === "undefined") return;
+  if (queuedRequest?.requestId === cancellation.requestId) {
+    queuedRequest = null;
+  }
+  window.dispatchEvent(
+    new CustomEvent<AgentConversationCancellation>(
+      AGENT_CONVERSATION_CANCEL_EVENT,
+      { detail: cancellation },
     ),
   );
 }

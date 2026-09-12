@@ -129,6 +129,9 @@ def run_composition_checks() -> None:
         ("should I respond to this review comment on the PR?", False),
         ("can you review and respond to the failing check?", False),
         ("why is the consent export failing for this user?", False),
+        ("draft a reply to the PR reviewer about the failing authentication test", False),
+        ("draft a response to the security audit about consent scope enforcement", False),
+        ("answer the contributor question about the failing backend test", False),
         ("draft a reply for the discord thread about BYOK", True),
         ("write the discord announcement for the new release", True),
     ]
@@ -138,6 +141,11 @@ def run_composition_checks() -> None:
         if (REPLY_RULES_MARKER in out) != want_rules:
             wrong.append(f"{prompt!r} expected rules={want_rules}")
     check("reply rules load only for community-channel turns", not wrong, str(wrong))
+
+    check(
+        "explicit community routes retain their reply rules without channel words",
+        all(route._wants_reply_rules("draft a reply", lane) for lane in route.RESPONSE_RULES_ROUTES),
+    )
 
 
 def run_routing_fixtures() -> None:

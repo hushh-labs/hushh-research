@@ -241,7 +241,7 @@
   padding: 0 16px !important;
   border: 0 !important;
   border-radius: 26px !important;
-  background: #0a84ff !important;
+  background: var(--app-accent) !important;
   color: #fff !important;
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
   font-size: 17px;

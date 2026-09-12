@@ -181,6 +181,7 @@ async def sync_contacts(
         }
     service = _service()
     try:
+        sync_started_at = await run_in_threadpool(service.begin_contact_sync)
         # Authentication background work runs after the response. Guarantee
         # the requester's verified-phone shadow is ready in this request too,
         # so a first contact-sync tap cannot fail merely because no earlier
@@ -203,6 +204,7 @@ async def sync_contacts(
                 firebase_uid,
                 phone_lookups=lookups,
                 matches=matches,
+                sync_started_at=sync_started_at,
             )
         )
         # Metadata-only runtime evidence. Never log a uid, lookup id, digest,

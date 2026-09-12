@@ -300,7 +300,10 @@ def _build_passage(entry: dict[str, Any]) -> str:
     aliases = entry.get("aliases") or []
     if aliases:
         parts.append("Aliases: " + ", ".join(str(a) for a in aliases))
-    keywords = entry.get("keywords") or []
+    # AgentManifestV2 generates `search_keywords`; retain the legacy fallback
+    # only for older fixtures. Missing this field silently removes the
+    # authored vocabulary from semantic passage construction.
+    keywords = entry.get("search_keywords") or entry.get("keywords") or []
     if keywords:
         parts.append("Keywords: " + ", ".join(str(k) for k in keywords))
     goal = entry.get("goal") or {}
@@ -475,12 +478,47 @@ def _reachability(entry: dict[str, Any]) -> str:
     """Return the reachability label for an action."""
     if _is_journey_startable(entry):
         return "journey"
+    # The generated gateway already declares route execution targets. Use that
+    # authority instead of maintaining a second legacy route-to-action map.
+    if (entry.get("execution_target") or {}).get("path") == "route":
+        return "navigate_first"
     routes = (entry.get("reachability") or {}).get("routes") or []
     for route in routes:
         nav = _navigation_action_for_route(str(route))
         if nav:
             return "navigate_first"
     return "on_screen"
+
+
+def _context_allows_entry(entry: dict[str, Any], app_runtime_state: dict[str, Any] | None) -> bool:
+    """Filter retrieval candidates using redacted runtime authority only.
+
+    Retrieval may narrow candidates, but it never makes an action executable.
+    An explicit executable/available inventory wins; otherwise a screen match
+    or an authored hidden-navigation action is required when a screen is
+    supplied. This prevents a semantic hit from becoming an off-screen
+    `action_unavailable` proposal.
+    """
+    if not app_runtime_state:
+        return True
+    action_id = str(entry.get("action_id") or "").strip()
+    if not action_id:
+        return False
+    inventory = app_runtime_state.get("executable_action_ids")
+    if not isinstance(inventory, list):
+        inventory = app_runtime_state.get("available_action_ids")
+    if isinstance(inventory, list):
+        allowed = {str(value).strip() for value in inventory if str(value).strip()}
+        if action_id not in allowed and not action_id.startswith("route."):
+            return False
+    screen = str(app_runtime_state.get("screen") or "").strip()
+    if not screen:
+        return True
+    reachability = entry.get("reachability") or {}
+    screens = reachability.get("screens") or []
+    if screen in screens:
+        return True
+    return bool(reachability.get("hidden_navigable")) or action_id.startswith("route.")
 
 
 def _is_journey_startable(entry: dict[str, Any]) -> bool:
@@ -545,10 +583,11 @@ def _normalize_boundaries(value: str | list[str] | None) -> str | None:
 
 def _delegate_tool_name(delegate_id: str) -> str | None:
     mapping = {
-        "location": "ask_location_agent",
-        "email": "ask_email_agent",
-        "consent": "ask_consent_agent",
-        "connections": "list_my_connections",
+        "agent_email": "ask_email_agent",
+        "agent_location": "ask_location_agent",
+        "agent_connections": "ask_consent_agent",
+        "agent_connected_systems": "ask_connected_systems_agent",
+        "agent_nav": "ask_consent_agent",
     }
     return mapping.get(delegate_id)
 
@@ -625,6 +664,7 @@ def search_actions(
     Never returns an empty result set as an automatic execution fallback.
     A semantic match must not require positive lexical score.
     """
+    global _retrieval_available, _retrieval_error
     entries = gateway.get("actions") or []
     if not entries:
         return []
@@ -633,7 +673,12 @@ def search_actions(
     # -- it appears on zero of the catalog's entries -- so filtering on it
     # returned [] for every query while reporting retrieval as available. The
     # rest of the codebase gates on execution_target.status, and so does this.
-    supported = [e for e in entries if (e.get("execution_target") or {}).get("status") == "wired"]
+    supported = [
+        e
+        for e in entries
+        if (e.get("execution_target") or {}).get("status") == "wired"
+        and _context_allows_entry(e, app_runtime_state)
+    ]
     if not supported:
         return []
 
@@ -664,8 +709,13 @@ def search_actions(
             # action's similarity, which is unfindable at runtime.
             for entry, score in zip(supported, sims, strict=True):
                 semantic_scores[id(entry)] = float(score)
+        _retrieval_available = True
+        _retrieval_error = None
     except Exception:
-        logger.warning("semantic_search_failed", exc_info=True)
+        semantic_scores.clear()
+        _retrieval_available = False
+        _retrieval_error = "embedding_unavailable"
+        logger.warning("semantic_search_failed")
 
     # Every wired action is scored above; this bounds how many reach fusion.
     semantic_rank_map = {
@@ -708,7 +758,9 @@ def search_actions(
                 rank=rank_i + 1,
                 availability=availability,
                 aliases=[str(a) for a in (entry.get("aliases") or [])],
-                keywords=[str(k) for k in (entry.get("keywords") or [])],
+                keywords=[
+                    str(k) for k in (entry.get("search_keywords") or entry.get("keywords") or [])
+                ],
                 semantic_boundaries=str(entry.get("semantic_boundaries") or "").strip() or None,
                 required_inputs=[
                     spec

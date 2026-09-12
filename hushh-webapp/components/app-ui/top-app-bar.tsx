@@ -82,10 +82,9 @@ import { VaultService } from "@/lib/services/vault-service";
 import { getKaiChromeState } from "@/lib/navigation/kai-chrome-state";
 import {
   KAI_MARKET_PATH,
-  normalizeInternalRouteHref,
   ROUTES,
 } from "@/lib/navigation/routes";
-import { buildProfileRoute } from "@/lib/navigation/profile-routes";
+import { requestProfilePaneOpen } from "@/lib/navigation/profile-pane";
 
 import { getAgentSection } from "@/lib/navigation/agent-sections";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
@@ -99,6 +98,7 @@ import {
   resolveTopShellBreadcrumb,
   type TopShellBreadcrumbConfig,
   type TopShellBreadcrumbItem,
+  visibleTopShellBreadcrumbItems,
 } from "@/lib/navigation/top-shell-breadcrumbs";
 import {
   getConnectedSystemPresentationLabel,
@@ -368,12 +368,11 @@ function isPrimaryHeaderOutOfView(header: HTMLElement | null): boolean {
 
 /* ── TopShellBreadcrumbTrail ───────────────────────────────────────── */
 /**
- * Renders the resolved breadcrumb items as a compact, tappable trail beside the
- * back arrow once the user is inside an inner/subagent route (e.g.
- * `Kai › Analysis › AAPL run`). Ancestor crumbs navigate back to their level;
- * the last crumb is the current, non-interactive location. The back arrow still
- * owns single-step back; this trail is the multi-level "go back and forth"
- * affordance. Uses currentColor so it tracks the ambient top-surface tone.
+ * Renders immediate context beside the back arrow: at most the parent and the
+ * current, non-interactive page. The parent remains tappable while the back
+ * arrow still owns single-step history navigation. Keeping older ancestors out
+ * of this compact row prevents a deep route from becoming a trail of truncated
+ * fragments. Uses currentColor so it tracks the ambient top-surface tone.
  */
 function TopShellBreadcrumbTrail({
   items,
@@ -817,21 +816,7 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
     [normalizedPathname, primaryHeaderOutOfView],
   );
   const breadcrumbTrailItems = useMemo(() => {
-    const raw = topShellBreadcrumb?.items ?? [];
-    // Defensively drop any crumb whose label is empty/whitespace before the
-    // trail renders. A resolver that spreads a conditional segment
-    // (`...(x ? [{label}] : [])`) can only ever yield real labels today, but
-    // guarding here means a future empty/undefined segment can never surface as
-    // a stray separator pair (the "Finance > , > > preview" artifact) in the
-    // shared chevron trail.
-    const cleaned = raw.filter(
-      (item) => typeof item.label === "string" && item.label.trim().length > 0,
-    );
-    // Inner/"subagent" routes read as "Kai > Analysis", not
-    // "One > Kai > Analysis": drop the app-root crumb from the visible trail.
-    return cleaned.length > 0 && cleaned[0]?.label === "One"
-      ? cleaned.slice(1)
-      : cleaned;
+    return visibleTopShellBreadcrumbItems(topShellBreadcrumb?.items ?? []);
   }, [topShellBreadcrumb]);
   const hasBreadcrumbTrail = !centerTitle && breadcrumbTrailItems.length > 0;
   const canShowPersonaSwitcher = useMemo(
@@ -858,29 +843,6 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
       },
     });
   }, [normalizedPathname, searchParams, topShellBreadcrumb]);
-
-  // The avatar opens Profile from EVERY signed-in screen, so tag the current
-  // route as the `?from` origin. The shared top-bar back control then retraces
-  // to wherever the user opened Profile from instead of always dropping them on
-  // the One dashboard — the profile "back goes to dashboard" glitch. We strip
-  // any inherited `from` (no nesting) and never tag Profile as its own origin.
-  const profileOpenHref = useMemo(() => {
-    const base = normalizeInternalRouteHref(normalizedPathname);
-    if (
-      !base ||
-      base === ROUTES.PROFILE ||
-      base.startsWith(`${ROUTES.PROFILE}/`)
-    ) {
-      return ROUTES.PROFILE;
-    }
-    const query = new URLSearchParams(searchParams?.toString?.() ?? "");
-    query.delete("from");
-    const queryString = query.toString();
-    const origin = queryString ? `${base}?${queryString}` : base;
-    return buildProfileRoute({
-      searchParams: new URLSearchParams({ from: origin }),
-    });
-  }, [normalizedPathname, searchParams]);
 
   const [switchingPersona, setSwitchingPersona] = useState<Persona | null>(
     null,
@@ -1249,14 +1211,7 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
                         <ShellActionSurface
                           variant="icon"
                           aria-label="Open Profile"
-                          onClick={() =>
-                            requestInternalAppNavigation({
-                              href: profileOpenHref,
-                              scroll: false,
-                              source: "tap",
-                              transitionMode: "full",
-                            })
-                          }
+                          onClick={() => requestProfilePaneOpen("tap")}
                           className="!h-8 !w-8 !border-transparent !bg-[color:var(--app-accent)] p-0 !text-[color:var(--app-accent-fg)] !shadow-none hover:!bg-[color:var(--app-accent-hover)]"
                         >
                           <Avatar className="h-8 w-8">

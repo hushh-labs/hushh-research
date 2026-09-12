@@ -85,6 +85,16 @@ UAT mode is controlled independently from production. Turning on `ledger` is
 not a normal deploy flag change: it requires the zero-loss baseline procedure
 below.
 
+A migration whose first line is `-- migration: transactional=false` opts out of
+the ledger transaction wrapper. Use this only for a single statement that requires
+top-level execution, such as `CREATE INDEX CONCURRENTLY`; include no `BEGIN` or
+`COMMIT`. The header is part of the immutable checksum. Replay already runs each
+file without an explicit wrapper, and observe still executes no migration bodies.
+Concurrent builds may leave an invalid index after interruption, so dependent
+migrations must check index validity and document explicit rebuild instructions.
+The Feed 203–204 sequence and its recovery are documented in
+[Feed notification model](../one/feed-notification-model.md).
+
 ## UAT Zero-Loss Baseline Gate
 
 Before establishing a UAT baseline:

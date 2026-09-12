@@ -1,10 +1,14 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import {
   countSelectedCircleRecipients,
   isCircleSelectionFullySelected,
   mergeRecipientsByUserId,
+  mergeShareAudienceRecipientIds,
   resolveCircleRecipientSelection,
+  sourceCircleIdForRecipient,
 } from "@/lib/one-location/circle-recipient-selection";
 import type {
   OneLocationCircleDetail,
@@ -193,6 +197,121 @@ describe("resolveCircleRecipientSelection", () => {
   });
 });
 
+describe("multi-Circle share audiences", () => {
+  it("deduplicates overlapping Circle members without mixing in direct choices", () => {
+    const first = resolveCircleRecipientSelection({
+      circle: circle(),
+      currentUserId: "owner",
+    });
+    const second = resolveCircleRecipientSelection({
+      circle: {
+        ...circle(),
+        id: "circle-2",
+        name: "Friends",
+        members: [
+          circle().members![1]!,
+          {
+            userId: "friend",
+            displayName: "Friend",
+            role: "member",
+            phoneVerified: true,
+            secureLocationReady: true,
+            canReceiveLocation: true,
+            keyId: "friend-key",
+            publicKeyJwk: { kty: "EC" },
+          },
+        ],
+      },
+      currentUserId: "owner",
+    });
+
+    expect(
+      mergeShareAudienceRecipientIds(
+        ["direct", "ready"],
+        [first, second],
+      ),
+    ).toEqual(["direct", "ready", "no-phone", "friend"]);
+    expect(sourceCircleIdForRecipient([first, second], "ready")).toBe(
+      "circle-1",
+    );
+    expect(
+      sourceCircleIdForRecipient([first, second], "ready", ["ready"]),
+    ).toBeUndefined();
+    expect(sourceCircleIdForRecipient([first, second], "friend")).toBe(
+      "circle-2",
+    );
+    expect(
+      sourceCircleIdForRecipient([first, second], "direct"),
+    ).toBeUndefined();
+  });
+
+  it("uses valid provenance when ordinary and joined SMS Circles overlap", () => {
+    const ordinary = resolveCircleRecipientSelection({
+      circle: circle(),
+      currentUserId: "owner",
+    });
+    const joinedSms = resolveCircleRecipientSelection({
+      circle: {
+        ...circle(),
+        id: "circle-sms",
+        name: "Riya's SMS Circle",
+        role: "member",
+        isSystem: true,
+        systemKind: "sms",
+        members: [
+          {
+            ...circle().members[0]!,
+            userId: "viewer",
+            role: "member",
+          },
+          circle().members[1]!,
+        ],
+      },
+      currentUserId: "viewer",
+    });
+
+    // Two non-owner members of an SMS Circle are not introduced to one
+    // another. The ordinary Circle remains valid even when SMS was selected
+    // first, and an explicit contact choice remains direct.
+    expect(sourceCircleIdForRecipient([joinedSms, ordinary], "ready")).toBe(
+      "circle-1",
+    );
+    expect(
+      sourceCircleIdForRecipient([joinedSms, ordinary], "ready", ["ready"]),
+    ).toBeUndefined();
+  });
+
+  it("allows a joined product Circle member to share with that Circle's owner", () => {
+    const joinedSms = resolveCircleRecipientSelection({
+      circle: {
+        ...circle(),
+        id: "circle-sms",
+        name: "Riya's SMS Circle",
+        role: "member",
+        isSystem: true,
+        systemKind: "sms",
+        members: [
+          {
+            ...circle().members[0]!,
+            userId: "viewer",
+            role: "member",
+          },
+          {
+            ...circle().members[1]!,
+            userId: "circle-owner",
+            role: "owner",
+          },
+        ],
+      },
+      currentUserId: "viewer",
+    });
+
+    expect(
+      sourceCircleIdForRecipient([joinedSms], "circle-owner"),
+    ).toBe("circle-sms");
+  });
+});
+
 describe("mergeRecipientsByUserId", () => {
   it("keeps directory metadata while taking fresh Circle key material", () => {
     const directory: OneLocationRecipient = {
@@ -220,5 +339,27 @@ describe("mergeRecipientsByUserId", () => {
         recommendationTier: "trusted_circle",
       }),
     ]);
+  });
+});
+
+
+describe("Share uses the current Circle selection contract", () => {
+  it("keeps Circles atomic, multi-selectable, and separate from contacts", () => {
+    const hub = readFileSync(join(process.cwd(), "components/one-location/redesign/location-redesign-hub.tsx"), "utf8");
+    const start = hub.indexOf("function ShareFlow(");
+    const end = hub.indexOf("function AskFlow(", start);
+    expect(start).toBeGreaterThanOrEqual(0);
+    expect(end).toBeGreaterThan(start);
+    const share = hub.slice(start, end);
+    expect(share).toContain('vm.circles.filter((circle) => circle.systemKind !== "trusted")');
+    expect(share).toContain("vm.onSelectShareCircle(circle.id)");
+    expect(share).not.toContain("shareCircleSections");
+    expect(share).toContain("vm.selectedShareCircleSelections.some(");
+    expect(share).toContain("circleMemberCountLabel(");
+    expect(share).toContain("vm.selectedDirectRecipientIds.includes(");
+    expect(share).toContain('textOverflow="truncate"');
+    expect(share).toContain("vm.pendingShareCircleIds.includes(circle.id)");
+    expect(share).toContain('"Adding Circle…"');
+    expect(share).not.toContain("selectedShareCircleRecipientCount");
   });
 });

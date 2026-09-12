@@ -1,21 +1,10 @@
 import { fireEvent, render, screen } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 
 import { OneDashboardPage } from "@/components/dashboard/one-dashboard-page";
 import { buildOneSetupCapabilityRoute, ROUTES } from "@/lib/navigation/routes";
 import type { CapabilityStatus } from "@/lib/services/capability-setup-state-service";
 import { OneSetupCompletionHintService } from "@/lib/services/one-setup-completion-hint-service";
-
-const platformHarness = vi.hoisted(() => ({ isAndroid: false }));
-
-vi.mock("@/lib/capacitor/platform", async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import("@/lib/capacitor/platform")>();
-  return {
-    ...actual,
-    isAndroid: () => platformHarness.isAndroid,
-  };
-});
 
 function status(
   id: string,
@@ -57,7 +46,6 @@ function countRosterMetrics(
 
 describe("OneDashboardPage", () => {
   beforeEach(() => {
-    platformHarness.isAndroid = false;
     window.localStorage.clear();
   });
 
@@ -307,32 +295,30 @@ describe("OneDashboardPage", () => {
     );
   });
 
-  it("clips the roster view paint on Android without changing the controls", () => {
-    platformHarness.isAndroid = true;
+  it("keeps header, search and view controls mounted while replacing only roster content", () => {
     window.localStorage.setItem("hushh:one-agent-roster-view", "grid");
-
     render(<OneDashboardPage displayName="Kushal Trivedi" />);
 
-    const content = screen.getByTestId("one-agents-view-content");
-    expect(content.className).toContain("isolate");
-    expect(content.className).toContain("overflow-hidden");
-    expect(content.className).toContain("[clip-path:inset(0)]");
-    expect(content.className).toContain("[contain:layout_paint]");
-    expect(content).toHaveAttribute("data-no-auto-fade", "true");
-    expect(content).not.toHaveClass("motion-step-enter");
-    expect(screen.getByRole("heading", { name: "Agents (9)" })).toBeTruthy();
-    expect(screen.getByTestId("one-agents-search")).toBeTruthy();
-    expect(screen.getByTestId("one-agents-view-grid")).toHaveAttribute(
-      "aria-pressed",
-      "true",
-    );
-    expect(screen.getByTestId("one-agent-tile-finance")).toBeTruthy();
+    const heading = screen.getByRole("heading", { name: "Agents (9)" });
+    const search = screen.getByTestId("one-agents-search");
+    const gridControl = screen.getByLabelText("Show agent grid view");
+    const listControl = screen.getByLabelText("Show agent list view");
+    const gridContent = screen.getByTestId("one-agents-view-content");
 
-    fireEvent.click(screen.getByLabelText("Show agent list view"));
-    const listContent = screen.getByTestId("one-agents-view-content");
-    expect(listContent).not.toHaveClass("motion-step-enter");
-    expect(listContent).toHaveAttribute("data-no-auto-fade", "true");
+    fireEvent.click(listControl);
+    expect(screen.getByRole("heading", { name: "Agents (9)" })).toBe(heading);
+    expect(screen.getByTestId("one-agents-search")).toBe(search);
+    expect(screen.getByLabelText("Show agent grid view")).toBe(gridControl);
+    expect(screen.getByLabelText("Show agent list view")).toBe(listControl);
+    expect(gridContent.isConnected).toBe(false);
+    expect(screen.queryByTestId("one-agents-grid")).toBeNull();
     expect(screen.getByTestId("one-agents-list")).toBeTruthy();
+
+    fireEvent.click(gridControl);
+    expect(screen.getByRole("heading", { name: "Agents (9)" })).toBe(heading);
+    expect(screen.getByTestId("one-agents-search")).toBe(search);
+    expect(screen.queryByTestId("one-agents-list")).toBeNull();
+    expect(screen.getAllByTestId("one-agents-grid")).toHaveLength(1);
   });
 
   it("filters the local agent roster without opening a second global search surface", () => {
@@ -344,6 +330,17 @@ describe("OneDashboardPage", () => {
 
     expect(screen.getByTestId("one-agent-list-row-location")).toBeTruthy();
     expect(screen.queryByTestId("one-agent-list-row-finance")).toBeNull();
+  });
+
+  it("clears the roster query from the trailing touch affordance", () => {
+    render(<OneDashboardPage displayName="Kushal Trivedi" />);
+
+    const search = screen.getByTestId("one-agents-search");
+    fireEvent.change(search, { target: { value: "location" } });
+    fireEvent.click(screen.getByRole("button", { name: "Clear agent search" }));
+
+    expect(search).toHaveValue("");
+    expect(screen.getByTestId("one-agent-list-row-finance")).toBeTruthy();
   });
 
   it("shows the finance mover as a concise green percentage without redundant winner copy", () => {

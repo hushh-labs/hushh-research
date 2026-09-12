@@ -2,6 +2,7 @@ package com.hussh.app
 
 import android.net.Uri
 import android.content.pm.ApplicationInfo
+import android.content.res.AssetManager
 import android.graphics.Color
 import android.os.Bundle
 import android.os.Handler
@@ -13,11 +14,15 @@ import android.view.ViewGroup
 import android.view.WindowManager
 import android.webkit.JavascriptInterface
 import android.webkit.WebView
+import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.TextView
+import com.getcapacitor.Bridge
 import com.getcapacitor.BridgeActivity
+import com.getcapacitor.BridgeWebViewClient
 import com.getcapacitor.WebViewListener
 import com.hussh.app.plugins.HushhAuth.HushhAuthPlugin
 import com.hussh.app.plugins.HushhConsent.HushhConsentPlugin
@@ -28,6 +33,7 @@ import com.hussh.app.plugins.HushhSync.HushhSyncPlugin
 import com.hussh.app.plugins.HushhAccount.HushhAccountPlugin
 import com.hussh.app.plugins.HushhLocation.HushhLocationPlugin
 import com.hussh.app.plugins.HushhContacts.HushhContactsPlugin
+import com.hussh.app.plugins.HushhInvitations.HushhInvitationsPlugin
 import com.hussh.app.plugins.HushhNotifications.HushhNotificationsPlugin
 import com.hussh.app.plugins.HushhSessionPrivacy.HushhSessionPrivacyPlugin
 import com.hussh.app.plugins.Kai.KaiPlugin
@@ -36,6 +42,8 @@ import org.json.JSONObject
 import org.json.JSONTokener
 import org.json.JSONArray
 import java.io.File
+import java.io.ByteArrayInputStream
+import java.nio.charset.StandardCharsets
 
 object NativeTestModePolicy {
     @JvmStatic
@@ -45,6 +53,100 @@ object NativeTestModePolicy {
     @JvmStatic
     fun uiFlowRunId(value: String?): String =
         value.orEmpty().filter { it.isLetterOrDigit() || it == '_' || it == '-' }.take(64)
+}
+
+private object AndroidPersonProfileAssetRouter {
+    private const val routePrefix = "/people/"
+    private const val nativeStaticPersonProfileRef =
+        "00000000-0000-4000-8000-000000000001"
+    private val staticAssetNames = setOf(
+        "__next._full.txt",
+        "__next._head.txt",
+        "__next._index.txt",
+        "__next._tree.txt",
+        "__next.people.\$d\$personRef.__PAGE__.txt",
+        "__next.people.\$d\$personRef.txt",
+        "__next.people.txt",
+        "index.html",
+        "index.txt",
+    )
+
+    data class AssetRequest(val personRef: String, val assetName: String)
+
+    fun requestFor(uri: Uri): AssetRequest? {
+        val path = uri.path ?: return null
+        if (!path.startsWith(routePrefix)) return null
+
+        val remainder = path.removePrefix(routePrefix)
+        if (remainder.isEmpty()) return null
+        if (remainder.endsWith(".txt") && !remainder.contains('/')) {
+            val personRef = remainder.removeSuffix(".txt")
+            return personRef.takeIf { it.isNotEmpty() }?.let {
+                AssetRequest(it, "index.txt")
+            }
+        }
+
+        val parts = remainder.split('/', limit = 2)
+        val personRef = parts.firstOrNull()?.takeIf { it.isNotEmpty() } ?: return null
+        val assetName = parts.getOrNull(1)?.ifEmpty { "index.html" } ?: "index.html"
+        if (personRef.contains('/') || assetName !in staticAssetNames) return null
+        return AssetRequest(personRef, assetName)
+    }
+
+    fun open(assets: AssetManager, request: AssetRequest): WebResourceResponse? {
+        val assetPath = "public${routePrefix}${nativeStaticPersonProfileRef}/${request.assetName}"
+        val source = try {
+            assets.open(assetPath).use { it.readBytes() }
+        } catch (_: Exception) {
+            return null
+        }
+
+        val body = String(source, StandardCharsets.UTF_8)
+            .replace(nativeStaticPersonProfileRef, request.personRef)
+            .toByteArray(StandardCharsets.UTF_8)
+        val mimeType = if (request.assetName.endsWith(".html")) {
+            "text/html"
+        } else {
+            "text/plain"
+        }
+        return WebResourceResponse(
+            mimeType,
+            "UTF-8",
+            200,
+            "OK",
+            mapOf("Cache-Control" to "no-cache"),
+            ByteArrayInputStream(body),
+        )
+    }
+}
+
+private class AndroidPersonProfileWebViewClient(
+    bridge: Bridge,
+    private val assets: AssetManager,
+) : BridgeWebViewClient(bridge) {
+    override fun shouldInterceptRequest(
+        view: WebView,
+        request: WebResourceRequest,
+    ): WebResourceResponse? {
+        val assetRequest = AndroidPersonProfileAssetRouter.requestFor(request.url)
+        return if (assetRequest != null) {
+            AndroidPersonProfileAssetRouter.open(assets, assetRequest)
+                ?: super.shouldInterceptRequest(view, request)
+        } else {
+            super.shouldInterceptRequest(view, request)
+        }
+    }
+
+    @Deprecated("Use shouldInterceptRequest(WebResourceRequest)")
+    @Suppress("DEPRECATION")
+    override fun shouldInterceptRequest(view: WebView, url: String): WebResourceResponse? {
+        val assetRequest = AndroidPersonProfileAssetRouter.requestFor(Uri.parse(url))
+        return if (assetRequest != null) {
+            AndroidPersonProfileAssetRouter.open(assets, assetRequest)
+        } else {
+            super.shouldInterceptRequest(view, url)
+        }
+    }
 }
 
 class MainActivity : BridgeActivity() {
@@ -93,11 +195,14 @@ class MainActivity : BridgeActivity() {
         registerPlugin(HushhAccountPlugin::class.java) // Account management (deletion)
         registerPlugin(HushhLocationPlugin::class.java) // Foreground location capture
         registerPlugin(HushhContactsPlugin::class.java) // Contact matching
+        registerPlugin(HushhInvitationsPlugin::class.java) // User-confirmed invitations
         registerPlugin(HushhSessionPrivacyPlugin::class.java) // Resume-time session privacy shield
         
         Log.d("MainActivity", "All 13 plugins registered successfully")
         
         super.onCreate(savedInstanceState)
+
+        installAndroidPersonProfileRouting()
 
         installSessionPrivacyOverlay()
         if (sessionPrivacyShielded) {
@@ -336,6 +441,13 @@ class MainActivity : BridgeActivity() {
         if (webView != null && previousMode != null) {
             webView.importantForAccessibility = previousMode
         }
+    }
+
+    private fun installAndroidPersonProfileRouting() {
+        val activeBridge = bridge ?: return
+        activeBridge.setWebViewClient(
+            AndroidPersonProfileWebViewClient(activeBridge, assets)
+        )
     }
 
     private fun installNativeTestBridge(config: NativeTestConfiguration) {
@@ -1024,12 +1136,19 @@ class MainActivity : BridgeActivity() {
             try {
                 val report = payload.opt("uiFlowReport")
                 if (report != null && report != JSONObject.NULL) {
-                    File(filesDir, "native-ui-interaction-report.json").writeText(
-                        sanitizeUiFlowReport(report).toString(2)
-                    )
+                    val bytes = sanitizeUiFlowReport(report).toString(2).toByteArray(Charsets.UTF_8)
+                    val file = android.util.AtomicFile(File(filesDir, "native-ui-interaction-report.json"))
+                    val stream = file.startWrite()
+                    try {
+                        stream.write(bytes)
+                        file.finishWrite(stream)
+                    } catch (error: Exception) {
+                        file.failWrite(stream)
+                        throw error
+                    }
                 }
             } catch (error: Exception) {
-                Log.w("MainActivity", "Failed to write native UI report: ${error.message}")
+                Log.w("MainActivity", "Failed to publish native UI report")
             }
 
             try {

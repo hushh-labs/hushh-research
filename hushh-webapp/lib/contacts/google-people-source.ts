@@ -29,18 +29,16 @@
 
 import type { HushhContactsReadResult } from "@/lib/capacitor";
 import { isNative } from "@/lib/capacitor/platform";
+import { contactInvitationsEnabled } from "@/lib/contacts/invitation-candidates";
 import type { MarketplaceContactSource } from "@/lib/marketplace/contact-matching";
 
 const PEOPLE_CONNECTIONS_URL =
   "https://people.googleapis.com/v1/people/me/connections";
 
 /**
- * Exactly the two fields the pipeline consumes.
- *
- * `contact-matching.ts` reads `displayName` and `phoneNumbers` and nothing
- * else — `HushhContactRecord.emailAddresses` is declared and never used. Asking
- * for photos, addresses or organisations would be collecting data we have no
- * use for, from people who are not our users.
+ * Baseline matching fields. The invitation flag adds emailAddresses solely
+ * for session-local personal invitation selection. No additional OAuth scope,
+ * server-side read, persistent sync token or contact cache is introduced.
  */
 const PERSON_FIELDS = "names,phoneNumbers";
 
@@ -65,8 +63,13 @@ export const GOOGLE_PEOPLE_REQUEST_TIMEOUT_MS = 30_000;
 async function readPeoplePage(
   url: string,
   token: string,
+  signal?: AbortSignal,
 ): Promise<PeopleConnectionsResponse> {
   const controller = new AbortController();
+  const abort = () => controller.abort();
+  if (signal?.aborted)
+    throw new DOMException("Contact sync ended.", "AbortError");
+  signal?.addEventListener("abort", abort, { once: true });
   let timeoutId: ReturnType<typeof setTimeout> | null = null;
   const timeout = new Promise<never>((_, reject) => {
     timeoutId = setTimeout(() => {
@@ -101,6 +104,7 @@ async function readPeoplePage(
     ]);
   } finally {
     if (timeoutId !== null) clearTimeout(timeoutId);
+    signal?.removeEventListener("abort", abort);
   }
 }
 
@@ -112,6 +116,7 @@ type PeoplePerson = {
   resourceName?: string | null;
   names?: PeopleName[];
   phoneNumbers?: PeoplePhone[];
+  emailAddresses?: { value?: string | null }[];
 };
 type PeopleConnectionsResponse = {
   connections?: PeoplePerson[];
@@ -183,6 +188,7 @@ function phoneStringsOf(person: PeoplePerson): string[] {
  */
 export function googlePeopleContactSource(
   token: string,
+  signal?: AbortSignal,
 ): MarketplaceContactSource {
   return async ({ limit }) => {
     const contacts: HushhContactsReadResult["contacts"] = [];
@@ -193,7 +199,12 @@ export function googlePeopleContactSource(
 
     do {
       const url = new URL(PEOPLE_CONNECTIONS_URL);
-      url.searchParams.set("personFields", PERSON_FIELDS);
+      url.searchParams.set(
+        "personFields",
+        contactInvitationsEnabled()
+          ? `${PERSON_FIELDS},emailAddresses`
+          : PERSON_FIELDS,
+      );
       url.searchParams.set("pageSize", String(PAGE_SIZE));
       url.searchParams.set("sources", READ_SOURCE);
       if (pageToken) url.searchParams.set("pageToken", pageToken);
@@ -201,7 +212,7 @@ export function googlePeopleContactSource(
       // somebody's address book, and there is nowhere in this design to keep
       // one — nothing here is persisted.
 
-      const payload = await readPeoplePage(url.toString(), token);
+      const payload = await readPeoplePage(url.toString(), token, signal);
       totalPeople = Number(payload.totalPeople || 0) || totalPeople;
 
       for (const person of payload.connections ?? []) {
@@ -214,6 +225,14 @@ export function googlePeopleContactSource(
           id: String(person.resourceName || "") || null,
           displayName: displayNameOf(person),
           phoneNumbers,
+          ...(contactInvitationsEnabled()
+            ? {
+                hasPhoneEntries: (person.phoneNumbers ?? []).length > 0,
+                emailAddresses: (person.emailAddresses ?? [])
+                  .map((email) => String(email.value ?? ""))
+                  .filter(Boolean),
+              }
+            : {}),
         });
       }
 

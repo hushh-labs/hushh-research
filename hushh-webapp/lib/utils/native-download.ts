@@ -5,12 +5,21 @@ import { toast } from "sonner";
  * Cross-platform file download utility
  *
  * Platform behavior:
- * - iOS: Saves to app's Documents folder, visible in Files app under "On My iPhone" > "Hussh"
- *        (Requires UIFileSharingEnabled=true in Info.plist)
- * - Android: Saves to app's Documents folder, visible in file manager
- * - Web: Standard browser download to Downloads folder
+ * - Native: writes the file, then hands it to the system share sheet so the
+ *   person actively chooses where it goes (Files, AirDrop, mail to themselves).
+ * - Web: standard browser download.
  *
- * Non-breaking: Falls back to web method if native fails
+ * Why the share sheet rather than a toast pointing at the Files app: the app's
+ * Documents directory is only visible to a person when Info.plist sets BOTH
+ * UIFileSharingEnabled and LSSupportsOpeningDocumentsInPlace. Both are false
+ * here, deliberately, so writing to Documents and announcing "Saved to Files
+ * app" told people their file was somewhere they could reach when it was not.
+ * For a vault recovery key that is the worst possible lie: the key cannot be
+ * regenerated, and someone who believes it is saved will dismiss the only
+ * dialog that could still show it to them.
+ *
+ * Success is therefore only claimed once the share sheet has actually accepted
+ * the file. A cancel is reported as not saved, because it is.
  */
 export async function downloadTextFile(
   content: string,
@@ -42,20 +51,28 @@ export async function downloadTextFile(
 
       console.log("[Download] File written successfully:", result.uri);
 
-      // Show platform-specific success message
-      if (platform === "ios") {
-        toast.success("Saved to Files app", {
-          
-          duration: 5000,
+      // The written file lives in a directory the person cannot browse to, so
+      // it is only really "saved" once they have put it somewhere themselves.
+      const { Share } = (await import(
+        "@capacitor/share"
+      )) as typeof import("@capacitor/share");
+
+      try {
+        await Share.share({
+          title: filename,
+          files: [result.uri],
+          dialogTitle: "Save your file",
         });
-      } else {
-        // Android
-        toast.success("Saved to Documents", {
-          
-          duration: 5000,
+      } catch (shareError) {
+        // Cancelling the sheet lands here too, and a cancel is not a save.
+        console.warn("[Download] Share sheet dismissed or failed:", shareError);
+        toast.error("Not saved yet. Choose a destination, or copy it instead.", {
+          duration: 6000,
         });
+        return false;
       }
 
+      toast.success("Saved", { duration: 5000 });
       return true;
     } catch (error) {
       console.error("[Download] Native save failed:", error);

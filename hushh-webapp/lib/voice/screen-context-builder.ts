@@ -18,6 +18,10 @@ import {
   type VoiceSurfaceMetadata,
 } from "@/lib/voice/voice-surface-metadata";
 import { resolveAppRouteLayout } from "@/lib/navigation/app-route-layout";
+import {
+  createVoiceTurnId,
+  logVoiceMetric,
+} from "@/lib/voice/voice-telemetry";
 import { hasMountedLocalOnboardingHandler } from "@/lib/agent/local-onboarding-actions";
 import type {
   OneVoiceTransition,
@@ -78,6 +82,21 @@ export const GLOBAL_NAV_ACTION_IDS: readonly string[] = [
   "route.one_feed",
 ];
 /**
+ * Session verbs that are true wherever the person is standing. Kept separate
+ * from GLOBAL_NAV_ACTION_IDS above because that list is documented as
+ * cross-screen *navigation* -- one id per top-level surface -- and signing out
+ * is not navigation. Both segments are appended the same way and both widen
+ * AVAILABLE_ACTION_IDS_CAP, so the distinction costs nothing at runtime and
+ * keeps each list's rule checkable on its own.
+ *
+ * An id here still has to clear requireMountedLocalHandlers, so a session verb
+ * backed by a local handler must be registered somewhere always-mounted --
+ * components/agent/global-voice-action-handlers.tsx, not a page.
+ */
+export const GLOBAL_SESSION_ACTION_IDS: readonly string[] = [
+  "profile.sign_out",
+];
+/**
  * available_action_ids carries the screen-ranked local segment PLUS the
  * reserved global navigation segment above, so it must be at least as wide
  * as both combined -- not a separately-picked number. It used to be a bare
@@ -93,7 +112,9 @@ export const GLOBAL_NAV_ACTION_IDS: readonly string[] = [
  * agent_tree.py render-time slices); keep them in sync.
  */
 export const AVAILABLE_ACTION_IDS_CAP =
-  ACTION_ID_SCREEN_SEGMENT_CAP + GLOBAL_NAV_ACTION_IDS.length;
+  ACTION_ID_SCREEN_SEGMENT_CAP +
+  GLOBAL_NAV_ACTION_IDS.length +
+  GLOBAL_SESSION_ACTION_IDS.length;
 export const ARRAY_DIMENSION_CAP_ERROR =
   "CONSTRAINT_VIOLATION_DIMENSION_OVERFLOW";
 export const INVALID_ARRAY_TYPE_ERROR = "INVALID_ARRAY_TYPE";
@@ -280,6 +301,20 @@ export type OneVoiceContextSnapshot = {
     interaction_layer?: StructuredVoiceInteractionLayer | null;
   };
   available_action_ids: string[];
+  /**
+   * Full, redacted executable inventory for the relay's post-ack authority
+   * check. This is intentionally separate from the ranked model-facing list:
+   * the latter is capped for prompt size, while execution must not fail merely
+   * because a valid mounted control ranked below that cap.
+   */
+  executable_action_ids?: string[];
+  /** Bounded counts used for read answers; never includes member identities. */
+  redacted_state?: {
+    circle_count?: number | null;
+    permission_state?: "unknown" | "granted" | "denied" | "restricted";
+    current_location_state?: "unknown" | "available" | "unavailable";
+    share_state?: "unknown" | "sharing" | "paused";
+  };
   /** Redacted admission bit only; never an account identifier. */
   auth?: {
     signed_in: boolean;
@@ -332,6 +367,21 @@ export type OneVoiceContextSnapshot = {
     redacted: true;
     excludes: string[];
   };
+  /**
+   * Live per-screen state the surface already computes every render.
+   *
+   * Location has published circle_count, pending_request_count,
+   * permission_state and data_state for months; Profile publishes
+   * phone_verified, pending_consents and a security summary. All of it was
+   * merged into StructuredScreenContext.screen_metadata and then dropped
+   * here, because this type had no member for it -- so the agent could name
+   * every action on a screen while knowing nothing about the screen.
+   *
+   * Scalars only, by contract. Every publisher today emits scalars, and a
+   * flat map is what the backend sanitizer can bound key-by-key; nesting
+   * would have to be truncated blind.
+   */
+  screen_state: Record<string, string | number | boolean | null> | null;
 };
 
 function mapInteractionLayer(
@@ -492,6 +542,46 @@ function readStringArray(
     : [];
 }
 
+type RedactedVoiceState = NonNullable<OneVoiceContextSnapshot["redacted_state"]>;
+
+function readRedactedVoiceState(
+  metadata: Record<string, unknown>,
+): Omit<RedactedVoiceState, "circle_count"> {
+  const state: Omit<RedactedVoiceState, "circle_count"> = {};
+  const permission = metadata.permission_state;
+  if (
+    permission === "granted" ||
+    permission === "denied" ||
+    permission === "restricted"
+  ) {
+    state.permission_state = permission;
+  } else if (
+    permission === "prompt" ||
+    permission === "unavailable" ||
+    permission === "unknown"
+  ) {
+    // `prompt` and platform `unavailable` are deliberately not collapsed into
+    // a stronger permission claim. The app may expose the resulting coarse
+    // location state separately below.
+    state.permission_state = "unknown";
+  }
+
+  const currentLocation = metadata.current_location_state;
+  if (
+    currentLocation === "available" ||
+    currentLocation === "unavailable" ||
+    currentLocation === "unknown"
+  ) {
+    state.current_location_state = currentLocation;
+  }
+
+  const share = metadata.share_state;
+  if (share === "sharing" || share === "paused" || share === "unknown") {
+    state.share_state = share;
+  }
+  return state;
+}
+
 /**
  * Local-handler actions relevant to a specific subview (the `action` or
  * `view` query param a screen's own route derivation already resolves --
@@ -508,7 +598,7 @@ function readStringArray(
  * at the ordinary screen-owned tier, so an incomplete or stale mapping can
  * only fail to help -- it cannot make today's insertion-order tiebreak worse.
  */
-const SUBVIEW_ACTION_BOOST: Readonly<Record<string, readonly string[]>> = {
+export const SUBVIEW_ACTION_BOOST: Readonly<Record<string, readonly string[]>> = {
   // Bare /one/location, no open flow: what someone is most likely to ask for
   // without having drilled into a specific circle or share first.
   "one_location:": [
@@ -572,6 +662,80 @@ const SUBVIEW_ACTION_BOOST: Readonly<Record<string, readonly string[]>> = {
  * Set-insertion order previously made the truncation nondeterministic; this
  * keeps the same cap but makes what survives it intentional.
  */
+/**
+ * The family of app-object a verb acts on, derived from the action id.
+ *
+ * Deliberately a heuristic over the id rather than a new authored field: every
+ * surface would have to be re-authored to add one, and the id already carries
+ * the noun. `location.add_to_circle` is a circle verb, `location.stop_share` a
+ * sharing verb. An id whose noun is unrecognised gets its own family, which is
+ * the safe default -- it competes with itself rather than being lumped in with
+ * an unrelated group and starved by it.
+ */
+export function verbFamilyOf(actionId: string): string {
+  const local = actionId.includes(".")
+    ? actionId.slice(actionId.indexOf(".") + 1)
+    : actionId;
+  const NOUNS: Array<[RegExp, string]> = [
+    [/circle/, "circles"],
+    [/share|sharing|updates/, "sharing"],
+    [/request|invite|ask/, "requests"],
+    [/sos|emergency|check_in|checkin|safety/, "safety"],
+    [/contact|connection|people|person/, "people"],
+    [/location|place|map/, "places"],
+  ];
+  for (const [pattern, family] of NOUNS) {
+    if (pattern.test(local)) return family;
+  }
+  return `other:${local}`;
+}
+
+/**
+ * Round-robin the competing ids across verb families, so a crowded screen
+ * cannot let one family eat every slot.
+ *
+ * Applied ONLY when the cap actually binds. Below the cap this returns its
+ * input unchanged, which matters: reordering an inventory that is going to be
+ * carried in full would churn the snapshot revision for no benefit, and every
+ * screen today is comfortably under the cap. It is here for the screen that
+ * outgrows it next, not for any screen that exists now.
+ *
+ * Rank order is preserved as the outer key: a subview-boosted handler still
+ * outranks an unboosted one from a "fairer" family. Fairness decides who wins
+ * a tie, never who outranks whom.
+ */
+export function interleaveByVerbFamily(
+  competing: string[],
+  rankOf: (actionId: string) => number,
+): string[] {
+  if (competing.length <= ACTION_ID_SCREEN_SEGMENT_CAP) return competing;
+  const byRank = new Map<number, Map<string, string[]>>();
+  competing.forEach((actionId) => {
+    const rank = rankOf(actionId);
+    const families = byRank.get(rank) ?? new Map<string, string[]>();
+    const family = verbFamilyOf(actionId);
+    families.set(family, [...(families.get(family) ?? []), actionId]);
+    byRank.set(rank, families);
+  });
+  const out: string[] = [];
+  for (const rank of [...byRank.keys()].sort((a, b) => a - b)) {
+    // Insertion order of the family map is first-appearance order, so the
+    // result stays deterministic for a given input.
+    const queues = [...(byRank.get(rank) ?? new Map()).values()];
+    let drained = false;
+    while (!drained) {
+      drained = true;
+      for (const queue of queues) {
+        const next = queue.shift();
+        if (next === undefined) continue;
+        out.push(next);
+        drained = false;
+      }
+    }
+  }
+  return out;
+}
+
 function prioritizeAvailableActionIds(
   candidateIds: string[],
   screen: string | null,
@@ -661,18 +825,36 @@ function prioritizeAvailableActionIds(
         action.execution_target.path === "route",
     );
   };
-  const capCompeting = ranked.filter((actionId) => !isCapExempt(actionId));
+  const capCompeting = interleaveByVerbFamily(
+    ranked.filter((actionId) => !isCapExempt(actionId)),
+    rankOf,
+  );
   const capExemptActions = ranked.filter(isCapExempt);
-  if (
-    capCompeting.length > ACTION_ID_SCREEN_SEGMENT_CAP &&
-    process.env.NODE_ENV !== "production"
-  ) {
+  if (capCompeting.length > ACTION_ID_SCREEN_SEGMENT_CAP) {
     // Loud, and it names what was lost. This was a console.debug, and the
     // truncation it describes is invisible in the product: a dropped id comes
     // back from the relay as `action_unavailable`, which reads as "this
     // feature is broken" rather than "this screen declared more than the
     // context can carry". Location growing to 19 actions is what found it.
     const dropped = capCompeting.slice(ACTION_ID_SCREEN_SEGMENT_CAP);
+    // Deliberately NOT gated on NODE_ENV. This used to be silenced in
+    // production, which is the only place it matters: a dropped id comes back
+    // from the relay as `action_unavailable`, indistinguishable from a broken
+    // feature. Location shipped for months with 18 actions -- every circle
+    // verb, both check-in families, and trigger_sos -- invisible to the model
+    // and nobody could see it happening.
+    logVoiceMetric({
+      metric: "voice_inventory_truncated",
+      value: dropped.length,
+      turnId: createVoiceTurnId(),
+      tags: {
+        screen: screen || "unknown",
+        subview: subview || "",
+        declared: capCompeting.length,
+        kept: ACTION_ID_SCREEN_SEGMENT_CAP,
+        dropped_ids: dropped.join(","),
+      },
+    });
     console.warn(
       `[VOICE_CONTEXT] ${screen || "unknown screen"} declared ${capCompeting.length} ` +
         `local action ids but only ${ACTION_ID_SCREEN_SEGMENT_CAP} fit. ` +
@@ -694,7 +876,10 @@ function prioritizeAvailableActionIds(
   }
   if (!includeGlobalNavigation) return screenSegment;
   const combined = [...screenSegment];
-  for (const navId of GLOBAL_NAV_ACTION_IDS) {
+  for (const navId of [
+    ...GLOBAL_NAV_ACTION_IDS,
+    ...GLOBAL_SESSION_ACTION_IDS,
+  ]) {
     if (combined.length >= AVAILABLE_ACTION_IDS_CAP) break;
     if (combined.includes(navId)) continue;
     if (!getKaiActionById(navId)) continue;
@@ -917,6 +1102,26 @@ export function buildStructuredScreenContext(args: {
       (action) => action.action_id,
     ),
   ]);
+  const executableCandidates = uniqueStrings(
+    [
+      ...(publishedActionIds.length ? [] : currentRouteActionIds),
+      ...derivedControlActionIds,
+      ...publishedActionIds,
+    ],
+    PUBLISHED_ACTION_IDS_CAP,
+  );
+  const executableActionIds =
+    activeInteractionLayer?.blocksUnderlyingActions
+      ? uniqueStrings(
+          [
+            ...(activeInteractionLayer.visibleActionIds || []),
+            ...(activeInteractionLayer.dismissActionId
+              ? [activeInteractionLayer.dismissActionId]
+              : []),
+          ],
+          PUBLISHED_ACTION_IDS_CAP,
+        ).filter((actionId) => executableCandidates.includes(actionId))
+      : executableCandidates;
   const availableActions = uniqueStrings([
     ...(underlyingActionsAvailable
       ? routeActions.map((action) => action.label)
@@ -952,6 +1157,11 @@ export function buildStructuredScreenContext(args: {
     ...readObject(rawContext.screen_metadata),
     ...readObject(publishedSurface?.screenMetadata),
     available_action_ids: availableActionIds,
+    // Preserve the full redacted surface inventory separately from the
+    // ranked model-facing list. The relay validates this second list against
+    // its generated route/action index before returning it as execution
+    // authority.
+    executable_action_ids: executableActionIds,
     auth: {
       signed_in: args.appRuntimeState?.auth.signed_in === true,
     },
@@ -1093,6 +1303,10 @@ export function buildOneVoiceContextSnapshot(args: {
     structured.screen_metadata.available_action_ids,
     AVAILABLE_ACTION_IDS_CAP,
   );
+  const rawExecutableActionIds = structured.screen_metadata.executable_action_ids;
+  const publishedExecutableActionIds = Array.isArray(rawExecutableActionIds)
+    ? readStringArray(rawExecutableActionIds, PUBLISHED_ACTION_IDS_CAP)
+    : publishedAvailableActionIds;
   const vaultReady = Boolean(
     structured.vault.unlocked &&
       structured.vault.token_available &&
@@ -1132,18 +1346,37 @@ export function buildOneVoiceContextSnapshot(args: {
     interactionLayerAllowed && routeSurfaceCoherent
     ? publishedAvailableActionIds
     : [];
-      const availableActionIds = args.requireMountedLocalHandlers
+  const executableBeforeHandlerCheck =
+    interactionLayerAllowed && routeSurfaceCoherent
+      ? publishedExecutableActionIds
+      : [];
+  const isExecutableOnMountedSurface = (actionId: string): boolean => {
+    const action = getKaiActionById(actionId);
+    if (!action || action.execution_target.status !== "wired") return false;
+    return (
+      action.execution_target.path !== "local_handler" ||
+      hasMountedLocalOnboardingHandler(actionId)
+    );
+  };
+  const availableActionIds = args.requireMountedLocalHandlers
     ? availableBeforeHandlerCheck.filter((actionId) => {
-        const action = getKaiActionById(actionId);
-        if (!action || action.execution_target.status !== "wired") {
-          return false;
-        }
-        return (
-          action.execution_target.path !== "local_handler" ||
-          hasMountedLocalOnboardingHandler(actionId)
-        );
+        return isExecutableOnMountedSurface(actionId);
       })
     : availableBeforeHandlerCheck;
+  const executableActionIds = args.requireMountedLocalHandlers
+    ? executableBeforeHandlerCheck.filter(isExecutableOnMountedSurface)
+    : executableBeforeHandlerCheck;
+  const rawCircleCount = structured.screen_metadata.circle_count;
+  const circleCount =
+    typeof rawCircleCount === "number" &&
+    Number.isInteger(rawCircleCount) &&
+    rawCircleCount >= 0
+      ? Math.min(rawCircleCount, 10_000)
+      : null;
+  const redactedState: OneVoiceContextSnapshot["redacted_state"] = {
+    circle_count: circleCount,
+    ...readRedactedVoiceState(structured.screen_metadata),
+  };
   const visibleControlIds = interactionLayerAllowed && routeSurfaceCoherent
     ? uniqueStrings(
         structured.surface.controls.map((control) => control.id || ""),
@@ -1166,6 +1399,31 @@ export function buildOneVoiceContextSnapshot(args: {
     navStack,
     routePlaybook.playbookId,
   ]);
+  // Read from screenState, NOT screenMetadata. screenMetadata is a mixed bag
+  // that surfaces also use for internal plumbing -- one publishes a raw cache
+  // key containing a user id, and a test in this suite asserts that value
+  // never reaches the snapshot. Deriving from it would have quietly broken
+  // that invariant for every surface at once. screenState is the half a
+  // surface deliberately offers, so a leak takes a decision rather than an
+  // oversight.
+  //
+  // Non-scalars are dropped rather than stringified: a surface that publishes
+  // an object here is making a contract mistake, and silently flattening it
+  // would hide that while sending something the model cannot use.
+  const screenState = ((): Record<string, string | number | boolean | null> | null => {
+    const out: Record<string, string | number | boolean | null> = {};
+    for (const [key, value] of Object.entries(publishedSurface?.screenState ?? {})) {
+      if (
+        value === null ||
+        typeof value === "string" ||
+        typeof value === "number" ||
+        typeof value === "boolean"
+      ) {
+        out[key] = value;
+      }
+    }
+    return Object.keys(out).length > 0 ? out : null;
+  })();
   const uiRevision = stableRevision([
     structured.ui.visible_modules,
     structured.ui.active_section ?? null,
@@ -1181,6 +1439,11 @@ export function buildOneVoiceContextSnapshot(args: {
     structured.ui.dead_end?.reason ?? null,
     structured.ui.modal_state ?? null,
     structured.ui.focused_widget ?? null,
+    // Live screen state moves the revision, or the app never republishes when
+    // only the state changed. A pending request count going 0 -> 3, or a
+    // permission flipping prompt -> granted, would otherwise produce an
+    // identical revision and the model would keep quoting the old number.
+    screenState,
     availableActionIds,
     visibleControlIds,
     activeInteractionLayer,
@@ -1249,6 +1512,9 @@ export function buildOneVoiceContextSnapshot(args: {
       interaction_layer: activeInteractionLayer,
     },
     available_action_ids: availableActionIds,
+    executable_action_ids: executableActionIds,
+    redacted_state: redactedState,
+    screen_state: screenState,
     pending_settlement:
       args.state === "acting" || args.state === "navigation_settling",
     cache: {

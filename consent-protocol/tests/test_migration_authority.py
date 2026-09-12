@@ -146,6 +146,42 @@ async def test_ledger_requires_verified_baseline(tmp_path: Path):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("mode", [MigrationMode.REPLAY, MigrationMode.LEDGER])
+async def test_concurrent_index_opt_in_runs_outside_transaction(tmp_path: Path, mode):
+    (tmp_path / "114_existing.sql").write_text("SELECT 114", encoding="utf-8")
+    sql = (
+        "-- migration: transactional=false\n"
+        "CREATE INDEX CONCURRENTLY IF NOT EXISTS test_idx ON test_table(id);\n"
+    )
+    (tmp_path / "203_index.sql").write_text(sql, encoding="utf-8")
+    entries = build_manifest_entries(tmp_path, ("114_existing.sql", "203_index.sql"))
+    assert entries[0].transactional is True
+    assert entries[1].transactional is False
+
+    class ConcurrentConnection(FakeConnection):
+        async def execute(self, statement, *args):
+            if statement == sql:
+                assert not self.in_transaction
+            return await super().execute(statement, *args)
+
+    conn = ConcurrentConnection()
+    conn.rows["baseline:114"] = {
+        "migration_id": "baseline:114",
+        "filename": "release_migration_manifest.json@114",
+        "checksum_sha256": manifest_checksum(entries[:1]),
+        "status": "baseline",
+        "baseline_through": 114,
+    }
+    await apply_manifest_entries(conn, entries, mode=mode)
+    assert sql in conn.executed_sql
+    if mode is MigrationMode.LEDGER:
+        assert conn.rows["203"]["status"] == "applied"
+    else:
+        assert "203" not in conn.rows
+    assert conn.locked is False
+
+
+@pytest.mark.asyncio
 async def test_checksum_drift_fails_before_sql_execution(tmp_path: Path):
     entries = _entries(tmp_path)
     conn = FakeConnection()
@@ -360,6 +396,18 @@ async def test_failure_log_never_quotes_the_database_message(tmp_path: Path, cap
     assert "RuntimeError" in stderr
 
 
+@pytest.mark.asyncio
+async def test_successful_migration_does_not_hide_unlock_failure():
+    class UnlockFailure(FakeConnection):
+        async def fetchval(self, sql, *args):
+            if "pg_advisory_unlock" in sql:
+                raise RuntimeError("synthetic unlock failure")
+            return await super().fetchval(sql, *args)
+
+    with pytest.raises(RuntimeError, match="synthetic unlock failure"):
+        await apply_manifest_entries(UnlockFailure(), (), mode=MigrationMode.REPLAY)
+
+
 class _LockTimeout(Exception):
     """Stands in for asyncpg.exceptions.LockNotAvailableError.
 
@@ -404,6 +452,7 @@ def no_sleep(monkeypatch):
         slept.append(seconds)
 
     monkeypatch.setattr("db.migration_authority.asyncio.sleep", _fake_sleep)
+    monkeypatch.setattr("db.migration_authority.time.perf_counter", lambda: 0.0)
     return slept
 
 
@@ -513,3 +562,22 @@ async def test_run_wide_retry_budget_stops_a_long_contended_run(
     assert no_sleep == [1.0], "budget of 1.0s affords exactly the first 1s backoff"
     assert conn.attempts == 2, "then it reports instead of retrying"
     assert conn.locked is False
+
+
+@pytest.mark.asyncio
+async def test_failed_attempt_duration_consumes_run_retry_budget(tmp_path, no_sleep, monkeypatch):
+    monkeypatch.setattr("db.migration_authority._LOCK_RETRY_RUN_BUDGET_S", 5.0)
+    clock = [0.0]
+    monkeypatch.setattr("db.migration_authority.time.perf_counter", lambda: clock[0])
+
+    class SlowContention(ContendingConnection):
+        async def execute(self, sql, *args):
+            if "SELECT 115" in sql:
+                clock[0] += 5.0
+            return await super().execute(sql, *args)
+
+    conn = SlowContention("SELECT 115", fail_times=99)
+    with pytest.raises(_LockTimeout):
+        await apply_manifest_entries(conn, _entries(tmp_path), mode=MigrationMode.REPLAY)
+    assert conn.attempts == 1
+    assert no_sleep == []

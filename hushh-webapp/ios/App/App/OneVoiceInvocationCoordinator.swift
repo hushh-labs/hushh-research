@@ -4,12 +4,17 @@ import OSLog
 struct PendingOneVoiceInvocation: Codable, Equatable, Sendable {
     static let supportedKind = "start_one_voice"
     static let supportedSource = "siri_app_shortcut"
+    static let handoffDeadline: TimeInterval = 25
 
     let id: String
     let kind: String
     let source: String
     let createdAt: Date
     let expiresAt: Date
+
+    var handoffDeadlineAt: Date {
+        min(expiresAt, createdAt.addingTimeInterval(Self.handoffDeadline))
+    }
 
     init(id: String = UUID().uuidString, createdAt: Date, expiresAt: Date) {
         self.id = id
@@ -25,7 +30,12 @@ struct PendingOneVoiceInvocation: Codable, Equatable, Sendable {
             "kind": kind,
             "source": source,
             "createdAt": Int64(createdAt.timeIntervalSince1970 * 1_000),
-            "expiresAt": Int64(expiresAt.timeIntervalSince1970 * 1_000)
+            "expiresAt": Int64(expiresAt.timeIntervalSince1970 * 1_000),
+            "handoffDeadlineAt": Int64(handoffDeadlineAt.timeIntervalSince1970 * 1_000),
+            "claimedAt": NSNull(),
+            "appOwnedAt": NSNull(),
+            "detached": false,
+            "outcome": NSNull()
         ]
     }
 }
@@ -51,7 +61,14 @@ final class OneVoiceInvocationCoordinator: @unchecked Sendable {
     private let storageKey: String
     private let now: () -> Date
     private let lock = NSLock()
-    private var claimedInvocations: [String: PendingOneVoiceInvocation] = [:]
+    private struct ClaimedInvocationState {
+        let invocation: PendingOneVoiceInvocation
+        let claimedAt: Date
+        var appOwnedAt: Date?
+        var detached: Bool
+        var outcome: String?
+    }
+    private var claimedInvocations: [String: ClaimedInvocationState] = [:]
 
     init(
         defaults: UserDefaults = .standard,
@@ -111,16 +128,59 @@ final class OneVoiceInvocationCoordinator: @unchecked Sendable {
             lock.unlock()
             return false
         }
-        if invocation.expiresAt <= now() {
+        let currentTime = now()
+        if invocation.expiresAt <= currentTime || invocation.handoffDeadlineAt <= currentTime {
             defaults.removeObject(forKey: storageKey)
             lock.unlock()
             Self.log(state: "expired", invocation: invocation, outcome: "expired")
             return false
         }
         defaults.removeObject(forKey: storageKey)
-        claimedInvocations[id] = invocation
+        claimedInvocations[id] = ClaimedInvocationState(
+            invocation: invocation,
+            claimedAt: currentTime,
+            appOwnedAt: nil,
+            detached: false,
+            outcome: nil
+        )
         lock.unlock()
         Self.log(state: "dispatched", invocation: invocation, outcome: "claimed")
+        return true
+    }
+
+    /// Mark the handoff as app-owned or detached. Detachment before app
+    /// ownership removes the claim so a stale completion cannot start or
+    /// preserve a microphone session after Siri has gone away.
+    @discardableResult
+    func reportProgress(id: String, state: String) -> Bool {
+        lock.lock()
+        guard var claimed = claimedInvocations[id] else {
+            lock.unlock()
+            return false
+        }
+        if state == "app_owned" && now() > claimed.invocation.handoffDeadlineAt {
+            claimedInvocations.removeValue(forKey: id)
+            lock.unlock()
+            Self.log(state: "handoff_timeout", invocation: claimed.invocation, outcome: "handoff_timeout")
+            return false
+        }
+        switch state {
+        case "app_owned":
+            claimed.appOwnedAt = now()
+        case "detached":
+            claimed.detached = true
+            if claimed.appOwnedAt == nil {
+                claimedInvocations.removeValue(forKey: id)
+                lock.unlock()
+                Self.log(state: "cancelled", invocation: claimed.invocation, outcome: "detached")
+                return true
+            }
+        default:
+            break
+        }
+        claimedInvocations[id] = claimed
+        lock.unlock()
+        Self.log(state: "progress", invocation: claimed.invocation, outcome: state)
         return true
     }
 
@@ -134,7 +194,7 @@ final class OneVoiceInvocationCoordinator: @unchecked Sendable {
         lock.unlock()
 
         let safeOutcome = Self.allowedOutcomes.contains(outcome) ? outcome : "failed"
-        let invocation = claimedInvocation ?? pendingInvocation
+        let invocation = claimedInvocation?.invocation ?? pendingInvocation
         if let invocation, invocation.id == id {
             Self.log(state: safeOutcome, invocation: invocation, outcome: safeOutcome)
         } else {
@@ -155,7 +215,11 @@ final class OneVoiceInvocationCoordinator: @unchecked Sendable {
             Self.log(state: "cancelled", invocation: invocation, outcome: outcome)
         }
         for invocation in claimed {
-            Self.log(state: "cancelled", invocation: invocation, outcome: outcome)
+            Self.log(
+                state: "cancelled",
+                invocation: invocation.invocation,
+                outcome: outcome
+            )
         }
     }
 
@@ -195,7 +259,8 @@ final class OneVoiceInvocationCoordinator: @unchecked Sendable {
     }
 
     private static let allowedOutcomes: Set<String> = [
-        "accepted", "failed", "expired", "cancelled", "fallback_shown"
+        "accepted", "failed", "expired", "cancelled", "fallback_shown",
+        "handoff_timeout"
     ]
 
     private static func log(

@@ -35,6 +35,8 @@ export type LocalOnboardingActionResult = {
  */
 export type LocalOnboardingActionContext = {
   directiveId?: string | null;
+  /** One-use token minted by the visible in-app confirmation card. */
+  humanConfirmationToken?: string | null;
 };
 
 export type LocalOnboardingActionHandler = (

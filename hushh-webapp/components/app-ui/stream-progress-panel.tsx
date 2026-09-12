@@ -170,6 +170,8 @@ export type AppStreamPanelProps = {
   thinkingTitle?: string;
   evidenceItems?: AppStreamProgressItem[];
   evidenceTitle?: string;
+  /** Presentation override for the nested reasoning section. */
+  thinkingClassName?: string;
   structuredContent?: ReactNode;
   response?: ReactNode;
   responseText?: string;
@@ -192,6 +194,7 @@ export function AppStreamPanel({
   thinkingTitle = "Reasoning",
   evidenceItems = [],
   evidenceTitle = "Consulted specialists",
+  thinkingClassName,
   structuredContent,
   response,
   responseText = "",
@@ -256,6 +259,7 @@ export function AppStreamPanel({
             count={thinkingContent ? undefined : thinkingItems.length}
             defaultOpen={isStreaming && !hasResponse}
             bodyClassName={thinkingContent ? "px-3 py-2.5" : undefined}
+            className={thinkingClassName}
             content={thinkingContent}
           />
         ) : null}

@@ -93,11 +93,11 @@ function isTransientFetchFailure(error: unknown): boolean {
 }
 
 type ConsentOpenAcknowledgementResult =
-  | "acknowledged"
-  | "retryable_failure"
-  | "permanent_failure";
+  "acknowledged" | "retryable_failure" | "permanent_failure";
 
-const CONSENT_OPEN_ACK_RETRY_DELAYS_MS = [1_000, 3_000, 10_000, 30_000] as const;
+const CONSENT_OPEN_ACK_RETRY_DELAYS_MS = [
+  1_000, 3_000, 10_000, 30_000,
+] as const;
 
 function isRetryableConsentOpenStatus(status: number): boolean {
   return status === 408 || status === 425 || status === 429 || status >= 500;
@@ -1092,6 +1092,7 @@ export function ConsentNotificationProvider({
     }
 
     const connect = async () => {
+      let connectedAt: number | null = null;
       try {
         const idToken = await user.getIdToken();
         console.info("[NotificationProvider] Opening consent SSE fallback...");
@@ -1108,20 +1109,20 @@ export function ConsentNotificationProvider({
         );
 
         if (!response.ok || !response.body) {
-          const detail = await response.text().catch(() => "");
+          // Do not expose a server response body in UI state or diagnostics.
           // Keep the status. It is the only thing that distinguishes "try
           // again in a moment" from "this endpoint is switched off". The body
           // is always non-empty here, so the `consent_sse_${status}` fallback
           // never fired and the status was being thrown away entirely.
           throw new ConsentSseError(
-            detail || `consent_sse_${response.status}`,
+            `consent_sse_${response.status}`,
             response.status,
           );
         }
 
         if (cancelled) return;
 
-        reconnectAttempt = 0;
+        connectedAt = Date.now();
 
         setDeliveryMode(
           initStatus === "push_blocked"
@@ -1183,11 +1184,13 @@ export function ConsentNotificationProvider({
         if (cancelled || abortController.signal.aborted) return;
         console.warn(
           "[NotificationProvider] Consent SSE fallback failed:",
-          error,
+          error instanceof ConsentSseError ? error.status : "unavailable",
         );
         setDeliveryMode("inbox_only");
         setDeliveryDetail(
-          error instanceof Error ? error.message : "consent_sse_failed",
+          error instanceof ConsentSseError
+            ? `consent_sse_${error.status}`
+            : "consent_sse_failed",
         );
 
         // A permanent refusal is an answer, not a blip. Consent SSE is off in
@@ -1210,6 +1213,15 @@ export function ConsentNotificationProvider({
 
         // Everything else may genuinely be transient, so keep trying -- but
         // back off, and give up rather than retry forever.
+        // HTTP 200 alone is not recovery: an immediately closed stream must
+        // consume the retry budget. Reset after a full maximum-backoff window
+        // of connected time, allowing established streams to recover later.
+        if (
+          connectedAt !== null &&
+          Date.now() - connectedAt >= MAX_SSE_RECONNECT_DELAY_MS
+        ) {
+          reconnectAttempt = 0;
+        }
         reconnectAttempt += 1;
         if (reconnectAttempt > MAX_SSE_RECONNECT_ATTEMPTS) {
           console.warn(
@@ -1301,9 +1313,9 @@ export function ConsentNotificationProvider({
   useEffect(() => {
     if (!user || !isVaultUnlocked || pathname !== ROUTES.ONE_FEED) return;
     if (!notificationRequestId && !notificationBundleId) return;
-    const acknowledgementId =
-      `${user.uid}::${notificationBundleId}::${notificationRequestId}`;
-    if (acknowledgedNotificationOpenIdsRef.current.has(acknowledgementId)) return;
+    const acknowledgementId = `${user.uid}::${notificationBundleId}::${notificationRequestId}`;
+    if (acknowledgedNotificationOpenIdsRef.current.has(acknowledgementId))
+      return;
 
     let cancelled = false;
     let retryTimer: ReturnType<typeof globalThis.setTimeout> | null = null;
@@ -1533,8 +1545,9 @@ export function ConsentNotificationProvider({
 
       if (msgType === "consent_request") {
         const consent = parsedConsent!;
-        const isNewPendingRequest =
-          !knownPendingConsentIdsRef.current.has(consent.id);
+        const isNewPendingRequest = !knownPendingConsentIdsRef.current.has(
+          consent.id,
+        );
         knownPendingConsentIdsRef.current.add(consent.id);
 
         // A remote request changes the canonical Consent Center even while its

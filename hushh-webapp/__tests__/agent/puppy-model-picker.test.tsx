@@ -245,6 +245,65 @@ describe("PuppyModelPicker", () => {
     expect(screen.getByText("Use it anyway")).toBeInTheDocument();
   });
 
+  it("carries the gateway's own on-device answer, not the pin route's guess", async () => {
+    // The row said "on this machine" from `provider.onDevice`, and the pin
+    // route answered from a hardcoded three-name provider set. A gateway-
+    // declared local provider with any other slug was therefore labelled
+    // on-device in the picker and then told, in the transcript, that it runs
+    // off the machine, which also flipped the persisted pill.
+    const onApplied = vi.fn();
+    mocks.fetchPuppyModelOptions.mockResolvedValue(
+      options({
+        providers: [
+          {
+            id: "somelocal",
+            name: "Some local runtime",
+            onDevice: true,
+            isCurrent: false,
+            models: [{ id: "somelocal/model-a" }],
+          },
+        ],
+      }),
+    );
+    mocks.assignPuppyModel.mockResolvedValue({ ok: true });
+    render(<PuppyModelPicker onApplied={onApplied} />);
+    fireEvent.click(screen.getByTitle("Choose the model and reasoning effort"));
+    fireEvent.click(await screen.findByText("model-a"));
+
+    await waitFor(() =>
+      expect(onApplied).toHaveBeenCalledWith(
+        expect.objectContaining({ provider: "somelocal", onDevice: true }),
+      ),
+    );
+  });
+
+  it("does not call a cloud provider on-device just because the pin succeeded", async () => {
+    const onApplied = vi.fn();
+    mocks.fetchPuppyModelOptions.mockResolvedValue(
+      options({
+        providers: [
+          {
+            id: "openai",
+            name: "OpenAI",
+            onDevice: false,
+            isCurrent: false,
+            models: [{ id: "gpt-5" }],
+          },
+        ],
+      }),
+    );
+    mocks.assignPuppyModel.mockResolvedValue({ ok: true });
+    render(<PuppyModelPicker onApplied={onApplied} />);
+    fireEvent.click(screen.getByTitle("Choose the model and reasoning effort"));
+    fireEvent.click(await screen.findByText("gpt-5"));
+
+    await waitFor(() =>
+      expect(onApplied).toHaveBeenCalledWith(
+        expect.objectContaining({ provider: "openai", onDevice: false }),
+      ),
+    );
+  });
+
   it("still offers the reasoning efforts the agent accepts", async () => {
     open(options());
 

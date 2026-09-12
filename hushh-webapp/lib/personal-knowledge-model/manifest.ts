@@ -4,12 +4,26 @@ import {
   CURRENT_READABLE_PROJECTION_VERSION,
   currentDomainContractVersion,
 } from "@/lib/personal-knowledge-model/upgrade-contracts";
+import { humanizeMemoryPath } from "@/lib/pkm/humanize-segment";
 
 export type PathDescriptor = {
   json_path: string;
   parent_path?: string | null;
   path_type: "object" | "array" | "leaf";
   exposure_eligibility: boolean;
+  /**
+   * This path's own final segment, as the owner's data actually spelled it.
+   *
+   * `json_path` is normalized for authorization and is therefore lowercased,
+   * which destroys the word boundary in a key like `addressDetails`. That loss
+   * is irreversible: no downstream function can tell `addressdetails` from a
+   * genuine single word. Keeping the original segment here is what lets any
+   * consumer render one level of the path in the owner's own words.
+   *
+   * Null for the synthetic collection segments (`_items`, `_entities`), which
+   * were never keys the owner wrote.
+   */
+  display_segment?: string | null;
   consent_label?: string | null;
   sensitivity_label?: string | null;
   segment_id?: string | null;
@@ -106,12 +120,19 @@ function joinPath(parts: string[]): string {
   return parts.filter(Boolean).join(".");
 }
 
+/**
+ * The owner-facing label for a path, built from the segments AS WRITTEN.
+ *
+ * This must be called with the raw path, never the normalized one. The
+ * normalized path has already been lowercased for authorization, and the words
+ * cannot be recovered from it: that is exactly how a chat row came to read
+ * "Saved Places Locations Items Addressdetails Buildingcolor". The shared
+ * resolver handles camelCase, letter-to-digit runs and separators; a caller
+ * that hands it `addressdetails` gets "Addressdetails", correctly, because by
+ * then the information is gone.
+ */
 function titleizePath(path: string): string {
-  return path
-    .split(".")
-    .map((segment) => segment.replace(/_/g, " "))
-    .join(" ")
-    .replace(/\b\w/g, (match) => match.toUpperCase());
+  return humanizeMemoryPath(path);
 }
 
 function cloneValue<T>(value: T): T {
@@ -206,10 +227,23 @@ function countEntityMaps(value: unknown): number {
   return count;
 }
 
+/** Segments the walk invents; they were never keys the owner wrote. */
+const SYNTHETIC_SEGMENTS = new Set(["_items", ENTITY_COLLECTION_SEGMENT]);
+
 function walkValue(
   value: unknown,
   path: string[],
-  descriptors: Map<string, PathDescriptor>
+  descriptors: Map<string, PathDescriptor>,
+  /**
+   * The same path, segment for segment, spelled as the owner's data spells it.
+   *
+   * Carried alongside `path` rather than derived from it, because `path` has
+   * been through `normalizePathSegment` and the word boundaries are already
+   * gone. This is the only point in the system where both forms exist at once,
+   * which is why the label has to be authored here and not at any of the five
+   * places downstream that used to try.
+   */
+  displayPath: string[]
 ): void {
   if (value === undefined) {
     return;
@@ -217,6 +251,7 @@ function walkValue(
 
   const pathKey = joinPath(path);
   if (pathKey) {
+    const rawSegment = displayPath[displayPath.length - 1] ?? "";
     const isArray = Array.isArray(value);
     const isObject =
       !!value && typeof value === "object" && !isArray;
@@ -227,7 +262,8 @@ function walkValue(
       parent_path: path.length > 1 ? joinPath(path.slice(0, -1)) : null,
       path_type: pathType,
       exposure_eligibility: isExternalizablePath(pathKey, pathType),
-      consent_label: titleizePath(pathKey),
+      display_segment: SYNTHETIC_SEGMENTS.has(rawSegment) ? null : rawSegment || null,
+      consent_label: titleizePath(joinPath(displayPath)),
       sensitivity_label: sensitivityLabel,
       segment_id: path[0] || "root",
       source_agent: "pkm_structure_agent",
@@ -259,7 +295,7 @@ function walkValue(
   if (Array.isArray(value)) {
     for (const item of value) {
       if (item !== undefined) {
-        walkValue(item, [...path, "_items"], descriptors);
+        walkValue(item, [...path, "_items"], descriptors, [...displayPath, "_items"]);
       }
     }
     return;
@@ -281,7 +317,10 @@ function walkValue(
   if (path[path.length - 1] === ENTITY_MAP_KEY) {
     for (const childValue of Object.values(record)) {
       if (childValue !== undefined) {
-        walkValue(childValue, [...path, ENTITY_COLLECTION_SEGMENT], descriptors);
+        walkValue(childValue, [...path, ENTITY_COLLECTION_SEGMENT], descriptors, [
+          ...displayPath,
+          ENTITY_COLLECTION_SEGMENT,
+        ]);
       }
     }
     return;
@@ -291,7 +330,8 @@ function walkValue(
     if (!normalizedKey) {
       continue;
     }
-    walkValue(childValue, [...path, normalizedKey], descriptors);
+    // rawKey, not normalizedKey: this is the moment the spelling still exists.
+    walkValue(childValue, [...path, normalizedKey], descriptors, [...displayPath, rawKey]);
   }
 }
 
@@ -305,7 +345,7 @@ export function buildPersonalKnowledgeModelStructureArtifacts(params: {
 } {
   const normalizedDomain = normalizePathSegment(params.domain) || "general";
   const descriptors = new Map<string, PathDescriptor>();
-  walkValue(params.domainData, [], descriptors);
+  walkValue(params.domainData, [], descriptors, []);
 
   const paths = [...descriptors.values()].sort((a, b) =>
     a.json_path.localeCompare(b.json_path)

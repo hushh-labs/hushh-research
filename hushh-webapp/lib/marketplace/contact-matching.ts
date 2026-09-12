@@ -9,6 +9,7 @@ import {
   normalizeContactPhone,
   resolveContactPhoneRegion,
 } from "@/lib/contacts/phone-normalization";
+import { contactInvitationsEnabled, normalizeInviteEmail, type LocalInviteContact } from "@/lib/contacts/invitation-candidates";
 
 /**
  * The backend accepts at most 1000 entries per contact-sync request. The local
@@ -98,6 +99,7 @@ export async function buildMarketplaceContactLookups(options?: {
    * region bare national contact numbers belong to; never hashed or sent.
    */
   accountPhoneNumber?: string | null;
+  accountEmail?: string | null;
   /**
    * Reads the latest verified account phone after the contact source returns.
    * AuthContext can finish hydrating while an OS/Google picker is open; callers
@@ -111,6 +113,8 @@ export async function buildMarketplaceContactLookups(options?: {
   signal?: AbortSignal;
   /** Defaults to the device address book through the Capacitor plugin. */
   source?: MarketplaceContactSource;
+  /** Private side channel; raw destinations never enter the returned lookup result. */
+  onLocalInviteContacts?: (contacts: LocalInviteContact[]) => void;
 }): Promise<MarketplaceContactLookupResult> {
   // The default forwards exactly `{ limit }` and nothing else — the existing
   // test asserts that call shape as an exact object match, and it is the right
@@ -249,6 +253,32 @@ export async function buildMarketplaceContactLookups(options?: {
     result.contacts.length,
     Number(result.totalAvailable) || 0,
   );
+
+  if (contactInvitationsEnabled() && options?.onLocalInviteContacts) {
+    const ownEmail = options.accountEmail ? normalizeInviteEmail(options.accountEmail)?.toLowerCase() : null;
+    options.onLocalInviteContacts(result.contacts.flatMap((contact, index) => {
+      const local = localContacts[index]!;
+      // Do not offer the account's own card through an alternate email address.
+      if (accountPhoneE164 && (contact.phoneNumbers || []).some(
+        (phone) => normalizeContactPhone(phone, region)?.e164 === accountPhoneE164,
+      )) return [];
+      const numbers = Array.from(contactNumbers.get(local.contactKey) ?? []);
+      const emails = (result.sourcePlatform === "web" || result.sourcePlatform === "google")
+        ? Array.from(new Set((contact.emailAddresses ?? []).flatMap((email) => {
+          const normalized = normalizeInviteEmail(email);
+          return normalized && normalized.toLowerCase() !== ownEmail ? [normalized] : [];
+        }))) : [];
+      return [{
+        id: local.contactKey,
+        displayName: local.displayName || "Contact",
+        emailOnly: !(contact.hasPhoneEntries ?? (contact.phoneNumbers ?? []).length > 0),
+        destinations: [
+          ...numbers.filter((number) => selectedNumbers.has(number)).map((value) => ({ kind: "phone" as const, value })),
+          ...emails.map((value) => ({ kind: "email" as const, value })),
+        ],
+      }];
+    }));
+  }
 
   return {
     lookups,

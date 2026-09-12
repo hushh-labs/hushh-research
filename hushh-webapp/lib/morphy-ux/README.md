@@ -29,6 +29,11 @@ Those stay in:
 - `motion.ts`
 - `tokens/*`
 
+Page-entry animation excludes switch controls and their descendants on both
+initial and deferred mounts. Switches own their thumb movement; applying a GSAP
+transform on top of CSS translation can double the thumb's travel. Animate the
+surrounding section instead.
+
 ## Accent system (single switchable identity)
 
 All accent color flows through the `--app-accent-*` CSS family declared in

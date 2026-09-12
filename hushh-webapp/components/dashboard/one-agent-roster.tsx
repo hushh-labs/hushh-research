@@ -5,6 +5,7 @@ import { type CSSProperties, useEffect, useMemo, useState } from "react";
 import { ChevronRight, Grid2X2, List, Search } from "lucide-react";
 
 import { AgentSectionIcon } from "@/components/app-ui/agent-section-icon";
+import { SearchClearButton } from "@/components/app-ui/search-clear-button";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import { PageTitle } from "@/components/app-ui/typography";
 import {
@@ -18,7 +19,6 @@ import {
   getCapabilityStatusDisplay,
   type CapabilityStatusTone,
 } from "@/lib/onboarding/capability-status-display";
-import { isAndroid } from "@/lib/capacitor/platform";
 import { getCapabilitySetupCopy } from "@/lib/onboarding/capability-setup-copy";
 import { buildOneSetupCapabilityRoute } from "@/lib/navigation/routes";
 import { OneSetupCompletionHintService } from "@/lib/services/one-setup-completion-hint-service";
@@ -119,10 +119,6 @@ function readPersistedRosterView(): AgentRosterView {
   } catch {
     return "list";
   }
-}
-
-function readNativeAndroidRosterSurface(): boolean {
-  return typeof window !== "undefined" && isAndroid();
 }
 
 function positiveNumber(value: unknown): number | null {
@@ -677,11 +673,13 @@ export function OneAgentRoster({
   );
   const modes = buildModes(capabilityStatusById, cachedMetrics, setupDismissed);
   const [view, setView] = useState<AgentRosterView>(readPersistedRosterView);
-  const [usesAndroidCompositorGuard] = useState(
-    readNativeAndroidRosterSurface,
-  );
   const [animateViewChange, setAnimateViewChange] = useState(false);
   const [query, setQuery] = useState("");
+  useEffect(() => {
+    if (!animateViewChange) return;
+    const timeout = window.setTimeout(() => setAnimateViewChange(false), 320);
+    return () => window.clearTimeout(timeout);
+  }, [animateViewChange]);
   const visibleModes = useMemo(() => {
     const normalized = query.trim().toLowerCase();
     if (!normalized) return modes;
@@ -713,7 +711,13 @@ export function OneAgentRoster({
     <section
       aria-labelledby="one-agents-heading"
       data-testid="one-agents-section"
-      className="mx-auto w-full max-w-[720px] pb-[calc(var(--app-bottom-fixed-ui,96px)+1.75rem)] md:pb-[calc(var(--app-bottom-fixed-ui,96px)+2rem)]"
+      // No pb- here. The scroll root already reserves the bottom bars
+      // (app/providers.tsx pads it by --app-scroll-bottom-pad, the measured
+      // --app-bottom-shell-height), and .app-page-shell adds the 24px reading
+      // gap on top. Reserving them a second time is the wide empty band under
+      // the last agent on /one: roughly another 90-115px of scroll that no
+      // content can ever occupy. See components/calendar/calendar-agent-page-layout.ts.
+      className="mx-auto w-full max-w-[720px]"
     >
       <div className="mb-3 flex items-center justify-between gap-3">
         <PageTitle
@@ -738,25 +742,24 @@ export function OneAgentRoster({
           aria-label="Search agents"
           data-ui-role="input-text"
           data-testid="one-agents-search"
-          className="h-11 w-full rounded-[14px] border border-[rgba(60,60,67,.12)] bg-white py-[11px] pl-11 pr-4 text-[15px] font-normal leading-5 text-[#1D1D1F] outline-none placeholder:text-[#8E8E93] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--app-accent)]/60 dark:bg-[#1C1C1E] dark:text-[#F5F5F7]"
+          className="h-11 w-full rounded-[14px] border border-[rgba(60,60,67,.12)] bg-white py-[11px] pl-11 pr-12 text-[15px] font-normal leading-5 text-[#1D1D1F] outline-none placeholder:text-[#8E8E93] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--app-accent)]/60 dark:bg-[#1C1C1E] dark:text-[#F5F5F7]"
+        />
+        <SearchClearButton
+          visible={query.length > 0}
+          label="Clear agent search"
+          onClear={() => setQuery("")}
+          className="text-[#8E8E93] hover:bg-black/[0.06] hover:text-[#1D1D1F] dark:hover:bg-white/[0.08] dark:hover:text-[#F5F5F7]"
         />
       </label>
       <div
         key={view}
         data-testid="one-agents-view-content"
-        data-no-auto-fade={usesAndroidCompositorGuard ? "true" : undefined}
-        className={cn(
-          usesAndroidCompositorGuard &&
-            "isolate overflow-hidden [clip-path:inset(0)] [contain:layout_paint]",
-          animateViewChange &&
-            !usesAndroidCompositorGuard &&
-            "motion-step-enter",
-        )}
+        className={cn(animateViewChange && "motion-step-enter")}
       >
         {view === "grid" ? (
           <div
             data-testid="one-agents-grid"
-            className="overflow-hidden rounded-[20px] bg-white p-[18px] shadow-none dark:bg-[#1C1C1E]"
+            className="overflow-hidden rounded-[20px] border border-[rgba(60,60,67,.10)] bg-white p-3.5 shadow-[0_16px_42px_-32px_rgba(0,0,0,.38)] dark:border-white/[0.08] dark:bg-[#1C1C1E] dark:shadow-none sm:p-[18px]"
           >
             <div
               data-agent-roster-layout="grouped-icon-grid"
@@ -770,7 +773,7 @@ export function OneAgentRoster({
         ) : (
           <div
             data-testid="one-agents-list"
-            className="group/agent-list overflow-hidden rounded-[20px] bg-white shadow-none dark:bg-[#1C1C1E]"
+            className="group/agent-list overflow-hidden rounded-[20px] border border-[rgba(60,60,67,.10)] bg-white shadow-[0_16px_42px_-32px_rgba(0,0,0,.32)] dark:border-white/[0.08] dark:bg-[#1C1C1E] dark:shadow-none"
           >
             {visibleModes.map((mode) => (
               <AgentListRow key={mode.id} mode={mode} />

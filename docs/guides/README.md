@@ -26,6 +26,7 @@ flowchart TD
 
 ## Canonical Guides
 
+- [contact-invitations.md](./contact-invitations.md): contact selection, privacy, personal invitations and rollout.
 - [getting-started.md](./getting-started.md): the only supported first-run path.
 - [environment-model.md](./environment-model.md): the three supported runtime modes.
 - [advanced-ops.md](./advanced-ops.md): deeper operator and release workflows.

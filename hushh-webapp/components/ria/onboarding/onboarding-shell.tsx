@@ -64,7 +64,7 @@ export function OnboardingShell({
   const isAccent = heroImage?.variant === "accent";
   useScrollReset(currentStepIndex, { enabled: true });
   return (
-    <div className="mx-auto flex w-full max-w-[54rem] flex-col px-6 pb-[calc(var(--app-bottom-inset)+6rem)]">
+    <div className="mx-auto flex w-full max-w-[54rem] flex-col px-5 pb-[calc(var(--app-bottom-inset)+6rem)] sm:px-6">
       <div className="flex w-full flex-col">
         {/* Progress + step counter share one row (design has no back arrow —
             back/forward is by swipe within the pinned chrome). */}
@@ -136,13 +136,13 @@ export function OnboardingShell({
           className={cn(
             "space-y-2",
             isHero ? "mt-0" : "mt-[30px]",
-            isAccent && "relative min-h-[196px]",
+            isAccent && "relative min-h-[196px] overflow-visible",
           )}
         >
           {isAccent ? (
             <div
-              className="pointer-events-none absolute h-[214px] select-none"
-              style={{ right: "-8px", top: "-13px" }}
+              className="pointer-events-none absolute h-[190px] select-none sm:h-[214px]"
+              style={{ right: "0px", top: "-6px" }}
             >
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
@@ -155,8 +155,8 @@ export function OnboardingShell({
                 <span
                   className="absolute flex flex-col items-center justify-center"
                   style={{
-                    right: "82px",
-                    top: "76px",
+                    right: "72px",
+                    top: "67px",
                     width: "62px",
                     height: "62px",
                     borderRadius: "50%",
@@ -186,12 +186,13 @@ export function OnboardingShell({
               ) : null}
             </div>
           ) : null}
-          <p className="ui-text-section-label mb-2 block px-[6px]">{eyebrow}</p>
+          <p className="ui-text-section-label mb-2 block">{eyebrow}</p>
           <h1
             className={cn(
               "ria-screen-title",
               isHero && "ria-screen-title--hero",
-              isAccent ? "max-w-[212px]" : "max-w-[18ch]", "text-3xl font-bold tracking-tight text-foreground sm:text-4xl"
+              isAccent ? "max-w-[212px]" : "max-w-[18ch]",
+              "text-3xl font-bold tracking-tight text-foreground sm:text-4xl"
             )}
           >
             {title}
@@ -210,7 +211,7 @@ export function OnboardingShell({
 
         {!hideTerminal ? (
           <div className="mt-8 space-y-1 pb-[calc(var(--app-bottom-inset)+6rem)]">
-            <div className="mx-auto w-full sm:max-w-[22rem]">
+            <div className="w-full">
               <Button
                 type="button"
                 onClick={onContinue}

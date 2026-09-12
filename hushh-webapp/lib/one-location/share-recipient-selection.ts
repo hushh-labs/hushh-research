@@ -26,8 +26,8 @@ export function isShareReadyRecipient(
 }
 
 /**
- * The recipient list a share should actually act on, given both the
- * reactive selection React has rendered and a same-tick-fresh fallback.
+ * The recipient list a share should actually act on, reconstructed from the
+ * synchronous selection cursor.
  *
  * Voice can pick someone and immediately say "share" in the same breath --
  * faster than the render that would make the pick visible in the reactive
@@ -37,20 +37,13 @@ export function isShareReadyRecipient(
  * `app/one/location/page.tsx`), so it still has the answer when the reactive
  * list does not yet.
  *
- * A tap-driven Share never needs the fallback: a render has long since
- * happened by the time a human can tap, so `reactiveSelection` is never
- * empty for a real "nobody picked" case where a person is standing there.
- * That is also why an empty `reactiveSelection` is trusted here rather than
- * cross-checked -- there is no way to tell "genuinely nobody selected" apart
- * from "selected too recently to have rendered" except by wall-clock timing
- * this function deliberately does not have, so it always prefers the fresher
- * of the two sources instead of guessing which case it is in.
+ * The cursor is authoritative even when React's rendered selection is already
+ * non-empty. Otherwise adding or removing one person while a Circle is present
+ * and immediately sharing can act on the previous render's audience.
  */
 export function resolveEffectiveShareRecipients(
-  reactiveSelection: readonly OneLocationRecipient[],
   pool: readonly OneLocationRecipient[],
-  fallbackSelectedIds: readonly string[],
+  currentSelectedIds: readonly string[],
 ): OneLocationRecipient[] {
-  if (reactiveSelection.length) return [...reactiveSelection];
-  return recipientSelectionFromIds([...pool], [...fallbackSelectedIds]);
+  return recipientSelectionFromIds([...pool], [...currentSelectedIds]);
 }

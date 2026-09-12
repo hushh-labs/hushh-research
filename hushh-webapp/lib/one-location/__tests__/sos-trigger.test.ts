@@ -33,6 +33,7 @@ import {
   selectSmsRecipients,
   selectShareReadyRecipients,
   selectSosConnectedRecipients,
+  sosRecipientReadinessMessage,
   SosPanicError,
 } from "@/lib/one-location/sos-trigger";
 
@@ -108,6 +109,11 @@ describe("isSosShareReadyRecipient", () => {
     expect(isSosShareReadyRecipient(r)).toBe(false);
   });
 
+  it("returns false when the SMS contact no longer has a verified phone", () => {
+    const r = makeRecipient("u1", { phoneVerified: false });
+    expect(isSosShareReadyRecipient(r)).toBe(false);
+  });
+
   it("returns false when keyId is null", () => {
     const r = makeRecipient("u1", { keyId: null });
     expect(isSosShareReadyRecipient(r)).toBe(false);
@@ -134,6 +140,32 @@ describe("isSosShareReadyRecipient", () => {
     const r = makeRecipient("u1");
     const { canReceiveLocation: _dropped, ...rest } = r;
     expect(isSosShareReadyRecipient(rest as OneLocationRecipient)).toBe(false);
+  });
+});
+
+describe("sosRecipientReadinessMessage", () => {
+  it("asks for an SMS contact when the list is empty", () => {
+    expect(sosRecipientReadinessMessage([])).toBe(
+      "Add at least one SMS contact before sending an alert.",
+    );
+  });
+
+  it("names phone verification when that is the blocking requirement", () => {
+    expect(
+      sosRecipientReadinessMessage([
+        makeRecipient("u1", { phoneVerified: false }),
+      ]),
+    ).toBe(
+      "Ask your SMS contact to verify their phone before sending an alert.",
+    );
+  });
+
+  it("keeps key setup failures separate from phone verification", () => {
+    expect(
+      sosRecipientReadinessMessage([
+        makeRecipient("u1", { canReceiveLocation: false, keyId: null }),
+      ]),
+    ).toBe("Your SMS contacts are not ready to receive location yet.");
   });
 });
 
@@ -320,10 +352,7 @@ describe("runSosPanic", () => {
       vaultOwnerToken: "tok",
       recipients: [alice, bob],
       point: makePoint(),
-      publish: vi
-        .fn()
-        .mockResolvedValueOnce(true)
-        .mockResolvedValueOnce(false),
+      publish: vi.fn().mockResolvedValueOnce(true).mockResolvedValueOnce(false),
     });
 
     expect(result.delivery).toEqual([
@@ -422,9 +451,7 @@ describe("runSosPanic", () => {
     const rB = makeRecipient("userB");
     const grantA = makeGrant("g1", "userA");
     const grantB = makeGrant("g2", "userB");
-    createGrantMock
-      .mockResolvedValueOnce(grantA)
-      .mockResolvedValueOnce(grantB);
+    createGrantMock.mockResolvedValueOnce(grantA).mockResolvedValueOnce(grantB);
     const publish = vi.fn().mockResolvedValue(undefined);
     const point = makePoint();
 

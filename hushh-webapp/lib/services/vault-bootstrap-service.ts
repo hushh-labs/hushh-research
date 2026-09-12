@@ -67,6 +67,7 @@ export type GeneratedVaultUnlockInput = {
   authMethod?: string | null;
   passkeyCredentialId?: string | null;
   passkeyPrfSalt?: string | null;
+  passkeyRpId?: string | null;
 };
 
 const DEFAULT_VAULT_SECRET_PREFIX = "vault_default_secret";
@@ -393,6 +394,7 @@ export class VaultBootstrapService {
       input.userId,
       input.passkeyPrfSalt,
       input.passkeyCredentialId ?? undefined,
+      input.passkeyRpId ?? undefined,
     );
 
     return unlockVaultWithPassphrase(

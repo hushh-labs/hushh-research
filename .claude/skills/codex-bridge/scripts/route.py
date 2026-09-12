@@ -1097,7 +1097,7 @@ RESPONSE_RULES_ROUTES = {"comms-community", "community-response"}
 # turns paying 3.3k tokens for Discord tone rules. Only an explicit channel word
 # counts as intent; everything else must come from the routed lane.
 COMMUNITY_INTENT = re.compile(
-    r"\bdiscord\b|\bcontributors?\s+question\b|\bdraft\s+(?:a\s+)?(?:reply|response)\b",
+    r"\bdiscord\b",
     re.IGNORECASE,
 )
 

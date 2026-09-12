@@ -157,8 +157,9 @@ describe("AgentTurnStreamPanel", () => {
     expect(screen.getByText("Identity")).toBeInTheDocument();
     expect(screen.getByText("Financial")).toBeInTheDocument();
     expect(screen.getByText("Employment status")).toBeInTheDocument();
+    expect(screen.getByText("Tax residency")).toBeInTheDocument();
     expect(screen.getByText("Highly sensitive")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /Review information/i })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: /Choose what to ask for/i })).toHaveAttribute(
       "href",
       "/people/1234567890abcdef",
     );

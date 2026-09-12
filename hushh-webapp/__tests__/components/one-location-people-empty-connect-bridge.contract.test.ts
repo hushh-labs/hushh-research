@@ -97,7 +97,8 @@ describe("link 2 — Connect search offers the invite", () => {
     // and gets its own row. Collapsing them would make the fact look like an
     // action and hide the one thing left to try.
     const anchor = CONNECT.indexOf('No one matches "${trimmedQuery}"');
-    const row = CONNECT.slice(anchor, anchor + 400);
+    const rowEnd = CONNECT.indexOf("/>", anchor);
+    const row = CONNECT.slice(anchor, rowEnd + 2);
     expect(row).toContain("disabled");
   });
 });

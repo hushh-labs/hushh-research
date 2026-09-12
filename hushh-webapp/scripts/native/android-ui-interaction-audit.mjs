@@ -44,8 +44,8 @@ const adb = process.env.ADB || (fs.existsSync(defaultAdb) ? defaultAdb : "adb");
 const emulator =
   process.env.ANDROID_EMULATOR ||
   (fs.existsSync(defaultEmulator) ? defaultEmulator : "emulator");
-const bundleId = "com.hushh.app";
-const activityName = "com.hushh.app/.MainActivity";
+const bundleId = "com.hussh.app";
+const activityName = "com.hussh.app/.MainActivity";
 const apkPath =
   process.env.ANDROID_APK_PATH ||
   path.join(androidDir, "app/build/outputs/apk/debug/app-debug.apk");
@@ -223,6 +223,7 @@ function bootAndroidEmulator() {
     "-no-snapshot-load",
     "-no-audio",
     ...extraArgs,
+    ...(process.env.NATIVE_AUDIT_VISIBLE === "true" ? [] : ["-no-window"]),
   ];
   console.log(`==> booting Android emulator: ${avdName}`);
   const child = spawn(emulator, args, {
@@ -465,7 +466,14 @@ function readUiReport(serial) {
     "files/native-ui-interaction-report.json",
   ]);
   if (!raw.trim()) return null;
-  return JSON.parse(raw);
+  try {
+    const report = JSON.parse(raw);
+    return report && typeof report === "object" && !Array.isArray(report) ? report : null;
+  } catch {
+    // A partial report must not swallow a terminal failure from the independent
+    // status channel. Success still requires a complete validated report.
+    return null;
+  }
 }
 
 function waitForUiInteractionReport(serial) {

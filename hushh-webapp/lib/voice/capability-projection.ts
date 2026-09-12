@@ -27,6 +27,7 @@ export type VoiceCapabilityStateV1 = {
     "visible_control_ids" | "interaction_layer"
   >;
   available_action_ids: readonly string[];
+  executable_action_ids?: readonly string[];
   route_revision: string;
   ui_revision: string;
 };
@@ -52,11 +53,18 @@ export type CapabilityProjectionV1 = {
 };
 
 function isPhoneCodeStep(state: VoiceCapabilityStateV1): boolean {
-  return state.available_action_ids.includes("phone_mandate.submit_code");
+  return executionInventory(state).has("phone_mandate.submit_code");
 }
 
 function isPhoneNumberStep(state: VoiceCapabilityStateV1): boolean {
-  return state.available_action_ids.includes("phone_mandate.submit_number");
+  return executionInventory(state).has("phone_mandate.submit_number");
+}
+
+function executionInventory(state: VoiceCapabilityStateV1): Set<string> {
+  return new Set([
+    ...state.available_action_ids,
+    ...(state.executable_action_ids || []),
+  ]);
 }
 
 function terminalProjection(
@@ -112,6 +120,7 @@ export function deriveVoiceCapabilityState(input: {
       interaction_layer: input.snapshot.ui.interaction_layer,
     },
     available_action_ids: input.snapshot.available_action_ids,
+    executable_action_ids: input.snapshot.executable_action_ids,
     route_revision: input.snapshot.revisions.route,
     ui_revision: input.snapshot.revisions.ui,
   };
@@ -198,7 +207,7 @@ export function projectKaiActionCapability(input: {
     }
     return { schema_version: "one.capability_projection.v1", action_id: action.action_id, status: "input_needed", reason: null, action, availability };
   }
-  if (input.state.available_action_ids.includes(action.action_id)) {
+  if (executionInventory(input.state).has(action.action_id)) {
     return { schema_version: "one.capability_projection.v1", action_id: action.action_id, status: "current_control_executable", reason: null, action, availability };
   }
   if (

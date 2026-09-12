@@ -45,6 +45,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         }
 
         NativeTestResetter.resetAppStateIfNeeded(configuration: nativeTestConfig)
+        requestVoiceDeviceTestMicrophonePermissionIfNeeded()
 
         prepareEmergencySmsSound()
         registerNotificationCategories()
@@ -152,6 +153,20 @@ extension AppDelegate: MessagingDelegate {
 }
 
 private extension AppDelegate {
+    /// Physical-device CI uses this DEBUG-only launch argument to surface the
+    /// normal iOS microphone prompt before the benchmark. It has no release
+    /// behavior, does not persist audio, and does not bypass user consent.
+    func requestVoiceDeviceTestMicrophonePermissionIfNeeded() {
+#if DEBUG
+        guard ProcessInfo.processInfo.arguments.contains("-HUSSHVoiceDevicePermissionBootstrap") else {
+            return
+        }
+        let session = AVAudioSession.sharedInstance()
+        guard session.recordPermission == .undetermined else { return }
+        session.requestRecordPermission { _ in }
+#endif
+    }
+
     func registerNotificationCategories() {
         let reviewAction = UNNotificationAction(
             identifier: Self.consentReviewAction,

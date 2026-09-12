@@ -11,11 +11,11 @@ Reads `.codex/` at invocation time and composes a briefing the way `./bin/hushh 
 
 ## Response rules
 
-Codex is the source of truth. The enforceable rules live in `.codex/skills/comms-community/references/reply-rules.md` and are injected into the routed briefing when the turn is a **community reply** — the route lands on `comms-community` / `community-response`, or the prompt names the channel outright (see `scripts/route.py`). They are deliberately *not* injected into engineering questions: they are a 180-line Discord tone contract, and a question mark in a bug report is not a request for Discord voice. Follow that file literally when it does load. If it conflicts with anything written here, it wins.
+The repository routing contracts are the source of truth. The enforceable rules live in `.codex/skills/comms-community/references/reply-rules.md` and are injected into the routed briefing when the turn is a **community reply** — the route lands on `comms-community` / `community-response`, or the prompt names the channel outright (see `scripts/route.py`). They are deliberately *not* injected into engineering questions: they are a 180-line Discord tone contract, and a question mark in a bug report is not a request for Discord voice. Follow that file literally when it does load. If it conflicts with anything written here, it wins.
 
-Baseline that the bridge adds on top of codex's reply rules (because codex runs in a different harness):
+Host invocation guidance:
 
-1. When you cannot reach `.codex/` to fetch the rules (tests, isolated invocations), default to: 3 to 4 lines of prose, Discord-casual tone, no em-dashes, markdown doc links only (full GitHub URLs on `main`), signature line at the end.
+1. When you cannot reach `.codex/` to fetch the routing contracts, report that routing is unavailable and inherit the communication rules in root `AGENTS.md`. Do not substitute a channel-specific style or fabricate a routed lane.
 2. Pull the signature values (`<skill-id>`, `<workflow-id>`) from the routed briefing header (`# Routed workflow: ...` / `# Routed skill: ...`).
 3. If the briefing header shows a disambiguation table or a catalog, do not fabricate a signature, invoke the bridge again with the chosen name first.
 

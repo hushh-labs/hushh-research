@@ -1,4 +1,10 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import React from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -169,6 +175,9 @@ vi.mock("@/components/profile/settings-ui", () => ({
 }));
 
 vi.mock("@/components/ria/ria-page-shell", () => ({
+  RiaPageShell: ({ children }: { children: React.ReactNode }) => (
+    <div>{children}</div>
+  ),
   RiaCompatibilityState: ({
     title,
     description,
@@ -321,8 +330,15 @@ vi.mock("lucide-react", () => {
 });
 
 vi.mock("@/lib/navigation/routes", () => ({
+  buildKaiMarketRoute: (tab?: string) =>
+    tab ? `/one/kai/market?tab=${tab}` : "/one/kai/market",
+  KAI_MARKET_PATH: "/one/kai/market",
   ROUTES: {
     RIA_ONBOARDING: "/ria/onboarding",
+    ONE: "/one",
+    ONE_PROFILE: "/one/profile",
+    ONE_CONSENT: "/one/consent",
+    WELCOME: "/",
   },
 }));
 

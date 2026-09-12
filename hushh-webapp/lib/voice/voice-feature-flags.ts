@@ -32,7 +32,22 @@ export type VoiceV2Flags = {
   groundedActionPolicyEnforcementEnabled: boolean;
   groundedActionExecutionEnabled: boolean;
   morphyAxEnabled: boolean;
+  nativeFluidAudioEnabled: boolean;
+  localRuntimeMode: "off" | "shadow" | "local_known_actions" | "hybrid";
 };
+
+function resolveLocalRuntimeMode(): VoiceV2Flags["localRuntimeMode"] {
+  const raw = String(
+    process.env.NEXT_PUBLIC_ONE_VOICE_LOCAL_RUNTIME_MODE || "hybrid",
+  )
+    .trim()
+    .toLowerCase();
+  return raw === "shadow" ||
+    raw === "local_known_actions" ||
+    raw === "hybrid"
+    ? raw
+    : "off";
+}
 
 export function getVoiceV2Flags(): VoiceV2Flags {
   const enabled = resolveFlag(process.env.NEXT_PUBLIC_VOICE_V2_ENABLED, true);
@@ -69,5 +84,10 @@ export function getVoiceV2Flags(): VoiceV2Flags {
       process.env.NEXT_PUBLIC_MORPHY_AX_ENABLED,
       false,
     ),
+    nativeFluidAudioEnabled: resolveFlag(
+      process.env.NEXT_PUBLIC_ONE_VOICE_FLUID_AUDIO_ENABLED,
+      false,
+    ),
+    localRuntimeMode: resolveLocalRuntimeMode(),
   };
 }

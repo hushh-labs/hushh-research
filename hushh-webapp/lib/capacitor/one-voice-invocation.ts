@@ -11,6 +11,10 @@ import type {
   OneSystemEntityIndexEntry,
   PendingOneSystemActionInvocation,
 } from "@/lib/capacitor/one-system-action-invocation";
+import type {
+  TranscriptEvent,
+} from "@/lib/voice/transcript-events";
+import type { VoiceModelPackManifest } from "@/lib/voice/local-runtime-contract";
 
 export type PendingOneVoiceInvocation = {
   id: string;
@@ -18,14 +22,40 @@ export type PendingOneVoiceInvocation = {
   source: "siri_app_shortcut";
   createdAt: number;
   expiresAt: number;
+  handoffDeadlineAt: number;
+  claimedAt?: number | null;
+  appOwnedAt?: number | null;
+  detached?: boolean;
+  outcome?: string | null;
 };
 
 export type OneVoiceInvocationOutcome =
-  "accepted" | "failed" | "expired" | "cancelled" | "fallback_shown";
+  | "accepted"
+  | "failed"
+  | "expired"
+  | "cancelled"
+  | "fallback_shown"
+  | "handoff_timeout";
+
+export type OneVoiceInvocationProgressState =
+  | "claimed"
+  | "app_owned"
+  | "detached";
+
+export type NativeFluidAudioPackPreparation = {
+  ready: boolean;
+  packId?: string;
+  version?: string;
+  reason?: string;
+};
 
 export interface NativeOneVoiceInvocationPlugin {
   getPendingInvocation(): Promise<Partial<PendingOneVoiceInvocation>>;
   claimInvocation(options: { id: string }): Promise<{ claimed: boolean }>;
+  reportInvocationProgress(options: {
+    id: string;
+    state: OneVoiceInvocationProgressState;
+  }): Promise<{ reported: boolean }>;
   completeInvocation(options: {
     id: string;
     outcome: OneVoiceInvocationOutcome;
@@ -73,10 +103,39 @@ export interface NativeOneVoiceInvocationPlugin {
   reportRequestInvocationProgress(
     options: Record<string, unknown>,
   ): Promise<{ reported: boolean }>;
-  cancelRequestInvocation(): Promise<void>;
+  cancelRequestInvocation(options?: { id?: string }): Promise<void>;
+  prepareFluidAudioModelPack(options: {
+    packId: string;
+    version: string;
+    sizeBytes: number;
+    checksum: string;
+    artifactUrl: string;
+    entrypoint: string;
+    licenseNoticeId: string;
+    licenseApproved: boolean;
+  }): Promise<NativeFluidAudioPackPreparation>;
+  getFluidAudioAvailability(): Promise<{ available: boolean }>;
+  rollbackFluidAudioModelPack(): Promise<{ rolledBack: boolean }>;
+  startSpeechRecognition(options?: {
+    sessionId?: string;
+    locale?: string;
+    onDevice?: boolean;
+    allowNetwork?: boolean;
+    contextualStrings?: readonly string[];
+    provider?: "apple_speech" | "fluid_audio";
+  }): Promise<{
+    sessionId: string;
+    provider: string;
+    onDevice: boolean;
+  }>;
+  stopSpeechRecognition(options?: { sessionId?: string }): Promise<void>;
   addListener(
     eventName: "systemRequestInvocationAvailable",
     listener: (invocation: unknown) => void,
+  ): Promise<PluginListenerHandle>;
+  addListener(
+    eventName: "oneTranscript",
+    listener: (event: TranscriptEvent) => void,
   ): Promise<PluginListenerHandle>;
 }
 
@@ -87,6 +146,10 @@ class OneVoiceInvocationWeb extends WebPlugin {
 
   async claimInvocation(): Promise<{ claimed: boolean }> {
     return { claimed: false };
+  }
+
+  async reportInvocationProgress(): Promise<{ reported: boolean }> {
+    return { reported: false };
   }
 
   async completeInvocation(): Promise<void> {}
@@ -125,7 +188,29 @@ class OneVoiceInvocationWeb extends WebPlugin {
     return { reported: false };
   }
 
-  async cancelRequestInvocation(): Promise<void> {}
+  async cancelRequestInvocation(_options?: { id?: string }): Promise<void> {}
+
+  async prepareFluidAudioModelPack(): Promise<NativeFluidAudioPackPreparation> {
+    return { ready: false, reason: "speech_unsupported" };
+  }
+
+  async getFluidAudioAvailability(): Promise<{ available: boolean }> {
+    return { available: false };
+  }
+
+  async rollbackFluidAudioModelPack(): Promise<{ rolledBack: boolean }> {
+    return { rolledBack: false };
+  }
+
+  async startSpeechRecognition(): Promise<{
+    sessionId: string;
+    provider: string;
+    onDevice: boolean;
+  }> {
+    throw new Error("speech_unsupported");
+  }
+
+  async stopSpeechRecognition(): Promise<void> {}
 }
 
 export const NativeOneVoiceInvocation =
@@ -145,7 +230,9 @@ function isPendingInvocation(
     typeof value.createdAt === "number" &&
     Number.isFinite(value.createdAt) &&
     typeof value.expiresAt === "number" &&
-    Number.isFinite(value.expiresAt)
+    Number.isFinite(value.expiresAt) &&
+    typeof value.handoffDeadlineAt === "number" &&
+    Number.isFinite(value.handoffDeadlineAt)
   );
 }
 
@@ -175,6 +262,14 @@ export const OneVoiceInvocationBridge = {
     await NativeOneVoiceInvocation.completeInvocation(options);
   },
 
+  async reportProgress(options: {
+    id: string;
+    state: OneVoiceInvocationProgressState;
+  }): Promise<{ reported: boolean }> {
+    if (!this.isSupported()) return { reported: false };
+    return NativeOneVoiceInvocation.reportInvocationProgress(options);
+  },
+
   async addAvailabilityListener(
     listener: (invocation: PendingOneVoiceInvocation) => void,
   ): Promise<PluginListenerHandle> {
@@ -183,5 +278,62 @@ export const OneVoiceInvocationBridge = {
       "voiceInvocationAvailable",
       listener,
     );
+  },
+
+  async startSpeechRecognition(options: {
+    sessionId?: string;
+    locale?: string;
+    onDevice?: boolean;
+    allowNetwork?: boolean;
+    contextualStrings?: readonly string[];
+    provider?: "apple_speech" | "fluid_audio";
+  } = {}): Promise<{
+    sessionId: string;
+    provider: string;
+    onDevice: boolean;
+  }> {
+    if (!this.isSupported()) throw new Error("speech_unsupported");
+    return NativeOneVoiceInvocation.startSpeechRecognition(options);
+  },
+
+  async stopSpeechRecognition(options: { sessionId?: string } = {}): Promise<void> {
+    if (!this.isSupported()) return;
+    await NativeOneVoiceInvocation.stopSpeechRecognition(options);
+  },
+
+  async prepareFluidAudioModelPack(
+    pack: VoiceModelPackManifest,
+  ): Promise<NativeFluidAudioPackPreparation> {
+    if (!this.isSupported()) return { ready: false, reason: "speech_unsupported" };
+    if (pack.runtime !== "fluid_audio") {
+      return { ready: false, reason: "pack_not_compatible" };
+    }
+    return NativeOneVoiceInvocation.prepareFluidAudioModelPack({
+      packId: pack.pack_id,
+      version: pack.version,
+      sizeBytes: pack.size_bytes,
+      checksum: pack.checksum,
+      artifactUrl: pack.artifact_url,
+      entrypoint: pack.entrypoint,
+      licenseNoticeId: pack.license_notice_id,
+      licenseApproved: pack.license_approved,
+    });
+  },
+
+  async getFluidAudioAvailability(): Promise<boolean> {
+    if (!this.isSupported()) return false;
+    return (await NativeOneVoiceInvocation.getFluidAudioAvailability()).available === true;
+  },
+
+  async rollbackFluidAudioModelPack(): Promise<boolean> {
+    if (!this.isSupported()) return false;
+    return (await NativeOneVoiceInvocation.rollbackFluidAudioModelPack()).rolledBack === true;
+  },
+
+  async addTranscriptListener(
+    listener: (event: TranscriptEvent) => void,
+  ): Promise<PluginListenerHandle> {
+    if (!this.isSupported()) return { remove: async () => undefined };
+    return NativeOneVoiceInvocation.addListener("oneTranscript", listener);
   },
 };

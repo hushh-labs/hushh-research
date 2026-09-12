@@ -193,7 +193,11 @@ describe("SpecialistPendingConsentRequestCard", () => {
     );
 
     expect(screen.getByTestId("specialist-pending-consent-request-card")).toBeTruthy();
-    expect(screen.getByText("Consent request")).toBeTruthy();
+    // Not "Consent request". agent.yaml:62-70 bans scope/consent-lifecycle
+    // vocabulary in owner-facing speech; the chrome used to undo that one line
+    // after the model obeyed it. The card now says what is happening instead of
+    // naming our plumbing.
+    expect(screen.getByText(/wants to see/i)).toBeTruthy();
     expect(screen.getByText("Macy's is asking for City.")).toBeTruthy();
     expect(screen.getByText("Only your city will be shared.")).toBeTruthy();
     expect(screen.getByText("Reason: Update your brand profile")).toBeTruthy();

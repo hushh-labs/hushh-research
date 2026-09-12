@@ -41,6 +41,8 @@ import {
   useState,
 } from "react";
 import { toast } from "sonner";
+import { contactCountBucket } from "./contact-count-bucket";
+import { useGoogleContactSync, type GoogleContactSyncController } from "./use-google-contact-sync-session";
 
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { HushhContacts } from "@/lib/capacitor";
@@ -52,13 +54,10 @@ import {
   buildInviteToOneShare,
 } from "@/lib/connect/invite-to-one";
 import {
-  isGoogleContactsConsentCancelled,
   preloadGoogleContactsAuth,
-  requestGoogleContactsToken,
 } from "@/lib/contacts/google-contacts-token";
 import {
   googleContactsAvailability,
-  googlePeopleContactSource,
 } from "@/lib/contacts/google-people-source";
 import { resolveContactSourceProbeFailure } from "@/lib/contacts/contact-source-availability";
 import { createContactSyncAccountPhoneResolver } from "@/lib/contacts/contact-sync-identity";
@@ -66,7 +65,6 @@ import {
   useContactDiscoverabilityConsent,
   type ContactDiscoverabilityConsentDialogProps,
 } from "@/lib/contacts/use-contact-discoverability-consent";
-import type { MarketplaceContactSource } from "@/lib/marketplace/contact-matching";
 import { trackEvent } from "@/lib/observability/client";
 import type { RouteId } from "@/lib/observability/route-map";
 import {
@@ -81,6 +79,7 @@ import { ConnectionsService } from "@/lib/services/connections-service";
 import { ReferralService } from "@/lib/services/referral-service";
 import { isShareCancellationError, shareLink } from "@/lib/share/share-link";
 import { useSettingsReturn } from "@/lib/permissions/use-settings-return";
+import { useContactInvitations, type ContactInvitationController } from "@/lib/contacts/use-contact-invitations";
 
 export type ContactSyncStatus =
   | "idle"
@@ -135,15 +134,7 @@ export const INITIAL_CONTACT_SYNC_SIGNAL: ContactSyncSignal = {
  * contacts step reports the same dimension from its own handler and there is
  * no version of this that may drift from the one used here.
  */
-export function contactCountBucket(
-  count: number,
-): "0" | "1_10" | "11_50" | "51_250" | "251_plus" {
-  if (count <= 0) return "0";
-  if (count <= 10) return "1_10";
-  if (count <= 50) return "11_50";
-  if (count <= 250) return "51_250";
-  return "251_plus";
-}
+export { contactCountBucket } from "./contact-count-bucket";
 
 /**
  * The note attached to a connection request sent from the results sheet.
@@ -176,6 +167,7 @@ const DEFAULT_REFERRAL_SHARE: ContactSyncShareCopy = {
 };
 
 export type UseContactSyncOptions = {
+  accountEmail?: string | null;
   /** Which surface offered the sync. Reaches analytics and nothing else. */
   routeId: RouteId;
   /**
@@ -203,10 +195,8 @@ export type UseContactSyncOptions = {
    * is announced, so the toast never claims a connection the list behind it
    * has not caught up to.
    *
-   * Deliberately not wrapped in a `catch` here. A caller whose refresh failing
-   * should not spoil a successful sync catches it itself -- which is exactly
-   * what the Location hub does for its background refresh and pointedly does
-   * not do for its recipient page.
+   * Display-read failures preserve the completed sync and offer a separate
+   * refresh retry. They must not make a committed connection look failed.
    */
   onConnectionGraphChanged?: () => void | Promise<void>;
   /**
@@ -249,6 +239,8 @@ export type UseContactSyncOptions = {
 
 /** Exactly the props `ContactSyncResultsSheet` takes, ready to spread. */
 export type ContactSyncResultsSheetProps = {
+  invitations?: ContactInvitationController;
+  googleSync?: GoogleContactSyncController;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   result: OneLocationContactSignalResult | null;
@@ -314,14 +306,25 @@ export function useContactSync(options: UseContactSyncOptions): UseContactSync {
    */
   const [available, setAvailable] = useState(false);
   const [googleFallback, setGoogleFallback] = useState(false);
-  const [syncing, setSyncing] = useState(false);
+  const [deviceSyncing, setSyncing] = useState(false);
+  const googleSync = useGoogleContactSync(options.userId);
+  const { run: runGoogleSync, clear: clearGoogleSync } = googleSync;
+  const syncing = deviceSyncing || googleSync.busy;
   const [signal, setSignal] = useState<ContactSyncSignal>(
     INITIAL_CONTACT_SYNC_SIGNAL,
   );
-  const [result, setResult] = useState<OneLocationContactSignalResult | null>(
+  const [deviceResult, setResult] = useState<OneLocationContactSignalResult | null>(
     null,
   );
-  const [resultsOpen, setResultsOpen] = useState(false);
+  const result = googleSync.result ?? deviceResult;
+  const invitations = useContactInvitations(options.userId);
+  const { clear: clearInvitations, beginSync: beginInviteSync, open: openInvitations, captureSession: captureInviteSession } = invitations;
+  const [deviceResultsOpen, setResultsOpenState] = useState(false);
+  const resultsOpen = googleSync.phase !== "idle" ? googleSync.open : deviceResultsOpen;
+  const setResultsOpen = useCallback((open: boolean) => {
+    if (!open) { clearInvitations(); clearGoogleSync(); }
+    setResultsOpenState(open);
+  }, [clearInvitations, clearGoogleSync]);
   const resultOwnerUserIdRef = useRef(options.userId ?? null);
 
   /**
@@ -354,6 +357,8 @@ export function useContactSync(options: UseContactSyncOptions): UseContactSync {
    * ref is set in the same turn as the check that reads it.
    */
   const inFlightRef = useRef(false);
+  const syncGenerationRef = useRef(0);
+  useLayoutEffect(() => () => { syncGenerationRef.current += 1; }, []);
 
   /**
    * True from the moment we hand somebody to the OS settings app until they
@@ -382,6 +387,7 @@ export function useContactSync(options: UseContactSyncOptions): UseContactSync {
   useLayoutEffect(() => {
     const nextUserId = options.userId ?? null;
     if (resultOwnerUserIdRef.current === nextUserId) return;
+    syncGenerationRef.current += 1;
     resultOwnerUserIdRef.current = nextUserId;
     // Matched identities and local contact display names belong to the account
     // that ran the scan. Clear them before a replacement account can paint.
@@ -389,7 +395,7 @@ export function useContactSync(options: UseContactSyncOptions): UseContactSync {
     setResultsOpen(false);
     setSignal(INITIAL_CONTACT_SYNC_SIGNAL);
     markAwaitingContactSettings(false);
-  }, [markAwaitingContactSettings, options.userId]);
+  }, [markAwaitingContactSettings, options.userId, setResultsOpen]);
 
   /**
    * The sync callback, read at click time rather than captured.
@@ -481,6 +487,26 @@ export function useContactSync(options: UseContactSyncOptions): UseContactSync {
     optionsRef.current.onBusyChange?.(next);
   }, []);
 
+  useEffect(() => {
+    optionsRef.current.onBusyChange?.(syncing);
+  }, [syncing]);
+  useEffect(() => {
+    const completed = googleSync.result;
+    if (!completed) return;
+    setSignal({
+      status: completed.matchedUserIds.length ? "matched" : "empty",
+      matchedUserIds: completed.matchedUserIds, matchedCount: completed.matchedUserIds.length,
+      totalContacts: completed.totalContacts, inviteCandidateCount: completed.inviteCandidateCount,
+      sourcePlatform: completed.sourcePlatform, limited: completed.limited,
+      truncated: completed.truncated, error: null, syncedAt: new Date().toISOString(),
+    });
+    if (completed.autoConnectedCount + completed.alreadyConnectedCount > 0 || completed.mutationOutcomeUnknown) {
+      void Promise.resolve().then(() => optionsRef.current.onConnectionGraphChanged?.()).catch(() => {
+        toast.info("Contacts synced. Refresh connections to see the latest list.");
+      });
+    }
+  }, [googleSync.result]);
+
   /**
    * Share the app with the contacts a scan could not match.
    *
@@ -495,7 +521,7 @@ export function useContactSync(options: UseContactSyncOptions): UseContactSync {
    * system cannot serve: no link yet, or the summary call fails. Better a share
    * that works and is not counted than a dead control.
    */
-  const invite = useCallback(async () => {
+  const prepareInvite = useCallback(async () => {
     const { getIdToken, onInviteShareStarted, referralShare } =
       optionsRef.current;
     onInviteShareStarted?.();
@@ -522,6 +548,16 @@ export function useContactSync(options: UseContactSyncOptions): UseContactSync {
         }
       : buildInviteToOneShare();
 
+    return share;
+  }, []);
+
+  const invite = useCallback(async () => {
+    if (invitations.enabled && invitations.candidates.length) {
+      setResultsOpen(true);
+      await openInvitations(prepareInvite);
+      return;
+    }
+    const share = await prepareInvite();
     if (!share) {
       // No referral link AND no shareable origin -- the same condition that
       // hides the Connect invite row entirely rather than offering a link that
@@ -539,7 +575,10 @@ export function useContactSync(options: UseContactSyncOptions): UseContactSync {
       if (isShareCancellationError(error)) return;
       toast.error("Could not open the share sheet.");
     }
-  }, []);
+  }, [invitations.enabled, invitations.candidates.length, setResultsOpen, openInvitations, prepareInvite]);
+
+  const inviteRef = useRef(invite);
+  useLayoutEffect(() => { inviteRef.current = invite; }, [invite]);
 
   const requestConnection = useCallback(async (addresseeUserId: string) => {
     const { getIdToken, userId } = optionsRef.current;
@@ -559,7 +598,7 @@ export function useContactSync(options: UseContactSyncOptions): UseContactSync {
     // Keep the transaction callbacks and initiating user stable. The account
     // phone is the exception: it is deliberately re-read below because verified
     // backend identity can finish hydrating while a picker is open.
-    const { getIdToken, onConnectionGraphChanged, routeId, userId } =
+    const { getIdToken, routeId, userId } =
       optionsRef.current;
     const initiatingUserId = userId ?? null;
     const resolveLatestAccountPhoneNumber =
@@ -588,42 +627,25 @@ export function useContactSync(options: UseContactSyncOptions): UseContactSync {
     // preference is saved; only an already-recorded decision may continue and
     // retain browser transient activation.
     if (!requestContactCheck()) return;
+    if (googleFallback || googleSync.phase !== "idle") {
+      await runGoogleSync({
+        routeId, resolveIdToken: getIdToken,
+        accountEmail: optionsRef.current.accountEmail,
+        accountPhoneNumber: optionsRef.current.accountPhoneNumber,
+        resolveAccountPhoneNumber: resolveLatestAccountPhoneNumber,
+        beginInvites: beginInviteSync,
+      });
+      return;
+    }
     if (inFlightRef.current) return;
     inFlightRef.current = true;
+    const syncGeneration = ++syncGenerationRef.current;
+    const syncIsCurrent = () => syncGenerationRef.current === syncGeneration &&
+      (optionsRef.current.userId ?? null) === initiatingUserId;
+    const onInviteCandidates = beginInviteSync();
+    const inviteSessionIsCurrent = captureInviteSession();
 
     try {
-      // Google Contacts, only where there is no address book to read.
-      //
-      // `navigator.contacts.select` ships enabled by default in Chrome on
-      // Android and nowhere else -- iOS Safari has it behind a flag, no desktop
-      // browser has it at all. On those, this control had nothing to read and
-      // said so. A Google account is not a device capability, so it works
-      // everywhere a browser does.
-      //
-      // Deliberately a fallback rather than a second button. The device book is
-      // the better source when it exists: it is the person's actual phone
-      // contacts rather than whichever of them Google happens to hold, and it
-      // needs no consent sheet. This only fires where the alternative is
-      // nothing at all, and only when the build is configured for it --
-      // `googleContactsAvailability()` is "unconfigured" without
-      // NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID, which keeps the feature invisible
-      // until the console work behind it is finished.
-      let googleSource: MarketplaceContactSource | undefined;
-      if (googleFallback) {
-        try {
-          // Invokes GIS before any await or state transition so Safari keeps
-          // the click's transient activation for the popup.
-          const googleToken = requestGoogleContactsToken();
-          markSyncing(true);
-          googleSource = googlePeopleContactSource(await googleToken);
-        } catch (error) {
-          // Closing the sheet is a choice, not a failed sync. A blocked popup
-          // is intentionally not AbortError and is surfaced by the catch below.
-          if (!isGoogleContactsConsentCancelled(error)) throw error;
-          return;
-        }
-      }
-
       markSyncing(true);
       setSignal((current) => ({
         ...current,
@@ -632,17 +654,19 @@ export function useContactSync(options: UseContactSyncOptions): UseContactSync {
       }));
 
       const syncResult = await syncOneLocationContactSignals({
+        ...(onInviteCandidates ? { onInviteCandidates } : {}),
+        accountEmail: optionsRef.current.accountEmail,
         // The source must run while the original tap still owns transient
         // browser activation. Token/identity network work is deliberately
         // deferred inside the sync pipeline until after the picker returns.
         resolveIdToken: getIdToken,
-        ...(googleSource ? { source: googleSource } : {}),
         accountPhoneNumber: optionsRef.current.accountPhoneNumber,
         // Re-read after the native/Google source returns. Phone hydration can
         // complete while a permission or account picker is on screen.
         resolveAccountPhoneNumber: resolveLatestAccountPhoneNumber,
       });
       await resolveLatestAccountPhoneNumber();
+      if (!syncIsCurrent()) return;
       const nextStatus: ContactSyncStatus =
         syncResult.matchedUserIds.length > 0 ? "matched" : "empty";
       setResult(syncResult);
@@ -676,8 +700,24 @@ export function useContactSync(options: UseContactSyncOptions): UseContactSync {
           syncResult.mutationOutcomeUnknown)
       ) {
         CacheSyncService.onConnectionGraphMutated(userId);
-        await onConnectionGraphChanged?.();
+        const refreshConnections = async () => {
+          if (!syncIsCurrent()) return false;
+          try {
+            await optionsRef.current.onConnectionGraphChanged?.();
+            return syncIsCurrent();
+          } catch {
+            if (syncIsCurrent()) {
+              toast.info("Contacts synced. Could not refresh connections.", {
+                description: "Your matches are saved. Refresh the list to see the latest connections.",
+                action: { label: "Refresh connections", onClick: () => { void refreshConnections(); } },
+              });
+            }
+            return false;
+          }
+        };
+        if (!await refreshConnections()) return;
       }
+      if (!syncIsCurrent()) return;
       // A partial read must never be reported as a whole one. The web Contact
       // Picker and iOS limited access both return only a hand-picked subset,
       // so "3 people added" would claim the whole address book was searched.
@@ -715,7 +755,7 @@ export function useContactSync(options: UseContactSyncOptions): UseContactSync {
             // one, and deliberately carries no pre-authorized connection:
             // `buildInviteToOneShare` documents why, and an invite that
             // consents on the recipient's behalf is not an invite.
-            return { label: "Invite them", onClick: () => void invite() };
+            return { label: "Invite them", onClick: () => { if (inviteSessionIsCurrent()) void inviteRef.current(); } };
           default:
             return null;
         }
@@ -774,7 +814,11 @@ export function useContactSync(options: UseContactSyncOptions): UseContactSync {
     }
   }, [
     googleFallback,
-    invite,
+    runGoogleSync,
+    googleSync.phase,
+    beginInviteSync,
+    captureInviteSession,
+    setResultsOpen,
     markSyncing,
     requestContactCheck,
     signal,
@@ -857,6 +901,8 @@ export function useContactSync(options: UseContactSyncOptions): UseContactSync {
     requestConnection,
     discoverabilityConsentDialogProps,
     resultsSheetProps: {
+      invitations,
+      googleSync,
       open: resultsOpen,
       onOpenChange: setResultsOpen,
       result,

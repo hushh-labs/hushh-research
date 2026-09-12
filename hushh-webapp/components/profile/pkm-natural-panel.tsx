@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Loader2, Lock, ShieldAlert } from "lucide-react";
+import { SearchClearButton } from "@/components/app-ui/search-clear-button";
 
 import { PkmMemoryRow } from "@/components/profile/pkm-memory-row";
 import { ROUTES } from "@/lib/navigation/routes";
@@ -13,6 +14,7 @@ import {
   type MemorySharingState,
 } from "@/components/profile/pkm-memory-detail";
 import { SettingsGroup, SettingsRow, SegmentedTabs } from "@/components/app-ui/settings-ui";
+import { PkmExportService } from "@/lib/services/pkm-export-service";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
@@ -135,6 +137,44 @@ export function PkmNaturalPanel({
   const [autoSavePolicyLoading, setAutoSavePolicyLoading] = useState(false);
   const [autoSavePolicySaving, setAutoSavePolicySaving] = useState(false);
   const [autoSavePolicyError, setAutoSavePolicyError] = useState<string | null>(null);
+  const [exportBusy, setExportBusy] = useState(false);
+  const [exportStatus, setExportStatus] = useState<string | null>(null);
+  const [exportError, setExportError] = useState<string | null>(null);
+
+  /**
+   * Hand the owner everything One remembers about them, as a file they keep.
+   *
+   * Only possible while the vault is unlocked: the readable half is decrypted in
+   * this browser, because the backend holds ciphertext and no key.
+   */
+  const handleExportMemory = useCallback(async () => {
+    if (!user?.uid || !vaultKey || !vaultOwnerToken) return;
+    setExportBusy(true);
+    setExportError(null);
+    setExportStatus(null);
+    try {
+      const result = await PkmExportService.downloadMemoryExport({
+        userId: user.uid,
+        vaultKey,
+        vaultOwnerToken,
+      });
+      // On a phone the file only exists once the share sheet accepts it, so the
+      // two outcomes are reported differently rather than both as success.
+      setExportStatus(
+        result.saved
+          ? `Saved ${result.filename}. It holds ${result.domainCount} ${
+              result.domainCount === 1 ? "area" : "areas"
+            } of what One remembers.`
+          : "Nothing was saved. You can try again whenever you like.",
+      );
+    } catch (error) {
+      setExportError(
+        error instanceof Error ? error.message : "The file could not be prepared.",
+      );
+    } finally {
+      setExportBusy(false);
+    }
+  }, [user?.uid, vaultKey, vaultOwnerToken]);
   const [autoSavePolicyRetryValue, setAutoSavePolicyRetryValue] = useState<
     boolean | null
   >(null);
@@ -1085,6 +1125,7 @@ export function PkmNaturalPanel({
           onValueChange={(value) => setWorkspaceTab(value as MemoryWorkspaceTab)}
           options={MEMORY_WORKSPACE_TABS}
           mobileColumns={3}
+          variant="agent-top"
         />
         <SwipeViews
           options={MEMORY_WORKSPACE_TABS}
@@ -1095,17 +1136,24 @@ export function PkmNaturalPanel({
           heightMode="active"
         >
           <div className="space-y-5 pb-1 pr-px" data-pkm-saved-panel="true">
-          <Input
-            type="search"
-            value={homeSearchQuery}
-            onChange={(event) => setHomeSearchQuery(event.target.value)}
-            placeholder="Search Memory"
-            aria-label="Search Memory"
-            autoComplete="off"
-            autoCorrect="off"
-            spellCheck={false}
-            className="h-11"
-          />
+          <div className="relative">
+            <Input
+              type="search"
+              value={homeSearchQuery}
+              onChange={(event) => setHomeSearchQuery(event.target.value)}
+              placeholder="Search Memory"
+              aria-label="Search Memory"
+              autoComplete="off"
+              autoCorrect="off"
+              spellCheck={false}
+              className="h-11 pr-11"
+            />
+            <SearchClearButton
+              visible={homeSearchQuery.length > 0}
+              label="Clear Memory search"
+              onClear={() => setHomeSearchQuery("")}
+            />
+          </div>
 
           {memoryCardsLoading && memoryCards.length === 0 ? (
             <SurfaceInset className="flex items-center gap-2 p-4 text-sm text-muted-foreground">
@@ -1261,6 +1309,53 @@ export function PkmNaturalPanel({
               </p>
             ) : null}
 
+            <SettingsGroup
+              title="Your copy"
+              description="Everything One remembers about you, in one file you keep."
+              separatorInset
+              testId="memory-export-group"
+            >
+              <SettingsRow
+                title="Download what One remembers"
+                description={
+                  isVaultUnlocked
+                    ? "Readable, plus an encrypted copy that can put it back. The readable part is plain text once it is on your device."
+                    : "Unlock first. Without your key, nothing here can be read."
+                }
+                stackTrailingOnMobile
+                trailing={
+                  <Button
+                    type="button"
+                    variant="muted"
+                    size="sm"
+                    disabled={!isVaultUnlocked || exportBusy}
+                    onClick={() => void handleExportMemory()}
+                    data-testid="memory-export-button"
+                  >
+                    {exportBusy ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden />
+                        Preparing…
+                      </>
+                    ) : (
+                      "Download"
+                    )}
+                  </Button>
+                }
+              />
+            </SettingsGroup>
+
+            {exportStatus ? (
+              <p className="px-1 text-sm text-muted-foreground" role="status">
+                {exportStatus}
+              </p>
+            ) : null}
+            {exportError ? (
+              <p className="px-1 text-sm text-[color:var(--app-destructive)]" role="alert">
+                {exportError}
+              </p>
+            ) : null}
+
             {!sharingManifestsLoading &&
               visibleMetadataDomains.map((domain) => {
                 const manifest = sharingManifests[domain.key] || null;
@@ -1306,7 +1401,8 @@ export function PkmNaturalPanel({
                   >
                     {bundles.map((bundle) => {
                       const bundleKey = `${domain.key}:${bundle.scopeHandle || bundle.topLevelScopePath}`;
-                      return (
+
+  return (
                         <SettingsRow
                           key={bundleKey}
                           title={bundle.label}

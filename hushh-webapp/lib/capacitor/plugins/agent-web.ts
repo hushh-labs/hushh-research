@@ -7,6 +7,11 @@
 
 import type { HushhAgentPlugin, AgentResponse, AgentInfo } from "../index";
 import { SettingsService } from "../../services/settings-service";
+import {
+  resolveLocalIntentAsync,
+  type IntentResolution,
+  type OneVoiceIntentContext,
+} from "../../voice/local-intent-resolver";
 
 const AGENT_IDS = {
   orchestrator: 'agent_orchestrator',
@@ -45,17 +50,22 @@ export class HushhAgentWeb implements HushhAgentPlugin {
     if (agentId && agentId !== AGENT_IDS.orchestrator) {
       return this.routeToAgent(agentId, message, userId, sessionState || {});
     }
-    
-    const delegation = this.classifyIntentSync(message);
-    if (delegation.hasDelegate) {
-      return this.routeToAgent(delegation.targetAgent, message, userId, sessionState || {});
+
+    const context = this.readIntentContext(sessionState || {});
+    if (!context) {
+      return {
+        response: "I need the current Agent One screen context before I can safely interpret that request.",
+        isComplete: false,
+        needsConsent: false,
+      };
     }
-    
-    return {
-      response: `👋 Hi! I can help with investment analysis (Kai) and PKM domains. What would you like to do?`,
-      isComplete: false,
-      needsConsent: false,
-    };
+
+    const intent = await resolveLocalIntentAsync({
+      utterance: message,
+      context,
+      catalogVersion: context.catalogVersion,
+    });
+    return this.responseForIntent(intent);
   }
   
   async classifyIntent(options: { message: string }): Promise<{
@@ -93,6 +103,89 @@ export class HushhAgentWeb implements HushhAgentPlugin {
       hasDelegate: false,
       targetAgent: AGENT_IDS.orchestrator,
       domain: 'general',
+    };
+  }
+
+  private readIntentContext(
+    sessionState: Record<string, unknown>,
+  ): OneVoiceIntentContext | null {
+    const raw = sessionState.oneVoiceContext;
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+    const value = raw as Record<string, unknown>;
+    const availableActionIds = value.availableActionIds;
+    const contextRevision = value.contextRevision;
+    const catalogVersion = value.catalogVersion;
+    if (
+      !Array.isArray(availableActionIds) ||
+      !availableActionIds.every((entry) => typeof entry === "string") ||
+      typeof contextRevision !== "string" ||
+      !contextRevision.trim() ||
+      typeof catalogVersion !== "string" ||
+      !catalogVersion.trim()
+    ) {
+      return null;
+    }
+    const executableActionIds = value.executableActionIds;
+    const redactedState = value.redactedState;
+    return {
+      contextRevision,
+      catalogVersion,
+      availableActionIds,
+      executableActionIds:
+        Array.isArray(executableActionIds) &&
+        executableActionIds.every((entry) => typeof entry === "string")
+          ? executableActionIds
+          : undefined,
+      route:
+        value.route && typeof value.route === "object" && !Array.isArray(value.route)
+          ? (value.route as OneVoiceIntentContext["route"])
+          : undefined,
+      redactedState:
+        redactedState && typeof redactedState === "object" && !Array.isArray(redactedState)
+          ? (redactedState as OneVoiceIntentContext["redactedState"])
+          : undefined,
+    };
+  }
+
+  private responseForIntent(intent: IntentResolution): AgentResponse {
+    if (intent.disposition === "clarify") {
+      const response =
+        intent.missingSlots?.includes("name")
+          ? "What should I call the new circle?"
+          : "What would you like me to do with your location?";
+      return {
+        response,
+        isComplete: false,
+        needsConsent: false,
+        intent,
+      };
+    }
+    if (intent.disposition === "read_answer") {
+      const count = intent.slots.count;
+      return {
+        response:
+          typeof count === "number"
+            ? `You have ${count} ${count === 1 ? "Circle" : "Circles"}.`
+            : "I will answer that from the current Location data.",
+        isComplete: typeof count === "number",
+        needsConsent: false,
+        intent,
+      };
+    }
+    if (intent.disposition === "unsupported") {
+      const response =
+        intent.reason === "sos_send_blocked"
+          ? "I cannot send an SOS by voice. I can open the SOS review screen instead."
+          : intent.reason === "action_unavailable"
+            ? "That action is not available in the current Agent One context."
+            : "I do not have a safe, supported action for that request yet.";
+      return { response, isComplete: false, needsConsent: false, intent };
+    }
+    return {
+      response: "I found the matching Agent One action. I will continue through the in-app policy and confirmation flow.",
+      isComplete: false,
+      needsConsent: false,
+      intent,
     };
   }
   

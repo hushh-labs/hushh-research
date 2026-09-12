@@ -49,7 +49,6 @@ export function RiaProgress({
     </div>
   );
 }
-
 /**
  * Selection indicator (presentational only — put role + aria-checked on the
  * parent control). Two variants:
@@ -232,4 +231,3 @@ export function RiaBanner({
     </div>
   );
 }
-

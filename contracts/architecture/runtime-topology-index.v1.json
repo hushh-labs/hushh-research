@@ -829,12 +829,13 @@
     {
       "data_class": "workflow_state",
       "exact_tables": [
-        "feed_events"
+        "feed_events",
+        "feed_event_counterparts"
       ],
       "id": "feed_events",
       "lifecycle_status": "current",
       "owner": "backend-runtime-governance",
-      "primary_access_path": "One Feed route: cross-domain activity list, unread badge, and read-state tracking"
+      "primary_access_path": "One Feed route: cross-domain activity list, unread badge, and read-state tracking. Counterpart identity uses audit primary keys, indexed grant IDs, or indexed owner/recipient event candidates with exact source and audience checks; current photos join the identity cache."
     },
     {
       "data_class": "audit_regulated",
@@ -3606,8 +3607,13 @@
       "voice": {
         "action_ids": [
           "help.open_examples",
+          "profile.delete_account",
+          "profile.marketplace_visibility.toggle",
+          "profile.sign_out",
+          "profile.support.submit_message",
           "route.back",
           "route.profile",
+          "route.profile_access_panel",
           "route.profile_connected_systems",
           "route.profile_pkm_agent_lab",
           "route.profile_referrals_panel",
@@ -3685,8 +3691,13 @@
       "voice": {
         "action_ids": [
           "help.open_examples",
+          "profile.delete_account",
+          "profile.marketplace_visibility.toggle",
+          "profile.sign_out",
+          "profile.support.submit_message",
           "route.back",
           "route.profile",
+          "route.profile_access_panel",
           "route.profile_connected_systems",
           "route.profile_pkm_agent_lab",
           "route.profile_referrals_panel",
@@ -3718,8 +3729,13 @@
       "voice": {
         "action_ids": [
           "help.open_examples",
+          "profile.delete_account",
+          "profile.marketplace_visibility.toggle",
+          "profile.sign_out",
+          "profile.support.submit_message",
           "route.back",
           "route.profile",
+          "route.profile_access_panel",
           "route.profile_connected_systems",
           "route.profile_pkm_agent_lab",
           "route.profile_referrals_panel",
@@ -5512,21 +5528,21 @@
   "schema_version": "hushh.runtime_topology_index.v1",
   "source_sha256": {
     "a2a_scope_map": "2bcecbbab3b901bfb1cdf76f64ff3a8478975febd5fb4be9ec95a753d3e99bf8",
-    "action_gateway": "cc1d1375e7d3b218c35cea4a0574b89734759f136b736b0cee7b5774cb92d9e9",
-    "agent_registry": "bbb216914b5071e301b0a923fcd61695c9260691f56097a482510b1229ff6112",
-    "cache_manifest": "c7a177decdb319d8a8b673ae16f6acdad5aedee5fc98329d2d58470e1726b4e8",
-    "data_plane": "a9eab526c377cba31e895e1dd66cad1b365960a06eeb5598215dd041f2708588",
-    "in_process_dispatch": "be849e9fc6ab347ebbbfd84bfaa7fb528f29c71bc76b11c38f1c40642c51883a",
-    "one_specialist_tools": "dd765cd46a3e64e309904b35534cbd2f19544a4452ecb4f0e6298b969e6503cc",
-    "route_index": "e6408b8d2cc074a7ea1c5ae916ffee357ce41d8007d4631002bb46c87e460399",
-    "route_layout": "b66933c7083fd755f1a8e4a16262996fc7ae6124a4c550725bfdc7144332355f",
-    "surface_map": "f5fffd96f19e2c2e949c47840a815f87c0fa0936eff7a50cc9c7a180590ba7b3",
+    "action_gateway": "9e543119bdf158e4f12f0c3aa86e17a0fd3e38ae1dda4dc10e4c7ca55466dd36",
+    "agent_registry": "0e1193e4c1800998c7bbd9dd4a8d5369955581abcdd442e6a040c48836e41a2b",
+    "cache_manifest": "b31f78f31d803a4e997352218fa633e6896a26fe75f19b6de12648b501159ed0",
+    "data_plane": "e24f14cb2162791a1f025a620c8547cb565b5f2be2c73d6b4ea562ab09668920",
+    "in_process_dispatch": "022c40c305a11e06510f2688041a96c1523cae5b5c03d7876fd122ce027e98c3",
+    "one_specialist_tools": "2d28aca01ad50fcf13d397b9049430080af0cc865a3bacc0c151aec49393dcfe",
+    "route_index": "21e3b0409a509a9561772901a9730117fd95f05b94adc5ce3d59a3fd0ba2aadb",
+    "route_layout": "5df348a7ca9785aacc47b20a6e8434375bae432718ce2dbd30e83a59a6a8abb4",
+    "surface_map": "3dd73f5e6b9fec6f8cd80e6ccb440e24f48cce00a5780e90dc4cf9aaea77af61",
     "topology_contract": "3515551e0cd42c3d17c767dd922111b1bf29f7ac1521d47e2d16ced39c6c1b6a",
     "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"
   },
   "summary": {
     "a2a_scope_gated_agents": 5,
-    "actions": 211,
+    "actions": 212,
     "agents": 20,
     "aliases": 3,
     "decision_required": 2,

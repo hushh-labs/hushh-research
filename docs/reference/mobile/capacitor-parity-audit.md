@@ -44,7 +44,7 @@ Intentional destructive cold-start audit:
 cd hushh-webapp && npm run verify:capacitor:cold:audit
 ```
 
-The cold audit resets native app state and signs in the governed reviewer fixture. It is route/parity evidence only, never vault or route-continuity evidence. For a visible, non-destructive same-session rehearsal, start the already-installed app with `npm run ios:continuity:local` or `npm run android:continuity:local`, then drive the specified interactions in the device.
+The cold audit resets native app state and signs in the governed reviewer fixture. It is route/parity evidence only, never vault or route-continuity evidence. For a non-destructive same-session rehearsal, start the already-installed app with `npm run ios:continuity:local` or `npm run android:continuity:local`, then drive the specified interactions in the device. iOS stays headless by default; append `-- --visible` only when a desktop window is requested.
 
 ## Route Classification Policy
 

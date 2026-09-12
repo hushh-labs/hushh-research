@@ -330,6 +330,15 @@ jobs:
           set -euo pipefail
           npm run --prefix hushh-webapp ios:prepare:uat
 
+      - name: Verify generated voice authority and consent contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run --prefix hushh-webapp verify:one-voice
+          npm run --prefix hushh-webapp verify:capacitor:static
+          npm run --prefix hushh-webapp verify:capacitor:plugins
+          npm run --prefix hushh-webapp verify:capacitor:product-assets
+
       - name: Create App Store Connect Python venv
         shell: bash
         run: |
@@ -396,6 +405,13 @@ jobs:
             CODE_SIGN_ENTITLEMENTS="${IOS_RELEASE_ENTITLEMENTS}" \
             CURRENT_PROJECT_VERSION="${{ steps.build_number.outputs.next_build }}" \
             archive 2>&1 | tee "${RUNNER_TEMP}/xcodebuild-archive.log"
+
+      - name: Verify archived product voice assets and privacy declarations
+        shell: bash
+        run: |
+          set -euo pipefail
+          IOS_APP_BUNDLE_PATH="${RUNNER_TEMP}/App.xcarchive/Products/Applications/App.app" \
+            npm run --prefix hushh-webapp verify:capacitor:product-assets
 
       - name: Assert the archive ships our own debug symbols
         shell: bash

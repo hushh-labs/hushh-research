@@ -134,6 +134,7 @@ def test_atomic_private_share_route_binds_owner_from_token(monkeypatch) -> None:
     assert response.json()["idempotentReplay"] is False
     assert service.calls[0]["owner_user_id"] == "owner-from-token"
     assert service.calls[0]["recipient_user_id"] == "recipient"
+    assert service.calls[0]["require_recipient_phone_verified"] is False
     assert service.calls[0]["enforce_connection"] is True
 
 
@@ -169,7 +170,94 @@ def test_private_share_route_threads_until_stopped_duration_mode(monkeypatch) ->
     assert response.json()["grant"]["expiresAt"] is None
     assert service.calls[0]["duration_mode"] == "until_stopped"
     assert service.calls[0]["duration_hours"] is None
+    assert service.calls[0]["require_recipient_phone_verified"] is False
     assert service.calls[0]["enforce_connection"] is True
+
+
+def test_private_share_route_accepts_connected_keyed_user_without_phone_claim(
+    monkeypatch,
+) -> None:
+    service = FourUserMemoryService()
+    current_user = {"user_id": "user_a"}
+    client = _client(service, current_user, monkeypatch)
+    _register_key(client, current_user, "user_b")
+    service.identities["user_b"]["phone_verified"] = False
+    service._seed_connection("user_a", "user_b")
+    current_user["user_id"] = "user_a"
+
+    response = client.post(
+        "/api/one/location/grants",
+        json={
+            "recipientUserId": "user_b",
+            "recipientKeyId": "key-user_b",
+            "durationHours": 1,
+            "shareKind": "share",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["grant"]["recipientUserId"] == "user_b"
+
+
+def test_sos_route_keeps_verified_phone_recipient_requirement(monkeypatch) -> None:
+    class SosGrantRouteProbe:
+        def __init__(self) -> None:
+            self.calls: list[dict] = []
+
+        def create_grant(self, **kwargs):
+            self.calls.append(kwargs)
+            return {"id": "grant-sos", "status": "active", "shareKind": "sos"}
+
+    service = SosGrantRouteProbe()
+    client = _client(  # type: ignore[arg-type]
+        service,
+        {"user_id": "owner-from-token"},
+        monkeypatch,
+    )
+
+    response = client.post(
+        "/api/one/location/grants",
+        json={
+            "recipientUserId": "recipient",
+            "recipientKeyId": "recipient-key",
+            "durationHours": 8,
+            "reason": "sos_panic",
+            "shareKind": "sos",
+        },
+    )
+
+    assert response.status_code == 200
+    assert service.calls[0]["require_recipient_phone_verified"] is True
+
+
+def test_legacy_sos_reason_keeps_verified_phone_recipient_requirement(monkeypatch) -> None:
+    class LegacySosGrantRouteProbe:
+        def __init__(self) -> None:
+            self.calls: list[dict] = []
+
+        def create_grant(self, **kwargs):
+            self.calls.append(kwargs)
+            return {"id": "grant-sos", "status": "active", "shareKind": "sos"}
+
+    service = LegacySosGrantRouteProbe()
+    client = _client(  # type: ignore[arg-type]
+        service,
+        {"user_id": "owner-from-token"},
+        monkeypatch,
+    )
+
+    response = client.post(
+        "/api/one/location/grants",
+        json={
+            "recipientUserId": "recipient",
+            "recipientKeyId": "recipient-key",
+            "durationHours": 8,
+            "reason": "sos_panic",
+        },
+    )
+
+    assert response.status_code == 200
+    assert service.calls[0]["require_recipient_phone_verified"] is True
 
 
 def test_set_grant_duration_route_binds_owner_and_exact_grant(monkeypatch) -> None:

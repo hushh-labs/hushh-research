@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { ContactSyncResultsSheet } from "@/components/one-location/contact-sync-results-sheet";
@@ -52,6 +52,30 @@ function result(
 }
 
 describe("ContactSyncResultsSheet", () => {
+  it("survives launcher focus restoration and still dismisses with Escape", async () => {
+    const onOpenChange = vi.fn();
+    render(
+      <>
+        <button>Launch contacts</button>
+        <ContactSyncResultsSheet
+          open
+          onOpenChange={onOpenChange}
+          result={result()}
+          syncing={false}
+          onSyncAgain={vi.fn()}
+          onInvite={vi.fn()}
+          onRequestConnection={vi.fn()}
+        />
+      </>,
+    );
+    const sheet = screen.getByRole("dialog", { name: "Contact sync results" });
+    await act(async () => { screen.getByRole("button", { name: "Launch contacts" }).focus(); });
+    expect(onOpenChange).not.toHaveBeenCalled();
+    expect(sheet).toBeInTheDocument();
+    fireEvent.keyDown(sheet, { key: "Escape" });
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
   it.each([false, true])(
     "uses the onboarding overlay only for takeover=%s",
     (takeover) => {
@@ -228,10 +252,11 @@ describe("ContactSyncResultsSheet", () => {
       expect(
         screen.getByText("Only part of your contact list was checked."),
       ).toBeInTheDocument();
-      fireEvent.click(screen.getByRole("button", { name: "Sync again" }));
+      const retryLabel = partial.sourcePlatform === "google" ? "Choose Google account" : "Sync again";
+      fireEvent.click(screen.getByRole("button", { name: retryLabel }));
       expect(onSyncAgain).toHaveBeenCalledTimes(1);
       view.rerender(<ContactSyncResultsSheet {...props} syncing />);
-      expect(screen.getByRole("button", { name: "Sync again" })).toBeDisabled();
+      expect(screen.getByRole("button", { name: retryLabel })).toBeDisabled();
     },
   );
 

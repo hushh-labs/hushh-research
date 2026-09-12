@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  resolveLockState,
   resolveVaultAvailabilityState,
   resolveVaultCapabilityState,
 } from "@/lib/vault/vault-access-policy";
@@ -53,6 +54,45 @@ describe("vault access policy", () => {
       vaultUnknown: false,
       needsVaultCreation: true,
       needsUnlock: false,
+    });
+  });
+
+  it("keeps an unresolved presence read in loading instead of setup", () => {
+    expect(
+      resolveLockState({
+        hasVault: null,
+        isVaultUnlocked: false,
+        vaultKey: null,
+        vaultOwnerToken: null,
+      }),
+    ).toBe("loading");
+
+    expect(
+      resolveVaultAvailabilityState({
+        hasVault: null,
+        isVaultUnlocked: false,
+      }),
+    ).toMatchObject({
+      state: "loading",
+      vaultUnknown: true,
+      needsVaultCreation: false,
+      needsUnlock: false,
+      vaultCheckFailed: false,
+    });
+  });
+
+  it("keeps a failed presence read out of both setup and unlock prompts", () => {
+    expect(
+      resolveVaultAvailabilityState({
+        hasVault: false,
+        isVaultUnlocked: false,
+        presenceFailed: true,
+      }),
+    ).toMatchObject({
+      state: "error",
+      needsVaultCreation: false,
+      needsUnlock: false,
+      vaultCheckFailed: true,
     });
   });
 });

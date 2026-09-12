@@ -169,11 +169,13 @@ type SettingsIconTone = keyof typeof SETTINGS_ICON_TONE_CLASSNAME;
 export function SettingsGroup({
   eyebrow,
   title,
+  titleControl,
   titleAction,
   description,
   toolbar,
   children,
   embedded = false,
+  density,
   separatorInset,
   className,
   headingClassName,
@@ -184,6 +186,8 @@ export function SettingsGroup({
 }: {
   eyebrow?: string;
   title?: ReactNode;
+  /** Replaces the static heading with a section selector, keeping button semantics. */
+  titleControl?: ReactNode;
   /**
    * A control that belongs to this section, shown at the end of the heading
    * row.
@@ -213,6 +217,12 @@ export function SettingsGroup({
   toolbar?: ReactNode;
   children: ReactNode;
   embedded?: boolean;
+  /**
+   * Sets the row/heading density for every SettingsRow in this group. When
+   * omitted, embedded groups use the compact grouped-list recipe while
+   * full-page groups retain the roomier settings-screen rhythm.
+   */
+  density?: "compact" | "comfortable";
   /**
    * Opt-in iOS inset-grouped separators: hairlines that start after the leading
    * icon (aligned to the text) instead of full-width dividers. Default false
@@ -247,14 +257,20 @@ export function SettingsGroup({
   const presentation = useContext(SettingsPresentationContext);
   const resolvedSeparatorInset =
     separatorInset ?? presentation.separatorInset ?? false;
+  const resolvedDensity =
+    density ?? presentation.density ?? (embedded ? "compact" : "comfortable");
   const shell = (
     <div
       data-ui-role="grouped-card"
       data-slot="settings-group-shell"
+      data-settings-density={resolvedDensity}
       className={cn(
         // Inset settings groups use the compact card radius and flat grouped
         // Apple surfaces; separators inside the card carry the structure.
-        "relative isolate [--settings-group-radius:var(--app-card-radius-standard,24px)] overflow-hidden rounded-[var(--settings-group-radius)]",
+        "relative isolate overflow-hidden rounded-[var(--settings-group-radius)]",
+        resolvedDensity === "compact"
+          ? "[--settings-group-radius:var(--app-card-radius-compact,16px)]"
+          : "[--settings-group-radius:var(--app-card-radius-standard,18px)]",
         "bg-[color:var(--app-card-surface-default-solid)] shadow-[var(--app-card-shadow-standard)] ring-0",
         !embedded && "sm:rounded-[var(--settings-group-radius)]",
         shellClassName,
@@ -277,28 +293,38 @@ export function SettingsGroup({
   );
 
   return (
-    <section className={cn("w-full", className)} data-testid={testId}>
-      {eyebrow || title || description || titleAction ? (
+    <section
+      className={cn("w-full", className)}
+      data-settings-density={resolvedDensity}
+      data-testid={testId}
+    >
+      {eyebrow || title || titleControl || description || titleAction ? (
         <div
           className={cn(
-            "mb-2 mt-7 flex items-start justify-between gap-3 px-[6px]",
+            "flex items-start justify-between gap-3 px-1",
+            resolvedDensity === "compact" ? "mb-1.5 mt-5" : "mb-2 mt-7",
             headingClassName,
           )}
         >
           <div className="min-w-0 flex-1 space-y-[var(--settings-heading-stack-gap)]">
-            {eyebrow || title ? (
-              <SectionLabel
-                data-slot="settings-group-heading"
-                role="heading"
-                aria-level={embedded ? 3 : 2}
-                className="flex flex-wrap items-center gap-x-2 gap-y-1 text-pretty [overflow-wrap:anywhere]"
-              >
-                {eyebrow ? <span>{eyebrow}</span> : null}
-                {title ? <span>{title}</span> : null}
-              </SectionLabel>
-            ) : null}
+            {titleControl ??
+              (eyebrow || title ? (
+                <SectionLabel
+                  compact={resolvedDensity === "compact"}
+                  data-slot="settings-group-heading"
+                  role="heading"
+                  aria-level={embedded ? 3 : 2}
+                  className="flex flex-wrap items-center gap-x-2 gap-y-1 text-pretty [overflow-wrap:anywhere]"
+                >
+                  {eyebrow ? <span>{eyebrow}</span> : null}
+                  {title ? <span>{title}</span> : null}
+                </SectionLabel>
+              ) : null)}
             {description ? (
-              <RowDescription className="max-w-2xl [overflow-wrap:anywhere]">
+              <RowDescription
+                compact={resolvedDensity === "compact"}
+                className="max-w-2xl [overflow-wrap:anywhere]"
+              >
                 {description}
               </RowDescription>
             ) : null}
@@ -319,13 +345,19 @@ export function SettingsGroup({
             "mb-3",
             // Without a heading above it there is no `mt-7` to sit under, so
             // the control would hug whatever preceded the group.
-            !(eyebrow || title || description) && "mt-7",
+            !(eyebrow || title || titleControl || description) &&
+              (resolvedDensity === "compact" ? "mt-5" : "mt-7"),
           )}
         >
           {toolbar}
         </div>
       ) : null}
-      {shell}
+      <SettingsPresentationProvider
+        separatorInset={resolvedSeparatorInset}
+        density={resolvedDensity}
+      >
+        {shell}
+      </SettingsPresentationProvider>
     </section>
   );
 }
@@ -345,6 +377,8 @@ export function SettingsRow({
   tone = "default",
   iconTone = "gray",
   density,
+  layout = "settings",
+  textOverflow = "wrap",
   stackTrailingOnMobile = false,
   className,
   voiceControlId,
@@ -372,6 +406,14 @@ export function SettingsRow({
   iconTone?: SettingsIconTone;
   /** Compact, single-line settings rows for dense grouped menus. */
   density?: "compact" | "comfortable";
+  /** Person lists use a 40px face and a stable 68px text/separator start. */
+  layout?: "settings" | "person";
+  /**
+   * Keeps compact navigation rows to one title and one supporting line while
+   * leaving the complete accessible text in the DOM. Content-heavy settings
+   * rows continue to wrap by default.
+   */
+  textOverflow?: "wrap" | "truncate";
   stackTrailingOnMobile?: boolean;
   className?: string;
   voiceControlId?: string;
@@ -414,14 +456,18 @@ export function SettingsRow({
     // An inset separator aligns with an icon well. Rows without a leading visual
     // need a full-width hairline; otherwise the divider appears arbitrarily cut
     // off, as it did on Connect's plain-text rows.
-    icon || leading
-      ? resolvedDensity === "compact"
-        ? "group-data-[inset-separators=true]/settings-list:after:left-[58px] sm:group-data-[inset-separators=true]/settings-list:after:left-[58px]"
-        : "group-data-[inset-separators=true]/settings-list:after:left-[62px] sm:group-data-[inset-separators=true]/settings-list:after:left-[62px]"
-      : "group-data-[inset-separators=true]/settings-list:after:left-0";
+    layout === "person"
+      ? "group-data-[inset-separators=true]/settings-list:after:left-[68px]"
+      : icon || leading
+        ? resolvedDensity === "compact"
+          ? "group-data-[inset-separators=true]/settings-list:after:left-[58px] sm:group-data-[inset-separators=true]/settings-list:after:left-[58px]"
+          : "group-data-[inset-separators=true]/settings-list:after:left-[62px] sm:group-data-[inset-separators=true]/settings-list:after:left-[62px]"
+        : "group-data-[inset-separators=true]/settings-list:after:left-0";
   const rowShellClassName = cn(
     "group/settings-row relative isolate overflow-hidden bg-transparent",
-    resolvedDensity === "compact" && "[--settings-row-py:10px]",
+    resolvedDensity === "compact" && "[--settings-row-py:8px]",
+    layout === "person" &&
+      "[--settings-row-px:16px] [--settings-row-py:12px] [--settings-row-gap:12px] [--settings-row-stack-indent:52px]",
     // iOS-style separator — active only inside SettingsGroup with
     // separatorInset and hidden on the final row. Its start is derived from
     // whether this row actually has a leading visual.
@@ -441,7 +487,14 @@ export function SettingsRow({
       )}
     >
       {leading ? (
-        <span className="inline-flex shrink-0 self-center">{leading}</span>
+        <span
+          className={cn(
+            "inline-flex shrink-0 self-center",
+            layout === "person" && "w-10 justify-center",
+          )}
+        >
+          {leading}
+        </span>
       ) : icon ? (
         <span
           data-ui-role="settings-icon"
@@ -452,9 +505,11 @@ export function SettingsRow({
             // Agent artwork continues to use AgentSectionIcon, which owns the
             // larger launcher/menu geometry separately.
             "inline-flex shrink-0 items-center justify-center self-center",
-            resolvedDensity === "compact"
-              ? "h-7 w-7 rounded-[7px]"
-              : "h-[34px] w-[34px] rounded-[10px] sm:h-[34px] sm:w-[34px] sm:rounded-[10px]",
+            layout === "person"
+              ? "size-10 rounded-full"
+              : resolvedDensity === "compact"
+                ? "h-7 w-7 rounded-[7px]"
+                : "h-[34px] w-[34px] rounded-[10px] sm:h-[34px] sm:w-[34px] sm:rounded-[10px]",
             SETTINGS_ICON_TONE_CLASSNAME[resolvedIconTone],
           )}
         >
@@ -464,9 +519,12 @@ export function SettingsRow({
       <div className="min-w-0 flex-1 space-y-0.5">
         <RowLabel
           as="div"
+          compact={resolvedDensity === "compact"}
           data-slot="settings-row-title"
           className={cn(
-            "[overflow-wrap:anywhere]",
+            textOverflow === "truncate"
+              ? "truncate whitespace-nowrap"
+              : "[overflow-wrap:anywhere]",
             tone === "destructive" && "text-destructive",
           )}
         >
@@ -475,8 +533,13 @@ export function SettingsRow({
         {description ? (
           <RowDescription
             as="div"
+            compact={resolvedDensity === "compact"}
             data-slot="settings-row-description"
-            className="[overflow-wrap:anywhere]"
+            className={
+              textOverflow === "truncate"
+                ? "truncate whitespace-nowrap"
+                : "[overflow-wrap:anywhere]"
+            }
           >
             {description}
           </RowDescription>
@@ -514,6 +577,7 @@ export function SettingsRow({
   const sharedClassName = cn(
     "relative isolate grid w-full appearance-none overflow-hidden border-0 bg-transparent px-[var(--settings-row-px)] py-[var(--settings-row-py)] text-left outline-hidden ring-0 [-webkit-tap-highlight-color:transparent]",
     resolvedDensity === "compact" ? "min-h-[56px]" : "min-h-[60px]",
+    layout === "person" && "min-h-[72px]",
     shouldStackTrailing
       ? "grid-cols-1 gap-y-[var(--settings-row-stack-gap)] sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:gap-x-[var(--settings-row-gap)] sm:gap-y-0"
       : "grid-cols-[minmax(0,1fr)_auto] items-center gap-x-[var(--settings-row-gap)]",
@@ -525,7 +589,14 @@ export function SettingsRow({
     "rounded-[inherit] [@media(hover:hover)]:rounded-xl",
     "[@media(hover:hover)]:hover:bg-foreground/[0.04] active:bg-foreground/[0.065]",
     resolvedDensity === "compact" ? "min-h-[56px]" : "min-h-[60px]",
+    layout === "person" && "min-h-11 p-0",
   );
+  const rowDataProps = {
+    "data-testid": testId,
+    "data-tone": tone,
+    "data-settings-density": resolvedDensity,
+    "data-row-layout": layout,
+  };
   const voiceProps = {
     "data-voice-control-id": voiceControlId || undefined,
     "data-voice-action-id": voiceActionId || undefined,
@@ -554,12 +625,18 @@ export function SettingsRow({
 
   if (splitPrimaryAction) {
     return (
-      <div className={rowShellClassName} data-testid={testId} data-tone={tone}>
+      <div className={rowShellClassName} {...rowDataProps}>
         <div
           className={cn(
             "relative z-10 grid w-full px-[var(--settings-row-px)] py-[var(--settings-row-py)]",
+            layout === "person" && "min-h-[72px]",
             shouldStackTrailing
-              ? "grid-cols-1 gap-y-0 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:gap-x-3"
+              ? cn(
+                  "grid-cols-1 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:gap-x-3 sm:gap-y-0",
+                  layout === "person"
+                    ? "gap-y-[var(--settings-row-stack-gap)]"
+                    : "gap-y-0",
+                )
               : "grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3",
           )}
         >
@@ -590,7 +667,7 @@ export function SettingsRow({
 
   if (resolvedAsChild) {
     return (
-      <div className={rowShellClassName} data-testid={testId} data-tone={tone}>
+      <div className={rowShellClassName} {...rowDataProps}>
         <Comp
           {...(!resolvedAsChild
             ? { "aria-disabled": disabled || undefined }
@@ -605,7 +682,7 @@ export function SettingsRow({
   }
 
   return (
-    <div className={rowShellClassName} data-testid={testId} data-tone={tone}>
+    <div className={rowShellClassName} {...rowDataProps}>
       {isInteractive ? (
         <span
           aria-hidden
@@ -745,7 +822,12 @@ export function AdaptiveDetailSurface({
             }}
           >
             <SheetHeader className="morphy-theme-content sticky top-0 z-10 border-b border-[color:var(--app-card-border-standard)] bg-[var(--activeGlassColor)] px-4 pt-7 pb-3 text-left backdrop-blur-[var(--blur-standard)]">
-              <div className={cn("flex min-w-0 items-center gap-3 text-left", showMobileCloseButton && "pr-10")}>
+              <div
+                className={cn(
+                  "flex min-w-0 items-center gap-3 text-left",
+                  showMobileCloseButton && "pr-10",
+                )}
+              >
                 {leading ? <div className="shrink-0">{leading}</div> : null}
                 <div className="min-w-0 text-left">
                   {eyebrow ? (
@@ -773,7 +855,7 @@ export function AdaptiveDetailSurface({
             </SheetHeader>
             <div
               className={cn(
-              "bg-[color:var(--app-card-surface-default-solid)] px-3 pb-[calc(var(--app-safe-area-bottom-effective,env(safe-area-inset-bottom,0px))+1rem)] pt-1 sm:px-4 sm:pt-2",
+                "bg-[color:var(--app-card-surface-default-solid)] px-3 pb-[calc(var(--app-safe-area-bottom-effective,env(safe-area-inset-bottom,0px))+1rem)] pt-1 sm:px-4 sm:pt-2",
                 bodyClassName,
               )}
             >

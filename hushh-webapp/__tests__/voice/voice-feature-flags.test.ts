@@ -13,6 +13,8 @@ const ORIGINAL_ENV = {
   NEXT_PUBLIC_VOICE_V2_CLIENT_VAD_FALLBACK_ENABLED:
     process.env.NEXT_PUBLIC_VOICE_V2_CLIENT_VAD_FALLBACK_ENABLED,
   NEXT_PUBLIC_MORPHY_AX_ENABLED: process.env.NEXT_PUBLIC_MORPHY_AX_ENABLED,
+  NEXT_PUBLIC_ONE_VOICE_FLUID_AUDIO_ENABLED:
+    process.env.NEXT_PUBLIC_ONE_VOICE_FLUID_AUDIO_ENABLED,
 };
 
 function restoreEnv() {
@@ -63,5 +65,16 @@ describe("voice-feature-flags", () => {
     expect(getVoiceV2Flags().morphyAxEnabled).toBe(false);
     process.env.NEXT_PUBLIC_MORPHY_AX_ENABLED = "1";
     expect(getVoiceV2Flags().morphyAxEnabled).toBe(true);
+  });
+
+  it("keeps native FluidAudio opt-in and reversible", () => {
+    delete process.env.NEXT_PUBLIC_ONE_VOICE_FLUID_AUDIO_ENABLED;
+    expect(getVoiceV2Flags().nativeFluidAudioEnabled).toBe(false);
+
+    process.env.NEXT_PUBLIC_ONE_VOICE_FLUID_AUDIO_ENABLED = "1";
+    expect(getVoiceV2Flags().nativeFluidAudioEnabled).toBe(true);
+
+    process.env.NEXT_PUBLIC_ONE_VOICE_FLUID_AUDIO_ENABLED = "0";
+    expect(getVoiceV2Flags().nativeFluidAudioEnabled).toBe(false);
   });
 });

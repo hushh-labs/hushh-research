@@ -21,11 +21,13 @@ threadpool dispatch offloads the blocking call without a manual
 
 from __future__ import annotations
 
+import base64
 import json
 import logging
 import math
 from datetime import datetime, timezone
 from typing import Any
+from urllib.parse import urlsplit
 from uuid import UUID
 
 from db.db_client import get_db
@@ -52,6 +54,7 @@ _LOCATION_GRANT_EVENT_TYPES = frozenset(
         "location_share_shortened",
         "location_share_duration_changed",
         "location_share_expired",
+        "location_share_viewed",
     }
 )
 _LOCATION_REQUEST_EVENT_TYPES = frozenset(
@@ -121,6 +124,11 @@ def _safe_feed_metadata(value: object) -> dict[str, str | int | float | bool]:
     safe: dict[str, str | int | float | bool] = {}
     for key in _SAFE_METADATA_KEYS:
         raw = value.get(key)
+        if key == _COUNTERPART_PHOTO_KEY:
+            photo = _safe_photo_url(raw)
+            if photo is not None:
+                safe[key] = photo
+            continue
         if isinstance(raw, str):
             cleaned = _bounded_text(
                 raw,
@@ -139,6 +147,40 @@ def _safe_feed_metadata(value: object) -> dict[str, str | int | float | bool]:
         elif isinstance(raw, float) and math.isfinite(raw) and abs(raw) <= _MAX_METADATA_NUMBER:
             safe[key] = raw
     return safe
+
+
+def _safe_photo_url(value: object) -> str | None:
+    """Preserve complete public photos, never a truncated/unloadable image.
+
+    Uploaded avatars follow account.AvatarUploadRequest's 600k character / 300KiB
+    decoded raster contract. Other metadata retains its much smaller limits.
+    """
+    if not isinstance(value, str):
+        return None
+    photo = value.strip()
+    if photo.startswith("data:"):
+        if len(photo) > 600_000:
+            return None
+        header, separator, encoded = photo.partition(",")
+        if not separator or header not in {
+            "data:image/png;base64",
+            "data:image/jpeg;base64",
+            "data:image/jpg;base64",
+            "data:image/webp;base64",
+        }:
+            return None
+        try:
+            decoded = base64.b64decode(encoded, validate=True)
+        except (ValueError, TypeError):
+            return None
+        return photo if 0 < len(decoded) <= 300 * 1024 else None
+    if len(photo) > _MAX_METADATA_URL_LENGTH:
+        return None
+    try:
+        url = urlsplit(photo)
+        return photo if url.scheme in {"https", "http"} and url.netloc else None
+    except ValueError:
+        return None
 
 
 class FeedService:
@@ -253,15 +295,43 @@ class FeedService:
         if not rows:
             return rows
 
+        current_photos = self._durable_counterpart_photos(user_id, rows)
+        if current_photos is not None:
+            return [
+                {
+                    **row,
+                    "metadata": {
+                        **(row["metadata"] if isinstance(row.get("metadata"), dict) else {}),
+                        # A resolved empty photo clears any old snapshot. Do not
+                        # resurrect an avatar after replacement/removal/erasure.
+                        _COUNTERPART_PHOTO_KEY: current_photos.get(str(row.get("id"))),
+                    },
+                }
+                for row in rows
+            ]
+
+        # Rolling-schema fallback must not resurrect an old photo snapshot when
+        # its current identity was removed, cannot be resolved, or is unavailable.
+        rows = [
+            {
+                **row,
+                "metadata": {
+                    key: value
+                    for key, value in (
+                        row["metadata"] if isinstance(row.get("metadata"), dict) else {}
+                    ).items()
+                    if key != _COUNTERPART_PHOTO_KEY
+                },
+            }
+            for row in rows
+        ]
         connection_request_ids: set[str] = set()
         grant_ids: set[str] = set()
         request_ids: set[str] = set()
         for row in rows:
             metadata = row.get("metadata")
-            if isinstance(metadata, dict) and _bounded_text(
-                metadata.get(_COUNTERPART_PHOTO_KEY), limit=1
-            ):
-                continue
+            # Re-resolve current public identity even when an old event carries
+            # a photo snapshot. Profile updates must agree with Connect.
             source_row_id = str(row.get("source_row_id") or "").strip()
             if not source_row_id:
                 continue
@@ -270,11 +340,21 @@ class FeedService:
             if source_domain == "connections":
                 connection_request_ids.add(source_row_id)
             elif source_domain == "location" and event_type in _LOCATION_GRANT_EVENT_TYPES:
-                grant_id = _uuid_prefix(source_row_id)
+                grant_id = (
+                    _uuid_prefix(str((metadata or {}).get("grant_id") or ""))
+                    if isinstance(metadata, dict)
+                    else None
+                )
+                grant_id = grant_id or _uuid_prefix(source_row_id)
                 if grant_id:
                     grant_ids.add(grant_id)
             elif source_domain == "location" and event_type in _LOCATION_REQUEST_EVENT_TYPES:
-                request_id = _uuid_prefix(source_row_id)
+                request_id = (
+                    _uuid_prefix(str((metadata or {}).get("request_id") or ""))
+                    if isinstance(metadata, dict)
+                    else None
+                )
+                request_id = request_id or _uuid_prefix(source_row_id)
                 if request_id:
                     request_ids.add(request_id)
 
@@ -311,16 +391,33 @@ class FeedService:
 
         enriched: list[dict[str, Any]] = []
         for row in rows:
+            metadata = row.get("metadata")
             source_domain = str(row.get("source_domain") or "")
             event_type = str(row.get("event_type") or "")
             source_row_id = str(row.get("source_row_id") or "").strip()
             lookup_id = source_row_id
             lookup_domain = source_domain
             if source_domain == "location" and event_type in _LOCATION_GRANT_EVENT_TYPES:
-                lookup_id = _uuid_prefix(source_row_id) or ""
+                lookup_id = (
+                    (
+                        _uuid_prefix(str(metadata.get("grant_id") or ""))
+                        if isinstance(metadata, dict)
+                        else None
+                    )
+                    or _uuid_prefix(source_row_id)
+                    or ""
+                )
                 lookup_domain = "location_grant"
             elif source_domain == "location" and event_type in _LOCATION_REQUEST_EVENT_TYPES:
-                lookup_id = _uuid_prefix(source_row_id) or ""
+                lookup_id = (
+                    (
+                        _uuid_prefix(str(metadata.get("request_id") or ""))
+                        if isinstance(metadata, dict)
+                        else None
+                    )
+                    or _uuid_prefix(source_row_id)
+                    or ""
+                )
                 lookup_domain = "location_request"
             photo_url = photo_by_source.get((lookup_domain, lookup_id))
             if not photo_url:
@@ -335,6 +432,59 @@ class FeedService:
             enriched.append(next_row)
         return enriched
 
+    def _durable_counterpart_photos(
+        self, user_id: str, rows: list[dict[str, Any]]
+    ) -> dict[str, str | None] | None:
+        """One bounded viewer-scoped read; internal identity never enters the DTO.
+
+        The resolver supports retained legacy sources until the explicit batch
+        backfill finishes. The map, not the short-lived source, owns new history.
+        A future photo cache must be invalidated by the public identity owner.
+        """
+        try:
+            results = (
+                self._get_db()
+                .execute_raw(
+                    """
+                WITH counterparts AS MATERIALIZED (
+                  SELECT f.id, COALESCE(c.counterpart_user_id,
+                    public.resolve_feed_counterpart_user_id(
+                      f.user_id, f.source_domain, f.event_type, f.source_row_id)) AS actor_id
+                  FROM feed_events f
+                  JOIN jsonb_array_elements_text(CAST(:feed_ids_json AS JSONB)) ids(value)
+                    ON f.id = CAST(ids.value AS BIGINT)
+                  LEFT JOIN feed_event_counterparts c ON c.feed_event_id = f.id
+                  WHERE f.user_id = :user_id
+                )
+                SELECT c.id::TEXT AS feed_id,
+                  COALESCE(NULLIF(BTRIM(a.custom_photo_url), ''),
+                           NULLIF(BTRIM(a.photo_url), '')) AS counterpart_photo_url
+                FROM counterparts c
+                LEFT JOIN actor_identity_cache a ON a.user_id = c.actor_id
+                """,
+                    {
+                        "user_id": user_id,
+                        "feed_ids_json": json.dumps([str(row["id"]) for row in rows]),
+                    },
+                )
+                .data
+                or []
+            )
+        except Exception as exc:
+            cause: BaseException | None = exc
+            while cause is not None:
+                if getattr(cause, "pgcode", None) in {"42P01", "42883"}:
+                    # Rolling migration compatibility, never a changed public contract.
+                    logger.info("feed.counterpart_identity_schema_pending")
+                    return None
+                cause = cause.__cause__
+            logger.exception("feed.counterpart_identity_lookup_failed")
+            return None
+        return {
+            str(row["feed_id"]): _safe_photo_url(row.get("counterpart_photo_url"))
+            for row in results
+        }
+
     def _photo_rows(self, sql: str, params: dict[str, Any]) -> list[dict[str, str]]:
         try:
             rows = self._get_db().execute_raw(sql, params).data or []
@@ -344,10 +494,7 @@ class FeedService:
         results: list[dict[str, str]] = []
         for row in rows:
             source_row_id = str(row.get("source_row_id") or "").strip()
-            photo_url = _bounded_text(
-                row.get("counterpart_photo_url"),
-                limit=_MAX_METADATA_URL_LENGTH,
-            )
+            photo_url = _safe_photo_url(row.get("counterpart_photo_url"))
             if source_row_id and photo_url:
                 results.append(
                     {
@@ -372,9 +519,9 @@ class FeedService:
               req.id::TEXT AS source_row_id,
               CASE
                 WHEN req.requester_user_id = :user_id
-                  THEN COALESCE(addressee.custom_photo_url, addressee.photo_url)
+                  THEN COALESCE(NULLIF(BTRIM(addressee.custom_photo_url), ''), NULLIF(BTRIM(addressee.photo_url), ''))
                 WHEN req.addressee_user_id = :user_id
-                  THEN COALESCE(requester.custom_photo_url, requester.photo_url)
+                  THEN COALESCE(NULLIF(BTRIM(requester.custom_photo_url), ''), NULLIF(BTRIM(requester.photo_url), ''))
               END AS counterpart_photo_url
             FROM connection_requests req
             JOIN requested_ids ids ON ids.request_id = req.id::TEXT
@@ -402,9 +549,9 @@ class FeedService:
               grant.id::TEXT AS source_row_id,
               CASE
                 WHEN grant.owner_user_id = :user_id
-                  THEN COALESCE(recipient.custom_photo_url, recipient.photo_url)
+                  THEN COALESCE(NULLIF(BTRIM(recipient.custom_photo_url), ''), NULLIF(BTRIM(recipient.photo_url), ''))
                 WHEN grant.recipient_user_id = :user_id
-                  THEN COALESCE(owner_identity.custom_photo_url, owner_identity.photo_url)
+                  THEN COALESCE(NULLIF(BTRIM(owner_identity.custom_photo_url), ''), NULLIF(BTRIM(owner_identity.photo_url), ''))
               END AS counterpart_photo_url
             FROM one_location_share_grants grant
             JOIN requested_ids ids ON ids.grant_id = grant.id::TEXT
@@ -432,9 +579,9 @@ class FeedService:
               req.id::TEXT AS source_row_id,
               CASE
                 WHEN req.owner_user_id = :user_id
-                  THEN COALESCE(requester.custom_photo_url, requester.photo_url)
+                  THEN COALESCE(NULLIF(BTRIM(requester.custom_photo_url), ''), NULLIF(BTRIM(requester.photo_url), ''))
                 WHEN req.requester_user_id = :user_id
-                  THEN COALESCE(owner_identity.custom_photo_url, owner_identity.photo_url)
+                  THEN COALESCE(NULLIF(BTRIM(owner_identity.custom_photo_url), ''), NULLIF(BTRIM(owner_identity.photo_url), ''))
               END AS counterpart_photo_url
             FROM one_location_access_requests req
             JOIN requested_ids ids ON ids.request_id = req.id::TEXT

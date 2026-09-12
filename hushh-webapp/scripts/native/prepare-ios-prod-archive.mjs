@@ -15,6 +15,12 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".."
 const prodEnvPath = path.join(repoRoot, ".env.prod.local");
 const configPath = path.join(repoRoot, "ios", "App", "App", "capacitor.config.json");
 const verifyScript = path.join(repoRoot, "scripts", "native", "verify-ios-bundled-backend.sh");
+const verifyProductAssetsScript = path.join(
+  repoRoot,
+  "scripts",
+  "native",
+  "verify-ios-product-build-assets.mjs",
+);
 
 function hostname(value) {
   try {
@@ -105,6 +111,11 @@ function main() {
   const backendUrl = ensureProdEnv();
   execSync("npm run cap:build", { cwd: repoRoot, stdio: "inherit", env: process.env });
   execSync("npm run cap:sync:ios", { cwd: repoRoot, stdio: "inherit", env: process.env });
+  execFileSync(process.execPath, [verifyProductAssetsScript], {
+    cwd: repoRoot,
+    stdio: "inherit",
+    env: process.env,
+  });
   execFileSync(verifyScript, [configPath, backendUrl], {
     cwd: repoRoot,
     stdio: "inherit",

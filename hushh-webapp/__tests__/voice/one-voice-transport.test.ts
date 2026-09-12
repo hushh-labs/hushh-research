@@ -204,6 +204,7 @@ describe("One Voice realtime transports", () => {
     await expect(waiting).resolves.toEqual({
       status: "acknowledged",
       contextId: "ctx-login-2:settled",
+      executableActionIds: [],
     });
   });
 
@@ -299,16 +300,46 @@ describe("One Voice realtime transports", () => {
     );
   });
 
+  it("queues Siri request text until setup and context acknowledgement", () => {
+    const transport = new GeminiLiveTransport();
+    const send = vi.fn();
+    const testTransport = transport as unknown as {
+      ws: { readyState: number; send: (message: string) => void };
+      setupComplete: boolean;
+      initialContextReady: boolean;
+      flushPendingUserText: () => void;
+    };
+    testTransport.ws = { readyState: WebSocket.OPEN, send };
+    testTransport.setupComplete = false;
+    testTransport.initialContextReady = false;
+
+    expect(transport.sendUserText?.("  enable location  ")).toBe(true);
+    expect(send).not.toHaveBeenCalled();
+
+    testTransport.setupComplete = true;
+    testTransport.initialContextReady = true;
+    testTransport.flushPendingUserText();
+    testTransport.flushPendingUserText();
+
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(send.mock.calls[0][0])).toEqual({
+      type: "user_text",
+      text: "enable location",
+    });
+  });
+
   it("emits one transcript-free visitor activity frame after sustained speech", () => {
     const transport = new GeminiLiveTransport();
     const send = vi.fn();
     const testTransport = transport as unknown as {
       ws: { readyState: number; send: (message: string) => void };
       setupComplete: boolean;
+      initialContextReady: boolean;
       sendVisitorActivityStart: (level: number, pcm: Uint8Array) => boolean;
     };
     testTransport.ws = { readyState: WebSocket.OPEN, send };
     testTransport.setupComplete = true;
+    testTransport.initialContextReady = true;
 
     for (let index = 0; index < 7; index += 1) {
       expect(testTransport.sendVisitorActivityStart(0.09, new Uint8Array([index]))).toBe(false);
@@ -341,6 +372,37 @@ describe("One Voice realtime transports", () => {
     }
 
     expect(send).not.toHaveBeenCalled();
+  });
+
+  it("does not let quiet room tone cancel the first welcome cue", () => {
+    const transport = new GeminiLiveTransport();
+    const send = vi.fn();
+    const testTransport = transport as unknown as {
+      ws: { readyState: number; send: (message: string) => void };
+      setupComplete: boolean;
+      initialGreetingPending: boolean;
+      sendVisitorActivityStart: (level: number, pcm: Uint8Array) => boolean;
+    };
+    testTransport.ws = { readyState: WebSocket.OPEN, send };
+    testTransport.setupComplete = true;
+    testTransport.initialGreetingPending = true;
+
+    for (let index = 0; index < 12; index += 1) {
+      testTransport.sendVisitorActivityStart(0.1, new Uint8Array([index]));
+    }
+    expect(send).not.toHaveBeenCalled();
+
+    for (let index = 0; index < 7; index += 1) {
+      expect(
+        testTransport.sendVisitorActivityStart(0.15, new Uint8Array([index])),
+      ).toBe(false);
+    }
+    expect(
+      testTransport.sendVisitorActivityStart(0.15, new Uint8Array([7])),
+    ).toBe(false);
+    expect(send).toHaveBeenCalledWith(
+      JSON.stringify({ type: "voice_activity_start" }),
+    );
   });
 
 });
