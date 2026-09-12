@@ -47,6 +47,11 @@ class PodTaskCreateRequest(BaseModel):
     timezone: Optional[str] = Field(default=None, max_length=64)
     runtime_provider: Optional[str] = Field(default=None, alias="runtimeProvider", max_length=32)
     puppy_device_id: Optional[str] = Field(default=None, alias="puppyDeviceId", max_length=128)
+    # A hub-issued Puppy grant is memory-only and is never written to the task
+    # snapshot. It is captured only by the current process while the task runs.
+    runtime_credential: Optional[str] = Field(
+        default=None, alias="runtimeCredential", max_length=12000, exclude=True
+    )
     idempotency_key: str = Field(default="", alias="idempotencyKey", max_length=128)
 
 
@@ -74,13 +79,20 @@ def _task_payload(task: PodTask) -> dict[str, Any]:
     }
 
 
-async def _run_task(task: PodTask, *, store: PodTaskStore, consent_token: str) -> None:
+async def _run_task(
+    task: PodTask,
+    *,
+    store: PodTaskStore,
+    consent_token: str,
+    runtime_credential: str | None,
+) -> None:
     try:
         started = await store.transition(task.task_id, expected={"queued"}, state="running")
         payload = PodTurnRequest(
             message=started.message,
             conversationId=started.conversation_id,
             timezone=started.timezone,
+            runtimeCredential=runtime_credential,
             runtimeProvider=started.runtime_provider,
             puppyDeviceId=started.puppy_device_id,
         )
@@ -208,7 +220,12 @@ async def create_pod_task_route(
         raise HTTPException(status_code=422, detail="invalid task request") from exc
     if task.task_id not in _RUNNING and task.state == "queued":
         running = asyncio.create_task(
-            _run_task(task, store=store, consent_token=str(x_consent_token))
+            _run_task(
+                task,
+                store=store,
+                consent_token=str(x_consent_token),
+                runtime_credential=payload.runtime_credential,
+            )
         )
         _RUNNING[task.task_id] = running
     return _task_payload(task)

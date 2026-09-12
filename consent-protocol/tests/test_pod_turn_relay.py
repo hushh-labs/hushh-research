@@ -26,7 +26,11 @@ import pytest
 from fastapi import HTTPException
 
 from api.routes.one import pod_relay
-from api.routes.one.pod_relay import PodTurnRelayRequest, relay_pod_turn
+from api.routes.one.pod_relay import (
+    PodTurnRelayRequest,
+    relay_pod_task_start,
+    relay_pod_turn,
+)
 
 POD_URL = "https://one-pod-abc-uc.a.run.app"
 
@@ -143,6 +147,39 @@ async def test_the_pod_is_called_with_a_pkm_read_grant_the_hub_minted():
     await _turn(session=pod)
 
     assert pod.calls[0]["headers"]["X-Consent-Token"] == "standing-pkm-read"
+
+
+async def test_durable_puppy_task_gets_a_short_lived_hub_grant():
+    pod = _Pod(
+        payload={
+            "execution_target": "owner_pod",
+            "task_id": "task_0123456789abcdef0123456789abcdef",
+            "state": "queued",
+            "conversation_id": "consumer-mcp",
+            "generation": 1,
+        }
+    )
+    result = await relay_pod_task_start(
+        hushh_id="hushh-abc",
+        user_id="u1",
+        agent_id="developer:app_test",
+        invoke_token="one-invoke",
+        arguments={
+            "message": "hello Puppy",
+            "runtime_provider": "puppy",
+            "puppy_device_id": "device-one",
+        },
+        registry=_Registry(),
+        audit=_Audit(),
+        grants=_grants,
+        puppy_grants=_puppy_grants,
+        puppy_device_active=lambda **_: True,
+        session=pod,
+    )
+    assert result["execution_target"] == "owner_pod"
+    request = pod.calls[0]
+    assert request["json"]["runtimeCredential"] == "standing-puppy-inference"
+    assert request["headers"]["X-One-Invoke-Token"] == "one-invoke"
 
 
 async def test_a_caller_supplied_token_is_impossible_by_construction():

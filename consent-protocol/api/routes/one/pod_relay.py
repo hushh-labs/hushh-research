@@ -980,6 +980,8 @@ async def relay_pod_task_start(
     registry: Optional[PersonalAgentRegistryRepo] = None,
     audit: Optional[PodAccessAuditService] = None,
     grants: Any = None,
+    puppy_grants: Any = None,
+    puppy_device_active: Any = None,
     session: Any = None,
 ) -> dict[str, Any]:
     url, pkm_token = await _owner_pod_target(
@@ -1000,6 +1002,16 @@ async def relay_pod_task_start(
         "puppyDeviceId": arguments.get("puppy_device_id"),
         "idempotencyKey": arguments.get("idempotency_key", ""),
     }
+    if str(arguments.get("runtime_provider") or "").strip().lower() == "puppy":
+        # Puppy credentials are hub-minted and short-lived. They cross the
+        # authenticated pod hop only; the pod task log intentionally never stores
+        # them. This mirrors the synchronous pod-turn relay admission.
+        body["runtimeCredential"] = await _issue_puppy_inference_grant(
+            user_id=user_id,
+            device_id=str(arguments.get("puppy_device_id") or ""),
+            issuer=puppy_grants,
+            device_active=puppy_device_active,
+        )
     status, result = await _proxy_post(
         url,
         "/api/one/pod/tasks",
