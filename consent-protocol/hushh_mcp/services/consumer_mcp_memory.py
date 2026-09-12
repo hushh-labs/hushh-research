@@ -139,7 +139,13 @@ class OwnerPodConsumerMemoryTransport:
             raise ConsumerMemoryUnavailable("owner pod memory is unavailable")
         if body.get("execution_target") != "owner_pod":
             raise ConsumerMemoryUnavailable("owner pod returned an invalid execution target")
-        return body
+        payload = body.get("result")
+        if not isinstance(payload, dict):
+            raise ConsumerMemoryUnavailable("owner pod returned an invalid memory result")
+        # The pod may return typed PKM data only. Execution metadata is derived
+        # from the verified connection below and must never be copied from a
+        # remote response where it could overwrite the owner/deployment fence.
+        return {"result": payload}
 
 
 @dataclass(frozen=True)
@@ -253,6 +259,9 @@ class ConsumerMcpMemory:
         )
         if not isinstance(result, dict):
             raise ConsumerMemoryUnavailable("owner pod returned an invalid memory result")
+        memory_result = result.get("result")
+        if not isinstance(memory_result, dict):
+            raise ConsumerMemoryUnavailable("owner pod returned an invalid memory result")
         self._connections.verify_memory_admission(
             principal, operation=operation, admitted=connection
         )
@@ -263,7 +272,7 @@ class ConsumerMcpMemory:
             "operation": request.operation,
             "execution_target": "owner_pod",
             "deployment_id": connection.deployment_id,
-            **result,
+            "result": memory_result,
         }
 
 

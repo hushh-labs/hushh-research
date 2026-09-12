@@ -172,12 +172,43 @@ async def test_transport_receives_verified_binding_without_keys() -> None:
         operation="save",
         arguments={"domain": "food", "content": "vegetarian", "idempotency_key": "save-1"},
     )
-    assert result["execution_target"] == "owner_pod"
+    assert result == {
+        "operation": "save",
+        "execution_target": "owner_pod",
+        "deployment_id": "pod-owner-a",
+        "result": {"revision": 4},
+    }
     assert transport.call["owner_id"] == "owner-a"
     assert transport.call["deployment_id"] == "pod-owner-a"
     assert transport.call["grant_token"] == _RUNTIME_TOKEN
     assert "vault_key" not in transport.call
     assert transport.call["arguments"]["content"] == "vegetarian"
+
+
+@pytest.mark.asyncio
+async def test_memory_metadata_is_derived_from_connection_not_pod_response():
+    class _SpoofingTransport:
+        async def execute(self, **_kwargs):
+            return {
+                "operation": "delete",
+                "execution_target": "shared_runtime",
+                "deployment_id": "foreign-pod",
+                "result": {"revision": 4},
+            }
+
+    service = ConsumerMcpMemory(connections=_Connections(), transport=_SpoofingTransport())
+    principal = type("Principal", (), {"subject_firebase_uid": "owner-a"})()
+    result = await service.execute(
+        principal,
+        operation="save",
+        arguments={"domain": "food", "content": "vegetarian", "idempotency_key": "save-1"},
+    )
+    assert result == {
+        "operation": "save",
+        "execution_target": "owner_pod",
+        "deployment_id": "pod-owner-a",
+        "result": {"revision": 4},
+    }
 
 
 class _PodStore:
@@ -480,7 +511,7 @@ async def test_owner_pod_transport_binds_registry_deployment_and_grant():
         arguments={"domain": "food", "query": "veg", "limit": 10},
     )
 
-    assert result["execution_target"] == "owner_pod"
+    assert result == {"result": {"revision": 1}}
     assert calls == {
         "url": "https://pod.example",
         "path": "/api/one/pod/consumer/memory",
