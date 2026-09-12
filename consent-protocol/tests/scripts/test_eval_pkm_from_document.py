@@ -33,13 +33,15 @@ def test_a_document_of_housed_facts_reports_coverage(tmp_path):
     report = evaluate(doc)
     assert report.statements > 0
     assert report.housed == report.statements
-    assert verdicts(report)["coverage"] == "pass"
+    assert verdicts(report)["fits-an-existing-domain"] == "pass"
 
 
-def test_communication_preferences_are_reported_as_having_no_home(tmp_path):
-    # The finding this evaluator exists to surface. A person's instructions for
-    # how to work with them are durable, high-value context, and no canonical
-    # domain is about them.
+def test_communication_preferences_become_a_domain_the_model_must_invent(tmp_path):
+    # Corrected after reading the classifier prompt. These are NOT homeless:
+    # `create_domain` is an allowed action and `general` is explicitly
+    # forbidden, so the model names a new domain for them. The finding worth
+    # surfacing is not "nowhere to go" -- it is that an invented domain carries
+    # no authored sharing policy.
     doc = tmp_path / "prefs.md"
     doc.write_text(
         "# Communication style\n"
@@ -50,7 +52,7 @@ def test_communication_preferences_are_reported_as_having_no_home(tmp_path):
     )
     report = evaluate(doc)
     assert "how I want to be communicated with" in report.unhoused
-    assert verdicts(report)["coverage"] == "fail"
+    assert verdicts(report)["domains-the-model-must-invent"] == "warn"
 
 
 def test_it_names_domains_that_hold_records_with_no_sharing_policy(tmp_path):

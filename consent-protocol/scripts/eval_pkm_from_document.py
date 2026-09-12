@@ -115,7 +115,11 @@ DOMAIN_CUES: dict[str, tuple[str, ...]] = {
     "social": ("friend", "family", "partner", "social", "community"),
     "entertainment": ("music", "film", "movie", "game", "book", "reading", "show"),
     "subscriptions": ("subscription", "plan", "renew", "billing"),
-    "general": (
+    # NOT a landing place. The classifier prompt says "Never use general."
+    # An earlier version of this file routed hardware and tooling here and then
+    # reported them as poorly housed, which measured a constraint the real
+    # system does not have.
+    "_never_general": (
         "machine",
         "hardware",
         "laptop",
@@ -226,6 +230,8 @@ def classify(statement: Statement) -> None:
 
     best: tuple[int, str] | None = None
     for domain, cues in DOMAIN_CUES.items():
+        if domain.startswith("_"):
+            continue
         hits = sum(1 for cue in cues if cue in haystack)
         if hits and (best is None or hits > best[0]):
             best = (hits, domain)
@@ -237,6 +243,7 @@ def classify(statement: Statement) -> None:
         if any(cue in haystack for cue in cues):
             statement.unhoused_as = label
             return
+    statement.unhoused_as = "unclassified"
 
 
 def evaluate(path: Path) -> Report:
@@ -258,23 +265,27 @@ def evaluate(path: Path) -> Report:
     coverage = report.housed / report.statements if report.statements else 0.0
     report.findings.append(
         {
-            "id": "coverage",
+            "id": "fits-an-existing-domain",
             "value": round(coverage, 3),
-            "verdict": "pass" if coverage >= 0.8 else "fail",
-            "what": f"{report.housed} of {report.statements} statements have a domain that fits.",
+            "verdict": "pass" if coverage >= 0.8 else "warn",
+            "what": (
+                f"{report.housed} of {report.statements} statements fit a domain that already "
+                f"exists. The rest are not homeless: the classifier is allowed to create_domain, "
+                f"and is forbidden from using general. They become NEW domains."
+            ),
         }
     )
-
-    unhoused_named = {k: len(v) for k, v in report.unhoused.items() if k != "no category"}
-    if unhoused_named:
+    if report.homeless:
         report.findings.append(
             {
-                "id": "categories-without-a-domain",
-                "value": unhoused_named,
-                "verdict": "fail",
+                "id": "domains-the-model-must-invent",
+                "value": {k: len(v) for k, v in report.unhoused.items()},
+                "verdict": "warn",
                 "what": (
-                    "Whole categories of this person have no canonical domain. These are not "
-                    "edge cases: they are the parts of the document that say how to work with him."
+                    "Each of these becomes a domain the model names itself. That is the design "
+                    "working, and it is also where quality is decided: an invented domain has no "
+                    "authored sharing policy, so what a wildcard grant over it means was never "
+                    "decided by anyone."
                 ),
             }
         )
