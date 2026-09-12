@@ -43,7 +43,7 @@ Implemented foundation:
 - `planOneGoal` maps natural language plus candidate action ids into a generated action, slots, and exactly one next blocking input
 - the planner is generic: it ranks generated action contracts, accepts provider/LLM candidate action ids first, and fills objective slots through resolver primitives such as `ticker_symbol` and `kai_pick_source`
 - `runOneGoal` creates a shared goal session and executes only through the generated gateway or approved app service adapters
-- realtime voice no longer feeds One Goal: One's ADK agent tree decides voice turns server-side (see [One Voice Runtime Architecture](./one-voice-runtime-architecture.md)), and the client only executes returned `clientDirective` frames
+- Talk to One uses the [Location command lifecycle](./one-voice-runtime-architecture.md), with semantic proposals, client-vault checkpoints and correlated execution receipts; it does not run this legacy goal ranker.
 - Agent Chat can run the same goal path for mapped direct goals and falls back to the existing chat runtime for ordinary conversation
 - `/api/one/goal/plan` and `/api/one/goal/compose` expose the product API shape; execution remains app-owned where live React state, route state, cache posture, and settlement are available
 
@@ -59,7 +59,7 @@ One Goal is governed by these rules:
 6. If the action is `confirm_required` or `manual_only`, One switches to the governed chat/consent/A2A surface instead of provider-side execution.
 7. If the action uses `specialist_chat.turn` and the policy is `allow_direct`, One may delegate to the existing Agent Chat A2A stream and speak the read-only result. If that stream returns a directive or prompt, One hands off to Agent Chat with the directive payload so the existing cards, confirmations, and client-side execution paths render.
 8. Long-running goals emit milestone updates, support cancellation when the contract exposes it, and return a concise final summary.
-9. Realtime voice runs through One's governed ADK agent tree; its tools are the only voice execution path and every specialist call is consent-gated. Chat/search/UI providers may propose intents, but they must never execute tools directly.
+9. Location commands use their canonical proposal lifecycle and shared domain executors. Semantic models may propose steps; they cannot authorize effects or declare completion.
 
 ## Resolver And Adapter Policy
 
@@ -73,7 +73,7 @@ Keep code small and primitive:
 
 `user_utterance` is the generic resolver for specialist-turn goals. It fills the current transcript into the goal slot so the generated contract can route the turn without one-off transcript branches. Backend deterministic classification remains a fail-closed fallback and explicit delegate ids from generated contracts should be preferred when the frontend already selected the goal.
 
-Provider proposals are intelligence hints, not authority. Agent Chat, typed search, command bar, and UI buttons may all produce candidate action ids or slots, but One Goal must re-plan against the generated gateway before anything executes. If a provider proposes a route-only action for a richer goal, such as opening analysis when the user asked to analyze a stock, the planner should prefer the generated multi-step goal when the slots and contract support it. Realtime voice is not in this list anymore: voice turns are decided inside One's ADK agent tree and reach the client only as spoken audio plus governed `clientDirective` frames.
+Provider proposals are intelligence hints, not authority. Agent Chat, typed search, command bar, and UI buttons may all produce candidate action ids or slots, but One Goal must re-plan against the generated gateway before anything executes. If a provider proposes a route-only action for a richer goal, such as opening analysis when the user asked to analyze a stock, the planner should prefer the generated multi-step goal when the slots and contract support it. Location commands use the separate command lifecycle under the same canonical action authority; they produce progress and result cards without spoken responses.
 
 Memory candidates are goals only after review. A user saying "remember this" or sharing a stable high-confidence preference may produce a PKM preview goal or chat handoff, but canonical PKM writes must remain confirmation-gated and vault-authorized. Local encrypted voice memory is a narrow behavior cache; it is not the PKM authority and must not become a transcript persistence layer.
 

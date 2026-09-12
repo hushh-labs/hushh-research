@@ -631,6 +631,23 @@ function deriveDefaultStateChanges(action) {
   return ["Kai action state changes"];
 }
 
+function normalizeCommandMetadata(surface, action) {
+  if (!surface.defaults?.command && !action.command) return undefined;
+  const command = { ...surface.defaults?.command, ...action.command };
+  if (command.domain !== "location" ||
+      (command.permission !== undefined && command.permission !== "location") ||
+      (command.review_route !== undefined &&
+       (typeof command.review_route !== "string" || !command.review_route.startsWith("/one/") || command.review_route.includes(":") || command.review_route.includes("\\"))) ||
+      (command.backend_binding !== undefined && !["location.create_circle"].includes(command.backend_binding)) ||
+      (command.review_only !== undefined && typeof command.review_only !== "boolean")) {
+    throw new Error(`${action.action_id}: invalid command metadata`);
+  }
+  const target = action.execution_target;
+  if (target?.path === "route") command.review_route = target.target;
+  if (!command.review_route) throw new Error(`${action.action_id}: command review route required`);
+  return command;
+}
+
 function normalizeAction(surface, action) {
   if (!isPlainObject(action)) {
     throw new Error(`${surface.surface_id}: action entries must be objects`);
@@ -700,7 +717,21 @@ function normalizeAction(surface, action) {
   if (docsReferences.length === 0) {
     docsReferences.push("docs/reference/one/one-voice-runtime-architecture.md");
   }
+  const textExecutor = action.text_backend_executor;
+  if (textExecutor !== undefined) {
+    const declaredSlots = new Set((action.goal?.required_inputs || []).map((input) => input.slot || input.name));
+    if (!textExecutor || typeof textExecutor !== "object" || Array.isArray(textExecutor) ||
+        textExecutor.binding !== actionId ||
+        Object.keys(textExecutor).some((key) => !["binding", "required_slots", "confirmation_only"].includes(key)) ||
+        (textExecutor.confirmation_only !== undefined && typeof textExecutor.confirmation_only !== "boolean") ||
+        (textExecutor.required_slots !== undefined && (!Array.isArray(textExecutor.required_slots) ||
+          textExecutor.required_slots.some((slot) => typeof slot !== "string" || !declaredSlots.has(slot))))) {
+      throw new Error(`${actionId}: invalid authored text backend executor binding`);
+    }
+  }
   const normalized = {
+    command: normalizeCommandMetadata(surface, action),
+    ...(action.text_backend_executor ? { text_backend_executor: action.text_backend_executor } : {}),
     action_id: actionId,
     surface_id: surface.surface_id,
     label,

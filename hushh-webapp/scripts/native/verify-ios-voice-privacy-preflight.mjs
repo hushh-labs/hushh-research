@@ -94,33 +94,7 @@ for (const fileName of ["OneVoicePrivacyContract.v1.json", "OneVoiceModelNotices
   }
 }
 
-const fluidModel = findNotice(notices, "fluid-audio-parakeet-eou-120m-coreml-v1");
-if (!fluidModel || fluidModel.license !== "NVIDIA Open Model License") {
-  fail("FluidAudio model notice must identify the exact upstream model license.");
-}
-const fluidEnabled = plistBoolean(infoPlist, "OneVoiceFluidAudioEnabled");
-const fluidBenchmarkEligible = plistBoolean(infoPlist, "OneVoiceFluidAudioBenchmarkEligible");
-if (fluidEnabled === null || fluidBenchmarkEligible === null) {
-  fail("Info.plist must explicitly declare FluidAudio release and benchmark flags.");
-}
-const allowedBuckets = plistStringArray(infoPlist, "OneVoiceModelPackAllowedBuckets");
-if (
-  allowedBuckets.length !== 1 ||
-  allowedBuckets[0] !== "$(ONE_VOICE_MODEL_PACK_BUCKET)"
-) {
-  fail("Info.plist must use the environment-owned One Voice model-bucket build setting.");
-}
-if (!xcodeProject.includes("ONE_VOICE_MODEL_PACK_BUCKET = hushh-pda-uat-one-voice-model-packs;")) {
-  fail("The native UAT default must define its One Voice model bucket explicitly.");
-}
-if (fluidEnabled === "true") {
-  if (fluidModel.approval_state !== "approved" || fluidModel.release_enabled !== true) {
-    fail("FluidAudio cannot be enabled without an approved, release-enabled model notice.");
-  }
-  if (fluidBenchmarkEligible !== "true") {
-    fail("FluidAudio release selection requires benchmark eligibility.");
-  }
-}
+if (contract?.voice_capture?.generated_audio !== "forbidden" || contract?.voice_capture?.maximum_duration_seconds !== 60) fail("Command capture must be bounded and generated audio retired.");
 
 if (!process.exitCode) {
   console.log("One Voice iOS privacy preflight passed.");

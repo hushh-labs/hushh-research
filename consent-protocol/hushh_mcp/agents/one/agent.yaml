@@ -146,4 +146,3 @@ capabilities:
   heads:
     text: gemini-default
     specialist_text: gemini-default
-    live: gemini-3.1-flash-live-preview

@@ -1,6 +1,6 @@
 {
   "contract_name": "dev_minimum_schema",
-  "expected_migration_version": 207,
+  "expected_migration_version": 208,
   "migration_version_policy": "minimum",
   "required_functions": [
     "resolve_feed_counterpart_user_id",
@@ -683,7 +683,12 @@
       "expires_at",
       "confirmed_at",
       "consumed_at",
-      "settled_at"
+      "settled_at",
+      "command_step",
+      "operation_id",
+      "execution_receipt_hash",
+      "step_hmac",
+      "command_effect"
     ],
     "one_adk_sessions": [
       "app_name",
@@ -695,7 +700,9 @@
       "payload_algorithm",
       "revision",
       "created_at",
-      "updated_at"
+      "updated_at",
+      "command_status",
+      "command_plan_hmac"
     ],
     "one_agent_message_feedback": [
       "user_id",

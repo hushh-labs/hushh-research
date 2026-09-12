@@ -5,7 +5,7 @@
  * VOICE_ENGINE_VERSION in the same PR, so the version shown in the settings
  * header always matches the changelog under it.
  */
-export const VOICE_ENGINE_VERSION = "1.6";
+export const VOICE_ENGINE_VERSION = "2.0";
 
 export type VoiceEngineChangelogEntry = {
   version: string;
@@ -16,6 +16,12 @@ export type VoiceEngineChangelogEntry = {
 };
 
 export const VOICE_ENGINE_CHANGELOG: readonly VoiceEngineChangelogEntry[] = [
+  {
+    version: "2.0",
+    date: "2026-09-12",
+    title: "Location commands with visible results",
+    description: "Hold Talk to One, speak, and release. One prepares a Location action, asks for any needed permission or confirmation, and shows its result. There are no spoken replies or automatic listening. Unlock your vault to explicitly resume an unfinished command. Earlier entries below describe the retired voice experience.",
+  },
   {
     version: "1.6",
     date: "2026-08-28",

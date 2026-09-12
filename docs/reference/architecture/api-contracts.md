@@ -425,8 +425,8 @@ not the product owner for live location.
 | DELETE | `/api/one/location/grants/{grant_id}` | VAULT_OWNER Bearer | Revoke an active owner grant immediately |
 | PATCH | `/api/one/location/grants/{grant_id}/shorten` | VAULT_OWNER Bearer | Move one active grant's expiry earlier. Either the exact owner or recipient may call it; the service rejects any attempt to lengthen access |
 | PATCH | `/api/one/location/grants/{grant_id}/duration` | VAULT_OWNER Bearer | Owner-only same-row duration edit for one exact grant. Timed edits may shorten or extend up to 24 hours and refresh the grant capability. For eligible trusted private shares, `durationMode: "until_stopped"` clears the finite expiry, authorization ceiling, and finite capability; SMS/SOS and Check-In shares remain duration-bounded. The owner-authorized ceiling advances on extension and is not lowered by a later timed shortening |
-| POST | `/api/one/location/requests` | VAULT_OWNER Bearer | Create metadata-only request for owner approval. Optionally carries the amount asked for (`requestedDurationHours` + `requestedDurationMode`) and the live grant it would lengthen (`extendsGrantId`, verified server-side against the real grant between the two identities and otherwise detected from it). A request, never an authorization: no grant is written here. Re-asking for a different amount updates the one pending row in place and bumps `requestRevision`, so the owner's client shows the raised number instead of de-duplicating it against the first |
-| POST | `/api/one/location/requests/{request_id}/approve` | VAULT_OWNER Bearer | Every caller must send `approvalMode` as `manual` or `automatic`; omission is rejected so a cached automatic client cannot be mistaken for an explicit tap. Manual approval forbids rule context and may omit duration to grant exactly what was requested (1 hour when absent), or supply a duration override. Automatic approval requires only the current `autoApproveRuleVersion` beside its mode and forbids duration overrides; the service locks the pending request and rule, derives duration from that request, requires it to be newer than activation, revalidates the relationship or exact Circle, refuses ongoing access, and commits grant, request transition, and audit atomically. |
+| POST | `/api/one/location/requests` | VAULT_OWNER Bearer | Create metadata-only request for owner approval. Optionally carries the amount asked for (`requestedDurationHours` + `requestedDurationMode`) and the live grant it would lengthen (`extendsGrantId`, verified server-side against the real grant between the two identities and otherwise detected from it). A request, never an authorization: no grant is written here. Re-asking for a different amount updates the one pending row in place and bumps `requestRevision`. Command callers supply stable `clientOperationId`; the owning transaction journals its input fingerprint and receipt so a lost response cannot create another request. |
+| POST | `/api/one/location/requests/{request_id}/approve` | VAULT_OWNER Bearer | Every caller must send `approvalMode` as `manual` or `automatic`; omission is rejected so a cached automatic client cannot be mistaken for an explicit tap. Manual approval forbids rule context and may omit duration to grant exactly what was requested (1 hour when absent), or supply a duration override. Command confirmation freezes and displays that duration and sends `expectedRequestRevision`; the service rejects a changed revision under the request lock before writing access. Extension commands require the existing review screen because the receipt cannot pin the current live grant. Automatic approval requires the current `autoApproveRuleVersion` beside its mode and forbids duration overrides; the service locks the pending request and rule, derives duration from that request, requires it to be newer than activation, revalidates the relationship or exact Circle, refuses ongoing access, and commits grant, request transition, and audit atomically. |
 | POST | `/api/one/location/requests/{request_id}/deny` | VAULT_OWNER Bearer | Owner denies pending request. Denying an extra-time request leaves any access the requester already holds untouched |
 | POST | `/api/one/location/grants/{grant_id}/refer` | VAULT_OWNER Bearer | Recipient refers another verified user into a request flow; no access is forwarded |
 | POST | `/api/one/location/retention/purge?older_than_hours=12` | `X-Hushh-Maintenance-Token` backed by dedicated `ONE_LOCATION_RETENTION_TOKEN` | Scrub due nearby-presence anchor material, then delete terminal expired/revoked location grants, nearby-presence metadata, ciphertext envelopes, terminal requests, referrals, public request-link submissions, Invite to One links, expired/revoked named-Circle codes, terminal targeted Circle-member invitations, and related events after the retention window; the hourly hosted scheduler is a release prerequisite |
@@ -610,8 +610,8 @@ delete/absent lifecycle with cleanup.
 | PATCH  | `/api/one/agent-chat/conversations/{conversation_id}` | Rename an authenticated vault owner's encrypted Agent chat conversation                                                                                       |
 | DELETE | `/api/one/agent-chat/conversations/{conversation_id}` | Delete an authenticated vault owner's Agent chat conversation and its encrypted messages                                                                      |
 | GET    | `/api/one/agent-chat/history/{conversation_id}`       | Read decrypted Agent chat history for the authenticated conversation owner                                                                                    |
-| POST   | `/api/one/adk/relay-session`                          | Mint a short-lived opaque One ADK live relay ticket over HTTPS so Firebase bearer tokens are not placed in WebSocket URLs                                     |
-| WS     | `/api/one/adk/live`                                   | One ADK live relay WebSocket; bridges the browser wire envelope onto `Runner.run_live` (the only full-duplex voice transport)                                 |
+| POST   | `/api/one/adk/relay-session`                          | Retired: HTTP 410; clients must use the Location command lifecycle                                     |
+| WS     | `/api/one/adk/live`                                   | Retired: policy close with an explicit command-runtime retirement response                                 |
 | GET    | `/api/kai/chat/history/{conversation_id}`             | Conversation history                                                                                                                                          |
 | GET    | `/api/kai/chat/conversations/{user_id}`               | List all conversations                                                                                                                                        |
 | GET    | `/api/kai/chat/initial-state/{user_id}`               | Initial chat state                                                                                                                                            |
@@ -623,13 +623,29 @@ There is no `/api/one/voice/*` router. The product-facing voice wrapper describe
 in earlier plans was never registered: `consent-protocol/api/routes/one/` has no
 `voice.py`, and no `/api/one/voice/...` path exists in the codebase.
 
-The real full-duplex voice transport is the ADK live pair in
-`consent-protocol/api/routes/one/adk_live.py`, listed under Kai Chat below:
+Location commands use the canonical proposal namespace. The semantic model has
+no effect tools; admission, confirmation and execution remain separate.
 
-| Method | Path                         | Description                                            |
-| ------ | ---------------------------- | ------------------------------------------------------ |
-| POST   | `/api/one/adk/relay-session` | Mints a single-use relay ticket over HTTPS             |
-| WS     | `/api/one/adk/live`          | Consumes that ticket once and carries the live session |
+| Method | Path | Description |
+| --- | --- | --- |
+| POST | `/api/one/transcriptions` | Bounded transient recording to ordinary Gemini transcription |
+| POST | `/api/one/agent-chat/proposals` | Structured Location proposal without executing effects |
+| POST | `/api/one/agent-chat/proposals/typed` | Typed Siri/action proposal through the same lifecycle |
+| GET | `/api/one/action-proposals` | Owner-scoped unfinished commands |
+| GET | `/api/one/action-proposals/{id}` | Encrypted checkpoint and authoritative outcome |
+| PUT | `/api/one/action-proposals/{id}/checkpoint` | Revision-checked client-vault-encrypted continuation |
+| POST | `/api/one/action-proposals/{id}/resolve` | Reassess missing inputs and current capabilities |
+| POST | `/api/one/action-proposals/{id}/admit` | Validate prerequisites and issue bounded authority |
+| POST | `/api/one/action-proposals/{id}/confirm` | Correlate genuine user activation with displayed resources |
+| POST | `/api/one/action-proposals/{id}/claim` | Atomically claim a client operation |
+| POST | `/api/one/action-proposals/{id}/execute` | Execute an authored backend binding atomically |
+| POST | `/api/one/action-proposals/{id}/settle` | Record correlated client outcome |
+| POST | `/api/one/action-proposals/{id}/resume` | Revalidate or reconcile; never replay a consumed effect |
+| DELETE | `/api/one/action-proposals/{id}` | Remove sensitive continuation and cancel unused authority |
+
+Unlock is required before command submission or recovery. Continuations expire
+within 24 hours and need explicit Resume after restart. See the
+[Location command runtime](../one/one-voice-runtime-architecture.md).
 
 #### Kai Portfolio
 

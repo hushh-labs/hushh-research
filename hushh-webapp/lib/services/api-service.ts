@@ -3354,26 +3354,8 @@ export class ApiService {
     model: string;
     tier: string;
   }> {
-    const firebaseIdToken = await this.getFirebaseToken();
-    const response = await ApiService.apiFetch("/api/one/adk/relay-session", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...(firebaseIdToken
-          ? { Authorization: `Bearer ${firebaseIdToken}` }
-          : {}),
-      },
-      body: JSON.stringify({}),
-      signal: data?.signal,
-    });
-    if (!response.ok) {
-      const error = new Error(
-        `One voice relay session failed: ${response.status}`,
-      ) as Error & { status: number };
-      error.status = response.status;
-      throw error;
-    }
-    return response.json();
+    void data;
+    throw new Error("ONE_LIVE_RETIRED: use Talk to One commands.");
   }
 
   /**
@@ -3461,19 +3443,8 @@ export class ApiService {
   static async getOneAdkLiveRelayUrl(data?: {
     signal?: AbortSignal;
   }): Promise<string> {
-    const backend = resolveRuntimeBackendUrl();
-    // Apply the same Android-emulator localhost rewrite the HTTP layer uses.
-    // Without it, the ticket mint succeeds (CapacitorHttp normalizes) while
-    // the WS connect to ws://localhost fails inside the emulator.
-    const normalizedBackend = backend ? normalizeNativeBackendUrl(backend) : "";
-    const base =
-      normalizedBackend ||
-      (typeof window !== "undefined" ? window.location.origin : "");
-    const wsBase = base.replace(/^http/i, "ws");
-    const url = new URL(`${wsBase}/api/one/adk/live`);
-    const relaySession = await this.createOneAdkRelaySession(data);
-    url.searchParams.set("relay_ticket", relaySession.relay_ticket);
-    return url.toString();
+    void data;
+    throw new Error("ONE_LIVE_RETIRED: use Talk to One commands.");
   }
 
   static async listAgentChatConversations(data: {

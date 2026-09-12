@@ -32,7 +32,6 @@ const stagedWebManifestPath = path.join(appRoot, "ios/App/App/public/manifest.we
 const xcodeProjectPath = path.join(appRoot, "ios/App/App.xcodeproj/project.pbxproj");
 const requiredIosUsageDescriptionKeys = [
   "NSMicrophoneUsageDescription",
-  "NSSpeechRecognitionUsageDescription",
   "NSFaceIDUsageDescription",
   "NSLocationWhenInUseUsageDescription",
   "NSLocationAlwaysAndWhenInUseUsageDescription",
@@ -147,54 +146,8 @@ function verifyOneVoiceReleaseAssets({
     fail(`${label} One Voice privacy contract must forbid base-bundle model weights.`);
   }
 
-  const fluidSDK = findNotice(notices, "fluidaudio-sdk-v0.15.6");
-  if (fluidSDK?.license !== "Apache-2.0") {
-    fail(`${label} must retain the pinned FluidAudio SDK notice.`);
-  }
-  const fluidModel = findNotice(
-    notices,
-    "fluid-audio-parakeet-eou-120m-coreml-v1",
-  );
-  if (fluidModel?.license !== "NVIDIA Open Model License") {
-    fail(`${label} must retain the exact FluidAudio model license notice.`);
-  }
+  if (privacyContract?.voice_capture?.generated_audio !== "forbidden") fail(`${label} must retire generated audio.`);
 
-  const fluidEnabled = plistBoolean(infoPlist, "OneVoiceFluidAudioEnabled");
-  const fluidBenchmarkEligible = plistBoolean(
-    infoPlist,
-    "OneVoiceFluidAudioBenchmarkEligible",
-  );
-  if (fluidEnabled === null || fluidBenchmarkEligible === null) {
-    fail(`${label} must explicitly declare FluidAudio release and benchmark flags.`);
-    return;
-  }
-  const allowedBuckets = plistStringArray(
-    infoPlist,
-    "OneVoiceModelPackAllowedBuckets",
-  );
-  if (label === "iOS source") {
-    if (
-      allowedBuckets.length !== 1 ||
-      allowedBuckets[0] !== "$(ONE_VOICE_MODEL_PACK_BUCKET)"
-    ) {
-      fail(`${label} must use the environment-owned One Voice model-bucket build setting.`);
-    }
-  } else if (
-    allowedBuckets.length !== 1 ||
-    !/^hushh-pda(?:-uat)?-one-voice-model-packs$/.test(allowedBuckets[0])
-  ) {
-    fail(`${label} must allow exactly one explicit One Voice model-pack bucket.`);
-  }
-  if (
-    fluidEnabled === "true" &&
-    (fluidBenchmarkEligible !== "true" ||
-      fluidModel?.approval_state !== "approved" ||
-      fluidModel?.release_enabled !== true)
-  ) {
-    fail(
-      `${label} enables FluidAudio without benchmark eligibility and an approved release-enabled model notice.`,
-    );
-  }
 }
 
 function verifyWebManifest(filePath, label) {
@@ -288,9 +241,6 @@ function verifySourceContracts() {
   const privacyManifest = read(sourcePrivacyManifestPath);
   const xcodeProject = read(xcodeProjectPath);
 
-  if (!xcodeProject.includes("ONE_VOICE_MODEL_PACK_BUCKET = hushh-pda-uat-one-voice-model-packs;")) {
-    fail("iOS source project must define the explicit UAT One Voice model-bucket default.");
-  }
 
   for (const key of requiredIosUsageDescriptionKeys) {
     requirePlistString(infoPlist, key, "iOS source Info.plist");
@@ -306,8 +256,6 @@ function verifySourceContracts() {
     "OneVoiceAppIntent.swift in Sources",
     "HushhVoiceInvocationPlugin.swift in Sources",
     "OneVoiceMicrophoneCapture.swift in Sources",
-    "OneVoiceFluidAudioPackStore.swift in Sources",
-    "OneVoiceFluidAudioSession.swift in Sources",
     "HushhConsentPlugin.swift in Sources",
     "OneVoiceModelNotices.json in Resources",
     "OneVoicePrivacyContract.v1.json in Resources",

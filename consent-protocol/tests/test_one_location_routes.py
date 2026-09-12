@@ -4,11 +4,13 @@ import inspect
 import json
 import uuid
 from datetime import datetime, timedelta, timezone
+from unittest.mock import AsyncMock
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from api.routes.one import location as one_location
+from hushh_mcp.services.command_checkpoints import CommandCheckpointStore
 from tests.services.test_one_location_agent_service import (
     PUBLIC_LOCATION_SNAPSHOT,
     FourUserMemoryService,
@@ -39,6 +41,8 @@ def _client(
     service: FourUserMemoryService, current_user: dict[str, str], monkeypatch
 ) -> TestClient:
     app = FastAPI()
+    app.state.command_purge = AsyncMock()
+    monkeypatch.setattr(CommandCheckpointStore, "purge_expired", app.state.command_purge)
     app.include_router(one_location.router)
     app.dependency_overrides[one_location.require_vault_owner_token] = lambda: {
         "user_id": current_user["user_id"]
@@ -990,6 +994,7 @@ def test_one_location_retention_purge_accepts_valid_dedicated_token(
     )
 
     assert response.status_code == 200
+    client.app.state.command_purge.assert_awaited_once()
     assert response.json()["retention_hours"] == 12
 
 

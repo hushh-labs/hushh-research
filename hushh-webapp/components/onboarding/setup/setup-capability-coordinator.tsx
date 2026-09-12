@@ -522,10 +522,12 @@ export function useSetupCapabilityCoordinator({
     [settle],
   );
   useLocalOnboardingActionHandler(finishActionId, finish, {
+    prepare: capabilityId === "location" ? () => operationallyReady ? { status: "ready", binding: { userId, capabilityId }, summary: "Finish Location setup." } : { status: "blocked", gate: "permission", summary: "Allow Location access to finish setup." } : undefined,
     enabled:
       enabled && routeReady && !settlementBlocked && !isAlreadyComplete,
   });
   useLocalOnboardingActionHandler(skipActionId, skip, {
+    prepare: capabilityId === "location" ? () => ({ status: "ready", binding: { userId, capabilityId }, summary: "Skip Location setup." }) : undefined,
     enabled:
       enabled && routeReady && !settlementBlocked && !isAlreadyComplete,
   });

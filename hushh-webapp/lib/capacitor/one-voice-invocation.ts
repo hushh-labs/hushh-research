@@ -11,10 +11,12 @@ import type {
   OneSystemEntityIndexEntry,
   PendingOneSystemActionInvocation,
 } from "@/lib/capacitor/one-system-action-invocation";
-import type {
-  TranscriptEvent,
-} from "@/lib/voice/transcript-events";
+import type { TranscriptEvent } from "@/lib/voice/transcript-events";
 import type { VoiceModelPackManifest } from "@/lib/voice/local-runtime-contract";
+import type {
+  CommandRecording,
+  CommandCapturePermission,
+} from "@/lib/voice/command-capture";
 
 export type PendingOneVoiceInvocation = {
   id: string;
@@ -38,9 +40,7 @@ export type OneVoiceInvocationOutcome =
   | "handoff_timeout";
 
 export type OneVoiceInvocationProgressState =
-  | "claimed"
-  | "app_owned"
-  | "detached";
+  "claimed" | "app_owned" | "detached";
 
 export type NativeFluidAudioPackPreparation = {
   ready: boolean;
@@ -50,6 +50,20 @@ export type NativeFluidAudioPackPreparation = {
 };
 
 export interface NativeOneVoiceInvocationPlugin {
+  getCommandCapturePermission(): Promise<CommandCapturePermission>;
+  requestCommandCapturePermission(): Promise<CommandCapturePermission>;
+  openCommandCaptureSettings(): Promise<{ opened: boolean }>;
+  startCommandCapture(options: {
+    sessionId: string;
+    maxDurationMs: number;
+    requestedAtMs: number;
+  }): Promise<{ sessionId: string }>;
+  finishCommandCapture(options: {
+    sessionId: string;
+  }): Promise<CommandRecording>;
+  cancelCommandCapture(options: {
+    sessionId: string;
+  }): Promise<{ cancelled: boolean }>;
   getPendingInvocation(): Promise<Partial<PendingOneVoiceInvocation>>;
   claimInvocation(options: { id: string }): Promise<{ claimed: boolean }>;
   reportInvocationProgress(options: {
@@ -63,9 +77,7 @@ export interface NativeOneVoiceInvocationPlugin {
   getPendingActionInvocation(): Promise<
     Partial<PendingOneSystemActionInvocation>
   >;
-  claimActionInvocation(options: {
-    id: string;
-  }): Promise<{ claimed: boolean }>;
+  claimActionInvocation(options: { id: string }): Promise<{ claimed: boolean }>;
   completeActionInvocation(options: {
     id: string;
     outcome: OneSystemActionOutcome;
@@ -98,7 +110,9 @@ export interface NativeOneVoiceInvocationPlugin {
   // registerPlugin for the same name and hands back the first proxy, which
   // would leave these methods undefined on web.
   getPendingRequestInvocation(): Promise<Record<string, unknown>>;
-  claimRequestInvocation(options: { id: string }): Promise<{ claimed: boolean }>;
+  claimRequestInvocation(options: {
+    id: string;
+  }): Promise<{ claimed: boolean }>;
   completeRequestInvocation(options: Record<string, unknown>): Promise<void>;
   reportRequestInvocationProgress(
     options: Record<string, unknown>,
@@ -214,10 +228,9 @@ class OneVoiceInvocationWeb extends WebPlugin {
 }
 
 export const NativeOneVoiceInvocation =
-  registerPlugin<NativeOneVoiceInvocationPlugin>(
-  "HushhVoiceInvocation",
-  { web: () => Promise.resolve(new OneVoiceInvocationWeb()) },
-);
+  registerPlugin<NativeOneVoiceInvocationPlugin>("HushhVoiceInvocation", {
+    web: () => Promise.resolve(new OneVoiceInvocationWeb()),
+  });
 
 function isPendingInvocation(
   value: Partial<PendingOneVoiceInvocation> | null | undefined,
@@ -280,14 +293,16 @@ export const OneVoiceInvocationBridge = {
     );
   },
 
-  async startSpeechRecognition(options: {
-    sessionId?: string;
-    locale?: string;
-    onDevice?: boolean;
-    allowNetwork?: boolean;
-    contextualStrings?: readonly string[];
-    provider?: "apple_speech" | "fluid_audio";
-  } = {}): Promise<{
+  async startSpeechRecognition(
+    options: {
+      sessionId?: string;
+      locale?: string;
+      onDevice?: boolean;
+      allowNetwork?: boolean;
+      contextualStrings?: readonly string[];
+      provider?: "apple_speech" | "fluid_audio";
+    } = {},
+  ): Promise<{
     sessionId: string;
     provider: string;
     onDevice: boolean;
@@ -296,7 +311,9 @@ export const OneVoiceInvocationBridge = {
     return NativeOneVoiceInvocation.startSpeechRecognition(options);
   },
 
-  async stopSpeechRecognition(options: { sessionId?: string } = {}): Promise<void> {
+  async stopSpeechRecognition(
+    options: { sessionId?: string } = {},
+  ): Promise<void> {
     if (!this.isSupported()) return;
     await NativeOneVoiceInvocation.stopSpeechRecognition(options);
   },
@@ -304,7 +321,8 @@ export const OneVoiceInvocationBridge = {
   async prepareFluidAudioModelPack(
     pack: VoiceModelPackManifest,
   ): Promise<NativeFluidAudioPackPreparation> {
-    if (!this.isSupported()) return { ready: false, reason: "speech_unsupported" };
+    if (!this.isSupported())
+      return { ready: false, reason: "speech_unsupported" };
     if (pack.runtime !== "fluid_audio") {
       return { ready: false, reason: "pack_not_compatible" };
     }
@@ -322,12 +340,18 @@ export const OneVoiceInvocationBridge = {
 
   async getFluidAudioAvailability(): Promise<boolean> {
     if (!this.isSupported()) return false;
-    return (await NativeOneVoiceInvocation.getFluidAudioAvailability()).available === true;
+    return (
+      (await NativeOneVoiceInvocation.getFluidAudioAvailability()).available ===
+      true
+    );
   },
 
   async rollbackFluidAudioModelPack(): Promise<boolean> {
     if (!this.isSupported()) return false;
-    return (await NativeOneVoiceInvocation.rollbackFluidAudioModelPack()).rolledBack === true;
+    return (
+      (await NativeOneVoiceInvocation.rollbackFluidAudioModelPack())
+        .rolledBack === true
+    );
   },
 
   async addTranscriptListener(

@@ -1,5 +1,7 @@
 # Agent One Voice — Siri Handshake and Voice Handoff PRD
 
+> Superseded for the command experience by the [Location command runtime](../reference/one/one-voice-runtime-architecture.md). Live conversation and local model-pack requirements below are historical context, not active release gates.
+
 Status: implementation contract for the Siri entry adapter and the existing
 private voice runtime.
 

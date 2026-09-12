@@ -41,7 +41,6 @@ import type {
   KeychainGetResult,
   KeychainDeleteOptions,
 } from "./types";
-import type { IntentResolution } from "@/lib/voice/local-intent-resolver";
 
 // ==================== HushhAuthPlugin ====================
 // Native iOS/Android Authentication (Google Sign-In + Sign in with Apple)
@@ -675,8 +674,6 @@ export interface AgentResponse {
   consentToken?: string;
   consentIssuedAt?: number;
   consentExpiresAt?: number;
-  /** Bounded local proposal; never an execution or confirmation authority. */
-  intent?: IntentResolution;
 }
 
 export interface AgentInfo {

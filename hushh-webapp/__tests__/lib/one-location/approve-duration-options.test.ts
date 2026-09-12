@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   APPROVE_SHORTER_MAX_OPTIONS,
   approveShorterDurationOptions,
+  resolveRequestApprovalDuration,
 } from "@/lib/one-location/approve-duration-options";
 
 /**
@@ -19,6 +20,11 @@ function ask(
 }
 
 describe("approveShorterDurationOptions", () => {
+  it("uses one duration resolution for effects and command confirmation", () => {
+    expect(resolveRequestApprovalDuration(ask(4), 1)).toEqual({ hours: 4, mode: "timed" });
+    expect(resolveRequestApprovalDuration(ask(null), 2)).toEqual({ hours: 2, mode: "timed" });
+    expect(resolveRequestApprovalDuration(ask(null, "until_stopped"), 1)).toEqual({ hours: 1, mode: "until_stopped" });
+  });
   it("offers every standard length below a four-hour ask", () => {
     // The reported case. Four answers, not the one hard-coded "Allow 1 hour"
     // the card used to carry.

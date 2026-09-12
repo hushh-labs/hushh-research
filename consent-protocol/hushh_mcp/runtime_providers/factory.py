@@ -438,18 +438,5 @@ def build_gemini_byok_adk_model(
 
 
 def build_developer_api_live_client(api_key: str) -> Any:
-    """Direct google-genai client for developer_api-transport Live models.
-
-    Used by the deploy-time managed-runtime verifier to probe the canonical
-    live model when its GEMINI_LIVE_COMPATIBILITY transport is developer_api
-    (e.g. gemini-3.1-flash-live-preview, which is not published on Vertex).
-    Pins ``vertexai=False`` so an ambient managed Vertex environment can never
-    capture the managed live key. Client construction stays centralized here
-    per test_genai_client_construction_is_centralized.
-    """
-    from google import genai
-
-    clean_key = str(api_key or "").strip()
-    if not clean_key:
-        raise ValueError("Developer API live client requires an API key")
-    return genai.Client(vertexai=False, api_key=clean_key)
+    """Fail-closed compatibility entry; no retired provider client is created."""
+    raise RuntimeError("Gemini Live is retired. Use the ordinary command model.")

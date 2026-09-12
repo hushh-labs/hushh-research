@@ -4,17 +4,17 @@
   "voice_capture": {
     "audio_storage": "memory_only",
     "transcript_storage": "memory_only",
-    "provider_fallback": "explicit",
-    "on_device_label_required": true
+    "transcription": "bounded_managed_gemini_audio",
+    "provider_fallback": "forbidden",
+    "generated_audio": "forbidden",
+    "maximum_duration_seconds": 60
   },
   "model_packs": {
     "base_bundle_weights": "forbidden",
-    "download": "signed_and_checksum_verified",
-    "model_storage": "model_assets_only"
+    "download": "retired"
   },
   "required_info_plist_keys": [
-    "NSMicrophoneUsageDescription",
-    "NSSpeechRecognitionUsageDescription"
+    "NSMicrophoneUsageDescription"
   ],
   "required_privacy_manifest": {
     "tracking": false

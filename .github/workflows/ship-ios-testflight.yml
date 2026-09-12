@@ -251,23 +251,8 @@ jobs:
           npm run --prefix hushh-webapp verify:capacitor:static
           npm run --prefix hushh-webapp verify:capacitor:plugins
           node hushh-webapp/scripts/native/verify-ios-voice-privacy-preflight.mjs
-          python3 scripts/voice/test_fluid_audio_model_pack.py
-          python3 scripts/voice/test_build_one_voice_model_pack_registry.py
-          uv run --project consent-protocol --locked pytest consent-protocol/tests/test_kai_local_runtime.py -q
-          python3 scripts/ci/test_verify_one_voice_local_runtime_readiness.py
           python3 scripts/ci/test_distribute_testflight_build.py
           python3 scripts/ci/test_ios_uat_passkey_config.py
-
-      - name: Verify UAT local voice packs match this release
-        shell: bash
-        env:
-          EXPECTED_SHA: ${{ needs.preflight.outputs.release_sha }}
-        run: |
-          set -euo pipefail
-          uv run python scripts/ci/verify-one-voice-local-runtime-readiness.py \
-            --backend-url "$NEXT_PUBLIC_BACKEND_URL" \
-            --source-sha "$EXPECTED_SHA" \
-            > "$RUNNER_TEMP/one-voice-local-runtime-readiness.json"
 
       - name: Prepare UAT native project
         shell: bash
@@ -461,7 +446,6 @@ jobs:
           retention-days: 14
           if-no-files-found: error
           path: |
-            ${{ runner.temp }}/one-voice-local-runtime-readiness.json
             ${{ runner.temp }}/testflight-distribution.json
 
       - name: Remove protected runner files

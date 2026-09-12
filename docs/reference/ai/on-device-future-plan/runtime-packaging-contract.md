@@ -1,5 +1,7 @@
 # Runtime Packaging Contract
 
+> Superseded for the command experience by the [Location command runtime](../../one/one-voice-runtime-architecture.md). Live conversation and local model-pack requirements below are historical context, not active release gates.
+
 
 ## Visual Context
 

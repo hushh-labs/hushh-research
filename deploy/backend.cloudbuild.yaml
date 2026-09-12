@@ -69,13 +69,8 @@ steps:
   # contain commas. Paired with gcloud's alternate-delimiter syntax on
   # --set-env-vars below.
   #
-  # Timeout 3600s: WebSocket voice sessions (/api/one/adk/live) are long-lived
-  # HTTP requests on Cloud Run; the previous 300s hard-killed any voice
-  # conversation at 5 minutes. Session affinity is best-effort per Google's
-  # WebSocket guidance; reconnects still re-mint a relay ticket, and
-  # cross-instance nonce single-use is Postgres-backed (migration 084). Billing
-  # note: instances with open WebSockets stay active for the connection's
-  # lifetime.
+  # Long-running text streams retain the existing 3600s request timeout.
+  # Location commands use bounded HTTP requests; Live relay is retired.
   #
   # --max/--min: service-level limits bound aggregate database fan-out across
   # traffic splits. Revision min-instances=0 prevents no-traffic/retired
@@ -180,7 +175,7 @@ steps:
         if [[ -n "${_PLAID_ACCESS_TOKEN_KEY_SECRET}" ]]; then
           secrets="${secrets},PLAID_ACCESS_TOKEN_KEY=${_PLAID_ACCESS_TOKEN_KEY_SECRET}:latest"
         fi
-        for n in HUSHH_MANAGED_GEMINI_LIVE_API_KEY FINNHUB_API_KEY PMP_API_KEY NEWSAPI_KEY GMAIL_OAUTH_CLIENT_ID GMAIL_OAUTH_CLIENT_SECRET GMAIL_OAUTH_REDIRECT_URI GMAIL_OAUTH_TOKEN_KEY GOOGLE_OAUTH_CLIENT_ID GOOGLE_OAUTH_CLIENT_SECRET GOOGLE_OAUTH_REDIRECT_URI GOOGLE_OAUTH_TOKEN_KEY OPENAI_API_KEY GOOGLE_MAPS_API_KEY VOICE_RUNTIME_CONFIG_JSON OMNIGATEWAY_CLIENT_ID OMNIGATEWAY_CLIENT_SECRET OMNIGATEWAY_EXT_CRM_CLIENT_ID OMNIGATEWAY_EXT_CRM_CLIENT_SECRET HUSHH_DEVELOPER_TOKEN HUSHH_UAT_PHONE_TEST_NUMBERS HUSHH_UAT_PHONE_TEST_CODE HUSHH_UAT_PHONE_TEST_CHALLENGE_SECRET HUSHH_PROD_PHONE_TEST_NUMBERS HUSHH_PROD_PHONE_TEST_CODE HUSHH_PROD_PHONE_TEST_CHALLENGE_SECRET REVIEWER_UID REVIEWER_VAULT_PASSPHRASE RIA_INTELLIGENCE_VERIFY_BASE_URL RIA_IDENTITY_BASE_URL RIA_IDENTITY_API_KEY INTELLIGENCE_API_BASE_URL INTELLIGENCE_API_KEY SUPPORT_EMAIL_TEST_TO SUPPORT_EMAIL_MODE SUPPORT_EMAIL_DELEGATED_USER SUPPORT_EMAIL_FROM GOOGLE_SERVICE_ACCOUNT_EMAIL GOOGLE_PRIVATE_KEY RIA_CLAIM_TEST_NUMBERS RIA_CLAIM_TEST_CODE RIA_CLAIM_TEST_EMAILS ONE_EMAIL_WATCH_RENEW_TOKEN WALLET_API_KEY; do
+        for n in FINNHUB_API_KEY PMP_API_KEY NEWSAPI_KEY GMAIL_OAUTH_CLIENT_ID GMAIL_OAUTH_CLIENT_SECRET GMAIL_OAUTH_REDIRECT_URI GMAIL_OAUTH_TOKEN_KEY GOOGLE_OAUTH_CLIENT_ID GOOGLE_OAUTH_CLIENT_SECRET GOOGLE_OAUTH_REDIRECT_URI GOOGLE_OAUTH_TOKEN_KEY OPENAI_API_KEY GOOGLE_MAPS_API_KEY VOICE_RUNTIME_CONFIG_JSON OMNIGATEWAY_CLIENT_ID OMNIGATEWAY_CLIENT_SECRET OMNIGATEWAY_EXT_CRM_CLIENT_ID OMNIGATEWAY_EXT_CRM_CLIENT_SECRET HUSHH_DEVELOPER_TOKEN HUSHH_UAT_PHONE_TEST_NUMBERS HUSHH_UAT_PHONE_TEST_CODE HUSHH_UAT_PHONE_TEST_CHALLENGE_SECRET HUSHH_PROD_PHONE_TEST_NUMBERS HUSHH_PROD_PHONE_TEST_CODE HUSHH_PROD_PHONE_TEST_CHALLENGE_SECRET REVIEWER_UID REVIEWER_VAULT_PASSPHRASE RIA_INTELLIGENCE_VERIFY_BASE_URL RIA_IDENTITY_BASE_URL RIA_IDENTITY_API_KEY INTELLIGENCE_API_BASE_URL INTELLIGENCE_API_KEY SUPPORT_EMAIL_TEST_TO SUPPORT_EMAIL_MODE SUPPORT_EMAIL_DELEGATED_USER SUPPORT_EMAIL_FROM GOOGLE_SERVICE_ACCOUNT_EMAIL GOOGLE_PRIVATE_KEY RIA_CLAIM_TEST_NUMBERS RIA_CLAIM_TEST_CODE RIA_CLAIM_TEST_EMAILS ONE_EMAIL_WATCH_RENEW_TOKEN WALLET_API_KEY; do
           v="_${n}_SECRET"
           add_secret "${!v}" "${n}"
         done
@@ -265,14 +260,8 @@ steps:
           add_env "${n}" "${!v}"
         done
         add_env "KAI_ANALYZE_DURABLE_RUN_STORE" "${_KAI_ANALYZE_DURABLE_RUN_STORE}"
-        add_env "AGENT_ONE_ADK_MODEL" "${_AGENT_ONE_ADK_MODEL}"
         add_env "CONSENT_WEB_FALLBACK_ENABLED" "${_CONSENT_WEB_FALLBACK_ENABLED}"
         add_env "CONSENT_SSE_ENABLED" "${_CONSENT_SSE_ENABLED}"
-        # The registry is a Secret Manager *name*, never a mounted payload.
-        # The runtime reads it dynamically and signs URLs with ADC/IAM.
-        add_env "HUSHH_LOCAL_RUNTIME_PACK_REGISTRY_SECRET" "${_HUSHH_LOCAL_RUNTIME_PACK_REGISTRY_SECRET}"
-        add_env "HUSHH_LOCAL_RUNTIME_PACK_REGISTRY_PROJECT" "${_HUSHH_LOCAL_RUNTIME_PACK_REGISTRY_PROJECT}"
-        add_env "HUSHH_LOCAL_RUNTIME_PACK_SIGNER_SERVICE_ACCOUNT" "${_HUSHH_LOCAL_RUNTIME_PACK_SIGNER_SERVICE_ACCOUNT}"
 
         env_var_string="$(IFS='|'; echo "${env_vars[*]}")"
         deploy_labels="managed-by=hushh-github-actions,deploy-env=${_DEPLOY_ENV},deploy-source=${_DEPLOY_SOURCE},deploy-sha=${_DEPLOY_SHA},github-run-id=${_GITHUB_RUN_ID},account-deletion-contract=v201"
@@ -343,7 +332,6 @@ steps:
       - "_APP_REVIEW_MODE=${_APP_REVIEW_MODE}"
       - "_HUSSH_GEMINI_TEXT_MODEL=${_HUSSH_GEMINI_TEXT_MODEL}"
       - "_HUSHH_PROD_PHONE_TEST_ENABLED=${_HUSHH_PROD_PHONE_TEST_ENABLED}"
-      - "_HUSHH_MANAGED_GEMINI_LIVE_API_KEY_SECRET=${_HUSHH_MANAGED_GEMINI_LIVE_API_KEY_SECRET}"
       - "_FINNHUB_API_KEY_SECRET=${_FINNHUB_API_KEY_SECRET}"
       - "_PMP_API_KEY_SECRET=${_PMP_API_KEY_SECRET}"
       - "_NEWSAPI_KEY_SECRET=${_NEWSAPI_KEY_SECRET}"
@@ -358,9 +346,6 @@ steps:
       - "_OPENAI_API_KEY_SECRET=${_OPENAI_API_KEY_SECRET}"
       - "_GOOGLE_MAPS_API_KEY_SECRET=${_GOOGLE_MAPS_API_KEY_SECRET}"
       - "_VOICE_RUNTIME_CONFIG_JSON_SECRET=${_VOICE_RUNTIME_CONFIG_JSON_SECRET}"
-      - "_HUSHH_LOCAL_RUNTIME_PACK_REGISTRY_SECRET=${_HUSHH_LOCAL_RUNTIME_PACK_REGISTRY_SECRET}"
-      - "_HUSHH_LOCAL_RUNTIME_PACK_REGISTRY_PROJECT=${_HUSHH_LOCAL_RUNTIME_PACK_REGISTRY_PROJECT}"
-      - "_HUSHH_LOCAL_RUNTIME_PACK_SIGNER_SERVICE_ACCOUNT=${_HUSHH_LOCAL_RUNTIME_PACK_SIGNER_SERVICE_ACCOUNT}"
       - "_OMNIGATEWAY_CLIENT_ID_SECRET=${_OMNIGATEWAY_CLIENT_ID_SECRET}"
       - "_OMNIGATEWAY_CLIENT_SECRET_SECRET=${_OMNIGATEWAY_CLIENT_SECRET_SECRET}"
       - "_OMNIGATEWAY_EXT_CRM_CLIENT_ID_SECRET=${_OMNIGATEWAY_EXT_CRM_CLIENT_ID_SECRET}"
@@ -420,13 +405,6 @@ steps:
             genai_project_id="hushh-pda-uat"
           fi
         fi
-        # The probe needs the managed live key when the canonical live model
-        # rides the developer_api transport; mounted only when the secret
-        # exists so lanes without it still create the job.
-        live_key_secret_flag=""
-        if gcloud secrets describe "${_HUSHH_MANAGED_GEMINI_LIVE_API_KEY_SECRET}" --project="$PROJECT_ID" >/dev/null 2>&1; then
-          live_key_secret_flag="--set-secrets=HUSHH_MANAGED_GEMINI_LIVE_API_KEY=${_HUSHH_MANAGED_GEMINI_LIVE_API_KEY_SECRET}:latest"
-        fi
         image_reference="${_IMAGE_REFERENCE}"
         if [[ -z "${image_reference}" ]]; then
           image_reference="gcr.io/$PROJECT_ID/consent-protocol:${_IMAGE_TAG}"
@@ -439,8 +417,7 @@ steps:
           --service-account="${_RUNTIME_SERVICE_ACCOUNT}" \
           --command="python3" \
           --args="scripts/verify_managed_vertex_runtime.py" \
-          --set-env-vars="^|^HUSHH_GENAI_AUTH_MODE=vertex_adc|GOOGLE_GENAI_USE_VERTEXAI=true|GOOGLE_CLOUD_PROJECT=${PROJECT_ID}|GENAI_GOOGLE_CLOUD_PROJECT=${genai_project_id}|GOOGLE_CLOUD_LOCATION=global|HUSHH_VERTEX_LOCATIONS=global,us,eu|AGENT_ONE_ADK_LOCATION=us-central1|AGENT_ONE_ADK_MODEL=${_AGENT_ONE_ADK_MODEL}|HUSSH_GEMINI_TEXT_MODEL=${_HUSSH_GEMINI_TEXT_MODEL}" \
-          ${live_key_secret_flag} \
+          --set-env-vars="^|^HUSHH_GENAI_AUTH_MODE=vertex_adc|GOOGLE_GENAI_USE_VERTEXAI=true|GOOGLE_CLOUD_PROJECT=${PROJECT_ID}|GENAI_GOOGLE_CLOUD_PROJECT=${genai_project_id}|GOOGLE_CLOUD_LOCATION=global|HUSHH_VERTEX_LOCATIONS=global,us,eu|HUSSH_GEMINI_TEXT_MODEL=${_HUSSH_GEMINI_TEXT_MODEL}" \
           --max-retries=0 \
           --task-timeout=90s \
           --quiet
@@ -557,10 +534,6 @@ substitutions:
   _FIREBASE_ADMIN_CREDENTIALS_SECRET: FIREBASE_ADMIN_CREDENTIALS_JSON
   _BACKEND_RUNTIME_CONFIG_JSON_SECRET: BACKEND_RUNTIME_CONFIG_JSON
   _PLAID_ACCESS_TOKEN_KEY_SECRET: ""
-  # Defaulted to the canonical secret name so every lane picks it up without
-  # workflow changes; add_secret skips gracefully where the secret is absent.
-  _HUSHH_MANAGED_GEMINI_LIVE_API_KEY_SECRET: HUSHH_MANAGED_GEMINI_LIVE_API_KEY
-  _AGENT_ONE_ADK_MODEL: ""
   # One switch for every text agent (constants.GEMINI_MODEL). Empty keeps the
   # proven default; set only after the lane's Vertex allowed-models policy admits the id.
   _HUSSH_GEMINI_TEXT_MODEL: ""
@@ -578,11 +551,6 @@ substitutions:
   _OPENAI_API_KEY_SECRET: ""
   _GOOGLE_MAPS_API_KEY_SECRET: GOOGLE_MAPS_API_KEY
   _VOICE_RUNTIME_CONFIG_JSON_SECRET: ""
-  # The registry identifier is not a mounted secret. The Cloud Run identity
-  # reads the latest version through Secret Manager and signs fresh URLs.
-  _HUSHH_LOCAL_RUNTIME_PACK_REGISTRY_SECRET: HUSHH_LOCAL_RUNTIME_PACK_REGISTRY
-  _HUSHH_LOCAL_RUNTIME_PACK_REGISTRY_PROJECT: ""
-  _HUSHH_LOCAL_RUNTIME_PACK_SIGNER_SERVICE_ACCOUNT: ""
   _OMNIGATEWAY_CLIENT_ID_SECRET: OMNIGATEWAY_CLIENT_ID
   _OMNIGATEWAY_CLIENT_SECRET_SECRET: OMNIGATEWAY_CLIENT_SECRET
   _OMNIGATEWAY_EXT_CRM_CLIENT_ID_SECRET: OMNIGATEWAY_EXT_CRM_CLIENT_ID

@@ -1,13 +1,19 @@
 @preconcurrency import Capacitor
 @preconcurrency import AVFoundation
 import Foundation
-import Speech
+import UIKit
 
 @objc(HushhVoiceInvocationPlugin)
 public final class HushhVoiceInvocationPlugin: CAPPlugin, CAPBridgedPlugin {
     public let identifier = "HushhVoiceInvocationPlugin"
     public let jsName = "HushhVoiceInvocation"
     public let pluginMethods: [CAPPluginMethod] = [
+        CAPPluginMethod(name: "getCommandCapturePermission", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "requestCommandCapturePermission", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "openCommandCaptureSettings", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "startCommandCapture", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "finishCommandCapture", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "cancelCommandCapture", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "getPendingInvocation", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "claimInvocation", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "reportInvocationProgress", returnType: CAPPluginReturnPromise),
@@ -33,17 +39,21 @@ public final class HushhVoiceInvocationPlugin: CAPPlugin, CAPBridgedPlugin {
     private var availabilityObserver: NSObjectProtocol?
     private var actionAvailabilityObserver: NSObjectProtocol?
     private var requestAvailabilityObserver: NSObjectProtocol?
-    private var speechRecognizer: SFSpeechRecognizer?
-    private var speechRequest: SFSpeechAudioBufferRecognitionRequest?
-    private var speechTask: SFSpeechRecognitionTask?
-    private var speechMicrophoneCapture: OneVoiceMicrophoneCapture?
-    private var speechFluidAudioSession: OneVoiceFluidAudioSession?
-    private var speechSessionID: String?
-    private var speechSequence = 0
-    private var speechOnDevice = false
-    private var speechProvider = "apple_speech"
+    private var commandRecording: OneCommandRecording?
+    private var commandForegroundSince = Date().timeIntervalSince1970 * 1000
+    private var commandLifecycleObservers: [NSObjectProtocol] = []
 
     public override func load() {
+        for name in [UIApplication.willResignActiveNotification, AVAudioSession.interruptionNotification] {
+            commandLifecycleObservers.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                self?.commandRecording?.cancel()
+                self?.commandRecording = nil
+                self?.commandForegroundSince = Date().timeIntervalSince1970 * 1000
+            })
+        }
+        commandLifecycleObservers.append(NotificationCenter.default.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
+            self?.commandForegroundSince = Date().timeIntervalSince1970 * 1000
+        })
         availabilityObserver = NotificationCenter.default.addObserver(
             forName: .oneVoiceInvocationAvailable,
             object: nil,
@@ -71,7 +81,8 @@ public final class HushhVoiceInvocationPlugin: CAPPlugin, CAPBridgedPlugin {
     }
 
     deinit {
-        stopSpeechRecognitionInternal(emitEnd: false)
+        commandRecording?.cancel()
+        commandLifecycleObservers.forEach { NotificationCenter.default.removeObserver($0) }
         if let availabilityObserver {
             NotificationCenter.default.removeObserver(availabilityObserver)
         }
@@ -83,375 +94,67 @@ public final class HushhVoiceInvocationPlugin: CAPPlugin, CAPBridgedPlugin {
         }
     }
 
-    @objc func startSpeechRecognition(_ call: CAPPluginCall) {
-        let requestedSessionID = call.getString("sessionId")?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let localeIdentifier = call.getString("locale") ?? Locale.current.identifier
-        let wantsOnDevice = call.getBool("onDevice") ?? true
-        let allowNetwork = call.getBool("allowNetwork") ?? false
-        let preferredProvider = call.getString("provider")?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let contextualStrings = (call.getArray("contextualStrings", String.self) ?? [])
-            .map { String($0.trimmingCharacters(in: .whitespacesAndNewlines).prefix(64)) }
-            .filter { !$0.isEmpty }
-            .prefix(100)
-
-        if preferredProvider == "fluid_audio",
-           OneVoiceFluidAudioPolicy.runtimeIsEnabled(),
-           let modelsDirectory = OneVoiceFluidAudioPackStore.shared.activeModelsDirectory()
-        {
-            startFluidAudioSpeechRecognition(
-                call: call,
-                modelsDirectory: modelsDirectory,
-                sessionID: requestedSessionID
-            )
-            return
+    private func commandPermission() -> [String: Any] {
+        let state: String
+        switch AVAudioSession.sharedInstance().recordPermission {
+        case .granted: state = "granted"
+        case .denied: state = "denied"
+        default: state = "prompt"
         }
-
-        startAppleSpeechRecognition(
-            call: call,
-            localeIdentifier: localeIdentifier,
-            wantsOnDevice: wantsOnDevice,
-            allowNetwork: allowNetwork,
-            sessionID: requestedSessionID,
-            contextualStrings: Array(contextualStrings)
-        )
+        return ["state": state, "sourcePlatform": "ios"]
     }
 
-    private func startAppleSpeechRecognition(
-        call: CAPPluginCall,
-        localeIdentifier: String,
-        wantsOnDevice: Bool,
-        allowNetwork: Bool,
-        sessionID: String?,
-        contextualStrings: [String]
-    ) {
-        if speechFluidAudioSession != nil {
-            Task { @MainActor [weak self] in
-                guard let self else {
-                    call.reject("speech_unavailable")
-                    return
-                }
-                await self.stopFluidAudioSpeechRecognition(emitEnd: false)
-                self.startAppleSpeechRecognition(
-                    call: call,
-                    localeIdentifier: localeIdentifier,
-                    wantsOnDevice: wantsOnDevice,
-                    allowNetwork: allowNetwork,
-                    sessionID: sessionID,
-                    contextualStrings: contextualStrings
-                )
-            }
-            return
-        }
+    @objc func getCommandCapturePermission(_ call: CAPPluginCall) { call.resolve(commandPermission()) }
 
-        SFSpeechRecognizer.requestAuthorization { [weak self] status in
-            DispatchQueue.main.async {
-                guard let self else {
-                    call.reject("speech_unavailable")
-                    return
-                }
-                guard status == .authorized else {
-                    call.reject("speech_authorization_denied")
-                    return
-                }
-                guard let recognizer = SFSpeechRecognizer(locale: Locale(identifier: localeIdentifier)) else {
-                    call.reject("speech_locale_unavailable")
-                    return
-                }
-                let supportsOnDevice = recognizer.supportsOnDeviceRecognition
-                guard !wantsOnDevice || supportsOnDevice || allowNetwork else {
-                    call.reject("speech_on_device_unavailable")
-                    return
-                }
-                do {
-                    try self.startSpeechRecognitionInternal(
-                        recognizer: recognizer,
-                        sessionID: sessionID,
-                        onDevice: wantsOnDevice && supportsOnDevice,
-                        contextualStrings: contextualStrings
-                    )
-                    call.resolve([
-                        "sessionId": self.speechSessionID ?? "",
-                        "provider": "apple_speech",
-                        "onDevice": self.speechOnDevice
-                    ])
-                } catch {
-                    call.reject("speech_start_failed")
-                }
-            }
+    @objc func requestCommandCapturePermission(_ call: CAPPluginCall) {
+        AVAudioSession.sharedInstance().requestRecordPermission { [weak self] _ in
+            DispatchQueue.main.async { guard let self else { call.reject("Capture unavailable."); return }; call.resolve(self.commandPermission()) }
         }
     }
 
-    @objc func stopSpeechRecognition(_ call: CAPPluginCall) {
-        let requestedSessionID = call.getString("sessionId")
-        if let requestedSessionID, requestedSessionID != speechSessionID {
-            call.resolve()
-            return
-        }
-        if speechFluidAudioSession != nil {
-            Task { @MainActor [weak self] in
-                await self?.stopFluidAudioSpeechRecognition(emitEnd: true)
-                call.resolve()
-            }
-            return
-        }
-        stopSpeechRecognitionInternal(emitEnd: true)
-        call.resolve()
-    }
-
-    private func startFluidAudioSpeechRecognition(
-        call: CAPPluginCall,
-        modelsDirectory: URL,
-        sessionID: String?
-    ) {
-        Task { @MainActor [weak self] in
-            guard let self else {
-                call.reject("speech_unavailable")
-                return
-            }
-            do {
-                try await self.startFluidAudioSpeechRecognitionInternal(
-                    modelsDirectory: modelsDirectory,
-                    sessionID: sessionID
-                )
-                call.resolve([
-                    "sessionId": self.speechSessionID ?? "",
-                    "provider": "fluid_audio",
-                    "onDevice": true,
-                ])
-            } catch {
-                // The returned provider tells the web adapter which path was
-                // used. Apple Speech is an explicit, truthful fallback rather
-                // than a hidden substitution.
-                self.startAppleSpeechRecognition(
-                    call: call,
-                    localeIdentifier: Locale.current.identifier,
-                    wantsOnDevice: true,
-                    allowNetwork: false,
-                    sessionID: sessionID,
-                    contextualStrings: []
-                )
-            }
+    @objc func openCommandCaptureSettings(_ call: CAPPluginCall) {
+        DispatchQueue.main.async {
+            guard let url = URL(string: UIApplication.openSettingsURLString) else { call.resolve(["opened": false]); return }
+            UIApplication.shared.open(url) { call.resolve(["opened": $0]) }
         }
     }
 
-    @MainActor
-    private func startFluidAudioSpeechRecognitionInternal(
-        modelsDirectory: URL,
-        sessionID: String?
-    ) async throws {
-        if speechFluidAudioSession != nil {
-            await stopFluidAudioSpeechRecognition(emitEnd: false)
-        } else {
-            stopSpeechRecognitionInternal(emitEnd: false)
-        }
-
-        let resolvedSessionID = sessionID?.isEmpty == false ? sessionID! : UUID().uuidString
-        let fluidSession = OneVoiceFluidAudioSession(
-            sessionID: resolvedSessionID,
-            modelsDirectory: modelsDirectory
-        ) { [weak self] event in
-            self?.emitFluidTranscript(event)
-        }
-        try await fluidSession.start()
-
-        let microphoneCapture = OneVoiceMicrophoneCapture()
-        speechRecognizer = nil
-        speechRequest = nil
-        speechTask = nil
-        speechMicrophoneCapture = microphoneCapture
-        speechFluidAudioSession = fluidSession
-        speechSessionID = resolvedSessionID
-        speechSequence = 0
-        speechOnDevice = true
-        speechProvider = "fluid_audio"
-        do {
-            try microphoneCapture.start { [weak fluidSession] buffer, _, _ in
-                Task { @MainActor in
-                    fluidSession?.append(buffer)
-                }
-            }
-        } catch {
-            await fluidSession.stop(emitEnd: false)
-            clearSpeechState()
-            throw error
+    @objc func startCommandCapture(_ call: CAPPluginCall) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self, let id = call.getString("sessionId"), !id.isEmpty, id.count <= 128 else { call.reject("Invalid recording session."); return }
+            guard UIApplication.shared.applicationState == .active,
+                  let requestedAt = call.getDouble("requestedAtMs"), requestedAt >= self.commandForegroundSince,
+                  requestedAt <= Date().timeIntervalSince1970 * 1000 + 1000 else { call.reject("Recording gesture expired. Tap to record again."); return }
+            guard self.commandRecording == nil else { call.reject("The microphone is already in use."); return }
+            guard AVAudioSession.sharedInstance().recordPermission == .granted else { call.reject("Microphone permission is required."); return }
+            let recording = OneCommandRecording(sessionID: id, maxDurationMs: call.getInt("maxDurationMs") ?? 60_000)
+            do { try recording.start(); self.commandRecording = recording; call.resolve(["sessionId": id]) }
+            catch { recording.cancel(); call.reject("The microphone could not start.") }
         }
     }
 
-    /// Installs a model archive only after native policy, checksum, and model
-    /// notice checks agree. The API intentionally returns no signed URL,
-    /// filesystem path, model bytes, transcript, or protected app context.
-    @objc func prepareFluidAudioModelPack(_ call: CAPPluginCall) {
-        guard let request = OneVoiceFluidAudioPackRequest(
-            packID: call.getString("packId") ?? "",
-            version: call.getString("version") ?? "",
-            sizeBytes: call.getInt("sizeBytes") ?? 0,
-            checksum: call.getString("checksum") ?? "",
-            artifactURL: call.getString("artifactUrl") ?? "",
-            entrypoint: call.getString("entrypoint") ?? "",
-            licenseNoticeID: call.getString("licenseNoticeId") ?? "",
-            licenseApproved: call.getBool("licenseApproved") ?? false
-        ) else {
-            call.reject("fluid_audio_pack_invalid")
-            return
-        }
-
-        Task {
-            do {
-                _ = try await OneVoiceFluidAudioPackStore.shared.installAndActivate(request)
-                DispatchQueue.main.async {
-                    call.resolve([
-                        "ready": true,
-                        "packId": request.packID,
-                        "version": request.version,
-                    ])
-                }
-            } catch {
-                DispatchQueue.main.async {
-                    call.resolve(["ready": false, "reason": "fluid_audio_pack_unavailable"])
-                }
-            }
+    @objc func finishCommandCapture(_ call: CAPPluginCall) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self, let recording = self.commandRecording, recording.sessionID == call.getString("sessionId") else { call.reject("Recording expired or was cancelled."); return }
+            self.commandRecording = nil
+            do { call.resolve(try recording.finish()) } catch { recording.cancel(); call.reject("Recording could not be finalized.") }
         }
     }
 
-    @objc func getFluidAudioAvailability(_ call: CAPPluginCall) {
-        let available = OneVoiceFluidAudioPolicy.runtimeIsEnabled()
-            && OneVoiceFluidAudioPackStore.shared.activeModelsDirectory() != nil
-        call.resolve(["available": available])
-    }
-
-    @objc func rollbackFluidAudioModelPack(_ call: CAPPluginCall) {
-        do {
-            let rolledBack = try OneVoiceFluidAudioPackStore.shared.rollback() != nil
-            call.resolve(["rolledBack": rolledBack])
-        } catch {
-            call.resolve(["rolledBack": false])
+    @objc func cancelCommandCapture(_ call: CAPPluginCall) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self, let recording = self.commandRecording, recording.sessionID == call.getString("sessionId") else { call.resolve(["cancelled": false]); return }
+            self.commandRecording = nil; recording.cancel(); call.resolve(["cancelled": true])
         }
     }
 
-    private func startSpeechRecognitionInternal(
-        recognizer: SFSpeechRecognizer,
-        sessionID: String?,
-        onDevice: Bool,
-        contextualStrings: [String]
-    ) throws {
-        stopSpeechRecognitionInternal(emitEnd: false)
-        let request = SFSpeechAudioBufferRecognitionRequest()
-        request.shouldReportPartialResults = true
-        request.requiresOnDeviceRecognition = onDevice
-        request.contextualStrings = contextualStrings
-        let microphoneCapture = OneVoiceMicrophoneCapture()
-
-        speechRecognizer = recognizer
-        speechRequest = request
-        speechMicrophoneCapture = microphoneCapture
-        speechSessionID = sessionID?.isEmpty == false ? sessionID : UUID().uuidString
-        speechSequence = 0
-        speechOnDevice = onDevice
-        speechProvider = "apple_speech"
-        speechTask = recognizer.recognitionTask(with: request) { [weak self] result, error in
-            DispatchQueue.main.async {
-                guard let self else { return }
-                if let result {
-                    let text = result.bestTranscription.formattedString
-                    self.emitTranscript(
-                        kind: result.isFinal ? "final" : "partial",
-                        text: text,
-                        confidence: result.bestTranscription.segments.last?.confidence
-                    )
-                }
-                if let error {
-                    self.emitTranscript(kind: "error", text: "", errorCode: "speech_provider_error")
-                    self.stopSpeechRecognitionInternal(emitEnd: false)
-                    _ = error
-                }
-            }
-        }
-        do {
-            try microphoneCapture.start { [weak self] buffer, _, _ in
-                self?.speechRequest?.append(buffer)
-            }
-        } catch {
-            stopSpeechRecognitionInternal(emitEnd: false)
-            throw error
-        }
-    }
-
-    private func stopSpeechRecognitionInternal(emitEnd: Bool) {
-        if speechFluidAudioSession != nil {
-            speechMicrophoneCapture?.stop()
-            Task { @MainActor [weak self] in
-                await self?.stopFluidAudioSpeechRecognition(emitEnd: emitEnd)
-            }
-            return
-        }
-        guard speechSessionID != nil || speechMicrophoneCapture != nil else { return }
-        let sessionID = speechSessionID
-        speechMicrophoneCapture?.stop()
-        speechTask?.cancel()
-        speechRequest?.endAudio()
-        if emitEnd, sessionID != nil {
-            emitTranscript(kind: "end", text: "")
-        }
-        clearSpeechState()
-    }
-
-    private func emitTranscript(
-        kind: String,
-        text: String,
-        confidence: Float? = nil,
-        errorCode: String? = nil
-    ) {
-        guard let sessionID = speechSessionID else { return }
-        speechSequence += 1
-        var payload: [String: Any] = [
-            "sessionId": sessionID,
-            "sequence": speechSequence,
-            "kind": kind,
-            "text": String(text.prefix(8_000)),
-            "provider": speechProvider,
-            "onDevice": speechOnDevice
-        ]
-        if let confidence { payload["confidence"] = max(0, min(1, confidence)) }
-        if let errorCode { payload["errorCode"] = errorCode }
-        notifyListeners("oneTranscript", data: payload)
-    }
-
-    @MainActor
-    private func stopFluidAudioSpeechRecognition(emitEnd: Bool) async {
-        guard let fluidSession = speechFluidAudioSession else { return }
-        speechMicrophoneCapture?.stop()
-        speechMicrophoneCapture = nil
-        await fluidSession.stop(emitEnd: emitEnd)
-        clearSpeechState()
-    }
-
-    @MainActor
-    private func emitFluidTranscript(_ event: OneVoiceFluidAudioSession.Transcript) {
-        var payload: [String: Any] = [
-            "sessionId": event.sessionID,
-            "sequence": event.sequence,
-            "kind": event.kind,
-            "text": event.text,
-            "provider": "fluid_audio",
-            "onDevice": true,
-        ]
-        if let errorCode = event.errorCode {
-            payload["errorCode"] = errorCode
-        }
-        notifyListeners("oneTranscript", data: payload)
-    }
-
-    private func clearSpeechState() {
-        speechRecognizer = nil
-        speechRequest = nil
-        speechTask = nil
-        speechMicrophoneCapture = nil
-        speechFluidAudioSession = nil
-        speechSessionID = nil
-        speechSequence = 0
-        speechOnDevice = false
-        speechProvider = "apple_speech"
-    }
+    // Old application versions receive an explicit retirement response. No model
+    // packs, alternate microphone owner, or speech recognizer is initialized.
+    @objc func startSpeechRecognition(_ call: CAPPluginCall) { call.reject("ONE_LIVE_RETIRED: use command capture.") }
+    @objc func stopSpeechRecognition(_ call: CAPPluginCall) { call.resolve(["stopped": true]) }
+    @objc func prepareFluidAudioModelPack(_ call: CAPPluginCall) { call.reject("ONE_LOCAL_ASR_RETIRED") }
+    @objc func getFluidAudioAvailability(_ call: CAPPluginCall) { call.resolve(["available": false, "reason": "ONE_LOCAL_ASR_RETIRED"]) }
+    @objc func rollbackFluidAudioModelPack(_ call: CAPPluginCall) { call.reject("ONE_LOCAL_ASR_RETIRED") }
 
     @objc func getPendingInvocation(_ call: CAPPluginCall) {
         guard let invocation = OneVoiceInvocationCoordinator.shared.pending() else {

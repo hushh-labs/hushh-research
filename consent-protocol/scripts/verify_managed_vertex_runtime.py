@@ -4,9 +4,11 @@
 from __future__ import annotations
 
 import asyncio
+import base64
+import io
 import json
-import os
 import sys
+import wave
 from pathlib import Path
 
 PROTOCOL_ROOT = Path(__file__).resolve().parents[1]
@@ -41,11 +43,10 @@ RESULT_PREFIX = "managed_vertex_probe_result"
 EXIT_PROVIDER_UNAVAILABLE = 75
 
 
-def _managed_manifest_models() -> tuple[tuple[str, ...], str]:
+def _managed_manifest_models() -> tuple[str, ...]:
     """Resolve probe targets from authored manifests, never a duplicate list."""
     manifest_root = PROTOCOL_ROOT / "hushh_mcp" / "agents"
     text_models: set[str] = set()
-    live_models: set[str] = set()
     for path in sorted(manifest_root.glob("*/agent.yaml")):
         manifest = ManifestLoader.load(str(path))
         if manifest.status == "deprecated":
@@ -58,54 +59,18 @@ def _managed_manifest_models() -> tuple[tuple[str, ...], str]:
                 text_models.add(resolve_fleet_model_name(child.model.name))
         heads = manifest.capabilities.get("heads")
         if isinstance(heads, dict):
-            live_model = str(heads.get("live") or "").strip()
-            if live_model:
-                live_models.add(live_model)
             for key in ("text", "specialist_text", "grounded_search"):
                 head_model = str(heads.get(key) or "").strip()
                 if head_model:
                     text_models.add(resolve_fleet_model_name(head_model))
     if not text_models:
         raise RuntimeError("No managed Gemini text model is declared by a product manifest")
-    if len(live_models) != 1:
-        raise RuntimeError("Exactly one canonical managed Gemini Live model must be authored")
-    return tuple(sorted(text_models)), next(iter(live_models))
+    return tuple(sorted(text_models))
 
 
 async def main() -> dict[str, object]:
     binding = ManagedGeminiRuntimeBinding.from_environment()
-    models, live_model = _managed_manifest_models()
-    # Match the candidate service exactly when an environment activates the
-    # authored rollback lever. Otherwise a UAT revision could run the Vertex
-    # fallback while this gate continued probing the unavailable canonical
-    # Developer API model.
-    live_model = (os.getenv("AGENT_ONE_ADK_MODEL") or live_model).strip()
-    live_location = (os.getenv("AGENT_ONE_ADK_LOCATION") or "us-central1").strip()
-    # The live model's endpoint follows its declared transport, mirroring
-    # agent_tree._build_one_live_model: vertex-transport live models probe the
-    # regional Vertex Live endpoint; developer_api-transport models (e.g. the
-    # canonical gemini-3.1-flash-live-preview, which is not published on
-    # Vertex) probe the Gemini Developer API with the Hussh-managed live key.
-    from hushh_mcp.runtime_providers.live_compatibility import (
-        GEMINI_LIVE_COMPATIBILITY,
-    )
-
-    _live_compat = GEMINI_LIVE_COMPATIBILITY.get(live_model)
-    _live_is_developer_api = _live_compat is not None and _live_compat.transport == "developer_api"
-    if _live_is_developer_api:
-        from hushh_mcp.runtime_providers.factory import build_developer_api_live_client
-
-        _managed_live_key = (os.getenv("HUSHH_MANAGED_GEMINI_LIVE_API_KEY") or "").strip()
-        live_client = (
-            build_developer_api_live_client(_managed_live_key) if _managed_live_key else None
-        )
-    else:
-        live_binding = ManagedGeminiRuntimeBinding(
-            project=binding.project,
-            locations=(live_location,),
-            auth_mode=binding.auth_mode,
-        )
-        live_client = live_binding.build_direct_client()
+    models = _managed_manifest_models()
 
     def binding_for(location: str) -> ManagedGeminiRuntimeBinding:
         return ManagedGeminiRuntimeBinding(
@@ -160,24 +125,6 @@ async def main() -> dict[str, object]:
 
         await asyncio.wait_for(consume_first_response(), timeout=PROBE_TIMEOUT_SECONDS)
 
-    async def probe_live_setup() -> None:
-        if live_client is None:
-            # developer_api transport with no managed key in this environment.
-            # The runtime fails loudly at session build (managed_live_key_missing
-            # in agent_tree), so the release evidence records the gap instead of
-            # silently passing a probe that never connected.
-            raise RuntimeError(
-                "managed_live_key_missing: developer_api live model "
-                f"'{live_model}' cannot be probed without "
-                "HUSHH_MANAGED_GEMINI_LIVE_API_KEY"
-            )
-        manager = live_client.aio.live.connect(
-            model=live_model,
-            config=types.LiveConnectConfig(response_modalities=[types.Modality.AUDIO]),
-        )
-        await asyncio.wait_for(manager.__aenter__(), timeout=PROBE_TIMEOUT_SECONDS)
-        await manager.__aexit__(None, None, None)
-
     def locations_for(model: str) -> tuple[str, ...]:
         declared = resolve_model_entry("gemini", model).supported_vertex_locations
         return tuple(
@@ -201,8 +148,36 @@ async def main() -> dict[str, object]:
         for location in locations_for(model):
             labelled.append((f"text:{model}@{location}", probe_text(model, location)))
             labelled.append((f"adk:{model}@{location}", probe_adk_text(model, location)))
-    _live_endpoint = "developer_api" if _live_is_developer_api else live_location
-    labelled.append((f"live:{live_model}@{_live_endpoint}", probe_live_setup()))
+
+    # Command readiness also needs audio input and structured proposals. These
+    # synthetic requests contain no user recording or personal information.
+    from hushh_mcp.agents.location.command_brain import LocationCommandBrain
+    from hushh_mcp.operons.location.capabilities import compile_location_capabilities
+    from hushh_mcp.operons.location.plan import validate_assessment
+    from hushh_mcp.services.action_gateway import list_action_gateway_actions
+
+    async def probe_command_audio() -> None:
+        recording = io.BytesIO()
+        with wave.open(recording, "wb") as wav:
+            wav.setnchannels(1)
+            wav.setsampwidth(2)
+            wav.setframerate(16000)
+            wav.writeframes(b"\x40\x01\xc0\xfe" * 2000)
+        await LocationCommandBrain().transcribe(base64.b64encode(recording.getvalue()).decode())
+
+    async def probe_command_semantics() -> None:
+        revision, catalog = compile_location_capabilities(list_action_gateway_actions())
+        assessment = await LocationCommandBrain().assess(
+            query="Open the Location screen.", context={}, catalog=catalog
+        )
+        plan = validate_assessment(
+            assessment, catalog, capability_revision=revision, context_revision="readiness"
+        )
+        if not plan.steps or assessment.unsupported:
+            raise RuntimeError("The Location command readiness proposal was unusable.")
+
+    labelled.append(("location_command:audio", probe_command_audio()))
+    labelled.append(("location_command:semantics", probe_command_semantics()))
 
     outcomes = await asyncio.gather(*(coro for _, coro in labelled), return_exceptions=True)
 
@@ -229,8 +204,6 @@ async def main() -> dict[str, object]:
         "classification": classification,
         "advisory": is_advisory(classification),
         "models": list(models),
-        "live_model": live_model,
-        "live_location": _live_endpoint,
         "probes": probes,
         # A provider-side denial is returned before any model-specific
         # validation, so an outage verdict does NOT clear the candidate. Say so,

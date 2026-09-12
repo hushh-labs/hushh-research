@@ -21,6 +21,7 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useLocalOnboardingActionHandler, type LocalOnboardingActionContext, type LocalActionPreparation } from "@/lib/agent/local-onboarding-actions";
 import {
   Check,
   CheckCircle2,
@@ -426,13 +427,13 @@ export function CheckInFlow({
     [discardPrivateCheckInOperation],
   );
 
-  const submit = async () => {
+  const submit = async (commandContext?: LocalOnboardingActionContext) => {
     if (!canSubmit || busy) return;
     const reviewedPoint = confirmedPoint ?? point;
     if (!reviewedPoint) return;
     const operationId =
-      operationIdRef.current ?? createPrivateCheckInOperationId();
-    const confirmationTime = confirmedAt ?? new Date().toISOString();
+      commandContext?.operationId ?? operationIdRef.current ?? createPrivateCheckInOperationId();
+    const confirmationTime = commandContext?.confirmedAt ?? confirmedAt ?? new Date().toISOString();
     operationIdRef.current = operationId;
     if (!confirmedRecipientKeysRef.current) {
       confirmedRecipientKeysRef.current = Object.fromEntries(
@@ -453,6 +454,7 @@ export function CheckInFlow({
         clientOperationId: operationId,
         confirmedAt: confirmationTime,
         sourceCircleId: circleSelection?.circle.id ?? null,
+        recipientSnapshots: contacts.filter((recipient) => checkedIds.includes(recipient.userId)),
       });
       if (result.succeededRecipientIds.length > 0) {
         setCompletedRecipientIds((current) => [
@@ -462,30 +464,30 @@ export function CheckInFlow({
       if (result.failedRecipientIds.length > 0) {
         setCheckedIds(result.failedRecipientIds);
       }
+      return result;
     } finally {
       setSubmitting(false);
     }
   };
 
-  // Voice's `location.send_check_in` cannot reach this component's local
-  // selection state directly, so it bumps `vm.voiceCheckInSendRequestId` and
-  // this effect submits the draft that is ALREADY on screen -- same seeded
-  // recipient/duration/message the tap button would send. The ref baseline
-  // is read from the current prop rather than a fixed literal so a request
-  // that fired before this screen was even open is not replayed on mount.
-  const voiceSendRequestIdRef = useRef(vm.voiceCheckInSendRequestId);
-  useEffect(() => {
-    const requestId = vm.voiceCheckInSendRequestId;
-    if (requestId === undefined || requestId === voiceSendRequestIdRef.current) {
-      return;
-    }
-    voiceSendRequestIdRef.current = requestId;
-    void submit();
-    // `submit` deliberately excluded: it closes over this render's state, and
-    // only a NEW request id -- not every re-render that recreates it -- should
-    // retrigger a send.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [vm.voiceCheckInSendRequestId]);
+  const prepareCheckIn = (): LocalActionPreparation => {
+    if (!checkedIds.length) return { status: "blocked", gate: "navigation", route: "/one/location?action=check-in", summary: "Choose who should receive this check-in, then Continue." };
+    if (!canSubmit || busy || !point || !pointIsFresh || selectedReadyCount !== checkedIds.length) return { status: "blocked", gate: "navigation", route: "/one/location?action=check-in", summary: "Review a current location and ready recipients on this screen, then Continue." };
+    return { status: "ready", binding: {
+      recipientIds: [...checkedIds].sort(),
+      recipientKeys: Object.fromEntries(contacts.filter((recipient) => checkedIds.includes(recipient.userId)).map((recipient) => [recipient.userId, recipient.keyId])),
+      durationHours: effectiveDuration,
+      message: message.trim() || DEFAULT_CHECK_IN_MESSAGE,
+      point,
+      sourceCircleId: circleSelection?.circle.id ?? null,
+    }, summary: `Send this check-in to ${contacts.filter((recipient) => checkedIds.includes(recipient.userId)).map((recipient) => vm.recipientLabel(recipient)).join(", ")} for ${effectiveDuration} hours?` };
+  };
+  useLocalOnboardingActionHandler("location.send_check_in", async (_slots, context) => {
+    const expected = [...checkedIds];
+    const result = await submit(context);
+    const complete = !!result && expected.length > 0 && expected.every((id) => result.succeededRecipientIds.includes(id));
+    return { status: complete ? "succeeded" : "failed", summary: complete ? "Check-in sent to everyone you selected." : "Some check-in deliveries need review. They will not be sent again automatically." };
+  }, { prepare: prepareCheckIn });
 
   const editAndReconfirm = () => {
     discardPrivateCheckInOperation(operationIdRef.current);

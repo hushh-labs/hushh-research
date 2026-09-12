@@ -211,3 +211,9 @@ tests/test_live_context_screen_state.py
 tests/test_adk_dispatch.py
 
 tests/test_information_chat_service.py
+
+# Location command semantics, retirement and atomic recovery lifecycle.
+tests/operons/location/test_location_command.py
+tests/test_location_command_routes.py
+tests/services/test_location_command_postgres.py
+tests/test_kai_local_runtime.py

@@ -218,7 +218,11 @@
         "speaker_persona": "one",
         "guard_ids": [
           "auth_signed_in"
-        ]
+        ],
+        "command": {
+          "domain": "location",
+          "review_route": "/one/location"
+        }
       },
       "orchestration": {
         "instruction_id": null,
@@ -472,7 +476,11 @@
         "speaker_persona": "one",
         "guard_ids": [
           "auth_signed_in"
-        ]
+        ],
+        "command": {
+          "domain": "location",
+          "review_route": "/one/setup/location"
+        }
       },
       "orchestration": {
         "instruction_id": null,
@@ -2657,6 +2665,9 @@
       }
     },
     {
+      "text_backend_executor": {
+        "binding": "connect.send_request"
+      },
       "action_id": "connect.send_request",
       "surface_id": "one_connect",
       "label": "Send a connection request",
@@ -2776,6 +2787,9 @@
       }
     },
     {
+      "text_backend_executor": {
+        "binding": "connect.cancel_request"
+      },
       "action_id": "connect.cancel_request",
       "surface_id": "one_connect",
       "label": "Cancel a connection request you sent",
@@ -2896,6 +2910,9 @@
       }
     },
     {
+      "text_backend_executor": {
+        "binding": "connect.accept_request"
+      },
       "action_id": "connect.accept_request",
       "surface_id": "one_connect",
       "label": "Accept a connection request",
@@ -3016,6 +3033,9 @@
       }
     },
     {
+      "text_backend_executor": {
+        "binding": "connect.reject_request"
+      },
       "action_id": "connect.reject_request",
       "surface_id": "one_connect",
       "label": "Decline a connection request",
@@ -3137,6 +3157,9 @@
       }
     },
     {
+      "text_backend_executor": {
+        "binding": "connect.remove_connection"
+      },
       "action_id": "connect.remove_connection",
       "surface_id": "one_connect",
       "label": "Remove a connection",
@@ -3175,7 +3198,7 @@
         "auth_signed_in"
       ],
       "risk_level": "high",
-      "execution_policy": "allow_direct",
+      "execution_policy": "confirm_required",
       "activation_policy": "none",
       "siri_mode": "unsupported",
       "siri_requires_vault": false,
@@ -5011,6 +5034,10 @@
       }
     },
     {
+      "command": {
+        "domain": "location",
+        "review_route": "/one/location"
+      },
       "action_id": "location.open_now",
       "surface_id": "one_location",
       "label": "Open Location overview",
@@ -5124,6 +5151,10 @@
       }
     },
     {
+      "command": {
+        "domain": "location",
+        "review_route": "/one/location?view=people"
+      },
       "action_id": "location.open_people",
       "surface_id": "one_location",
       "label": "Open Location people",
@@ -5234,6 +5265,10 @@
       }
     },
     {
+      "command": {
+        "domain": "location",
+        "review_route": "/one/location?view=links"
+      },
       "action_id": "location.open_links",
       "surface_id": "one_location",
       "label": "Open Location links",
@@ -5342,6 +5377,10 @@
       }
     },
     {
+      "command": {
+        "domain": "location",
+        "review_route": "/one/location?action=share"
+      },
       "action_id": "location.open_share",
       "surface_id": "one_location",
       "label": "Share my location",
@@ -5454,6 +5493,10 @@
       }
     },
     {
+      "command": {
+        "domain": "location",
+        "review_route": "/one/location?action=ask"
+      },
       "action_id": "location.open_ask",
       "surface_id": "one_location",
       "label": "Ask for someone's location",
@@ -5565,6 +5608,10 @@
       }
     },
     {
+      "command": {
+        "domain": "location",
+        "review_route": "/one/location?action=ask"
+      },
       "action_id": "location.select_ask_recipient",
       "surface_id": "one_location",
       "label": "Pick someone to ask for location",
@@ -5688,6 +5735,16 @@
       }
     },
     {
+      "command": {
+        "domain": "location",
+        "review_route": "/one/location?action=ask"
+      },
+      "text_backend_executor": {
+        "binding": "location.send_request",
+        "required_slots": [
+          "person"
+        ]
+      },
       "action_id": "location.send_request",
       "surface_id": "one_location",
       "label": "Send the location request",
@@ -5827,6 +5884,10 @@
       }
     },
     {
+      "command": {
+        "domain": "location",
+        "review_route": "/one/location?action=invite"
+      },
       "action_id": "location.open_invite",
       "surface_id": "one_location",
       "label": "Invite someone to Location",
@@ -5937,6 +5998,10 @@
       }
     },
     {
+      "command": {
+        "domain": "location",
+        "review_route": "/one/location?action=create-circle"
+      },
       "action_id": "location.open_create_circle",
       "surface_id": "one_location",
       "label": "Create a circle",
@@ -6048,6 +6113,10 @@
       }
     },
     {
+      "command": {
+        "domain": "location",
+        "review_route": "/one/location?action=join-circle"
+      },
       "action_id": "location.open_join_circle",
       "surface_id": "one_location",
       "label": "Join a circle",
@@ -6159,6 +6228,10 @@
       }
     },
     {
+      "command": {
+        "domain": "location",
+        "review_route": "/one/location?action=temp-link&view=links"
+      },
       "action_id": "location.open_temporary_link",
       "surface_id": "one_location",
       "label": "Create a temporary link",
@@ -6271,6 +6344,10 @@
       }
     },
     {
+      "command": {
+        "domain": "location",
+        "review_route": "/one/location/check-in"
+      },
       "action_id": "location.open_check_in",
       "surface_id": "one_location",
       "label": "Check in",
@@ -6386,6 +6463,10 @@
       }
     },
     {
+      "command": {
+        "domain": "location",
+        "review_route": "/one/location?action=sos"
+      },
       "action_id": "location.open_sos",
       "surface_id": "one_location",
       "label": "Open emergency SOS",
@@ -6499,6 +6580,10 @@
       }
     },
     {
+      "command": {
+        "domain": "location",
+        "review_route": "/one/location?action=sms-contacts"
+      },
       "action_id": "location.open_sms_contacts",
       "surface_id": "one_location",
       "label": "Open emergency contacts",
@@ -6613,6 +6698,10 @@
       }
     },
     {
+      "command": {
+        "domain": "location",
+        "review_route": "/one/location?action=settings"
+      },
       "action_id": "location.open_settings",
       "surface_id": "one_location",
       "label": "Open Location privacy settings",
@@ -6726,6 +6815,10 @@
       }
     },
     {
+      "command": {
+        "domain": "location",
+        "review_route": "/one/location?action=active-shares"
+      },
       "action_id": "location.open_active_shares",
       "surface_id": "one_location",
       "label": "Open active location shares",
@@ -6838,6 +6931,10 @@
       }
     },
     {
+      "command": {
+        "domain": "location",
+        "review_route": "/one/location?action=shared-with-me"
+      },
       "action_id": "location.open_shared_with_me",
       "surface_id": "one_location",
       "label": "Open locations shared with me",
@@ -6950,6 +7047,10 @@
       }
     },
     {
+      "command": {
+        "domain": "location",
+        "review_route": "/one/location?action=needs-review"
+      },
       "action_id": "location.open_needs_review",
       "surface_id": "one_location",
       "label": "Open location requests to review",
@@ -7064,6 +7165,10 @@
       }
     },
     {
+      "command": {
+        "domain": "location",
+        "review_route": "/one/location"
+      },
       "action_id": "location.find_contacts",
       "surface_id": "one_location",
       "label": "Find people from my contacts",
@@ -7176,6 +7281,10 @@
       }
     },
     {
+      "command": {
+        "domain": "location",
+        "review_route": "/one/connect"
+      },
       "action_id": "location.add_connections",
       "surface_id": "one_location",
       "label": "Add people to share location with",
@@ -7288,6 +7397,10 @@
       }
     },
     {
+      "command": {
+        "domain": "location",
+        "review_route": "/one/location/map"
+      },
       "action_id": "location.open_map",
       "surface_id": "one_location",
       "label": "Open the location map",
@@ -7397,6 +7510,11 @@
       }
     },
     {
+      "command": {
+        "domain": "location",
+        "review_route": "/one/location",
+        "permission": "location"
+      },
       "action_id": "location.refresh",
       "surface_id": "one_location",
       "label": "Refresh location",
@@ -7502,6 +7620,10 @@
       }
     },
     {
+      "command": {
+        "domain": "location",
+        "review_route": "/one/location"
+      },
       "action_id": "location.pause_updates",
       "surface_id": "one_location",
       "label": "Pause my location",
@@ -7618,6 +7740,10 @@
       }
     },
     {
+      "command": {
+        "domain": "location",
+        "review_route": "/one/location?action=share"
+      },
       "action_id": "location.select_share_recipient",
       "surface_id": "one_location",
       "label": "Pick someone for the share",
@@ -7742,6 +7868,17 @@
       }
     },
     {
+      "command": {
+        "domain": "location",
+        "review_route": "/one/location?action=share",
+        "permission": "location"
+      },
+      "text_backend_executor": {
+        "binding": "location.share_selected",
+        "required_slots": [
+          "person"
+        ]
+      },
       "action_id": "location.share_selected",
       "surface_id": "one_location",
       "label": "Share with the people I picked",
@@ -7879,6 +8016,13 @@
       }
     },
     {
+      "command": {
+        "domain": "location",
+        "review_route": "/one/location?action=active-shares"
+      },
+      "text_backend_executor": {
+        "binding": "location.stop_share"
+      },
       "action_id": "location.stop_share",
       "surface_id": "one_location",
       "label": "Stop sharing with someone",
@@ -8000,6 +8144,13 @@
       }
     },
     {
+      "command": {
+        "domain": "location",
+        "review_route": "/one/location?action=needs-review"
+      },
+      "text_backend_executor": {
+        "binding": "location.approve_request"
+      },
       "action_id": "location.approve_request",
       "surface_id": "one_location",
       "label": "Approve a location request",
@@ -8119,6 +8270,13 @@
       }
     },
     {
+      "command": {
+        "domain": "location",
+        "review_route": "/one/location?action=needs-review"
+      },
+      "text_backend_executor": {
+        "binding": "location.decline_request"
+      },
       "action_id": "location.decline_request",
       "surface_id": "one_location",
       "label": "Decline a location request",
@@ -8238,6 +8396,10 @@
       }
     },
     {
+      "command": {
+        "domain": "location",
+        "review_route": "/one/location?action=active-shares"
+      },
       "action_id": "location.change_share_duration",
       "surface_id": "one_location",
       "label": "Change how long a share lasts",
@@ -8376,6 +8538,10 @@
       }
     },
     {
+      "command": {
+        "domain": "location",
+        "review_route": "/one/location?action=sos"
+      },
       "action_id": "location.stop_sos",
       "surface_id": "one_location",
       "label": "Stop the active SOS",
@@ -8487,6 +8653,10 @@
       }
     },
     {
+      "command": {
+        "domain": "location",
+        "review_route": "/one/location?action=settings"
+      },
       "action_id": "location.set_auto_share",
       "surface_id": "one_location",
       "label": "Turn automatic approval of location requests on or off",
@@ -8613,6 +8783,10 @@
       }
     },
     {
+      "command": {
+        "domain": "location",
+        "review_route": "/one/location?action=sms-contacts"
+      },
       "action_id": "location.add_emergency_contact",
       "surface_id": "one_location",
       "label": "Add an emergency contact",
@@ -8732,6 +8906,10 @@
       }
     },
     {
+      "command": {
+        "domain": "location",
+        "review_route": "/one/location?action=sms-contacts"
+      },
       "action_id": "location.remove_emergency_contact",
       "surface_id": "one_location",
       "label": "Remove an emergency contact",
@@ -8769,7 +8947,7 @@
         "auth_signed_in"
       ],
       "risk_level": "high",
-      "execution_policy": "allow_direct",
+      "execution_policy": "confirm_required",
       "activation_policy": "none",
       "siri_mode": "unsupported",
       "siri_requires_vault": false,
@@ -8851,6 +9029,11 @@
       }
     },
     {
+      "command": {
+        "domain": "location",
+        "review_route": "/one/location",
+        "permission": "location"
+      },
       "action_id": "location.resume_updates",
       "surface_id": "one_location",
       "label": "Resume my location",
@@ -8964,6 +9147,14 @@
       }
     },
     {
+      "command": {
+        "domain": "location",
+        "review_route": "/one/location",
+        "backend_binding": "location.create_circle"
+      },
+      "text_backend_executor": {
+        "binding": "location.create_circle"
+      },
       "action_id": "location.create_circle",
       "surface_id": "one_location",
       "label": "Create a new circle",
@@ -9090,6 +9281,13 @@
       }
     },
     {
+      "command": {
+        "domain": "location",
+        "review_route": "/one/location"
+      },
+      "text_backend_executor": {
+        "binding": "location.add_to_circle"
+      },
       "action_id": "location.add_to_circle",
       "surface_id": "one_location",
       "label": "Add someone to a circle",
@@ -9220,6 +9418,10 @@
       }
     },
     {
+      "command": {
+        "domain": "location",
+        "review_route": "/one/location"
+      },
       "action_id": "location.remove_from_circle",
       "surface_id": "one_location",
       "label": "Remove someone from a circle",
@@ -9259,7 +9461,7 @@
         "auth_signed_in"
       ],
       "risk_level": "high",
-      "execution_policy": "allow_direct",
+      "execution_policy": "confirm_required",
       "activation_policy": "none",
       "siri_mode": "unsupported",
       "siri_requires_vault": false,
@@ -9350,6 +9552,13 @@
       }
     },
     {
+      "command": {
+        "domain": "location",
+        "review_route": "/one/location"
+      },
+      "text_backend_executor": {
+        "binding": "location.rename_circle"
+      },
       "action_id": "location.rename_circle",
       "surface_id": "one_location",
       "label": "Rename a circle",
@@ -9478,6 +9687,13 @@
       }
     },
     {
+      "command": {
+        "domain": "location",
+        "review_route": "/one/location"
+      },
+      "text_backend_executor": {
+        "binding": "location.leave_circle"
+      },
       "action_id": "location.leave_circle",
       "surface_id": "one_location",
       "label": "Leave a circle",
@@ -9516,7 +9732,7 @@
         "auth_signed_in"
       ],
       "risk_level": "high",
-      "execution_policy": "allow_direct",
+      "execution_policy": "confirm_required",
       "activation_policy": "none",
       "siri_mode": "unsupported",
       "siri_requires_vault": false,
@@ -9599,6 +9815,13 @@
       }
     },
     {
+      "command": {
+        "domain": "location",
+        "review_route": "/one/location"
+      },
+      "text_backend_executor": {
+        "binding": "location.delete_circle"
+      },
       "action_id": "location.delete_circle",
       "surface_id": "one_location",
       "label": "Delete a circle",
@@ -9637,7 +9860,7 @@
         "auth_signed_in"
       ],
       "risk_level": "high",
-      "execution_policy": "allow_direct",
+      "execution_policy": "confirm_required",
       "activation_policy": "none",
       "siri_mode": "unsupported",
       "siri_requires_vault": false,
@@ -9720,6 +9943,10 @@
       }
     },
     {
+      "command": {
+        "domain": "location",
+        "review_route": "/one/location"
+      },
       "action_id": "location.accept_circle_invite",
       "surface_id": "one_location",
       "label": "Accept a circle invitation",
@@ -9842,6 +10069,10 @@
       }
     },
     {
+      "command": {
+        "domain": "location",
+        "review_route": "/one/location"
+      },
       "action_id": "location.decline_circle_invite",
       "surface_id": "one_location",
       "label": "Decline a circle invitation",
@@ -9963,6 +10194,11 @@
       }
     },
     {
+      "command": {
+        "domain": "location",
+        "review_route": "/one/location?action=settings",
+        "permission": "location"
+      },
       "action_id": "location.save_current_location",
       "surface_id": "one_location",
       "label": "Save your current location as a place",
@@ -10084,6 +10320,10 @@
       }
     },
     {
+      "command": {
+        "domain": "location",
+        "review_route": "/one/location?action=settings"
+      },
       "action_id": "location.delete_saved_location",
       "surface_id": "one_location",
       "label": "Delete a saved place",
@@ -10122,7 +10362,7 @@
         "auth_signed_in"
       ],
       "risk_level": "high",
-      "execution_policy": "allow_direct",
+      "execution_policy": "confirm_required",
       "activation_policy": "none",
       "siri_mode": "unsupported",
       "siri_requires_vault": false,
@@ -10204,6 +10444,11 @@
       }
     },
     {
+      "command": {
+        "domain": "location",
+        "review_route": "/one/location?action=check-in",
+        "permission": "location"
+      },
       "action_id": "location.send_check_in",
       "surface_id": "one_location",
       "label": "Send the check-in you have open",
@@ -10309,6 +10554,11 @@
       }
     },
     {
+      "command": {
+        "domain": "location",
+        "review_route": "/one/location/check-in",
+        "permission": "location"
+      },
       "action_id": "location.nearby_check_in",
       "surface_id": "one_location",
       "label": "Start a nearby check-in",
@@ -10448,6 +10698,11 @@
       }
     },
     {
+      "command": {
+        "domain": "location",
+        "review_route": "/one/location/check-in",
+        "permission": "location"
+      },
       "action_id": "location.confirm_nearby_check_in",
       "surface_id": "one_location",
       "label": "Confirm the nearby check-in",
@@ -10584,6 +10839,13 @@
       }
     },
     {
+      "command": {
+        "domain": "location",
+        "review_route": "/one/location/check-in"
+      },
+      "text_backend_executor": {
+        "binding": "location.checkout_nearby"
+      },
       "action_id": "location.checkout_nearby",
       "surface_id": "one_location",
       "label": "Check out of Nearby Check-In",
@@ -10627,7 +10889,7 @@
         "auth_signed_in"
       ],
       "risk_level": "low",
-      "execution_policy": "allow_direct",
+      "execution_policy": "confirm_required",
       "activation_policy": "none",
       "siri_mode": "unsupported",
       "siri_requires_vault": false,
@@ -10695,6 +10957,11 @@
       }
     },
     {
+      "command": {
+        "domain": "location",
+        "review_route": "/one/location?action=sos",
+        "review_only": true
+      },
       "action_id": "location.trigger_sos",
       "surface_id": "one_location",
       "label": "Send an SOS alert",
@@ -10815,6 +11082,11 @@
       }
     },
     {
+      "command": {
+        "domain": "location",
+        "review_route": "/one/location?action=sos",
+        "review_only": true
+      },
       "action_id": "location.sos_default",
       "surface_id": "one_location",
       "label": "Emergency (SOS)",
@@ -11154,6 +11426,10 @@
       }
     },
     {
+      "command": {
+        "domain": "location",
+        "review_route": "/one/location"
+      },
       "action_id": "route.one_location",
       "surface_id": "one_agents",
       "label": "Open Location",
@@ -14659,6 +14935,11 @@
       }
     },
     {
+      "command": {
+        "domain": "location",
+        "review_route": "/one/setup/location",
+        "permission": "location"
+      },
       "action_id": "setup.finish_location",
       "surface_id": "one_setup_location",
       "label": "Finish Location setup",
@@ -14769,6 +15050,10 @@
       }
     },
     {
+      "command": {
+        "domain": "location",
+        "review_route": "/one/setup/location"
+      },
       "action_id": "setup.skip_location",
       "surface_id": "one_setup_location",
       "label": "Skip Location setup",
@@ -20843,6 +21128,10 @@
       }
     },
     {
+      "text_backend_executor": {
+        "binding": "consent.request",
+        "confirmation_only": true
+      },
       "action_id": "consent.request",
       "surface_id": "consents",
       "label": "Request someone's information",
@@ -20972,6 +21261,10 @@
       }
     },
     {
+      "text_backend_executor": {
+        "binding": "consent.deny",
+        "confirmation_only": true
+      },
       "action_id": "consent.deny",
       "surface_id": "consents",
       "label": "Deny a pending request",
@@ -21101,6 +21394,10 @@
       }
     },
     {
+      "text_backend_executor": {
+        "binding": "consent.revoke",
+        "confirmation_only": true
+      },
       "action_id": "consent.revoke",
       "surface_id": "consents",
       "label": "Revoke a grant",
@@ -21230,6 +21527,10 @@
       }
     },
     {
+      "text_backend_executor": {
+        "binding": "consent.cancel_request",
+        "confirmation_only": true
+      },
       "action_id": "consent.cancel_request",
       "surface_id": "consents",
       "label": "Cancel a request you sent",
@@ -23123,6 +23424,10 @@
       }
     },
     {
+      "command": {
+        "domain": "location",
+        "review_route": "/one/setup/location"
+      },
       "action_id": "setup.open_location",
       "surface_id": "one_setup_hub",
       "label": "Set up location",

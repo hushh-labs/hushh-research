@@ -657,5 +657,5 @@ if (/\[SIRI_ONE_ACTION\][^\n]*source=/.test(handoffSource)) {
 }
 
 console.info(
-  `Siri action contract verified (${direct.length} direct, ${review.length} review UI, ${conversation.length} conversation-only).`,
+  `Siri action contract verified (${direct.length} direct, ${review.length} review UI, ${conversation.length} command-surface entry (legacy mode identifier)).`,
 );

@@ -324,40 +324,9 @@ def _missing_required_slot(entry: dict[str, Any], slots: dict[str, Any]) -> dict
 
 
 _GOVERNED_LEDGER_CONFIRMATION_ACTION_IDS: frozenset[str] = frozenset(
-    {
-        # Backend-direct actions must still obtain the directive-ledger proof
-        # before their browser-visible handler can mutate state.
-        "location.leave_circle",
-        "location.delete_circle",
-        "location.stop_share",
-        "location.approve_request",
-        "location.decline_request",
-        "location.create_circle",
-        "location.add_to_circle",
-        "location.rename_circle",
-        "location.checkout_nearby",
-        # These are mounted local handlers rather than backend-direct calls,
-        # but they are still destructive. Without the ledger flag, the
-        # browser would pass the ordinary directive id as execution context
-        # and the handler would mistake that correlation id for approval.
-        "location.remove_emergency_contact",
-        "location.remove_from_circle",
-        "location.delete_saved_location",
-        "connect.remove_connection",
-        "connect.cancel_request",
-        "connect.send_request",
-        "connect.accept_request",
-        "connect.reject_request",
-        "location.send_request",
-        "location.share_selected",
-        "consent.request",
-        "consent.deny",
-        "consent.revoke",
-        "consent.cancel_request",
-        # This action is also available on the profile surface, where its
-        # mounted handler must receive the same ledger-bound context.
-        "people.profile.remove_connection",
-    }
+    entry["action_id"]
+    for entry in list_action_gateway_actions()
+    if entry.get("execution_policy") == "confirm_required"
 )
 
 
@@ -407,39 +376,15 @@ def _directive_flags(
 # here -- see the "Backend-direct voice execution" plan for the full
 # reasoning. Extend this set action by action, not by widening the shape.
 BACKEND_DIRECT_ACTION_IDS: frozenset[str] = frozenset(
-    {
-        "location.leave_circle",
-        "location.delete_circle",
-        "location.stop_share",
-        "location.approve_request",
-        "location.decline_request",
-        "location.create_circle",
-        "location.add_to_circle",
-        "location.rename_circle",
-        "connect.remove_connection",
-        "connect.cancel_request",
-        "connect.send_request",
-        "connect.accept_request",
-        "connect.reject_request",
-        "location.checkout_nearby",
-        "consent.request",
-        "consent.deny",
-        "consent.revoke",
-        "consent.cancel_request",
-    }
+    entry["action_id"]
+    for entry in list_action_gateway_actions()
+    if entry.get("text_backend_executor")
+    and not entry["text_backend_executor"].get("required_slots")
 )
-
-# Consent lifecycle ids remain listed for compatibility with the backend
-# service seam, but the live action contract routes them through the browser's
-# directive ledger and mounted handler. No model-provided `confirmed` slot is
-# accepted as authorization.
 BACKEND_DIRECT_VERBAL_CONFIRMATION_IDS: frozenset[str] = frozenset(
-    {
-        "consent.request",
-        "consent.deny",
-        "consent.revoke",
-        "consent.cancel_request",
-    }
+    entry["action_id"]
+    for entry in list_action_gateway_actions()
+    if (entry.get("text_backend_executor") or {}).get("confirmation_only")
 )
 
 # Proposals parked by propose_information_request, keyed by an opaque id the
@@ -463,10 +408,9 @@ _DIRECTORY_RESOLVE_PAGE_SIZE = 50
 # path below, which still correctly uses the browser's own selection state,
 # completely unaffected.
 BACKEND_DIRECT_WHEN_PERSON_NAMED_ACTION_IDS: frozenset[str] = frozenset(
-    {
-        "location.send_request",
-        "location.share_selected",
-    }
+    entry["action_id"]
+    for entry in list_action_gateway_actions()
+    if (entry.get("text_backend_executor") or {}).get("required_slots")
 )
 
 
@@ -482,7 +426,12 @@ def _is_backend_direct(clean_id: str, clean_slots: dict[str, Any]) -> bool:
     if clean_id in BACKEND_DIRECT_ACTION_IDS:
         return True
     if clean_id in BACKEND_DIRECT_WHEN_PERSON_NAMED_ACTION_IDS:
-        return bool(str(clean_slots.get("person") or "").strip())
+        return all(
+            str(clean_slots.get(slot) or "").strip()
+            for slot in (get_action_gateway_action(clean_id) or {})["text_backend_executor"][
+                "required_slots"
+            ]
+        )
     return False
 
 

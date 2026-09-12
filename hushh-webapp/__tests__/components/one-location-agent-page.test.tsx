@@ -559,7 +559,7 @@ vi.mock("sonner", () => {
 });
 
 import OneLocationAgentPage from "@/app/one/location/page";
-import { resolveLocalOnboardingHandler } from "@/lib/agent/local-onboarding-actions";
+import { prepareLocalOnboardingAction, resolveLocalOnboardingHandler } from "@/lib/agent/local-onboarding-actions";
 import { CONSENT_STATE_CHANGED_EVENT } from "@/lib/consent/consent-events";
 import { appInteractionCoordinator } from "@/lib/interaction/interaction-intent-coordinator";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
@@ -2538,6 +2538,81 @@ describe("OneLocationAgentPage", () => {
       screen.getByRole("switch", { name: "Turn location on" }),
     ).toHaveAttribute("aria-checked", "false");
     expect(screen.getByText("Location off")).toBeTruthy();
+  });
+
+  it("does not settle a command resume successfully after a newer pause", async () => {
+    mockGetState.mockResolvedValue({ ...locationState(), ownerGrants: [] });
+    render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
+    const releaseFix = holdNextCapture();
+    let pending!: ReturnType<NonNullable<ReturnType<typeof resolveLocalOnboardingHandler>>>;
+    act(() => {
+      pending = resolveLocalOnboardingHandler("location.resume_updates")!({});
+    });
+    fireEvent.click(await screen.findByRole("switch", { name: "Turn location off" }));
+    await act(async () => {
+      releaseFix();
+      await expect(pending).resolves.toMatchObject({ status: "blocked" });
+    });
+    expect(screen.getByText("Location off")).toBeTruthy();
+  });
+
+  it("binds and displays the request amount before command approval", async () => {
+    const request = {
+      id: "request_command",
+      ownerUserId: "user_a",
+      requesterUserId: "user_b",
+      requesterDisplayName: "Trusted B",
+      status: "pending",
+      requestedDurationHours: 4,
+      requestedDurationMode: "timed",
+      requestRevision: 3,
+      expiresAt: null,
+      extendsGrantId: null,
+    };
+    mockGetState.mockResolvedValue({ ...locationState(), ownerGrants: [], requests: [request] });
+    render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
+    const prepared = await prepareLocalOnboardingAction("location.approve_request", { person: "Trusted B" });
+    expect(prepared).toMatchObject({
+      status: "ready",
+      binding: { approval: { hours: 4, mode: "timed" }, requestRevision: 3, extendsGrantId: null },
+      summary: expect.stringContaining("4 hours"),
+    });
+    if (prepared?.status !== "ready") throw new Error("Missing preparation");
+    mockApproveRequest.mockRejectedValueOnce(new Error("Stop after observing the exact service input."));
+    await act(async () => {
+      await resolveLocalOnboardingHandler("location.approve_request")!({ person: "Trusted B" }, {
+        operationId: "command-approval",
+        preparedBinding: prepared.binding,
+      });
+    });
+    expect(mockApproveRequest).toHaveBeenCalledWith(expect.objectContaining({
+      durationHours: 4,
+      durationMode: "timed",
+      expectedRequestRevision: 3,
+    }));
+  });
+
+  it("hands extension approval to its review screen without making a grant", async () => {
+    mockGetState.mockResolvedValue({ ...locationState(), ownerGrants: [], requests: [{
+      id: "request_command_extension",
+      ownerUserId: "user_a",
+      requesterUserId: "user_b",
+      requesterDisplayName: "Trusted B",
+      status: "pending",
+      requestedDurationHours: 4,
+      requestedDurationMode: "timed",
+      requestRevision: 1,
+      expiresAt: null,
+      extendsGrantId: "grant_previous",
+    }] });
+    render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
+    await expect(prepareLocalOnboardingAction("location.approve_request", { person: "Trusted B" })).resolves.toMatchObject({
+      status: "blocked", gate: "navigation", route: "/one/location?action=requests",
+    });
+    expect(mockApproveRequest).not.toHaveBeenCalled();
   });
 
   it("pauses the device without waiting on, or first probing, nearby presence", async () => {

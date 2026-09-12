@@ -321,7 +321,7 @@ enum OneAppIntentActionRequestFactory {
                 "resolvedRecipientId": recipientID,
                 "duration_hours": duration.rawValue
             ],
-            confirmedBySystem: OneSystemActionID.shareLocation.requiresSystemConfirmation
+            confirmedBySystem: false
         )
     }
 
@@ -337,7 +337,7 @@ enum OneAppIntentActionRequestFactory {
                 "resolvedRecipientId": personID,
                 "duration_hours": duration.rawValue
             ],
-            confirmedBySystem: OneSystemActionID.askForLocation.requiresSystemConfirmation
+            confirmedBySystem: false
         )
     }
 
@@ -345,7 +345,7 @@ enum OneAppIntentActionRequestFactory {
         .init(
             actionID: .stopShare,
             slots: ["person": personName, "resolvedRecipientId": personID],
-            confirmedBySystem: OneSystemActionID.stopShare.requiresSystemConfirmation
+            confirmedBySystem: false
         )
     }
 
@@ -353,8 +353,7 @@ enum OneAppIntentActionRequestFactory {
         .init(
             actionID: state == .on ? .resumeLocation : .pauseLocation,
             slots: [:],
-            confirmedBySystem: (state == .on ? OneSystemActionID.resumeLocation : .pauseLocation)
-                .requiresSystemConfirmation
+            confirmedBySystem: false
         )
     }
 
@@ -362,7 +361,7 @@ enum OneAppIntentActionRequestFactory {
         .init(
             actionID: .createCircle,
             slots: ["name": name],
-            confirmedBySystem: OneSystemActionID.createCircle.requiresSystemConfirmation
+            confirmedBySystem: false
         )
     }
 
@@ -378,7 +377,7 @@ enum OneAppIntentActionRequestFactory {
                 "resolvedCircleId": circleID,
                 "name": newName
             ],
-            confirmedBySystem: OneSystemActionID.renameCircle.requiresSystemConfirmation
+            confirmedBySystem: false
         )
     }
 
@@ -478,7 +477,7 @@ struct ShareLocationWithOneIntent: AppIntent {
     }
 
     func perform() async throws -> some IntentResult & ProvidesDialog {
-        try await requestConfirmation()
+        // The command surface confirms the freshly prepared resources once.
         let summary = await OneAppIntentActionExecutor.run(
             OneAppIntentActionRequestFactory.shareLocation(
                 recipientID: recipient.id,
@@ -514,7 +513,7 @@ struct AskForLocationWithOneIntent: AppIntent {
     }
 
     func perform() async throws -> some IntentResult & ProvidesDialog {
-        try await requestConfirmation()
+        // The command surface confirms the freshly prepared resources once.
         let summary = await OneAppIntentActionExecutor.run(
             OneAppIntentActionRequestFactory.askForLocation(
                 personID: person.id,
@@ -545,7 +544,7 @@ struct StopLocationSharingWithOneIntent: AppIntent {
     func perform() async throws -> some IntentResult & ProvidesDialog {
         let summary: String
         if let person {
-            try await requestConfirmation()
+            // The command surface confirms the freshly prepared resources once.
             summary = await OneAppIntentActionExecutor.run(
                 OneAppIntentActionRequestFactory.stopShare(
                     personID: person.id,
@@ -582,7 +581,7 @@ struct SetOneLocationStateIntent: AppIntent {
     }
 
     func perform() async throws -> some IntentResult & ProvidesDialog {
-        if state == .on { try await requestConfirmation() }
+        // Confirmation belongs to the shared command receipt, after preparation.
         let summary = await OneAppIntentActionExecutor.run(
             OneAppIntentActionRequestFactory.setLocationState(state)
         )
@@ -609,7 +608,7 @@ struct CreateOneCircleIntent: AppIntent {
     }
 
     func perform() async throws -> some IntentResult & ProvidesDialog {
-        try await requestConfirmation()
+        // The command surface confirms the freshly prepared resources once.
         let summary = await OneAppIntentActionExecutor.run(
             OneAppIntentActionRequestFactory.createCircle(name: name)
         )
@@ -639,7 +638,7 @@ struct RenameOneCircleIntent: AppIntent {
     }
 
     func perform() async throws -> some IntentResult & ProvidesDialog {
-        try await requestConfirmation()
+        // The command surface confirms the freshly prepared resources once.
         let summary = await OneAppIntentActionExecutor.run(
             OneAppIntentActionRequestFactory.renameCircle(
                 circleID: circle.id,

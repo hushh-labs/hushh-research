@@ -1,57 +1,23 @@
 # One Voice Kai Compatibility Runtime
 
-## Visual Context
+## Visual Map
 
-This is the compatibility boundary beneath the [One Reference Index](./README.md)
-and [One Voice Runtime Architecture](./one-voice-runtime-architecture.md).
+```mermaid
+flowchart LR
+  Capture[Agent Bar / Chat microphone / Siri] --> Command[Location command runtime]
+  Command --> Gateway[Generated action contracts]
+  Gateway --> Owner[Existing Location services and screens]
+  Text[Typed chat] --> Model[Ordinary text model]
+```
 
-## Purpose
+## Current compatibility
 
-One is the product-facing private agent. Kai is the finance specialist that
-One may summon. Some generated contract and frontend filenames retain `kai`
-for compatibility, but that identifier is not a second voice planner or a
-second execution authority.
+One is the private agent. Kai is the finance specialist. The maintained command behavior is documented in [One Voice Runtime Architecture](./one-voice-runtime-architecture.md).
 
-## Current Runtime Boundary
+`kai-action-gateway.vnext.json`, existing `lib/voice` types, route journeys and local action identifiers remain compatibility contracts shared with typed search, text chat and Location tap flows. Authored `.voice-action-contract.json` files remain the source; generated projections must not become independent catalogs.
 
-- In-bar live voice runs through `WS /api/one/adk/live` and One's ADK
-  `Runner.run_live` relay in `consent-protocol/api/routes/one/adk_live.py`.
-- Typed private-agent chat uses the canonical AG-UI endpoint in
-  `consent-protocol/api/routes/one/agent_chat.py` with the same One semantic
-  and generated-action boundary.
-- Authored `*.voice-action-contract.json` files generate the shared
-  `contracts/kai/kai-action-gateway.vnext.json`. That artifact is the only
-  executable action inventory for Agent Bar, voice, Search, and command
-  surfaces.
-- `hushh-webapp/lib/voice/kai-action-gateway.ts` keeps the compatibility name
-  while validating generated actions; it does not infer executable actions from
-  route text or the DOM.
-- `hushh_mcp/one_adk/action_tools.py` validates generated action policy and
-  parks directives. The browser executes a directive and sends a correlated
-  settlement before One can describe the outcome.
+Talk to One, the Chat microphone and Siri free-text requests use the bounded Location command runtime. Typed Siri uses its typed proposal endpoint and the same checkpoint, preparation and confirmation ledger. Typed Agent Chat keeps ordinary model access and AG-UI. Shared context sanitizers and consent services retain historical filenames because they also serve text and commands.
 
-## Invariants
+The former Live websocket and relay-token entry points return retirement responses. `GeminiLiveClient` and the old transport constructor fail before networking. Local phrase classification, ASR/ONNX model packs and generated speech are retired; they are not fallback paths. Do not restore them through compatibility adapters.
 
-1. One is the only semantic decision-maker for a live or typed turn.
-2. A generated `action_id`, not a model suggestion, is the only action
-   authority.
-3. Kai remains bounded to finance. Nav owns consent, vault, deletion, and
-   scope review; KYC owns identity and verification.
-4. The browser publishes only redacted route/surface context. Vault keys,
-   credentials, PKM payloads, and raw page text are not model context.
-5. Gmail is a dormant child of Connections and has no active One, voice,
-   Search, or generated-discovery action.
-
-## Migration Rule
-
-Do not restore deleted Kai-era planner, composer, or client-side action runtime
-modules as a fallback. Extend One's ADK relay, the generated action gateway,
-and the governed browser settlement path. Preserve literal `kai` identifiers
-only where an existing route, contract, or package must remain compatible.
-
-## References
-
-- [One Voice Runtime Architecture](./one-voice-runtime-architecture.md)
-- [One Agent Hierarchy](./one-agent-hierarchy.md)
-- [Kai Action Gateway vNext](../kai/kai-action-gateway-vnext.md)
-- [Generated action gateway](../../../contracts/kai/kai-action-gateway.vnext.json)
+Historical voice session and directive records are retained. Migration 208 is additive to the existing ledger and encrypted ADK sessions; its rollback preserves receipt metadata and removes command capsules that the previous application cannot resume.

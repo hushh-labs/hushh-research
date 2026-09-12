@@ -107,47 +107,7 @@
       ],
       "speaker_persona": "nav"
     },
-    {
-      "action_id": "route.one_location",
-      "label": "Open Location",
-      "meaning": "Navigates to the One Location route.",
-      "aliases": [
-        "open location",
-        "go to location",
-        "show location"
-      ],
-      "search_keywords": [
-        "location",
-        "live sharing",
-        "local context"
-      ],
-      "reachability": {
-        "routes": [
-          "/one/location"
-        ],
-        "screens": [
-          "one_location"
-        ],
-        "hidden_navigable": false,
-        "navigation_prerequisites": []
-      },
-      "guard_ids": [],
-      "risk_level": "low",
-      "execution_policy": "allow_direct",
-      "execution_target": {
-        "status": "wired",
-        "path": "route",
-        "target": "/one/location"
-      },
-      "control_ids": [
-        "top_agent_section_location"
-      ],
-      "state_exposure": [],
-      "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
-      ],
-      "speaker_persona": "one"
-    },
+    {"action_id": "route.one_location", "label": "Open Location", "meaning": "Navigates to the One Location route.", "aliases": ["open location", "go to location", "show location"], "search_keywords": ["location", "live sharing", "local context"], "reachability": {"routes": ["/one/location"], "screens": ["one_location"], "hidden_navigable": false, "navigation_prerequisites": []}, "guard_ids": [], "risk_level": "low", "execution_policy": "allow_direct", "execution_target": {"status": "wired", "path": "route", "target": "/one/location"}, "control_ids": ["top_agent_section_location"], "state_exposure": [], "docs_references": ["docs/reference/one/one-voice-runtime-architecture.md"], "speaker_persona": "one", "command": {"domain": "location", "review_route": "/one/location"}},
     {
       "action_id": "route.one_pkm",
       "label": "Open Memory",

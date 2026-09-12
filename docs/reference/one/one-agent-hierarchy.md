@@ -1,11 +1,13 @@
 # One Agent Hierarchy
 
+Location commands use the restricted semantic Location package and the shared action authority described in [One Voice Runtime Architecture](./one-voice-runtime-architecture.md). Gemini Live is retired. The diagram below describes the retained text-agent hierarchy.
+
 ## Visual Map
 
 ```mermaid
 flowchart TD
   user["User"]
-  voice["One Voice (ADK run_live)<br/>+ typed Agent Chat"]
+  voice["Typed Agent Chat / ordinary model"]
   runner["ADK Runner<br/>hushh_mcp/one_adk"]
   one["One root LlmAgent<br/>agent_one"]
   search["google_search"]

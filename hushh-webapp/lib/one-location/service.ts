@@ -347,7 +347,11 @@ export class OneLocationService {
   }
 
   static async requestLocationPermission() {
-    return HushhLocation.requestLocationPermission();
+    const permission = await HushhLocation.requestLocationPermission();
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("hushh:location-permission-observed", { detail: permission }));
+    }
+    return permission;
   }
 
   static async requestAlwaysAuthorization() {
@@ -1542,6 +1546,7 @@ export class OneLocationService {
     envelope: OneLocationEncryptedEnvelope;
     reason?: string;
     shareKind?: string;
+    sourceCircleId?: string | null;
   }): Promise<{
     grant: OneLocationGrant;
     envelope: OneLocationEncryptedEnvelope;
@@ -2097,6 +2102,7 @@ export class OneLocationService {
     requestedDurationHours?: number | null;
     requestedDurationMode?: string | null;
     extendsGrantId?: string | null;
+    clientOperationId?: string;
   }): Promise<OneLocationAccessRequest> {
     const durationHours = Number(params.requestedDurationHours);
     const response = await apiJsonWithRetry<{
@@ -2108,6 +2114,7 @@ export class OneLocationService {
         headers: jsonAuthHeaders(params.vaultOwnerToken),
         body: JSON.stringify({
           ownerUserId: params.ownerUserId,
+          clientOperationId: params.clientOperationId,
           message: params.message,
           requestedDurationHours:
             Number.isFinite(durationHours) && durationHours > 0
@@ -2117,7 +2124,7 @@ export class OneLocationService {
           extendsGrantId: params.extendsGrantId || undefined,
         }),
       },
-      1,
+      params.clientOperationId ? 0 : 1,
     );
     announceFeedActivity();
     return response.request;
@@ -2137,6 +2144,8 @@ export class OneLocationService {
     durationMode?: string | null;
     /** Current server-owned standing-rule version. Omit for manual approval. */
     autoApproveRuleVersion?: number | null;
+    /** Exact request version reviewed by the command confirmation card. */
+    expectedRequestRevision?: number;
   }): Promise<{
     request: OneLocationAccessRequest;
     grant: OneLocationGrant;
@@ -2163,6 +2172,7 @@ export class OneLocationService {
           // context. Omitting it would downgrade the same call to an explicit
           // manual approval and bypass standing-rule validation.
           autoApproveRuleVersion: params.autoApproveRuleVersion ?? undefined,
+          expectedRequestRevision: params.expectedRequestRevision,
         }),
       },
     );
