@@ -88,10 +88,20 @@ export function FigmaIllustration({
       )}
       aria-hidden="true"
     >
-      <ThemeAsset
-        {...assets}
+      <div className={styles.illustrationCrop}>
+        <ThemeAsset
+          {...assets}
+          alt=""
+          className={styles.illustrationImage}
+          draggable={false}
+        />
+      </div>
+      <img
+        src={`${FIGMA_ASSET_ROOT}/hushh-emoji.png`}
         alt=""
-        className={styles.illustrationImage}
+        width={158}
+        height={163}
+        className={styles.lightEmoji}
         draggable={false}
       />
     </div>

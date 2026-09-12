@@ -16,7 +16,7 @@
   box-sizing: border-box;
   max-inline-size: 402px;
   margin-inline: auto;
-  padding: max(clamp(32px, 10svh, 89px), var(--app-safe-area-top-effective, 0px)) clamp(20px, 8.95vw, 36px) max(32px, var(--app-safe-area-bottom-effective, 0px));
+  padding: max(clamp(24px, calc(40svh - 240px), 89px), var(--app-safe-area-top-effective, 0px)) clamp(20px, 7.21vw, 29px) max(32px, var(--app-safe-area-bottom-effective, 0px));
 }
 
 .composition {
@@ -27,9 +27,12 @@
 }
 
 .brand { inline-size: clamp(82px, 25vw, 97px); block-size: auto; }
-.illustration { margin-block: 24px 11px; }
+.illustration {
+  inline-size: min(100%, clamp(180px, 34svh, 287px));
+  margin-block: clamp(16px, 3svh, 24px) 11px;
+}
 .hero { display: grid; justify-items: center; align-self: start; text-align: center; }
-.title { inline-size: min(58vw, 221px); margin: 0; }
+.title { inline-size: min(58vw, clamp(160px, 26svh, 221px)); margin: 0; }
 .title :global(img) { inline-size: 100%; block-size: auto; }
 
 .srOnly {
@@ -54,7 +57,7 @@
   position: relative;
   display: inline-flex;
   min-block-size: 52px;
-  inline-size: min(100%, 344px);
+  inline-size: min(100%, 330px);
   align-items: center;
   justify-content: center;
   overflow: hidden;
@@ -75,5 +78,12 @@
 .link:first-child { border-inline-start: 0; }
 
 @media (min-width: 640px) and (min-height: 760px) { .links { display: grid; } }
-@media (max-height: 700px) { .stage { padding-block-start: 24px; } .illustration { margin-block: 16px 10px; } .tagline { margin-top: 12px; } }
+@media (max-height: 700px) { .tagline { margin-top: 12px; } }
 @media (prefers-reduced-motion: reduce) { .cta { transition: none; } }
+@media (min-width: 640px) {
+  .stage { padding-block: max(clamp(24px, 6svh, 56px), var(--app-safe-area-top-effective, 0px)) max(24px, var(--app-safe-area-bottom-effective, 0px)); }
+  .illustration { inline-size: min(100%, clamp(140px, 30svh, 240px)); margin-block: clamp(16px, 3svh, 24px) 16px; }
+  .title { inline-size: clamp(156px, 20svh, 180px); }
+  .tagline { margin-block-start: 20px; }
+  .footer { padding-block-start: clamp(24px, 5svh, 48px); }
+}

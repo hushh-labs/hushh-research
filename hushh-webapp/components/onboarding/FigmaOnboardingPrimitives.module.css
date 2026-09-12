@@ -21,9 +21,61 @@
 .illustration {
   position: relative;
   flex: none;
-  overflow: hidden;
+  isolation: isolate;
   aspect-ratio: 287 / 314;
 }
+
+/* A shared artwork halo, not page chrome. Keep it blue even when the user's
+   control accent is gold, and bound it within the viewport at narrow widths. */
+.illustration::before {
+  content: "";
+  position: absolute;
+  pointer-events: none;
+  inset-block: -8%;
+  inset-inline-start: 50%;
+  inline-size: min(calc(100vw - 32px), 140%);
+  transform: translateX(-50%);
+  background: radial-gradient(
+    ellipse 50% 45% at 50% 50%,
+    rgb(40 100 230 / 14%) 0%,
+    rgb(40 100 230 / 6%) 42%,
+    transparent 100%
+  );
+}
+
+:global(.dark) .illustration::before {
+  background: radial-gradient(
+    ellipse 50% 45% at 50% 50%,
+    rgb(40 100 230 / 36%) 0%,
+    rgb(40 100 230 / 16%) 42%,
+    transparent 100%
+  );
+}
+
+.illustrationCrop {
+  position: absolute;
+  inset: 0;
+  /* Crop only the empty image-export margins, never the content stack. */
+  overflow: hidden;
+  mix-blend-mode: multiply;
+}
+
+:global(.dark) .illustrationCrop { mix-blend-mode: screen; }
+
+/* Source crop (668,765,158,163) in the 1536x1024 dark export. Match its
+   proportions in the shared illustration box without changing flow or glow. */
+.lightEmoji {
+  position: absolute;
+  inset-block-start: 74.707%;
+  inset-inline-start: 47.756%;
+  inline-size: 16.881%;
+  block-size: auto;
+  transform: translateX(-50%);
+  pointer-events: none;
+  user-select: none;
+}
+
+:global(.dark) .lightEmoji { display: none; }
 
 .illustrationIntro {
   width: min(100%, 287px);
