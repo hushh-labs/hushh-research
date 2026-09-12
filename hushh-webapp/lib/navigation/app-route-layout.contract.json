@@ -255,6 +255,7 @@
   {
     "route": "/login",
     "mode": "hidden",
+    "persistentChrome": "none",
     "interactionLayerPolicy": {
       "allowedFamilies": [
         "legal_document"
