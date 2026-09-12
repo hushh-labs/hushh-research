@@ -697,6 +697,15 @@ function AppShellFrame({ children }: ProvidersProps) {
                 </Suspense>
               </ContactInvitationSessionProvider>
             </AgentPopoverProvider>
+            {/*
+              Inside VaultProvider, not beside GlobalVoiceActionHandlers.
+              Signing out needs only the session, so that one sits above the
+              vault. Asking someone for information needs the vault key to mint
+              the connector the request is encrypted to, so mounting it in the
+              same place threw "useVault must be used within a VaultProvider"
+              and took the whole app down with it.
+            */}
+            <GlobalConsentActionHandlers />
           </AgentRuntimeStateProvider>
         </VaultProvider>
       </PersonaProvider>
@@ -724,7 +733,6 @@ export function Providers({ children }: ProvidersProps) {
               so a page-scoped registration would make the action depend on
               which tab happened to be open. */}
           <GlobalVoiceActionHandlers />
-          <GlobalConsentActionHandlers />
           {/* AppShellFrame resolves route-backed tab state through
               useSearchParams(). This boundary must be above that shared shell
               so static/native builds can pre-render every route, including
