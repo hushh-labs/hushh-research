@@ -137,14 +137,14 @@ class ConsumerTaskResult(BaseModel):
     model_config = ConfigDict(extra="forbid")
     state: Literal["completed"]
     execution_target: Literal["owner_pod"]
-    deployment_id: str = Field(..., max_length=128)
-    conversation_id: str = Field(..., max_length=128)
+    deployment_id: str = Field(..., min_length=1, max_length=128)
+    conversation_id: str = Field(..., min_length=1, max_length=128)
     response: str = Field(..., max_length=16_000)
     runtime_mode: str = Field(..., max_length=64)
     provider: str | None = Field(default=None, max_length=64)
     model: str | None = Field(default=None, max_length=128)
     delegation: dict[str, bool] | None = None
-    next_action: str
+    next_action: str = Field(..., max_length=512)
 
 
 def _result(payload: BaseModel) -> CallToolResult:

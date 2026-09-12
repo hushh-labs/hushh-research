@@ -86,6 +86,10 @@ class OwnerPodConsumerTaskTransport:
                 payload=payload,
             )
         except HTTPException as exc:
+            # Pod/provider details are internal and may contain credentials,
+            # identifiers, or infrastructure information. The MCP boundary
+            # exposes one stable refusal; the typed relay already records the
+            # safe reason in its own contract.
             raise ConsumerTaskUnavailable("owner pod task is unavailable") from exc
         except Exception as exc:  # noqa: BLE001 - do not expose provider/DB details
             raise ConsumerTaskUnavailable("owner pod turn is unavailable") from exc
@@ -251,7 +255,10 @@ class ConsumerMcpTask:
             or after.deployment_id != current.deployment_id
         ):
             raise ConsumerTaskUnavailable("assistant access changed while the task was running")
-        response = str(result.get("text") or "")
+        # ``relay_pod_turn`` is the canonical wire contract and emits ``text``.
+        # Keep the legacy ``response`` fallback only for older compatible relay
+        # doubles; a missing text/response is never a successful task.
+        response = str(result.get("text") or result.get("response") or "")
         if not response:
             raise ConsumerTaskUnavailable("owner pod returned no task response")
         delegation = result.get("delegation")

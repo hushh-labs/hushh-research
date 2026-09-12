@@ -164,6 +164,36 @@ async def test_delegation_uses_owner_pod_and_does_not_forward_external_token() -
 
 
 @pytest.mark.asyncio
+async def test_delegation_maps_the_canonical_pod_text_response() -> None:
+    """The real pod relay returns ``text``, not the MCP field ``response``."""
+
+    async def active_tokens(*_args, **_kwargs):
+        return [{"token_id": "one-token"}]
+
+    async def validator(*_args, **_kwargs):
+        return (
+            True,
+            None,
+            SimpleNamespace(
+                user_id="owner_a", agent_id="developer:app_test", scope_str="cap.one.invoke"
+            ),
+        )
+
+    class Transport:
+        async def execute(self, **_kwargs):
+            return {"hushhId": "pod_a", "text": "canonical pod answer"}
+
+    task = ConsumerMcpTask(
+        connections=type("Connections", (), {"current": lambda _self, _principal: connection()})(),
+        transport=Transport(),
+        active_tokens=active_tokens,
+        validator=validator,
+    )
+    result = await task.execute(principal(), arguments={"message": "hello"})
+    assert result["response"] == "canonical pod answer"
+
+
+@pytest.mark.asyncio
 async def test_late_result_is_rejected_after_connection_generation_changes() -> None:
     async def active_tokens(*_args, **_kwargs):
         return [{"token_id": "one-token"}]
