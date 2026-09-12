@@ -8,7 +8,6 @@ import { ApiService } from "@/lib/services/api-service";
 import { useAuth } from "@/lib/firebase/auth-context";
 import { HushhLoader } from "@/components/app-ui/hushh-loader";
 import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
-import { OnboardingHeroBackground } from "@/components/onboarding/OnboardingHeroBackground";
 import { useStepProgress } from "@/lib/progress/step-progress-context";
 import { isAndroid } from "@/lib/capacitor/platform";
 import { Icon } from "@/lib/morphy-ux/ui";
@@ -1011,23 +1010,9 @@ export function AuthStep({
 
   return (
     <main
-      // The outer app scroll root reserves --app-scroll-bottom-pad below this
-      // element for the fixed onboarding Agent Bar, then re-adds it as its
-      // own padding-bottom. Sizing this element to a full 100dvh on top of
-      // that reservation forced scroll on every device. Inline style (not a
-      // Tailwind arbitrary-value class) because Tailwind's arbitrary calc()
-      // parser requires escaped whitespace around the minus sign
-      // ("100dvh_-_var(...)"); without it the whole declaration is invalid
-      // CSS and silently dropped, which is what happened here before.
-      className={cn("relative w-full overflow-hidden", styles.shell)}
-      style={{
-        height: "calc(100dvh - var(--app-scroll-bottom-pad, 0px))",
-        minHeight: "calc(100svh - var(--app-scroll-bottom-pad, 0px))",
-      }}
+      className={styles.shell}
       data-testid="auth-step-primary"
     >
-      {/* Shared immersive gradient backdrop (welcome / login / carousel). */}
-      <OnboardingHeroBackground />
       <NativeTestBeacon
         routeId="/login"
         marker="native-route-login"
@@ -1064,17 +1049,11 @@ export function AuthStep({
       />
 
       <div
-        className="relative mx-auto flex w-full max-w-[440px] flex-col justify-center"
-        style={{
-          height: "calc(100dvh - var(--app-scroll-bottom-pad, 0px))",
-          minHeight: "calc(100svh - var(--app-scroll-bottom-pad, 0px))",
-        }}
+        className={styles.content}
         data-auth-content-block
       >
-        {/* Center the complete sign-in group as one visual block while the
-            fixed Back control remains independently anchored above it. The
-            clusters use one deliberate rhythm: identity, provider actions,
-            then the consent and legal context. */}
+        {/* Normal document flow keeps provider and legal controls reachable
+            on short screens, including expanded error/reviewer states. */}
         <div
           className="flex w-full flex-none flex-col items-center gap-6 px-6 pb-6 text-center"
           data-auth-signin-clusters

@@ -2,7 +2,6 @@
 
 import Link from "next/link";
 import { useCallback } from "react";
-import { OnboardingHeroBackground } from "@/components/onboarding/OnboardingHeroBackground";
 import {
   FigmaHushhLogo,
   FigmaIllustration,
@@ -81,7 +80,6 @@ export function IntroStep({ onLogin }: { onLogin?: () => void }) {
 
   return (
     <main className={styles.shell} data-testid="one-intro-screen">
-      <OnboardingHeroBackground />
 
       <div className={styles.stage}>
         <div className={styles.composition}>

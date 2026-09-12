@@ -1,79 +1,48 @@
 .shell {
-  min-block-size: 100%;
+  position: relative;
+  inline-size: 100%;
+  min-block-size: 100svh;
   background: #f6f5fc;
   color: #0a0a0a;
+  padding-block: max(24px, var(--app-safe-area-top-effective, 0px)) max(32px, var(--app-safe-area-bottom-effective, 0px));
 }
-
 :global(.dark) .shell { background: #000; color: #fafafa; }
-
-.authBackButton {
-  position: fixed;
-  inset-block-start: max(16px, calc(var(--app-safe-area-top-effective, 0px) + 12px));
-  inset-inline-start: clamp(16px, 5vw, 24px);
-  z-index: 50;
+.shell .authBackButton {
+  position: relative;
+  inset: auto;
+  margin-inline-start: max(20px, calc((100% - 354px) / 2));
 }
-
-.shell :global([data-auth-content-block]) {
-  min-block-size: 100%;
-  padding: max(76px, calc(var(--app-safe-area-top-effective, 0px) + 68px)) clamp(16px, 6vw, 24px) max(24px, calc(var(--app-safe-area-bottom-effective, 0px) + 24px));
+.content {
+  inline-size: 100%;
+  max-inline-size: 402px;
+  margin-inline: auto;
+  padding-inline: clamp(20px, 7.21vw, 29px);
 }
-
-.shell :global([data-auth-signin-clusters]) {
-  min-block-size: 100%;
-  justify-content: center;
-  gap: clamp(26px, 5vh, 42px);
-  padding: 0 !important;
+.shell :global([data-auth-signin-clusters]) { gap: 26px; padding: 16px 0 0; }
+.shell :global([data-auth-hero]) { inline-size: 100%; gap: 20px; }
+.authIllustration { max-inline-size: 219px; }
+.shell .authTitle {
+  --foundation-title1-size: clamp(23px, 6.72vw, 27px);
+  --foundation-title1-line: 1.2;
+  margin: 0;
 }
-
-.shell :global([data-auth-hero]) { inline-size: 100%; gap: clamp(18px, 3vh, 28px); }
-.authIllustration {
-  inline-size: min(80vw, 357px);
-  /* The light export has blank canvas beneath the artwork. Crop only that
-     trailing whitespace so the Figma artwork keeps its authored scale while
-     the legal note remains in the viewport. */
-  block-size: min(calc(80vw * 1.6), 500px);
-  overflow: hidden;
-  aspect-ratio: auto !important;
-}
-.authIllustration :global(img) { block-size: auto !important; height: auto !important; }
-
-:global(.dark) .authIllustration {
-  block-size: min(calc(80vw * 238 / 357), 238px);
-  overflow: visible;
-  aspect-ratio: 357 / 238 !important;
-}
-
-:global(.dark) .authIllustration :global(img) { block-size: 100% !important; height: 100% !important; }
-.authTitle { margin: 0; }
-
-.shell :global([data-auth-provider-actions-shell]) { inline-size: min(100%, 344px); }
-.shell :global([data-auth-provider-actions]) { inline-size: 100%; gap: 12px; }
+.shell :global([data-auth-provider-actions-shell]),
+.shell :global([data-auth-provider-actions]) { inline-size: 100%; }
+.shell :global([data-auth-provider-actions]) { gap: 12px; }
 .authProviderButton {
   min-block-size: 60px !important;
   border-radius: 16px !important;
-  font-size: 17px !important;
+  font-size: clamp(15px, 4.23vw, 17px) !important;
   font-weight: 510 !important;
+  white-space: nowrap;
 }
-
 .supportingContent {
   display: flex;
   min-block-size: 28px;
   justify-content: center;
-  margin-block-start: clamp(4px, 2vh, 16px);
+  margin-block-start: clamp(24px, calc(100svh - 660px), 150px);
 }
-
 @media (max-height: 700px) {
-  .shell :global([data-auth-content-block]) { padding-block-start: max(60px, calc(var(--app-safe-area-top-effective, 0px) + 48px)); }
-  .shell :global([data-auth-signin-clusters]) { justify-content: start; gap: 20px; }
-  .authIllustration {
-    inline-size: min(45vw, 172px);
-    block-size: min(calc(45vw * 1.6), 275px);
-  }
-
-  :global(.dark) .authIllustration { block-size: min(calc(45vw * 238 / 357), 172px); }
-  .supportingContent { margin-block-start: 0; }
-}
-
-@media (min-width: 768px) {
-  .shell :global([data-auth-content-block]) { max-inline-size: 440px; }
+  .shell { padding-block-start: 16px; }
+  .shell :global([data-auth-signin-clusters]) { gap: 20px; }
 }
