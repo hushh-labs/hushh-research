@@ -206,7 +206,14 @@ class ConsumerMcpConnections:
             valid, _reason, _claims = validate_token(
                 candidate, expected_scope=ConsentScope.CAP_CONSUMER_MEMORY
             )
-            if valid and row["expires_at"] is not None:
+            # The signed token's expiry and the canonical ledger expiry are
+            # both authority. A valid bearer with a stale ledger row must not
+            # make discovery report memory as ready or admit a pod call.
+            if (
+                valid
+                and row["expires_at"] is not None
+                and int(row["expires_at"]) > int(time.time() * 1000)
+            ):
                 token = candidate
         return _ConsumerGrant(receipt=receipt, token=token)
 
@@ -330,7 +337,10 @@ class ConsumerMcpConnections:
                     "connection_id": row["connection_id"],
                     "generation": row["generation"],
                     "client_name": row["display_name"],
-                    "memory_access": self._grant(tx, dict(row)) is not None,
+                    "memory_access": (
+                        (grant := self._grant_state(tx, dict(row))) is not None
+                        and grant.token is not None
+                    ),
                 }
                 for row in rows[:limit]
             ]

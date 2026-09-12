@@ -637,3 +637,25 @@ def test_connection_discovery_is_owner_scoped_and_preserves_revoked_entry(consum
     revoked = service.list_connections(owner="owner_a")["items"][0]
     assert revoked["generation"] == 2 and revoked["memory_access"] is False
     assert set(revoked) == {"connection_id", "generation", "client_name", "memory_access"}
+
+
+def test_connection_discovery_does_not_report_an_expired_runtime_token_as_ready(
+    consumer, monkeypatch
+):
+    service, _, _ = consumer
+    _, own, _ = connect(consumer)
+    approve(service, own)
+    # The ledger is append-only, so advance the authority clock and keep the
+    # signed-token verifier positive to isolate the canonical ledger-expiry
+    # check in `_grant_state`.
+    import hushh_mcp.services.consumer_mcp_connections as connections_module
+
+    now = connections_module.time.time()
+    monkeypatch.setattr(connections_module.time, "time", lambda: now + 3600)
+    monkeypatch.setattr(
+        connections_module,
+        "validate_token",
+        lambda *_args, **_kwargs: (True, None, object()),
+    )
+    listing = service.list_connections(owner="owner_a")
+    assert listing["items"][0]["memory_access"] is False
