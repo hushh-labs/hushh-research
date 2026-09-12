@@ -579,12 +579,16 @@ _INTENT_FRAME_SCHEMA = {
     ],
 }
 
+# The only three actions the schema permits. Named once so the adoption path
+# and the schema cannot drift into disagreeing about what is valid.
+_STRUCTURE_DECISION_ACTIONS = frozenset({"match_existing_domain", "create_domain", "extend_domain"})
+
 _STRUCTURE_DECISION_SCHEMA = {
     "type": "OBJECT",
     "properties": {
         "action": {
             "type": "STRING",
-            "enum": ["match_existing_domain", "create_domain", "extend_domain"],
+            "enum": sorted(_STRUCTURE_DECISION_ACTIONS),
         },
         "target_domain": {"type": "STRING"},
         "json_paths": {"type": "ARRAY", "items": {"type": "STRING"}},
@@ -3342,6 +3346,93 @@ class PKMAgentLabService:
         }
 
     @classmethod
+    def _adopt_model_structure_decision(
+        cls,
+        *,
+        walk_decision: dict[str, Any],
+        raw_decision: dict[str, Any],
+    ) -> tuple[dict[str, Any], list[str]]:
+        """Let the structure agent's own decision stand where it made one.
+
+        Six of the ten fields in `_STRUCTURE_DECISION_SCHEMA["required"]` were
+        never read. The model was asked for `action`, `json_paths`,
+        `top_level_scope_paths`, `externalizable_paths`, `summary_projection`
+        and `sensitivity_labels`, it returned all six under a schema that
+        rejects a response missing any of them, and
+        `_normalize_structure_preview` then rebuilt every one of them from a
+        deterministic walk. That is the second shape named in AGENTS.md
+        principle 9: a rule that DISCARDS what the model returned. The prompt
+        cost is paid either way; only the answer is thrown out.
+
+        Two of them stay walk-derived on purpose, and this is not a hedge.
+        `candidate_payload` is mutated after the model returns -- sanitized,
+        CRUD-realigned, financially normalized, root-scope retargeted and
+        metadata-stripped -- so `json_paths` and `top_level_scope_paths` from
+        the model describe a payload that no longer exists. Adopting those
+        would not be trusting the model, it would be recording a shape nothing
+        was written in.
+
+        `externalizable_paths` is the model's to choose, intersected with what
+        actually survived those mutations. The intersection is not a second
+        opinion about sharing: the sharing guard is
+        `is_internal_manifest_path`, downstream and independent, and it still
+        runs on whatever comes out of here.
+        """
+        hints: list[str] = []
+        decision = dict(walk_decision)
+        real_paths = set(decision.get("json_paths") or [])
+        walk_leaves = list(decision.get("externalizable_paths") or [])
+
+        action = str(raw_decision.get("action") or "").strip()
+        if action in _STRUCTURE_DECISION_ACTIONS:
+            decision["action"] = action
+        elif action:
+            hints.append("structure_action_invalid")
+
+        proposed = [
+            cls._normalize_path(str(path))
+            for path in (raw_decision.get("externalizable_paths") or [])
+            if str(path or "").strip()
+        ]
+        if proposed:
+            survived = [path for path in proposed if path in real_paths]
+            if survived:
+                decision["externalizable_paths"] = survived
+                if len(survived) != len(proposed):
+                    # Some of what it chose was written somewhere else by a
+                    # later normalization step. Worth seeing: a rising rate
+                    # here means the mutations and the prompt disagree about
+                    # the shape, which is a prompt problem, not a model one.
+                    hints.append("structure_externalizable_paths_partially_stale")
+            else:
+                decision["externalizable_paths"] = walk_leaves
+                hints.append("structure_externalizable_paths_stale")
+
+        labels = raw_decision.get("sensitivity_labels")
+        if isinstance(labels, dict) and labels:
+            merged = dict(decision.get("sensitivity_labels") or {})
+            kept = 0
+            for path, label in labels.items():
+                normalized = cls._normalize_path(str(path))
+                if normalized in real_paths and isinstance(label, str) and label.strip():
+                    merged[normalized] = label.strip()
+                    kept += 1
+            decision["sensitivity_labels"] = merged
+            if not kept:
+                hints.append("structure_sensitivity_labels_stale")
+
+        projection = raw_decision.get("summary_projection")
+        if isinstance(projection, dict) and projection:
+            # The model's own projection, except the count, which is a fact
+            # about the payload rather than a judgement about it.
+            decision["summary_projection"] = {
+                **projection,
+                "path_count": len(real_paths),
+            }
+
+        return decision, hints
+
+    @classmethod
     def _manifest_target_entity_scope(
         cls,
         *,
@@ -3703,6 +3794,10 @@ class PKMAgentLabService:
         ):
             validation_hints.append("possible_duplicate_memory")
 
+        # The walk over the FINAL payload. Always computed, because it is the
+        # only thing that can describe what was actually written after the
+        # mutations above, and because it is the whole decision when the model
+        # failed or was skipped.
         decision = cls._fallback_structure_decision(
             message=message,
             current_domains=current_domains,
@@ -3710,6 +3805,12 @@ class PKMAgentLabService:
             target_domain=target_domain,
             candidate_payload=candidate_payload,
         )
+        if raw_decision:
+            decision, adoption_hints = cls._adopt_model_structure_decision(
+                walk_decision=decision,
+                raw_decision=raw_decision,
+            )
+            validation_hints.extend(adoption_hints)
         decision["confidence"] = cls._clamp_confidence(
             raw_decision.get("confidence"),
             default=cls._clamp_confidence(intent_frame.get("confidence"), default=0.55),
