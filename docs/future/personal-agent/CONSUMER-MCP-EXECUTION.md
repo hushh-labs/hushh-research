@@ -19,9 +19,9 @@ GitHub action item: [#6719 Build consumer Hussh MCP with owner-pod memory and Pu
 ## Baseline and boundaries
 
 - Worktree: sibling `hushh-consumer-mcp`; branch `feat/consumer-mcp`.
-- Latest implementation candidate: `e39224a01` (12 September 2026; pushed to `origin/feat/consumer-mcp`); in addition to the earlier owner binding, memory, custody, integration, device-readiness, Calendar, people-connection and Gmail receipt seams, the branch exposes viewer-relative person profiles with requestable scope labels plus bounded connection-request review and explicit-confirmation send/accept/reject/cancel actions through canonical services. Scope values are reviewable only as bounded labels/handles; raw user IDs and mutation authority remain excluded. Focused consumer checks pass (37 in the affected MCP/contract subset); docs/package checks pass locally. Branch CI run [`34681590817`](https://github.com/hushh-labs/hushh-research/actions/runs/34681590817) completed successfully for this implementation candidate. The later branch head is documentation-only `76384b5ce`; no deployment or hosted migration has been performed. The installed dev candidate remains `d11a5f62d`.
+- Latest implementation candidate: `e39224a01` (12 September 2026; pushed to `origin/feat/consumer-mcp`); in addition to the earlier owner binding, memory, custody, integration, device-readiness, Calendar, people-connection and Gmail receipt seams, the branch exposes viewer-relative person profiles with requestable scope labels plus bounded connection-request review and explicit-confirmation send/accept/reject/cancel actions through canonical services. Scope values are reviewable only as bounded labels/handles; raw user IDs and mutation authority remain excluded. Focused consumer checks pass (37 in the affected MCP/contract subset); docs/package checks pass locally. Branch CI run [`34681590817`](https://github.com/hushh-labs/hushh-research/actions/runs/34681590817) completed successfully for this implementation candidate. The later branch head is documentation-only `297a905bf`; no deployment or hosted migration has been performed. The previously installed dev evidence remains `d11a5f62d`; this branch has not been deployed.
 - Original workspace and ADK worktree are independently active and remain untouched.
-- No main promotion, UAT/production activation or marketplace submission has occurred in this workstream. The latest governed dev deployment is healthy and branch-only; consumer live acceptance remains incomplete because owner custody, full capability coverage, Puppy parity and external-host acceptance are not proven.
+- No deployment is authorized in this workstream: no candidate image, hosted migration, main promotion, UAT/production activation or marketplace submission has occurred for this branch. Consumer live acceptance remains incomplete because owner custody, full capability coverage, Puppy parity and external-host acceptance are not proven.
 - Working source is implementation evidence, not installed-runtime or host acceptance evidence.
 
 ## Approved product contract
@@ -49,7 +49,7 @@ Provisioning, recoverable owner-pod vault custody and client access are separate
 
 Run focused checks for each changed contract. Run the combined release gate on the final candidate. Keep legacy developer consent/export semantics unchanged. Do not claim an operation works because a UI action or catalog entry exists.
 
-The current dev deployment has backend rollback target `consent-protocol-00087-8zb` and frontend rollback target `hushh-webapp-00058-h77`; the governed rollback workflow must preserve canonical revisions, tombstones and revoked grants and never restore a runtime that ignores revoked authority.
+Historical dev rollback targets are backend `consent-protocol-00087-8zb` and frontend `hushh-webapp-00058-h77`; they are retained as dated rollback evidence only. This branch-only milestone performs no deployment. Any future rollback must preserve canonical revisions, tombstones and revoked grants and never restore a runtime that ignores revoked authority.
 
 ## Source-derived consumer inventory
 
@@ -240,9 +240,14 @@ The topology generator remains the existing coverage join: `scripts/ops/generate
 - Added `get_hussh_person_profile` through the existing `PersonProfileService`. It returns only the viewer-relative public projection, relationship state, bounded requestable scope labels and current grant status; raw connection/request identifiers and consent tokens are not returned.
 - Focused affected verification passed: `37` tests across consumer connections, MCP entitlement dispatch and the public contract. Ruff, pre-commit lint, package README generation/check and whitespace checks pass. No deployment, hosted migration, credential mutation, main/UAT/production promotion, Hermes change or ADK worktree change occurred; a fresh branch CI receipt is still required for this source.
 
-## Branch documentation receipt — 12 September 2026 (head `76384b5ce`)
+## Post-push verification — 12 September 2026 (head `297a905bf`)
 
-- Updated this execution record and the action-item references to identify the viewer-relative profile slice and the current branch head. The code was unchanged from `1d57b5b11`; its affected 37-test result and branch CI receipt remain the authoritative validation evidence. `e39224a01` remains the implementation-documentation checkpoint, while `76384b5ce` is the later documentation-only branch head.
+- The focused affected suite passed `37` tests: `tests/test_consumer_mcp_connections.py`, `tests/test_mcp_entitled_dispatch.py` and `tests/test_mcp_public_contract_v030.py` under locked Python 3.13. Existing dependency deprecation and experimental warnings did not fail the run.
+- This verifies source behavior only. No deployment, hosted migration, credential mutation, main/UAT/production promotion, Hermes change or ADK worktree change occurred.
+
+## Branch documentation receipt — 12 September 2026 (head `297a905bf`)
+
+- Updated this execution record and the action-item references to identify the viewer-relative profile slice and the current branch head. The code was unchanged from `1d57b5b11`; its affected 37-test result and branch CI receipt remain the authoritative validation evidence. `e39224a01` remains the implementation-documentation checkpoint, while `297a905bf` is the later documentation-only branch head.
 - This documentation-only commit was pushed to `origin/feat/consumer-mcp`. No deployment, hosted migration, credential mutation, main/UAT/production promotion, Hermes change or ADK worktree change occurred.
 
 ## Branch CI receipt — 12 September 2026 (implementation head `e39224a01`)
