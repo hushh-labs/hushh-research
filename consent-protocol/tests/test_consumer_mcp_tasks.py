@@ -129,7 +129,7 @@ async def test_delegation_uses_owner_pod_and_does_not_forward_external_token() -
                 "hushhId": "pod_a",
                 "text": "done",
                 "runtimeMode": "owner-pod",
-                "provider": "pod",
+                "provider": "puppy",
                 "model": "resident-model",
             }
 
@@ -152,7 +152,7 @@ async def test_delegation_uses_owner_pod_and_does_not_forward_external_token() -
     assert result["execution_target"] == "owner_pod"
     assert result["deployment_id"] == "pod_a"
     assert result["response"] == "done"
-    assert result["provider"] == "pod"
+    assert result["provider"] == "puppy"
     assert result["model"] == "resident-model"
     assert calls[0]["owner_id"] == "owner_a"
     assert calls[0]["deployment_id"] == "pod_a"
@@ -163,6 +163,45 @@ async def test_delegation_uses_owner_pod_and_does_not_forward_external_token() -
     assert calls[0]["runtime_provider"] == "puppy"
     assert calls[0]["puppy_device_id"] == "device-one"
     assert "token" not in calls[0]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("provider", ["gemini", None])
+async def test_puppy_delegation_rejects_non_puppy_result(provider: str | None) -> None:
+    async def active_tokens(*_args, **_kwargs):
+        return [{"token_id": "one-token"}]
+
+    async def validator(*_args, **_kwargs):
+        return (
+            True,
+            None,
+            SimpleNamespace(
+                user_id="owner_a", agent_id="developer:app_test", scope_str="cap.one.invoke"
+            ),
+        )
+
+    class Transport:
+        async def execute(self, **_kwargs):
+            result = {"hushhId": "pod_a", "text": "shared fallback"}
+            if provider is not None:
+                result["provider"] = provider
+            return result
+
+    task = ConsumerMcpTask(
+        connections=type("Connections", (), {"current": lambda _self, _principal: connection()})(),
+        transport=Transport(),
+        active_tokens=active_tokens,
+        validator=validator,
+    )
+    with pytest.raises(ConsumerTaskUnavailable, match="requested Puppy provider"):
+        await task.execute(
+            principal(),
+            arguments={
+                "message": "hello",
+                "runtime_provider": "puppy",
+                "puppy_device_id": "device-one",
+            },
+        )
 
 
 @pytest.mark.asyncio

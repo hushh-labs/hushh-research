@@ -371,6 +371,13 @@ class ConsumerMcpTask:
         response = str(result.get("text") or result.get("response") or "")
         if not response:
             raise ConsumerTaskUnavailable("owner pod returned no task response")
+        # A Puppy request is an explicit inference lane, not merely a hint about
+        # where One should execute.  The pod's resolved provider is the authority
+        # for the result; refusing a missing, shared, or cloud provider prevents a
+        # relay fallback from being reported as private-device inference.
+        reported_provider = str(result.get("provider") or "").strip().lower()
+        if request.runtime_provider == "puppy" and reported_provider != "puppy":
+            raise ConsumerTaskUnavailable("owner pod did not use the requested Puppy provider")
         delegation = result.get("delegation")
         safe_delegation = (
             {"delegated": True}
