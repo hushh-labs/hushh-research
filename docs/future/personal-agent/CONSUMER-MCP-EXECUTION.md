@@ -104,6 +104,11 @@ receipt, the later receipt supersedes it.
 - `./scripts/run-test-ci.sh` completed against the branch source: **6,861 passed, 79 skipped, 67 non-failing dependency/deprecation warnings** in `337.30s` under Python 3.13. The manifest includes the MCP, owner-pod custody, PKM, Puppy relay, lifecycle, isolation and recovery suites.
 - This is local source verification. Skips are existing environment-scoped tests; they do not provide live-host credit. No deployment, IAM change, credential mutation or hosted request occurred.
 
+## Branch publication boundary — 12 September 2026 (`ff4d48d49`)
+
+- `feat/consumer-mcp` is clean and remote-matched at `ff4d48d49fad384026ede0c64b7db82bf2ed52df`. Issue [#6719](https://github.com/hushh-labs/hushh-research/issues/6719) remains open and **In Progress** on both Hussh project boards.
+- No pull request or CI run exists for this latest documentation head. The branch remains intentionally 139 commits behind `origin/main`; no main merge, hosted deployment or release promotion was performed.
+
 ## Approved product contract
 
 External assistants authenticate as owner-bound clients. Registered Puppy devices retain their distinct native authority. One owner approval permits reads, routine additions and corrections of current and future personal memory until the client is disconnected. Credentials remain short-lived. Deletion, permission changes and consequential external actions require fresh confirmation. Secrets are never personal memory.
