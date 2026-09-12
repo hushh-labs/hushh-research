@@ -99,6 +99,11 @@ receipt, the later receipt supersedes it.
 - The revision is Ready and uses the owner-project service account `one-pod-ha1-7o6wt3s4m-h6q2cl4x@hussh-one-pod.iam.gserviceaccount.com`. Its service IAM policy grants invocation only to `consent-protocol-runtime@hushh-pda-dev.iam.gserviceaccount.com`.
 - The active operator account lacks `run.services.get`, and the owner account cannot impersonate that runtime service account (`iam.serviceAccounts.getAccessToken` denied). Authenticated `/health` and `/pod/info` probes therefore remain unavailable. No inference request, custody mutation, IAM change, deployment or credential mutation occurred.
 
+## Canonical backend manifest — 12 September 2026 (`98fd95ec4`)
+
+- `./scripts/run-test-ci.sh` completed against the branch source: **6,861 passed, 79 skipped, 67 non-failing dependency/deprecation warnings** in `337.30s` under Python 3.13. The manifest includes the MCP, owner-pod custody, PKM, Puppy relay, lifecycle, isolation and recovery suites.
+- This is local source verification. Skips are existing environment-scoped tests; they do not provide live-host credit. No deployment, IAM change, credential mutation or hosted request occurred.
+
 ## Approved product contract
 
 External assistants authenticate as owner-bound clients. Registered Puppy devices retain their distinct native authority. One owner approval permits reads, routine additions and corrections of current and future personal memory until the client is disconnected. Credentials remain short-lived. Deletion, permission changes and consequential external actions require fresh confirmation. Secrets are never personal memory.
