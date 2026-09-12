@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import Image from "next/image";
 import { ArrowLeft, Shield, Sun, Moon, Users } from "lucide-react";
 import { OneArcIllustration } from "@/components/onboarding/OneArcIllustration";
 import { AuthService } from "@/lib/services/auth-service";
@@ -1251,17 +1252,13 @@ function AppleIcon() {
 
 function HandshakePrivacyIcon({ className = "h-[26px] w-[32px] shrink-0" }: { className?: string }) {
   return (
-    <svg className={className} viewBox="0 0 33 26" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-      {/* Left Person Head & Body */}
-      <path d="M5.14 0C2.3 0 0 2.3 0 5.14C0 7.98 2.3 10.28 5.14 10.28C7.98 10.28 10.28 7.98 10.28 5.14C10.28 2.3 7.98 0 5.14 0Z" fill="#387BF5" />
-      <path d="M0 25.96V16.14C0 12.82 2.68 10.14 6 10.14H9.5C11.71 10.14 13.62 11.33 14.65 13.11L10.5 17.5L5.5 14V25.96H0Z" fill="#387BF5" />
-
-      {/* Right Person Head & Body */}
-      <path d="M27.86 0.04C25.02 0.04 22.72 2.34 22.72 5.18C22.72 8.02 25.02 10.32 27.86 10.32C30.7 10.32 33 8.02 33 5.18C33 2.34 30.7 0.04 27.86 0.04Z" fill="#A4C9FA" />
-      <path d="M33 25.96V16.14C33 12.82 30.32 10.14 27 10.14H23.5C21.29 10.14 19.38 11.33 18.35 13.11L22.5 17.5L27.5 14V25.96H33Z" fill="#A4C9FA" />
-
-      {/* Connection Handshake */}
-      <path d="M10.5 17.5L16.5 13.5L22.5 17.5L16.5 21.5L10.5 17.5Z" fill="#387BF5" />
-    </svg>
+    <Image
+      src="/privacy-handshake.png"
+      alt="Privacy Handshake"
+      width={65}
+      height={52}
+      className={cn("object-contain", className)}
+      unoptimized
+    />
   );
 }
