@@ -217,3 +217,15 @@ tests/test_live_context_screen_state.py
 tests/test_adk_dispatch.py
 
 tests/test_information_chat_service.py
+
+# Consent lifecycle authorization and the model/rule boundary (2026-09-11).
+# Each of these guards a property that fails SILENTLY when it breaks: a consent
+# mutation authorized by the model instead of the person's tap, a governed action
+# with no browser handler (offered, confirmed, then nothing), a stored key becoming
+# shareable, a rule overruling the agent that answered, or a stage skipped while
+# reporting as one that ran. None of them is caught by a type error or a 500.
+tests/test_consent_lifecycle_chat.py
+tests/test_internal_path_keys.py
+tests/services/test_structure_decision_is_the_models.py
+tests/services/test_intent_frame_is_the_models.py
+tests/test_agent_stage_skips_are_visible.py
