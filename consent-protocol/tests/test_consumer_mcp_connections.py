@@ -547,10 +547,16 @@ async def test_consumer_mcp_email_workflow_status_redacts_provider_payloads(cons
             }
 
     monkeypatch.setattr(consumer_tools, "get_one_email_kyc_service", lambda: _EmailWorkflows())
+    monkeypatch.setenv("APP_FRONTEND_ORIGIN", "https://one.example.test")
+    get_app_runtime_settings.cache_clear()
     context = set_current_developer_principal(principal)
     try:
         listed = await mcp_server.call_tool("list_hussh_email_workflows", {})
         fetched = await mcp_server.call_tool("get_hussh_email_workflow", {"workflow_id": "wf_1"})
+        handoff = await mcp_server.call_tool(
+            "open_hussh_email_workflow",
+            {"workflow_id": "wf_1", "action": "send"},
+        )
     finally:
         reset_current_developer_principal(context)
 
@@ -568,6 +574,11 @@ async def test_consumer_mcp_email_workflow_status_redacts_provider_payloads(cons
     }
     assert not fetched.isError
     assert fetched.structuredContent["item"]["workflow_id"] == "wf_1"
+    assert not handoff.isError
+    assert handoff.structuredContent["state"] == "secure_handoff"
+    assert handoff.structuredContent["secure_url"] == (
+        "https://one.example.test/one/kyc?workflowId=wf_1&action=send"
+    )
     serialized = json.dumps(
         {"listed": listed.structuredContent, "fetched": fetched.structuredContent}
     )

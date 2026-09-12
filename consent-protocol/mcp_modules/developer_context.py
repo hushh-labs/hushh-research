@@ -180,6 +180,7 @@ def get_current_visible_tool_names() -> tuple[str, ...]:
             "get_hussh_gmail_status",
             "list_hussh_email_workflows",
             "get_hussh_email_workflow",
+            "open_hussh_email_workflow",
             "list_hussh_integrations",
             "connect_hussh_integration",
             "disconnect_hussh_integration",

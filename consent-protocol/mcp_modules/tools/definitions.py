@@ -17,6 +17,7 @@ from mcp_modules.tools.consumer_tools import (
     ConsumerConnectionsResult,
     ConsumerDevicesResult,
     ConsumerDisconnectResult,
+    ConsumerEmailWorkflowActionResult,
     ConsumerEmailWorkflowResult,
     ConsumerEmailWorkflowsResult,
     ConsumerGmailReceiptsResult,
@@ -408,6 +409,27 @@ def _private_tool_definitions() -> list[Tool]:
             outputSchema=ConsumerEmailWorkflowResult.model_json_schema(),
             annotations={
                 "readOnlyHint": True,
+                "destructiveHint": False,
+                "idempotentHint": True,
+                "openWorldHint": False,
+            },
+        ),
+        Tool(
+            name="open_hussh_email_workflow",
+            description="Open the authenticated Hussh owner flow for an email workflow review, refresh, draft approval, send or archive action. The assistant cannot approve, send or archive through this handoff.",
+            inputSchema=schema(
+                {
+                    "workflow_id": {"type": "string", "minLength": 1, "maxLength": 128},
+                    "action": {
+                        "type": "string",
+                        "enum": ["review", "refresh", "approve_draft", "send", "archive"],
+                    },
+                },
+                ["workflow_id", "action"],
+            ),
+            outputSchema=ConsumerEmailWorkflowActionResult.model_json_schema(),
+            annotations={
+                "readOnlyHint": False,
                 "destructiveHint": False,
                 "idempotentHint": True,
                 "openWorldHint": False,

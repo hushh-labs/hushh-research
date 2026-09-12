@@ -455,6 +455,14 @@
       "evidence": "consent-protocol/mcp_modules/tools/definitions.py; consent-protocol/mcp_modules/tools/consumer_tools.py; consent-protocol/mcp_server.py"
     },
     {
+      "id": "tool.open_hussh_email_workflow",
+      "tool_name": "open_hussh_email_workflow",
+      "operation": "open_hussh_email_workflow",
+      "owner": "consumer_mcp",
+      "disposition": "secure_handoff",
+      "evidence": "consent-protocol/mcp_modules/tools/definitions.py; consent-protocol/mcp_modules/tools/consumer_tools.py; consent-protocol/mcp_server.py; consent-protocol/api/routes/one/email.py"
+    },
+    {
       "id": "source_library",
       "operation": "Source Library query, upload, organization and revision-pinned sharing",
       "owner": "Hermes Source Library Steward",

@@ -150,6 +150,7 @@ def build_index() -> dict[str, Any]:
         for name in re.findall(r'\bname="([a-z][a-z0-9_-]*)"', consumer_definitions_source)
         if name.startswith((
             "get_hussh_",
+            "open_hussh_",
             "list_hussh_",
             "find_hussh_",
             "search_hussh_",

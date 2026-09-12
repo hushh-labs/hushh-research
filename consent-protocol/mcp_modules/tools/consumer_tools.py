@@ -277,6 +277,15 @@ class ConsumerEmailWorkflowResult(BaseModel):
     next_action: str
 
 
+class ConsumerEmailWorkflowActionResult(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    state: Literal["secure_handoff"]
+    workflow_id: str = Field(..., max_length=128)
+    action: Literal["review", "refresh", "approve_draft", "send", "archive"]
+    secure_url: str = Field(..., max_length=2_048)
+    next_action: str
+
+
 class ConsumerConnectionRequestItem(BaseModel):
     model_config = ConfigDict(extra="forbid")
     request_id: str = Field(..., max_length=128)
@@ -638,6 +647,7 @@ async def handle_list_hussh_capabilities(arguments: dict) -> CallToolResult:
         "get_hussh_gmail_status",
         "list_hussh_email_workflows",
         "get_hussh_email_workflow",
+        "open_hussh_email_workflow",
         "list_hussh_integrations",
         "connect_hussh_integration",
         "disconnect_hussh_integration",
@@ -707,6 +717,9 @@ async def handle_list_hussh_capabilities(arguments: dict) -> CallToolResult:
         }:
             execution = "consent_service"
             availability = "approval_required"
+        elif name == "open_hussh_email_workflow":
+            execution = "secure_handoff"
+            availability = "secure_handoff"
         elif name == "disconnect_hussh_integration":
             execution = "consent_service"
             availability = "approval_required"
@@ -1912,6 +1925,50 @@ async def handle_get_hussh_email_workflow(arguments: dict) -> CallToolResult:
             state="available",
             item=item,
             next_action="Use the secure owner flow for scope approval, draft changes, sending, or archiving this workflow.",
+        )
+    )
+
+
+async def handle_open_hussh_email_workflow(arguments: dict) -> CallToolResult:
+    """Open the authenticated owner flow for a consequential email action."""
+    if not isinstance(arguments, dict) or set(arguments) != {"workflow_id", "action"}:
+        return _error(
+            "INVALID_EMAIL_WORKFLOW_REQUEST",
+            "workflow_id and action are required.",
+        )
+    workflow_id = arguments.get("workflow_id")
+    action = arguments.get("action")
+    if (
+        not isinstance(workflow_id, str)
+        or not workflow_id.strip()
+        or len(workflow_id.strip()) > 128
+        or not re.fullmatch(r"[A-Za-z0-9_-]+", workflow_id.strip())
+        or action not in {"review", "refresh", "approve_draft", "send", "archive"}
+    ):
+        return _error("INVALID_EMAIL_WORKFLOW_REQUEST", "workflow_id or action is invalid.")
+    owner = _consumer_owner(get_current_developer_principal())
+    if owner is None:
+        return _error("OWNER_AUTH_REQUIRED", "Reconnect using your own Hussh account.")
+    origin = _secure_setup_origin()
+    if origin is None:
+        return _error("SETUP_UNAVAILABLE", "The secure owner interface is unavailable.")
+    try:
+        await get_one_email_kyc_service().get_workflow(
+            user_id=owner,
+            workflow_id=workflow_id.strip(),
+        )
+    except OneEmailKycError as error:
+        return _email_workflow_error(error)
+    except Exception:
+        return _error("EMAIL_WORKFLOWS_UNAVAILABLE", "Email workflows are temporarily unavailable.")
+    query = urlencode({"workflowId": workflow_id.strip(), "action": action})
+    return _result(
+        ConsumerEmailWorkflowActionResult(
+            state="secure_handoff",
+            workflow_id=workflow_id.strip(),
+            action=action,
+            secure_url=f"{origin}/one/kyc?{query}",
+            next_action="Complete the action in the authenticated Hussh owner interface; this link does not approve or send anything by itself.",
         )
     )
 

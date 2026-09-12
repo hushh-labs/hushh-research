@@ -938,6 +938,14 @@
       "tool_name": "list_hussh_receipts"
     },
     {
+      "disposition": "secure_handoff",
+      "evidence": "consent-protocol/mcp_modules/tools/definitions.py; consent-protocol/mcp_modules/tools/consumer_tools.py; consent-protocol/mcp_server.py; consent-protocol/api/routes/one/email.py",
+      "id": "tool.open_hussh_email_workflow",
+      "operation": "open_hussh_email_workflow",
+      "owner": "consumer_mcp",
+      "tool_name": "open_hussh_email_workflow"
+    },
+    {
       "disposition": "executable",
       "evidence": "consent-protocol/mcp_modules/tools/definitions.py; consent-protocol/mcp_modules/tools/consumer_tools.py; consent-protocol/mcp_server.py",
       "id": "tool.read_hussh_memory",
@@ -5914,16 +5922,16 @@
     "action_gateway": "8c3b5cf72b85f18e5214311094f306c7fae2c48188261e4b305f8547e3bacf49",
     "agent_registry": "512034daf9e4876dd5c2d9ad37594c5d5c0578dae4ddd4e8b68fb6bc064a7f87",
     "cache_manifest": "3e667d561723697d04d5c4b49faf24b66a87a63b39fd1c7a026b1b1d4d52a979",
-    "consumer_mcp_definitions": "b80cc3fa94f08441c1b4018c49b0484d2926934bf04ac560266fdb5be4f5eed4",
-    "consumer_mcp_handlers": "85a3b4d3b3238a5ca78ead45c7cd81862e43c8e5362eb7b090e34f0bb345dbdc",
-    "consumer_mcp_server": "726c5899c220853ad484a5fc055cb39c6d809384aa9bef3549e3158beef6cf5d",
+    "consumer_mcp_definitions": "15b998132530e977a6fd3f0731a8a20d39e6a7ebae1add84c2f7fef490e0782b",
+    "consumer_mcp_handlers": "84cdc270c80d3b194cf651decc93fb3c6e8b7222713ad6292fda88ec1ccffda6",
+    "consumer_mcp_server": "d20f9db6308757cba46cd6dccc83d6ad6f3d5c012c48dc8c084553f70e767850",
     "data_plane": "cf29ba66eefbaf8e1f0749508ee346e6a62c5f830c2b8137c0d49db64caa8638",
     "in_process_dispatch": "427e94fb794e6f1f8fe6151fd7f79392b8f7001eefe0dc6204726cd29aacac8d",
     "one_specialist_tools": "43318b25db3a708b557357dfa0060c49ea73f91ad0c79c7b660fe8120ce57093",
     "route_index": "029f3357bbde6b96a975a646434126345ae69f52d871ce47dbb8ec034302795f",
     "route_layout": "20cc86e43dce62e3826a12cd07116f28f173a16e1fc241d8c08983bc434ea68f",
     "surface_map": "78d06ddf4b743da7797876546b2ca3acc62716b6d28bbc22de5ca3bd817e5311",
-    "topology_contract": "52a835c3f1f0efa6a2a02a44fd0e84c93e930a38ad7a73ad27bf3db2984cbbb8",
+    "topology_contract": "9027c8379c1bc564a136d05cb1ad708d65b4024c856d4b1e006ba701b3ab9740",
     "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"
   },
   "summary": {
@@ -5931,7 +5939,7 @@
     "actions": 214,
     "agents": 20,
     "aliases": 3,
-    "consumer_mcp_capabilities": 38,
+    "consumer_mcp_capabilities": 39,
     "consumer_mcp_executable": 28,
     "consumer_mcp_missing": 3,
     "decision_required": 2,
