@@ -40,6 +40,12 @@ Fixed boundaries:
 
 The previous live frontend-proxy journey returned HTTP 200, `provider=puppy`, `model=local`, `runtimeMode=puppy_relay`, and the expected synthetic response in 10.38 seconds. Pod logs also recorded an earlier successful request with approximately 32.9 seconds to first visible content and a later warm request with approximately 4.0 seconds. These are a few observations, not a latency distribution or direct-path evidence.
 
+### Read-only state refresh — 2026-09-12
+
+Using the existing owner account `kushaltrivedi1711@gmail.com` without changing the active gcloud configuration or mutating Cloud Run, the owner service was readable again. Revision `one-pod-ha1-7o6wt3s4mtydneyytqfswsxtafdlpjwz-00010-m9f` serves 100% traffic with image digest `sha256:7bef8f48b0ad8d1c9729447c92b0412f6e8536469cec0beabe9643fd78a75f29`, `500m/1Gi`, `minScale=0`, `maxScale=1`, durable commit-log storage, local PKM, durable identity and owner-project Vertex ADC configuration. The service IAM policy grants invocation only to `consent-protocol-runtime@hushh-pda-dev.iam.gserviceaccount.com`.
+
+The service template names `sha256:bd541305ba767169e3f2d0a5f06b6624bfbcc011addb608f585d2847f7b853d9`, while the serving revision resolves to `sha256:7bef8f48b0ad8d1c9729447c92b0412f6e8536469cec0beabe9643fd78a75f29`. Treat the revision-level digest as the installed evidence and reconcile this desired-template drift before any acceptance run. The consumer-MCP branch remains source-only; no image, migration, or owner service was changed.
+
 Previous focused checks passed: 99 provider/turn/fleet tests, 38 pod/Live/release-probe tests, and 70 tests after the Live grant correction. They overlap and must not be summed into unique coverage. No test suites were rerun in this read-only planning scan.
 
 The Vertex diagnostic and Live-ticket mint passed previously. The Live socket closed before setup; the hub rejected its own expanded specialist-grant set. Commit `7be51b7dc` aligns that allowlist, but the owner image still predates it. Actual bidirectional audio remains unverified.
