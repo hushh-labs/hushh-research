@@ -24,6 +24,7 @@ from mcp_modules.tools.consumer_tools import (
     ConsumerIntegrationsResult,
     ConsumerMemoryResult,
     ConsumerPeopleResult,
+    ConsumerPersonProfileResult,
     ConsumerReceiptsResult,
     ConsumerSetupStatusResult,
     ConsumerTaskResult,
@@ -181,6 +182,21 @@ def _private_tool_definitions() -> list[Tool]:
                 }
             ),
             outputSchema=ConsumerPeopleResult.model_json_schema(),
+            annotations={
+                "readOnlyHint": True,
+                "destructiveHint": False,
+                "idempotentHint": True,
+                "openWorldHint": False,
+            },
+        ),
+        Tool(
+            name="get_hussh_person_profile",
+            description="Read a viewer-relative public Hussh profile and its requestable scope labels. Profile visibility never grants information access.",
+            inputSchema=schema(
+                {"public_person_ref": {"type": "string", "minLength": 1, "maxLength": 128}},
+                ["public_person_ref"],
+            ),
+            outputSchema=ConsumerPersonProfileResult.model_json_schema(),
             annotations={
                 "readOnlyHint": True,
                 "destructiveHint": False,

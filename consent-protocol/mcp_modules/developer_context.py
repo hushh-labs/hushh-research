@@ -168,6 +168,7 @@ def get_current_visible_tool_names() -> tuple[str, ...]:
             "list_hussh_calendar_events",
             "find_hussh_calendar_openings",
             "search_hussh_people",
+            "get_hussh_person_profile",
             "list_hussh_people_connections",
             "list_hussh_connection_requests",
             "get_hussh_connection_request",

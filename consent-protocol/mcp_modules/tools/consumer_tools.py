@@ -176,6 +176,38 @@ class ConsumerPeopleResult(BaseModel):
     next_action: str
 
 
+class ConsumerPersonScope(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    scope_ref: str = Field(..., max_length=128)
+    label: str = Field(..., max_length=200)
+    description: str = Field(..., max_length=512)
+    domain: str | None = Field(default=None, max_length=64)
+    sensitivity: str | None = Field(default=None, max_length=32)
+    wildcard: bool
+
+
+class ConsumerPersonGrant(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    scope_ref: str | None = Field(default=None, max_length=128)
+    label: str = Field(..., max_length=200)
+    domain: str | None = Field(default=None, max_length=64)
+    status: str = Field(..., max_length=32)
+    expires_at: int | None = None
+
+
+class ConsumerPersonProfileResult(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    state: Literal["available"]
+    person_ref: str = Field(..., max_length=128)
+    display_name: str = Field(..., max_length=200)
+    photo_url: str | None = Field(default=None, max_length=2_048)
+    verified_role: str | None = Field(default=None, max_length=128)
+    relationship: Literal["connected", "pending_outgoing", "pending_incoming", "none"]
+    requestable_scopes: list[ConsumerPersonScope] = Field(default_factory=list, max_length=100)
+    grants: list[ConsumerPersonGrant] = Field(default_factory=list, max_length=100)
+    next_action: str
+
+
 class ConsumerGmailReceipt(BaseModel):
     model_config = ConfigDict(extra="forbid")
     merchant: str = Field(default="Unknown merchant", max_length=256)
@@ -559,6 +591,7 @@ async def handle_list_hussh_capabilities(arguments: dict) -> CallToolResult:
         "list_hussh_calendar_events",
         "find_hussh_calendar_openings",
         "search_hussh_people",
+        "get_hussh_person_profile",
         "list_hussh_people_connections",
         "list_hussh_connection_requests",
         "get_hussh_connection_request",
@@ -608,7 +641,11 @@ async def handle_list_hussh_capabilities(arguments: dict) -> CallToolResult:
         elif name in {"list_hussh_calendar_events", "find_hussh_calendar_openings"}:
             execution = "consent_service"
             availability = "approval_required"
-        elif name in {"search_hussh_people", "list_hussh_people_connections"}:
+        elif name in {
+            "search_hussh_people",
+            "get_hussh_person_profile",
+            "list_hussh_people_connections",
+        }:
             execution = "consent_service"
             availability = "contract_available"
         elif name == "list_hussh_connection_requests":
@@ -1171,6 +1208,84 @@ async def handle_search_hussh_people(arguments: dict) -> CallToolResult:
     except Exception:
         return _error("CONNECTIONS_UNAVAILABLE", "The people directory is temporarily unavailable.")
     return _result(_people_result(result, audience=audience, page=page))
+
+
+async def handle_get_hussh_person_profile(arguments: dict) -> CallToolResult:
+    """Read a viewer-relative public profile and consentable scope labels."""
+    if not isinstance(arguments, dict) or set(arguments) != {"public_person_ref"}:
+        return _error("INVALID_CONNECTIONS_REQUEST", "Only public_person_ref is accepted.")
+    public_person_ref = arguments.get("public_person_ref")
+    if not isinstance(public_person_ref, str) or len(public_person_ref) > 128:
+        return _error("INVALID_CONNECTIONS_REQUEST", "public_person_ref is invalid.")
+    try:
+        public_person_ref = str(UUID(public_person_ref.strip()))
+    except (TypeError, ValueError):
+        return _error("INVALID_CONNECTIONS_REQUEST", "public_person_ref is invalid.")
+    owner = _consumer_owner(get_current_developer_principal())
+    if owner is None:
+        return _error("OWNER_AUTH_REQUIRED", "Reconnect using your own Hussh account.")
+    try:
+        from hushh_mcp.services.person_profile_service import (  # noqa: PLC0415
+            PersonProfileNotFoundError,
+            PersonProfileService,
+        )
+
+        result = await PersonProfileService().get_viewer_profile(
+            viewer_user_id=owner,
+            public_person_ref=public_person_ref,
+        )
+    except PersonProfileNotFoundError:
+        return _error("PERSON_NOT_FOUND", "That Hussh person profile is unavailable.")
+    except Exception:
+        return _error("CONNECTIONS_UNAVAILABLE", "The person profile is temporarily unavailable.")
+    relationship = str((result.get("relationship") or {}).get("status") or "none")
+    if relationship not in {"connected", "pending_outgoing", "pending_incoming", "none"}:
+        relationship = "none"
+    scopes: list[ConsumerPersonScope] = []
+    for scope in list(result.get("requestableScopes") or [])[:100]:
+        if not isinstance(scope, dict):
+            continue
+        scopes.append(
+            ConsumerPersonScope(
+                scope_ref=str(scope.get("scopeRef") or "")[:128],
+                label=str(scope.get("label") or "Information")[:200],
+                description=str(scope.get("description") or "")[:512],
+                domain=(str(scope.get("domain") or "")[:64] or None),
+                sensitivity=(str(scope.get("sensitivity") or "")[:32] or None),
+                wildcard=bool(scope.get("wildcard")),
+            )
+        )
+    grants: list[ConsumerPersonGrant] = []
+    for grant in list(result.get("grants") or [])[:100]:
+        if not isinstance(grant, dict):
+            continue
+        expires_at = grant.get("expiresAt")
+        try:
+            expires_at = int(expires_at) if expires_at is not None else None
+        except (TypeError, ValueError):
+            expires_at = None
+        grants.append(
+            ConsumerPersonGrant(
+                scope_ref=(str(grant.get("scopeRef") or "")[:128] or None),
+                label=str(grant.get("label") or "Shared information")[:200],
+                domain=(str(grant.get("domain") or "")[:64] or None),
+                status=str(grant.get("status") or "")[:32],
+                expires_at=expires_at,
+            )
+        )
+    return _result(
+        ConsumerPersonProfileResult(
+            state="available",
+            person_ref=str(result.get("personRef") or public_person_ref)[:128],
+            display_name=str(result.get("displayName") or "Hussh member")[:200],
+            photo_url=(str(result.get("photoUrl") or "")[:2_048] or None),
+            verified_role=(str(result.get("verifiedRole") or "")[:128] or None),
+            relationship=relationship,
+            requestable_scopes=scopes,
+            grants=grants,
+            next_action="Review these labels before sending or accepting a connection request; profile visibility does not grant access.",
+        )
+    )
 
 
 async def handle_list_hussh_people_connections(arguments: dict) -> CallToolResult:

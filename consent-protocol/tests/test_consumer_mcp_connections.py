@@ -958,6 +958,76 @@ async def test_consumer_mcp_people_rejects_unbounded_or_injected_arguments(consu
 
 
 @pytest.mark.asyncio
+async def test_consumer_mcp_person_profile_is_viewer_relative_and_bounded(consumer, monkeypatch):
+    import mcp_server
+    from mcp_modules.developer_context import (
+        reset_current_developer_principal,
+        set_current_developer_principal,
+    )
+
+    principal, _, _ = connect(consumer)
+    person_ref = "22222222-2222-4222-8222-222222222222"
+
+    class _Profile:
+        async def get_viewer_profile(self, **kwargs):
+            assert kwargs == {"viewer_user_id": "owner_a", "public_person_ref": person_ref}
+            return {
+                "personRef": person_ref,
+                "displayName": "Sam Example",
+                "photoUrl": "https://cdn.example.test/sam.png",
+                "verifiedRole": "Registered investment adviser",
+                "relationship": {
+                    "status": "connected",
+                    "connectionId": "raw-connection-id",
+                    "requestId": "raw-request-id",
+                },
+                "requestableScopes": [
+                    {
+                        "scopeRef": "scope-ref-1",
+                        "label": "Public profile",
+                        "description": "A public profile projection.",
+                        "domain": "profile",
+                        "sensitivity": "low",
+                        "wildcard": False,
+                    }
+                ],
+                "grants": [
+                    {
+                        "scopeRef": "scope-ref-1",
+                        "label": "Public profile",
+                        "domain": "profile",
+                        "status": "granted",
+                        "requestId": "raw-grant-request-id",
+                        "expiresAt": 1_800_000_000_000,
+                    }
+                ],
+            }
+
+    monkeypatch.setattr("hushh_mcp.services.person_profile_service.PersonProfileService", _Profile)
+    context = set_current_developer_principal(principal)
+    try:
+        names = {tool.name for tool in await mcp_server.list_tools()}
+        assert "get_hussh_person_profile" in names
+        result = await mcp_server.call_tool(
+            "get_hussh_person_profile", {"public_person_ref": person_ref}
+        )
+        invalid = await mcp_server.call_tool(
+            "get_hussh_person_profile", {"public_person_ref": "not-a-uuid"}
+        )
+    finally:
+        reset_current_developer_principal(context)
+
+    assert not result.isError
+    assert result.structuredContent["relationship"] == "connected"
+    assert result.structuredContent["requestable_scopes"][0]["scope_ref"] == "scope-ref-1"
+    assert result.structuredContent["grants"][0]["expires_at"] == 1_800_000_000_000
+    assert "raw-connection-id" not in str(result.structuredContent)
+    assert "raw-request-id" not in str(result.structuredContent)
+    assert "raw-grant-request-id" not in str(result.structuredContent)
+    assert invalid.isError
+
+
+@pytest.mark.asyncio
 async def test_consumer_mcp_exposes_sanitized_gmail_receipts_and_status(consumer, monkeypatch):
     import mcp_server
     from mcp_modules.developer_context import (
