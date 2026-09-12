@@ -90,7 +90,7 @@ receipt, the later receipt supersedes it.
 
 ## Packaged MCP gate refresh — 12 September 2026 (`d3f9a2550`)
 
-- `HUSHH_MCP_PYTHON=/Users/kushaltrivedi/Documents/GitHub/hushh-consumer-mcp/consent-protocol/.venv/bin/python npm run verify:package` passed from `packages/hushh-mcp`: README parity, generated gateway manifests, 7 package tests, packed-runtime initialization/tool listing/tool call, and `npm pack --dry-run`.
+- `HUSHH_MCP_PYTHON="$(pwd)/../../consent-protocol/.venv/bin/python" npm run verify:package` passed from `packages/hushh-mcp`: README parity, generated gateway manifests, 7 package tests, packed-runtime initialization/tool listing/tool call, and `npm pack --dry-run`.
 - The package gate completed without changing tracked files. This validates the published package shape only; it does not prove owner custody, a deployed Puppy connection, or external-host acceptance.
 
 ## Approved product contract
