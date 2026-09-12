@@ -24,7 +24,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { userId } = body;
+    const { userId, renewalOfToken } = body;
 
     if (!userId) {
       return NextResponse.json(
@@ -42,21 +42,24 @@ export async function POST(request: NextRequest) {
           "Content-Type": "application/json",
           Authorization: authHeader,
         },
-        body: JSON.stringify({ userId }),
+        body: JSON.stringify({ userId, renewalOfToken }),
+        cache: "no-store",
       }
     );
 
     if (!response.ok) {
-      const errorText = await response.text();
-      console.error("[API] Backend error:", response.status, errorText);
+      const payload = await response.json().catch(() => null);
+      const code = payload?.detail?.code ?? payload?.code;
+      // Preserve only stable typed codes, never echo an arbitrary backend body.
+      const safeCode = typeof code === "string" && /^AUTH_[A-Z_]+$/.test(code) ? code : undefined;
       return NextResponse.json(
-        { error: "Failed to issue VAULT_OWNER token" },
-        { status: response.status }
+        { error: "Failed to issue VAULT_OWNER token", code: safeCode },
+        { status: response.status, headers: { "Cache-Control": "no-store" } }
       );
     }
 
     const data = await response.json();
-    return NextResponse.json(data);
+    return NextResponse.json(data, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     console.error("[API] VAULT_OWNER token error:", error);
     return NextResponse.json(

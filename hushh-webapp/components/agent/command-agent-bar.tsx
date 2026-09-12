@@ -572,6 +572,7 @@ export function CommandAgentBar({
       <div
         data-testid="one-voice-agent-bar"
         data-agent-dock="one-agent-dock"
+        data-command-capture-state={recording ?? "idle"}
         role="group"
         aria-label="One assistant"
         className={cn(
@@ -646,6 +647,7 @@ export function CommandAgentBar({
         {recording ? (
           <button
             type="button"
+            data-native-voice-control-id="one_location_command_cancel_capture"
             onClick={cancelCapture}
             aria-label="Cancel recording"
             className="rounded-full p-3"

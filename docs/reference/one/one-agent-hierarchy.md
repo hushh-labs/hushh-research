@@ -69,7 +69,7 @@ This page is current-state implementation truth. It does not rename runtime iden
 | Wallet specialist | `agent_wallet` | Wallet (payment cards) conversation over client-executed actions (`wallet.list`, `wallet.add`, `wallet.reveal`); an AgentTool child of One, roster-gated on `ONE_WALLET_ENABLED`, with no server-side tools, no PKM context injection, and no A2A transport. Card secrets live in the reserved `wallet` PKM domain and decrypt only in the owner's browser | `agent.wallet.manage` invocation only; data leaves the vault solely through owner-approved `attr.wallet.summary.*` / `attr.wallet.secrets.*` grants |
 | Consent Center parent | `agent_nav` | Consent, scope review, vault friction, deletion, revocation; parent of Connections | `agent.nav.review` |
 | Identity specialist | `agent_kyc` | KYC workflow state, approved disclosure formatter, structured PKM writeback | `agent.kyc.process` and approved optional scopes |
-| Location specialist | `agent_location` | Trusted-people live location workflow | Exact location capability and data authority per flow |
+| Location specialist | `agent_location` | Trusted-people Location workflow | Exact location capability and data authority per flow |
 | Connections subagent | `agent_connections` | Nav's trusted-connection graph specialist; the Connections UI owns private runtime configuration | Exact specialist and `attr.*` authority per hop; never receives provider credentials |
 | Connected systems | `agent_connected_systems` | CRM and connected-system workflow planning | Exact specialist and `attr.*` authority per hop |
 | Email specialist | `agent_email` | Inbox, approval-draft, and client-request planning behind One | Exact specialist and `attr.*` authority per hop |
@@ -137,7 +137,7 @@ PKM capability boundary or claims provider ACL administration.
 
 ## Execution Stack
 
-1. One Voice (ADK `run_live` through `/api/one/adk/live`) or typed Agent Chat captures intent and active app state.
+1. Talk to One submits a bounded transcription to `/api/one/agent-chat/proposals`; typed Agent Chat retains its existing text path. Both use current scoped app state.
 2. Voice: One's root `LlmAgent` in `hushh_mcp/one_adk/agent_tree.py` decides conversation vs tool call inside ADK's flow. Its tools are `google_search`, the allowlist-governed `open_screen`, the Finance `AgentTool` (whose subagents are RIA and Investor), and dispatch-backed specialist turn functions. Gmail is intentionally absent. Chat: the delegation gate in `agent_chat.py` routes wired specialists through the same dispatch.
 3. Specialist turn tools build an `A2ATask` from governed session state (user id + consent token from the `app_context` frame) and fail closed without it.
 4. A2A entry points validate the caller token against `SPECIALIST_A2A_SCOPE_MAP`.

@@ -73,14 +73,29 @@ export class HushhKeychainWeb extends WebPlugin {
   }
 
   /**
+   * The web fallback stores the biometric value under the normal in-memory
+   * key, so its cleanup path deliberately mirrors `delete`.
+   */
+  async deleteBiometric(options: KeychainDeleteOptions): Promise<void> {
+    await this.delete(options);
+  }
+
+  /**
    * Get with biometric protection - falls back to regular storage in web
    */
   async getBiometric(
-    options: KeychainGetOptions & { promptMessage: string }
+    options: KeychainGetOptions & { promptMessage: string; requestId?: string }
   ): Promise<KeychainGetResult> {
     console.warn(
       "Biometric storage not available in web mode, using regular storage"
     );
     return this.get(options);
+  }
+
+  async cancelBiometricAuthentication(_options?: {
+    requestId?: string;
+  }): Promise<{ cancelled: boolean }> {
+    // This fallback never opens an OS-owned authentication surface.
+    return { cancelled: false };
   }
 }

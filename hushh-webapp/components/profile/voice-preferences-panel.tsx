@@ -19,17 +19,10 @@ import {
   updateVoicePreferences,
   type OneVoicePreferencesState,
 } from "@/lib/agent/voice-preferences";
-import {
-  VOICE_ENGINE_CHANGELOG,
-  VOICE_ENGINE_VERSION,
-} from "@/lib/agent/voice-engine-changelog";
 import { VOICE_ENGINE_DOMAINS } from "@/lib/agent/voice-engine-domains";
 import { OneLocationService } from "@/lib/one-location/service";
 import type { OneLocationSosVoiceDefaultAction } from "@/lib/one-location/types";
 import { ConnectionsService } from "@/lib/services/connections-service";
-
-
-const CHANGELOG_PREVIEW_COUNT = 2;
 
 function VoiceHeader() {
   return (
@@ -44,37 +37,9 @@ function VoiceHeader() {
         One
       </h1>
       <PageSubtitle className="text-muted-foreground">
-        Location commands · {VOICE_ENGINE_VERSION}
+        Location commands
       </PageSubtitle>
     </div>
-  );
-}
-
-function VoiceChangelog({ onOpenChangelog }: { onOpenChangelog: () => void }) {
-  const entries = VOICE_ENGINE_CHANGELOG.slice(0, CHANGELOG_PREVIEW_COUNT);
-  const hasMore = VOICE_ENGINE_CHANGELOG.length > CHANGELOG_PREVIEW_COUNT;
-
-  return (
-    <SettingsGroup title="What's new">
-      {entries.map((entry, index) => (
-        <SettingsRow
-          key={`${entry.version}:${entry.title}:${index}`}
-          title={entry.title}
-          description={entry.description}
-          trailing={
-            <span className="text-xs text-muted-foreground">{entry.date}</span>
-          }
-          stackTrailingOnMobile
-        />
-      ))}
-      {hasMore ? (
-        <SettingsRow
-          title="See all updates"
-          onClick={onOpenChangelog}
-          chevron
-        />
-      ) : null}
-    </SettingsGroup>
   );
 }
 
@@ -308,14 +273,10 @@ export function VoicePreferencesPanel({
   userId,
   vaultOwnerToken = null,
   getIdToken = null,
-  onOpenChangelog,
-  onOpenExamples,
 }: {
   userId: string | null;
   vaultOwnerToken?: string | null;
   getIdToken?: (() => Promise<string>) | null;
-  onOpenChangelog: () => void;
-  onOpenExamples: () => void;
 }) {
   const [state, setState] = useState<OneVoicePreferencesState>(() =>
     readVoicePreferences(userId),
@@ -334,15 +295,12 @@ export function VoicePreferencesPanel({
   return (
     <div className="space-y-4">
       <VoiceHeader />
-      <SettingsGroup>
+      <SettingsGroup title="How commands work">
         <SettingsRow
-          title="What can I say"
-          description="Location requests and actions."
-          chevron
-          onClick={onOpenExamples}
+          title="Use your own words"
+          description="Hold Talk to One, speak, and release. One interprets the request from your current Location context, then executes it, asks for a required action, or opens the relevant screen."
         />
       </SettingsGroup>
-      <VoiceChangelog onOpenChangelog={onOpenChangelog} />
       <SettingsGroup>
         <SettingsRow
           title="Voice control"

@@ -435,8 +435,3 @@ def build_gemini_byok_adk_model(
         model=clean_model,
         client_kwargs={"vertexai": False, "api_key": clean_key},
     )
-
-
-def build_developer_api_live_client(api_key: str) -> Any:
-    """Fail-closed compatibility entry; no retired provider client is created."""
-    raise RuntimeError("Gemini Live is retired. Use the ordinary command model.")

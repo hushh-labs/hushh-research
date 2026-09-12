@@ -38,7 +38,7 @@ def test_http_probe_returns_structured_failure_on_transport_error(monkeypatch) -
     }
 
 
-def test_semantic_verifier_probes_the_canonical_one_adk_relay(monkeypatch, tmp_path) -> None:
+def test_semantic_verifier_probes_location_command_recovery(monkeypatch, tmp_path) -> None:
     verifier = _load_verifier()
     request_paths: list[str] = []
 
@@ -61,19 +61,15 @@ def test_semantic_verifier_probes_the_canonical_one_adk_relay(monkeypatch, tmp_p
         def _firebase_auth_headers(self) -> dict[str, str]:
             return {"Authorization": "Bearer test-token"}
 
+        def _vault_headers(self) -> dict[str, str]:
+            return {"Authorization": "Bearer vault-owner-token"}
+
         def _request(self, method: str, path: str, **_kwargs) -> _Response:
             request_paths.append(f"{method} {path}")
             if path == "/api/kai/gmail/status/uat-user":
                 return _Response({"configured": True, "connected": False})
-            if path == "/api/one/adk/relay-session":
-                return _Response(
-                    {
-                        "relay_ticket": "opaque-ticket",
-                        "expires_at": 1,
-                        "model": "adk",
-                        "tier": "full",
-                    }
-                )
+            if path == "/api/one/action-proposals":
+                return _Response({"commands": []})
             if path == "/api/ria/onboarding/verify-name":
                 return _Response({"status": "verified", "crd_number": "5838118"})
             raise AssertionError(f"Unexpected UAT verifier request: {method} {path}")
@@ -100,10 +96,10 @@ def test_semantic_verifier_probes_the_canonical_one_adk_relay(monkeypatch, tmp_p
     )
 
     assert verifier.main() == 0
-    assert "POST /api/one/adk/relay-session" in request_paths
-    assert all("/api/kai/voice/" not in path for path in request_paths)
+    assert "GET /api/one/action-proposals" in request_paths
+    assert all("/api/one/adk/" not in path for path in request_paths)
     report = json.loads(report_path.read_text(encoding="utf-8"))
-    assert {check["name"] for check in report["checks"]} >= {"voice_relay_session"}
+    assert {check["name"] for check in report["checks"]} >= {"location_command_recovery"}
 
 
 def _run_verifier_with_ria(
@@ -131,13 +127,14 @@ def _run_verifier_with_ria(
         def _firebase_auth_headers(self) -> dict[str, str]:
             return {"Authorization": "Bearer test-token"}
 
+        def _vault_headers(self) -> dict[str, str]:
+            return {"Authorization": "Bearer vault-owner-token"}
+
         def _request(self, method: str, path: str, **_kwargs) -> _Response:
             if path == "/api/kai/gmail/status/uat-user":
                 return _Response({"configured": True, "connected": False})
-            if path == "/api/one/adk/relay-session":
-                return _Response(
-                    {"relay_ticket": "t", "expires_at": 1, "model": "adk", "tier": "full"}
-                )
+            if path == "/api/one/action-proposals":
+                return _Response({"commands": []})
             if path == "/api/ria/onboarding/verify-name":
                 return _Response(ria_payload)
             raise AssertionError(f"Unexpected request: {method} {path}")

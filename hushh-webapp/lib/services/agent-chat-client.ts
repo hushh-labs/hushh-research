@@ -75,6 +75,7 @@ export type AgentChatStreamHandlers = {
   onThought?: (text: string) => void;
   onSources?: (sources: AgentSource[]) => void;
   onStructuredExperience?: (experience: AgentStructuredExperience) => void;
+  onSpecialistDirective?: (directive: SpecialistDirectiveEvent) => void;
 };
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -361,9 +362,8 @@ export async function streamAgentChat(input: {
         handlers.onPendingConsentRequests?.(pendingIds);
       }
       // A server-side run_app_action parks a directive for the browser. The
-      // Live relay delivers parked directives through session state; this
-      // text transport has no such relay, so the parked action is surfaced
-      // here as a frontend tool event and staged (or run) by the workspace.
+      // text transport surfaces the directive as a frontend tool event, where
+      // the workspace stages it or routes it through the governed executor.
       const parked = parseParkedAppActionDirective(event.content);
       if (parked) {
         const action = getKaiActionById(parked.actionId);
@@ -411,6 +411,37 @@ export async function streamAgentChat(input: {
         activityMessage?.content,
       );
       if (experience) handlers.onStructuredExperience?.(experience);
+    },
+    onStateDeltaEvent: ({ event }) => {
+      const patches = Array.isArray(event.delta) ? event.delta : [];
+      for (const patch of patches) {
+        if (!patch || typeof patch !== "object") continue;
+        const op = patch as { op?: string; path?: string; value?: unknown };
+        if (
+          op.op === "add" &&
+          typeof op.path === "string" &&
+          op.path.startsWith("/hussh:pending_directive:")
+        ) {
+          const val = op.value as Record<string, unknown> | null;
+          if (
+            val &&
+            typeof val === "object" &&
+            typeof val.delegateAgentId === "string"
+          ) {
+            const directivePayload = (val.payload || {}) as Record<string, unknown>;
+            const directiveEvent: SpecialistDirectiveEvent = {
+              delegateAgentId: val.delegateAgentId,
+              directive: {
+                kind: val.kind === "prompt" ? "prompt" : "action",
+                payload: directivePayload,
+              },
+              message: String(directivePayload.summary || val.message || ""),
+              stateChanged: true,
+            };
+            handlers.onSpecialistDirective?.(directiveEvent);
+          }
+        }
+      }
     },
     onRunFinishedEvent: (params) => {
       if (params.outcome === "interrupt") {

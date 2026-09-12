@@ -5,6 +5,12 @@ parent: agent_one
 version: 1.0.0
 status: active
 description: Read-only receipt-sync and purchase-memory specialist under One.
+one_exposure:
+  service_id: gmail
+  discovery_status: withheld
+  exposure_status: disabled
+  supported_entrypoints:
+    - typed
 model: gemini-default
 system_instruction: |
   You are the Gmail Agent under One. Explain receipt sync and purchase-memory

@@ -6,6 +6,7 @@ const {
   mockHasVault,
   mockGetVault,
   mockMutation,
+  mockIssueOwner,
   mockResolveRpId,
   nativePlatform,
   sessionStore,
@@ -16,6 +17,7 @@ const {
   mockHasVault: vi.fn(),
   mockGetVault: vi.fn(),
   mockMutation: vi.fn(),
+  mockIssueOwner: vi.fn(),
   mockResolveRpId: vi.fn(),
   nativePlatform: { current: false },
   sessionStore: new Map<string, string>(),
@@ -39,7 +41,7 @@ vi.mock("@/lib/capacitor", () => ({
     setPrimaryVaultMethod: mockMutation,
   },
   HushhAuth: {},
-  HushhConsent: {},
+  HushhConsent: { issueVaultOwnerToken: mockIssueOwner },
 }));
 
 vi.mock("@/lib/services/auth-service", () => ({
@@ -124,6 +126,27 @@ import {
   VaultService,
 } from "@/lib/services/vault-service";
 import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
+import { apiJson } from "@/lib/services/api-client";
+
+describe("VaultService owner renewal transport", () => {
+  it("threads prior evidence to the native plugin", async () => {
+    nativePlatform.current = true;
+    mockIssueOwner.mockResolvedValue({ token: "synthetic-renewed", expiresAt: Date.now() + 60_000 });
+    await VaultService.issueVaultOwnerToken("synthetic-owner", "synthetic-firebase", "synthetic-prior");
+    expect(mockIssueOwner).toHaveBeenCalledWith({
+      userId: "synthetic-owner", authToken: "synthetic-firebase", renewalOfToken: "synthetic-prior",
+    });
+    nativePlatform.current = false;
+  });
+
+  it("threads prior evidence to the web proxy", async () => {
+    nativePlatform.current = false;
+    await VaultService.issueVaultOwnerToken("synthetic-owner", "synthetic-firebase", "synthetic-prior");
+    expect(apiJson).toHaveBeenCalledWith("/api/consent/vault-owner-token", expect.objectContaining({
+      body: JSON.stringify({ userId: "synthetic-owner", renewalOfToken: "synthetic-prior" }),
+    }));
+  });
+});
 
 function jsonResponse(status: number, body: unknown): Response {
   return {

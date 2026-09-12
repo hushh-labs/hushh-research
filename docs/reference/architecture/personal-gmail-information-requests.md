@@ -42,10 +42,16 @@ flowchart LR
 5. The Gmail workspace presents the opt-in copy and a metadata-only review
    queue. The owner selects only exact manifest-backed leaf scope handles;
    wildcard, domain, and subtree scopes are never eligible for automatic
-   drafting. The unlocked client reads only the explicit encrypted segments,
-   projects only the selected paths, and creates a deterministic editable draft
-   in memory. Attachment content is never read automatically; the owner must
-   inspect it in Gmail. Opening an original message always goes back to Gmail.
+   drafting. `Draft with One` passes the workflow/thread reference plus
+   canonical KYC field IDs into One. The unlocked client resolves those field
+   aliases against the shared KYC registry and decrypts only the selected PKM
+   segments. With complete coverage, One opens the existing editable,
+   source-bound Gmail reply surface. With incomplete coverage, One asks for
+   only the missing fields in the normal chat composer; its KYC extraction
+   profile saves eligible owner-entered facts, refreshes the local lookup, and
+   then prepares that same reply surface. Attachment content is never read
+   automatically; the owner must inspect it in Gmail. Opening an original
+   message always goes back to Gmail.
 6. The backend derives the reply recipient, subject, reply headers, and thread
    id from the original message for both prepare and final send. It rechecks a
    keyed source fingerprint immediately before both actions. The owner reviews

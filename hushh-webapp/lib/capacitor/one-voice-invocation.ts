@@ -11,11 +11,9 @@ import type {
   OneSystemEntityIndexEntry,
   PendingOneSystemActionInvocation,
 } from "@/lib/capacitor/one-system-action-invocation";
-import type { TranscriptEvent } from "@/lib/voice/transcript-events";
-import type { VoiceModelPackManifest } from "@/lib/voice/local-runtime-contract";
 import type {
-  CommandRecording,
   CommandCapturePermission,
+  CommandRecording,
 } from "@/lib/voice/command-capture";
 
 export type PendingOneVoiceInvocation = {
@@ -41,13 +39,6 @@ export type OneVoiceInvocationOutcome =
 
 export type OneVoiceInvocationProgressState =
   "claimed" | "app_owned" | "detached";
-
-export type NativeFluidAudioPackPreparation = {
-  ready: boolean;
-  packId?: string;
-  version?: string;
-  reason?: string;
-};
 
 export interface NativeOneVoiceInvocationPlugin {
   getCommandCapturePermission(): Promise<CommandCapturePermission>;
@@ -96,6 +87,15 @@ export interface NativeOneVoiceInvocationPlugin {
     outcome: "cancelled" | "sign_out";
     clearEntityIndex: boolean;
   }): Promise<void>;
+  getPendingRequestInvocation(): Promise<Record<string, unknown>>;
+  claimRequestInvocation(options: {
+    id: string;
+  }): Promise<{ claimed: boolean; requestText?: string }>;
+  completeRequestInvocation(options: Record<string, unknown>): Promise<void>;
+  reportRequestInvocationProgress(options: Record<string, unknown>): Promise<{
+    reported: boolean;
+  }>;
+  cancelRequestInvocation(options?: { id?: string }): Promise<void>;
   addListener(
     eventName: "voiceInvocationAvailable",
     listener: (invocation: PendingOneVoiceInvocation) => void,
@@ -104,56 +104,43 @@ export interface NativeOneVoiceInvocationPlugin {
     eventName: "systemActionInvocationAvailable",
     listener: (invocation: PendingOneSystemActionInvocation) => void,
   ): Promise<PluginListenerHandle>;
-  // Siri free-text request capture. These live on the SAME native plugin
-  // (HushhVoiceInvocationPlugin, jsName "HushhVoiceInvocation"), so they must be
-  // declared on the one registration -- Capacitor refuses a second
-  // registerPlugin for the same name and hands back the first proxy, which
-  // would leave these methods undefined on web.
-  getPendingRequestInvocation(): Promise<Record<string, unknown>>;
-  claimRequestInvocation(options: {
-    id: string;
-  }): Promise<{ claimed: boolean }>;
-  completeRequestInvocation(options: Record<string, unknown>): Promise<void>;
-  reportRequestInvocationProgress(
-    options: Record<string, unknown>,
-  ): Promise<{ reported: boolean }>;
-  cancelRequestInvocation(options?: { id?: string }): Promise<void>;
-  prepareFluidAudioModelPack(options: {
-    packId: string;
-    version: string;
-    sizeBytes: number;
-    checksum: string;
-    artifactUrl: string;
-    entrypoint: string;
-    licenseNoticeId: string;
-    licenseApproved: boolean;
-  }): Promise<NativeFluidAudioPackPreparation>;
-  getFluidAudioAvailability(): Promise<{ available: boolean }>;
-  rollbackFluidAudioModelPack(): Promise<{ rolledBack: boolean }>;
-  startSpeechRecognition(options?: {
-    sessionId?: string;
-    locale?: string;
-    onDevice?: boolean;
-    allowNetwork?: boolean;
-    contextualStrings?: readonly string[];
-    provider?: "apple_speech" | "fluid_audio";
-  }): Promise<{
-    sessionId: string;
-    provider: string;
-    onDevice: boolean;
-  }>;
-  stopSpeechRecognition(options?: { sessionId?: string }): Promise<void>;
   addListener(
     eventName: "systemRequestInvocationAvailable",
     listener: (invocation: unknown) => void,
   ): Promise<PluginListenerHandle>;
-  addListener(
-    eventName: "oneTranscript",
-    listener: (event: TranscriptEvent) => void,
-  ): Promise<PluginListenerHandle>;
 }
 
+const noListener = (): PluginListenerHandle => ({
+  remove: async () => undefined,
+});
+
 class OneVoiceInvocationWeb extends WebPlugin {
+  async getCommandCapturePermission(): Promise<CommandCapturePermission> {
+    // Web capture uses getUserMedia directly; this native bridge is never its
+    // authority. Return a closed native-shaped result for accidental callers.
+    return { state: "denied", sourcePlatform: "ios" };
+  }
+
+  async requestCommandCapturePermission(): Promise<CommandCapturePermission> {
+    return this.getCommandCapturePermission();
+  }
+
+  async openCommandCaptureSettings(): Promise<{ opened: boolean }> {
+    return { opened: false };
+  }
+
+  async startCommandCapture(): Promise<{ sessionId: string }> {
+    throw new Error("native_command_capture_unsupported");
+  }
+
+  async finishCommandCapture(): Promise<CommandRecording> {
+    throw new Error("native_command_capture_unsupported");
+  }
+
+  async cancelCommandCapture(): Promise<{ cancelled: boolean }> {
+    return { cancelled: false };
+  }
+
   async getPendingInvocation(): Promise<Record<string, never>> {
     return {};
   }
@@ -192,7 +179,10 @@ class OneVoiceInvocationWeb extends WebPlugin {
     return {};
   }
 
-  async claimRequestInvocation(): Promise<{ claimed: boolean }> {
+  async claimRequestInvocation(): Promise<{
+    claimed: boolean;
+    requestText?: string;
+  }> {
     return { claimed: false };
   }
 
@@ -202,29 +192,7 @@ class OneVoiceInvocationWeb extends WebPlugin {
     return { reported: false };
   }
 
-  async cancelRequestInvocation(_options?: { id?: string }): Promise<void> {}
-
-  async prepareFluidAudioModelPack(): Promise<NativeFluidAudioPackPreparation> {
-    return { ready: false, reason: "speech_unsupported" };
-  }
-
-  async getFluidAudioAvailability(): Promise<{ available: boolean }> {
-    return { available: false };
-  }
-
-  async rollbackFluidAudioModelPack(): Promise<{ rolledBack: boolean }> {
-    return { rolledBack: false };
-  }
-
-  async startSpeechRecognition(): Promise<{
-    sessionId: string;
-    provider: string;
-    onDevice: boolean;
-  }> {
-    throw new Error("speech_unsupported");
-  }
-
-  async stopSpeechRecognition(): Promise<void> {}
+  async cancelRequestInvocation(): Promise<void> {}
 }
 
 export const NativeOneVoiceInvocation =
@@ -286,78 +254,10 @@ export const OneVoiceInvocationBridge = {
   async addAvailabilityListener(
     listener: (invocation: PendingOneVoiceInvocation) => void,
   ): Promise<PluginListenerHandle> {
-    if (!this.isSupported()) return { remove: async () => undefined };
+    if (!this.isSupported()) return noListener();
     return NativeOneVoiceInvocation.addListener(
       "voiceInvocationAvailable",
       listener,
     );
-  },
-
-  async startSpeechRecognition(
-    options: {
-      sessionId?: string;
-      locale?: string;
-      onDevice?: boolean;
-      allowNetwork?: boolean;
-      contextualStrings?: readonly string[];
-      provider?: "apple_speech" | "fluid_audio";
-    } = {},
-  ): Promise<{
-    sessionId: string;
-    provider: string;
-    onDevice: boolean;
-  }> {
-    if (!this.isSupported()) throw new Error("speech_unsupported");
-    return NativeOneVoiceInvocation.startSpeechRecognition(options);
-  },
-
-  async stopSpeechRecognition(
-    options: { sessionId?: string } = {},
-  ): Promise<void> {
-    if (!this.isSupported()) return;
-    await NativeOneVoiceInvocation.stopSpeechRecognition(options);
-  },
-
-  async prepareFluidAudioModelPack(
-    pack: VoiceModelPackManifest,
-  ): Promise<NativeFluidAudioPackPreparation> {
-    if (!this.isSupported())
-      return { ready: false, reason: "speech_unsupported" };
-    if (pack.runtime !== "fluid_audio") {
-      return { ready: false, reason: "pack_not_compatible" };
-    }
-    return NativeOneVoiceInvocation.prepareFluidAudioModelPack({
-      packId: pack.pack_id,
-      version: pack.version,
-      sizeBytes: pack.size_bytes,
-      checksum: pack.checksum,
-      artifactUrl: pack.artifact_url,
-      entrypoint: pack.entrypoint,
-      licenseNoticeId: pack.license_notice_id,
-      licenseApproved: pack.license_approved,
-    });
-  },
-
-  async getFluidAudioAvailability(): Promise<boolean> {
-    if (!this.isSupported()) return false;
-    return (
-      (await NativeOneVoiceInvocation.getFluidAudioAvailability()).available ===
-      true
-    );
-  },
-
-  async rollbackFluidAudioModelPack(): Promise<boolean> {
-    if (!this.isSupported()) return false;
-    return (
-      (await NativeOneVoiceInvocation.rollbackFluidAudioModelPack())
-        .rolledBack === true
-    );
-  },
-
-  async addTranscriptListener(
-    listener: (event: TranscriptEvent) => void,
-  ): Promise<PluginListenerHandle> {
-    if (!this.isSupported()) return { remove: async () => undefined };
-    return NativeOneVoiceInvocation.addListener("oneTranscript", listener);
   },
 };

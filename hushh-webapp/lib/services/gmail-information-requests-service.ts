@@ -15,6 +15,8 @@ export type GmailInformationRequestCandidateScope = {
   domain: string;
   label: string;
   segment_ids: string[];
+  /** Shared KYC IDs are metadata only; no private values leave the vault. */
+  canonical_field_ids?: string[];
 };
 
 export type GmailInformationRequestWorkflow = {
@@ -48,6 +50,11 @@ export type GmailInformationRequestScan = {
   workflow_ids: string[];
   baseline_established?: boolean;
   baseline_reestablished?: boolean;
+};
+
+export type GmailInformationRequestCandidateRefresh = {
+  workflow_id: string;
+  candidate_scopes: GmailInformationRequestCandidateScope[];
 };
 
 export type GmailPreparedInformationRequestReply = {
@@ -140,6 +147,24 @@ export class GmailInformationRequestsService {
         method: "POST",
         headers: ownerHeaders(input.firebaseIdToken, input.vaultOwnerToken),
         body: JSON.stringify({ max_results: input.maxResults ?? 12 }),
+      },
+    );
+  }
+
+  /**
+   * Re-resolve the detected request against the owner's current PKM manifest.
+   * This returns scope metadata only; decrypted values remain in the unlocked client.
+   */
+  static refreshCandidates(input: {
+    firebaseIdToken: string;
+    vaultOwnerToken: string;
+    workflowId: string;
+  }): Promise<GmailInformationRequestCandidateRefresh> {
+    return apiJson<GmailInformationRequestCandidateRefresh>(
+      `/api/one/email/information-requests/${encodeURIComponent(input.workflowId)}/refresh-candidates`,
+      {
+        method: "POST",
+        headers: ownerHeaders(input.firebaseIdToken, input.vaultOwnerToken),
       },
     );
   }

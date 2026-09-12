@@ -170,6 +170,20 @@ describe("OnboardingJourneyGuard", () => {
     expect(replace).not.toHaveBeenCalled();
   });
 
+  it("labels authentication validation as a secure-session check, not setup", () => {
+    authState.loading = true;
+    getCachedBootstrapStateMock.mockReturnValue(incompleteSetupState());
+
+    render(
+      <OnboardingJourneyGuard>
+        <div>setup hub</div>
+      </OnboardingJourneyGuard>,
+    );
+
+    expect(screen.getByText("Checking secure session...")).toBeTruthy();
+    expect(screen.queryByText("Checking setup...")).toBeNull();
+  });
+
   it("admits a returning user synchronously from the positive setup latch", async () => {
     pathnameValue = "/one";
     getCachedBootstrapStateMock.mockReturnValue(null);

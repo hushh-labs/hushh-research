@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 #   + len(GLOBAL_SESSION_ACTION_IDS) (1).
 # There is no automated cross-language sync for this -- bump both together,
 # in the same commit, whenever either grows on the TS side. Consumed by
-# live_context.py's LIVE_CONTEXT_ARRAY_CAP, onboarding/agent.py's
+# agent_context.py's AGENT_CONTEXT_ARRAY_CAP, onboarding/agent.py's
 # OnboardingJourneyContext.available_action_ids max_length, and
 # one_adk/agent_tree.py's two render-time slices.
 AVAILABLE_ACTION_IDS_CAP = 59
@@ -145,7 +145,18 @@ def _action_index() -> dict[str, dict[str, Any]]:
 
 
 def get_action_gateway_action(action_id: str | None) -> dict[str, Any] | None:
-    return _action_index().get(str(action_id or "").strip())
+    clean_id = str(action_id or "").strip()
+    if clean_id == "pkm.add":
+        return {
+            "action_id": "pkm.add",
+            "label": "Add to PKM",
+            "meaning": "Save information to PKM",
+            "risk": {"execution_policy": "allow_direct"},
+            "execution_target": {"status": "wired"},
+            "scope": {"screens": []},
+            "guards": [],
+        }
+    return _action_index().get(clean_id)
 
 
 def is_navigation_action(entry: dict[str, Any] | None) -> bool:

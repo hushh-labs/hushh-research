@@ -157,15 +157,18 @@ export class KycIdentityProfilePkmService {
       vaultKey: params.vaultKey,
       vaultOwnerToken: params.vaultOwnerToken,
       source: "kyc_identity_onboarding",
+      memoryProfile: "kyc_identity_v1",
       confirmation: {
         confirmedByUser: true,
         surface: "web",
         source: "kyc_identity_onboarding",
       },
-      // Save & Continue confirms the onboarding form, not every ambiguous
-      // extraction. KYC persists only the same high-confidence cards allowed
-      // by the owner's explicit auto-save policy.
-      writePolicy: "auto_save_only",
+      // The person has reviewed the imported export and explicitly pressed
+      // “Save KYC details”. That action satisfies the PKM confirmation
+      // requirement for review-only cards. Keep rejected cards excluded in
+      // the canonical writer; do not discard valid KYC facts merely because
+      // their inferred destination needs review.
+      writePolicy: "reviewable",
     });
     if (ingestion.save.saved === 0) {
       return {
@@ -218,14 +221,22 @@ export class KycIdentityProfilePkmService {
       };
     }
 
-    const skippedMessage = ingestion.save.failed > 0
-      ? ` ${ingestion.save.failed} ${ingestion.save.failed === 1 ? "detail was" : "details were"} skipped and can be retried later.`
-      : "";
+    const reviewRequiredBlockCount = (ingestion.sourceCoverage ?? []).filter(
+      (block) => block.disposition === "review_required" && block.accountedFactCount === 0,
+    ).length;
+    const skippedMessage = [
+      ingestion.save.failed > 0
+        ? `${ingestion.save.failed} ${ingestion.save.failed === 1 ? "detail was" : "details were"} skipped and can be retried later.`
+        : "",
+      reviewRequiredBlockCount > 0
+        ? `${reviewRequiredBlockCount} ${reviewRequiredBlockCount === 1 ? "section needs" : "sections need"} a clearer KYC detail before it can be saved.`
+        : "",
+    ].filter(Boolean).join(" ");
     return {
       ...completionResult,
       message:
         `Saved ${ingestion.save.saved} separate memory ${ingestion.save.saved === 1 ? "detail" : "details"}.` +
-        skippedMessage,
+        (skippedMessage ? ` ${skippedMessage}` : ""),
     };
   }
 }

@@ -2,9 +2,147 @@
   "schema_version": "kai.local_action_contract.v1",
   "surface_id": "one_setup_location",
   "surface_title": "Location Setup",
-  "defaults": {"reachability": {"active_personas": ["investor", "ria"]}, "speaker_persona": "one", "guard_ids": ["auth_signed_in"], "command": {"domain": "location", "review_route": "/one/setup/location"}},
+  "defaults": {
+    "reachability": { "active_personas": ["investor", "ria"] },
+    "speaker_persona": "one",
+    "guard_ids": ["auth_signed_in"],
+    "command": {
+      "domain": "location",
+      "review_route": "/one/setup/location"
+    }
+  },
   "actions": [
-    {"action_id": "setup.finish_location", "label": "Finish Location setup", "meaning": "Records granted device location permission and marks Location setup complete.", "aliases": ["finish location setup", "finish location"], "search_keywords": ["finish", "location"], "reachability": {"routes": ["/one/setup/location"], "screens": ["one_setup_location"], "hidden_navigable": false, "navigation_prerequisites": ["Device location permission is granted."]}, "guard_ids": ["auth_signed_in"], "risk_level": "low", "execution_policy": "allow_direct", "execution_target": {"status": "wired", "path": "local_handler", "target": "setup.finish_location"}, "control_ids": ["one-setup-location-terminal"], "state_exposure": ["location permission state", "active setup capability"], "command": {"permission": "location"}},
-    { "action_id": "setup.skip_location", "label": "Skip Location setup", "meaning": "Returns to the setup hub without recording Location as complete.", "aliases": ["skip location setup", "skip location"], "search_keywords": ["skip", "location"], "reachability": { "routes": ["/one/setup/location"], "screens": ["one_setup_location"], "hidden_navigable": false, "navigation_prerequisites": [] }, "guard_ids": ["auth_signed_in"], "risk_level": "low", "execution_policy": "allow_direct", "execution_target": { "status": "wired", "path": "local_handler", "target": "setup.skip_location" }, "control_ids": ["one-setup-location-terminal"], "state_exposure": ["active setup capability"] }
+    {
+      "action_id": "location.onboarding.choose_place",
+      "label": "Continue the active Location setup place step",
+      "meaning": "Continues only the server-owned Location onboarding task currently waiting for its optional saved-place choice. Home and Work save through the exact approved interaction path. A clear custom name may use Other; a bare or ambiguous Other opens the approved picker or form. Skip settles the optional place step. It never declares the entire setup complete before verified settlement.",
+      "aliases": [
+        "save this as home",
+        "save this as work",
+        "save my location as home",
+        "save my location as work",
+        "use home for this place",
+        "use work for this place",
+        "save this as the gym",
+        "remember this as school",
+        "save this with another name",
+        "save this as another place",
+        "skip saving this place",
+        "don't save this place"
+      ],
+      "search_keywords": ["location", "onboarding", "place", "home", "work", "other", "label", "skip"],
+      "reachability": {
+        "routes": ["/one/setup/location"],
+        "screens": ["one_setup_location"],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "A server-owned workflow.setup.location v2 run is active at location.onboarding.place.",
+          "The exact run revision, directive, and one-time lease still match."
+        ]
+      },
+      "guard_ids": ["auth_signed_in"],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "location.onboarding.choose_place"
+      },
+      "control_ids": ["one-location-workflow-card"],
+      "state_exposure": ["bounded Location onboarding run status", "categorical place choice"],
+      "goal": {
+        "goal_id": "goal.location.onboarding.choose_place",
+        "slot_schema": {
+          "choice": "location_onboarding_place_choice",
+          "label": "spoken_place_name",
+          "runtime_run_id": "server_bound_opaque_run_id",
+          "runtime_run_revision": "server_bound_run_revision",
+          "runtime_directive_id": "server_bound_opaque_directive_id",
+          "runtime_lease_id": "server_bound_opaque_lease_id"
+        },
+        "required_inputs": [
+          {
+            "name": "choice",
+            "slot": "choice",
+            "resolver": "location_onboarding_place_choice",
+            "prompt": "Should I use Home, Work, another label, or skip this optional place?",
+            "required": true,
+            "options": ["home", "work", "other", "skip"]
+          },
+          {
+            "name": "label",
+            "slot": "label",
+            "resolver": "spoken_place_name",
+            "prompt": "What should I call this place?",
+            "required": false
+          }
+        ],
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "location.onboarding.choose_place",
+            "label": "Continue the active Location setup place step",
+            "settlement_target": {
+              "route": "/one/setup/location",
+              "screen": "one_setup_location"
+            }
+          }
+        ],
+        "entrypoint_support": ["voice", "chat", "typed_search", "command_bar", "siri_app_shortcut", "ui"]
+      }
+    },
+    {
+      "action_id": "setup.finish_location",
+      "label": "Finish Location setup",
+      "meaning": "Requests final verification after the Location onboarding runtime has settled permission, position, place or explicit skip, and personal Circle provisioning.",
+      "aliases": ["finish location setup", "finish location", "complete location onboarding"],
+      "search_keywords": ["finish", "location", "verify", "onboarding"],
+      "reachability": {
+        "routes": ["/one/setup/location"],
+        "screens": ["one_setup_location"],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "The active Location onboarding run has verified permission and position evidence.",
+          "A saved-place settlement or explicit place-skip settlement exists.",
+          "The personal Circle was provisioned or reused and verified."
+        ]
+      },
+      "guard_ids": ["auth_signed_in"],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "setup.finish_location"
+      },
+      "command": {
+        "permission": "location"
+      },
+      "control_ids": ["one-setup-location-terminal"],
+      "state_exposure": ["bounded Location onboarding run status", "verified settlement readiness"]
+    },
+    {
+      "action_id": "setup.skip_location",
+      "label": "Pause Location setup",
+      "meaning": "Pauses the active Location onboarding run and returns to setup without recording Location as complete.",
+      "aliases": ["skip location setup", "skip location", "pause location onboarding"],
+      "search_keywords": ["skip", "pause", "location"],
+      "reachability": {
+        "routes": ["/one/setup/location"],
+        "screens": ["one_setup_location"],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": ["auth_signed_in"],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "setup.skip_location"
+      },
+      "control_ids": ["one-setup-location-terminal"],
+      "state_exposure": ["bounded Location onboarding run status"]
+    }
   ]
 }

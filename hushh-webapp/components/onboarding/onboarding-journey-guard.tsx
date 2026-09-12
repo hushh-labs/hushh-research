@@ -362,7 +362,9 @@ export function OnboardingJourneyGuard({
             ? "Opening One..."
             : redirecting
               ? "Returning to setup..."
-              : "Checking setup..."
+              : authLoading
+                ? "Checking secure session..."
+                : "Checking setup..."
         }
       />
     );

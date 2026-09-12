@@ -101,7 +101,8 @@ labels and provenance verification.
 3. **Managed Vertex inference temporarily uses the UAT Vertex project.** The Dev
    Cloud Run service continues to run as
    `consent-protocol-runtime@hushh-pda-dev.iam.gserviceaccount.com`, but
-   `GOOGLE_CLOUD_PROJECT=hushh-pda-uat` for managed Gemini text and One Live calls.
+   `GOOGLE_CLOUD_PROJECT=hushh-pda-uat` for managed Gemini text, bounded audio
+   transcription, and semantic Location command calls.
    Dev keeps its own Cloud Run and database resources while managed Gemini requests
    use UAT's working Vertex billing entitlement. UAT grants that Dev service account only
    `roles/aiplatform.user` and `roles/serviceusage.serviceUsageConsumer`; Dev usage
@@ -217,7 +218,7 @@ python3 scripts/ops/verify-env-secrets-parity.py \
   --backend-service consent-protocol \
   --frontend-service hushh-webapp \
   --require-plaid --require-market-data --require-gmail --require-one-email \
-  --require-voice --require-reviewer-smoke
+  --require-reviewer-smoke
 ```
 
 ## Phase 4 — Deploy service account + GitHub wiring

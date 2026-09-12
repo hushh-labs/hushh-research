@@ -1,0 +1,20 @@
+{
+  "version": "kyc_identity_v1",
+  "description": "Canonical, user-provided KYC facts. Values stay encrypted in the owner vault; this file contains only field metadata and aliases.",
+  "fields": [
+    { "id": "identity.identity_profile.full_name", "domain": "identity", "path": "identity_profile.full_name", "aliases": ["name", "full name", "legal name", "display name"] },
+    { "id": "identity.identity_profile.declared_age", "domain": "identity", "path": "identity_profile.declared_age", "aliases": ["age", "current age", "years old"] },
+    { "id": "identity.identity_profile.date_of_birth", "domain": "identity", "path": "identity_profile.date_of_birth", "aliases": ["date of birth", "birth date", "dob"] },
+    { "id": "identity.identity_profile.citizenship", "domain": "identity", "path": "identity_profile.citizenship", "aliases": ["citizenship", "nationality", "country of citizenship"] },
+    { "id": "identity.identity_profile.address", "domain": "identity", "path": "identity_profile.address", "aliases": ["address", "residential address", "home address"] },
+    { "id": "identity.identity_profile.email", "domain": "identity", "path": "identity_profile.email", "aliases": ["email", "email address", "contact email"] },
+    { "id": "identity.identity_profile.phone_number", "domain": "identity", "path": "identity_profile.phone_number", "aliases": ["phone", "phone number", "mobile", "contact number"] },
+    { "id": "identity.identity_profile.education.institution", "domain": "identity", "path": "identity_profile.education.institution", "aliases": ["education", "education information", "educational institution", "institution", "university", "college", "school"] },
+    { "id": "identity.identity_profile.education.department", "domain": "identity", "path": "identity_profile.education.department", "aliases": ["department", "academic department"] },
+    { "id": "identity.identity_profile.education.programme", "domain": "identity", "path": "identity_profile.education.programme", "aliases": ["programme", "program", "degree", "course"] },
+    { "id": "identity.identity_profile.education.academic_status", "domain": "identity", "path": "identity_profile.education.academic_status", "aliases": ["academic status", "student status", "year of study", "student"] },
+    { "id": "professional.profile.employer", "domain": "professional", "path": "profile.employer", "aliases": ["employer", "company", "organization", "organisation", "workplace"] },
+    { "id": "professional.profile.role", "domain": "professional", "path": "profile.role", "aliases": ["role", "job title", "designation", "position"] },
+    { "id": "professional.profile.employment_status", "domain": "professional", "path": "profile.employment_status", "aliases": ["employment status", "work status", "profession"] }
+  ]
+}

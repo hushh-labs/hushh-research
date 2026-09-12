@@ -36,8 +36,9 @@ ran=0
 
 # Account deletion is an auth/session boundary on every client. Keep the
 # production-code regressions and rendered recovery notice in the PR gate.
-if has_match '^(hushh-webapp/(lib/(auth/|firebase/auth-context|flows/delete-account|services/(account-service|api-service|auth-service|vault-service)|vault/vault-context)|components/(auth/|vault/|onboarding/)|app/(login/|page\.tsx)|e2e/account-session-recovery|__tests__/.*(account|session|vault))|consent-protocol/(api/(routes/account|utils/firebase_auth)|hushh_mcp/services/account|db/migrations/201_))'; then
+if has_match '^(hushh-webapp/(lib/(auth/|firebase/auth-context|flows/delete-account|services/(account-service|api-service|auth-service|vault-(service|bootstrap-service|method-service))|vault/|capacitor/(session-privacy|plugins/(keychain-web|vault-web)))|components/(auth/|vault/|onboarding/)|app/(login/|page\.tsx|api/consent/vault-owner-token/)|e2e/account-session-recovery|__tests__/.*(account|session|vault))|consent-protocol/(api/(routes/(account|consent)|utils/firebase_auth)|hushh_mcp/(services/(account|consent_db)|consent/token)|db/migrations/201_))'; then
   run_check "account session recovery" npm run verify:account-session
+  run_check "vault unlock and enrollment" npm run verify:vault-unlock
   NEXT_PUBLIC_APP_ENV="${NEXT_PUBLIC_APP_ENV:-development}" \
   NEXT_PUBLIC_BACKEND_URL="${NEXT_PUBLIC_BACKEND_URL:-http://127.0.0.1:9}" \
   NEXT_PUBLIC_FIREBASE_API_KEY="${NEXT_PUBLIC_FIREBASE_API_KEY:-test-api-key}" \
@@ -48,7 +49,7 @@ if has_match '^(hushh-webapp/(lib/(auth/|firebase/auth-context|flows/delete-acco
   ran=1
 fi
 
-if has_match '^hushh-webapp/(lib/voice/|components/agent/|scripts/voice/|__tests__/.*(voice|agent)|app/api/(kai|one)/.*(voice|realtime)|\.voice-action-contract\.json)'; then
+if has_match '^hushh-webapp/(lib/voice/|components/agent/|components/one-location/onboarding/(location-command-device-bridge|location-onboarding-interaction-surface)\.tsx|lib/services/(gemini-live-client|one-location-onboarding-device-orchestrator|one-location-onboarding-run-client)\.ts|scripts/voice/|__tests__/.*(voice|agent)|app/api/(kai|one)/.*(voice|realtime)|\.voice-action-contract\.json)'; then
   run_check "voice gateway" npm run verify:voice-gateway
   run_check "One Voice runtime evaluations" npm run verify:one-voice
   ran=1
@@ -56,7 +57,7 @@ fi
 
 # Agent Chat is a two-agent window: One in the cloud and Puppy One on the
 # owner's own Mac. The invariants that matter are COMPOSITION properties (which
-# of One's controls survive the switch, whether a live voice session or an
+# of One's controls survive the switch, whether a command capture or an
 # in-flight turn does), and none of the eleven Puppy suites gated a pull
 # request before this lane existed, which is how a cloud model picker shipped
 # sitting over the on-device transcript. Kept separate from the voice-gateway

@@ -13,7 +13,7 @@ from google.genai.errors import APIError
 from pydantic import Field
 
 from api.middleware import require_vault_owner_token
-from api.routes.one.live_context import sanitize_live_context
+from api.routes.one.agent_context import sanitize_agent_context
 from hushh_mcp.agents.location.command_brain import LocationCommandBrain
 from hushh_mcp.operons.location.capabilities import compile_location_capabilities
 from hushh_mcp.operons.location.plan import (
@@ -98,7 +98,7 @@ def _catalog() -> tuple[str, dict[str, dict[str, Any]]]:
 def _context(value: dict[str, Any]) -> dict[str, Any]:
     if len(json.dumps(value)) > 48_000:
         raise HTTPException(413, "Command context is too large.")
-    context = sanitize_live_context(value)
+    context = sanitize_agent_context(value)
     # Derive the revision from the sanitized state, rather than trusting a caller label.
     context["context_revision"] = _ledger._hmac(
         {

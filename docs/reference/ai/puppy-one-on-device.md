@@ -54,7 +54,7 @@ vendor. Three things hold it up:
 packages** — calendar, connected_systems, connections, email, financial_guard,
 gmail, kai, kyc, location, memory_intent, memory_merge, memory_segmentation,
 nav, onboarding, one, orchestrator, personal_information, pkm_structure,
-portfolio_import, realtime_bench, summary_reducer — all extending
+portfolio_import, summary_reducer — all extending
 `HushhAgent(LlmAgent)` in `base_agent.py`, with a dedicated `orchestrator/`.
 
 Do not describe this as a "five-agent chain". Five of those twenty-one

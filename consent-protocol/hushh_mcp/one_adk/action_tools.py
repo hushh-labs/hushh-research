@@ -5,7 +5,7 @@ loaded through ``hushh_mcp.services.action_gateway``) is the routing authority:
 
 - Actions WITHOUT a wired ``delegate_agent_id`` execute as client directives:
   ``run_app_action`` validates policy + slots and parks a
-  ``{kind: "action"}`` directive the relay forwards to the app. Zero LLM
+  ``{kind: "action"}`` directive for the app's governed executor. Zero LLM
   calls, zero agent hops; the app re-checks guards before executing.
 - Actions whose ``delegate_agent_id`` maps to a wired specialist tool are
   REFUSED with a redirect to that ``ask_*`` tool, so contract ownership can
@@ -63,6 +63,15 @@ from hushh_mcp.services.action_gateway import (
     list_action_gateway_actions,
 )
 from hushh_mcp.services.actor_identity_service import ActorIdentityService
+from hushh_mcp.services.agent_task_context import (
+    read_agent_task_context,
+    read_completed_action,
+    read_failed_action,
+    read_unknown_action_attempts,
+    record_completed_action,
+    record_failed_action,
+    record_unknown_action_attempt,
+)
 from hushh_mcp.services.connections_service import ConnectionsError, ConnectionsService
 from hushh_mcp.services.consent_center_service import ConsentCenterService
 from hushh_mcp.services.consent_lifecycle_service import (
@@ -77,15 +86,6 @@ from hushh_mcp.services.domain_contracts import (
 from hushh_mcp.services.information_request_service import (
     InformationRequestError,
     InformationRequestService,
-)
-from hushh_mcp.services.live_voice_context import (
-    read_completed_action,
-    read_failed_action,
-    read_live_voice_context,
-    read_unknown_action_attempts,
-    record_completed_action,
-    record_failed_action,
-    record_unknown_action_attempt,
 )
 from hushh_mcp.services.one_email_kyc_service import OneEmailKycService
 from hushh_mcp.services.one_location_agent_service import (
@@ -208,35 +208,29 @@ _AVAILABILITY_ORDER = {
 }
 
 
-def _voice_context(tool_context: ToolContext) -> Any:
-    """The freshest sanitized browser context available to this tool.
+def _agent_context(tool_context: ToolContext) -> Any:
+    """Return the freshest sanitized browser context available to this tool.
 
-    ``run_live`` opens one long invocation per socket, so ``tool_context.state``
-    is frozen at connect time: after a navigation the relay knows the new
-    screen while every tool still reads the screen the person was on when they
-    started talking. A cross-screen journey could therefore never continue, and
-    each retry re-read the same stale value instead of converging.
-
-    Prefer the relay's live publication, keyed by this session, and fall back
-    to session state for non-live callers (typed chat, tests) which have no
-    socket and no staleness problem.
+    ``tool_context.state`` can be frozen before a route settles. Prefer the
+    latest browser publication keyed by this task, then fall back to session
+    state when no newer context is available.
     """
     session_id = getattr(getattr(tool_context, "session", None), "id", None)
-    live = read_live_voice_context(session_id) if session_id else None
-    if isinstance(live, dict):
-        return live
+    published = read_agent_task_context(session_id) if session_id else None
+    if isinstance(published, dict):
+        return published
     return tool_context.state.get(_STATE_VOICE_CONTEXT)
 
 
 def _available_action_ids(tool_context: ToolContext) -> set[str] | None:
-    """Return the browser-declared executable ids when live context exists.
+    """Return browser-declared executable ids when published context exists.
 
     The browser may publish arbitrary descriptive metadata, but action ids are
     filtered against the generated gateway before reaching this state. An
-    absent context preserves compatibility for non-live callers; a present but
+    absent context preserves compatibility for older callers; a present but
     empty list deliberately means no executable controls are available.
     """
-    context = _voice_context(tool_context)
+    context = _agent_context(tool_context)
     if not isinstance(context, dict):
         return None
     ids = context.get("available_action_ids")
@@ -264,10 +258,10 @@ def _executable_action_ids(tool_context: ToolContext) -> set[str] | None:
     apart is what stops a ranking decision from surfacing as a refusal.
 
     Server-derived, from the generated route orchestration index, so it cannot
-    be widened by a forged frame. Absent for non-live callers and older
+    be widened by a forged frame. Absent for older
     payloads, where the caller falls back to the declared inventory.
     """
-    context = _voice_context(tool_context)
+    context = _agent_context(tool_context)
     if not isinstance(context, dict) or "executable_action_ids" not in context:
         return None
     ids = context.get("executable_action_ids")
@@ -281,10 +275,10 @@ def _voice_settings(tool_context: ToolContext) -> dict[str, Any]:
 
     Already bounded and allowlisted by sanitize_voice_settings on the way in;
     this only re-reads what the trust boundary already validated. Absent
-    context (non-live callers, tests) means no restriction, matching
+    context (older callers, tests) means no restriction, matching
     sanitize_voice_settings' own fail-open default.
     """
-    context = _voice_context(tool_context)
+    context = _agent_context(tool_context)
     settings = context.get("voice_settings") if isinstance(context, dict) else None
     return settings if isinstance(settings, dict) else {}
 
@@ -2550,7 +2544,7 @@ async def run_app_action(
             "next_tool": "report_no_app_action",
         }
 
-    context = _voice_context(tool_context)
+    context = _agent_context(tool_context)
     if isinstance(context, dict) and context.get("context_pending") is True:
         # The live relay seeded this marker at session start; the browser's
         # first app_context frame has not landed yet. Refusing outright here
@@ -2917,7 +2911,7 @@ async def run_app_action(
 
 
 def _context_revision(tool_context: ToolContext) -> str:
-    context = _voice_context(tool_context)
+    context = _agent_context(tool_context)
     if not isinstance(context, dict):
         return ""
     return str(context.get("context_revision") or "").strip()[:128]
@@ -3336,7 +3330,7 @@ async def start_app_goal(
             "message": missing["prompt"],
         }
     journey_slots = _journey_slots(entry or {}, slots or {})
-    context = _voice_context(tool_context)
+    context = _agent_context(tool_context)
     if not isinstance(context, dict) or context.get("context_pending") is True:
         logger.info(
             "one_adk_goal_decision goal=%s action=%s status=context_not_ready", goal_id, clean_id
@@ -3419,7 +3413,7 @@ async def _continue_settled_journey(
     run: dict[str, Any], tool_context: ToolContext
 ) -> dict[str, Any]:
     """Make an authored choice eligible only on its accepted destination."""
-    context = _voice_context(tool_context)
+    context = _agent_context(tool_context)
     if not isinstance(context, dict) or context.get("context_pending") is True:
         return {"status": "settling", "message": "Waiting for the destination screen."}
     expected = run.get("settlement_target")
@@ -3484,7 +3478,7 @@ async def continue_app_goal(tool_context: ToolContext) -> dict[str, Any]:
     goal_id = str(run["goal_id"])
     journey_action_id = str(run.get("action_id") or "").strip()
     destination_screen = str(run.get("expected_screen") or "").strip()
-    context = _voice_context(tool_context)
+    context = _agent_context(tool_context)
     if not isinstance(context, dict) or context.get("context_pending") is True:
         logger.info("one_adk_goal_decision status=settling reason=context_pending")
         return {"status": "settling", "message": "Waiting for fresh destination context."}
@@ -4105,6 +4099,32 @@ async def set_preferred_model(model_id: str, tool_context: ToolContext) -> dict[
         "running_now": preference["effective_model"],
         "following_default": preference["selected_model"] is None,
         "takes_effect": "next_message",
+    }
+
+
+async def add_to_pkm(memory_text: str, reason: str, tool_context: ToolContext) -> dict[str, Any]:
+    """Save or queue durable personal context to the user's encrypted PKM through the frontend PKM writer.
+
+    Use only when the user explicitly asks to save, remember, store, or add information to PKM or memory.
+    """
+    clean_text = str(memory_text or "").strip()
+    if not clean_text:
+        return {
+            "status": "missing_text",
+            "message": "Specify the exact information to save to memory.",
+        }
+
+    # If PKM write uses source_text in slots, let's match the AgentChatActionPlan logic:
+    tool_context.state[f"{_STATE_PENDING_DIRECTIVE}:pkm_add"] = {
+        "kind": "action",
+        "payload": {
+            "actionId": "pkm.add",
+            "slots": {"source_text": clean_text[:50_000]},
+        },
+    }
+    return {
+        "status": "directive_parked",
+        "message": "Opening Memory to save this information.",
     }
 
 

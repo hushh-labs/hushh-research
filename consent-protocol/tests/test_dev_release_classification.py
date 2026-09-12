@@ -10,7 +10,7 @@ import yaml
 @pytest.mark.parametrize(
     ("failure", "backend", "frontend", "blocked"),
     [
-        ("voice_relay_session", True, False, True),
+        ("location_command_recovery", True, False, True),
         ("frontend_login", False, True, True),
         ("signed_in_routes:/one", False, False, False),
     ],

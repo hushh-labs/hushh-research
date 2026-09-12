@@ -47,6 +47,15 @@
       "model": "gemini-default",
       "name": "Calendar Agent",
       "native_requirements": [],
+      "one_exposure": {
+        "discovery_status": "discoverable",
+        "exposure_status": "active",
+        "knowledge_package_ref": null,
+        "service_id": "calendar",
+        "supported_entrypoints": [
+          "typed"
+        ]
+      },
       "optional_scopes": [],
       "outputs": [],
       "owner": "backend",
@@ -190,6 +199,15 @@
       "model": "gemini-default",
       "name": "Connected Systems Agent",
       "native_requirements": [],
+      "one_exposure": {
+        "discovery_status": "withheld",
+        "exposure_status": "disabled",
+        "knowledge_package_ref": null,
+        "service_id": "connected_systems",
+        "supported_entrypoints": [
+          "typed"
+        ]
+      },
       "optional_scopes": [],
       "outputs": [],
       "owner": "backend",
@@ -343,6 +361,7 @@
       "model": "gemini-default",
       "name": "Connections Agent",
       "native_requirements": [],
+      "one_exposure": null,
       "optional_scopes": [],
       "outputs": [],
       "owner": "backend",
@@ -434,6 +453,15 @@
       "model": "gemini-default",
       "name": "Email Agent",
       "native_requirements": [],
+      "one_exposure": {
+        "discovery_status": "discoverable",
+        "exposure_status": "limited",
+        "knowledge_package_ref": null,
+        "service_id": "email",
+        "supported_entrypoints": [
+          "typed"
+        ]
+      },
       "optional_scopes": [],
       "outputs": [],
       "owner": "backend",
@@ -530,6 +558,7 @@
       "model": "gemini-default",
       "name": "Financial Guard Agent",
       "native_requirements": [],
+      "one_exposure": null,
       "optional_scopes": [],
       "outputs": [
         {
@@ -627,6 +656,15 @@
       "model": "gemini-default",
       "name": "Gmail Agent",
       "native_requirements": [],
+      "one_exposure": {
+        "discovery_status": "withheld",
+        "exposure_status": "disabled",
+        "knowledge_package_ref": null,
+        "service_id": "gmail",
+        "supported_entrypoints": [
+          "typed"
+        ]
+      },
       "optional_scopes": [],
       "outputs": [],
       "owner": "backend",
@@ -733,6 +771,17 @@
       },
       "name": "Kai Financial Agent",
       "native_requirements": [],
+      "one_exposure": {
+        "discovery_status": "discoverable",
+        "exposure_status": "active",
+        "knowledge_package_ref": null,
+        "service_id": "finance",
+        "supported_entrypoints": [
+          "typed",
+          "voice",
+          "siri_app_shortcut"
+        ]
+      },
       "optional_scopes": [],
       "outputs": [
         {
@@ -973,6 +1022,15 @@
       "model": "gemini-default",
       "name": "Agent KYC",
       "native_requirements": [],
+      "one_exposure": {
+        "discovery_status": "discoverable",
+        "exposure_status": "limited",
+        "knowledge_package_ref": null,
+        "service_id": "kyc",
+        "supported_entrypoints": [
+          "typed"
+        ]
+      },
       "optional_scopes": [
         "agent.kyc.redraft.llm",
         "agent.kyc.disclose.llm",
@@ -1074,6 +1132,22 @@
       "model": "gemini-default",
       "name": "Location Agent",
       "native_requirements": [],
+      "one_exposure": {
+        "discovery_status": "discoverable",
+        "exposure_status": "active",
+        "knowledge_package_ref": {
+          "package_id": "location.brain",
+          "package_version": 2,
+          "path": "knowledge.yaml",
+          "schema_version": "one.knowledge_package_ref.v1"
+        },
+        "service_id": "location",
+        "supported_entrypoints": [
+          "typed",
+          "voice",
+          "siri_app_shortcut"
+        ]
+      },
       "optional_scopes": [
         "cap.location.live.view",
         "cap.location.live.refer_request"
@@ -1240,6 +1314,7 @@
       "model": "gemini-default",
       "name": "Memory Intent Agent",
       "native_requirements": [],
+      "one_exposure": null,
       "optional_scopes": [],
       "outputs": [
         {
@@ -1397,6 +1472,7 @@
       "model": "gemini-default",
       "name": "Memory Merge Agent",
       "native_requirements": [],
+      "one_exposure": null,
       "optional_scopes": [],
       "outputs": [
         {
@@ -1534,6 +1610,7 @@
       "model": "gemini-default",
       "name": "Memory Segmentation Agent",
       "native_requirements": [],
+      "one_exposure": null,
       "optional_scopes": [],
       "outputs": [
         {
@@ -1642,6 +1719,17 @@
       "model": "gemini-default",
       "name": "Consent Center Agent",
       "native_requirements": [],
+      "one_exposure": {
+        "discovery_status": "discoverable",
+        "exposure_status": "active",
+        "knowledge_package_ref": null,
+        "service_id": "consent",
+        "supported_entrypoints": [
+          "typed",
+          "voice",
+          "siri_app_shortcut"
+        ]
+      },
       "optional_scopes": [],
       "outputs": [],
       "owner": "backend",
@@ -1748,6 +1836,7 @@
       "model": "gemini-default",
       "name": "Onboarding Specialist",
       "native_requirements": [],
+      "one_exposure": null,
       "optional_scopes": [],
       "outputs": [
         {
@@ -1883,6 +1972,7 @@
       },
       "name": "Agent One",
       "native_requirements": [],
+      "one_exposure": null,
       "optional_scopes": [],
       "outputs": [],
       "owner": "backend",
@@ -1976,6 +2066,7 @@
       "model": "gemini-default",
       "name": "Information Marketplace",
       "native_requirements": [],
+      "one_exposure": null,
       "optional_scopes": [
         "cap.pkm.marketplace.manage"
       ],
@@ -2138,6 +2229,7 @@
       "model": "gemini-default",
       "name": "PKM Structure Agent",
       "native_requirements": [],
+      "one_exposure": null,
       "optional_scopes": [],
       "outputs": [
         {
@@ -2270,6 +2362,7 @@
       "model": "gemini-default",
       "name": "Portfolio Import Agent",
       "native_requirements": [],
+      "one_exposure": null,
       "optional_scopes": [],
       "outputs": [
         {
@@ -2415,6 +2508,7 @@
       "model": "gemini-default",
       "name": "PKM Summary Reducer",
       "native_requirements": [],
+      "one_exposure": null,
       "optional_scopes": [],
       "outputs": [
         {
@@ -2537,6 +2631,15 @@
       },
       "name": "Cards Agent",
       "native_requirements": [],
+      "one_exposure": {
+        "discovery_status": "withheld",
+        "exposure_status": "disabled",
+        "knowledge_package_ref": null,
+        "service_id": "wallet",
+        "supported_entrypoints": [
+          "typed"
+        ]
+      },
       "optional_scopes": [],
       "outputs": [
         {

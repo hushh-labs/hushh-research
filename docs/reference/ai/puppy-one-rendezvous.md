@@ -183,13 +183,13 @@ they left waiting, which is a real cost in use and is stated as one in section
 
 ### 3.1 Candidate A: a WebSocket reverse tunnel held open by the Mac
 
-**How it works.** The Mac opens a WebSocket to the backend, authenticates it with
-a short-lived relay ticket exactly the way `consent-protocol/api/routes/one/adk_live.py`
-already does for voice (mint over HTTPS, consume once, Postgres-backed nonce so
-single-use holds across instances), and holds it open. The browser's request is
-forwarded down that socket. Frames come back up it. This is the design most
-people reach for first, and the backend already terminates WebSockets on
-Cloud Run, so the plumbing exists.
+**How it works.** The Mac opens a WebSocket to the backend and authenticates it
+with a short-lived, single-use relay ticket backed by a durable nonce. The former
+One Voice relay implemented that pattern, but it was retired with the Live voice
+runtime; a Puppy One implementation must own this contract rather than revive
+the retired endpoint. The browser's request is forwarded down that socket. Frames
+come back up it. This is the design most people reach for first, and Cloud Run
+can terminate WebSockets when a dedicated Puppy One route is introduced.
 
 **What it costs.** One Cloud Run request slot per awake Mac, permanently. That is
 the number that kills it. Read out of `deploy/backend.cloudbuild.yaml` and the
@@ -972,8 +972,8 @@ Everything cited above, in one place. The Hermes paths are in the fork,
 | Sync state and seal columns | `consent-protocol/db/migrations/176_trusted_device_sync_state.sql` |
 | Heartbeat columns | `consent-protocol/db/migrations/189_trusted_device_heartbeat.sql` |
 | Durable run store, and the multi-instance lesson | `consent-protocol/api/routes/kai/analyze_run_store.py` |
-| Relay ticket pattern, single-use across instances | `consent-protocol/api/routes/one/relay_auth.py` |
-| WebSocket on Cloud Run, in production today | `consent-protocol/api/routes/one/adk_live.py` |
+| Historical One Voice relay retirement response | `consent-protocol/api/routes/one/retired_voice.py` |
+| Puppy One WebSocket route | Proposed; no active route until the dedicated rendezvous contract lands |
 | Device-sync pull, the existing outbound read channel | `consent-protocol/api/routes/pkm_routes_shared.py` |
 | Backend Cloud Run shape: 3600s timeout, concurrency, instances, pool | `deploy/backend.cloudbuild.yaml` |
 | Frontend Cloud Run shape, and the per-lane overrides that change it | `deploy/frontend.cloudbuild.yaml`, `.github/workflows/deploy-uat.yml`, `.github/workflows/deploy-production.yml`, `.github/workflows/deploy-dev.yml` |

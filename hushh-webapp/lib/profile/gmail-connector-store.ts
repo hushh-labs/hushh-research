@@ -19,6 +19,7 @@ import {
 const STORAGE_KEY = "kai_gmail_connector_cache_v1";
 const STATUS_TTL_MS = 5 * 60 * 1000;
 const ACTIVE_STATUS_TTL_MS = 30 * 1000;
+const STATUS_FAILURE_RETRY_COOLDOWN_MS = 30 * 1000;
 const RUN_POLL_BASE_MS = 2_000;
 const RUN_POLL_MAX_MS = 15_000;
 const RUN_POLL_MAX_ATTEMPTS = 18;
@@ -38,6 +39,8 @@ interface GmailConnectorEntry {
   status: GmailConnectionStatus | null;
   statusFetchedAt: number | null;
   statusError: string | null;
+  /** Memory-only backoff after an automatic status request fails. */
+  statusRetryNotBefore: number | null;
   syncRun: GmailSyncRun | null;
   syncRunFetchedAt: number | null;
   activeRunId: string | null;
@@ -113,6 +116,7 @@ const inflightStatusRequests = new Map<
   Promise<GmailConnectionStatus | null>
 >();
 const inflightRunPollers = new Map<string, AbortController>();
+const inflightBootstrapStatusPollers = new Map<string, AbortController>();
 
 const EMPTY_CONNECTOR_VIEW: GmailConnectorView = {
   status: null,
@@ -273,11 +277,9 @@ function normalizeConnectorSyncState(
     explicitState === "syncing" ||
     explicitState === "incremental_running"
   ) {
-    if (latestRun) return "idle";
-    return status.last_sync_status === "queued" ||
-      status.last_sync_status === "running"
-      ? explicitState
-      : "idle";
+    // OAuth completion intentionally returns before the queued bootstrap run
+    // may be visible. Do not downgrade that persisted state to idle.
+    return latestRun ? "idle" : explicitState;
   }
 
   return explicitState || "idle";
@@ -337,6 +339,7 @@ function readPersistedState(): Record<string, GmailConnectorEntry> {
             : null,
         statusError:
           typeof value.statusError === "string" ? value.statusError : null,
+        statusRetryNotBefore: null,
         syncRun: value.syncRun || null,
         syncRunFetchedAt:
           typeof value.syncRunFetchedAt === "number"
@@ -375,6 +378,7 @@ function readPersistedState(): Record<string, GmailConnectorEntry> {
 function toPersistedEntry(entry: GmailConnectorEntry): GmailConnectorEntry {
   return {
     ...entry,
+    statusRetryNotBefore: null,
     isRefreshing: false,
     isOAuthCompletionPending: false,
     isPolling: false,
@@ -409,6 +413,7 @@ function getOrCreateEntry(userId: string): GmailConnectorEntry {
     status: null,
     statusFetchedAt: null,
     statusError: null,
+    statusRetryNotBefore: null,
     syncRun: null,
     syncRunFetchedAt: null,
     activeRunId: null,
@@ -454,10 +459,26 @@ function isStatusFresh(entry: GmailConnectorEntry, force = false): boolean {
   if (force) return false;
   if (!entry.status || !entry.statusFetchedAt) return false;
   const ageMs = nowMs() - entry.statusFetchedAt;
-  const ttlMs = hasActiveRun(entry.syncRun)
+  const queuedBootstrapWithoutRun =
+    !entry.syncRun &&
+    (entry.status?.bootstrap_state === "queued" ||
+      entry.status?.bootstrap_state === "running" ||
+      entry.status?.sync_state === "bootstrap_running");
+  const ttlMs = hasActiveRun(entry.syncRun) || queuedBootstrapWithoutRun
     ? ACTIVE_STATUS_TTL_MS
     : STATUS_TTL_MS;
   return ageMs <= ttlMs;
+}
+
+function isStatusRetryCoolingDown(
+  entry: GmailConnectorEntry,
+  force = false,
+): boolean {
+  return (
+    !force &&
+    typeof entry.statusRetryNotBefore === "number" &&
+    entry.statusRetryNotBefore > nowMs()
+  );
 }
 
 function statusErrorMessage(error: unknown, fallback: string): string {
@@ -562,6 +583,7 @@ async function fetchStatusFromNetwork(params: {
   reconcile?: boolean;
   routeHref?: string | null;
   idTokenProvider?: (() => Promise<string>) | null;
+  onSyncComplete?: (status: GmailConnectionStatus) => void;
   pollActiveRun?: boolean;
 }): Promise<GmailConnectionStatus | null> {
   const normalizedUserId = String(params.userId || "").trim();
@@ -587,8 +609,16 @@ async function fetchStatusFromNetwork(params: {
         runId: activeRun.run_id,
         routeHref: params.routeHref,
         taskKind: deriveConnectorTaskKind(activeRun),
+        onComplete: params.onSyncComplete,
       });
     }
+    return entry.status;
+  }
+
+  // A foreground auth check can briefly remount this hook. Do not turn one
+  // failed backend request into a retry loop; an explicit Refresh still
+  // bypasses this memory-only cooldown.
+  if (isStatusRetryCoolingDown(entry, Boolean(params.force))) {
     return entry.status;
   }
 
@@ -616,6 +646,7 @@ async function fetchStatusFromNetwork(params: {
           params.pollActiveRun === false
             ? null
             : params.idTokenProvider || null,
+        onSyncComplete: params.onSyncComplete,
       });
       return status;
     })
@@ -635,6 +666,7 @@ async function fetchStatusFromNetwork(params: {
               params.pollActiveRun === false
                 ? null
                 : params.idTokenProvider || null,
+            onSyncComplete: params.onSyncComplete,
           });
           return fallbackStatus;
         } catch (fallbackError) {
@@ -652,6 +684,7 @@ async function fetchStatusFromNetwork(params: {
       );
       updateEntry(normalizedUserId, {
         statusError: nextError,
+        statusRetryNotBefore: nowMs() + STATUS_FAILURE_RETRY_COOLDOWN_MS,
       });
       return entry.status;
     })
@@ -664,13 +697,76 @@ async function fetchStatusFromNetwork(params: {
   return request;
 }
 
+function shouldPollQueuedBootstrap(status: GmailConnectionStatus): boolean {
+  if (!status.connected || status.latest_run) return false;
+  return (
+    status.bootstrap_state === "queued" ||
+    status.bootstrap_state === "running" ||
+    status.sync_state === "bootstrap_running"
+  );
+}
+
+/**
+ * OAuth can commit its connection before a different database read observes
+ * the bootstrap run. Poll the persisted status briefly; this never invokes
+ * reconciliation or Gmail provider work and stops as soon as a run appears.
+ */
+async function pollQueuedBootstrapStatus(params: {
+  userId: string;
+  idTokenProvider: () => Promise<string>;
+  routeHref?: string | null;
+  onSyncComplete?: (status: GmailConnectionStatus) => void;
+}): Promise<void> {
+  const userId = String(params.userId || "").trim();
+  if (!userId || inflightBootstrapStatusPollers.has(userId)) return;
+
+  const controller = new AbortController();
+  inflightBootstrapStatusPollers.set(userId, controller);
+  try {
+    for (
+      let attempt = 0;
+      attempt < 8 && !controller.signal.aborted;
+      attempt += 1
+    ) {
+      await new Promise<void>((resolve) => {
+        const timeoutId = window.setTimeout(() => {
+          window.clearTimeout(timeoutId);
+          resolve();
+        }, RUN_POLL_BASE_MS);
+      });
+      if (controller.signal.aborted) return;
+
+      const status = await GmailReceiptsService.getStatus({
+        idToken: await params.idTokenProvider(),
+        userId,
+      });
+      if (controller.signal.aborted) return;
+      primeConnectorStatus({
+        userId,
+        status,
+        routeHref: params.routeHref,
+        source: "status",
+        idTokenProvider: params.idTokenProvider,
+        onSyncComplete: params.onSyncComplete,
+      });
+      if (!shouldPollQueuedBootstrap(status)) return;
+    }
+  } catch (error) {
+    // OAuth succeeded; do not overwrite its usable state with a transient
+    // handoff read failure. A future explicit refresh will retry it.
+    console.warn("[gmail-connector-store] queued bootstrap status poll failed:", error);
+  } finally {
+    inflightBootstrapStatusPollers.delete(userId);
+  }
+}
+
 async function pollSyncRun(params: {
   userId: string;
   idTokenProvider: () => Promise<string>;
   runId: string;
   routeHref?: string | null;
   taskKind?: GmailConnectorTaskKind | null;
-  onComplete?: (status: GmailConnectionStatus | null) => void;
+  onComplete?: (status: GmailConnectionStatus) => void;
 }): Promise<void> {
   const normalizedUserId = String(params.userId || "").trim();
   const normalizedRunId = String(params.runId || "").trim();
@@ -775,7 +871,7 @@ async function pollSyncRun(params: {
             idTokenProvider: params.idTokenProvider,
             pollActiveRun: false,
           });
-          params.onComplete?.(refreshed);
+          if (refreshed) params.onComplete?.(refreshed);
           const nextRun = refreshed?.latest_run;
           if (
             nextRun &&
@@ -787,7 +883,7 @@ async function pollSyncRun(params: {
             handoffTaskKind = deriveConnectorTaskKind(nextRun);
           }
         } catch {
-          params.onComplete?.(null);
+          // Status will refresh on the next navigation or explicit retry.
         }
         shouldStopPolling = true;
         continue;
@@ -871,6 +967,11 @@ export function getConnectorView(
     Boolean(entry?.suppressedRunId) &&
     rawSyncRun?.run_id === entry?.suppressedRunId &&
     hasActiveRun(rawSyncRun);
+  const queuedBootstrapWithoutRun =
+    !rawSyncRun &&
+    (rawStatus?.bootstrap_state === "queued" ||
+      rawStatus?.bootstrap_state === "running" ||
+      rawStatus?.sync_state === "bootstrap_running");
   const view: GmailConnectorView = {
     status: rawStatus,
     syncRun,
@@ -882,7 +983,8 @@ export function getConnectorView(
     refreshingStatus: Boolean(entry?.isRefreshing) && Boolean(rawStatus),
     syncingRun: Boolean(
       (entry?.isPolling && activeTaskKind !== "gmail_backfill") ||
-      hasBlockingRun(syncRun),
+      hasBlockingRun(syncRun) ||
+      queuedBootstrapWithoutRun,
     ),
     isStale: !isFresh || isBackgroundRunStale,
     activeRunId: entry?.activeRunId || syncRun?.run_id || null,
@@ -911,6 +1013,7 @@ export function primeConnectorStatus(params: {
   routeHref?: string | null;
   source?: "status" | "oauth_return" | "sync" | "disconnect";
   idTokenProvider?: (() => Promise<string>) | null;
+  onSyncComplete?: (status: GmailConnectionStatus) => void;
 }): void {
   const normalizedUserId = String(params.userId || "").trim();
   if (!normalizedUserId) return;
@@ -967,6 +1070,7 @@ export function primeConnectorStatus(params: {
     },
     statusFetchedAt: nowMs(),
     statusError: null,
+    statusRetryNotBefore: null,
     syncRun: latestRun,
     syncRunFetchedAt: latestRun ? nowMs() : null,
     activeRunId:
@@ -1004,8 +1108,16 @@ export function primeConnectorStatus(params: {
         runId: latestRun.run_id,
         routeHref: params.routeHref,
         taskKind,
+        onComplete: params.onSyncComplete,
       });
     }
+  } else if (params.idTokenProvider && shouldPollQueuedBootstrap(params.status)) {
+    void pollQueuedBootstrapStatus({
+      userId: normalizedUserId,
+      idTokenProvider: params.idTokenProvider,
+      routeHref: params.routeHref,
+      onSyncComplete: params.onSyncComplete,
+    });
   }
 }
 
@@ -1046,6 +1158,9 @@ export function clearConnectorStatus(userId: string): void {
   const controller = inflightRunPollers.get(normalizedUserId);
   controller?.abort();
   inflightRunPollers.delete(normalizedUserId);
+  const bootstrapController = inflightBootstrapStatusPollers.get(normalizedUserId);
+  bootstrapController?.abort();
+  inflightBootstrapStatusPollers.delete(normalizedUserId);
   emit();
 }
 
@@ -1059,9 +1174,13 @@ export function useGmailConnectorStatus(
     () => getConnectorView(normalizedUserId),
   );
   const idTokenProviderRef = useRef(options.idTokenProvider || null);
+  const onSyncCompleteRef = useRef(options.onSyncComplete);
   useEffect(() => {
     idTokenProviderRef.current = options.idTokenProvider || null;
   }, [options.idTokenProvider]);
+  useEffect(() => {
+    onSyncCompleteRef.current = options.onSyncComplete;
+  }, [options.onSyncComplete]);
 
   const routeHref = options.routeHref || ROUTES.GMAIL;
   const enabled = options.enabled !== false && Boolean(normalizedUserId);
@@ -1081,6 +1200,7 @@ export function useGmailConnectorStatus(
         reconcile: refreshOptions?.reconcile,
         routeHref,
         idTokenProvider: provider,
+        onSyncComplete: onSyncCompleteRef.current,
       });
     },
     [enabled, normalizedUserId, routeHref],
@@ -1141,6 +1261,7 @@ export function useGmailConnectorStatus(
         routeHref,
         source: "sync",
         idTokenProvider: provider,
+        onSyncComplete: onSyncCompleteRef.current,
       });
     } else {
       void refreshStatus({ force: true });
@@ -1190,6 +1311,7 @@ export function useGmailConnectorStatus(
           routeHref,
           source: "oauth_return",
           idTokenProvider: idTokenProviderRef.current,
+          onSyncComplete: onSyncCompleteRef.current,
         });
       },
       [normalizedUserId, routeHref],

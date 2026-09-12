@@ -71,8 +71,17 @@ router = APIRouter(prefix="/api/account", tags=["Account"])
 _FIREBASE_PHONE_LOOKUP_TIMEOUT_SECONDS = 3.0
 _CLEANUP_INTENT_SETTLEMENT_TIMEOUT_SECONDS = 5.0
 _FIREBASE_REVOCATION_CHECK_TIMEOUT_SECONDS = 9.0
+_LOCAL_FIREBASE_REVOCATION_CHECK_TIMEOUT_SECONDS = 20.0
 _CLEANUP_OIDC_HTTP_TIMEOUT_SECONDS = 4.0
 _CLEANUP_OIDC_VERIFY_TIMEOUT_SECONDS = 5.0
+
+
+def _session_status_auth_timeout_seconds() -> float:
+    """Keep the deployed liveness bound tight while allowing local UAT access."""
+    environment = str(os.getenv("ENVIRONMENT") or "").strip().lower()
+    if environment in {"development", "dev", "local", "local-uatdb"}:
+        return _LOCAL_FIREBASE_REVOCATION_CHECK_TIMEOUT_SECONDS
+    return _FIREBASE_REVOCATION_CHECK_TIMEOUT_SECONDS
 
 
 def _verify_account_deletion_cleanup_oidc_token(token: str, audience: str) -> dict[str, Any]:
@@ -196,7 +205,7 @@ async def _require_session_status_auth(
                 authorization,
                 check_revoked=True,
             ),
-            timeout=_FIREBASE_REVOCATION_CHECK_TIMEOUT_SECONDS,
+            timeout=_session_status_auth_timeout_seconds(),
         )
     except HTTPException as exc:
         headers = dict(exc.headers or {})

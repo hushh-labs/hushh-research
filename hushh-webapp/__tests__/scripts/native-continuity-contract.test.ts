@@ -55,14 +55,19 @@ describe("native cold-audit and continuity contract", () => {
     const auth = source("lib/firebase/auth-context.tsx");
     const notification = source("components/consent/notification-provider.tsx");
 
-    expect(runtime).toContain('App.addListener("appStateChange"');
+    expect(runtime).toContain('App.addListener("pause"');
+    expect(runtime).toContain('App.addListener("resume"');
+    expect(runtime).not.toContain('App.addListener("appStateChange"');
     expect(runtime).toContain('document.visibilityState === "hidden" ? "background" : "active"');
     expect(vault).toContain("appInteractionCoordinator.subscribeLifecycle");
     expect(auth).toContain("appInteractionCoordinator.subscribeLifecycle");
     expect(notification).toContain("appInteractionCoordinator.subscribeLifecycle");
-    expect(vault).not.toContain('App.addListener("appStateChange"');
-    expect(auth).not.toContain('App.addListener("appStateChange"');
-    expect(notification).not.toContain('App.addListener("appStateChange"');
+    expect(vault).not.toContain('App.addListener("pause"');
+    expect(vault).not.toContain('App.addListener("resume"');
+    expect(auth).not.toContain('App.addListener("pause"');
+    expect(auth).not.toContain('App.addListener("resume"');
+    expect(notification).not.toContain('App.addListener("pause"');
+    expect(notification).not.toContain('App.addListener("resume"');
   });
 
   it("keeps forced Firebase token refresh strict across the shared auth bridge", () => {

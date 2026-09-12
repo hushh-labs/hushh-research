@@ -12502,7 +12502,7 @@
     {
       "action_id": "help.open_examples",
       "surface_id": "profile_account",
-      "label": "What can I say",
+      "label": "Open Location command settings",
       "aliases": [
         "what can i say",
         "what can you do",
@@ -12512,17 +12512,16 @@
       ],
       "search_keywords": [
         "help",
-        "examples",
-        "what can i say",
-        "tutorial",
+        "location commands",
+        "command settings",
         "guide"
       ],
-      "meaning": "Opens the \"What can I say\" page, showing example phrases for every part of the app voice can currently act on.",
+      "meaning": "Opens Location command settings. Commands interpret the person's own words from current capability and screen context; the settings do not maintain a phrase catalog.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
         "routes": [
-          "/one/profile/preferences/voice/examples"
+          "/one/profile/preferences/voice"
         ],
         "screens": [
           "profile_preferences"
@@ -12547,7 +12546,7 @@
       "execution_target": {
         "status": "wired",
         "path": "route",
-        "target": "/one/profile/preferences/voice/examples"
+        "target": "/one/profile/preferences/voice"
       },
       "control_ids": [],
       "state_exposure": [],
@@ -12559,7 +12558,7 @@
       "external_callback": null,
       "expected_effects": {
         "state_changes": [
-          "current route becomes /one/profile/preferences/voice/examples"
+          "current route becomes /one/profile/preferences/voice"
         ],
         "backend_effects": []
       },
@@ -12581,10 +12580,10 @@
           {
             "type": "action",
             "action_id": "help.open_examples",
-            "label": "What can I say",
+            "label": "Open Location command settings",
             "failure_behavior": "stop",
             "settlement_target": {
-              "route": "/one/profile/preferences/voice/examples",
+              "route": "/one/profile/preferences/voice",
               "screen": "profile_preferences"
             }
           }
@@ -14937,21 +14936,36 @@
     {
       "command": {
         "domain": "location",
-        "review_route": "/one/setup/location",
-        "permission": "location"
+        "review_route": "/one/setup/location"
       },
-      "action_id": "setup.finish_location",
+      "action_id": "location.onboarding.choose_place",
       "surface_id": "one_setup_location",
-      "label": "Finish Location setup",
+      "label": "Continue the active Location setup place step",
       "aliases": [
-        "finish location setup",
-        "finish location"
+        "save this as home",
+        "save this as work",
+        "save my location as home",
+        "save my location as work",
+        "use home for this place",
+        "use work for this place",
+        "save this as the gym",
+        "remember this as school",
+        "save this with another name",
+        "save this as another place",
+        "skip saving this place",
+        "don't save this place"
       ],
       "search_keywords": [
-        "finish",
-        "location"
+        "location",
+        "onboarding",
+        "place",
+        "home",
+        "work",
+        "other",
+        "label",
+        "skip"
       ],
-      "meaning": "Records granted device location permission and marks Location setup complete.",
+      "meaning": "Continues only the server-owned Location onboarding task currently waiting for its optional saved-place choice. Home and Work save through the exact approved interaction path. A clear custom name may use Other; a bare or ambiguous Other opens the approved picker or form. Skip settles the optional place step. It never declares the entire setup complete before verified settlement.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
@@ -14963,7 +14977,157 @@
         ],
         "hidden_navigable": false,
         "navigation_prerequisites": [
-          "Device location permission is granted."
+          "A server-owned workflow.setup.location v2 run is active at location.onboarding.place.",
+          "The exact run revision, directive, and one-time lease still match."
+        ],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "location.onboarding.choose_place"
+      },
+      "control_ids": [
+        "one-location-workflow-card"
+      ],
+      "state_exposure": [
+        "bounded Location onboarding run status",
+        "categorical place choice"
+      ],
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/setup/location"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.location.onboarding.choose_place",
+        "required_inputs": [
+          {
+            "name": "choice",
+            "prompt": "Should I use Home, Work, another label, or skip this optional place?",
+            "required": true,
+            "slot": "choice",
+            "resolver": "location_onboarding_place_choice",
+            "options": [
+              "home",
+              "work",
+              "other",
+              "skip"
+            ]
+          },
+          {
+            "name": "label",
+            "prompt": "What should I call this place?",
+            "required": false,
+            "slot": "label",
+            "resolver": "spoken_place_name"
+          }
+        ],
+        "input_resolvers": [],
+        "slot_schema": {
+          "choice": "location_onboarding_place_choice",
+          "label": "spoken_place_name",
+          "runtime_run_id": "server_bound_opaque_run_id",
+          "runtime_run_revision": "server_bound_run_revision",
+          "runtime_directive_id": "server_bound_opaque_directive_id",
+          "runtime_lease_id": "server_bound_opaque_lease_id"
+        },
+        "workflow_steps": [
+          {
+            "type": "action",
+            "label": "Continue the active Location setup place step",
+            "failure_behavior": "stop",
+            "action_id": "location.onboarding.choose_place",
+            "settlement_target": {
+              "route": "/one/setup/location",
+              "screen": "one_setup_location"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "siri_app_shortcut",
+          "ui"
+        ]
+      }
+    },
+    {
+      "command": {
+        "domain": "location",
+        "review_route": "/one/setup/location",
+        "permission": "location"
+      },
+      "action_id": "setup.finish_location",
+      "surface_id": "one_setup_location",
+      "label": "Finish Location setup",
+      "aliases": [
+        "finish location setup",
+        "finish location",
+        "complete location onboarding"
+      ],
+      "search_keywords": [
+        "finish",
+        "location",
+        "verify",
+        "onboarding"
+      ],
+      "meaning": "Requests final verification after the Location onboarding runtime has settled permission, position, place or explicit skip, and personal Circle provisioning.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/setup/location"
+        ],
+        "screens": [
+          "one_setup_location"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "The active Location onboarding run has verified permission and position evidence.",
+          "A saved-place settlement or explicit place-skip settlement exists.",
+          "The personal Circle was provisioned or reused and verified."
         ],
         "active_personas": [
           "investor",
@@ -14989,8 +15153,8 @@
         "one-setup-location-terminal"
       ],
       "state_exposure": [
-        "location permission state",
-        "active setup capability"
+        "bounded Location onboarding run status",
+        "verified settlement readiness"
       ],
       "docs_references": [
         "docs/reference/one/one-voice-runtime-architecture.md"
@@ -15056,16 +15220,18 @@
       },
       "action_id": "setup.skip_location",
       "surface_id": "one_setup_location",
-      "label": "Skip Location setup",
+      "label": "Pause Location setup",
       "aliases": [
         "skip location setup",
-        "skip location"
+        "skip location",
+        "pause location onboarding"
       ],
       "search_keywords": [
         "skip",
+        "pause",
         "location"
       ],
-      "meaning": "Returns to the setup hub without recording Location as complete.",
+      "meaning": "Pauses the active Location onboarding run and returns to setup without recording Location as complete.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
@@ -15101,7 +15267,7 @@
         "one-setup-location-terminal"
       ],
       "state_exposure": [
-        "active setup capability"
+        "bounded Location onboarding run status"
       ],
       "docs_references": [
         "docs/reference/one/one-voice-runtime-architecture.md"
@@ -15132,7 +15298,7 @@
           {
             "type": "action",
             "action_id": "setup.skip_location",
-            "label": "Skip Location setup",
+            "label": "Pause Location setup",
             "failure_behavior": "stop",
             "settlement_target": {
               "route": "/one/setup",

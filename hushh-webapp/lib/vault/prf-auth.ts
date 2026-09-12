@@ -26,6 +26,11 @@ import { resolvePasskeyRpId } from "@/lib/vault/passkey-rp";
 // prompt followed by a second prompt and a misleading error). Duplicate
 // callers fail locally while the original ceremony remains the sole owner.
 let webAuthnCeremonyPending = false;
+// Retain the controller separately from the boolean lease so a route change,
+// sign-out, or method switch can dismiss the browser-owned sheet.  Cancelling
+// must not release the lease here: the original credential promise is still
+// authoritative until it settles and its `finally` block clears both values.
+let activeWebAuthnCeremonyController: AbortController | null = null;
 
 /** 5-minute ceiling. A healthy WebAuthn ceremony resolves in seconds; an
  *  abandoned prompt (user walked away, browser lost focus, native sheet
@@ -40,6 +45,24 @@ export class WebAuthnCeremonyInProgressError extends Error {
   }
 }
 
+/**
+ * Ask the browser to cancel the current PRF WebAuthn ceremony.
+ *
+ * The in-flight ceremony remains exclusively owned until its original promise
+ * settles.  In particular, do not clear `webAuthnCeremonyPending` here: doing
+ * so would allow a replacement `navigator.credentials` request to race an
+ * OS-owned sheet that is still dismissing.
+ */
+export function cancelPendingPrfAuthentication(): boolean {
+  const controller = activeWebAuthnCeremonyController;
+  if (!controller || controller.signal.aborted) {
+    return false;
+  }
+
+  controller.abort();
+  return true;
+}
+
 async function runExclusiveWebAuthn<T>(
   run: (signal: AbortSignal) => Promise<T>
 ): Promise<T> {
@@ -49,6 +72,7 @@ async function runExclusiveWebAuthn<T>(
 
   const controller = new AbortController();
   webAuthnCeremonyPending = true;
+  activeWebAuthnCeremonyController = controller;
   let timedOut = false;
   const timeoutId = setTimeout(() => {
     timedOut = true;
@@ -63,6 +87,9 @@ async function runExclusiveWebAuthn<T>(
     throw error;
   } finally {
     clearTimeout(timeoutId);
+    if (activeWebAuthnCeremonyController === controller) {
+      activeWebAuthnCeremonyController = null;
+    }
     webAuthnCeremonyPending = false;
   }
 }

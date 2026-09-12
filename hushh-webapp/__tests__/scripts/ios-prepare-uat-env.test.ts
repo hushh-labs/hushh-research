@@ -11,6 +11,7 @@ describe("iOS UAT native runtime env", () => {
     });
     expect(env.NEXT_PUBLIC_PASSKEY_RP_ID).toBe("uat.one.hushh.ai");
   });
+
   it("falls back from placeholder UAT env to the canonical UAT backend and shared local Firebase config", () => {
     const env = buildIosUatRuntimeEnv({
       processEnv: {},

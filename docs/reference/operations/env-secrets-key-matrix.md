@@ -40,7 +40,6 @@ Profile bootstrap rule:
 | `HUSHH_GENAI_AUTH_MODE` | `consent-protocol/hushh_mcp/runtime_providers/factory.py` | N | N | Y | env | N | env | N | required (`vertex_adc`) |
 | `GOOGLE_API_KEY` | `consent-protocol/hushh_mcp/runtime_providers/factory.py` | N | N | N | none | N | none | Y | local-only developer compatibility |
 | `HUSHH_KAI_AGENT_CHAT_STREAM_TIMEOUT_MS` | `hushh-webapp/app/api/kai/[...path]/route.ts` | N | Y | N | N | env | N | env | optional |
-| `NEXT_PUBLIC_AGENT_GEMINI_VOICE_ENABLED` | `hushh-webapp/lib/agent/agent-voice-settings.ts` | N | Y | N | N | env | N | env | optional One Live kill switch |
 | `FIREBASE_ADMIN_CREDENTIALS_JSON` | `consent-protocol/api/utils/firebase_admin.py`, `consent-protocol/hushh_mcp/runtime_settings.py`, `hushh-webapp/lib/firebase/admin.ts` | Y | Y | Y | secret | secret | secret | secret | required |
 | `FIREBASE_SERVICE_ACCOUNT_JSON` | `consent-protocol/hushh_mcp/runtime_settings.py` | Y | N | Y | N | N | alias | N | optional alias |
 | `ONE_EMAIL_ADDRESS` | `consent-protocol/hushh_mcp/services/support_email_service.py`, `consent-protocol/hushh_mcp/services/one_email_kyc_service.py` | Y | N | N | env | N | env | N | optional |
@@ -73,8 +72,11 @@ Profile bootstrap rule:
 | `GMAIL_OAUTH_CLIENT_SECRET` | `consent-protocol/hushh_mcp/services/gmail_receipts_service.py` | Y | N | Y | secret | N | secret | N | required |
 | `GMAIL_OAUTH_REDIRECT_URI` | `consent-protocol/hushh_mcp/services/gmail_receipts_service.py` | Y | N | Y | secret | N | secret | N | required; exact `APP_FRONTEND_ORIGIN + /one/profile/gmail/oauth/return` |
 | `GMAIL_OAUTH_TOKEN_KEY` | `consent-protocol/hushh_mcp/services/gmail_receipts_service.py` | Y | N | Y | secret | N | secret | N | required |
+| `GOOGLE_OAUTH_CLIENT_ID` | `consent-protocol/hushh_mcp/services/google_connection_service.py` | Y | N | Y | secret | N | secret | N | required |
+| `GOOGLE_OAUTH_CLIENT_SECRET` | `consent-protocol/hushh_mcp/services/google_connection_service.py` | Y | N | Y | secret | N | secret | N | required |
+| `GOOGLE_OAUTH_REDIRECT_URI` | `consent-protocol/hushh_mcp/services/google_connection_service.py` | Y | N | Y | secret | N | secret | N | required; exact `APP_FRONTEND_ORIGIN + /one/profile/google/oauth/return` |
+| `GOOGLE_OAUTH_TOKEN_KEY` | `consent-protocol/hushh_mcp/services/google_connection_service.py` | Y | N | Y | secret | N | secret | N | required |
 | `OPENAI_API_KEY` | Legacy compatibility configuration; no active One ADK relay reader | N | N | N | secret | N | secret | N | deprecated |
-| `VOICE_RUNTIME_CONFIG_JSON` | `consent-protocol/hushh_mcp/runtime_settings.py` | Y | N | Y | secret | N | secret | N | required |
 | `HUSHH_DEVELOPER_TOKEN` | `consent-protocol/api/routes/session.py` | Y | N | N | N | N | N | N | optional |
 | `ENVIRONMENT` | `consent-protocol/hushh_mcp/config.py` | Y | N | N | env | N | env | N | required |
 | `GOOGLE_GENAI_USE_VERTEXAI` | runtime SDK config | Y | N | N | env | N | env | N | required |

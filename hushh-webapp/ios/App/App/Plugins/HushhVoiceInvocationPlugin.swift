@@ -28,12 +28,7 @@ public final class HushhVoiceInvocationPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "claimRequestInvocation", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "completeRequestInvocation", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "reportRequestInvocationProgress", returnType: CAPPluginReturnPromise),
-        CAPPluginMethod(name: "cancelRequestInvocation", returnType: CAPPluginReturnPromise),
-        CAPPluginMethod(name: "prepareFluidAudioModelPack", returnType: CAPPluginReturnPromise),
-        CAPPluginMethod(name: "getFluidAudioAvailability", returnType: CAPPluginReturnPromise),
-        CAPPluginMethod(name: "rollbackFluidAudioModelPack", returnType: CAPPluginReturnPromise),
-        CAPPluginMethod(name: "startSpeechRecognition", returnType: CAPPluginReturnPromise),
-        CAPPluginMethod(name: "stopSpeechRecognition", returnType: CAPPluginReturnPromise)
+        CAPPluginMethod(name: "cancelRequestInvocation", returnType: CAPPluginReturnPromise)
     ]
 
     private var availabilityObserver: NSObjectProtocol?
@@ -147,14 +142,6 @@ public final class HushhVoiceInvocationPlugin: CAPPlugin, CAPBridgedPlugin {
             self.commandRecording = nil; recording.cancel(); call.resolve(["cancelled": true])
         }
     }
-
-    // Old application versions receive an explicit retirement response. No model
-    // packs, alternate microphone owner, or speech recognizer is initialized.
-    @objc func startSpeechRecognition(_ call: CAPPluginCall) { call.reject("ONE_LIVE_RETIRED: use command capture.") }
-    @objc func stopSpeechRecognition(_ call: CAPPluginCall) { call.resolve(["stopped": true]) }
-    @objc func prepareFluidAudioModelPack(_ call: CAPPluginCall) { call.reject("ONE_LOCAL_ASR_RETIRED") }
-    @objc func getFluidAudioAvailability(_ call: CAPPluginCall) { call.resolve(["available": false, "reason": "ONE_LOCAL_ASR_RETIRED"]) }
-    @objc func rollbackFluidAudioModelPack(_ call: CAPPluginCall) { call.reject("ONE_LOCAL_ASR_RETIRED") }
 
     @objc func getPendingInvocation(_ call: CAPPluginCall) {
         guard let invocation = OneVoiceInvocationCoordinator.shared.pending() else {

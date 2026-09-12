@@ -8,12 +8,16 @@ export type AgentPkmAutoSavePolicy = {
   enabled: boolean;
   version: 1;
   enabledAt: string | null;
+  source: "product_default" | "owner_choice";
 };
 
+export const AGENT_PKM_PRODUCT_DEFAULT_EFFECTIVE_AT = "2026-09-04T00:00:00.000Z";
+
 export const DEFAULT_AGENT_PKM_AUTO_SAVE_POLICY: AgentPkmAutoSavePolicy = {
-  enabled: false,
+  enabled: true,
   version: 1,
   enabledAt: null,
+  source: "product_default",
 };
 
 function parsePolicy(value: string | null): AgentPkmAutoSavePolicy {
@@ -27,6 +31,7 @@ function parsePolicy(value: string | null): AgentPkmAutoSavePolicy {
         typeof parsed.enabledAt === "string" && parsed.enabledAt.trim()
           ? parsed.enabledAt
           : null,
+      source: "owner_choice",
     };
   } catch {
     return DEFAULT_AGENT_PKM_AUTO_SAVE_POLICY;
@@ -56,6 +61,7 @@ export async function saveAgentPkmAutoSavePolicy(params: {
     enabled: params.enabled,
     version: 1,
     enabledAt: params.enabled ? new Date().toISOString() : null,
+    source: "owner_choice",
   };
   const result = await PersonalKnowledgeModelService.storeRuntimeSecret({
     userId: params.userId,

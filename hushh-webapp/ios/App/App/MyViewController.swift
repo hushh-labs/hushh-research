@@ -102,6 +102,9 @@ class MyViewController: CAPBridgeViewController, WKScriptMessageHandler {
         // host keeps the native cover above the WebView until the resumed auth
         // generation explicitly acknowledges validation.
         HushhSessionPrivacyShield.shared.attach(to: view)
+        HushhSessionPrivacyShield.shared.reloadDocument = { [weak self] in
+            self?.webView?.reload()
+        }
         
         // Disable bounce effect for stable scrolling (fixes iOS layout bounce)
         if let webView = self.webView {

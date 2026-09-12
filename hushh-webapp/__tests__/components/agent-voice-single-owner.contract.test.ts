@@ -29,14 +29,19 @@ describe("One interactive audio ownership", () => {
   });
 
   it("keeps the explicit stop inside the same single-owner broker", () => {
-    // The explicit stop cancels capture and pauses the same command owner.
+    // A cancellation control must never take the release-and-submit request path.
     const workspace = read("components/agent/agent-chat-workspace.tsx");
     const settings = read("lib/agent/agent-voice-settings.ts");
     const agentBar = read("components/agent/command-agent-bar.tsx");
 
     expect(settings).toContain("AGENT_CONVERSATION_STOP_EVENT");
     expect(settings).toContain("export function requestAgentConversationStop");
-    expect(workspace).toContain("requestAgentConversationStop();");
+    expect(workspace).toContain(
+      "const cancelConversationalVoice = requestAgentConversationStop",
+    );
+    expect(workspace).toContain("onCancel={cancelConversationalVoice}");
+    expect(workspace).not.toContain("onCancel={startConversationalVoice}");
+    expect(workspace).not.toContain("onToggleMute={startConversationalVoice}");
     expect(workspace).not.toContain("AgentVoiceClient");
     expect(agentBar).toContain("AGENT_CONVERSATION_STOP_EVENT");
     expect(agentBar).toContain("cancelCapture();");

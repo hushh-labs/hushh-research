@@ -20,4 +20,4 @@ Talk to One, the Chat microphone and Siri free-text requests use the bounded Loc
 
 The former Live websocket and relay-token entry points return retirement responses. `GeminiLiveClient` and the old transport constructor fail before networking. Local phrase classification, ASR/ONNX model packs and generated speech are retired; they are not fallback paths. Do not restore them through compatibility adapters.
 
-Historical voice session and directive records are retained. Migration 208 is additive to the existing ledger and encrypted ADK sessions; its rollback preserves receipt metadata and removes command capsules that the previous application cannot resume.
+Historical voice session and directive records are retained. Migration 212 is additive to the existing ledger and encrypted ADK sessions; its rollback preserves receipt metadata and removes command capsules that the previous application cannot resume.

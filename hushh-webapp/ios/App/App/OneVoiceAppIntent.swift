@@ -430,13 +430,13 @@ private enum OneAppIntentActionExecutor {
     }
 }
 
-// MARK: - Conversational fallback
+// MARK: - Command-surface handoff
 
 @available(iOS 16.0, *)
 struct TalkToHusshOneIntent: AppIntent {
     static let title: LocalizedStringResource = "Talk to Agent One"
     static let description = IntentDescription(
-        "Open Agent One and begin a conversation with your private agent."
+        "Open Agent One's command surface for your private agent."
     )
     static let authenticationPolicy: IntentAuthenticationPolicy =
         .requiresLocalDeviceAuthentication

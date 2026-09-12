@@ -17,6 +17,9 @@ def test_obsolete_live_clients_get_retirement_without_provider_startup():
     with client.websocket_connect("/api/one/adk/live") as ws:
         assert ws.receive_json() == {"type": "error", "code": "ONE_LIVE_RETIRED"}
         assert ws.receive()["code"] == 1008
+    with client.websocket_connect("/api/one/adk/location-command/live") as ws:
+        assert ws.receive_json() == {"type": "error", "code": "ONE_LIVE_RETIRED"}
+        assert ws.receive()["code"] == 1008
 
 
 @pytest.mark.asyncio

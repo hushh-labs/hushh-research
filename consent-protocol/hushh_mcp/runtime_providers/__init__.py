@@ -8,9 +8,9 @@ provider (Anthropic, OpenAI, Grok) is exposed through a native transport
 adapter that translates genai-shaped requests/responses to and from that
 provider's native SDK.
 
-This keeps provider choice orthogonal to the rest of the runtime: the chat
-service, voice lanes, and subagents never branch on provider; they call the
-same contract regardless of which brain answers.
+This keeps provider choice orthogonal to the rest of the runtime: chat,
+command transcription, semantic planning, and subagents call the same
+contract regardless of which brain answers.
 """
 
 from __future__ import annotations

@@ -55,8 +55,7 @@ def bound_substitutions() -> list[str]:
     """Bound secrets whose substitution defaults to empty.
 
     A substitution with a NON-EMPTY default is bound whether or not a lane
-    passes it -- `_HUSHH_MANAGED_GEMINI_LIVE_API_KEY_SECRET` defaults to the
-    secret's own name, so it reaches every service regardless. Only an
+    passes it. Only an
     empty-defaulting substitution can silently vanish, and only those are worth
     demanding coverage for. Flagging the rest reports working configuration as
     a defect, which is how a check becomes noise people learn to skip.

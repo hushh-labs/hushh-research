@@ -1065,6 +1065,16 @@
     {
       "data_class": "workflow_state",
       "exact_tables": [
+        "one_capability_runs"
+      ],
+      "id": "one_capability_runtime",
+      "lifecycle_status": "current",
+      "owner": "backend-runtime-governance",
+      "primary_access_path": "Authenticated Agent One Capability Runtime start, resume, compare-and-set transition, and verified-settlement services shared by typed input, command voice, Siri handoff, web, and iOS. Browser and mobile callers reach it only through the authenticated backend API; they have no direct database role or row policy."
+    },
+    {
+      "data_class": "workflow_state",
+      "exact_tables": [
         "one_email_mailbox_state",
         "one_email_kyc_preferences",
         "one_kyc_workflows",
@@ -1095,6 +1105,10 @@
         "one_location_recipient_keys",
         "one_location_referrals",
         "kai_location_referrals",
+        "one_location_onboarding_interactions",
+        "one_location_onboarding_receipts",
+        "one_location_onboarding_drafts",
+        "one_location_pkm_finalize_authorizations",
         "one_location_sms_contacts",
         "one_location_share_grants",
         "one_location_sos_voice_preferences"
@@ -1102,7 +1116,7 @@
       "id": "one_location_agent",
       "lifecycle_status": "current",
       "owner": "iam-consent-governance",
-      "primary_access_path": "One Location Agent verified-recipient directory, server-owned and revocable automatic-approval preferences, owner-selected Save My Soul contacts, named-Circle join-code workflows, recipient public key registration, owner-approved grants, encrypted envelope writes, authenticated recipient ciphertext reads, UAT-only short-lived nearby check-in with alias-based Connect requests, public request invites, Invite to One network onboarding, referrals, revocation, expiry, and metadata-only audit"
+      "primary_access_path": "One Location Agent verified-recipient directory, server-owned and revocable automatic-approval preferences, owner-selected Save My Soul contacts, named-Circle join-code workflows, recipient public key registration, owner-approved grants, encrypted envelope writes, authenticated recipient ciphertext reads, the server-owned Location onboarding permission/GPS/place/Circle workflow, UAT-only short-lived nearby check-in with alias-based Connect requests, public request invites, Invite to One network onboarding, referrals, revocation, expiry, and metadata-only audit"
     },
     {
       "data_class": "personal_metadata",
@@ -4785,6 +4799,7 @@
       "semantic_routes": [],
       "voice": {
         "action_ids": [
+          "location.onboarding.choose_place",
           "setup.finish_location",
           "setup.skip_location"
         ],
@@ -5528,21 +5543,21 @@
   "schema_version": "hushh.runtime_topology_index.v1",
   "source_sha256": {
     "a2a_scope_map": "2bcecbbab3b901bfb1cdf76f64ff3a8478975febd5fb4be9ec95a753d3e99bf8",
-    "action_gateway": "9e543119bdf158e4f12f0c3aa86e17a0fd3e38ae1dda4dc10e4c7ca55466dd36",
-    "agent_registry": "0e1193e4c1800998c7bbd9dd4a8d5369955581abcdd442e6a040c48836e41a2b",
+    "action_gateway": "543417ed237e48134d7d2cc87a2f5b15c4124c0e4c85c34324d25db3e7151dff",
+    "agent_registry": "b913fbc0a07e7993cf3cb68f84739c74c44889396e32d8cc431379e72afb129d",
     "cache_manifest": "b31f78f31d803a4e997352218fa633e6896a26fe75f19b6de12648b501159ed0",
-    "data_plane": "e24f14cb2162791a1f025a620c8547cb565b5f2be2c73d6b4ea562ab09668920",
+    "data_plane": "9ec04b634600c761511c2288dd4597d2691bca3a817bcd0bc60f80a800fdd991",
     "in_process_dispatch": "022c40c305a11e06510f2688041a96c1523cae5b5c03d7876fd122ce027e98c3",
-    "one_specialist_tools": "2d28aca01ad50fcf13d397b9049430080af0cc865a3bacc0c151aec49393dcfe",
-    "route_index": "21e3b0409a509a9561772901a9730117fd95f05b94adc5ce3d59a3fd0ba2aadb",
-    "route_layout": "5df348a7ca9785aacc47b20a6e8434375bae432718ce2dbd30e83a59a6a8abb4",
-    "surface_map": "3dd73f5e6b9fec6f8cd80e6ccb440e24f48cce00a5780e90dc4cf9aaea77af61",
+    "one_specialist_tools": "838b1b4adafde137f451746beb395ec4fab251008d3f94865ea8f066f6869f67",
+    "route_index": "39bedd22b12f99d1a5f434d6271d5da7f5896868ddc7b1626ee40348846e357b",
+    "route_layout": "8f9969e122e81187f06841e75e8cd194580f35168f3b0f0ed61fc59bcf22f95c",
+    "surface_map": "be0d5f260a955b67a2a187a22e610bcdcf7ca8ca98f1c898a8c2fb9d12ea59ad",
     "topology_contract": "3515551e0cd42c3d17c767dd922111b1bf29f7ac1521d47e2d16ced39c6c1b6a",
     "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"
   },
   "summary": {
     "a2a_scope_gated_agents": 5,
-    "actions": 212,
+    "actions": 213,
     "agents": 20,
     "aliases": 3,
     "decision_required": 2,
@@ -5550,6 +5565,6 @@
     "one_specialist_tools": 5,
     "physical_routes": 139,
     "semantic_routes": 14,
-    "table_families": 61
+    "table_families": 62
   }
 }

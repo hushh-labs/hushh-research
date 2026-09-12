@@ -29,10 +29,18 @@ from starlette.concurrency import run_in_threadpool
 
 from api.middleware import require_firebase_auth, require_vault_owner_token
 from api.middlewares.rate_limit import RateLimits, limiter
+from hushh_mcp.services.capability_run_service import (
+    MAX_CAPABILITY_RUN_RETENTION_PURGE,
+    get_capability_run_store,
+)
+from hushh_mcp.services.command_checkpoints import CommandCheckpointStore
 from hushh_mcp.services.google_maps_service import (
     GoogleMapsError,
     GoogleMapsService,
     NearbyPlaceCategory,
+)
+from hushh_mcp.services.location_onboarding_runtime import (
+    get_location_onboarding_runtime_service,
 )
 from hushh_mcp.services.one_location_agent_service import (
     OneLocationAgentError,
@@ -841,17 +849,27 @@ def get_location_activity(
 
 
 @router.post("/location/retention/purge")
-def purge_location_retention(request: Request, older_than_hours: float = 12):
+async def purge_location_retention(request: Request, older_than_hours: float = 12):
     _require_retention_auth(request)
     try:
-        import asyncio
-
-        from hushh_mcp.services.command_checkpoints import CommandCheckpointStore
-
-        asyncio.run(CommandCheckpointStore().purge_expired())
-        result = _service().purge_terminal_work(older_than_hours=older_than_hours)
-        result["nearby_presence"] = _nearby_presence_service().purge_terminal(
-            older_than_hours=older_than_hours
+        await CommandCheckpointStore().purge_expired()
+        result = await run_in_threadpool(
+            _service().purge_terminal_work, older_than_hours=older_than_hours
+        )
+        result["nearby_presence"] = await run_in_threadpool(
+            _nearby_presence_service().purge_terminal,
+            older_than_hours=older_than_hours,
+        )
+        # The Location ledger owns short-lived local-draft/finalize authority;
+        # the generic parent-run purge then lets PostgreSQL cascade any
+        # remaining expired Location children.  Neither cleanup is reachable
+        # through a client database role: this endpoint remains maintenance
+        # token protected above.
+        result[
+            "location_onboarding_drafts"
+        ] = await get_location_onboarding_runtime_service().purge_expired_drafts()
+        result["capability_runs"] = await get_capability_run_store().purge_expired(
+            limit=MAX_CAPABILITY_RUN_RETENTION_PURGE
         )
         # Visits carry their own seven-day window, so this deliberately ignores
         # `older_than_hours` and purges on the row's own `expires_at`.
@@ -862,7 +880,9 @@ def purge_location_retention(request: Request, older_than_hours: float = 12):
         # table, a transient database fault -- must not turn the whole purge
         # into a 503 and leave everything else uncollected.
         try:
-            result["place_rating_visits"] = _place_rating_service().purge_expired_visits()
+            result["place_rating_visits"] = await run_in_threadpool(
+                _place_rating_service().purge_expired_visits
+            )
         except Exception:  # noqa: BLE001 - see comment above
             logger.warning("one_location.place_rating_visit_purge_failed", exc_info=True)
         return result

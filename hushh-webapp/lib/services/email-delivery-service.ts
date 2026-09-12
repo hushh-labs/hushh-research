@@ -42,7 +42,10 @@ export class EmailDeliveryError extends Error {
   }
 
   get needsGmailReconnect(): boolean {
-    return this.code === "GMAIL_SEND_PERMISSION_REQUIRED";
+    return (
+      this.code === "GMAIL_SEND_PERMISSION_REQUIRED" ||
+      this.code === "GMAIL_SEND_DISABLED"
+    );
   }
 }
 
@@ -92,6 +95,9 @@ function emailHeaders(auth: EmailDeliveryAuth): HeadersInit {
 function safeErrorMessage(code: string | null, status: number): string {
   if (code === "GMAIL_SEND_PERMISSION_REQUIRED") {
     return "Reconnect Gmail to grant email sending permission.";
+  }
+  if (code === "GMAIL_SEND_DISABLED") {
+    return "Reconnect Gmail to finish enabling email sending.";
   }
   if (code === "GMAIL_NOT_CONNECTED") {
     return "Connect Gmail before you draft or send email.";

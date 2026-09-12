@@ -515,7 +515,7 @@ function verifySaveMySoulSeparation(source) {
 
 function verifyEnvelopeSeparation(source) {
   const executor = source.match(
-    /private enum OneAppIntentActionExecutor \{([\s\S]*?)\n\}\n\n\/\/ MARK: - Conversational fallback/,
+    /private enum OneAppIntentActionExecutor \{([\s\S]*?)\n\}\n\n\/\/ MARK: - Command-surface handoff/,
   )?.[1];
   const conversation = source.match(
     /struct TalkToHusshOneIntent: AppIntent \{([\s\S]*?)\n\}\n\n\/\/ MARK: - Direct Location actions/,

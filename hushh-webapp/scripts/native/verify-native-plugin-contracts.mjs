@@ -25,10 +25,6 @@ const iosVoicePluginPath = path.join(
   appRoot,
   "ios/App/App/Plugins/HushhVoiceInvocationPlugin.swift",
 );
-const iosFluidAudioPackStorePath = path.join(
-  appRoot,
-  "ios/App/App/Plugins/OneVoiceFluidAudioPackStore.swift",
-);
 const iosMicrophoneCapturePath = path.join(
   appRoot,
   "ios/App/App/Plugins/OneVoiceMicrophoneCapture.swift",
@@ -43,12 +39,14 @@ const appleInvocationMethods = new Set([
   "getPendingActionInvocation", "claimActionInvocation", "completeActionInvocation", "reportActionInvocationProgress",
   "updateActionEntityIndex", "clearActionState", "getPendingRequestInvocation", "claimRequestInvocation",
   "completeRequestInvocation", "reportRequestInvocationProgress", "cancelRequestInvocation",
-  "prepareFluidAudioModelPack", "getFluidAudioAvailability", "rollbackFluidAudioModelPack",
-  "startSpeechRecognition", "stopSpeechRecognition", "addListener",
+  "addListener",
 ]);
 const ignoredTsMethodsByPlugin = new Map([
+  // Listener registration is inherited from CAPPlugin / Plugin, not a custom
+  // @objc or @PluginMethod operation on these streaming/event plugins.
   ["Kai", new Set(["addListener"])],
   ["HushhVoiceInvocation", new Set(["addListener"])],
+  ["HushhSessionPrivacy", new Set(["addListener"])],
 ]);
 
 const failures = [];
@@ -230,14 +228,16 @@ function verifyIosVaultAuthenticationConfiguration(iosContracts) {
   }
 }
 
-function verifyIosSpeechAdapterContract(iosContracts) {
+function verifyIosCommandCaptureContract(iosContracts) {
   if (!iosContracts.has("HushhVoiceInvocation")) return;
 
   const source = read(iosVoicePluginPath);
-  for (const fragment of ["startCommandCapture", "finishCommandCapture", "cancelCommandCapture", "OneCommandRecording", "UIApplication.shared.applicationState == .active", "ONE_LIVE_RETIRED"]) {
+  for (const fragment of ["startCommandCapture", "finishCommandCapture", "cancelCommandCapture", "OneCommandRecording", "UIApplication.shared.applicationState == .active"]) {
     if (!source.includes(fragment)) fail(`iOS command capture is missing ${fragment}.`);
   }
-  if (/import FluidAudio|SFSpeechRecognizer\(/.test(source)) fail("The retired recognizer must not own the microphone.");
+  if (/FluidAudio|SFSpeechRecognizer|startSpeechRecognition|startRealtimeAudioCapture/.test(source)) {
+    fail("The command plugin must not expose a retired speech or realtime surface.");
+  }
 
   const microphoneCapture = read(iosMicrophoneCapturePath);
   for (const fragment of [
@@ -245,6 +245,9 @@ function verifyIosSpeechAdapterContract(iosContracts) {
     "claimGlobalOwnership()",
     "releaseGlobalOwnership()",
     "throw CaptureError.alreadyRunning",
+    "onFirstPCMWrite",
+    "firstPCMWrite?(sequence)",
+    "wav.append(contentsOf: \"RIFF\".utf8)",
   ]) {
     if (!microphoneCapture.includes(fragment)) {
       fail(`iOS microphone capture is missing singular-owner protection: ${fragment}.`);
@@ -259,7 +262,7 @@ const iosRegistrations = parseIosRegistrations();
 const androidRegistrations = parseAndroidRegistrations();
 
 verifyIosVaultAuthenticationConfiguration(iosContracts);
-verifyIosSpeechAdapterContract(iosContracts);
+verifyIosCommandCaptureContract(iosContracts);
 
 for (const pluginName of sorted(tsContracts.keys())) {
   if (webOnlyPlugins.has(pluginName)) continue;

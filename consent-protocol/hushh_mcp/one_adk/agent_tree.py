@@ -53,6 +53,7 @@ from hushh_mcp.agents.onboarding.agent import (
 )
 from hushh_mcp.hushh_adk.manifest import AgentManifestV2, ManifestLoader
 from hushh_mcp.one_adk.action_tools import (
+    add_to_pkm,
     continue_app_goal,
     discover_person_information,
     get_current_time,
@@ -90,12 +91,12 @@ from hushh_mcp.services.action_gateway import (
     is_navigation_action,
     list_action_gateway_actions,
 )
-from hushh_mcp.services.crm_product_availability import crm_product_available
-from hushh_mcp.services.live_voice_context import (
+from hushh_mcp.services.agent_task_context import (
     read_pending_specialist_directive,
     record_pending_specialist_directive,
     specialist_directive_fingerprint,
 )
+from hushh_mcp.services.crm_product_availability import crm_product_available
 
 logger = logging.getLogger(__name__)
 
@@ -1566,6 +1567,7 @@ def _one_roster_tools(*, specialist_model: Any | None = None, tool_mode: str = "
         list_pending_location_requests,
         list_my_outgoing_location_requests,
         list_my_connections,
+        add_to_pkm,
         read_my_pkm_domain_summary,
         read_my_profile_status,
         discover_person_information,

@@ -186,6 +186,10 @@ def test_command_deploys_do_not_restore_live_or_model_pack_dependencies() -> Non
     for source in sources:
         assert "AGENT_ONE_ADK_MODEL" not in source
         assert "HUSHH_MANAGED_GEMINI_LIVE_API_KEY" not in source
+        assert "LOCATION_COMMAND_GEMINI_LIVE" not in source
+        assert "LOCATION_COMMAND_TRANSCRIBE_MODEL" not in source
+        assert "gemini-3.5-transcribe-live-preview" not in source
+        assert "gemini_live_capacity_pool" not in source
         assert "HUSHH_LOCAL_RUNTIME_PACK" not in source
         assert "ONE_VOICE_MODEL_URL_SIGNER" not in source
     assert all("HUSSH_GEMINI_TEXT_MODEL" in source for source in sources[:3])

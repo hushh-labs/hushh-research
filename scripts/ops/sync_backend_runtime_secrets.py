@@ -26,7 +26,6 @@ LEGACY_SECRET_FALLBACKS: dict[str, tuple[str, ...]] = {
     "GOOGLE_MAPS_API_KEY": ("GOOGLE_MAPS_API_KEY",),
     "PLAID_ACCESS_TOKEN_KEY": ("PLAID_ACCESS_TOKEN_KEY", "PLAID_TOKEN_ENCRYPTION_KEY"),
     "GMAIL_OAUTH_TOKEN_KEY": ("GMAIL_OAUTH_TOKEN_KEY", "GMAIL_TOKEN_ENCRYPTION_KEY"),
-    "VOICE_RUNTIME_CONFIG_JSON": ("VOICE_RUNTIME_CONFIG_JSON",),
     "REVIEWER_UID": ("REVIEWER_UID", "UAT_SMOKE_USER_ID", "KAI_TEST_USER_ID"),
     "REVIEWER_VAULT_PASSPHRASE": (
         "REVIEWER_VAULT_PASSPHRASE",
@@ -96,17 +95,6 @@ def _resolve_secret(project: str, names: tuple[str, ...]) -> str:
     return ""
 
 
-def _bool_or_none(value: str) -> bool | None:
-    raw = str(value or "").strip().lower()
-    if not raw:
-        return None
-    if raw in {"1", "true", "yes", "on", "enabled"}:
-        return True
-    if raw in {"0", "false", "no", "off", "disabled"}:
-        return False
-    return None
-
-
 def _int_or_none(value: str) -> int | None:
     raw = str(value or "").strip()
     if not raw:
@@ -140,21 +128,6 @@ def _gmail_oauth_redirect_uri(app_frontend_origin: str) -> str:
         raise ValueError("--app-frontend-origin must be a canonical HTTP(S) origin")
     origin = urlunsplit((parsed.scheme, parsed.netloc, "", "", ""))
     return f"{origin}{GMAIL_OAUTH_RETURN_PATH}"
-
-
-def _read_voice_config(project: str) -> dict[str, Any]:
-    existing_raw = _resolve_secret(
-        project, LEGACY_SECRET_FALLBACKS["VOICE_RUNTIME_CONFIG_JSON"]
-    )
-    if not existing_raw:
-        return {}
-    try:
-        parsed = json.loads(existing_raw)
-    except json.JSONDecodeError:
-        return {}
-    if not isinstance(parsed, dict):
-        return {}
-    return _drop_empty(dict(parsed))
 
 
 def _build_backend_runtime_config(args: argparse.Namespace) -> dict[str, Any]:
@@ -445,7 +418,6 @@ def main() -> int:
         if canonical_name in {
             "APP_FRONTEND_ORIGIN",
             "BACKEND_RUNTIME_CONFIG_JSON",
-            "VOICE_RUNTIME_CONFIG_JSON",
         }:
             continue
         value = _resolve_secret(args.project, fallback_names)
@@ -474,14 +446,6 @@ def main() -> int:
     )
     sync_summary.append("BACKEND_RUNTIME_CONFIG_JSON")
 
-    voice_runtime_config = _read_voice_config(args.project)
-    if voice_runtime_config:
-        _upsert_secret(
-            args.project,
-            "VOICE_RUNTIME_CONFIG_JSON",
-            json.dumps(voice_runtime_config, separators=(",", ":"), sort_keys=True),
-        )
-        sync_summary.append("VOICE_RUNTIME_CONFIG_JSON")
 
     print(
         json.dumps(
@@ -489,7 +453,6 @@ def main() -> int:
                 "project": args.project,
                 "synced_secrets": sorted(set(sync_summary)),
                 "backend_runtime_config_keys": sorted(backend_runtime_config.keys()),
-                "voice_runtime_config_keys": sorted(voice_runtime_config.keys()),
             },
             indent=2,
         )

@@ -46,8 +46,8 @@ def db():
     for name in (
         "114_one_action_directive_ledger.sql",
         "184_encrypted_one_adk_sessions.sql",
-        "208_location_command_runtime.sql",
-        "208_location_command_runtime.sql",
+        "212_location_command_runtime.sql",
+        "212_location_command_runtime.sql",
     ):
         database.execute_raw((migrations / name).read_text())
     yield database
@@ -185,10 +185,10 @@ async def test_expiry_removes_sensitive_capsule_and_rollback_preserves_receipts(
     assert await ledger.command_outcome(user_id="owner", command_id="command", step=0)
     rollback = (
         Path(__file__).resolve().parents[2]
-        / "db/migrations/rollback/208_location_command_runtime.rollback.sql"
+        / "db/migrations/rollback/212_location_command_runtime.rollback.sql"
     )
     db.execute_raw(rollback.read_text())
-    assert len(db.execute_raw("SELECT * FROM one_command_receipts_208_archive").data) == 1
+    assert len(db.execute_raw("SELECT * FROM one_command_receipts_212_archive").data) == 1
 
 
 @pytest.mark.asyncio

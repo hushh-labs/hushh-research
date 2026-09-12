@@ -3,6 +3,19 @@ id: agent_location
 name: Location Agent
 version: 0.2.0
 description: Location semantic owner beneath the private agent, using generated capabilities and scoped current state to propose commands without execution authority.
+one_exposure:
+  service_id: location
+  discovery_status: discoverable
+  exposure_status: active
+  supported_entrypoints:
+    - typed
+    - voice
+    - siri_app_shortcut
+  knowledge_package_ref:
+    schema_version: one.knowledge_package_ref.v1
+    package_id: location.brain
+    package_version: 2
+    path: knowledge.yaml
 model: gemini-default
 capabilities:
   command_instruction: |

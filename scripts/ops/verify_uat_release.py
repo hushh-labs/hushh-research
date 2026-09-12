@@ -168,30 +168,24 @@ def main() -> int:
             _record_exception(report, failures, name="gmail_status", exc=exc)
 
         try:
-            relay_session = smoke._request(  # noqa: SLF001
-                "POST",
-                "/api/one/adk/relay-session",
-                headers=smoke._firebase_auth_headers(),  # noqa: SLF001
+            commands = smoke._request(  # noqa: SLF001
+                "GET",
+                "/api/one/action-proposals",
+                headers=smoke._vault_headers(),  # noqa: SLF001
                 expected=200,
             ).json()
-            relay_session_ok = bool(
-                isinstance(relay_session.get("relay_ticket"), str)
-                and relay_session.get("relay_ticket")
-                and isinstance(relay_session.get("expires_at"), int)
-                and relay_session.get("expires_at") > 0
-            )
+            commands_ok = isinstance(commands.get("commands"), list)
             report["checks"].append(
                 {
-                    "name": "voice_relay_session",
-                    "ok": relay_session_ok,
-                    "model": relay_session.get("model"),
-                    "tier": relay_session.get("tier"),
+                    "name": "location_command_recovery",
+                    "ok": commands_ok,
+                    "command_count": len(commands.get("commands") or []),
                 }
             )
-            if not relay_session_ok:
-                failures.append("voice_relay_session")
+            if not commands_ok:
+                failures.append("location_command_recovery")
         except Exception as exc:  # pragma: no cover - exercised in live verification
-            _record_exception(report, failures, name="voice_relay_session", exc=exc)
+            _record_exception(report, failures, name="location_command_recovery", exc=exc)
 
         try:
             ria_stage1 = smoke._request(  # noqa: SLF001

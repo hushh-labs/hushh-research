@@ -6,6 +6,7 @@ import type { GeneratedVaultKeyMode } from "@/lib/services/vault-bootstrap-servi
 import { VaultBootstrapService } from "@/lib/services/vault-bootstrap-service";
 import { VaultService, type VaultMethod } from "@/lib/services/vault-service";
 import { rewrapVaultKeyWithPassphrase } from "@/lib/vault/rewrap-vault-key";
+import { unlockVaultWithPassphrase } from "@/lib/vault/passphrase-key";
 import { trackEvent } from "@/lib/observability/client";
 
 export type { VaultMethod } from "@/lib/services/vault-service";
@@ -16,6 +17,7 @@ export type VaultCapabilityMatrix = {
   generatedWebPrf: boolean;
   recommendedMethod: VaultMethod;
   reason?: string;
+  biometricLabel?: string;
 };
 
 function ensureVaultKeyHex(value: string): string {
@@ -86,6 +88,7 @@ export class VaultMethodService {
           generatedNativeBiometric: true,
           generatedWebPrf: false,
           recommendedMethod: "generated_default_native_biometric",
+          biometricLabel: support.biometricLabel,
         };
       }
 
@@ -121,10 +124,13 @@ export class VaultMethodService {
     displayName: string;
     targetMethod: VaultMethod;
     passphrase?: string;
+    signal?: AbortSignal;
+    requestId?: string;
   }): Promise<{ method: VaultMethod }> {
     try {
       const canonicalVaultKey = ensureVaultKeyHex(params.currentVaultKey);
       const state = await VaultService.getVaultState(params.userId);
+      params.signal?.throwIfAborted();
       const vaultKeyHash = await VaultService.hashVaultKey(canonicalVaultKey, state.vaultKeyHash);
 
       if (state.vaultKeyHash && state.vaultKeyHash !== vaultKeyHash) {
@@ -165,28 +171,32 @@ export class VaultMethodService {
         await VaultBootstrapService.provisionGeneratedMethodMaterial({
           userId: params.userId,
           displayName: params.displayName,
+          targetMethod: params.targetMethod,
+          signal: params.signal,
+          requestId: params.requestId,
         });
 
       if (material.mode !== params.targetMethod) {
         throw new Error("Requested method is not supported on this device.");
       }
 
+      let wrapperWriteAttempted = false;
       try {
+        params.signal?.throwIfAborted();
         const wrapped = await rewrapVaultKeyWithPassphrase({
           vaultKeyHex: canonicalVaultKey,
           wrappingSecret: material.wrappingSecret,
         });
 
+        params.signal?.throwIfAborted();
+        const wrapperId = material.wrapperId ?? material.passkeyCredentialId ?? "default";
+        wrapperWriteAttempted = true;
         await VaultService.upsertVaultWrapper({
           userId: params.userId,
           vaultKeyHash,
           wrapper: {
             method: material.mode,
-            wrapperId:
-              material.passkeyCredentialId ??
-              (material.mode === "generated_default_native_biometric"
-                ? "default"
-                : "default"),
+            wrapperId,
             encryptedVaultKey: wrapped.encryptedVaultKey,
             salt: wrapped.salt,
             iv: wrapped.iv,
@@ -198,13 +208,37 @@ export class VaultMethodService {
             passkeyLastUsedAt: Date.now(),
           },
         });
-
+        params.signal?.throwIfAborted();
+        const persisted = await VaultService.getVaultState(params.userId);
+        const persistedWrapper = VaultService.getWrapperByMethod(persisted, material.mode, { wrapperId });
+        if (!persistedWrapper || (persistedWrapper.wrapperId ?? "default") !== wrapperId) {
+          throw new Error("Quick unlock could not be verified. Your existing unlock methods still work.");
+        }
+        const recoveredKey = await unlockVaultWithPassphrase(
+          material.wrappingSecret, persistedWrapper.encryptedVaultKey,
+          persistedWrapper.salt, persistedWrapper.iv,
+        );
+        if (!recoveredKey || ensureVaultKeyHex(recoveredKey) !== canonicalVaultKey) {
+          throw new Error("Quick unlock verification failed. Your existing unlock methods still work.");
+        }
+        await VaultService.assertVaultKeyMatchesState(persisted, recoveredKey);
+        params.signal?.throwIfAborted();
+        if (material.mode === "generated_default_native_biometric") {
+          // Persist the opaque device pointer before changing account preference.
+          // Failure here leaves the old primary usable and both wrappers intact.
+          await VaultBootstrapService.preferDeviceBiometricWrapper(params.userId, wrapperId);
+        }
+        params.signal?.throwIfAborted();
         await VaultService.setPrimaryVaultMethod(
           params.userId,
           material.mode,
-          material.passkeyCredentialId ?? "default",
+          wrapperId,
         );
-        dispatchVaultRekeyed(params.userId, "vault_method_switched_to_generated");
+        // This write is the commit point. A later cancellation cannot undo it
+        // or truthfully report failed enrollment. The UI's epoch check still
+        // prevents this result from reopening a cancelled/changed session.
+        // Adding a verified wrapper for the SAME key is not rekeying. Do not
+        // lock the surviving session (including the setup flow) as a side effect.
         trackEvent("profile_method_switch_result", {
           result: "success",
         });
@@ -212,11 +246,12 @@ export class VaultMethodService {
       } catch (error) {
         if (
           material.mode === "generated_default_native_biometric" &&
-          Capacitor.isNativePlatform()
+          Capacitor.isNativePlatform() && !wrapperWriteAttempted
         ) {
           await VaultBootstrapService.clearGeneratedDefaultMaterial(
             params.userId,
             material.mode as GeneratedVaultKeyMode,
+            material.wrapperId,
           );
         }
         throw error;

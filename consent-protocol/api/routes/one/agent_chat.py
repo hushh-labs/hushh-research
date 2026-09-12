@@ -15,8 +15,8 @@ from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
 from api.middleware import require_vault_owner_token
+from api.routes.one.agent_context import sanitize_agent_context
 from api.routes.one.command_proposals import router as command_proposals_router
-from api.routes.one.live_context import sanitize_live_context
 from api.utils.firebase_auth import verify_firebase_bearer
 from hushh_mcp.one_adk.agent_tree import (
     ONE_APP_NAME,
@@ -67,7 +67,7 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
             firebase_uid = ""
     forwarded = input_data.forwarded_props if isinstance(input_data.forwarded_props, dict) else {}
     screen_payload = forwarded.get("screenContext")
-    screen_context = sanitize_live_context(
+    screen_context = sanitize_agent_context(
         screen_payload if isinstance(screen_payload, dict) else {}
     )
 

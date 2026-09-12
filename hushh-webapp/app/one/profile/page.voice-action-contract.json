@@ -310,8 +310,8 @@
     },
     {
       "action_id": "help.open_examples",
-      "label": "What can I say",
-      "meaning": "Opens the \"What can I say\" page, showing example phrases for every part of the app voice can currently act on.",
+      "label": "Open Location command settings",
+      "meaning": "Opens Location command settings. Commands interpret the person's own words from current capability and screen context; the settings do not maintain a phrase catalog.",
       "aliases": [
         "what can i say",
         "what can you do",
@@ -321,14 +321,13 @@
       ],
       "search_keywords": [
         "help",
-        "examples",
-        "what can i say",
-        "tutorial",
+        "location commands",
+        "command settings",
         "guide"
       ],
       "reachability": {
         "routes": [
-          "/one/profile/preferences/voice/examples"
+          "/one/profile/preferences/voice"
         ],
         "screens": [
           "profile_preferences"
@@ -344,7 +343,7 @@
       "execution_target": {
         "status": "wired",
         "path": "route",
-        "target": "/one/profile/preferences/voice/examples"
+        "target": "/one/profile/preferences/voice"
       },
       "control_ids": [],
       "state_exposure": [],

@@ -44,6 +44,8 @@ import { SiriOneRequestHandoff } from "@/components/agent/siri-one-request-hando
 import { SiriOneActionHandoff } from "@/components/agent/siri-one-action-handoff";
 import { SiriOneEntityIndexPublisher } from "@/components/agent/siri-one-entity-index-publisher";
 import { AgentVoiceEdgeGlow } from "@/components/agent/agent-voice-edge-glow";
+import { OneLocationInteractionSurfaceProvider } from "@/components/one-location/onboarding/location-onboarding-interaction-surface";
+import { LocationCommandDeviceBridge } from "@/components/one-location/onboarding/location-command-device-bridge";
 import { FoundationPublicAmbient } from "@/components/app-ui/foundation-public-ambient";
 import { AppBottomShell } from "@/components/app-ui/app-bottom-shell";
 import { AmbientChromeController } from "@/components/app-ui/ambient-chrome-mask";
@@ -534,8 +536,10 @@ function AppShellFrame({ children }: ProvidersProps) {
       <PersonaProvider>
         <RiaSurfaceScopeSync />
         <VaultProvider>
-          <AgentRuntimeStateProvider>
-            <AgentPopoverProvider>
+          <OneLocationInteractionSurfaceProvider>
+            <LocationCommandDeviceBridge />
+            <AgentRuntimeStateProvider>
+              <AgentPopoverProvider>
               <SiriOneVoiceHandoff />
               <SiriOneRequestHandoff />
               <SiriOneActionHandoff />
@@ -551,9 +555,9 @@ function AppShellFrame({ children }: ProvidersProps) {
               {/* Voice chrome is hoisted ABOVE the page Suspense boundary so it
                 mounts exactly once and survives client-side route transitions.
                 Inside the boundary it would remount whenever a navigation
-                suspends (fallback tree <-> resolved tree swap), tearing down
-                the live voice session and restarting the conversation on every
-                route switch. Both are fixed overlays, so position is unaffected. */}
+                suspends (fallback tree <-> resolved tree swap), cancelling an
+                active command capture during a route switch. Both are fixed
+                overlays, so position is unaffected. */}
               {!hidesPersistentChrome ? <AgentVoiceEdgeGlow /> : null}
               {!hidesPersistentChrome ? <AppEdgeBackGesture /> : null}
               <AppProfileEdgeGesture enabled={profilePaneEnabled} />
@@ -695,8 +699,9 @@ function AppShellFrame({ children }: ProvidersProps) {
                   </ConsentNotificationProvider>
                 </Suspense>
               </ContactInvitationSessionProvider>
-            </AgentPopoverProvider>
-          </AgentRuntimeStateProvider>
+              </AgentPopoverProvider>
+            </AgentRuntimeStateProvider>
+          </OneLocationInteractionSurfaceProvider>
         </VaultProvider>
       </PersonaProvider>
     </CacheProvider>

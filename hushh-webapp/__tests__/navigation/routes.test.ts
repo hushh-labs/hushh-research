@@ -112,6 +112,9 @@ describe("navigation routes", () => {
     expect(buildProfileRoute({ panel: "preferences", detail: "gemini" })).toBe(
       "/one/profile/preferences/gemini",
     );
+    expect(buildProfileRoute({ panel: "preferences", detail: "voice" })).toBe(
+      "/one/profile/preferences/voice",
+    );
     expect(buildProfileRoute({ panel: "security", detail: "vault" })).toBe(
       "/one/profile/security/vault",
     );
@@ -168,6 +171,16 @@ describe("navigation routes", () => {
       detail: "sharing",
     });
     expect(
+      resolveProfileRouteState(
+        "/one/profile/preferences/voice/changelog",
+      ),
+    ).toEqual({ panel: "preferences", detail: "voice" });
+    expect(
+      resolveProfileRouteState(
+        "/one/profile/preferences/voice/examples",
+      ),
+    ).toEqual({ panel: "preferences", detail: "voice" });
+    expect(
       resolveProfileRouteState("/one/profile/access/connection", "id=abc"),
     ).toEqual({ panel: "my-data", detail: "connection:abc" });
     expect(resolveProfileRouteState("/one/profile/regulatory")).toEqual({
@@ -198,6 +211,18 @@ describe("navigation routes", () => {
         "panel=gmail&detail=gmail-actions",
       ),
     ).toBe("/one/gmail");
+    expect(
+      buildCanonicalProfileRouteFromLegacyQuery(
+        "/one/profile",
+        "panel=preferences&detail=voice-changelog",
+      ),
+    ).toBe("/one/profile/preferences/voice");
+    expect(
+      buildCanonicalProfileRouteFromLegacyQuery(
+        "/one/profile",
+        "panel=preferences&detail=voice-examples",
+      ),
+    ).toBe("/one/profile/preferences/voice");
   });
 
   it("preserves query parameter integrity for ria workspace tabs", () => {

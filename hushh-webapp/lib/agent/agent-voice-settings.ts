@@ -1,8 +1,7 @@
 "use client";
 
-// One Live is the only interactive audio owner. Other surfaces may request a
-// session, but only the persistent Agent Bar can acquire the microphone,
-// create the Live transport, or render native-audio playback.
+// The persistent Agent Bar is the single command-capture owner. Other
+// surfaces may request a command, but they never acquire the microphone.
 export const AGENT_CONVERSATION_REQUEST_EVENT =
   "hushh:agent-conversation-request";
 export const AGENT_CONVERSATION_READY_EVENT = "hushh:agent-conversation-ready";
@@ -28,8 +27,8 @@ export type AgentConversationRequest = {
   requestId?: string;
   /**
    * A one-time request captured by a trusted native handoff. This remains in
-   * memory and is sent as a real user turn after the live session accepts its
-   * initial app context; it is never treated as app-composed speech.
+   * memory and is submitted through the same command runtime; it is never
+   * treated as app-composed speech.
    */
   initialRequestText?: string;
 };
@@ -73,8 +72,8 @@ function dispatchRequest(request: AgentConversationRequest): void {
 }
 
 /**
- * Ask the persistent Agent Bar to start One Live. Existing no-argument callers
- * remain compatible. A request received before the sole owner mounts is held
+ * Ask the persistent Agent Bar to start a Talk to One command. Existing
+ * no-argument callers remain compatible. A request received before the sole owner mounts is held
  * as one metadata-only slot; duplicate ids are coalesced.
  */
 export function requestAgentConversation(
@@ -96,12 +95,12 @@ export function requestAgentConversation(
 }
 
 /**
- * Ask the persistent Agent Bar to END One Live now.
+ * Ask the persistent Agent Bar to cancel the active command now.
  *
  * Unqueued and unconditional on purpose. It is a no-op when nothing is
  * running, and being unconditional is the only shape that also covers the
  * window between the microphone lease being acquired and the transport coming
- * alive, where the shared voice store still reads "idle".
+ * active, where the shared capture store still reads "idle".
  */
 export function requestAgentConversationStop(): void {
   if (typeof window === "undefined") return;
@@ -170,8 +169,8 @@ export function resetAgentConversationBrokerForTests(): void {
 
 const DISABLED_FLAG_VALUES = new Set(["0", "false", "off", "disabled", "no"]);
 
-export function isAgentGeminiVoiceEnabled(): boolean {
-  const configured = process.env.NEXT_PUBLIC_AGENT_GEMINI_VOICE_ENABLED;
+export function isAgentCommandEnabled(): boolean {
+  const configured = process.env.NEXT_PUBLIC_AGENT_COMMAND_ENABLED;
   if (
     configured === undefined ||
     configured === null ||

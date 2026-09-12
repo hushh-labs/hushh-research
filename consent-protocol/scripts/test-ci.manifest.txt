@@ -36,6 +36,10 @@ tests/test_pkm_upgrade_service.py
 tests/test_vault_keys_metadata.py
 tests/test_one_location_routes.py
 tests/services/test_one_location_agent_service.py
+tests/test_one_capability_runtime_router_mount.py
+tests/services/test_location_brain_semantic_retrieval.py
+tests/services/test_location_circle_direct_executor.py
+tests/services/test_location_circle_name_interaction.py
 tests/services/test_connections_service.py
 tests/services/test_push_notifications.py
 tests/test_fcm_messages.py
@@ -148,6 +152,11 @@ tests/services/test_account_deletion_lifecycle_service.py
 tests/test_account_deletion_tombstone_migration.py
 tests/test_account_deletion_release_workflow.py
 tests/test_cloud_run_image_resolution.py
+
+# First-party document renewal: expiry is not revocation, but revoked lineage
+# can never renew or regain authority through a later grant/duplicate token.
+tests/test_vault_owner_token_renewal.py
+tests/test_internal_vault_owner_token_validation.py
 
 # Contact discovery.
 #

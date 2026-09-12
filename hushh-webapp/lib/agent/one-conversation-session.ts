@@ -2,12 +2,13 @@
 
 import { create } from "zustand";
 import type { SpecialistDirectiveEvent } from "@/lib/services/agent-chat-client";
+import type { GmailInformationRequestWorkflow } from "@/lib/services/gmail-information-requests-service";
 
 export type OneConversationMirrorEvent = {
   id: string;
   role: "user" | "assistant" | "system";
   text: string;
-  source: "gemini_live" | "one_voice_orchestrator" | "agent_chat";
+  source: "location_command" | "agent_chat";
   turnId?: string | null;
   actionId?: string | null;
   resultSummary?: string | null;
@@ -23,12 +24,26 @@ export type AgentChatHandoffReason =
   | "delegated_action"
   | "pkm_memory_candidate";
 
+export type GmailInformationRequestHandoff = Pick<
+  GmailInformationRequestWorkflow,
+  | "workflow_id"
+  | "requested_field_labels"
+  | "candidate_scopes"
+  | "attachment_review_required"
+>;
+
 export type AgentChatHandoff = {
   id: string;
   reason: AgentChatHandoffReason;
   transcript?: string | null;
   /** A user-initiated Gmail draft request. It never authorizes delivery. */
   emailDraftInstruction?: string | null;
+  /**
+   * An active personal-Gmail KYC workflow that must retain its original
+   * reply context. This is metadata only; private PKM values and Gmail bodies
+   * never travel in the handoff.
+   */
+  gmailInformationRequest?: GmailInformationRequestHandoff | null;
   assistantText?: string | null;
   actionId?: string | null;
   resultSummary?: string | null;

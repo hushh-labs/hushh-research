@@ -141,6 +141,32 @@ flowchart TB
 
 ### Firebase Auth (Bootstrap)
 
+`POST /api/consent/vault-owner-token` accepts `{userId, renewalOfToken?}`.
+Omitting `renewalOfToken` retains the existing explicit local-unlock issuance
+contract; the server verifies Firebase identity, not a new vault-key proof.
+While the same verified user remains locally unlocked in one app document,
+clients renew with the prior owner token. Renewal requires a signed, same-user,
+non-device `self` / `vault.owner` grant and its intact canonical
+`internal_access_events` lineage. Expired evidence may renew, but never authorizes
+a data request. Any later owner revocation permanently rejects that lineage,
+including after a different explicit unlock. Renewal and owner revocation use
+one Postgres transaction lock; no new session store or key persistence is added.
+Invalid/revoked renewal returns `403 AUTH_VAULT_OWNER_INVALID`; ledger uncertainty
+returns no-store `503 AUTH_ACCOUNT_STATUS_UNAVAILABLE` without bootstrap fallback.
+Web proxy and iOS/Android plugins preserve these typed errors. A reload/new app
+document starts locked; short interruptions and route changes retain the local
+key, with unavailable authority gated for retry.
+
+For self-owner grants only, multiple signed grants in the intact lineage remain
+usable up to each token's **original** expiry; renewing does not extend old
+credentials. This tolerates a lost response or another tab renewing. Delegated
+and device capabilities keep their latest-token validation rules. A successful
+renewal adds `renewalValidated: true`; clients reject missing/false acknowledgment.
+Deploy the backend before the matching web/native clients and coordinate rollback:
+an older backend ignores the new input and must not be used for renewal traffic.
+The acknowledgment fails closed on receipt but cannot prevent an older server
+from attempting its legacy issuance before returning the incompatible response.
+
 | Method | Path                                                  | Description                                                                                                                                                     |
 | ------ | ----------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | POST   | `/api/consent/vault-owner-token`                      | Issue VAULT_OWNER token                                                                                                                                         |
@@ -265,6 +291,7 @@ server-side, then bind both actions to that source.
 | PATCH | `/api/one/email/information-requests/preference` | Firebase Bearer | Explicitly enable or disable transient server-side classification for that mailbox. Enabling captures a Gmail History baseline; existing inbox mail is not scanned. |
 | GET | `/api/one/email/information-requests?limit={limit}&offset={offset}&view={active\|activity}` | Firebase + `VAULT_OWNER` | List the active detected queue (`active`, default) or terminal metadata-only activity (`activity`); no original email content is returned. |
 | POST | `/api/one/email/information-requests/scan` | Firebase + `VAULT_OWNER` | Run a bounded owner-requested scan of only unread Inbox messages added after the opt-in baseline. |
+| POST | `/api/one/email/information-requests/{workflow_id}/refresh-candidates` | Firebase + `VAULT_OWNER` | Re-resolve the active request's model-classified field labels against the owner's current visible PKM manifest leaves. Returns metadata-only exact scopes; it never returns PKM values or email content. |
 | POST | `/api/one/email/information-requests/{workflow_id}/prepare-reply` | Firebase + `VAULT_OWNER` | Bind an owner-edited private draft to the original Gmail source and create a ten-minute send action. Caller cannot supply recipient, subject, or thread. |
 | POST | `/api/one/email/information-requests/{workflow_id}/send-reply` | Firebase + `VAULT_OWNER` | Send only the unchanged prepared reply in the server-derived Gmail thread. |
 | POST | `/api/one/email/information-requests/{workflow_id}/ignore` | Firebase + `VAULT_OWNER` | Remove a detected request from the owner queue without sending. |
@@ -513,6 +540,7 @@ RIA relationship bundle note:
 | POST   | `/api/pkm/delete-domain`                                                 | Delete a PKM domain with an owner-confirmed `PkmMutationPlanV2`, current sharing-impact check, and expected content revision                          |
 | GET    | `/api/pkm/device-sync/{user_id}`                                         | List metadata-only upsert/delete events after a monotonic cursor; trusted devices fetch ciphertext through the domain snapshot contract               |
 | GET    | `/api/pkm/metadata/{user_id}`                                            | Get PKM metadata for UI                                                                                                                               |
+| POST   | `/api/pkm/memory/proposals`                                              | Produce an owner-local PKM preview. `memory_profile` is optional: `general` remains the compatibility default and `kyc_identity_v1` performs one constrained KYC fact-extraction pass. Preview cards may include canonical field IDs, confidence, source disposition, and value-free retrieval hints; they never contain server-stored PKM values. |
 | POST   | `/api/pkm/domains/{domain}/scope-exposure`                               | Set a top-level PKM section posture: private or consent-required                                                                                      |
 | POST   | `/api/pkm/domains/{domain}/public-profile-projection`                    | Vault-owner publishes a client-generated public-profile projection independent of encrypted consent posture                                           |
 | GET    | `/api/pkm/domains/{domain}/public-profile-projections?user_id={user_id}` | Vault-owner lists active public-profile handles and metadata only; never projection payloads                                                          |

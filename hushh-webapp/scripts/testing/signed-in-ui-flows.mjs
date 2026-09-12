@@ -22,8 +22,7 @@ import fs from "node:fs";
  * - assert_no_text: { value: string, regex?: boolean, timeoutMs?: number }
  * - assert_no_persona_mismatch_prompt: { timeoutMs?: number }
  * - assert_voice_control_visible: { controlId: string, timeoutMs?: number }
- * - wait_voice_mode: { modes: string[] | string, timeoutMs?: number, allowPermissionFallback?: boolean }
- * - end_voice_if_active: { timeoutMs?: number }
+ * - wait_command_capture_state: { states: string[] | string, timeoutMs?: number }
  * - wait_beacon: { routeIds: string[], dataStates?: string[] }
  * - assert_url_includes: { value: string }
  * - assert_visible_testid: { testId: string }
@@ -363,7 +362,7 @@ export const ONE_VOICE_NATIVE_CONTROL_FLOW = {
   id: ONE_VOICE_NATIVE_CONTROL_FLOW_ID,
   route: "/one/kai",
   description:
-    "One Voice native control smoke: start realtime voice, observe state, and recover/end",
+    "Talk to One command capture smoke: start, observe capture, cancel, and return idle",
   stepTimeoutMs: 90000,
   steps: [
     { type: "ensure_persona", persona: "investor" },
@@ -385,17 +384,23 @@ export const ONE_VOICE_NATIVE_CONTROL_FLOW = {
       controlId: "one_voice_agent_bar_start",
     },
     {
-      type: "wait_voice_mode",
-      modes: ["opening", "listening", "understanding", "speaking", "error"],
-      timeoutMs: 90000,
-      allowPermissionFallback: true,
-    },
-    { type: "end_voice_if_active", timeoutMs: 2000 },
-    {
-      type: "wait_voice_mode",
-      modes: ["idle", "error"],
+      type: "wait_command_capture_state",
+      states: ["starting", "recording"],
       timeoutMs: 30000,
-      allowPermissionFallback: true,
+    },
+    {
+      type: "assert_voice_control_visible",
+      controlId: "one_location_command_cancel_capture",
+      timeoutMs: 10000,
+    },
+    {
+      type: "click_voice_control",
+      controlId: "one_location_command_cancel_capture",
+    },
+    {
+      type: "wait_command_capture_state",
+      states: "idle",
+      timeoutMs: 10000,
     },
   ],
 };

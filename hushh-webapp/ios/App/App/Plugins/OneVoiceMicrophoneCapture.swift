@@ -151,27 +151,47 @@ final class OneCommandRecording {
     private var deadline: DispatchWorkItem?
     private let output = AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: 16_000, channels: 1, interleaved: true)!
     private let maximumBytes: Int
+    private let onFirstPCMWrite: ((Int) -> Void)?
+    private var firstPCMWriteObserved = false
 
-    init(sessionID: String, maxDurationMs: Int) {
+    init(
+        sessionID: String,
+        maxDurationMs: Int,
+        onFirstPCMWrite: ((Int) -> Void)? = nil
+    ) {
         self.sessionID = sessionID
         maximumBytes = min(60_000, max(1, maxDurationMs)) * 32
+        self.onFirstPCMWrite = onFirstPCMWrite
     }
 
     func start() throws {
-        try capture.start { [weak self] buffer, _, _ in self?.append(buffer) }
+        try capture.start { [weak self] buffer, _, sequence in
+            self?.append(buffer, sequence: sequence)
+        }
         let stop = DispatchWorkItem { [weak self] in self?.capture.stop() }
         deadline = stop
         DispatchQueue.main.asyncAfter(deadline: .now() + Double(maximumBytes) / 32_000, execute: stop)
     }
 
-    private func append(_ buffer: AVAudioPCMBuffer) {
+    private func append(_ buffer: AVAudioPCMBuffer, sequence: Int) {
+        var firstPCMWrite: ((Int) -> Void)?
         lock.lock()
-        defer { lock.unlock() }
-        guard !closed, pcm.count < maximumBytes else { return }
+        guard !closed, pcm.count < maximumBytes else {
+            lock.unlock()
+            return
+        }
         if converter == nil { converter = AVAudioConverter(from: buffer.format, to: output) }
-        guard let converter else { conversionFailed = true; return }
+        guard let converter else {
+            conversionFailed = true
+            lock.unlock()
+            return
+        }
         let capacity = AVAudioFrameCount(ceil(Double(buffer.frameLength) * 16_000 / buffer.format.sampleRate) + 64)
-        guard let converted = AVAudioPCMBuffer(pcmFormat: output, frameCapacity: capacity) else { conversionFailed = true; return }
+        guard let converted = AVAudioPCMBuffer(pcmFormat: output, frameCapacity: capacity) else {
+            conversionFailed = true
+            lock.unlock()
+            return
+        }
         var supplied = false
         var error: NSError?
         converter.convert(to: converted, error: &error) { _, status in
@@ -180,14 +200,28 @@ final class OneCommandRecording {
             status.pointee = .haveData
             return buffer
         }
-        if error != nil { conversionFailed = true; return }
-        appendConverted(converted)
+        if error != nil {
+            conversionFailed = true
+            lock.unlock()
+            return
+        }
+        if appendConverted(converted), !firstPCMWriteObserved {
+            firstPCMWriteObserved = true
+            firstPCMWrite = onFirstPCMWrite
+        }
+        lock.unlock()
+        // Test observers receive proof only after converted PCM is in the
+        // transient buffer, and never while the audio callback holds the lock.
+        firstPCMWrite?(sequence)
     }
 
-    private func appendConverted(_ buffer: AVAudioPCMBuffer) {
-        guard let samples = buffer.int16ChannelData?[0] else { return }
+    @discardableResult
+    private func appendConverted(_ buffer: AVAudioPCMBuffer) -> Bool {
+        guard let samples = buffer.int16ChannelData?[0] else { return false }
         let count = min(Int(buffer.frameLength) * 2, maximumBytes - pcm.count)
-        if count > 0 { pcm.append(UnsafeBufferPointer(start: UnsafeRawPointer(samples).assumingMemoryBound(to: UInt8.self), count: count)) }
+        guard count > 0 else { return false }
+        pcm.append(UnsafeBufferPointer(start: UnsafeRawPointer(samples).assumingMemoryBound(to: UInt8.self), count: count))
+        return true
     }
 
     func finish() throws -> [String: Any] {
