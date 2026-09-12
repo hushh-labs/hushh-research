@@ -79,6 +79,15 @@ def _task_payload(task: PodTask) -> dict[str, Any]:
     }
 
 
+def _validate_runtime_credential(payload: PodTaskCreateRequest) -> None:
+    if payload.runtime_credential and payload.runtime_provider != "puppy":
+        raise HTTPException(status_code=422, detail="runtime credentials are only valid for Puppy")
+    if payload.runtime_provider == "puppy" and not payload.runtime_credential:
+        # The hub must mint the device-bound grant immediately before this hop;
+        # accepting a bare provider request would bypass Puppy admission.
+        raise HTTPException(status_code=403, detail="Puppy inference grant required")
+
+
 async def _run_task(
     task: PodTask,
     *,
@@ -190,6 +199,7 @@ async def create_pod_task_route(
 ) -> dict[str, Any]:
     """Queue one owner-approved task and return its durable task reference."""
     _require_enabled()
+    _validate_runtime_credential(payload)
     await _admit_task(
         token=str(x_one_invoke_token or "").strip(),
         owner_id=payload.owner_id,

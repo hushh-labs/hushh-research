@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import pytest
+from fastapi import HTTPException
 
+from api.routes.one.pod_task import PodTaskCreateRequest, _validate_runtime_credential
 from hushh_mcp.services.pod_commit_log import LocalObjectStore, PodCommitLog
 from hushh_mcp.services.pod_task_store import (
     PodTaskConflict,
@@ -82,3 +84,25 @@ def test_task_input_rejects_provider_and_unexpected_fields():
         validate_task_input({"message": "x", "puppy_device_id": "device"})
     with pytest.raises(ValueError):
         validate_task_input({"message": "x", "unexpected": True})
+
+
+def test_task_route_requires_a_hub_minted_puppy_grant():
+    with pytest.raises(HTTPException, match="Puppy inference grant required"):
+        _validate_runtime_credential(
+            PodTaskCreateRequest(
+                ownerId=OWNER,
+                agentId=AGENT,
+                message="hello",
+                runtimeProvider="puppy",
+                puppyDeviceId="device-one",
+            )
+        )
+    with pytest.raises(HTTPException, match="only valid for Puppy"):
+        _validate_runtime_credential(
+            PodTaskCreateRequest(
+                ownerId=OWNER,
+                agentId=AGENT,
+                message="hello",
+                runtimeCredential="caller-supplied-secret",
+            )
+        )
