@@ -1121,6 +1121,144 @@ async def test_consumer_mcp_lists_connection_requests_without_scope_or_identity_
     assert "attr.secret.private" not in str(result.structuredContent)
 
 
+@pytest.mark.asyncio
+async def test_consumer_mcp_connection_request_review_and_mutations_are_confirmed_and_bounded(
+    consumer, monkeypatch
+):
+    import mcp_server
+    from mcp_modules.developer_context import (
+        reset_current_developer_principal,
+        set_current_developer_principal,
+    )
+
+    principal, _, _ = connect(consumer)
+    request_id = "11111111-1111-4111-8111-111111111111"
+
+    class _Connections:
+        def list_requests(self, owner, **kwargs):
+            assert owner == "owner_a"
+            assert kwargs == {"direction": "incoming", "include_resolved": True}
+            return [
+                {
+                    "id": request_id,
+                    "counterpartDisplayName": "Sam Example",
+                    "status": "pending",
+                    "message": "Let's connect",
+                    "createdAt": "2026-09-12T10:00:00Z",
+                }
+            ]
+
+        def get_scope_proposal_history(self, owner, supplied_request_id):
+            assert owner == "owner_a"
+            assert supplied_request_id == request_id
+            return {
+                "items": [
+                    {
+                        "scopeHandle": "scope.public.profile",
+                        "direction": "requested",
+                        "label": "Public profile",
+                        "description": "A public profile projection.",
+                        "status": "pending",
+                        "createdAt": "2026-09-12T10:00:00Z",
+                        "expiresAt": "2026-09-13T10:00:00Z",
+                    }
+                ]
+            }
+
+        def create_request(self, owner, **kwargs):
+            assert owner == "owner_a"
+            assert kwargs == {
+                "query": "sam",
+                "message": "Let's connect",
+                "requested_scope_handles": ["scope.public.profile"],
+                "offered_scope_handles": [],
+            }
+            return {"id": request_id, "status": "pending"}
+
+        def accept_request(self, owner, supplied_request_id, **kwargs):
+            assert owner == "owner_a"
+            assert supplied_request_id == request_id
+            assert kwargs == {
+                "selected_requested_scope_handles": ["scope.public.profile"],
+                "selected_offered_scope_handles": [],
+            }
+            return {
+                "requestId": request_id,
+                "connectionId": "connection-opaque",
+                "scopeResults": [
+                    {
+                        "scopeHandle": "scope.public.profile",
+                        "direction": "requested",
+                        "status": "active",
+                        "activated": True,
+                    }
+                ],
+            }
+
+        def reject_request(self, owner, supplied_request_id):
+            assert owner == "owner_a" and supplied_request_id == request_id
+            return {"status": "rejected", "requestId": request_id}
+
+        def cancel_request(self, owner, supplied_request_id):
+            assert owner == "owner_a" and supplied_request_id == request_id
+            return {"status": "cancelled", "requestId": request_id}
+
+    monkeypatch.setattr("hushh_mcp.services.connections_service.ConnectionsService", _Connections)
+    context = set_current_developer_principal(principal)
+    try:
+        names = {tool.name for tool in await mcp_server.list_tools()}
+        assert {
+            "get_hussh_connection_request",
+            "send_hussh_connection_request",
+            "accept_hussh_connection_request",
+            "reject_hussh_connection_request",
+            "cancel_hussh_connection_request",
+        }.issubset(names)
+        detail = await mcp_server.call_tool(
+            "get_hussh_connection_request", {"request_id": request_id}
+        )
+        sent = await mcp_server.call_tool(
+            "send_hussh_connection_request",
+            {
+                "query": "sam",
+                "message": "Let's connect",
+                "requested_scope_handles": ["scope.public.profile"],
+                "offered_scope_handles": [],
+                "confirm": True,
+            },
+        )
+        accepted = await mcp_server.call_tool(
+            "accept_hussh_connection_request",
+            {
+                "request_id": request_id,
+                "selected_requested_scope_handles": ["scope.public.profile"],
+                "selected_offered_scope_handles": [],
+                "confirm": True,
+            },
+        )
+        rejected = await mcp_server.call_tool(
+            "reject_hussh_connection_request", {"request_id": request_id, "confirm": True}
+        )
+        cancelled = await mcp_server.call_tool(
+            "cancel_hussh_connection_request", {"request_id": request_id, "confirm": True}
+        )
+        refused = await mcp_server.call_tool(
+            "reject_hussh_connection_request", {"request_id": request_id, "confirm": False}
+        )
+    finally:
+        reset_current_developer_principal(context)
+
+    assert not detail.isError
+    assert detail.structuredContent["scopes"][0]["label"] == "Public profile"
+    assert not sent.isError and sent.structuredContent["status"] == "pending"
+    assert not accepted.isError and accepted.structuredContent["status"] == "accepted"
+    assert accepted.structuredContent["scope_results"][0]["activated"] is True
+    assert not rejected.isError and rejected.structuredContent["status"] == "rejected"
+    assert not cancelled.isError and cancelled.structuredContent["status"] == "cancelled"
+    assert refused.isError
+    assert "raw" not in str(detail.structuredContent).lower()
+
+
 def test_receipts_are_bounded_non_bearer_owner_audit_records(consumer):
     service, _, _ = consumer
     principal, review, _ = connect(consumer)

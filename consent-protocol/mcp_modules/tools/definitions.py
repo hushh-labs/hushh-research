@@ -10,6 +10,8 @@ from mcp_modules.tools.consumer_tools import (
     ConsumerCalendarEventsResult,
     ConsumerCalendarOpeningsResult,
     ConsumerCapabilitiesResult,
+    ConsumerConnectionRequestDetailResult,
+    ConsumerConnectionRequestMutationResult,
     ConsumerConnectionRequestsResult,
     ConsumerConnectionResult,
     ConsumerConnectionsResult,
@@ -217,6 +219,114 @@ def _private_tool_definitions() -> list[Tool]:
             outputSchema=ConsumerConnectionRequestsResult.model_json_schema(),
             annotations={
                 "readOnlyHint": True,
+                "destructiveHint": False,
+                "idempotentHint": True,
+                "openWorldHint": False,
+            },
+        ),
+        Tool(
+            name="get_hussh_connection_request",
+            description="Read one owner connection request and its bounded capability labels before a confirmed review action. It never grants access.",
+            inputSchema=schema(
+                {"request_id": {"type": "string", "minLength": 1, "maxLength": 128}},
+                ["request_id"],
+            ),
+            outputSchema=ConsumerConnectionRequestDetailResult.model_json_schema(),
+            annotations={
+                "readOnlyHint": True,
+                "destructiveHint": False,
+                "idempotentHint": True,
+                "openWorldHint": False,
+            },
+        ),
+        Tool(
+            name="send_hussh_connection_request",
+            description="Send a Hussh connection request after explicit confirmation. A connection does not grant information access; selected scopes remain a separate review.",
+            inputSchema=schema(
+                {
+                    "query": {"type": "string", "minLength": 1, "maxLength": 160},
+                    "message": {"type": "string", "maxLength": 1000},
+                    "requested_scope_handles": {
+                        "type": "array",
+                        "items": {"type": "string", "minLength": 1, "maxLength": 256},
+                        "maxItems": 50,
+                    },
+                    "offered_scope_handles": {
+                        "type": "array",
+                        "items": {"type": "string", "minLength": 1, "maxLength": 256},
+                        "maxItems": 50,
+                    },
+                    "confirm": {"type": "boolean", "const": True},
+                },
+                ["query", "confirm"],
+            ),
+            outputSchema=ConsumerConnectionRequestMutationResult.model_json_schema(),
+            annotations={
+                "readOnlyHint": False,
+                "destructiveHint": False,
+                "idempotentHint": True,
+                "openWorldHint": True,
+            },
+        ),
+        Tool(
+            name="accept_hussh_connection_request",
+            description="Accept one incoming Hussh connection request after explicit confirmation and selected scope review. Connection status never grants information access by itself.",
+            inputSchema=schema(
+                {
+                    "request_id": {"type": "string", "minLength": 1, "maxLength": 128},
+                    "selected_requested_scope_handles": {
+                        "type": "array",
+                        "items": {"type": "string", "minLength": 1, "maxLength": 256},
+                        "maxItems": 50,
+                    },
+                    "selected_offered_scope_handles": {
+                        "type": "array",
+                        "items": {"type": "string", "minLength": 1, "maxLength": 256},
+                        "maxItems": 50,
+                    },
+                    "confirm": {"type": "boolean", "const": True},
+                },
+                ["request_id", "confirm"],
+            ),
+            outputSchema=ConsumerConnectionRequestMutationResult.model_json_schema(),
+            annotations={
+                "readOnlyHint": False,
+                "destructiveHint": False,
+                "idempotentHint": True,
+                "openWorldHint": False,
+            },
+        ),
+        Tool(
+            name="reject_hussh_connection_request",
+            description="Reject one incoming Hussh connection request after explicit confirmation. No information access is granted.",
+            inputSchema=schema(
+                {
+                    "request_id": {"type": "string", "minLength": 1, "maxLength": 128},
+                    "confirm": {"type": "boolean", "const": True},
+                },
+                ["request_id", "confirm"],
+            ),
+            outputSchema=ConsumerConnectionRequestMutationResult.model_json_schema(),
+            annotations={
+                "readOnlyHint": False,
+                "destructiveHint": False,
+                "idempotentHint": True,
+                "openWorldHint": False,
+            },
+        ),
+        Tool(
+            name="cancel_hussh_connection_request",
+            description="Cancel one outgoing Hussh connection request after explicit confirmation. No information access is granted.",
+            inputSchema=schema(
+                {
+                    "request_id": {"type": "string", "minLength": 1, "maxLength": 128},
+                    "confirm": {"type": "boolean", "const": True},
+                },
+                ["request_id", "confirm"],
+            ),
+            outputSchema=ConsumerConnectionRequestMutationResult.model_json_schema(),
+            annotations={
+                "readOnlyHint": False,
                 "destructiveHint": False,
                 "idempotentHint": True,
                 "openWorldHint": False,

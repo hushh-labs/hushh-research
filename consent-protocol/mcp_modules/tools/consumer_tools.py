@@ -4,6 +4,7 @@ import asyncio
 import json
 from typing import Literal
 from urllib.parse import urlencode, urlsplit
+from uuid import UUID
 
 from mcp.types import CallToolResult, TextContent
 from pydantic import BaseModel, ConfigDict, Field
@@ -225,6 +226,41 @@ class ConsumerConnectionRequestsResult(BaseModel):
     state: Literal["available"]
     direction: Literal["incoming", "outgoing"]
     items: list[ConsumerConnectionRequestItem] = Field(default_factory=list, max_length=100)
+    next_action: str
+
+
+class ConsumerConnectionScopeProposal(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    scope_handle: str = Field(..., max_length=256)
+    direction: Literal["requested", "offered"]
+    label: str = Field(..., max_length=160)
+    description: str = Field(..., max_length=512)
+    status: str = Field(..., max_length=32)
+    created_at: str | None = Field(default=None, max_length=64)
+    expires_at: str | None = Field(default=None, max_length=64)
+    resolved_at: str | None = Field(default=None, max_length=64)
+
+
+class ConsumerConnectionRequestDetailResult(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    state: Literal["available"]
+    request_id: str = Field(..., max_length=128)
+    direction: Literal["incoming", "outgoing"]
+    status: str = Field(..., max_length=32)
+    counterpart_display_name: str | None = Field(default=None, max_length=200)
+    message: str | None = Field(default=None, max_length=1_000)
+    created_at: str | None = Field(default=None, max_length=64)
+    scopes: list[ConsumerConnectionScopeProposal] = Field(default_factory=list, max_length=50)
+    next_action: str
+
+
+class ConsumerConnectionRequestMutationResult(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    state: Literal["completed"]
+    request_id: str = Field(..., max_length=128)
+    status: Literal["pending", "accepted", "rejected", "cancelled"]
+    connection_id: str | None = Field(default=None, max_length=128)
+    scope_results: list[dict[str, str | bool]] = Field(default_factory=list, max_length=50)
     next_action: str
 
 
@@ -525,6 +561,11 @@ async def handle_list_hussh_capabilities(arguments: dict) -> CallToolResult:
         "search_hussh_people",
         "list_hussh_people_connections",
         "list_hussh_connection_requests",
+        "get_hussh_connection_request",
+        "send_hussh_connection_request",
+        "accept_hussh_connection_request",
+        "reject_hussh_connection_request",
+        "cancel_hussh_connection_request",
         "list_hussh_gmail_receipts",
         "get_hussh_gmail_status",
         "list_hussh_integrations",
@@ -573,6 +614,17 @@ async def handle_list_hussh_capabilities(arguments: dict) -> CallToolResult:
         elif name == "list_hussh_connection_requests":
             execution = "consent_service"
             availability = "contract_available"
+        elif name == "get_hussh_connection_request":
+            execution = "consent_service"
+            availability = "contract_available"
+        elif name in {
+            "send_hussh_connection_request",
+            "accept_hussh_connection_request",
+            "reject_hussh_connection_request",
+            "cancel_hussh_connection_request",
+        }:
+            execution = "consent_service"
+            availability = "approval_required"
         elif name in {"list_hussh_gmail_receipts", "get_hussh_gmail_status"}:
             execution = "consent_service"
             availability = "approval_required"
@@ -1199,6 +1251,278 @@ async def handle_list_hussh_connection_requests(arguments: dict) -> CallToolResu
             direction=direction,
             items=items,
             next_action="Review or resolve this request in the secure Hussh owner flow; a connection never grants information access by itself.",
+        )
+    )
+
+
+def _connection_request_id(arguments: dict) -> str:
+    if not isinstance(arguments, dict):
+        raise ValueError("arguments must be an object")
+    request_id = arguments.get("request_id")
+    if not isinstance(request_id, str) or len(request_id) > 128:
+        raise ValueError("request_id must be a valid connection request id")
+    try:
+        return str(UUID(request_id.strip()))
+    except (TypeError, ValueError) as error:
+        raise ValueError("request_id must be a valid connection request id") from error
+
+
+def _connection_confirmation(arguments: dict, allowed: set[str]) -> tuple[str, bool]:
+    request_id = _connection_request_id(arguments)
+    if set(arguments) - allowed or arguments.get("confirm") is not True:
+        raise ValueError("confirm must be true for a connection request change")
+    return request_id, True
+
+
+def _scope_handle_list(arguments: dict, name: str) -> list[str] | None:
+    value = arguments.get(name)
+    if value is None:
+        return None
+    if not isinstance(value, list) or len(value) > 50:
+        raise ValueError(f"{name} must be a list of at most 50 scope handles")
+    if any(not isinstance(item, str) or not item.strip() or len(item) > 256 for item in value):
+        raise ValueError(f"{name} contains an invalid scope handle")
+    return [item.strip() for item in value]
+
+
+async def handle_get_hussh_connection_request(arguments: dict) -> CallToolResult:
+    """Read one request and its reviewable scope labels for owner confirmation."""
+    try:
+        request_id = _connection_request_id(arguments)
+        if set(arguments) != {"request_id"}:
+            raise ValueError("only request_id is accepted")
+    except ValueError as error:
+        return _error("INVALID_CONNECTIONS_REQUEST", str(error))
+    owner = _consumer_owner(get_current_developer_principal())
+    if owner is None:
+        return _error("OWNER_AUTH_REQUIRED", "Reconnect using your own Hussh account.")
+    try:
+        from hushh_mcp.services.connections_service import ConnectionsService  # noqa: PLC0415
+
+        service = ConnectionsService()
+        match = None
+        direction = None
+        for candidate_direction in ("incoming", "outgoing"):
+            rows = await asyncio.to_thread(
+                service.list_requests,
+                owner,
+                direction=candidate_direction,
+                include_resolved=True,
+            )
+            for row in rows or []:
+                if str(row.get("id") or "") == request_id:
+                    match = row
+                    direction = candidate_direction
+                    break
+            if match is not None:
+                break
+        if match is None or direction is None:
+            return _error("CONNECTION_REQUEST_NOT_FOUND", "That connection request is unavailable.")
+        history = await asyncio.to_thread(service.get_scope_proposal_history, owner, request_id)
+    except Exception:
+        return _error(
+            "CONNECTIONS_UNAVAILABLE", "The connection request is temporarily unavailable."
+        )
+    scopes: list[ConsumerConnectionScopeProposal] = []
+    for scope in list(history.get("items") or [])[:50]:
+        if not isinstance(scope, dict):
+            continue
+        proposal_direction = str(scope.get("direction") or "")
+        if proposal_direction not in {"requested", "offered"}:
+            continue
+        scopes.append(
+            ConsumerConnectionScopeProposal(
+                scope_handle=str(scope.get("scopeHandle") or "")[:256],
+                direction=proposal_direction,
+                label=str(scope.get("label") or "Connection capability")[:160],
+                description=str(scope.get("description") or "")[:512],
+                status=str(scope.get("status") or "")[:32],
+                created_at=_safe_gmail_timestamp(scope.get("createdAt")),
+                expires_at=_safe_gmail_timestamp(scope.get("expiresAt")),
+                resolved_at=_safe_gmail_timestamp(scope.get("resolvedAt")),
+            )
+        )
+    return _result(
+        ConsumerConnectionRequestDetailResult(
+            state="available",
+            request_id=request_id,
+            direction=direction,
+            status=str(match.get("status") or "")[:32],
+            counterpart_display_name=(str(match.get("counterpartDisplayName") or "")[:200] or None),
+            message=(str(match.get("message") or "")[:1_000] or None),
+            created_at=_safe_gmail_timestamp(match.get("createdAt")),
+            scopes=scopes,
+            next_action="Review the capability labels, then use the confirmed accept, reject, or cancel action.",
+        )
+    )
+
+
+async def handle_send_hussh_connection_request(arguments: dict) -> CallToolResult:
+    try:
+        if not isinstance(arguments, dict):
+            raise ValueError("arguments must be an object")
+        allowed = {
+            "query",
+            "message",
+            "requested_scope_handles",
+            "offered_scope_handles",
+            "confirm",
+        }
+        if set(arguments) - allowed or arguments.get("confirm") is not True:
+            raise ValueError("confirm must be true and only supported request fields are accepted")
+        query = arguments.get("query")
+        if not isinstance(query, str) or not 1 <= len(query.strip()) <= 160:
+            raise ValueError("query must be between 1 and 160 characters")
+        message = arguments.get("message")
+        if message is not None and (not isinstance(message, str) or len(message) > 1_000):
+            raise ValueError("message must be at most 1,000 characters")
+        requested = _scope_handle_list(arguments, "requested_scope_handles")
+        offered = _scope_handle_list(arguments, "offered_scope_handles")
+    except ValueError as error:
+        return _error("INVALID_CONNECTIONS_REQUEST", str(error))
+    owner = _consumer_owner(get_current_developer_principal())
+    if owner is None:
+        return _error("OWNER_AUTH_REQUIRED", "Reconnect using your own Hussh account.")
+    try:
+        from hushh_mcp.services.connections_service import (  # noqa: PLC0415
+            ConnectionsError,
+            ConnectionsService,
+        )
+
+        result = await asyncio.to_thread(
+            ConnectionsService().create_request,
+            owner,
+            query=query.strip(),
+            message=message,
+            requested_scope_handles=requested,
+            offered_scope_handles=offered,
+        )
+    except ConnectionsError as error:
+        return _error(f"CONNECTION_{error.code}", error.message)
+    except Exception:
+        return _error("CONNECTIONS_UNAVAILABLE", "The connection request could not be sent.")
+    return _result(
+        ConsumerConnectionRequestMutationResult(
+            state="completed",
+            request_id=str(result.get("id") or "")[:128],
+            status="pending",
+            next_action="The other person must review the request; no information access is granted yet.",
+        )
+    )
+
+
+async def handle_accept_hussh_connection_request(arguments: dict) -> CallToolResult:
+    try:
+        request_id, _ = _connection_confirmation(
+            arguments,
+            {
+                "request_id",
+                "confirm",
+                "selected_requested_scope_handles",
+                "selected_offered_scope_handles",
+            },
+        )
+        selected_requested = _scope_handle_list(arguments, "selected_requested_scope_handles")
+        selected_offered = _scope_handle_list(arguments, "selected_offered_scope_handles")
+    except ValueError as error:
+        return _error("INVALID_CONNECTIONS_REQUEST", str(error))
+    owner = _consumer_owner(get_current_developer_principal())
+    if owner is None:
+        return _error("OWNER_AUTH_REQUIRED", "Reconnect using your own Hussh account.")
+    try:
+        from hushh_mcp.services.connections_service import (  # noqa: PLC0415
+            ConnectionsError,
+            ConnectionsService,
+        )
+
+        result = await asyncio.to_thread(
+            ConnectionsService().accept_request,
+            owner,
+            request_id,
+            selected_requested_scope_handles=selected_requested,
+            selected_offered_scope_handles=selected_offered,
+        )
+    except ConnectionsError as error:
+        return _error(f"CONNECTION_{error.code}", error.message)
+    except Exception:
+        return _error("CONNECTIONS_UNAVAILABLE", "The connection request could not be accepted.")
+    raw_scope_results = result.get("scopeResults")
+    scope_results = [
+        {
+            "scope_handle": str(item.get("scopeHandle") or "")[:256],
+            "direction": str(item.get("direction") or "")[:32],
+            "status": str(item.get("status") or "")[:32],
+            "activated": bool(item.get("activated")),
+        }
+        for item in (raw_scope_results if isinstance(raw_scope_results, list) else [])[:50]
+        if isinstance(item, dict)
+    ]
+    return _result(
+        ConsumerConnectionRequestMutationResult(
+            state="completed",
+            request_id=request_id,
+            status="accepted",
+            connection_id=(str(result.get("connectionId") or "")[:128] or None),
+            scope_results=scope_results,
+            next_action="The connection is active. Review separate information permissions before sharing anything.",
+        )
+    )
+
+
+async def handle_reject_hussh_connection_request(arguments: dict) -> CallToolResult:
+    try:
+        request_id, _ = _connection_confirmation(arguments, {"request_id", "confirm"})
+    except ValueError as error:
+        return _error("INVALID_CONNECTIONS_REQUEST", str(error))
+    owner = _consumer_owner(get_current_developer_principal())
+    if owner is None:
+        return _error("OWNER_AUTH_REQUIRED", "Reconnect using your own Hussh account.")
+    try:
+        from hushh_mcp.services.connections_service import (  # noqa: PLC0415
+            ConnectionsError,
+            ConnectionsService,
+        )
+
+        await asyncio.to_thread(ConnectionsService().reject_request, owner, request_id)
+    except ConnectionsError as error:
+        return _error(f"CONNECTION_{error.code}", error.message)
+    except Exception:
+        return _error("CONNECTIONS_UNAVAILABLE", "The connection request could not be rejected.")
+    return _result(
+        ConsumerConnectionRequestMutationResult(
+            state="completed",
+            request_id=request_id,
+            status="rejected",
+            next_action="The request was rejected; no information access was granted.",
+        )
+    )
+
+
+async def handle_cancel_hussh_connection_request(arguments: dict) -> CallToolResult:
+    try:
+        request_id, _ = _connection_confirmation(arguments, {"request_id", "confirm"})
+    except ValueError as error:
+        return _error("INVALID_CONNECTIONS_REQUEST", str(error))
+    owner = _consumer_owner(get_current_developer_principal())
+    if owner is None:
+        return _error("OWNER_AUTH_REQUIRED", "Reconnect using your own Hussh account.")
+    try:
+        from hushh_mcp.services.connections_service import (  # noqa: PLC0415
+            ConnectionsError,
+            ConnectionsService,
+        )
+
+        await asyncio.to_thread(ConnectionsService().cancel_request, owner, request_id)
+    except ConnectionsError as error:
+        return _error(f"CONNECTION_{error.code}", error.message)
+    except Exception:
+        return _error("CONNECTIONS_UNAVAILABLE", "The connection request could not be cancelled.")
+    return _result(
+        ConsumerConnectionRequestMutationResult(
+            state="completed",
+            request_id=request_id,
+            status="cancelled",
+            next_action="The outgoing request was cancelled; no information access was granted.",
         )
     )
 

@@ -55,6 +55,8 @@ from mcp_modules.public_contract import (
 )
 from mcp_modules.tools.campaign_context_tools import handle_prepare_campaign_context
 from mcp_modules.tools.consumer_tools import (
+    handle_accept_hussh_connection_request,
+    handle_cancel_hussh_connection_request,
     handle_connect_hussh_integration,
     handle_correct_hussh_memory,
     handle_delegate_hussh_task,
@@ -63,6 +65,7 @@ from mcp_modules.tools.consumer_tools import (
     handle_export_hussh_memory,
     handle_find_hussh_calendar_openings,
     handle_get_hussh_connection,
+    handle_get_hussh_connection_request,
     handle_get_hussh_gmail_status,
     handle_get_hussh_setup_status,
     handle_list_hussh_calendar_events,
@@ -75,8 +78,10 @@ from mcp_modules.tools.consumer_tools import (
     handle_list_hussh_people_connections,
     handle_list_hussh_receipts,
     handle_read_hussh_memory,
+    handle_reject_hussh_connection_request,
     handle_save_hussh_memory,
     handle_search_hussh_people,
+    handle_send_hussh_connection_request,
 )
 from mcp_modules.tools.definitions import get_tool_definitions
 from mcp_modules.tools.kai_tools import (
@@ -149,6 +154,11 @@ HANDLERS = {
     "disconnect_hussh_integration": handle_disconnect_hussh_integration,
     "list_hussh_capabilities": handle_list_hussh_capabilities,
     "list_hussh_connection_requests": handle_list_hussh_connection_requests,
+    "get_hussh_connection_request": handle_get_hussh_connection_request,
+    "send_hussh_connection_request": handle_send_hussh_connection_request,
+    "accept_hussh_connection_request": handle_accept_hussh_connection_request,
+    "reject_hussh_connection_request": handle_reject_hussh_connection_request,
+    "cancel_hussh_connection_request": handle_cancel_hussh_connection_request,
     "list_hussh_connections": handle_list_hussh_connections,
     "list_hussh_receipts": handle_list_hussh_receipts,
     "disconnect_hussh_connection": handle_disconnect_hussh_connection,
