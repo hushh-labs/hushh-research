@@ -58,13 +58,50 @@ def test_a_failing_observation_is_a_failing_receipt():
             "hub_calls": 1,
             "provider_puppy": True,
             "runtime_mode_puppy_relay": True,
+            "turn_answered": True,
+            "credential_is_session_marker": True,
             "revoked_device_refused": True,
             "old_incarnation_publications": 0,
+            "fenced_incarnation_admits_nobody": True,
+            "endpoint_version_monotonic": True,
             "wall_refused_pod_info_without_identity": True,
         },
         "commands": [],
     }
     receipt = acceptance.build_receipt(run, mode="local", environment="dry-run")
+    assert receipt["result"] == "fail" and receipt["exit_code"] == 1
+
+
+@pytest.mark.parametrize(
+    "observation",
+    [
+        "provider_puppy",
+        "runtime_mode_puppy_relay",
+        "turn_answered",
+        "credential_is_session_marker",
+        "revoked_device_refused",
+        "fenced_incarnation_admits_nobody",
+        "endpoint_version_monotonic",
+        "wall_refused_pod_info_without_identity",
+    ],
+)
+def test_receipt_requires_every_safety_observation(observation):
+    observations = {
+        "hub_calls": 0,
+        "provider_puppy": True,
+        "runtime_mode_puppy_relay": True,
+        "turn_answered": True,
+        "credential_is_session_marker": True,
+        "revoked_device_refused": True,
+        "old_incarnation_publications": 0,
+        "fenced_incarnation_admits_nobody": True,
+        "endpoint_version_monotonic": True,
+        "wall_refused_pod_info_without_identity": True,
+    }
+    observations[observation] = False
+    receipt = acceptance.build_receipt(
+        {"observations": observations, "commands": []}, mode="local", environment="dry-run"
+    )
     assert receipt["result"] == "fail" and receipt["exit_code"] == 1
 
 

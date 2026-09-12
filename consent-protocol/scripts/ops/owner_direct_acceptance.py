@@ -452,13 +452,19 @@ def _source_hashes() -> dict[str, str]:
 
 def build_receipt(run: dict[str, Any], *, mode: str, environment: str) -> dict[str, Any]:
     observations = run["observations"]
-    passed = (
-        observations.get("hub_calls") == 0
-        and observations.get("provider_puppy") is True
-        and observations.get("runtime_mode_puppy_relay") is True
-        and observations.get("revoked_device_refused") is True
-        and observations.get("old_incarnation_publications") == 0
-        and observations.get("wall_refused_pod_info_without_identity") is True
+    passed = all(
+        (
+            observations.get("hub_calls") == 0,
+            observations.get("provider_puppy") is True,
+            observations.get("runtime_mode_puppy_relay") is True,
+            observations.get("turn_answered") is True,
+            observations.get("credential_is_session_marker") is True,
+            observations.get("revoked_device_refused") is True,
+            observations.get("old_incarnation_publications") == 0,
+            observations.get("fenced_incarnation_admits_nobody") is True,
+            observations.get("endpoint_version_monotonic") is True,
+            observations.get("wall_refused_pod_info_without_identity") is True,
+        )
     )
     return {
         "version": 1,
