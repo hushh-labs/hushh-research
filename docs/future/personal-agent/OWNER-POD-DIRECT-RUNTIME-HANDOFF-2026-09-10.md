@@ -312,3 +312,15 @@ the runbooks are the source of truth where this document still disagrees.
   image has been built or rolled onto the owner pod, so the live K4 (tool cycle on
   Puppy), K5 (Location receipt), K9 to K14 (memory drill) and K1 to K3 (owner-direct
   acceptance with the hub unreachable) receipts do not exist yet.
+
+## Read-only reachability correction — 2026-09-12
+
+The owner service is administratively reachable with the IAM-listed runtime identity:
+impersonating `consent-protocol-runtime@hushh-pda-dev.iam.gserviceaccount.com` and
+calling the advertised owner URL returned `/health=200` and `/pod/info=200`. The
+installed revision remains `one-pod-ha1-7o6wt3s4mtydneyytqfswsxtafdlpjwz-00010-m9f`
+with tag `dev-d11a5f62d73e6038ef0181e1cd3b5f3b421f8f95`; no candidate image was
+installed. Sanitized info confirms sovereign-pod mode, `memory_bank` with
+`commit_log` storage, and the memory-join fields `review`, `schema`, `tombstones`,
+and `write`. This proves machine reachability only; owner custody enrollment,
+direct Puppy acceptance, recovery, and hub-outage continuity remain unverified.
