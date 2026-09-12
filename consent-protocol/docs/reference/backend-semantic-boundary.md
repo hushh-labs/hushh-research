@@ -22,12 +22,26 @@ mistake for good engineering.
    earns its place.
 
 2. **Discards.** The agent answered, and host code overwrites or re-derives a field it
-   returned with a non-empty value. Measured: the structure agent returns `action`,
-   `externalizable_paths`, `summary_projection` and `sensitivity_labels`, all four
-   `required` in its schema, and none is read anywhere. The frontend manifest likewise
-   overwrites an agent-supplied `consent_label` with a title-cased path and re-derives
-   sensitivity, returning `null` for all 47 leaves of a real document including a loan
-   balance, immigration goals, a full name and a home address.
+   returned with a non-empty value. Measured on the backend, and since closed: the
+   structure agent returns `action`, `externalizable_paths`, `summary_projection` and
+   `sensitivity_labels`, all four `required` in its schema, and none was read anywhere.
+   `_adopt_model_structure_decision` now reads all four -- `action` validated against
+   the schema's own enum, `externalizable_paths` intersected with the paths that
+   survived post-model payload mutation, `sensitivity_labels` merged per surviving
+   path, and `summary_projection` taken from the model with only `path_count`
+   recomputed, because a count is a fact about the payload rather than a judgement
+   about it.
+
+   `json_paths` and `top_level_scope_paths` stay walk-derived by design and are not a
+   residual defect. `candidate_payload` is sanitized, CRUD-realigned, financially
+   normalized, root-scope retargeted and metadata-stripped after the model returns, so
+   model-supplied paths would describe a payload that no longer exists. Recording them
+   would be a lie about what was written, not deference.
+
+   **Still open:** the frontend manifest overwrites an agent-supplied `consent_label`
+   with a title-cased path and re-derives sensitivity, returning `null` for all 47
+   leaves of a real document including a loan balance, immigration goals, a full name
+   and a home address. That half of the measurement has not been fixed.
 
 3. **Skips.** The stage is routed around so the model is never asked. A skip must be
    recorded in the execution trace and drift flags. Until 2026-09-11 every skip site
@@ -35,11 +49,31 @@ mistake for good engineering.
    promotion gate the live eval had read healthy exactly when the intelligence was
    absent.
 
-**The one legitimate exception is model FAILURE.** A timeout, malformed output, or a
+**The first legitimate exception is model FAILURE.** A timeout, malformed output, or a
 schema violation may be caught by deterministic code, because no agent judgement exists
 to respect. A fallback reached only on failure is correct engineering. A fallback reached
 on the success path is one of the three shapes above wearing the same name, which is how
-`_fallback_structure_decision` came to run on both paths.
+`_fallback_structure_decision` came to run on both paths. It still runs on both, but for
+a different reason: it is now the base walk over the FINAL payload, the only honest
+description of what was actually written, and the model's own fields are adopted over it.
+
+**The second is a data-integrity guard.** A deterministic rule may override a successful
+model answer when doing so prevents an unrecoverable, one-directional loss of the
+person's own record. The live case is an explicit correction cue: the intent agent
+answers `no_op` to "Actually I live in New York City now", and a dropped correction
+leaves someone's own record wrong with nothing to tell them it did not take. Unlike
+model FAILURE this exception is narrow enough to be abused, so all three conditions must
+hold and must be stated at the point the rule applies:
+
+- it prevents a loss that cannot be undone;
+- it fires on an explicit signal, not an interpretation;
+- it records that it fired, so the rate is readable.
+
+The third condition is what keeps the exception from becoming a second doctrine. A guard
+whose recorded disagreement rate reaches zero has been absorbed by the instructions and
+must then be deleted. `_sanitize_intent_frame` keeps exactly one rule under this
+exception and gates the other five on the model not having answered; every suppressed
+rule is logged by name.
 
 Security and authority guards are not semantic decisions and are out of scope here.
 Stripping a model-supplied `confirmed` flag, refusing a reserved namespace, and enforcing

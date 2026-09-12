@@ -98,7 +98,14 @@ describe("the action-id cap invariant this file's own comments document", () => 
     // cross-language sync for this; both sides must be changed together, in
     // the same commit, and this pins the current value so a drift is caught
     // here instead of in a UAT deploy.
-    expect(AVAILABLE_ACTION_IDS_CAP).toBe(59);
+    //
+    // 59 -> 60 on 2026-09-11: GLOBAL_SESSION_ACTION_IDS gained
+    // `consent.request`, which is mounted app-wide rather than owned by any
+    // screen. The TypeScript side grew and the Python side did not, which is
+    // precisely the drift this pin exists for. It did its job: the branch
+    // carrying that change had this test red until the Python constant moved
+    // with it.
+    expect(AVAILABLE_ACTION_IDS_CAP).toBe(60);
   });
 
   it("never lets a crowded screen trade away a global-nav slot", () => {

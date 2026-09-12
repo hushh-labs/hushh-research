@@ -107,12 +107,20 @@ class TestTheOneDeliberateException:
         `test_obvious_location_correction_recovers_from_model_no_op` is the
         end-to-end version. A correction the model shrugged at is the person's
         own record left wrong, silently -- nothing tells them the update did
-        not land. That is data integrity, which principle 9 and
-        backend-semantic-boundary.md both place outside this doctrine, the way
-        a security guard sits outside it.
+        not land.
 
-        It is a guard, not a preference: it only ever fires toward `correct`
-        or `delete`, never to reclassify an ordinary note.
+        This is the SECOND exception in AGENTS.md principle 9, the
+        data-integrity guard, whose bounding conditions are stated in
+        backend-semantic-boundary.md next to the model-FAILURE one. All three
+        conditions hold here: the loss cannot be undone, the rule fires on an
+        explicit cue rather than an interpretation, and the suppression is
+        logged. It is a guard, not a preference: it only ever fires toward
+        `correct` or `delete`, never to reclassify an ordinary note.
+
+        Both citations were wrong when this file was written. Principle 9 named
+        model FAILURE as its only success-path carve-out, so this class cited
+        the doctrine for an exception the doctrine did not contain. The
+        principle now names it; this docstring is the other half of that fix.
         """
         message = "Actually I live in New York City now."
         fallback = _fallback(message)
