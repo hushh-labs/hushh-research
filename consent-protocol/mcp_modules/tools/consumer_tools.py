@@ -26,6 +26,7 @@ from hushh_mcp.services.consumer_mcp_tasks import (
     ConsumerTaskApprovalRequired,
     ConsumerTaskUnavailable,
 )
+from hushh_mcp.services.google_calendar_service import get_google_calendar_service
 from hushh_mcp.services.google_connection_service import (
     GoogleConnectionError,
     GoogleConnectionService,
@@ -169,6 +170,61 @@ class ConsumerIntegrationDisconnectResult(BaseModel):
     state: Literal["disconnected"]
     service: Literal["gmail", "calendar", "drive", "contacts"]
     next_action: str
+
+
+class ConsumerCalendarPoint(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    date_time: str | None = Field(default=None, max_length=64)
+    date: str | None = Field(default=None, max_length=32)
+    time_zone: str | None = Field(default=None, max_length=128)
+
+
+class ConsumerCalendarAttendee(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    email: str | None = Field(default=None, max_length=320)
+    response_status: str | None = Field(default=None, max_length=32)
+
+
+class ConsumerCalendarEvent(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    id: str | None = Field(default=None, max_length=256)
+    etag: str | None = Field(default=None, max_length=256)
+    title: str = Field(default="Untitled event", max_length=512)
+    description: str | None = Field(default=None, max_length=4_000)
+    location: str | None = Field(default=None, max_length=1_024)
+    start: ConsumerCalendarPoint = Field(default_factory=ConsumerCalendarPoint)
+    end: ConsumerCalendarPoint = Field(default_factory=ConsumerCalendarPoint)
+    status: str | None = Field(default=None, max_length=32)
+    attendees: list[ConsumerCalendarAttendee] = Field(default_factory=list, max_length=100)
+    html_link: str | None = Field(default=None, max_length=2_048)
+    updated: str | None = Field(default=None, max_length=64)
+
+
+class ConsumerCalendarEventsResult(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    state: Literal["available"]
+    events: list[ConsumerCalendarEvent] = Field(default_factory=list, max_length=50)
+    time_zone: str | None = Field(default=None, max_length=128)
+    has_more: bool
+    next_action: str = Field(..., max_length=512)
+
+
+class ConsumerCalendarOpening(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    start_at: str = Field(..., max_length=64)
+    end_at: str = Field(..., max_length=64)
+    available_until: str = Field(..., max_length=64)
+
+
+class ConsumerCalendarOpeningsResult(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    state: Literal["available"]
+    time_min: str = Field(..., max_length=64)
+    time_max: str = Field(..., max_length=64)
+    time_zone: str | None = Field(default=None, max_length=128)
+    duration_minutes: int = Field(..., ge=5, le=720)
+    openings: list[ConsumerCalendarOpening] = Field(default_factory=list, max_length=20)
+    next_action: str = Field(..., max_length=512)
 
 
 class ConsumerMemoryRecord(BaseModel):
@@ -391,6 +447,8 @@ async def handle_list_hussh_capabilities(arguments: dict) -> CallToolResult:
         "get_hussh_connection",
         "get_hussh_setup_status",
         "list_hussh_devices",
+        "list_hussh_calendar_events",
+        "find_hussh_calendar_openings",
         "list_hussh_integrations",
         "connect_hussh_integration",
         "disconnect_hussh_integration",
@@ -428,6 +486,9 @@ async def handle_list_hussh_capabilities(arguments: dict) -> CallToolResult:
         elif name == "list_hussh_integrations":
             execution = "consent_service"
             availability = "contract_available"
+        elif name in {"list_hussh_calendar_events", "find_hussh_calendar_openings"}:
+            execution = "consent_service"
+            availability = "approval_required"
         elif name == "disconnect_hussh_integration":
             execution = "consent_service"
             availability = "approval_required"
@@ -594,6 +655,185 @@ def _validate_google_service(
     if access_level == "manage" and service != "calendar":
         raise ValueError("manage access is currently supported for calendar only")
     return service, access_level
+
+
+def _calendar_range(arguments: dict) -> tuple[str, str, int]:
+    if not isinstance(arguments, dict):
+        raise ValueError("arguments must be an object")
+    allowed = {"start_at", "end_at", "max_results"}
+    if set(arguments) - allowed or "start_at" not in arguments or "end_at" not in arguments:
+        raise ValueError("start_at and end_at are required")
+    start_at = arguments.get("start_at")
+    end_at = arguments.get("end_at")
+    if (
+        not isinstance(start_at, str)
+        or not start_at.strip()
+        or len(start_at.strip()) > 64
+        or not isinstance(end_at, str)
+        or not end_at.strip()
+        or len(end_at.strip()) > 64
+    ):
+        raise ValueError("start_at and end_at must be bounded ISO-8601 strings")
+    max_results = arguments.get("max_results", 50)
+    if type(max_results) is not int or not 1 <= max_results <= 50:
+        raise ValueError("max_results must be an integer between 1 and 50")
+    return start_at.strip(), end_at.strip(), max_results
+
+
+def _calendar_opening_args(arguments: dict) -> tuple[str, str, int, int, list[str] | None]:
+    if not isinstance(arguments, dict):
+        raise ValueError("arguments must be an object")
+    allowed = {"start_at", "end_at", "duration_minutes", "limit", "calendar_ids"}
+    if set(arguments) - allowed or "start_at" not in arguments or "end_at" not in arguments:
+        raise ValueError("start_at and end_at are required")
+    start_at = arguments.get("start_at")
+    end_at = arguments.get("end_at")
+    if (
+        not isinstance(start_at, str)
+        or not start_at.strip()
+        or len(start_at.strip()) > 64
+        or not isinstance(end_at, str)
+        or not end_at.strip()
+        or len(end_at.strip()) > 64
+    ):
+        raise ValueError("start_at and end_at must be bounded ISO-8601 strings")
+    duration = arguments.get("duration_minutes")
+    if type(duration) is not int or not 5 <= duration <= 720:
+        raise ValueError("duration_minutes must be an integer between 5 and 720")
+    limit = arguments.get("limit", 3)
+    if type(limit) is not int or not 1 <= limit <= 20:
+        raise ValueError("limit must be an integer between 1 and 20")
+    calendar_ids = arguments.get("calendar_ids")
+    if calendar_ids is not None:
+        if (
+            not isinstance(calendar_ids, list)
+            or len(calendar_ids) > 20
+            or any(not isinstance(item, str) or not item.strip() for item in calendar_ids)
+        ):
+            raise ValueError("calendar_ids must contain at most 20 non-empty strings")
+        calendar_ids = [item.strip() for item in calendar_ids]
+    return start_at.strip(), end_at.strip(), duration, limit, calendar_ids
+
+
+def _calendar_error(error: GoogleConnectionError) -> CallToolResult:
+    status = int(getattr(error, "status_code", 502) or 502)
+    if status == 401:
+        return _error("CALENDAR_REAUTH_REQUIRED", "Reconnect your Google Calendar in Hussh.")
+    if status == 403:
+        return _error("CALENDAR_PERMISSION_REQUIRED", "Google Calendar permission is insufficient.")
+    if status == 422:
+        return _error("INVALID_CALENDAR_REQUEST", "The Calendar time range or options are invalid.")
+    return _error("CALENDAR_UNAVAILABLE", "Google Calendar is temporarily unavailable.")
+
+
+def _calendar_point(value: object) -> ConsumerCalendarPoint:
+    raw = value if isinstance(value, dict) else {}
+    return ConsumerCalendarPoint(
+        date_time=(str(raw.get("dateTime") or "")[:64] or None),
+        date=(str(raw.get("date") or "")[:32] or None),
+        time_zone=(str(raw.get("timeZone") or "")[:128] or None),
+    )
+
+
+def _calendar_event(value: object) -> ConsumerCalendarEvent:
+    raw = value if isinstance(value, dict) else {}
+    attendees = raw.get("attendees")
+    safe_attendees = [
+        ConsumerCalendarAttendee(
+            email=(str(item.get("email") or "")[:320] or None),
+            response_status=(str(item.get("response_status") or "")[:32] or None),
+        )
+        for item in (attendees[:100] if isinstance(attendees, list) else [])
+        if isinstance(item, dict)
+    ]
+    return ConsumerCalendarEvent(
+        id=(str(raw.get("id") or "")[:256] or None),
+        etag=(str(raw.get("etag") or "")[:256] or None),
+        title=str(raw.get("title") or "Untitled event")[:512],
+        description=(str(raw.get("description") or "")[:4_000] or None),
+        location=(str(raw.get("location") or "")[:1_024] or None),
+        start=_calendar_point(raw.get("start")),
+        end=_calendar_point(raw.get("end")),
+        status=(str(raw.get("status") or "")[:32] or None),
+        attendees=safe_attendees,
+        html_link=(str(raw.get("html_link") or "")[:2_048] or None),
+        updated=(str(raw.get("updated") or "")[:64] or None),
+    )
+
+
+async def handle_list_hussh_calendar_events(arguments: dict) -> CallToolResult:
+    """Read the owner's live primary Calendar through the existing service."""
+    try:
+        start_at, end_at, max_results = _calendar_range(arguments)
+    except ValueError as error:
+        return _error("INVALID_CALENDAR_REQUEST", str(error))
+    owner = _consumer_owner(get_current_developer_principal())
+    if owner is None:
+        return _error("OWNER_AUTH_REQUIRED", "Reconnect using your own Hussh account.")
+    try:
+        result = await get_google_calendar_service().list_events(
+            user_id=owner,
+            start_at=start_at,
+            end_at=end_at,
+            max_results=max_results,
+        )
+    except GoogleConnectionError as error:
+        return _calendar_error(error)
+    except Exception:
+        return _error("CALENDAR_UNAVAILABLE", "Google Calendar is temporarily unavailable.")
+    return _result(
+        ConsumerCalendarEventsResult(
+            state="available",
+            events=[_calendar_event(item) for item in list(result.get("events") or [])[:50]],
+            time_zone=(str(result.get("time_zone") or "")[:128] or None),
+            has_more=bool(result.get("has_more")),
+            next_action="Calendar data is live provider information; use the secure owner confirmation flow before changing events.",
+        )
+    )
+
+
+async def handle_find_hussh_calendar_openings(arguments: dict) -> CallToolResult:
+    """Find deterministic free slots without creating or changing an event."""
+    try:
+        start_at, end_at, duration, limit, calendar_ids = _calendar_opening_args(arguments)
+    except ValueError as error:
+        return _error("INVALID_CALENDAR_REQUEST", str(error))
+    owner = _consumer_owner(get_current_developer_principal())
+    if owner is None:
+        return _error("OWNER_AUTH_REQUIRED", "Reconnect using your own Hussh account.")
+    try:
+        result = await get_google_calendar_service().find_openings(
+            user_id=owner,
+            start_at=start_at,
+            end_at=end_at,
+            duration_minutes=duration,
+            limit=limit,
+            calendar_ids=calendar_ids,
+        )
+    except GoogleConnectionError as error:
+        return _calendar_error(error)
+    except Exception:
+        return _error("CALENDAR_UNAVAILABLE", "Google Calendar is temporarily unavailable.")
+    openings = [
+        ConsumerCalendarOpening(
+            start_at=str(item.get("start_at") or "")[:64],
+            end_at=str(item.get("end_at") or "")[:64],
+            available_until=str(item.get("available_until") or "")[:64],
+        )
+        for item in list(result.get("openings") or [])[:20]
+        if isinstance(item, dict)
+    ]
+    return _result(
+        ConsumerCalendarOpeningsResult(
+            state="available",
+            time_min=str(result.get("time_min") or "")[:64],
+            time_max=str(result.get("time_max") or "")[:64],
+            time_zone=(str(result.get("time_zone") or "")[:128] or None),
+            duration_minutes=duration,
+            openings=openings,
+            next_action="These are availability suggestions only; creating or changing an event requires a separate confirmed owner action.",
+        )
+    )
 
 
 async def handle_list_hussh_integrations(arguments: dict) -> CallToolResult:

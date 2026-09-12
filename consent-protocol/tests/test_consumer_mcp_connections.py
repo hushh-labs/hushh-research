@@ -713,6 +713,141 @@ async def test_consumer_mcp_lists_owner_devices_with_truthful_puppy_readiness(
     assert "device_public_key" not in str(result.structuredContent)
 
 
+@pytest.mark.asyncio
+async def test_consumer_mcp_exposes_bounded_owner_calendar_reads(consumer, monkeypatch):
+    import mcp_server
+    from mcp_modules.developer_context import (
+        reset_current_developer_principal,
+        set_current_developer_principal,
+    )
+
+    principal, _, _ = connect(consumer)
+
+    class _Calendar:
+        async def list_events(self, **kwargs):
+            assert kwargs == {
+                "user_id": "owner_a",
+                "start_at": "2026-09-12T09:00:00Z",
+                "end_at": "2026-09-12T17:00:00Z",
+                "max_results": 10,
+            }
+            return {
+                "events": [
+                    {
+                        "id": "event-1",
+                        "etag": "etag-1",
+                        "title": "Planning",
+                        "description": "private detail",
+                        "location": "Remote",
+                        "start": {"dateTime": "2026-09-12T10:00:00Z", "timeZone": "UTC"},
+                        "end": {"dateTime": "2026-09-12T11:00:00Z", "timeZone": "UTC"},
+                        "status": "confirmed",
+                        "attendees": [
+                            {"email": "owner@example.test", "response_status": "accepted"}
+                        ],
+                        "html_link": "https://calendar.google.test/event-1",
+                        "updated": "2026-09-11T20:00:00Z",
+                    }
+                ],
+                "time_zone": "UTC",
+                "has_more": False,
+            }
+
+        async def find_openings(self, **kwargs):
+            assert kwargs == {
+                "user_id": "owner_a",
+                "start_at": "2026-09-12T09:00:00Z",
+                "end_at": "2026-09-12T17:00:00Z",
+                "duration_minutes": 30,
+                "limit": 2,
+                "calendar_ids": ["primary"],
+            }
+            return {
+                "time_min": "2026-09-12T09:00:00Z",
+                "time_max": "2026-09-12T17:00:00Z",
+                "time_zone": "UTC",
+                "duration_minutes": 30,
+                "openings": [
+                    {
+                        "start_at": "2026-09-12T09:00:00Z",
+                        "end_at": "2026-09-12T09:30:00Z",
+                        "available_until": "2026-09-12T10:00:00Z",
+                    }
+                ],
+            }
+
+    monkeypatch.setattr(
+        "mcp_modules.tools.consumer_tools.get_google_calendar_service", lambda: _Calendar()
+    )
+    context = set_current_developer_principal(principal)
+    try:
+        names = {tool.name for tool in await mcp_server.list_tools()}
+        assert {"list_hussh_calendar_events", "find_hussh_calendar_openings"}.issubset(names)
+        events = await mcp_server.call_tool(
+            "list_hussh_calendar_events",
+            {
+                "start_at": "2026-09-12T09:00:00Z",
+                "end_at": "2026-09-12T17:00:00Z",
+                "max_results": 10,
+            },
+        )
+        openings = await mcp_server.call_tool(
+            "find_hussh_calendar_openings",
+            {
+                "start_at": "2026-09-12T09:00:00Z",
+                "end_at": "2026-09-12T17:00:00Z",
+                "duration_minutes": 30,
+                "limit": 2,
+                "calendar_ids": ["primary"],
+            },
+        )
+    finally:
+        reset_current_developer_principal(context)
+
+    assert not events.isError
+    assert events.structuredContent["events"][0]["title"] == "Planning"
+    assert events.structuredContent["events"][0]["start"]["date_time"] == ("2026-09-12T10:00:00Z")
+    assert not openings.isError
+    assert openings.structuredContent["openings"][0]["start_at"] == "2026-09-12T09:00:00Z"
+
+
+@pytest.mark.asyncio
+async def test_consumer_mcp_calendar_refuses_invalid_arguments_without_provider_call(
+    consumer, monkeypatch
+):
+    import mcp_server
+    from mcp_modules.developer_context import (
+        reset_current_developer_principal,
+        set_current_developer_principal,
+    )
+
+    principal, _, _ = connect(consumer)
+
+    class _Calendar:
+        async def list_events(self, **_kwargs):
+            raise AssertionError("provider must not receive invalid input")
+
+    monkeypatch.setattr(
+        "mcp_modules.tools.consumer_tools.get_google_calendar_service", lambda: _Calendar()
+    )
+    context = set_current_developer_principal(principal)
+    try:
+        result = await mcp_server.call_tool(
+            "list_hussh_calendar_events",
+            {
+                "start_at": "2026-09-12T09:00:00Z",
+                "end_at": "2026-09-12T17:00:00Z",
+                "user_id": "owner_b",
+            },
+        )
+    finally:
+        reset_current_developer_principal(context)
+
+    assert result.isError
+    assert result.content[0].text is not None
+    assert "owner_b" not in result.content[0].text
+
+
 def test_receipts_are_bounded_non_bearer_owner_audit_records(consumer):
     service, _, _ = consumer
     principal, review, _ = connect(consumer)

@@ -7,6 +7,8 @@ from mcp.types import Tool
 from mcp_modules.canonical_contract import canonical_tool_name
 from mcp_modules.public_contract import get_public_contract
 from mcp_modules.tools.consumer_tools import (
+    ConsumerCalendarEventsResult,
+    ConsumerCalendarOpeningsResult,
     ConsumerCapabilitiesResult,
     ConsumerConnectionResult,
     ConsumerConnectionsResult,
@@ -115,6 +117,50 @@ def _private_tool_definitions() -> list[Tool]:
                 "destructiveHint": False,
                 "idempotentHint": True,
                 "openWorldHint": False,
+            },
+        ),
+        Tool(
+            name="list_hussh_calendar_events",
+            description="Read your live Google Calendar events for a bounded time range. This never creates, edits or deletes events.",
+            inputSchema=schema(
+                {
+                    "start_at": {"type": "string", "minLength": 1, "maxLength": 64},
+                    "end_at": {"type": "string", "minLength": 1, "maxLength": 64},
+                    "max_results": {"type": "integer", "minimum": 1, "maximum": 50},
+                },
+                ["start_at", "end_at"],
+            ),
+            outputSchema=ConsumerCalendarEventsResult.model_json_schema(),
+            annotations={
+                "readOnlyHint": True,
+                "destructiveHint": False,
+                "idempotentHint": True,
+                "openWorldHint": True,
+            },
+        ),
+        Tool(
+            name="find_hussh_calendar_openings",
+            description="Find live Google Calendar openings in a bounded window. This never creates, edits or deletes events.",
+            inputSchema=schema(
+                {
+                    "start_at": {"type": "string", "minLength": 1, "maxLength": 64},
+                    "end_at": {"type": "string", "minLength": 1, "maxLength": 64},
+                    "duration_minutes": {"type": "integer", "minimum": 5, "maximum": 720},
+                    "limit": {"type": "integer", "minimum": 1, "maximum": 20},
+                    "calendar_ids": {
+                        "type": "array",
+                        "items": {"type": "string", "minLength": 1},
+                        "maxItems": 20,
+                    },
+                },
+                ["start_at", "end_at", "duration_minutes"],
+            ),
+            outputSchema=ConsumerCalendarOpeningsResult.model_json_schema(),
+            annotations={
+                "readOnlyHint": True,
+                "destructiveHint": False,
+                "idempotentHint": True,
+                "openWorldHint": True,
             },
         ),
         Tool(

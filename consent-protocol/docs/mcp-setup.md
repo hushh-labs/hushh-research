@@ -281,7 +281,8 @@ isolated `feat/consumer-mcp` branch now contains the typed owner-pod memory
 execution seam, but no hosted migration, installed pod acceptance, or marketplace
 review has occurred.
 Owner-bound, resource-aware OAuth sessions additionally discover
-`get_hussh_connection`, `get_hussh_setup_status`, `list_hussh_devices`, `list_hussh_capabilities`,
+`get_hussh_connection`, `get_hussh_setup_status`, `list_hussh_devices`,
+`list_hussh_calendar_events`, `find_hussh_calendar_openings`, `list_hussh_capabilities`,
 `list_hussh_receipts`, and the typed Google integration tools. The connection tool returns
 an authenticated setup or memory-approval link; the status tool reads the
 existing resumable setup job and exposes only sanitized stage state. The
@@ -304,6 +305,10 @@ credentials. `connect_hussh_integration` starts the existing PKCE OAuth handoff
 and returns only its short-lived approval URL and expiry.
 `disconnect_hussh_integration` requires `confirm: true` and disables one service
 grant through `GoogleConnectionService`; it does not revoke sibling grants.
+`list_hussh_calendar_events` and `find_hussh_calendar_openings` use the existing
+owner-scoped Google Calendar service for bounded live reads. They never create,
+edit or delete events; event changes continue through the existing confirmation
+and proposal routes.
 Provider action execution, owner-pod custody, and installed-host acceptance
 remain separate gates.
 The existing developer five-tool catalog remains unchanged for application-only
@@ -335,6 +340,8 @@ The existing OAuth proxy and `/oauth/authorize` page also serve consumer review:
 | `list_hussh_capabilities` (MCP) | Owner OAuth; read the authored consumer capability boundaries |
 | `list_hussh_receipts` (MCP) | Owner OAuth; read bounded consent receipt metadata without bearer tokens |
 | `list_hussh_integrations` (MCP) | Owner OAuth; read Google integration status without credentials |
+| `list_hussh_calendar_events` (MCP) | Owner OAuth plus connected Calendar; read bounded live events without mutation |
+| `find_hussh_calendar_openings` (MCP) | Owner OAuth plus connected Calendar; calculate bounded free slots without mutation |
 | `connect_hussh_integration` (MCP) | Owner OAuth; start a short-lived, user-completed Google PKCE handoff |
 | `disconnect_hussh_integration` (MCP) | Owner OAuth; confirmation-gated service grant disconnect |
 | `disconnect_hussh_connection` (MCP) | Owner OAuth; explicit self-disconnect for the current generation |
