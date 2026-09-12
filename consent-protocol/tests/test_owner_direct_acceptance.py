@@ -9,6 +9,7 @@ dependencies, and that a run whose assertions fail produces a failing receipt.
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -103,9 +104,32 @@ def test_no_mode_is_a_usage_error(capsys):
 
 def test_the_script_runs_as_a_process_in_dry_run_mode(tmp_path):
     out = tmp_path / "receipt.json"
+    env = os.environ.copy()
+    # Exercise the same clean-process path used by the operational command. The producer must
+    # install its synthetic settings before importing runtime modules; a developer's local .env
+    # must not be required for this receipt.
+    for name in (
+        "APP_SIGNING_KEY",
+        "CONSENT_ED25519_KID",
+        "CONSENT_ED25519_PRIVATE_KEY",
+        "CONSENT_ED25519_PUBLIC_KEYS",
+        "GENAI_GOOGLE_CLOUD_PROJECT",
+        "GOOGLE_APPLICATION_CREDENTIALS",
+        "GOOGLE_CLOUD_LOCATION",
+        "GOOGLE_CLOUD_PROJECT",
+        "GOOGLE_GENAI_USE_VERTEXAI",
+        "HUSHH_DEPLOY_ENV",
+        "HUSHH_GENAI_AUTH_MODE",
+        "HUSSH_HUB_BASE_URL",
+        "HUSSH_ID",
+        "HUSSH_POD_MODE",
+        "HUSSH_POD_TURN_ENABLED",
+    ):
+        env.pop(name, None)
     completed = subprocess.run(  # noqa: S603 - fixed argv, no shell
         [sys.executable, str(SCRIPT), "--dry-run", "--out", str(out)],
         cwd=SCRIPT.parents[2],
+        env=env,
         capture_output=True,
         text=True,
         timeout=120,

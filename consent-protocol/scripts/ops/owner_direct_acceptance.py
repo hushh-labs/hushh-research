@@ -177,14 +177,6 @@ def _hub_signing_key(env: dict[str, str]) -> None:
 
 async def run_dry_run(tmp_root: Path) -> dict[str, Any]:
     """The whole owner-direct sequence over fakes. Returns the observations."""
-    from hushh_mcp.consent import token_signing
-    from hushh_mcp.services import pod_authority_store as store_module
-    from hushh_mcp.services import pod_config
-    from hushh_mcp.services import pod_session_authority as psa
-    from hushh_mcp.services import puppy_broker as pb
-    from hushh_mcp.services.pod_binding_service import PodBindingService
-    from hushh_mcp.services.pod_commit_log import LocalObjectStore, PodCommitLog
-
     saved_env = dict(os.environ)
     os.environ.update(
         {
@@ -194,13 +186,40 @@ async def run_dry_run(tmp_root: Path) -> dict[str, Any]:
             "HUSHH_DEPLOY_ENV": "dev",
             "HUSSH_HUB_BASE_URL": "",
             "APP_SIGNING_KEY": "acceptance-dry-run-signing-key-32-chars-minimum",
+            # Keep imports of the hosted ADK graph deterministic in a clean subprocess. The
+            # dry-run never calls Vertex; these values only satisfy its import-time contract.
+            "GOOGLE_GENAI_USE_VERTEXAI": "true",
+            "GOOGLE_CLOUD_PROJECT": "acceptance-dry-run-project",
+            "GOOGLE_CLOUD_LOCATION": "global",
         }
     )
-    _hub_signing_key(os.environ)
-    token_signing.reset_caches()
+    token_signing = None
+    store_module = None
+    pod_config = None
+    psa = None
+    pb = None
     observations: dict[str, Any] = {}
     commands: list[str] = []
     try:
+        # Import runtime modules only after the synthetic environment is installed. Several
+        # services validate their settings at import time; importing them first makes a clean
+        # subprocess fail before this dry-run can produce its deliberately local receipt.
+        from hushh_mcp.consent import token_signing as _token_signing
+        from hushh_mcp.services import pod_authority_store as _store_module
+        from hushh_mcp.services import pod_config as _pod_config
+        from hushh_mcp.services import pod_session_authority as _psa
+        from hushh_mcp.services import puppy_broker as _pb
+        from hushh_mcp.services.pod_binding_service import PodBindingService
+        from hushh_mcp.services.pod_commit_log import LocalObjectStore, PodCommitLog
+
+        token_signing = _token_signing
+        store_module = _store_module
+        pod_config = _pod_config
+        psa = _psa
+        pb = _pb
+        _hub_signing_key(os.environ)
+        token_signing.reset_caches()
+
         # 1. Enrol the app key and the Puppy device at the hub (fakes hold the rows).
         app_key, device_key = _P256(), _P256()
         devices = _Devices()
@@ -395,13 +414,18 @@ async def run_dry_run(tmp_root: Path) -> dict[str, Any]:
         )
         return {"observations": observations, "commands": commands}
     finally:
-        pb.BROKER._links.clear()
-        psa.set_active_session_authority(None)
-        store_module.set_active_authority_store(None)
-        pod_config.set_active_pod_config(None)
+        if pb is not None:
+            pb.BROKER._links.clear()
+        if psa is not None:
+            psa.set_active_session_authority(None)
+        if store_module is not None:
+            store_module.set_active_authority_store(None)
+        if pod_config is not None:
+            pod_config.set_active_pod_config(None)
         os.environ.clear()
         os.environ.update(saved_env)
-        token_signing.reset_caches()
+        if token_signing is not None:
+            token_signing.reset_caches()
 
 
 # -- receipts ----------------------------------------------------------------------------
