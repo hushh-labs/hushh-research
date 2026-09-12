@@ -322,6 +322,19 @@ class ConsumerMcpTask:
             "Approve Agent One delegation for this assistant before starting a task"
         )
 
+    async def _verify_current_connection(
+        self, principal: DeveloperPrincipal, admitted: Any
+    ) -> None:
+        """Reject a durable result if grant or deployment authority changed mid-call."""
+        await self._invoke_token(principal)
+        current = await asyncio.to_thread(self._connections.current, principal)
+        if (
+            current.connection_id != admitted.connection_id
+            or current.generation != admitted.generation
+            or current.deployment_id != admitted.deployment_id
+        ):
+            raise ConsumerTaskUnavailable("assistant access changed while the task was running")
+
     async def execute(
         self, principal: DeveloperPrincipal, *, arguments: dict[str, Any]
     ) -> dict[str, Any]:
@@ -357,14 +370,7 @@ class ConsumerMcpTask:
             raise ConsumerTaskUnavailable("owner pod task timed out") from exc
         # Revocation/reconnect wins a race with a late result. The transport
         # cannot silently replay after this check fails.
-        await self._invoke_token(principal)
-        after = await asyncio.to_thread(self._connections.current, principal)
-        if (
-            after.connection_id != current.connection_id
-            or after.generation != current.generation
-            or after.deployment_id != current.deployment_id
-        ):
-            raise ConsumerTaskUnavailable("assistant access changed while the task was running")
+        await self._verify_current_connection(principal, current)
         # ``relay_pod_turn`` is the canonical wire contract and emits ``text``.
         # Keep the legacy ``response`` fallback only for older compatible relay
         # doubles; a missing text/response is never a successful task.
@@ -420,6 +426,7 @@ class ConsumerMcpTask:
                 "idempotency_key": request.idempotency_key,
             },
         )
+        await self._verify_current_connection(principal, current)
         return self._normalize_lifecycle_result(result, current.deployment_id)
 
     async def status(
@@ -441,6 +448,7 @@ class ConsumerMcpTask:
             task_id=task_id,
             invoke_token=invoke_token,
         )
+        await self._verify_current_connection(principal, current)
         return self._normalize_lifecycle_result(result, current.deployment_id)
 
     async def cancel(
@@ -462,6 +470,7 @@ class ConsumerMcpTask:
             task_id=task_id,
             invoke_token=invoke_token,
         )
+        await self._verify_current_connection(principal, current)
         return self._normalize_lifecycle_result(result, current.deployment_id)
 
     @staticmethod

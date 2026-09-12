@@ -347,3 +347,103 @@ async def test_durable_task_lifecycle_is_owner_bound_and_normalized() -> None:
 
     with pytest.raises(ValueError, match="task_id"):
         await task.status(principal(), arguments={"task_id": "not-a-task"})
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("operation", ["start", "status", "cancel"])
+async def test_durable_lifecycle_rejects_late_generation_change(operation: str) -> None:
+    async def active_tokens(*_args, **_kwargs):
+        return [{"token_id": "one-token"}]
+
+    async def validator(*_args, **_kwargs):
+        return (
+            True,
+            None,
+            SimpleNamespace(
+                user_id="owner_a", agent_id="developer:app_test", scope_str="cap.one.invoke"
+            ),
+        )
+
+    class Connections:
+        def __init__(self):
+            self.calls = 0
+
+        def current(self, _principal):
+            self.calls += 1
+            return connection(1 if self.calls == 1 else 2)
+
+    class Transport:
+        async def start(self, **_kwargs):
+            return {
+                "execution_target": "owner_pod",
+                "task_id": "task_0123456789abcdef0123456789abcdef",
+                "state": "queued",
+            }
+
+        async def status(self, **kwargs):
+            return {
+                "execution_target": "owner_pod",
+                "task_id": kwargs["task_id"],
+                "state": "completed",
+                "result": "late",
+            }
+
+        async def cancel(self, **kwargs):
+            return {
+                "execution_target": "owner_pod",
+                "task_id": kwargs["task_id"],
+                "state": "cancelled",
+            }
+
+    task = ConsumerMcpTask(
+        connections=Connections(),
+        transport=Transport(),
+        active_tokens=active_tokens,
+        validator=validator,
+    )
+    arguments = (
+        {"message": "long work", "idempotency_key": "request-1"}
+        if operation == "start"
+        else {"task_id": "task_0123456789abcdef0123456789abcdef"}
+    )
+    with pytest.raises(ConsumerTaskUnavailable, match="access changed"):
+        await getattr(task, operation)(principal(), arguments=arguments)
+
+
+@pytest.mark.asyncio
+async def test_durable_lifecycle_rejects_revocation_before_returning_late_result() -> None:
+    token_calls = 0
+
+    async def active_tokens(*_args, **_kwargs):
+        nonlocal token_calls
+        token_calls += 1
+        return [{"token_id": "one-token"}] if token_calls == 1 else []
+
+    async def validator(*_args, **_kwargs):
+        return (
+            True,
+            None,
+            SimpleNamespace(
+                user_id="owner_a", agent_id="developer:app_test", scope_str="cap.one.invoke"
+            ),
+        )
+
+    class Transport:
+        async def start(self, **_kwargs):
+            return {
+                "execution_target": "owner_pod",
+                "task_id": "task_0123456789abcdef0123456789abcdef",
+                "state": "queued",
+            }
+
+    task = ConsumerMcpTask(
+        connections=type("Connections", (), {"current": lambda _self, _principal: connection()})(),
+        transport=Transport(),
+        active_tokens=active_tokens,
+        validator=validator,
+    )
+    with pytest.raises(ConsumerTaskApprovalRequired, match="Approve Agent One"):
+        await task.start(
+            principal(),
+            arguments={"message": "long work", "idempotency_key": "request-1"},
+        )
