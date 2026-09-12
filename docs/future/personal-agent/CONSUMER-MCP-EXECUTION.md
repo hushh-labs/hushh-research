@@ -80,7 +80,7 @@ The current topology receipt now records the consumer MCP coverage ledger in
 `contracts/architecture/runtime-topology-index.v1.json`. The generator rejects
 an executable or handoff row whose canonical definition, handler, or server
 registration is missing. This closes the classification gap; it does not claim
-that the two missing adapters or live-host acceptance are complete.
+that installed-host or marketplace acceptance is complete.
 
 The branch also exposes read-only owner-scoped email workflow status through the existing `OneEmailKycService`. MCP projections include workflow state, safe labels, draft/send/writeback status and timestamps while excluding mailbox bodies, provider identifiers, sender addresses, consent exports and credentials. Draft, send and archive actions remain in the authenticated secure owner flow; direct consumer-side mutation is intentionally not exposed because those consequential actions require the existing owner confirmation boundary.
 
@@ -279,7 +279,7 @@ The branch also exposes read-only owner-scoped email workflow status through the
 ## Latest bounded capability slice — 12 September 2026 (finance adapter)
 
 - Added typed `analyze_hussh_finance` for owner-bound MCP clients. It validates a bounded ticker, risk profile, conversation and timezone, then delegates a fixed read-only analysis request through the existing owner-pod `cap.one.invoke` seam. The caller cannot select a provider, trade, mutate holdings or bypass One orchestration; no queue, router, Redis dependency or new persistence authority was added.
-- The generated topology now records `29` executable consumer capabilities, `8` secure handoffs, `1` missing adapter and `1` not applicable entry. Package README/catalog projections include the new tool.
+- At this historical finance slice, the generated topology recorded `29` executable consumer capabilities, `8` secure handoffs, `1` missing adapter and `1` not applicable entry. The current head supersedes that intermediate receipt: the generated ledger now records `32` executable capabilities, `8` secure handoffs, `0` missing adapters and `1` not applicable entry.
 - Focused verification passed: `66` owner/pod/MCP tests, Ruff, runtime-topology generation/check, package docs/gateway checks, seven npm tests, packed-runtime verification, npm pack dry-run and whitespace checks. The package gate requires the repository Python environment because the canonical contract imports `jsonschema`.
 - This is branch-only source evidence. No deployment, hosted migration, credential mutation, main/UAT/production promotion, Hermes change or ADK worktree change occurred. Live owner custody/onboarding/replacement recovery, durable delegated-task status/cancellation, full Puppy/Hermes parity and Claude/ChatGPT host acceptance remain incomplete.
 
@@ -299,3 +299,9 @@ The branch also exposes read-only owner-scoped email workflow status through the
 - A read-only retry with the existing owner account `kushaltrivedi1711@gmail.com` succeeded. The owner service is ready with 100% traffic on revision `one-pod-ha1-7o6wt3s4mtydneyytqfswsxtafdlpjwz-00010-m9f`; revision-level inspection reports image digest `sha256:7bef8f48b0ad8d1c9729447c92b0412f6e8536469cec0beabe9643fd78a75f29`, `500m/1Gi`, `minScale=0`, `maxScale=1`, and the expected owner-project identity/custody configuration. The service IAM policy grants invocation only to `consent-protocol-runtime@hushh-pda-dev.iam.gserviceaccount.com`; no owner MCP request was attempted.
 - The service template currently names digest `sha256:bd541305ba767169e3f2d0a5f06b6624bfbcc011addb608f585d2847f7b853d9`, while the serving revision resolves to `sha256:7bef8f48b0ad8d1c9729447c92b0412f6e8536469cec0beabe9643fd78a75f29`. This desired-template/serving-revision mismatch is deployment drift and must be reconciled before treating any owner-pod acceptance as evidence. No reconciliation or deployment was performed.
 - Read-only HTTP probes using an identity token minted for the IAM-listed UAT runtime service account returned `403` for both `/health` URL forms. This means the current session cannot establish runtime readiness or `/pod/info` truth even though the Cloud Run service and revision are administratively readable. No request carrying owner information or inference was sent.
+
+## Branch-only evidence reconciliation — 12 September 2026 (head `1159eb251`)
+
+- The current generated coverage ledger is authoritative: `32` executable capabilities, `8` secure handoffs, `0` missing adapters and `1` not applicable entry. Earlier paragraphs that report `29` capabilities or missing adapters are retained as dated historical slices and are explicitly superseded by the current ledger.
+- A read-only retry using `kushaltrivedi1711@gmail.com` can describe the owner service but cannot mint an audience-bound identity token (`gcloud auth print-identity-token --audiences` rejects user accounts). The only invocation binding visible in the owner service policy is `consent-protocol-runtime@hushh-pda-dev.iam.gserviceaccount.com`; probes using that UAT runtime identity returned `403` for both advertised Cloud Run URLs. This is an unresolved access/reachability evidence blocker, not an IAM change or deployment attempt.
+- No source, hosted migration, credential, IAM, main/UAT/production, Hermes or ADK worktree mutation occurred during this refresh. The branch remains clean and synchronized with `origin/feat/consumer-mcp` at `1159eb251`.
