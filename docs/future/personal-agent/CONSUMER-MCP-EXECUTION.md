@@ -35,7 +35,7 @@ Provisioning, recoverable owner-pod vault custody and client access are separate
 | Checkpoint | Status | Next evidence |
 |---|---|---|
 | Isolation and committed baseline | Done | Baseline above; clean source when created |
-| Consumer capability coverage | Mechanically classified; 29 executable, 8 secure handoffs, 1 missing adapter, 1 not applicable | Generated topology check validates every executable/handoff tool against its definition, handler and server registration; durable delegated-task lifecycle remains open |
+| Consumer capability coverage | Mechanically classified; 32 executable, 8 secure handoffs, 0 missing adapters, 1 not applicable | Generated topology check validates every executable/handoff tool against its definition, handler and server registration; live acceptance remains open |
 | OAuth owner/client/resource binding | Local checks pass | 55 focused checks; live host acceptance pending |
 | Owner connection review and disconnect | Local checks pass | Portal disconnect plus confirmation-gated MCP self-disconnect are fenced by owner, client and generation |
 | Standing memory consent | Implemented; local checks pass | Durable binding, secure review, revoke/commit race and full erasure/rollback exercised in disposable PostgreSQL |
@@ -66,9 +66,9 @@ The baseline action gateway has 214 authored actions (186 wired, 28 unwired). Of
 | Calendar | `GoogleCalendarService`, `one/calendar.py` | Read/availability/proposal services exist; OAuth and action confirmation remain secure handoffs |
 | Email / identity | `one/email.py`, Gmail routes, `OneEmailKYCService` | Adapt tracked read/draft workflows; approval is distinct from successful external delivery |
 | Location | Location services and `PodLocationReadPort` | Adapt supported reads/proposals; device acquisition/background permission remains native |
-| Finance | Kai portfolio/analysis services | `analyze_hussh_finance` delegates a bounded, read-only operation through the existing owner-pod One task seam; durable job/result lifecycle remains separate |
+| Finance | Kai portfolio/analysis services | `analyze_hussh_finance` delegates a bounded, read-only operation through the existing owner-pod One task seam; durable task lifecycle is now available through the sealed pod log |
 | Consent / sharing | Consent ledger, exports, information-request services | Preserve current five-tool developer flow; add owner review and revocation without vault-key disclosure |
-| Delegated private-agent work | `pod_turn.py`, shared fleet and specialist runtime | Bounded synchronous delegation is wired with a separate `cap.one.invoke` grant; durable task status/cancellation remains incomplete |
+| Delegated private-agent work | `pod_turn.py`, shared fleet and specialist runtime | Synchronous delegation plus `start_hussh_task`, `get_hussh_task` and `cancel_hussh_task` use a separate `cap.one.invoke` grant and sealed pod task snapshots; replacement marks uncertain work interrupted and never replays |
 | Puppy and recovery | Trusted-device services and Hermes local PKM bridge | Retain device proof and local custody; common canonical records must be proven |
 | Wallet / profile / support | Existing wallet-card, profile and support services | Separate public operations from protected reveals; native wallet installation is a handoff |
 | Marketplace / RIA | Existing marketplace and RIA services | Consumer ownership must not grant advisor/business-operator roles |
@@ -282,3 +282,10 @@ The branch also exposes read-only owner-scoped email workflow status through the
 - The generated topology now records `29` executable consumer capabilities, `8` secure handoffs, `1` missing adapter and `1` not applicable entry. Package README/catalog projections include the new tool.
 - Focused verification passed: `66` owner/pod/MCP tests, Ruff, runtime-topology generation/check, package docs/gateway checks, seven npm tests, packed-runtime verification, npm pack dry-run and whitespace checks. The package gate requires the repository Python environment because the canonical contract imports `jsonschema`.
 - This is branch-only source evidence. No deployment, hosted migration, credential mutation, main/UAT/production promotion, Hermes change or ADK worktree change occurred. Live owner custody/onboarding/replacement recovery, durable delegated-task status/cancellation, full Puppy/Hermes parity and Claude/ChatGPT host acceptance remain incomplete.
+
+## Latest bounded capability slice — 12 September 2026 (durable task lifecycle)
+
+- Added `start_hussh_task`, `get_hussh_task` and `cancel_hussh_task`. The owner pod persists task snapshots in its existing sealed commit log; no queue, Redis dependency, gateway persistence or second router was introduced.
+- Task creation is idempotent, requires the separate owner/client `cap.one.invoke` grant, and returns only bounded owner-pod projections. A pod restart or replacement marks running work `interrupted`; uncertain inference and external actions are never replayed. Cancellation records intent and discards late results.
+- Focused verification passed `71` tests across task storage, consumer task lifecycle, finance, memory, connection, pod architecture and public MCP contracts. Ruff, generated topology validation and whitespace checks passed. The package README/catalog now includes the lifecycle tools; the package gate remains to be rerun for this source slice before publication.
+- This is branch-only source evidence. No deployment, hosted migration, credential mutation, main/UAT/production promotion, Hermes change or ADK worktree change occurred. Live owner custody/onboarding/replacement recovery, full Puppy/Hermes parity and Claude/ChatGPT host acceptance remain incomplete.

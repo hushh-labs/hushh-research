@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import re
 from dataclasses import dataclass
 from typing import Any, Protocol
 
@@ -29,6 +30,7 @@ MAX_CONVERSATION_ID_CHARS = 128
 MAX_TIMEZONE_CHARS = 64
 MAX_TASK_RESPONSE_CHARS = 16_000
 TASK_TIMEOUT_SECONDS = 120
+_TASK_ID_RE = re.compile(r"^task_[a-f0-9]{32}$")
 
 
 class ConsumerTaskApprovalRequired(ConsumerConnectionDenied):
@@ -50,6 +52,36 @@ class ConsumerTaskTransport(Protocol):
         timezone: str | None,
         runtime_provider: str | None,
         puppy_device_id: str | None,
+    ) -> dict[str, Any]: ...
+
+    async def start(
+        self,
+        *,
+        owner_id: str,
+        deployment_id: str,
+        agent_id: str,
+        invoke_token: str,
+        arguments: dict[str, Any],
+    ) -> dict[str, Any]: ...
+
+    async def status(
+        self,
+        *,
+        owner_id: str,
+        deployment_id: str,
+        agent_id: str,
+        task_id: str,
+        invoke_token: str,
+    ) -> dict[str, Any]: ...
+
+    async def cancel(
+        self,
+        *,
+        owner_id: str,
+        deployment_id: str,
+        agent_id: str,
+        task_id: str,
+        invoke_token: str,
     ) -> dict[str, Any]: ...
 
 
@@ -97,6 +129,78 @@ class OwnerPodConsumerTaskTransport:
             raise ConsumerTaskUnavailable("owner pod returned an invalid execution target")
         return result
 
+    async def start(
+        self,
+        *,
+        owner_id: str,
+        deployment_id: str,
+        agent_id: str,
+        invoke_token: str,
+        arguments: dict[str, Any],
+    ) -> dict[str, Any]:
+        from api.routes.one.pod_relay import relay_pod_task_start  # noqa: PLC0415
+
+        try:
+            return await relay_pod_task_start(
+                hushh_id=deployment_id,
+                user_id=owner_id,
+                agent_id=agent_id,
+                invoke_token=invoke_token,
+                arguments=arguments,
+            )
+        except HTTPException as exc:
+            raise ConsumerTaskUnavailable("owner pod task is unavailable") from exc
+        except Exception as exc:  # noqa: BLE001 - keep pod details out of MCP
+            raise ConsumerTaskUnavailable("owner pod task is unavailable") from exc
+
+    async def status(
+        self,
+        *,
+        owner_id: str,
+        deployment_id: str,
+        agent_id: str,
+        task_id: str,
+        invoke_token: str,
+    ) -> dict[str, Any]:
+        from api.routes.one.pod_relay import relay_pod_task_status  # noqa: PLC0415
+
+        try:
+            return await relay_pod_task_status(
+                hushh_id=deployment_id,
+                user_id=owner_id,
+                agent_id=agent_id,
+                task_id=task_id,
+                invoke_token=invoke_token,
+            )
+        except HTTPException as exc:
+            raise ConsumerTaskUnavailable("owner pod task is unavailable") from exc
+        except Exception as exc:  # noqa: BLE001 - keep pod details out of MCP
+            raise ConsumerTaskUnavailable("owner pod task is unavailable") from exc
+
+    async def cancel(
+        self,
+        *,
+        owner_id: str,
+        deployment_id: str,
+        agent_id: str,
+        task_id: str,
+        invoke_token: str,
+    ) -> dict[str, Any]:
+        from api.routes.one.pod_relay import relay_pod_task_cancel  # noqa: PLC0415
+
+        try:
+            return await relay_pod_task_cancel(
+                hushh_id=deployment_id,
+                user_id=owner_id,
+                agent_id=agent_id,
+                task_id=task_id,
+                invoke_token=invoke_token,
+            )
+        except HTTPException as exc:
+            raise ConsumerTaskUnavailable("owner pod task is unavailable") from exc
+        except Exception as exc:  # noqa: BLE001 - keep pod details out of MCP
+            raise ConsumerTaskUnavailable("owner pod task is unavailable") from exc
+
 
 @dataclass(frozen=True)
 class ConsumerTaskRequest:
@@ -105,6 +209,7 @@ class ConsumerTaskRequest:
     timezone: str | None
     runtime_provider: str | None
     puppy_device_id: str | None
+    idempotency_key: str
 
 
 def validate_task_request(arguments: dict[str, Any]) -> ConsumerTaskRequest:
@@ -147,12 +252,17 @@ def validate_task_request(arguments: dict[str, Any]) -> ConsumerTaskRequest:
         raise ValueError("puppy_device_id is required for Puppy inference")
     if runtime_provider is None and puppy_device_id is not None:
         raise ValueError("runtime_provider=puppy is required for a Puppy device")
+    idempotency_key = arguments.get("idempotency_key", "")
+    if not isinstance(idempotency_key, str) or len(idempotency_key.strip()) > 128:
+        raise ValueError("idempotency_key is invalid")
+    idempotency_key = idempotency_key.strip()
     return ConsumerTaskRequest(
         message,
         conversation_id,
         timezone,
         runtime_provider,
         puppy_device_id,
+        idempotency_key,
     )
 
 
@@ -277,6 +387,104 @@ class ConsumerMcpTask:
             "provider": str(result.get("provider") or "")[:64] or None,
             "model": str(result.get("model") or "")[:128] or None,
             "delegation": safe_delegation,
+        }
+
+    async def start(
+        self, principal: DeveloperPrincipal, *, arguments: dict[str, Any]
+    ) -> dict[str, Any]:
+        request = validate_task_request(arguments)
+        invoke_token = await self._invoke_token(principal)
+        owner = str(principal.subject_firebase_uid or "")
+        current = await asyncio.to_thread(self._connections.current, principal)
+        transport = getattr(self._transport, "start", None)
+        if not callable(transport):
+            raise ConsumerTaskUnavailable("durable owner-pod task transport unavailable")
+        result = await transport(
+            owner_id=owner,
+            deployment_id=current.deployment_id,
+            agent_id=str(principal.agent_id),
+            invoke_token=invoke_token,
+            arguments={
+                "message": request.message,
+                "conversation_id": request.conversation_id,
+                "timezone": request.timezone,
+                "runtime_provider": request.runtime_provider,
+                "puppy_device_id": request.puppy_device_id,
+                "idempotency_key": request.idempotency_key,
+            },
+        )
+        return self._normalize_lifecycle_result(result, current.deployment_id)
+
+    async def status(
+        self, principal: DeveloperPrincipal, *, arguments: dict[str, Any]
+    ) -> dict[str, Any]:
+        task_id = str(arguments.get("task_id") or "").strip() if isinstance(arguments, dict) else ""
+        if not _TASK_ID_RE.fullmatch(task_id):
+            raise ValueError("task_id is invalid")
+        invoke_token = await self._invoke_token(principal)
+        owner = str(principal.subject_firebase_uid or "")
+        current = await asyncio.to_thread(self._connections.current, principal)
+        transport = getattr(self._transport, "status", None)
+        if not callable(transport):
+            raise ConsumerTaskUnavailable("durable owner-pod task transport unavailable")
+        result = await transport(
+            owner_id=owner,
+            deployment_id=current.deployment_id,
+            agent_id=str(principal.agent_id),
+            task_id=task_id,
+            invoke_token=invoke_token,
+        )
+        return self._normalize_lifecycle_result(result, current.deployment_id)
+
+    async def cancel(
+        self, principal: DeveloperPrincipal, *, arguments: dict[str, Any]
+    ) -> dict[str, Any]:
+        task_id = str(arguments.get("task_id") or "").strip() if isinstance(arguments, dict) else ""
+        if not _TASK_ID_RE.fullmatch(task_id):
+            raise ValueError("task_id is invalid")
+        invoke_token = await self._invoke_token(principal)
+        owner = str(principal.subject_firebase_uid or "")
+        current = await asyncio.to_thread(self._connections.current, principal)
+        transport = getattr(self._transport, "cancel", None)
+        if not callable(transport):
+            raise ConsumerTaskUnavailable("durable owner-pod task transport unavailable")
+        result = await transport(
+            owner_id=owner,
+            deployment_id=current.deployment_id,
+            agent_id=str(principal.agent_id),
+            task_id=task_id,
+            invoke_token=invoke_token,
+        )
+        return self._normalize_lifecycle_result(result, current.deployment_id)
+
+    @staticmethod
+    def _normalize_lifecycle_result(result: Any, deployment_id: str) -> dict[str, Any]:
+        if not isinstance(result, dict) or str(result.get("execution_target") or "") != "owner_pod":
+            raise ConsumerTaskUnavailable("owner pod returned an invalid task")
+        state = str(result.get("state") or "")
+        if state not in {
+            "queued",
+            "running",
+            "completed",
+            "failed",
+            "cancel_requested",
+            "cancelled",
+            "interrupted",
+        }:
+            raise ConsumerTaskUnavailable("owner pod returned an invalid task state")
+        return {
+            "state": state,
+            "execution_target": "owner_pod",
+            "deployment_id": deployment_id,
+            "task_id": str(result.get("task_id") or "")[:64],
+            "conversation_id": str(result.get("conversation_id") or "")[:128],
+            "runtime_provider": str(result.get("runtime_provider") or "")[:32] or None,
+            "puppy_device_id": str(result.get("puppy_device_id") or "")[:128] or None,
+            "result": str(result.get("result") or "")[:MAX_TASK_RESPONSE_CHARS] or None,
+            "error_code": str(result.get("error_code") or "")[:64] or None,
+            "created_at_ms": int(result.get("created_at_ms") or 0),
+            "updated_at_ms": int(result.get("updated_at_ms") or 0),
+            "generation": int(result.get("generation") or 0),
         }
 
 

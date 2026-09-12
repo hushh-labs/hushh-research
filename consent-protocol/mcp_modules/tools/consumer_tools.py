@@ -480,6 +480,31 @@ class ConsumerTaskResult(BaseModel):
     next_action: str = Field(..., max_length=512)
 
 
+class ConsumerTaskLifecycleResult(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    state: Literal[
+        "queued",
+        "running",
+        "completed",
+        "failed",
+        "cancel_requested",
+        "cancelled",
+        "interrupted",
+    ]
+    execution_target: Literal["owner_pod"]
+    deployment_id: str = Field(..., min_length=1, max_length=128)
+    task_id: str = Field(..., pattern=r"^task_[a-f0-9]{32}$")
+    conversation_id: str = Field(..., min_length=1, max_length=128)
+    runtime_provider: str | None = Field(default=None, max_length=32)
+    puppy_device_id: str | None = Field(default=None, max_length=128)
+    result: str | None = Field(default=None, max_length=16_000)
+    error_code: str | None = Field(default=None, max_length=64)
+    created_at_ms: int = Field(..., ge=1)
+    updated_at_ms: int = Field(..., ge=1)
+    generation: int = Field(..., ge=1)
+    next_action: str = Field(..., max_length=512)
+
+
 class ConsumerFinanceResult(BaseModel):
     model_config = ConfigDict(extra="forbid")
     state: Literal["completed"]
@@ -705,6 +730,9 @@ async def handle_list_hussh_capabilities(arguments: dict) -> CallToolResult:
         "list_hussh_receipts",
         "disconnect_hussh_connection",
         "delegate_hussh_task",
+        "start_hussh_task",
+        "get_hussh_task",
+        "cancel_hussh_task",
         "analyze_hussh_finance",
     }
     public_names = {
@@ -781,6 +809,9 @@ async def handle_list_hussh_capabilities(arguments: dict) -> CallToolResult:
             execution = "consent_service"
             availability = "contract_available"
         elif name == "delegate_hussh_task":
+            execution = "owner_pod"
+            availability = "approval_required"
+        elif name in {"start_hussh_task", "get_hussh_task", "cancel_hussh_task"}:
             execution = "owner_pod"
             availability = "approval_required"
         elif name == "analyze_hussh_finance":
@@ -2128,6 +2159,93 @@ async def handle_delegate_hussh_task(arguments: dict) -> CallToolResult:
         ConsumerTaskResult(
             **result,
             next_action="The owner pod completed the task; interrupted work is never replayed automatically.",
+        )
+    )
+
+
+def _task_next_action(state: str) -> str:
+    if state in {"queued", "running", "cancel_requested"}:
+        return "Poll get_hussh_task for the current state; the pod will not replay uncertain work."
+    if state == "completed":
+        return "The owner pod completed the task."
+    if state == "interrupted":
+        return "The pod was replaced or restarted; review the interrupted result before starting a new task."
+    if state == "cancelled":
+        return "The task was cancelled and any late result was discarded."
+    return "The owner pod could not complete the task; inspect the error code and retry only if appropriate."
+
+
+async def handle_start_hussh_task(arguments: dict) -> CallToolResult:
+    """Create a durable owner-pod task without adding a gateway queue."""
+    principal = get_current_developer_principal()
+    if not has_consumer_oauth_identity(principal):
+        return _error("OWNER_AUTH_REQUIRED", "Reconnect using your own Hussh account.")
+    try:
+        result = await ConsumerMcpTask().start(principal, arguments=arguments)
+    except ValueError as error:
+        return _error("INVALID_TASK_REQUEST", str(error))
+    except ConsumerTaskApprovalRequired as error:
+        return _error("ONE_APPROVAL_REQUIRED", str(error))
+    except ConsumerTaskUnavailable:
+        return _error("OWNER_POD_UNAVAILABLE", "The owner pod could not accept this task.")
+    except ConsumerConnectionDenied as error:
+        return _error("TASK_ACCESS_REFUSED", str(error))
+    except Exception:
+        return _error("TASK_UNAVAILABLE", "The owner-pod task could not be started.")
+    return _result(
+        ConsumerTaskLifecycleResult(
+            **result,
+            next_action=_task_next_action(str(result.get("state") or "")),
+        )
+    )
+
+
+async def handle_get_hussh_task(arguments: dict) -> CallToolResult:
+    """Read a durable owner-pod task status or result."""
+    principal = get_current_developer_principal()
+    if not has_consumer_oauth_identity(principal):
+        return _error("OWNER_AUTH_REQUIRED", "Reconnect using your own Hussh account.")
+    try:
+        result = await ConsumerMcpTask().status(principal, arguments=arguments)
+    except ValueError as error:
+        return _error("INVALID_TASK_REQUEST", str(error))
+    except ConsumerTaskApprovalRequired as error:
+        return _error("ONE_APPROVAL_REQUIRED", str(error))
+    except ConsumerTaskUnavailable:
+        return _error("OWNER_POD_UNAVAILABLE", "The owner pod task status is unavailable.")
+    except ConsumerConnectionDenied as error:
+        return _error("TASK_ACCESS_REFUSED", str(error))
+    except Exception:
+        return _error("TASK_UNAVAILABLE", "The owner-pod task status could not be read.")
+    return _result(
+        ConsumerTaskLifecycleResult(
+            **result,
+            next_action=_task_next_action(str(result.get("state") or "")),
+        )
+    )
+
+
+async def handle_cancel_hussh_task(arguments: dict) -> CallToolResult:
+    """Request cancellation and persist the resulting task state."""
+    principal = get_current_developer_principal()
+    if not has_consumer_oauth_identity(principal):
+        return _error("OWNER_AUTH_REQUIRED", "Reconnect using your own Hussh account.")
+    try:
+        result = await ConsumerMcpTask().cancel(principal, arguments=arguments)
+    except ValueError as error:
+        return _error("INVALID_TASK_REQUEST", str(error))
+    except ConsumerTaskApprovalRequired as error:
+        return _error("ONE_APPROVAL_REQUIRED", str(error))
+    except ConsumerTaskUnavailable:
+        return _error("OWNER_POD_UNAVAILABLE", "The owner pod task could not be cancelled.")
+    except ConsumerConnectionDenied as error:
+        return _error("TASK_ACCESS_REFUSED", str(error))
+    except Exception:
+        return _error("TASK_UNAVAILABLE", "The owner-pod task could not be cancelled.")
+    return _result(
+        ConsumerTaskLifecycleResult(
+            **result,
+            next_action=_task_next_action(str(result.get("state") or "")),
         )
     )
 

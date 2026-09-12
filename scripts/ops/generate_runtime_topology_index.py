@@ -164,6 +164,9 @@ def build_index() -> dict[str, Any]:
             "export_hussh_",
             "delegate_hussh_",
             "analyze_hussh_",
+            "start_hussh_task",
+            "get_hussh_task",
+            "cancel_hussh_task",
             "connect_hussh_",
             "disconnect_hussh_",
         ))

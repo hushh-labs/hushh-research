@@ -58,6 +58,7 @@ from mcp_modules.tools.consumer_tools import (
     handle_accept_hussh_connection_request,
     handle_analyze_hussh_finance,
     handle_cancel_hussh_connection_request,
+    handle_cancel_hussh_task,
     handle_connect_hussh_integration,
     handle_correct_hussh_memory,
     handle_delegate_hussh_task,
@@ -71,6 +72,7 @@ from mcp_modules.tools.consumer_tools import (
     handle_get_hussh_gmail_status,
     handle_get_hussh_person_profile,
     handle_get_hussh_setup_status,
+    handle_get_hussh_task,
     handle_list_hussh_calendar_events,
     handle_list_hussh_capabilities,
     handle_list_hussh_connection_requests,
@@ -87,6 +89,7 @@ from mcp_modules.tools.consumer_tools import (
     handle_save_hussh_memory,
     handle_search_hussh_people,
     handle_send_hussh_connection_request,
+    handle_start_hussh_task,
 )
 from mcp_modules.tools.definitions import get_tool_definitions
 from mcp_modules.tools.kai_tools import (
@@ -172,6 +175,9 @@ HANDLERS = {
     "list_hussh_receipts": handle_list_hussh_receipts,
     "disconnect_hussh_connection": handle_disconnect_hussh_connection,
     "delegate_hussh_task": handle_delegate_hussh_task,
+    "start_hussh_task": handle_start_hussh_task,
+    "get_hussh_task": handle_get_hussh_task,
+    "cancel_hussh_task": handle_cancel_hussh_task,
     "analyze_hussh_finance": handle_analyze_hussh_finance,
     "read_hussh_memory": handle_read_hussh_memory,
     "save_hussh_memory": handle_save_hussh_memory,

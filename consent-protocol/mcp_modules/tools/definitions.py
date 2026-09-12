@@ -31,6 +31,7 @@ from mcp_modules.tools.consumer_tools import (
     ConsumerPersonProfileResult,
     ConsumerReceiptsResult,
     ConsumerSetupStatusResult,
+    ConsumerTaskLifecycleResult,
     ConsumerTaskResult,
 )
 
@@ -578,6 +579,70 @@ def _private_tool_definitions() -> list[Tool]:
                 "destructiveHint": False,
                 "idempotentHint": False,
                 "openWorldHint": True,
+            },
+        ),
+        Tool(
+            name="start_hussh_task",
+            description="Start one durable owner-pod task under the separate Agent One approval. Poll get_hussh_task for the result; cancellation never replays interrupted work.",
+            inputSchema={
+                **schema(
+                    {
+                        "message": {"type": "string", "minLength": 1, "maxLength": 8000},
+                        "conversation_id": {"type": "string", "minLength": 1, "maxLength": 128},
+                        "timezone": {"type": "string", "maxLength": 64},
+                        "runtime_provider": {"type": "string", "const": "puppy"},
+                        "puppy_device_id": {"type": "string", "minLength": 1, "maxLength": 128},
+                        "idempotency_key": {"type": "string", "maxLength": 128},
+                    },
+                    ["message"],
+                ),
+                "allOf": [
+                    {
+                        "if": {"required": ["runtime_provider"]},
+                        "then": {"required": ["puppy_device_id"]},
+                    },
+                    {
+                        "if": {"required": ["puppy_device_id"]},
+                        "then": {"required": ["runtime_provider"]},
+                    },
+                ],
+            },
+            outputSchema=ConsumerTaskLifecycleResult.model_json_schema(),
+            annotations={
+                "readOnlyHint": False,
+                "destructiveHint": False,
+                "idempotentHint": True,
+                "openWorldHint": False,
+            },
+        ),
+        Tool(
+            name="get_hussh_task",
+            description="Read the durable status or completed result of an owner-pod task. A replaced pod reports interrupted and never silently reruns the request.",
+            inputSchema=schema(
+                {"task_id": {"type": "string", "pattern": "^task_[a-f0-9]{32}$"}},
+                ["task_id"],
+            ),
+            outputSchema=ConsumerTaskLifecycleResult.model_json_schema(),
+            annotations={
+                "readOnlyHint": True,
+                "destructiveHint": False,
+                "idempotentHint": True,
+                "openWorldHint": False,
+            },
+        ),
+        Tool(
+            name="cancel_hussh_task",
+            description="Cancel an owner-pod task. The pod records cancellation and discards late results; uncertain work is never replayed.",
+            inputSchema=schema(
+                {"task_id": {"type": "string", "pattern": "^task_[a-f0-9]{32}$"}},
+                ["task_id"],
+            ),
+            outputSchema=ConsumerTaskLifecycleResult.model_json_schema(),
+            annotations={
+                "readOnlyHint": False,
+                "destructiveHint": True,
+                "idempotentHint": True,
+                "openWorldHint": False,
             },
         ),
         Tool(

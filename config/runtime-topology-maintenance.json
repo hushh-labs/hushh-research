@@ -439,6 +439,30 @@
       "evidence": "consent-protocol/mcp_modules/tools/definitions.py; consent-protocol/mcp_modules/tools/consumer_tools.py; consent-protocol/mcp_server.py"
     },
     {
+      "id": "tool.start_hussh_task",
+      "tool_name": "start_hussh_task",
+      "operation": "start_hussh_task",
+      "owner": "consumer_mcp",
+      "disposition": "executable",
+      "evidence": "consent-protocol/mcp_modules/tools/definitions.py; consent-protocol/mcp_modules/tools/consumer_tools.py; consent-protocol/mcp_server.py; consent-protocol/hushh_mcp/services/consumer_mcp_tasks.py; consent-protocol/api/routes/one/pod_relay.py; consent-protocol/api/routes/one/pod_task.py"
+    },
+    {
+      "id": "tool.get_hussh_task",
+      "tool_name": "get_hussh_task",
+      "operation": "get_hussh_task",
+      "owner": "consumer_mcp",
+      "disposition": "executable",
+      "evidence": "consent-protocol/mcp_modules/tools/definitions.py; consent-protocol/mcp_modules/tools/consumer_tools.py; consent-protocol/mcp_server.py; consent-protocol/hushh_mcp/services/consumer_mcp_tasks.py; consent-protocol/api/routes/one/pod_relay.py; consent-protocol/api/routes/one/pod_task.py"
+    },
+    {
+      "id": "tool.cancel_hussh_task",
+      "tool_name": "cancel_hussh_task",
+      "operation": "cancel_hussh_task",
+      "owner": "consumer_mcp",
+      "disposition": "executable",
+      "evidence": "consent-protocol/mcp_modules/tools/definitions.py; consent-protocol/mcp_modules/tools/consumer_tools.py; consent-protocol/mcp_server.py; consent-protocol/hushh_mcp/services/consumer_mcp_tasks.py; consent-protocol/api/routes/one/pod_relay.py; consent-protocol/api/routes/one/pod_task.py"
+    },
+    {
       "id": "finance_analysis",
       "tool_name": "analyze_hussh_finance",
       "operation": "analyze_hussh_finance",
@@ -485,14 +509,6 @@
       "disposition": "secure_handoff",
       "evidence": "consent-protocol/mcp_modules/tools/consumer_tools.py; consent-protocol/api/routes/one/email.py; consent-protocol/hushh_mcp/services/one_email_kyc_service.py",
       "reason": "Typed status reads are exposed; consequential draft, approval, send and archive actions use the authenticated owner handoff so the existing confirmation boundary remains authoritative."
-    },
-    {
-      "id": "delegated_task_lifecycle",
-      "operation": "Delegated task status, result retrieval and cancellation",
-      "owner": "Owner-pod task lifecycle",
-      "disposition": "missing",
-      "evidence": "consent-protocol/hushh_mcp/services/consumer_mcp_tasks.py; consent-protocol/api/routes/one/pod_turn.py",
-      "reason": "The current consumer delegation is bounded and synchronous; no compatible durable task seam is present."
     },
     {
       "id": "device_lifecycle",

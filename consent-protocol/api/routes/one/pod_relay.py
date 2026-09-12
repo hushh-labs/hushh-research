@@ -103,7 +103,13 @@ def _identity_token(audience: str) -> Optional[str]:
         return None
 
 
-async def _proxy_get(url: str, path: str, *, session: Any = None) -> tuple[int, Any]:
+async def _proxy_get(
+    url: str,
+    path: str,
+    *,
+    extra_headers: Optional[dict[str, str]] = None,
+    session: Any = None,
+) -> tuple[int, Any]:
     client: Any = session
     if client is None:
         import requests  # type: ignore[import-untyped]  # noqa: PLC0415 - deferred so tests can inject
@@ -112,7 +118,7 @@ async def _proxy_get(url: str, path: str, *, session: Any = None) -> tuple[int, 
     token = await run_in_threadpool(_identity_token, url)
     if not token:
         return 503, {"detail": "pod identity unavailable"}
-    headers = {"Authorization": f"Bearer {token}"}
+    headers = {"Authorization": f"Bearer {token}", **(extra_headers or {})}
     try:
         response = await run_in_threadpool(
             lambda: client.get(
@@ -168,6 +174,7 @@ async def _proxy_post(
     *,
     body: dict,
     consent_token: str,
+    extra_headers: Optional[dict[str, str]] = None,
     correlation: dict[str, str] | None = None,
     session: Any = None,
 ) -> tuple[int, Any]:
@@ -188,6 +195,7 @@ async def _proxy_post(
     headers = {"Content-Type": "application/json", "Authorization": f"Bearer {token}"}
     if consent_token:
         headers["X-Consent-Token"] = consent_token
+    headers.update(extra_headers or {})
     headers.update(correlation or {})
     try:
         response = await run_in_threadpool(
@@ -953,6 +961,128 @@ async def _owner_pod_target(
             status_code=503, detail="could not authorize your agent to read for you"
         ) from exc
     return url, str(grant.get("token") or "")
+
+
+# -- durable delegated tasks --------------------------------------------------------
+#
+# The task lane deliberately reuses the owner-pod target and pkm.read grant above.
+# Its separate X-One-Invoke-Token is the already approved consumer delegation
+# grant; the pod verifies both before it persists or starts any work.
+
+
+async def relay_pod_task_start(
+    *,
+    hushh_id: str,
+    user_id: str,
+    agent_id: str,
+    invoke_token: str,
+    arguments: dict[str, Any],
+    registry: Optional[PersonalAgentRegistryRepo] = None,
+    audit: Optional[PodAccessAuditService] = None,
+    grants: Any = None,
+    session: Any = None,
+) -> dict[str, Any]:
+    url, pkm_token = await _owner_pod_target(
+        hushh_id=hushh_id,
+        user_id=user_id,
+        request_id=f"relay-task-start:{hushh_id}",
+        registry=registry,
+        audit=audit,
+        grants=grants,
+    )
+    body = {
+        "ownerId": user_id,
+        "agentId": agent_id,
+        "message": arguments.get("message"),
+        "conversationId": arguments.get("conversation_id", "consumer-mcp"),
+        "timezone": arguments.get("timezone"),
+        "runtimeProvider": arguments.get("runtime_provider"),
+        "puppyDeviceId": arguments.get("puppy_device_id"),
+        "idempotencyKey": arguments.get("idempotency_key", ""),
+    }
+    status, result = await _proxy_post(
+        url,
+        "/api/one/pod/tasks",
+        body=body,
+        consent_token=pkm_token,
+        extra_headers={"X-One-Invoke-Token": invoke_token},
+        session=session,
+    )
+    if status >= 400:
+        raise HTTPException(status_code=status, detail="owner pod task unavailable")
+    if not isinstance(result, dict) or str(result.get("execution_target") or "") != "owner_pod":
+        raise HTTPException(status_code=502, detail="owner pod returned an invalid task")
+    return {"hushhId": hushh_id, **result}
+
+
+async def relay_pod_task_status(
+    *,
+    hushh_id: str,
+    user_id: str,
+    agent_id: str,
+    task_id: str,
+    invoke_token: str,
+    registry: Optional[PersonalAgentRegistryRepo] = None,
+    audit: Optional[PodAccessAuditService] = None,
+    session: Any = None,
+) -> dict[str, Any]:
+    url, _ = await _owner_pod_target(
+        hushh_id=hushh_id,
+        user_id=user_id,
+        request_id=f"relay-task-status:{hushh_id}",
+        registry=registry,
+        audit=audit,
+    )
+    from urllib.parse import urlencode  # noqa: PLC0415
+
+    query = urlencode({"ownerId": user_id, "agentId": agent_id})
+    status, result = await _proxy_get(
+        url,
+        f"/api/one/pod/tasks/{task_id}?{query}",
+        extra_headers={"X-One-Invoke-Token": invoke_token},
+        session=session,
+    )
+    if status >= 400:
+        raise HTTPException(status_code=status, detail="owner pod task unavailable")
+    if not isinstance(result, dict) or str(result.get("execution_target") or "") != "owner_pod":
+        raise HTTPException(status_code=502, detail="owner pod returned an invalid task")
+    return {"hushhId": hushh_id, **result}
+
+
+async def relay_pod_task_cancel(
+    *,
+    hushh_id: str,
+    user_id: str,
+    agent_id: str,
+    task_id: str,
+    invoke_token: str,
+    registry: Optional[PersonalAgentRegistryRepo] = None,
+    audit: Optional[PodAccessAuditService] = None,
+    session: Any = None,
+) -> dict[str, Any]:
+    url, _ = await _owner_pod_target(
+        hushh_id=hushh_id,
+        user_id=user_id,
+        request_id=f"relay-task-cancel:{hushh_id}",
+        registry=registry,
+        audit=audit,
+    )
+    from urllib.parse import urlencode  # noqa: PLC0415
+
+    query = urlencode({"ownerId": user_id, "agentId": agent_id})
+    status, result = await _proxy_post(
+        url,
+        f"/api/one/pod/tasks/{task_id}/cancel?{query}",
+        body={},
+        consent_token="",
+        extra_headers={"X-One-Invoke-Token": invoke_token},
+        session=session,
+    )
+    if status >= 400:
+        raise HTTPException(status_code=status, detail="owner pod task unavailable")
+    if not isinstance(result, dict) or str(result.get("execution_target") or "") != "owner_pod":
+        raise HTTPException(status_code=502, detail="owner pod returned an invalid task")
+    return {"hushhId": hushh_id, **result}
 
 
 class PodConversationCloseRelayRequest(BaseModel):

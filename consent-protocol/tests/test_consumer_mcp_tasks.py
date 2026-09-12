@@ -58,6 +58,8 @@ def test_validate_task_request_is_bounded_and_defaults_conversation() -> None:
     )
     assert puppy.runtime_provider == "puppy"
     assert puppy.puppy_device_id == "device-one"
+    idempotent = validate_task_request({"message": "hello", "idempotency_key": "request-1"})
+    assert idempotent.idempotency_key == "request-1"
     with pytest.raises(ValueError, match="runtime_provider"):
         validate_task_request({"message": "hello", "runtime_provider": "vertex"})
     with pytest.raises(ValueError, match="puppy_device_id"):
@@ -227,3 +229,82 @@ async def test_late_result_is_rejected_after_connection_generation_changes() -> 
     )
     with pytest.raises(ConsumerTaskUnavailable, match="access changed"):
         await task.execute(principal(), arguments={"message": "hello"})
+
+
+@pytest.mark.asyncio
+async def test_durable_task_lifecycle_is_owner_bound_and_normalized() -> None:
+    async def active_tokens(*_args, **_kwargs):
+        return [{"token_id": "one-token"}]
+
+    async def validator(*_args, **_kwargs):
+        return (
+            True,
+            None,
+            SimpleNamespace(
+                user_id="owner_a", agent_id="developer:app_test", scope_str="cap.one.invoke"
+            ),
+        )
+
+    calls: list[tuple[str, dict]] = []
+
+    class Transport:
+        async def start(self, **kwargs):
+            calls.append(("start", kwargs))
+            return {
+                "execution_target": "owner_pod",
+                "task_id": "task_0123456789abcdef0123456789abcdef",
+                "state": "queued",
+                "conversation_id": "consumer-mcp",
+                "generation": 1,
+            }
+
+        async def status(self, **kwargs):
+            calls.append(("status", kwargs))
+            return {
+                "execution_target": "owner_pod",
+                "task_id": kwargs["task_id"],
+                "state": "completed",
+                "conversation_id": "consumer-mcp",
+                "result": "done",
+                "created_at_ms": 1,
+                "updated_at_ms": 2,
+                "generation": 3,
+            }
+
+        async def cancel(self, **kwargs):
+            calls.append(("cancel", kwargs))
+            return {
+                "execution_target": "owner_pod",
+                "task_id": kwargs["task_id"],
+                "state": "cancelled",
+                "conversation_id": "consumer-mcp",
+                "generation": 4,
+            }
+
+    task = ConsumerMcpTask(
+        connections=type("Connections", (), {"current": lambda _self, _principal: connection()})(),
+        transport=Transport(),
+        active_tokens=active_tokens,
+        validator=validator,
+    )
+    started = await task.start(
+        principal(),
+        arguments={"message": "long work", "idempotency_key": "request-1"},
+    )
+    assert started["state"] == "queued"
+    assert started["execution_target"] == "owner_pod"
+    assert calls[0][1]["owner_id"] == "owner_a"
+    assert calls[0][1]["deployment_id"] == "pod_a"
+    assert calls[0][1]["agent_id"] == "developer:app_test"
+    assert calls[0][1]["invoke_token"] == "one-token"
+    assert calls[0][1]["arguments"]["idempotency_key"] == "request-1"
+
+    task_id = started["task_id"]
+    completed = await task.status(principal(), arguments={"task_id": task_id})
+    assert completed["result"] == "done"
+    cancelled = await task.cancel(principal(), arguments={"task_id": task_id})
+    assert cancelled["state"] == "cancelled"
+    assert calls[-1][0] == "cancel"
+
+    with pytest.raises(ValueError, match="task_id"):
+        await task.status(principal(), arguments={"task_id": "not-a-task"})
