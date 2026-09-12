@@ -17,7 +17,7 @@ export function OneArcIllustration() {
           priority
           quality={100}
           unoptimized
-          className="block dark:hidden h-auto max-h-[240px] w-auto max-w-[355px] object-contain transition-transform duration-300 hover:scale-105"
+          className="block dark:hidden h-auto max-h-[240px] w-auto max-w-[355px] object-contain"
         />
 
         {/* Dark Mode Asset */}
@@ -29,7 +29,7 @@ export function OneArcIllustration() {
           priority
           quality={100}
           unoptimized
-          className="hidden dark:block h-auto max-h-[240px] w-auto max-w-[355px] object-contain transition-transform duration-300 hover:scale-105"
+          className="hidden dark:block h-auto max-h-[240px] w-auto max-w-[355px] object-contain"
         />
       </div>
     </div>
