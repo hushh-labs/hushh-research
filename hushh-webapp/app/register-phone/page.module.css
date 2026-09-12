@@ -60,7 +60,7 @@
 
 .backButton:focus-visible,
 .accountButton:focus-visible {
-  outline: 2px solid #007AFF;
+  outline: 2px solid var(--app-accent);
   outline-offset: 2px;
 }
 
@@ -190,7 +190,7 @@
   margin-inline: auto !important;
   padding-inline: 16px !important;
   border-radius: 9999px !important;
-  background: #007AFF !important;
+  background: var(--app-accent) !important;
   color: #ffffff !important;
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif !important;
   font-size: 17px !important;
