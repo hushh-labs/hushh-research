@@ -29,6 +29,12 @@ receipt, the later receipt supersedes it.
 - No deployment is authorized in this workstream: no candidate image, hosted migration, main promotion, UAT/production activation or marketplace submission has occurred for this branch. Consumer live acceptance remains incomplete because owner custody, full capability coverage, Puppy parity and external-host acceptance are not proven.
 - Working source is implementation evidence, not installed-runtime or host acceptance evidence.
 
+## Provider-authority correction receipt — 12 September 2026 (`5a4ec07a0`)
+
+- A Puppy-targeted `delegate_hussh_task` now accepts a result only when the pod reports `provider=puppy`. Missing, shared, or cloud provider labels are refused before the result reaches the external assistant; ordinary owner-pod tasks retain their existing provider contract.
+- Focused pod/relay/consumer gate passed: `112 passed, 9 warnings` under locked Python 3.13. Runtime topology check passed (`140` routes, `20` agents, `66` table families). The npm package gate passed documentation, generated gateway, unit, packed-runtime and dry-pack checks; the resulting worktree is clean.
+- This is branch source evidence only. No deployment, hosted migration, IAM or credential mutation, main/UAT/production promotion, Hermes change or ADK worktree change occurred. Owner custody, live Puppy connection, replacement recovery, direct/universal transport parity and Claude/ChatGPT host acceptance remain open.
+
 ## Approved product contract
 
 External assistants authenticate as owner-bound clients. Registered Puppy devices retain their distinct native authority. One owner approval permits reads, routine additions and corrections of current and future personal memory until the client is disconnected. Credentials remain short-lived. Deletion, permission changes and consequential external actions require fresh confirmation. Secrets are never personal memory.
