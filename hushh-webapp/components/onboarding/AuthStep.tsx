@@ -8,7 +8,6 @@ import { OneArcIllustration } from "@/components/onboarding/OneArcIllustration";
 import { AuthService } from "@/lib/services/auth-service";
 import { ApiService } from "@/lib/services/api-service";
 import { useAuth } from "@/lib/firebase/auth-context";
-import { useVault } from "@/lib/vault/vault-context";
 import { HushhLoader } from "@/components/app-ui/hushh-loader";
 import { SessionVerificationRecovery } from "@/components/auth/session-verification-recovery";
 import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
@@ -185,26 +184,8 @@ export function AuthStep({
   const legalReturnControlIdRef = useRef<string | null>(null);
   const legalCloseResolversRef = useRef<Array<() => void>>([]);
 
-  const [isDark, setIsDark] = useState(false);
-
   useEffect(() => {
     setHydrated(true);
-    if (typeof document !== "undefined") {
-      setIsDark(document.documentElement.classList.contains("dark"));
-    }
-  }, []);
-
-  const toggleTheme = useCallback(() => {
-    if (typeof document !== "undefined") {
-      const root = document.documentElement;
-      const nextDark = !root.classList.contains("dark");
-      if (nextDark) {
-        root.classList.add("dark");
-      } else {
-        root.classList.remove("dark");
-      }
-      setIsDark(nextDark);
-    }
   }, []);
 
   const publishProviderAttempt = useCallback(
