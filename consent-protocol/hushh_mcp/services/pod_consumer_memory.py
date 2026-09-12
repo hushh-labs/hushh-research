@@ -8,18 +8,16 @@ window and is never returned, logged, or persisted by this adapter.
 
 from __future__ import annotations
 
-import base64
 import hashlib
 import json
 import os
-import secrets
 import uuid
 from datetime import UTC, datetime
 from typing import Any
 
-from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-
 from hushh_mcp.services.pod_pkm_resolver import resolve_pod_pkm_store
+from hushh_mcp.types import EncryptedPayload
+from hushh_mcp.vault.encrypt import decrypt_data, encrypt_data
 
 MAX_DOMAIN_RECORDS = 20
 MAX_DOMAIN_TOMBSTONES = 1_024
@@ -35,32 +33,25 @@ class PodConsumerMemoryConflict(RuntimeError):
     """The canonical PKM revision changed before this mutation committed."""
 
 
-def _b64(value: bytes) -> str:
-    return base64.b64encode(value).decode("ascii")
-
-
-def _unb64(value: Any) -> bytes:
-    return base64.b64decode(str(value or ""), validate=True)
-
-
 def _encrypt(value: Any, key: bytes) -> dict[str, str]:
-    nonce = secrets.token_bytes(12)
-    sealed = AESGCM(key).encrypt(nonce, json.dumps(value, separators=(",", ":")).encode(), None)
-    return {
-        "ciphertext": _b64(sealed[:-16]),
-        "iv": _b64(nonce),
-        "tag": _b64(sealed[-16:]),
-        "algorithm": "aes-256-gcm",
-    }
+    payload = encrypt_data(
+        json.dumps(value, separators=(",", ":")),
+        key.hex(),
+    )
+    return payload.model_dump()
 
 
 def _decrypt(blob: dict[str, Any], key: bytes) -> Any:
-    if str(blob.get("algorithm") or "aes-256-gcm").lower() != "aes-256-gcm":
-        raise PodConsumerMemoryUnavailable("unsupported PKM encryption")
-    sealed = AESGCM(key).decrypt(
-        _unb64(blob.get("iv")), _unb64(blob.get("ciphertext")) + _unb64(blob.get("tag")), None
-    )
-    value = json.loads(sealed)
+    normalized = dict(blob)
+    # Early pod images wrote the same AES-256-GCM fields without the explicit
+    # encoding marker. Treat that field as the backwards-compatible default while
+    # requiring all new writes to use the canonical EncryptedPayload contract.
+    normalized.setdefault("encoding", "base64")
+    try:
+        payload = EncryptedPayload.model_validate(normalized)
+        value = json.loads(decrypt_data(payload, key.hex()))
+    except Exception as exc:  # noqa: BLE001 - keep crypto/storage details internal
+        raise PodConsumerMemoryUnavailable("unsupported PKM encryption") from exc
     if not isinstance(value, dict):
         raise PodConsumerMemoryUnavailable("PKM domain is not an object")
     return value

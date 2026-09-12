@@ -283,6 +283,16 @@ async def test_pod_executor_reads_the_existing_encrypted_domain():
     ]
 
 
+def test_pod_consumer_memory_reads_legacy_blob_without_encoding_marker():
+    value = {"consumer_memory": [{"id": "m1", "content": "vegetarian"}]}
+    legacy = _encrypt(value, b"K" * 32)
+    legacy.pop("encoding")
+
+    from hushh_mcp.services.pod_consumer_memory import _decrypt
+
+    assert _decrypt(legacy, b"K" * 32) == value
+
+
 @pytest.mark.asyncio
 async def test_pod_executor_delete_commits_an_encrypted_tombstone():
     encrypted = _encrypt(
@@ -313,6 +323,7 @@ async def test_pod_executor_delete_commits_an_encrypted_tombstone():
     assert result["result"] == {"saved": False, "deleted": True, "memory_id": "m1", "revision": 4}
     sealed = store.params["p_segment_rows"][0]
     assert "vegetarian" not in str(sealed)
+    assert sealed["encoding"] == "base64"
     deleted_value = _decrypt(sealed, b"K" * 32)
     assert deleted_value["consumer_memory"] == []
     assert deleted_value["consumer_memory_tombstones"]
