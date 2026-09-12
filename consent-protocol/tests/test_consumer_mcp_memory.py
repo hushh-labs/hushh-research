@@ -497,7 +497,11 @@ async def test_owner_pod_transport_binds_registry_deployment_and_grant():
 
     async def proxy(url, path, *, body, consent_token):
         calls.update(url=url, path=path, body=body, consent_token=consent_token)
-        return 200, {"execution_target": "owner_pod", "result": {"revision": 1}}
+        return 200, {
+            "provider": "owner_pod_pkm",
+            "execution_target": "owner_pod",
+            "result": {"revision": 1},
+        }
 
     transport = OwnerPodConsumerMemoryTransport(registry=_Registry(), proxy_post=proxy)
     result = await transport.execute(
@@ -524,6 +528,37 @@ async def test_owner_pod_transport_binds_registry_deployment_and_grant():
         },
         "consent_token": _RUNTIME_TOKEN,
     }
+
+
+@pytest.mark.asyncio
+async def test_owner_pod_transport_rejects_shared_memory_provider():
+    class _Registry:
+        async def get(self, _owner_id):
+            return {
+                "user_id": "owner-a",
+                "hushh_id": "pod-a",
+                "backend_metadata": {"url": "https://pod.example"},
+            }
+
+    async def proxy(*_args, **_kwargs):
+        return 200, {
+            "provider": "shared_runtime",
+            "execution_target": "owner_pod",
+            "result": {"revision": 1},
+        }
+
+    transport = OwnerPodConsumerMemoryTransport(registry=_Registry(), proxy_post=proxy)
+    with pytest.raises(ConsumerMemoryUnavailable, match="invalid execution target"):
+        await transport.execute(
+            operation="read",
+            owner_id="owner-a",
+            deployment_id="pod-a",
+            connection_id="connection-a",
+            generation=2,
+            grant_receipt="receipt-a",
+            grant_token=_RUNTIME_TOKEN,
+            arguments={"domain": "food", "query": "veg", "limit": 10},
+        )
 
 
 @pytest.mark.asyncio

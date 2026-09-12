@@ -137,7 +137,7 @@ class OwnerPodConsumerMemoryTransport:
             raise ConsumerMemoryConflict("personal memory changed; retry with the current revision")
         if status >= 400 or not isinstance(body, dict):
             raise ConsumerMemoryUnavailable("owner pod memory is unavailable")
-        if body.get("execution_target") != "owner_pod":
+        if body.get("provider") != "owner_pod_pkm" or body.get("execution_target") != "owner_pod":
             raise ConsumerMemoryUnavailable("owner pod returned an invalid execution target")
         payload = body.get("result")
         if not isinstance(payload, dict):
