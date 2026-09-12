@@ -698,6 +698,70 @@ def test_every_memory_route_declares_both_doors():
         assert headers == expected, path
 
 
+@pytest.mark.asyncio
+async def test_consumer_memory_route_owns_execution_metadata(monkeypatch):
+    from types import SimpleNamespace
+
+    from api.routes.one import pod_consumer_memory
+
+    async def _scope(*_args, **_kwargs):
+        return SimpleNamespace(user_id="owner-a")
+
+    async def _execute(*_args, **_kwargs):
+        return {
+            "provider": "shared_runtime",
+            "execution_target": "foreign_pod",
+            "result": {"revision": 4},
+        }
+
+    monkeypatch.setattr(pod_consumer_memory, "require_owner_scope", _scope)
+    monkeypatch.setattr(pod_consumer_memory, "execute_pod_consumer_memory", _execute)
+    response = await pod_consumer_memory.pod_consumer_memory_route(
+        pod_consumer_memory.PodConsumerMemoryRequest(
+            ownerId="owner-a",
+            connectionId="connection-a",
+            generation=2,
+            operation="read",
+            arguments={"domain": "food", "query": "veg", "limit": 10},
+        ),
+        x_consent_token="token",
+    )
+
+    assert response == {
+        "provider": "owner_pod_pkm",
+        "execution_target": "owner_pod",
+        "result": {"revision": 4},
+    }
+
+
+@pytest.mark.asyncio
+async def test_consumer_memory_route_rejects_untyped_executor_response(monkeypatch):
+    from types import SimpleNamespace
+
+    from api.routes.one import pod_consumer_memory
+
+    async def _scope(*_args, **_kwargs):
+        return SimpleNamespace(user_id="owner-a")
+
+    async def _execute(*_args, **_kwargs):
+        return {"provider": "owner_pod_pkm", "execution_target": "owner_pod"}
+
+    monkeypatch.setattr(pod_consumer_memory, "require_owner_scope", _scope)
+    monkeypatch.setattr(pod_consumer_memory, "execute_pod_consumer_memory", _execute)
+    with pytest.raises(HTTPException) as error:
+        await pod_consumer_memory.pod_consumer_memory_route(
+            pod_consumer_memory.PodConsumerMemoryRequest(
+                ownerId="owner-a",
+                connectionId="connection-a",
+                generation=2,
+                operation="read",
+                arguments={"domain": "food", "query": "veg", "limit": 10},
+            ),
+            x_consent_token="token",
+        )
+    assert error.value.status_code == 503
+
+
 async def test_the_close_door_opens_for_an_owner_local_session_with_no_hub(
     local_authority, no_hub, monkeypatch
 ):

@@ -54,6 +54,8 @@ async def pod_consumer_memory_route(
             operation=payload.operation,
             arguments=payload.arguments,
         )
+        if not isinstance(result, dict) or not isinstance(result.get("result"), dict):
+            raise PodConsumerMemoryUnavailable("owner pod returned an invalid memory result")
     except PermissionError as exc:
         raise HTTPException(
             status_code=403, detail="consumer memory grant is not valid here"
@@ -70,10 +72,13 @@ async def pod_consumer_memory_route(
             status_code=503,
             detail={"code": "OWNER_POD_MEMORY_UNAVAILABLE", "message": str(exc)},
         ) from exc
+    # Provider and execution metadata are owned by this route. The executor can
+    # return only the typed PKM payload, so a future adapter cannot spoof the
+    # authority fields consumed by the gateway.
     return {
         "provider": "owner_pod_pkm",
         "execution_target": "owner_pod",
-        **result,
+        "result": result["result"],
     }
 
 
