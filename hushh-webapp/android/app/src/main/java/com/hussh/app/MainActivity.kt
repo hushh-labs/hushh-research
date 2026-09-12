@@ -383,6 +383,13 @@ class MainActivity : BridgeActivity() {
         )
     }
 
+    private fun installAndroidPersonProfileRouting() {
+        val activeBridge = bridge ?: return
+        activeBridge.setWebViewClient(
+            AndroidPersonProfileWebViewClient(activeBridge, assets)
+        )
+    }
+
     private fun showSessionPrivacyOverlay() {
         installSessionPrivacyOverlay()
         hideSessionContentFromAccessibility()
