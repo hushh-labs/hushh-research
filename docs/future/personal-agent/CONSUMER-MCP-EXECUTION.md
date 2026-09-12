@@ -88,6 +88,11 @@ receipt, the later receipt supersedes it.
 - The clean-subprocess regression and predicate matrix passed **18 tests** with nine existing dependency warnings. A fresh dry-run receipt passed at source `4b4dcdb4080119bb2e99efad092153e2f31d954e` in `1,495 ms`.
 - This remains local-only evidence; no deployed pod, Puppy socket, Cloud Run IAM or hosted resource was touched.
 
+## Packaged MCP gate refresh — 12 September 2026 (`d3f9a2550`)
+
+- `HUSHH_MCP_PYTHON=/Users/kushaltrivedi/Documents/GitHub/hushh-consumer-mcp/consent-protocol/.venv/bin/python npm run verify:package` passed from `packages/hushh-mcp`: README parity, generated gateway manifests, 7 package tests, packed-runtime initialization/tool listing/tool call, and `npm pack --dry-run`.
+- The package gate completed without changing tracked files. This validates the published package shape only; it does not prove owner custody, a deployed Puppy connection, or external-host acceptance.
+
 ## Approved product contract
 
 External assistants authenticate as owner-bound clients. Registered Puppy devices retain their distinct native authority. One owner approval permits reads, routine additions and corrections of current and future personal memory until the client is disconnected. Credentials remain short-lived. Deletion, permission changes and consequential external actions require fresh confirmation. Secrets are never personal memory.
