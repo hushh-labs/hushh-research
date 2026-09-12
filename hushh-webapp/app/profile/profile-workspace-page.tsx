@@ -11,6 +11,7 @@ import {
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   AlertTriangle,
+  BriefcaseBusiness,
   CodeXml,
   ContactRound,
   ExternalLink,
@@ -108,7 +109,6 @@ import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { currentPkmInvalidationEpoch } from "@/lib/cache/pkm-invalidation-epoch";
 import { useConsentPendingSummaryCount } from "@/lib/consent/use-consent-pending-summary-count";
 import { isPkmDeveloperHost } from "@/app/one/pkm/developer-visibility";
-import { assignWindowLocation } from "@/lib/utils/browser-navigation";
 import {
   DELETE_ACCOUNT_DIALOG_DESCRIPTION,
   DELETE_ACCOUNT_DIALOG_TITLE,
@@ -137,6 +137,7 @@ import { Icon } from "@/lib/morphy-ux/ui";
 import { SegmentedTabs } from "@/lib/morphy-ux/ui";
 import { Button, morphyToast } from "@/lib/morphy-ux/morphy";
 import { AppleIcon, GoogleIcon } from "@/lib/morphy-ux/social-icons";
+import { shouldUseGoogleBrandMark } from "@/lib/profile/profile-auth-provider-presentation";
 import { useScrollReset } from "@/lib/navigation/use-scroll-reset";
 import { cn } from "@/lib/utils";
 import { AccountService } from "@/lib/services/account-service";
@@ -173,7 +174,6 @@ import { loadProfilePkmMetadataForVaultState } from "@/lib/profile/profile-pkm-m
 import { applySlicePosture } from "@/lib/personal-knowledge-model/slice-publishing";
 import { formatMaskedPhoneNumber } from "@/lib/services/phone-display";
 import type { DomainManifest } from "@/lib/personal-knowledge-model/manifest";
-import { GmailReceiptsService } from "@/lib/services/gmail-receipts-service";
 import { UserLocalStateService } from "@/lib/services/user-local-state-service";
 import { VaultService, type VaultWrapper } from "@/lib/services/vault-service";
 import {
@@ -428,9 +428,19 @@ function getProvider(user: ReturnType<typeof useAuth>["user"]) {
   }
 }
 
-function ProviderIcon({ providerId }: { providerId: string }) {
+function ProviderIcon({
+  providerId,
+  email,
+}: {
+  providerId: string;
+  email: string | null | undefined;
+}) {
   if (providerId === "google") {
-    return <GoogleIcon className="shrink-0" size={17} />;
+    if (shouldUseGoogleBrandMark(providerId, email)) {
+      return <GoogleIcon className="shrink-0" size={17} />;
+    }
+
+    return <Icon icon={BriefcaseBusiness} size="xs" className="shrink-0" />;
   }
 
   if (providerId === "apple") {
@@ -1831,45 +1841,13 @@ function ProfilePageContent({
     }
   }
 
-  async function handleConnectGmail() {
-    if (!user?.uid) return;
-
-    try {
-      setGmailActionBusy("connect");
-
-      const idToken = await user.getIdToken();
-      const isGoogleProvider = provider.id === "google";
-
-      const payload = await GmailReceiptsService.startConnect({
-        idToken,
-        userId: user.uid,
-        loginHint: isGoogleProvider ? user.email : null,
-        includeGrantedScopes: isGoogleProvider,
-      });
-
-      if (!payload.configured || !payload.authorize_url) {
-        throw new Error("Gmail OAuth is not configured for this environment.");
-      }
-      assignWindowLocation(payload.authorize_url);
-    } catch (error) {
-      const message = sanitizeGmailUserMessage(error, {
-        fallback:
-          "We couldn't start Gmail connection right now. Please try again in a moment.",
-      });
-      console.error("[ProfilePage] Failed to start Gmail OAuth:", error);
-      toast.error(message);
-    } finally {
-      setGmailActionBusy(null);
-    }
-  }
-
   async function handleDisconnectGmail() {
     if (!user?.uid) return;
     try {
       setGmailActionBusy("disconnect");
       const next = await gmail.disconnectGmail();
       if (!next) return;
-      toast.success("Gmail disconnected. Your saved receipts will stay here.");
+      toast.success("Gmail disconnected and Gmail receipt data was deleted.");
     } catch (error) {
       const message = sanitizeGmailUserMessage(error, {
         fallback:
@@ -2547,8 +2525,7 @@ function ProfilePageContent({
             [VOICE_CONFIRM_DATA_KEY]: {
               actionId: "profile.delete_account",
               slots: { confirmed: true },
-              prompt:
-                "Delete your account permanently? This cannot be undone.",
+              prompt: "Delete your account permanently? This cannot be undone.",
               subject: { name: "Your account", detail: user?.email ?? "" },
               consequence:
                 getKaiActionById("profile.delete_account")?.meaning ?? null,
@@ -2560,7 +2537,8 @@ function ProfilePageContent({
       void handleDeleteAccount();
       return {
         status: "started" as const,
-        summary: "Starting account deletion. You may need to unlock your vault.",
+        summary:
+          "Starting account deletion. You may need to unlock your vault.",
       };
     },
     { enabled: Boolean(user) },
@@ -2578,7 +2556,9 @@ function ProfilePageContent({
         typeof raw === "boolean"
           ? raw
           : typeof raw === "string"
-            ? ["true", "on", "yes", "enabled"].includes(raw.trim().toLowerCase())
+            ? ["true", "on", "yes", "enabled"].includes(
+                raw.trim().toLowerCase(),
+              )
             : null;
       if (desired !== null && desired === marketplaceOptIn) {
         return {
@@ -2610,7 +2590,10 @@ function ProfilePageContent({
         };
       }
       void handleMarketplaceOptInToggle();
-      return { status: "started" as const, summary: "Updating your visibility." };
+      return {
+        status: "started" as const,
+        summary: "Updating your visibility.",
+      };
     },
     { enabled: Boolean(user) },
   );
@@ -3355,7 +3338,7 @@ function ProfilePageContent({
         <SettingsRow
           leading={
             <span className="profile-account-provider-icon inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg">
-              <ProviderIcon providerId={provider.id} />
+              <ProviderIcon providerId={provider.id} email={user.email} />
             </span>
           }
           title="Sign-in provider"
@@ -4002,10 +3985,10 @@ function ProfilePageContent({
               ? "Reconnect Gmail"
               : "Connect Gmail"
           }
-          description="Authorize read-only receipt access. Shopping summaries are saved automatically to your private PKM."
+          description="Review Gmail data use, then authorize read-only receipt sync."
           disabled={gmailActionsBusy || gmail.status?.configured === false}
           chevron
-          onClick={() => void handleConnectGmail()}
+          onClick={() => router.push(ROUTES.GMAIL)}
         />
       )}
 
@@ -4030,7 +4013,7 @@ function ProfilePageContent({
         <SettingsRow
           icon={Trash2}
           title="Disconnect Gmail"
-          description="Stop future syncs. Existing synced receipts remain available."
+          description="Revoke Gmail, stop future syncs, and delete Gmail receipt data."
           tone="destructive"
           disabled={gmailActionsBusy}
           chevron
@@ -4413,7 +4396,7 @@ function ProfilePageContent({
               className="profile-home-meta flex w-full min-w-0 items-center justify-start gap-1.5 text-xs font-normal text-muted-foreground"
               title={provider.name}
             >
-              <ProviderIcon providerId={provider.id} />
+              <ProviderIcon providerId={provider.id} email={user.email} />
               <span className="[overflow-wrap:anywhere]">
                 {user.email || "Not available"}
               </span>

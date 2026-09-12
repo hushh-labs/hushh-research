@@ -45,6 +45,8 @@ import { SiriOneRequestHandoff } from "@/components/agent/siri-one-request-hando
 import { SiriOneActionHandoff } from "@/components/agent/siri-one-action-handoff";
 import { SiriOneEntityIndexPublisher } from "@/components/agent/siri-one-entity-index-publisher";
 import { AgentVoiceEdgeGlow } from "@/components/agent/agent-voice-edge-glow";
+import { OneLocationInteractionSurfaceProvider } from "@/components/one-location/onboarding/location-onboarding-interaction-surface";
+import { LocationCommandDeviceBridge } from "@/components/one-location/onboarding/location-command-device-bridge";
 import { FoundationPublicAmbient } from "@/components/app-ui/foundation-public-ambient";
 import { AppBottomShell } from "@/components/app-ui/app-bottom-shell";
 import { AmbientChromeController } from "@/components/app-ui/ambient-chrome-mask";
@@ -535,8 +537,10 @@ function AppShellFrame({ children }: ProvidersProps) {
       <PersonaProvider>
         <RiaSurfaceScopeSync />
         <VaultProvider>
-          <AgentRuntimeStateProvider>
-            <AgentPopoverProvider>
+          <OneLocationInteractionSurfaceProvider>
+            <LocationCommandDeviceBridge />
+            <AgentRuntimeStateProvider>
+              <AgentPopoverProvider>
               <SiriOneVoiceHandoff />
               <SiriOneRequestHandoff />
               <SiriOneActionHandoff />
@@ -696,17 +700,18 @@ function AppShellFrame({ children }: ProvidersProps) {
                   </ConsentNotificationProvider>
                 </Suspense>
               </ContactInvitationSessionProvider>
-            </AgentPopoverProvider>
-            {/*
-              Inside VaultProvider, not beside GlobalVoiceActionHandlers.
-              Signing out needs only the session, so that one sits above the
-              vault. Asking someone for information needs the vault key to mint
-              the connector the request is encrypted to, so mounting it in the
-              same place threw "useVault must be used within a VaultProvider"
-              and took the whole app down with it.
-            */}
-            <GlobalConsentActionHandlers />
-          </AgentRuntimeStateProvider>
+              </AgentPopoverProvider>
+              {/*
+                Inside VaultProvider, not beside GlobalVoiceActionHandlers.
+                Signing out needs only the session, so that one sits above the
+                vault. Asking someone for information needs the vault key to mint
+                the connector the request is encrypted to, so mounting it in the
+                same place threw "useVault must be used within a VaultProvider"
+                and took the whole app down with it.
+              */}
+              <GlobalConsentActionHandlers />
+            </AgentRuntimeStateProvider>
+          </OneLocationInteractionSurfaceProvider>
         </VaultProvider>
       </PersonaProvider>
     </CacheProvider>

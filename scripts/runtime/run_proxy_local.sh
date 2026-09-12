@@ -111,7 +111,13 @@ cleanup_proxy_credentials() {
     rm -f "$PROXY_CREDENTIALS_TEMP"
   fi
 }
-trap cleanup_proxy_credentials EXIT INT TERM
+if [ "${HUSHH_SUPERVISED_RUNTIME:-}" = "1" ]; then
+  # run_local_fast.sh owns signal ordering; preserve its ignored SIGINT
+  # disposition through this script and the exec'd proxy process.
+  trap cleanup_proxy_credentials EXIT TERM
+else
+  trap cleanup_proxy_credentials EXIT INT TERM
+fi
 
 if [ -z "$INSTANCE" ]; then
   echo "CLOUDSQL_INSTANCE_CONNECTION_NAME is unset in $BACKEND_ENV_FILE." >&2

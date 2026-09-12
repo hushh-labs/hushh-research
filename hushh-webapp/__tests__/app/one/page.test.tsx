@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   replace: vi.fn(),
-  scheduleFinanceWorkspaceWarmup: vi.fn(() => vi.fn()),
+  useCapabilitySetupStates: vi.fn(() => ({ byId: {} })),
 }));
 
 vi.mock("next/navigation", () => ({
@@ -17,19 +17,8 @@ vi.mock("@/lib/firebase/auth-context", () => ({
   }),
 }));
 
-vi.mock("@/lib/vault/vault-context", () => ({
-  useVault: () => ({
-    vaultKey: "vault-key",
-    vaultOwnerToken: "vault-owner-token",
-  }),
-}));
-
 vi.mock("@/lib/onboarding/use-capability-setup-states", () => ({
-  useCapabilitySetupStates: () => ({ byId: {} }),
-}));
-
-vi.mock("@/lib/kai/finance-workspace-warmup", () => ({
-  scheduleFinanceWorkspaceWarmup: mocks.scheduleFinanceWorkspaceWarmup,
+  useCapabilitySetupStates: mocks.useCapabilitySetupStates,
 }));
 
 vi.mock("@/components/app-ui/native-route-marker", () => ({
@@ -49,19 +38,14 @@ import OneHomePage from "@/app/one/page";
 describe("OneHomePage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.scheduleFinanceWorkspaceWarmup.mockReturnValue(vi.fn());
   });
 
-  it("warms the shared Finance cache from One instead of depending on /kai", async () => {
-    render(<OneHomePage />);
+  it("keeps home capability state coarse and renders the dashboard", async () => {
+    const { getByText } = render(<OneHomePage />);
 
     await waitFor(() => {
-      expect(mocks.scheduleFinanceWorkspaceWarmup).toHaveBeenCalledWith({
-        userId: "one-dashboard-user",
-        vaultKey: "vault-key",
-        vaultOwnerToken: "vault-owner-token",
-        activeTab: "market",
-      });
+      expect(getByText("One dashboard")).toBeTruthy();
     });
+    expect(mocks.useCapabilitySetupStates).toHaveBeenCalledWith();
   });
 });

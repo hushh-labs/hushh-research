@@ -11,6 +11,7 @@ import { PreVaultUserStateService } from "@/lib/services/pre-vault-user-state-se
 import { VaultService } from "@/lib/services/vault-service";
 import { resolveLocalReviewerCredentials } from "@/lib/testing/local-reviewer-auth";
 import { useNativeTestConfig } from "@/lib/testing/native-test";
+import { resolveSlowRequestTimeoutMs } from "@/lib/utils/request-timeouts";
 import { useVault } from "@/lib/vault/vault-context";
 
 function updateBootstrapStatus(
@@ -68,7 +69,12 @@ let nativeTestReviewerBootstrapCooldownUntil = 0;
 // This stays process-memory-only and exists solely for the native test handoff;
 // it is never written to storage or used outside native test mode.
 let nativeTestBootstrapUser: User | null = null;
-const NATIVE_TEST_VAULT_STEP_TIMEOUT_MS = 20_000;
+// Match the vault service's bounded slow-request policy. Local review runs
+// intentionally use a UAT-backed Cloud SQL proxy, whose first request can
+// exceed the production budget while connections warm; a shorter wrapper here
+// used to mark that healthy request as a vault failure before the service's
+// own retry policy could finish.
+const NATIVE_TEST_VAULT_STEP_TIMEOUT_MS = resolveSlowRequestTimeoutMs(20_000);
 
 async function withVaultBootstrapTimeout<T>(
   label: string,

@@ -73,10 +73,16 @@ import {
   isValidatedAuthSessionOwnerCurrent,
   snapshotValidatedAuthSessionOwner,
 } from "@/lib/auth/session-owner";
+import { resolveSlowRequestTimeoutMs } from "@/lib/utils/request-timeouts";
 
 const AUTH_REFRESH_RETRY_HEADER = "X-Hushh-Auth-Refresh-Retry";
 const VAULT_LOCK_REQUESTED_EVENT = "vault-lock-requested";
-const ACCOUNT_SESSION_STATUS_TIMEOUT_MS = 8_000;
+// Keep this aligned with AuthProvider's bounded recovery path. A timed-out
+// liveness probe is availability uncertainty, not proof of an invalid account.
+const ACCOUNT_SESSION_STATUS_TIMEOUT_MS = resolveSlowRequestTimeoutMs(8_000, {
+  developmentFloorMs: 10_000,
+  overrideEnvKey: "HUSHH_ACCOUNT_SESSION_VALIDATION_TIMEOUT_MS",
+});
 
 type VaultOwnerAuthFailure = {
   shouldLockVault: boolean;
@@ -3353,6 +3359,8 @@ export class ApiService {
     expires_at: number;
     model: string;
     tier: string;
+    /** Server-minted opaque greeting scope; never a Firebase UID. */
+    voice_session_scope: string | null;
   }> {
     const firebaseIdToken = await this.getFirebaseToken();
     const response = await ApiService.apiFetch("/api/one/adk/relay-session", {
@@ -3458,9 +3466,13 @@ export class ApiService {
    * only that ticket, never the Firebase bearer. App context (screen, consent
    * token) rides in post-connect app_context frames.
    */
-  static async getOneAdkLiveRelayUrl(data?: {
+  static async getOneAdkLiveRelaySession(data?: {
     signal?: AbortSignal;
-  }): Promise<string> {
+  }): Promise<{
+    relayUrl: string;
+    /** Opaque per-user scope; it never appears in the WebSocket URL. */
+    voiceSessionScope: string | null;
+  }> {
     const backend = resolveRuntimeBackendUrl();
     // Apply the same Android-emulator localhost rewrite the HTTP layer uses.
     // Without it, the ticket mint succeeds (CapacitorHttp normalizes) while
@@ -3473,7 +3485,18 @@ export class ApiService {
     const url = new URL(`${wsBase}/api/one/adk/live`);
     const relaySession = await this.createOneAdkRelaySession(data);
     url.searchParams.set("relay_ticket", relaySession.relay_ticket);
-    return url.toString();
+    const voiceSessionScope =
+      typeof relaySession.voice_session_scope === "string" &&
+      /^ovgs1_[A-Za-z0-9_-]{43}$/.test(relaySession.voice_session_scope)
+        ? relaySession.voice_session_scope
+        : null;
+    return { relayUrl: url.toString(), voiceSessionScope };
+  }
+
+  static async getOneAdkLiveRelayUrl(data?: {
+    signal?: AbortSignal;
+  }): Promise<string> {
+    return (await this.getOneAdkLiveRelaySession(data)).relayUrl;
   }
 
   static async listAgentChatConversations(data: {

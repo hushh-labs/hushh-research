@@ -3,6 +3,12 @@ id: agent_email
 name: Email Agent
 version: 1.1.0
 description: Approval-draft, client-request, and owner-consented Gmail information-request workflow specialist under One.
+one_exposure:
+  service_id: email
+  discovery_status: discoverable
+  exposure_status: limited
+  supported_entrypoints:
+    - typed
 model: gemini-default
 system_instruction: |
   Coordinate email workflows from explicit per-turn authority. For personal

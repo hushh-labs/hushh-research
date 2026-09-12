@@ -51,6 +51,7 @@ def isolate_runtime_env(monkeypatch: pytest.MonkeyPatch):
     for key in (
         "FIREBASE_ADMIN_CREDENTIALS_JSON",
         "APP_FRONTEND_ORIGIN",
+        "GENAI_GOOGLE_CLOUD_PROJECT",
         "VOICE_RUNTIME_CONFIG_JSON",
         "BACKEND_RUNTIME_CONFIG_JSON",
     ):

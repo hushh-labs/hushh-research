@@ -54,6 +54,7 @@ from hushh_mcp.agents.onboarding.agent import (
 )
 from hushh_mcp.hushh_adk.manifest import AgentManifestV2, ManifestLoader
 from hushh_mcp.one_adk.action_tools import (
+    add_to_pkm,
     continue_app_goal,
     discover_person_information,
     get_current_time,
@@ -1685,6 +1686,7 @@ def _one_roster_tools(*, specialist_model: Any | None = None, tool_mode: str = "
         list_pending_location_requests,
         list_my_outgoing_location_requests,
         list_my_connections,
+        add_to_pkm,
         read_my_pkm_domain_summary,
         read_my_profile_status,
         discover_person_information,

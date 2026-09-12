@@ -3,6 +3,9 @@ import { afterEach, describe, expect, it } from "vitest";
 import { getVoiceV2Flags } from "@/lib/voice/voice-feature-flags";
 
 const ORIGINAL_ENV = {
+  NEXT_PUBLIC_APP_ENV: process.env.NEXT_PUBLIC_APP_ENV,
+  NEXT_PUBLIC_LOCATION_COMMAND_RUNTIME_ENABLED:
+    process.env.NEXT_PUBLIC_LOCATION_COMMAND_RUNTIME_ENABLED,
   NEXT_PUBLIC_VOICE_V2_ENABLED: process.env.NEXT_PUBLIC_VOICE_V2_ENABLED,
   NEXT_PUBLIC_VOICE_V2_GROUNDED_ACTION_RESOLUTION_ENABLED:
     process.env.NEXT_PUBLIC_VOICE_V2_GROUNDED_ACTION_RESOLUTION_ENABLED,
@@ -45,6 +48,21 @@ describe("voice-feature-flags", () => {
     expect(flags.groundedActionPolicyEnforcementEnabled).toBe(true);
     expect(flags.groundedActionExecutionEnabled).toBe(true);
     expect(flags.clientVadFallbackEnabled).toBe(true);
+  });
+
+  it("keeps Location command transport dark except for an explicit UAT build opt-in", () => {
+    delete process.env.NEXT_PUBLIC_LOCATION_COMMAND_RUNTIME_ENABLED;
+    process.env.NEXT_PUBLIC_APP_ENV = "uat";
+    expect(getVoiceV2Flags().locationCommandRuntimeEnabled).toBe(false);
+
+    process.env.NEXT_PUBLIC_LOCATION_COMMAND_RUNTIME_ENABLED = "true";
+    expect(getVoiceV2Flags().locationCommandRuntimeEnabled).toBe(true);
+
+    process.env.NEXT_PUBLIC_APP_ENV = "development";
+    expect(getVoiceV2Flags().locationCommandRuntimeEnabled).toBe(false);
+
+    process.env.NEXT_PUBLIC_APP_ENV = "production";
+    expect(getVoiceV2Flags().locationCommandRuntimeEnabled).toBe(false);
   });
 
   it("allows disabling grounded execution independently for gradual rollout", () => {

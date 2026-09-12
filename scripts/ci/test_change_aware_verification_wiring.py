@@ -57,12 +57,28 @@ def test_uat_publishes_lane_reasons_in_summary_and_release_artifacts() -> None:
     )
 
 
+def test_web_targeted_voice_check_uses_locked_protocol_runtime() -> None:
+    """Keep the CapabilityGraph compiler out of ambient runner Python."""
+
+    content = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+    start = content.index("  web-targeted-check:\n")
+    end = content.index("\n  ios-native-check:\n", start)
+    web_targeted = content[start:end]
+    for fragment in (
+        "uses: ./consent-protocol/.github/actions/setup-python-uv",
+        "protocol-dir: ./consent-protocol",
+        'sync-dev-group: "false"',
+    ):
+        assert fragment in web_targeted, f"web-targeted-check is missing {fragment!r}"
+
+
 def main() -> int:
     tests = (
         test_ci_queue_smoke_and_uat_share_the_selector,
         test_ci_and_queue_pass_selector_decision_to_integration,
         test_smoke_receives_selector_decision_without_reclassification,
         test_uat_publishes_lane_reasons_in_summary_and_release_artifacts,
+        test_web_targeted_voice_check_uses_locked_protocol_runtime,
     )
     for test in tests:
         test()

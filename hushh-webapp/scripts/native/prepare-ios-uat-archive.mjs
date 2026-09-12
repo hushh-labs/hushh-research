@@ -71,6 +71,13 @@ function firstConfiguredValue(key, sources, fallback = "") {
   return fallback;
 }
 
+function normalizeBuildBoolean(value, key) {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (["", "0", "false", "no", "off"].includes(normalized)) return "false";
+  if (["1", "true", "yes", "on"].includes(normalized)) return "true";
+  throw new Error(`${key} must be a boolean build value.`);
+}
+
 export function buildIosUatRuntimeEnv({
   processEnv = process.env,
   uatValues = parseEnvFile(uatEnvPath),
@@ -96,6 +103,14 @@ export function buildIosUatRuntimeEnv({
     ),
     APP_RUNTIME_PROFILE: "uat",
     NEXT_PUBLIC_APP_ENV: "uat",
+    NEXT_PUBLIC_LOCATION_COMMAND_RUNTIME_ENABLED: normalizeBuildBoolean(
+      firstConfiguredValue(
+        "NEXT_PUBLIC_LOCATION_COMMAND_RUNTIME_ENABLED",
+        [processEnv, uatValues],
+        "false",
+      ),
+      "NEXT_PUBLIC_LOCATION_COMMAND_RUNTIME_ENABLED",
+    ),
     NEXT_PUBLIC_BACKEND_URL: backendUrl,
     NEXT_PUBLIC_APP_URL: firstConfiguredValue(
       "NEXT_PUBLIC_APP_URL",

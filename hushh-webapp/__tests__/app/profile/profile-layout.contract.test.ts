@@ -57,7 +57,7 @@ describe("Profile canonical page layout", () => {
     );
   });
 
-  it("uses the original Google mark and semantic icon tones", () => {
+  it("uses the Google mark only for personal Gmail and the work icon otherwise", () => {
     const source = readFileSync(
       join(process.cwd(), "app/profile/profile-workspace-page.tsx"),
       "utf8",
@@ -71,8 +71,16 @@ describe("Profile canonical page layout", () => {
     expect(source).toContain(
       'import { AppleIcon, GoogleIcon } from "@/lib/morphy-ux/social-icons";',
     );
+    expect(source).toContain("BriefcaseBusiness,");
+    expect(source).toContain("shouldUseGoogleBrandMark(providerId, email)");
     expect(source).toContain(
       'return <GoogleIcon className="shrink-0" size={17} />;',
+    );
+    expect(source).toContain(
+      '<Icon icon={BriefcaseBusiness} size="xs" className="shrink-0" />',
+    );
+    expect(source).toContain(
+      '<ProviderIcon providerId={provider.id} email={user.email} />',
     );
     for (const brandColor of ["#4285F4", "#34A853", "#FBBC05", "#EA4335"]) {
       expect(socialIcons).toContain(brandColor);

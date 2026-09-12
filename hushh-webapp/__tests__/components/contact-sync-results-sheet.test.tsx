@@ -252,10 +252,11 @@ describe("ContactSyncResultsSheet", () => {
       expect(
         screen.getByText("Only part of your contact list was checked."),
       ).toBeInTheDocument();
-      fireEvent.click(screen.getByRole("button", { name: "Sync again" }));
+      const retryLabel = partial.sourcePlatform === "google" ? "Choose Google account" : "Sync again";
+      fireEvent.click(screen.getByRole("button", { name: retryLabel }));
       expect(onSyncAgain).toHaveBeenCalledTimes(1);
       view.rerender(<ContactSyncResultsSheet {...props} syncing />);
-      expect(screen.getByRole("button", { name: "Sync again" })).toBeDisabled();
+      expect(screen.getByRole("button", { name: retryLabel })).toBeDisabled();
     },
   );
 

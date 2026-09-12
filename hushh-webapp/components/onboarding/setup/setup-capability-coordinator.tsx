@@ -629,6 +629,10 @@ export function SetupCapabilityTerminalFooter({
 
   return (
     <SetupCompletionFooter
+      // This footer is rendered into a wizard host that already reserves
+      // --app-scroll-bottom-pad on its own main. Reserving it again put a
+      // second ~142px band under the Skip control on every question screen.
+      insetBottom={false}
       label={label}
       onComplete={() => {
         if (pending) return;

@@ -63,6 +63,7 @@ Use this section for production-grade rules and contracts that govern:
 8. [External Dependencies](./external-dependencies.md)
 9. [Agent Delegation Boundary](./agent-delegation-boundary.md)
 10. [Hermes Trusted-Device Vault Enrollment](./hermes-trusted-device-vault-enrollment.md)
+11. [Gmail Google Verification Readiness](./gmail-google-verification-readiness.md)
 
 ## Canonical-Only Policy
 

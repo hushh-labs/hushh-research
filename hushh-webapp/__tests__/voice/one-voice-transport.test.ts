@@ -45,6 +45,8 @@ describe("One Voice realtime transports", () => {
       runtime_credential_mode: "byok",
       runtime_credential_transport: "developer_api",
       runtime_credential: "test-key",
+      initial_greeting_enabled: true,
+      activation_source: "recovery",
     });
     expect(testTransport.runtimeCredential).toBeNull();
     vi.unstubAllGlobals();
@@ -271,10 +273,14 @@ describe("One Voice realtime transports", () => {
       startContext: typeof initialContext;
       setupComplete: boolean;
       initialContextReady: boolean;
+      audioInputStarted: boolean;
       handleSocketMessage: (data: string) => Promise<void>;
     };
     testTransport.ws = { readyState: WebSocket.OPEN, send };
     testTransport.startContext = initialContext;
+    // A readiness acknowledgement alone must not claim Listening; simulate
+    // real capture so this test proves the full relay/provider/context fence.
+    testTransport.audioInputStarted = true;
 
     await testTransport.handleSocketMessage(JSON.stringify({ setupComplete: {} }));
 
@@ -334,12 +340,18 @@ describe("One Voice realtime transports", () => {
     const testTransport = transport as unknown as {
       ws: { readyState: number; send: (message: string) => void };
       setupComplete: boolean;
+      relayAccepted: boolean;
+      providerReady: boolean;
       initialContextReady: boolean;
+      initialGreetingPending: boolean;
       sendVisitorActivityStart: (level: number, pcm: Uint8Array) => boolean;
     };
     testTransport.ws = { readyState: WebSocket.OPEN, send };
     testTransport.setupComplete = true;
+    testTransport.relayAccepted = true;
+    testTransport.providerReady = true;
     testTransport.initialContextReady = true;
+    testTransport.initialGreetingPending = false;
 
     for (let index = 0; index < 7; index += 1) {
       expect(testTransport.sendVisitorActivityStart(0.09, new Uint8Array([index]))).toBe(false);
@@ -349,7 +361,11 @@ describe("One Voice realtime transports", () => {
     expect(testTransport.sendVisitorActivityStart(0.09, new Uint8Array([7]))).toBe(false);
     expect(testTransport.sendVisitorActivityStart(0.5, new Uint8Array([8]))).toBe(true);
 
-    expect(send).toHaveBeenCalledTimes(9);
+    // The browser pacer keeps only the first frame from this synchronous test
+    // burst; production worklet frames arrive at real-time cadence. The
+    // invariant here is the transcript-free activity marker before PCM, not
+    // replaying an artificial main-thread backlog.
+    expect(send).toHaveBeenCalledTimes(2);
     expect(JSON.parse(send.mock.calls[0][0])).toEqual({ type: "voice_activity_start" });
     expect(JSON.parse(send.mock.calls[1][0])).toMatchObject({
       realtimeInput: { audio: { data: expect.any(String) } },
@@ -380,11 +396,17 @@ describe("One Voice realtime transports", () => {
     const testTransport = transport as unknown as {
       ws: { readyState: number; send: (message: string) => void };
       setupComplete: boolean;
+      relayAccepted: boolean;
+      providerReady: boolean;
       initialGreetingPending: boolean;
+      initialContextReady: boolean;
       sendVisitorActivityStart: (level: number, pcm: Uint8Array) => boolean;
     };
     testTransport.ws = { readyState: WebSocket.OPEN, send };
     testTransport.setupComplete = true;
+    testTransport.relayAccepted = true;
+    testTransport.providerReady = true;
+    testTransport.initialContextReady = true;
     testTransport.initialGreetingPending = true;
 
     for (let index = 0; index < 12; index += 1) {

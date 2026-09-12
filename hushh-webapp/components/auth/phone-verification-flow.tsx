@@ -54,6 +54,7 @@ import {
   kaiAppCardTitleClassName,
   kaiAppHelperClassName,
 } from "@/components/kai/shared/kai-typography";
+import { FigmaCountryFlag } from "@/components/onboarding/FigmaOnboardingPrimitives";
 import { cn } from "@/lib/utils";
 import { ROUTES } from "@/lib/navigation/routes";
 import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
@@ -487,6 +488,11 @@ export function PhoneVerificationFlow({
   const activeDialCode = useMemo(
     () => selectedCountryOption?.dialCode ?? DEFAULT_PHONE_COUNTRY_OPTION.dialCode,
     [selectedCountryOption],
+  );
+  const selectedCountryDisplayLabel = useMemo(
+    () =>
+      `${activeDialCode} ${selectedCountryOption?.label ?? DEFAULT_PHONE_COUNTRY_OPTION.label}`,
+    [activeDialCode, selectedCountryOption],
   );
   const normalizedPhoneInput = useMemo(
     () => composePhoneNumber(activeDialCode, localPhoneNumber),
@@ -1002,9 +1008,15 @@ export function PhoneVerificationFlow({
         </div>
         <Button
           onClick={() => void onContinueExisting?.()}
+          variant="none"
+          effect="fill"
           size="default"
           fullWidth
-          className={`type-headline mt-6 h-12 ${FLOW_SURFACE_RADIUS_CLASS_NAME}`}
+          className={cn(
+            "type-headline mt-6",
+            FLOW_CTA_CLASS_NAME,
+            primaryActionClassName,
+          )}
         >
           Continue
         </Button>
@@ -1013,13 +1025,25 @@ export function PhoneVerificationFlow({
   }
 
   return (
-    <form className={className} style={style} noValidate onSubmit={handleSubmit}>
+    <form
+      className={className}
+      style={style}
+      noValidate
+      onSubmit={handleSubmit}
+      data-figma-phone-flow="true"
+      data-figma-phone-step={step}
+    >
       <FieldSet>
       {step === "phone" ? (
         <>
-          <FieldGroup className="gap-5">
-            <Field className="gap-2.5">
-              <FieldLabel htmlFor="phone-flow-country">Country code</FieldLabel>
+          <FieldGroup className="gap-5" data-figma-phone-fields="true">
+            <Field className="gap-2" data-figma-phone-field="country">
+              <FieldLabel
+                className="text-[13px] font-semibold text-[#8a8a91] dark:text-white/50"
+                htmlFor="phone-flow-country"
+              >
+                Country code
+              </FieldLabel>
               <Combobox
                 open={countryComboboxOpen}
                 onOpenChange={(open) => {
@@ -1071,12 +1095,27 @@ export function PhoneVerificationFlow({
                     setCountryQuery("");
                     event.currentTarget.select();
                   }}
-                  className={`${FLOW_CONTROL_SHELL_CLASS_NAME} w-full`}
+                  className={cn(
+                    FLOW_CONTROL_SHELL_CLASS_NAME,
+                    "relative w-full",
+                    !countryComboboxOpen &&
+                      "[&_input]:min-w-0 [&_input]:truncate [&_input]:whitespace-nowrap [&_input]:!text-transparent [&_input]:!caret-transparent",
+                  )}
                   autoComplete="off"
                   autoCorrect="off"
                   spellCheck={false}
                   showTrigger
-                />
+                >
+                  {!countryComboboxOpen ? (
+                    <span
+                      aria-hidden="true"
+                      className="pointer-events-none absolute inset-y-0 left-4 z-10 flex min-w-0 max-w-[calc(100%-3.5rem)] items-center gap-2 whitespace-nowrap text-[15px] text-[#17130c] dark:text-[#f5f5f7]"
+                    >
+                      <FigmaCountryFlag />
+                      <span className="min-w-0 truncate">{selectedCountryDisplayLabel}</span>
+                    </span>
+                  ) : null}
+                </ComboboxInput>
                 <ComboboxContent
                   className={`w-[var(--anchor-width)] ${FLOW_SURFACE_RADIUS_CLASS_NAME}`}
                 >
@@ -1106,8 +1145,13 @@ export function PhoneVerificationFlow({
               </Combobox>
             </Field>
 
-            <Field className="gap-2.5">
-              <FieldLabel htmlFor="phone-flow-number">Phone number</FieldLabel>
+            <Field className="gap-2" data-figma-phone-field="number">
+              <FieldLabel
+                className="text-[13px] font-semibold text-[#8a8a91] dark:text-white/50"
+                htmlFor="phone-flow-number"
+              >
+                Phone number
+              </FieldLabel>
               <InputGroup className={FLOW_CONTROL_SHELL_CLASS_NAME}>
                 <InputGroupInput
                   id="phone-flow-number"
@@ -1141,13 +1185,17 @@ export function PhoneVerificationFlow({
             </Field>
           </FieldGroup>
 
-          <FieldDescription className="type-callout text-[rgba(0,0,0,0.56)] dark:text-[rgba(245,245,247,0.60)]">
-            {helperText ||
+          <FieldDescription
+            className="type-callout text-[rgba(0,0,0,0.56)] dark:text-[rgba(245,245,247,0.60)]"
+            data-figma-phone-helper="true"
+          >
+            {helperText ??
               "Choose your country code and enter your phone number. We’ll send you a verification code."}
           </FieldDescription>
           <div className="grid gap-3">
             <Button
               type="submit"
+              data-figma-phone-primary="true"
               loading={busy}
               variant="none"
               effect="fill"
@@ -1182,7 +1230,10 @@ export function PhoneVerificationFlow({
         </>
       ) : (
         <>
-          <p className="text-center text-sm leading-6 text-muted-foreground">
+          <p
+            className="text-center text-sm leading-6 text-muted-foreground"
+            data-figma-otp-intro="true"
+          >
             Enter the code sent to{" "}
             <span className="font-semibold text-foreground">
               {maskPhoneNumberForOtp(submittedPhoneNumber)}
@@ -1190,10 +1241,10 @@ export function PhoneVerificationFlow({
             .
           </p>
 
-          <Field className="gap-2.5">
+          <Field className="gap-2" data-figma-otp-field="true">
             <FieldLabel htmlFor="phone-flow-code">One-time code</FieldLabel>
             <div className="relative">
-              <div className="flex gap-2.5">
+              <div className="flex gap-2">
                 {Array.from({ length: 6 }).map((_, index) => {
                   const active = index === Math.min(verificationCode.length, 5);
                   const filled = index < verificationCode.length;
@@ -1201,7 +1252,7 @@ export function PhoneVerificationFlow({
                     <div
                       key={index}
                       className={cn(
-                        "flex h-[58px] flex-1 items-center justify-center rounded-2xl border-[1.5px] text-[24px] font-bold text-[#0A0A0A] transition-colors dark:text-white",
+                        "flex h-[60px] flex-1 items-center justify-center rounded-[var(--app-radius-lg)] border text-[22px] font-bold text-[#0A0A0A] transition-colors dark:text-white",
                         active
                           ? "border-[color:var(--app-accent)] bg-white shadow-[0_0_0_4px_var(--app-accent-ring)] dark:bg-white/[0.06]"
                           : "border-black/10 bg-black/[0.02] dark:border-white/15 dark:bg-white/[0.04]",
@@ -1238,6 +1289,7 @@ export function PhoneVerificationFlow({
 
           <Button
             type="submit"
+            data-figma-otp-primary="true"
             loading={busy}
             disabled={busy || verificationCode.length !== 6}
             variant="none"

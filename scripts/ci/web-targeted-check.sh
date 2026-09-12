@@ -68,7 +68,7 @@ if has_match '^hushh-webapp/(components/(consent/|profile/)|lib/(consent/|pkm/|p
   ran=1
 fi
 
-if has_match '^hushh-webapp/(lib/voice/|components/agent/|scripts/voice/|__tests__/.*(voice|agent)|app/api/(kai|one)/.*(voice|realtime)|\.voice-action-contract\.json)'; then
+if has_match '^hushh-webapp/(lib/voice/|components/agent/|components/one-location/onboarding/(location-command-device-bridge|location-onboarding-interaction-surface)\.tsx|lib/services/(gemini-live-client|one-location-onboarding-device-orchestrator|one-location-onboarding-run-client)\.ts|scripts/voice/|__tests__/.*(voice|agent)|app/api/(kai|one)/.*(voice|realtime)|\.voice-action-contract\.json)'; then
   run_check "voice gateway" npm run verify:voice-gateway
   run_check "One Voice runtime evaluations" npm run verify:one-voice
   ran=1

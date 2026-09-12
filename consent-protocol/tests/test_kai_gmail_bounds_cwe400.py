@@ -11,6 +11,7 @@ from api.routes.kai.gmail import (
     GmailConnectStartRequest,
     GmailDisconnectRequest,
     GmailNativeConnectCompleteRequest,
+    GmailNativeConnectStartRequest,
     GmailReceiptMemoryPreviewRequest,
     GmailReconcileRequest,
     GmailSyncRequest,
@@ -33,6 +34,19 @@ class TestGmailConnectStartRequest:
     def test_login_hint_bounds(self):
         with pytest.raises(ValidationError):
             GmailConnectStartRequest(user_id="user-123", login_hint="A" * 513)
+
+    def test_defaults_to_read_and_rejects_unknown_purpose(self):
+        assert GmailConnectStartRequest(user_id="user-123").purpose == "read"
+        with pytest.raises(ValidationError):
+            GmailConnectStartRequest(user_id="user-123", purpose="write")
+
+
+class TestGmailNativeConnectStartRequest:
+    def test_defaults_to_read_and_allows_only_incremental_send(self):
+        assert GmailNativeConnectStartRequest().purpose == "read"
+        assert GmailNativeConnectStartRequest(purpose="send").purpose == "send"
+        with pytest.raises(ValidationError):
+            GmailNativeConnectStartRequest(purpose="write")
 
 
 class TestGmailConnectCompleteRequest:

@@ -4260,6 +4260,32 @@ async def set_preferred_model(model_id: str, tool_context: ToolContext) -> dict[
     }
 
 
+async def add_to_pkm(memory_text: str, reason: str, tool_context: ToolContext) -> dict[str, Any]:
+    """Save or queue durable personal context to the user's encrypted PKM through the frontend PKM writer.
+
+    Use only when the user explicitly asks to save, remember, store, or add information to PKM or memory.
+    """
+    clean_text = str(memory_text or "").strip()
+    if not clean_text:
+        return {
+            "status": "missing_text",
+            "message": "Specify the exact information to save to memory.",
+        }
+
+    # If PKM write uses source_text in slots, let's match the AgentChatActionPlan logic:
+    tool_context.state[f"{_STATE_PENDING_DIRECTIVE}:pkm_add"] = {
+        "kind": "action",
+        "payload": {
+            "actionId": "pkm.add",
+            "slots": {"source_text": clean_text[:50_000]},
+        },
+    }
+    return {
+        "status": "directive_parked",
+        "message": "Opening Memory to save this information.",
+    }
+
+
 def _resolve_timezone(tool_context: ToolContext) -> str:
     """Read the person's declared IANA timezone, defaulting to UTC.
 

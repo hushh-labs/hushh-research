@@ -238,6 +238,27 @@ async def scan_information_requests(
         raise _as_http_error(exc) from exc
 
 
+@router.post("/{workflow_id}/refresh-candidates")
+async def refresh_information_request_candidates(
+    workflow_id: str,
+    firebase_uid: str = Depends(require_firebase_auth),
+    token_data: dict[str, Any] = Depends(require_vault_owner_token),
+) -> dict[str, Any]:
+    """Refresh metadata-only exact PKM candidates for a still-active request."""
+
+    user_id = _owner_user_id(firebase_uid=firebase_uid, token_data=token_data)
+    try:
+        return cast(
+            dict[str, Any],
+            await _service().refresh_candidate_scopes(
+                user_id=user_id,
+                workflow_id=workflow_id,
+            ),
+        )
+    except Exception as exc:  # noqa: BLE001 - HTTP boundary sanitizes provider/database details
+        raise _as_http_error(exc) from exc
+
+
 @router.post("/{workflow_id}/prepare-reply")
 async def prepare_information_request_reply(
     workflow_id: str,

@@ -7821,6 +7821,7 @@
       },
       "voice_action_contract_file": "app/one/setup/location/page.voice-action-contract.json",
       "voice_action_contract_ids": [
+        "location.onboarding.choose_place",
         "setup.finish_location",
         "setup.skip_location"
       ],
@@ -8506,7 +8507,7 @@
         "page_header": false,
         "settings_ui": false,
         "shared_loader": true,
-        "back_button_pattern": "route-local-check-required"
+        "back_button_pattern": "shared-shell"
       },
       "voice_action_contract_file": "app/register-phone/page.voice-action-contract.json",
       "voice_action_contract_ids": [
@@ -9468,5 +9469,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "d1098b2de80bbe0158e600f7402734be520eab7614fbc67ed7a32283a52e4df0"
+  "content_sha256": "e47a59609d9e1f91759963b35a7aa823a5186f36a01186fff0d4974e327725b7"
 }

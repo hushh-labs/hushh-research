@@ -73,6 +73,10 @@ Profile bootstrap rule:
 | `GMAIL_OAUTH_CLIENT_SECRET` | `consent-protocol/hushh_mcp/services/gmail_receipts_service.py` | Y | N | Y | secret | N | secret | N | required |
 | `GMAIL_OAUTH_REDIRECT_URI` | `consent-protocol/hushh_mcp/services/gmail_receipts_service.py` | Y | N | Y | secret | N | secret | N | required; exact `APP_FRONTEND_ORIGIN + /one/profile/gmail/oauth/return` |
 | `GMAIL_OAUTH_TOKEN_KEY` | `consent-protocol/hushh_mcp/services/gmail_receipts_service.py` | Y | N | Y | secret | N | secret | N | required |
+| `GOOGLE_OAUTH_CLIENT_ID` | `consent-protocol/hushh_mcp/services/google_connection_service.py` | Y | N | Y | secret | N | secret | N | required |
+| `GOOGLE_OAUTH_CLIENT_SECRET` | `consent-protocol/hushh_mcp/services/google_connection_service.py` | Y | N | Y | secret | N | secret | N | required |
+| `GOOGLE_OAUTH_REDIRECT_URI` | `consent-protocol/hushh_mcp/services/google_connection_service.py` | Y | N | Y | secret | N | secret | N | required; exact `APP_FRONTEND_ORIGIN + /one/profile/google/oauth/return` |
+| `GOOGLE_OAUTH_TOKEN_KEY` | `consent-protocol/hushh_mcp/services/google_connection_service.py` | Y | N | Y | secret | N | secret | N | required |
 | `OPENAI_API_KEY` | Legacy compatibility configuration; no active One ADK relay reader | N | N | N | secret | N | secret | N | deprecated |
 | `VOICE_RUNTIME_CONFIG_JSON` | `consent-protocol/hushh_mcp/runtime_settings.py` | Y | N | Y | secret | N | secret | N | required |
 | `HUSHH_DEVELOPER_TOKEN` | `consent-protocol/api/routes/session.py` | Y | N | N | N | N | N | N | optional |

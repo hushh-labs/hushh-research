@@ -469,6 +469,35 @@ async def startup_one_runtime_dependency_guard() -> None:
 
 
 @app.on_event("startup")
+async def startup_location_command_semantic_index() -> None:
+    """Make the enabled command runtime ready before it can accept PCM.
+
+    Location command turns deliberately have no lexical or alias fallback.
+    The per-worker semantic index must therefore be ready before UAT traffic
+    reaches the relay.  Failing startup is safer than accepting speech and
+    producing a misleading card because a cold worker has no index yet.
+    """
+
+    if _environment() != "uat" or not _env_truthy("HUSHH_LOCATION_COMMAND_RUNTIME_ENABLED"):
+        return
+    started_at = time.perf_counter()
+    try:
+        from hushh_mcp.services.app_intelligence_runtime import (
+            prewarm_location_brain_semantic_index,
+        )
+
+        result = await asyncio.to_thread(prewarm_location_brain_semantic_index)
+    except Exception:
+        logger.critical("startup.location_command_semantic_index_failed")
+        raise RuntimeError("Location command semantic index is unavailable.") from None
+    logger.info(
+        "startup.location_command_semantic_index_ready card_count=%s duration_ms=%.2f",
+        result.get("card_count") if isinstance(result, dict) else "unknown",
+        (time.perf_counter() - started_at) * 1000,
+    )
+
+
+@app.on_event("startup")
 async def startup_pool_and_iam_cache() -> None:
     """Eagerly create the asyncpg pool and pre-populate the IAM schema cache.
 

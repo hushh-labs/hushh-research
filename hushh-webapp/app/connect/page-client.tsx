@@ -61,7 +61,6 @@ import {
 } from "@/components/ui/popover";
 import { useRequireAuth } from "@/hooks/use-auth";
 import { ContactSyncResultsSheet } from "@/components/one-location/contact-sync-results-sheet";
-import { ContactInvitationNotice } from "@/components/connections/contact-invitation-notice";
 import { ContactDiscoverabilityConsentDialog } from "@/components/connections/contact-discoverability-consent-dialog";
 import { useContactSync } from "@/lib/contacts/use-contact-sync";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
@@ -2655,9 +2654,6 @@ export default function ConnectPageClient() {
                           ) : null}
 
                           <div className="space-y-4">
-                            {!isAdvisorTab && contactSync.available ? (
-                              <ContactInvitationNotice />
-                            ) : null}
                             <SettingsGroup
                               titleControl={directorySelector}
                               // People only. This one JSX node also renders the RIAs

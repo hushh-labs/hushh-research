@@ -73,6 +73,16 @@ _BACKEND_RUNTIME_ENV_MAP: dict[str, str] = {
     "google_cloud_project": "GOOGLE_CLOUD_PROJECT",
     "google_cloud_location": "GOOGLE_CLOUD_LOCATION",
     "hushh_vertex_locations": "HUSHH_VERTEX_LOCATIONS",
+    # Non-secret allowlist for the server-owned Gemini Live capacity pool.
+    # The pool itself references Secret Manager-mounted env names and/or
+    # workload identities; it never carries credential values in this blob.
+    "gemini_live_capacity_pool": "HUSHH_GEMINI_LIVE_CAPACITY_POOL_JSON",
+    # The transcript-first Location command lane is independently rollable.
+    # These are non-secret deployment policy, not client-provided model data:
+    # the UAT secret-sync generator pins both values and keeps every other
+    # hosted lane hard-off.
+    "location_command_runtime_enabled": "HUSHH_LOCATION_COMMAND_RUNTIME_ENABLED",
+    "location_command_transcribe_model": "HUSHH_LOCATION_COMMAND_TRANSCRIBE_MODEL",
     "db_host": "DB_HOST",
     "db_port": "DB_PORT",
     "db_name": "DB_NAME",

@@ -52,8 +52,7 @@ def _timezone(tool_context: ToolContext) -> str:
 def _connection_directive(
     tool_context: ToolContext, *, access_level: str, message: str
 ) -> dict[str, Any]:
-    needs_scheduling = access_level == "manage"
-    tool_context.state[f"{_STATE_PENDING_DIRECTIVE}:calendar"] = {
+    directive = {
         "kind": "action",
         "delegateAgentId": "agent_calendar",
         "payload": {
@@ -61,12 +60,14 @@ def _connection_directive(
             "accessLevel": access_level,
             "summary": message,
             "confirmLabel": (
-                "Allow Calendar scheduling" if needs_scheduling else "Connect Calendar"
+                "Allow Calendar scheduling" if access_level == "manage" else "Connect Calendar"
             ),
         },
     }
+    tool_context.state[f"{_STATE_PENDING_DIRECTIVE}:calendar"] = directive
     return {
         "status": "connection_required",
+        "directive": directive,
         "message": message,
         "next_step": (
             "The app is showing a Calendar authorization control. Ask the user to approve it."
@@ -328,8 +329,10 @@ async def _propose(
             "message": "Could not prepare that calendar change. Try again in a moment.",
         }
     verb = {"create": "Schedule", "reschedule": "Reschedule", "cancel": "Cancel"}[action]
+
     raw_conflicts = plan.get("conflicts")
     conflicts: list[object] = raw_conflicts if isinstance(raw_conflicts, list) else []
+    confirm_label = f"{verb} anyway" if conflicts else verb
     # Presentation belongs to the active chat session, not to the provider's
     # event payload.  A proposal can legitimately contain UTC instants while
     # the person is using One in another local timezone.
@@ -339,8 +342,7 @@ async def _propose(
         conflicts=conflicts,
         display_time_zone=_timezone(tool_context),
     )
-    confirm_label = f"{verb} anyway" if conflicts else verb
-    tool_context.state[f"{_STATE_PENDING_DIRECTIVE}:calendar"] = {
+    directive = {
         "kind": "action",
         "delegateAgentId": "agent_calendar",
         "payload": {
@@ -352,11 +354,13 @@ async def _propose(
             "expiresAt": expires_at,
         },
     }
+    tool_context.state[f"{_STATE_PENDING_DIRECTIVE}:calendar"] = directive
     return {
         "status": "confirmation_required",
         "proposal_id": proposal_id,
         "plan": plan,
         "conflicts": conflicts,
+        "directive": directive,
         "message": (
             "Your requested time overlaps an existing Calendar event. The app is showing "
             "the exact conflict and will only schedule after you explicitly choose to proceed."
@@ -374,6 +378,7 @@ def _proposal_summary(
     display_time_zone: str,
 ) -> str:
     verb = {"create": "Schedule", "reschedule": "Reschedule", "cancel": "Cancel"}[action]
+
     title = str(plan.get("title") or plan.get("event_id") or "this event")
     timing = (
         ""

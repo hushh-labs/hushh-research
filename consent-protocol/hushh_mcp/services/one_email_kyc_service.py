@@ -1702,13 +1702,19 @@ class OneEmailKycService:
         state = self._get_mailbox_state()
         previous_history_id = _clean_text(state.get("history_id") if state else None)
         if not previous_history_id:
-            self._upsert_mailbox_state(history_id=history_id, last_notification=True)
             ids = await asyncio.to_thread(
                 self._list_recent_message_ids,
                 max_results=_DEFAULT_RECENT_MAIL_SYNC_LIMIT,
                 newer_than_days=_DEFAULT_RECENT_MAIL_LOOKBACK_DAYS,
             )
-            results = await self._process_message_ids(ids, history_id=history_id)
+            results = await self._process_message_ids(
+                ids,
+                history_id=history_id,
+                raise_on_failure=True,
+            )
+            # A first watch notification establishes the cursor only after
+            # catch-up succeeded. Otherwise Pub/Sub redelivery must replay it.
+            self._upsert_mailbox_state(history_id=history_id, last_notification=True)
             return {
                 "accepted": True,
                 "handled": any(result.get("handled") is True for result in results),
@@ -1721,7 +1727,13 @@ class OneEmailKycService:
             self._list_message_ids_from_history,
             previous_history_id,
         )
-        results = await self._process_message_ids(ids, history_id=history_id)
+        results = await self._process_message_ids(
+            ids,
+            history_id=history_id,
+            raise_on_failure=True,
+        )
+        # Do not checkpoint Gmail History if even one message failed. The
+        # message-id workflow is idempotent, so retrying this page is safe.
         self._upsert_mailbox_state(history_id=history_id, last_notification=True)
         return {
             "accepted": True,
@@ -1735,6 +1747,7 @@ class OneEmailKycService:
         message_ids: list[str],
         *,
         history_id: str | None,
+        raise_on_failure: bool = False,
     ) -> list[dict[str, Any]]:
         results: list[dict[str, Any]] = []
         for item_id in _dedupe(message_ids):
@@ -1753,6 +1766,14 @@ class OneEmailKycService:
                         "message_id": item_id,
                     }
                 )
+        if raise_on_failure and any(
+            result.get("reason") == "message_process_failed" for result in results
+        ):
+            raise OneEmailKycError(
+                "One email intake did not finish. Please retry this notification.",
+                status_code=503,
+                code="ONE_EMAIL_INTAKE_RETRY",
+            )
         return results
 
     async def process_message_id(
@@ -1853,20 +1874,27 @@ class OneEmailKycService:
         return parsed
 
     def _list_message_ids_from_history(self, start_history_id: str) -> list[str]:
-        params = {
-            "startHistoryId": start_history_id,
-            "historyTypes": "messageAdded",
-        }
-        response = self._get_json_sync(_GMAIL_HISTORY_URL, params=params)
         ids: list[str] = []
-        for history_item in response.get("history", []) or []:
-            if not isinstance(history_item, dict):
-                continue
-            for added in history_item.get("messagesAdded", []) or []:
-                message = added.get("message") if isinstance(added, dict) else None
-                item_id = _clean_text(message.get("id") if isinstance(message, dict) else None)
-                if item_id and item_id not in ids:
-                    ids.append(item_id)
+        page_token: str | None = None
+        while True:
+            params: dict[str, str] = {
+                "startHistoryId": start_history_id,
+                "historyTypes": "messageAdded",
+            }
+            if page_token:
+                params["pageToken"] = page_token
+            response = self._get_json_sync(_GMAIL_HISTORY_URL, params=params)
+            for history_item in response.get("history", []) or []:
+                if not isinstance(history_item, dict):
+                    continue
+                for added in history_item.get("messagesAdded", []) or []:
+                    message = added.get("message") if isinstance(added, dict) else None
+                    item_id = _clean_text(message.get("id") if isinstance(message, dict) else None)
+                    if item_id and item_id not in ids:
+                        ids.append(item_id)
+            page_token = _clean_text(response.get("nextPageToken")) or None
+            if not page_token:
+                break
         return ids
 
     def _list_recent_message_ids(

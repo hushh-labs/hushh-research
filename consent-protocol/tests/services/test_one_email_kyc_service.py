@@ -1587,6 +1587,59 @@ async def test_push_history_batch_reports_handled_only_when_a_message_created_wo
     assert result["message_count"] == 2
 
 
+def test_history_listing_paginates_all_gmail_history_pages():
+    service = _service(_FakeDb(), _FakeConsentDb())
+    responses = iter(
+        [
+            {
+                "history": [{"messagesAdded": [{"message": {"id": "first"}}]}],
+                "nextPageToken": "page-2",
+            },
+            {
+                "history": [
+                    {"messagesAdded": [{"message": {"id": "second"}}]},
+                    {"messagesAdded": [{"message": {"id": "first"}}]},
+                ],
+            },
+        ]
+    )
+    seen_params: list[dict[str, str]] = []
+
+    def _get_json(_url, *, params):
+        seen_params.append(params)
+        return next(responses)
+
+    service._get_json_sync = _get_json  # type: ignore[method-assign]
+
+    assert service._list_message_ids_from_history("100") == ["first", "second"]
+    assert seen_params[0] == {"startHistoryId": "100", "historyTypes": "messageAdded"}
+    assert seen_params[1]["pageToken"] == "page-2"
+
+
+@pytest.mark.asyncio
+async def test_history_notification_does_not_advance_cursor_when_processing_fails():
+    service = _service(_FakeDb(), _FakeConsentDb())
+    service._get_mailbox_state = lambda: {"history_id": "100"}  # type: ignore[method-assign]
+    service._list_message_ids_from_history = lambda _history_id: ["unprocessed"]  # type: ignore[method-assign]
+    service.process_message_id = AsyncMock(side_effect=RuntimeError("temporary failure"))
+    upserts: list[dict[str, object]] = []
+    service._upsert_mailbox_state = lambda **kwargs: upserts.append(kwargs)  # type: ignore[method-assign]
+    payload = {
+        "message": {
+            "data": base64.b64encode(
+                json.dumps({"emailAddress": "one@hushh.ai", "historyId": "101"}).encode("utf-8")
+            ).decode("utf-8")
+        }
+    }
+
+    with pytest.raises(OneEmailKycError) as exc_info:
+        await service.handle_push_notification(payload, headers={})
+
+    assert exc_info.value.status_code == 503
+    assert exc_info.value.code == "ONE_EMAIL_INTAKE_RETRY"
+    assert upserts == []
+
+
 @pytest.mark.asyncio
 async def test_process_message_matches_dynamic_available_scope_for_email_helper_request():
     """LLM Pass 1 routing identifies the correct scope for a natural-language request.
