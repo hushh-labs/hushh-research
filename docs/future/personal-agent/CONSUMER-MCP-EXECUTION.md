@@ -93,6 +93,12 @@ receipt, the later receipt supersedes it.
 - `HUSHH_MCP_PYTHON="$(pwd)/../../consent-protocol/.venv/bin/python" npm run verify:package` passed from `packages/hushh-mcp`: README parity, generated gateway manifests, 7 package tests, packed-runtime initialization/tool listing/tool call, and `npm pack --dry-run`.
 - The package gate completed without changing tracked files. This validates the published package shape only; it does not prove owner custody, a deployed Puppy connection, or external-host acceptance.
 
+## Read-only owner-pod access refresh — 12 September 2026 (`add4f0ac1`)
+
+- The owner account `kushaltrivedi1711@gmail.com` can list and describe the existing service `one-pod-ha1-7o6wt3s4mtydneyytqfswsxtafdlpjwz` in project `hussh-one-pod`. It currently sends 100% traffic to revision `one-pod-ha1-7o6wt3s4mtydneyytqfswsxtafdlpjwz-00010-m9f`, with `minScale=0`, `maxScale=1`, `containerConcurrency=1`, and image digest `sha256:7bef8f48b0ad8d1c9729447c92b0412f6e8536469cec0beabe9643fd78a75f29`.
+- The revision is Ready and uses the owner-project service account `one-pod-ha1-7o6wt3s4m-h6q2cl4x@hussh-one-pod.iam.gserviceaccount.com`. Its service IAM policy grants invocation only to `consent-protocol-runtime@hushh-pda-dev.iam.gserviceaccount.com`.
+- The active operator account lacks `run.services.get`, and the owner account cannot impersonate that runtime service account (`iam.serviceAccounts.getAccessToken` denied). Authenticated `/health` and `/pod/info` probes therefore remain unavailable. No inference request, custody mutation, IAM change, deployment or credential mutation occurred.
+
 ## Approved product contract
 
 External assistants authenticate as owner-bound clients. Registered Puppy devices retain their distinct native authority. One owner approval permits reads, routine additions and corrections of current and future personal memory until the client is disconnected. Credentials remain short-lived. Deletion, permission changes and consequential external actions require fresh confirmation. Secrets are never personal memory.
