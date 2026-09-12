@@ -33,11 +33,35 @@ from hushh_mcp.services.google_connection_service import (
     GoogleConnectionError,
     GoogleConnectionService,
 )
-from hushh_mcp.services.one_email_kyc_service import (
-    OneEmailKycError,
-    get_one_email_kyc_service,
-)
 from mcp_modules.developer_context import get_current_developer_principal
+
+
+def get_one_email_kyc_service():
+    """Load the backend-only email service only when an email tool is called.
+
+    The npm MCP package intentionally vendors the portable MCP runtime without
+    the backend ``api`` package. Importing this service at module load would
+    make public tool discovery fail even though developer/public clients never
+    call the owner email tools. Keeping this wrapper also lets tests replace the
+    service factory without importing backend modules.
+    """
+    from hushh_mcp.services.one_email_kyc_service import (  # noqa: PLC0415
+        get_one_email_kyc_service as factory,
+    )
+
+    return factory()
+
+
+def _is_one_email_kyc_error(error: Exception) -> bool:
+    """Recognize the backend error without importing it during MCP startup."""
+    try:
+        from hushh_mcp.services.one_email_kyc_service import (  # noqa: PLC0415
+            OneEmailKycError,
+        )
+    except Exception:  # noqa: BLE001 - optional backend is unavailable in the npm runtime
+        return False
+
+    return isinstance(error, OneEmailKycError)
 
 
 class ConsumerConnectionResult(BaseModel):
@@ -1872,9 +1896,9 @@ async def handle_list_hussh_email_workflows(arguments: dict) -> CallToolResult:
             status_filter=status,
             include_archived=include_archived,
         )
-    except OneEmailKycError as error:
-        return _email_workflow_error(error)
-    except Exception:
+    except Exception as error:
+        if _is_one_email_kyc_error(error):
+            return _email_workflow_error(error)
         return _error("EMAIL_WORKFLOWS_UNAVAILABLE", "Email workflows are temporarily unavailable.")
     items = [
         item
@@ -1913,9 +1937,9 @@ async def handle_get_hussh_email_workflow(arguments: dict) -> CallToolResult:
             user_id=owner,
             workflow_id=workflow_id.strip(),
         )
-    except OneEmailKycError as error:
-        return _email_workflow_error(error)
-    except Exception:
+    except Exception as error:
+        if _is_one_email_kyc_error(error):
+            return _email_workflow_error(error)
         return _error("EMAIL_WORKFLOWS_UNAVAILABLE", "Email workflows are temporarily unavailable.")
     item = _email_workflow_item(raw)
     if item is None:
@@ -1957,9 +1981,9 @@ async def handle_open_hussh_email_workflow(arguments: dict) -> CallToolResult:
             user_id=owner,
             workflow_id=workflow_id.strip(),
         )
-    except OneEmailKycError as error:
-        return _email_workflow_error(error)
-    except Exception:
+    except Exception as error:
+        if _is_one_email_kyc_error(error):
+            return _email_workflow_error(error)
         return _error("EMAIL_WORKFLOWS_UNAVAILABLE", "Email workflows are temporarily unavailable.")
     query = urlencode({"workflowId": workflow_id.strip(), "action": action})
     return _result(
