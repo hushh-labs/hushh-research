@@ -347,7 +347,9 @@ def test_owner_api_requires_explicit_policy_and_current_verified_owner(consumer,
 @pytest.mark.asyncio
 async def test_mcp_dispatch_returns_owner_handoff_without_granting_access(consumer, monkeypatch):
     import mcp_server
+    from mcp_modules.consumer_catalog import CONSUMER_MCP_TOOL_NAME_SET
     from mcp_modules.developer_context import (
+        get_current_visible_tool_names,
         reset_current_developer_principal,
         set_current_developer_principal,
     )
@@ -360,7 +362,11 @@ async def test_mcp_dispatch_returns_owner_handoff_without_granting_access(consum
     monkeypatch.setattr(consumer_tools, "ConsumerMcpConnections", lambda: service)
     context = set_current_developer_principal(principal)
     try:
-        assert "get_hussh_connection" in {tool.name for tool in await mcp_server.list_tools()}
+        visible_names = set(get_current_visible_tool_names())
+        assert CONSUMER_MCP_TOOL_NAME_SET <= visible_names
+        listed_names = {tool.name for tool in await mcp_server.list_tools()}
+        assert CONSUMER_MCP_TOOL_NAME_SET <= listed_names
+        assert "get_hussh_connection" in listed_names
         assert {
             "read_hussh_memory",
             "save_hussh_memory",
@@ -372,6 +378,7 @@ async def test_mcp_dispatch_returns_owner_handoff_without_granting_access(consum
         capabilities = await mcp_server.call_tool("list_hussh_capabilities", {})
         assert not capabilities.isError
         projected = {item["name"]: item for item in capabilities.structuredContent["capabilities"]}
+        assert CONSUMER_MCP_TOOL_NAME_SET <= projected.keys()
         assert projected["read_hussh_memory"]["execution"] == "owner_pod"
         assert projected["delegate_hussh_task"]["execution"] == "owner_pod"
         assert projected["delegate_hussh_task"]["availability"] == "approval_required"

@@ -17,6 +17,7 @@ from hushh_mcp.services.developer_registry_service import (
 from mcp_modules.agentforce_contract import (
     AGENTFORCE_PROFILE,
 )
+from mcp_modules.consumer_catalog import CONSUMER_MCP_TOOL_NAMES
 from mcp_modules.flat_contract import FLAT_PROFILE
 
 _current_developer_principal: ContextVar[DeveloperPrincipal | None] = ContextVar(
@@ -160,45 +161,7 @@ def get_current_visible_tool_names() -> tuple[str, ...]:
         return visible_tool_names_for_groups(DEFAULT_PUBLIC_TOOL_GROUPS)
     visible = visible_tool_names_for_groups(principal.allowed_tool_groups)
     if has_consumer_oauth_identity(principal):
-        visible = (
-            *visible,
-            "get_hussh_connection",
-            "get_hussh_setup_status",
-            "list_hussh_devices",
-            "list_hussh_calendar_events",
-            "find_hussh_calendar_openings",
-            "search_hussh_people",
-            "get_hussh_person_profile",
-            "list_hussh_people_connections",
-            "list_hussh_connection_requests",
-            "get_hussh_connection_request",
-            "send_hussh_connection_request",
-            "accept_hussh_connection_request",
-            "reject_hussh_connection_request",
-            "cancel_hussh_connection_request",
-            "list_hussh_gmail_receipts",
-            "get_hussh_gmail_status",
-            "list_hussh_email_workflows",
-            "get_hussh_email_workflow",
-            "open_hussh_email_workflow",
-            "list_hussh_integrations",
-            "connect_hussh_integration",
-            "disconnect_hussh_integration",
-            "list_hussh_capabilities",
-            "list_hussh_connections",
-            "list_hussh_receipts",
-            "disconnect_hussh_connection",
-            "delegate_hussh_task",
-            "start_hussh_task",
-            "get_hussh_task",
-            "cancel_hussh_task",
-            "analyze_hussh_finance",
-            "read_hussh_memory",
-            "save_hussh_memory",
-            "correct_hussh_memory",
-            "delete_hussh_memory",
-            "export_hussh_memory",
-        )
+        visible = (*visible, *CONSUMER_MCP_TOOL_NAMES)
     return visible
 
 
