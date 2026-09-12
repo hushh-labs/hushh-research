@@ -659,3 +659,25 @@ def test_connection_discovery_does_not_report_an_expired_runtime_token_as_ready(
     )
     listing = service.list_connections(owner="owner_a")
     assert listing["items"][0]["memory_access"] is False
+
+
+def test_connection_discovery_rejects_a_valid_token_bound_to_another_subject(consumer, monkeypatch):
+    service, _, _ = consumer
+    _, own, _ = connect(consumer)
+    approve(service, own)
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(
+        "hushh_mcp.services.consumer_mcp_connections.validate_token",
+        lambda *_args, **_kwargs: (
+            True,
+            None,
+            SimpleNamespace(
+                user_id="owner_b",
+                agent_id=f"consumer_mcp:{own.connection_id}:{own.generation}",
+                scope_str=ConsentScope.CAP_CONSUMER_MEMORY.value,
+            ),
+        ),
+    )
+    listing = service.list_connections(owner="owner_a")
+    assert listing["items"][0]["memory_access"] is False

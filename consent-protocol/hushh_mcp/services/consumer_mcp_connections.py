@@ -203,14 +203,19 @@ class ConsumerMcpConnections:
         token = None
         if row["action"] == "CONSUMER_TOKEN_ISSUED":
             candidate = str(row["token_id"] or "")
-            valid, _reason, _claims = validate_token(
+            valid, _reason, claims = validate_token(
                 candidate, expected_scope=ConsentScope.CAP_CONSUMER_MEMORY
             )
             # The signed token's expiry and the canonical ledger expiry are
             # both authority. A valid bearer with a stale ledger row must not
             # make discovery report memory as ready or admit a pod call.
+            expected_agent = f"consumer_mcp:{binding['connection_id']}:{binding['generation']}"
             if (
                 valid
+                and claims is not None
+                and str(getattr(claims, "user_id", "")) == str(binding["user_id"])
+                and str(getattr(claims, "agent_id", "")) == expected_agent
+                and str(getattr(claims, "scope_str", "")) == ConsentScope.CAP_CONSUMER_MEMORY.value
                 and row["expires_at"] is not None
                 and int(row["expires_at"]) > int(time.time() * 1000)
             ):
