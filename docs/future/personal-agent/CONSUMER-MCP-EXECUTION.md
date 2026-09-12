@@ -352,3 +352,9 @@ their provisional statements while preserving the original evidence trail.
 - Hermes `tests/gateway/test_puppy_inference_relay.py` passed **14 tests** at the unchanged Hermes revision `c63ddfb08ddccc951d16ff3a92e560e516abe00f`. This verifies the shared relay contract; no Hermes files were changed.
 - `pod_parity_probe.py --self-test` passed. `pod_lifecycle_drill.py --dry-run` passed six-fact recovery, correction and revocation checks, but its receipt reports `quality_judged_independently=false`; it is not live or independently judged acceptance.
 - No deployment, hosted migration, credential/IAM mutation, main/UAT/production promotion, Hermes or ADK worktree change occurred. Live owner authentication/custody, installed-pod recovery, direct/universal transport parity and external-host acceptance remain open.
+
+## Canonical PKM rebuild receipt — 12 September 2026
+
+- Added a real `PodPkmStore` integration check: consumer memory is saved through the SQLite-plus-sealed-log store, the disposable index is rebuilt from the commit log, the record is recovered, then an encrypted tombstone is committed and remains effective after a second rebuild.
+- The focused consumer/relay/task/connection/MCP gate now passes **110 tests**. Existing dependency deprecation and experimental warnings remain non-failing; no tests were skipped or reclassified.
+- This strengthens local canonical-PKM evidence only. Owner-authenticated installed-pod custody, live Puppy connection, replacement recovery and external-host acceptance still require live evidence and no deployment was performed.

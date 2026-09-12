@@ -12,6 +12,8 @@ from hushh_mcp.services.consumer_mcp_memory import (
     UnavailableConsumerMemoryTransport,
     validate_memory_request,
 )
+from hushh_mcp.services.pkm_sqlite_engine import SqlitePkmWriteEngine
+from hushh_mcp.services.pod_commit_log import LocalObjectStore, PodCommitLog
 from hushh_mcp.services.pod_consumer_memory import (
     PodConsumerMemoryConflict,
     PodConsumerMemoryExecutor,
@@ -19,6 +21,7 @@ from hushh_mcp.services.pod_consumer_memory import (
     _decrypt,
     _encrypt,
 )
+from hushh_mcp.services.pod_pkm_store import PodPkmStore
 from mcp_modules.tools.consumer_tools import ConsumerMemoryResult
 
 _RUNTIME_TOKEN = "HCT:runtime-token"
@@ -373,6 +376,50 @@ async def test_pod_executor_delete_retry_is_idempotent_and_new_key_cannot_recrea
             operation="delete",
             arguments={**arguments, "idempotency_key": "delete-new-key"},
         )
+
+
+@pytest.mark.asyncio
+async def test_consumer_memory_survives_real_pkm_store_rebuild(tmp_path):
+    owner = "owner-a"
+    key = b"L" * 32
+    log = PodCommitLog(LocalObjectStore(str(tmp_path / "log")), key, owner_id=owner)
+    first_store = PodPkmStore(SqlitePkmWriteEngine(str(tmp_path / "first.sqlite3")), log)
+    first = PodConsumerMemoryExecutor(store=first_store, vault_key=key)
+
+    saved = await first.execute(
+        owner_id=owner,
+        operation="save",
+        arguments={"domain": "food", "content": "vegetarian", "idempotency_key": "save-1"},
+    )
+    memory_id = saved["result"]["memory_id"]
+
+    rebuilt = await PodPkmStore.rebuild(log, str(tmp_path / "rebuilt.sqlite3"), owner_user_id=owner)
+    recovered = await PodConsumerMemoryExecutor(store=rebuilt, vault_key=key).execute(
+        owner_id=owner,
+        operation="query",
+        arguments={"domain": "food", "query": "vegetarian", "limit": 10},
+    )
+    assert recovered["result"]["records"][0]["id"] == memory_id
+
+    await PodConsumerMemoryExecutor(store=rebuilt, vault_key=key).execute(
+        owner_id=owner,
+        operation="delete",
+        arguments={
+            "domain": "food",
+            "memory_id": memory_id,
+            "idempotency_key": "delete-1",
+            "confirm": True,
+        },
+    )
+    rebuilt_again = await PodPkmStore.rebuild(
+        log, str(tmp_path / "rebuilt-again.sqlite3"), owner_user_id=owner
+    )
+    after_delete = await PodConsumerMemoryExecutor(store=rebuilt_again, vault_key=key).execute(
+        owner_id=owner,
+        operation="query",
+        arguments={"domain": "food", "query": "vegetarian", "limit": 10},
+    )
+    assert after_delete["result"]["records"] == []
 
 
 @pytest.mark.asyncio
