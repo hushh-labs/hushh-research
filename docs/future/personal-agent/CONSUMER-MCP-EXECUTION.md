@@ -364,3 +364,8 @@ their provisional statements while preserving the original evidence trail.
 - Remote protocol validation run `34689003660` evaluated code-equivalent head `6f9bd5c99`; its only failure was the reviewed-route allowlist missing the three intentionally mounted durable-task paths. `tests/test_pod_server.py` now records `/api/one/pod/tasks`, `/api/one/pod/tasks/{task_id}` and `/api/one/pod/tasks/{task_id}/cancel` as hub-machine-only routes. The focused pod-server check passes **31 tests** locally.
 - Remote backend validation run `34689537038` passed for final implementation head `b9f0c4a64`: governance, secret scan, upstream sync, integration, MCP package, protocol Python and CI status gate all succeeded. The web/iOS jobs were correctly skipped by the requested backend scope.
 - No owner-direct wall expansion, deployment, migration, IAM change, main/UAT/production promotion, Hermes or ADK worktree change occurred.
+
+## Live access recheck — 12 September 2026
+
+- The active read-only gcloud identity remains `claude-code-gcp-operator@hussh-developer-platform.iam.gserviceaccount.com` with default project `hushh-pda-uat`.
+- A read-only `gcloud run services describe` against the owner service in `hussh-one-pod` was denied `run.services.get`. No owner-pod request, credential mutation, impersonation, deployment or IAM change was attempted. Live owner custody, Puppy connection and installed-pod recovery therefore remain unverified.
