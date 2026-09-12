@@ -151,10 +151,12 @@ jobs:
           cache: npm
           cache-dependency-path: hushh-webapp/package-lock.json
 
-      - name: Set up Python and uv
-        uses: astral-sh/setup-uv@v7
+      - name: Set up locked consent-protocol runtime
+        uses: ./consent-protocol/.github/actions/setup-python-uv
         with:
-          enable-cache: true
+          python-version: "3.13"
+          protocol-dir: ./consent-protocol
+          sync-dev-group: "true"
 
       - name: Install web dependencies
         shell: bash
