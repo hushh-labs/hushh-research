@@ -19,7 +19,7 @@ GitHub action item: [#6719 Build consumer Hussh MCP with owner-pod memory and Pu
 ## Baseline and boundaries
 
 - Worktree: sibling `hushh-consumer-mcp`; branch `feat/consumer-mcp`.
-- Latest implementation candidate: `31d89610f` (11 September 2026); the branch head includes the branch-only governance, security-scan, memory-binding, pod-door validation, custody-enrollment race, private pod/Puppy recovery, dev-parity compatibility, Claude-lane upgrade/reviewer corrections, and server-issued Puppy grant binding for consumer delegation. The installed dev candidate remains `d11a5f62d`; no later branch commit has been deployed.
+- Latest implementation candidate: `fb210b9f5` (11 September 2026); the branch head includes the branch-only governance, security-scan, memory-binding, pod-door validation, custody-enrollment race, private pod/Puppy recovery, dev-parity compatibility, Claude-lane upgrade/reviewer corrections, and server-issued Puppy grant binding for consumer delegation. Exact branch validation run `34664100565` passed all required component lanes and `CI Status Gate`; the installed dev candidate remains `d11a5f62d`, and no later branch commit has been deployed.
 - Original workspace and ADK worktree are independently active and remain untouched.
 - No main promotion, UAT/production activation or marketplace submission has occurred in this workstream. The latest governed dev deployment is healthy and branch-only; consumer live acceptance remains incomplete because owner custody, full capability coverage, Puppy parity and external-host acceptance are not proven.
 - Working source is implementation evidence, not installed-runtime or host acceptance evidence.
