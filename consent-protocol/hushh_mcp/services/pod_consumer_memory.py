@@ -195,7 +195,16 @@ class PodConsumerMemoryExecutor:
         memory_id = str(arguments.get("memory_id") or "")
         content = str(arguments["content"])
         if operation == "save":
-            memory_id = memory_id or "mem_" + uuid.uuid4().hex
+            # A save's idempotency key denotes one logical mutation.  Derive its
+            # record ID from that key so a lost response can be retried without
+            # returning a fresh ID for the already-committed record.
+            memory_id = memory_id or (
+                "mem_"
+                + uuid.uuid5(
+                    _COMMIT_NAMESPACE,
+                    f"{owner_id}:{domain}:save:{arguments['idempotency_key']}",
+                ).hex
+            )
             records = [*records, {"id": memory_id, "content": content, "updated_at": now}]
         else:
             found = False

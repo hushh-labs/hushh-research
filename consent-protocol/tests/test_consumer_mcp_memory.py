@@ -207,6 +207,36 @@ async def test_pod_executor_commits_ciphertext_only_and_preserves_idempotency():
 
 
 @pytest.mark.asyncio
+async def test_pod_executor_save_retry_reuses_the_same_memory_id():
+    class _ReplayStore(_PodStore):
+        def __init__(self):
+            super().__init__()
+            self.calls = 0
+
+        async def commit_domain_mutation(self, params):
+            self.calls += 1
+            self.params = params
+            return {
+                "success": True,
+                "data_version": 1,
+                "idempotent_replay": self.calls > 1,
+            }
+
+    arguments = {
+        "domain": "food",
+        "content": "vegetarian",
+        "idempotency_key": "save-retry",
+    }
+    store = _ReplayStore()
+    executor = PodConsumerMemoryExecutor(store=store, vault_key=b"K" * 32)
+    first = await executor.execute(owner_id="owner-a", operation="save", arguments=arguments)
+    second = await executor.execute(owner_id="owner-a", operation="save", arguments=arguments)
+
+    assert first["result"]["memory_id"] == second["result"]["memory_id"]
+    assert store.calls == 2
+
+
+@pytest.mark.asyncio
 async def test_pod_executor_reads_the_existing_encrypted_domain():
     encrypted = _encrypt(
         {"consumer_memory": [{"id": "m1", "content": "vegetarian", "updated_at": "now"}]},
