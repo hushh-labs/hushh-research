@@ -502,3 +502,8 @@ their provisional statements while preserving the original evidence trail.
 
 - The previously running broad validation process in the separate private infrastructure worktree (PID `69641`) terminated after approximately five hours. Its output was held in process-temporary files that were removed at termination; no exit code or complete test receipt is recoverable. This run is therefore **unknown**, not a pass, and supplies no acceptance credit.
 - The focused branch-local gates above remain the authoritative current evidence. No deployment, hosted migration, IAM or credential mutation, main/UAT/production promotion, Hermes edit or ADK worktree edit occurred.
+
+## Private infrastructure branch state correction — 13 September 2026
+
+- The previously observed orphan-sweep edits on `claude/hushh-infrastructure-analysis-7o991c` were subsequently committed and pushed by their owning workflow as `a0239a1dc937da0b0cc022f988009ad1591ce1e6` (`feat(pods): erase accounts whose owner no longer exists`). The private worktree is now clean and remote-matched.
+- This does not change the consumer branch or authorize a merge: `feat/consumer-mcp` remains clean and remote-matched at `28fafdf23`, and the private branch’s ownership boundaries remain separate. No deployment or hosted mutation occurred.
