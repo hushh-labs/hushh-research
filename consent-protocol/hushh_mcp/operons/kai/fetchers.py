@@ -14,6 +14,7 @@ Runtime provider priority (for realtime market/news flows):
 
 import asyncio
 import logging
+import math
 import os
 import threading
 import time
@@ -70,6 +71,12 @@ _YAHOO_FAST_TIMEOUT_SECONDS = max(
 _YAHOO_FAST_TIMEOUT_COOLDOWN_SECONDS = max(
     60,
     int(os.getenv("KAI_YAHOO_FAST_TIMEOUT_COOLDOWN_SECONDS", "180") or "180"),
+)
+# The chart endpoint takes one symbol per request, so a batch fans out. Bounded so a 27-symbol
+# marquee finishes quickly without arriving at Yahoo as a burst.
+_YAHOO_CHART_CONCURRENCY = max(
+    1,
+    int(os.getenv("KAI_YAHOO_CHART_CONCURRENCY", "6") or "6"),
 )
 
 
@@ -698,44 +705,104 @@ async def _fetch_yahoo_search_peers(ticker: str) -> List[str]:
         return peers
 
 
+def _parse_yahoo_chart_meta(meta: Dict[str, Any]) -> Dict[str, Any] | None:
+    """Map one v8 chart `meta` block onto the row shape the batch fetcher returns."""
+    symbol = str(meta.get("symbol") or "").upper().strip()
+    if not symbol:
+        return None
+    price = meta.get("regularMarketPrice")
+    if not isinstance(price, (int, float)) or not math.isfinite(float(price)):
+        return None
+
+    # The chart endpoint reports the previous close, not a change, so the move is derived. A zero
+    # or missing previous close has no honest percentage, and reporting 0 beats dividing into inf.
+    previous_close = meta.get("chartPreviousClose") or meta.get("previousClose") or 0
+    try:
+        previous_close = float(previous_close)
+    except (TypeError, ValueError):
+        previous_close = 0.0
+    change_percent = (
+        ((float(price) - previous_close) / previous_close) * 100 if previous_close else 0
+    )
+
+    return {
+        "ticker": symbol,
+        "price": float(price),
+        "change_percent": change_percent,
+        "volume": meta.get("regularMarketVolume") or 0,
+        # v8 `meta` carries no fundamentals. Zero here is not a measurement, and callers already
+        # treat these as absent; inventing a value would be worse than reporting none.
+        "market_cap": 0,
+        "pe_ratio": 0,
+        "pb_ratio": 0,
+        "dividend_yield": 0,
+        "company_name": meta.get("longName") or meta.get("shortName") or symbol,
+        "sector": "Unknown",
+        "industry": "Unknown",
+        "source": "Yahoo Chart (Batch)",
+        "fetched_at": datetime.utcnow().isoformat(),
+        "ttl_seconds": 60,
+        "is_stale": False,
+    }
+
+
 async def _fetch_yahoo_quotes(symbols: List[str]) -> List[Dict[str, Any]]:
+    """Free-rung batch quotes, from the chart endpoint rather than the quote endpoint.
+
+    `v7/finance/quote` answers 401 Unauthorized to any client without Yahoo credentials
+    ("User is unable to access this feature"), so this rung had been dead: every batch raised,
+    `fetch_market_data_batch` swallowed it and returned only what was already cached. Nothing
+    surfaced it because Finnhub and FMP sit in front, and both are keyed.
+
+    `v8/finance/chart` is still open to an unauthenticated client and its `meta` block carries the
+    price and the previous close. The cost is one symbol per request instead of a list, so the
+    fan-out is bounded and the L1/L2 cache in front of it is what keeps that off the provider.
+    """
     if not symbols:
         return []
 
-    url = "https://query1.finance.yahoo.com/v7/finance/quote"
-    params = {"symbols": ",".join(symbols)}
-    timeout = httpx.Timeout(connect=4.0, read=8.0, write=8.0, pool=4.0)
+    timeout = httpx.Timeout(connect=4.0, read=_YAHOO_FAST_TIMEOUT_SECONDS, write=8.0, pool=4.0)
     headers = {"User-Agent": "Hushh-Research/1.0 (eng@hush1one.com)"}
+    semaphore = asyncio.Semaphore(_YAHOO_CHART_CONCURRENCY)
+
     async with httpx.AsyncClient(timeout=timeout, headers=headers) as client:
-        res = await client.get(url, params=params)
-        res.raise_for_status()
-        payload = res.json() or {}
-        rows = payload.get("quoteResponse", {}).get("result") or []
-        parsed: list[Dict[str, Any]] = []
-        for row in rows:
-            symbol = str(row.get("symbol") or "").upper().strip()
-            if not symbol:
-                continue
-            parsed.append(
-                {
-                    "ticker": symbol,
-                    "price": row.get("regularMarketPrice") or 0,
-                    "change_percent": row.get("regularMarketChangePercent") or 0,
-                    "volume": row.get("regularMarketVolume") or 0,
-                    "market_cap": row.get("marketCap") or 0,
-                    "pe_ratio": row.get("trailingPE") or 0,
-                    "pb_ratio": row.get("priceToBook") or 0,
-                    "dividend_yield": row.get("trailingAnnualDividendYield") or 0,
-                    "company_name": row.get("longName") or row.get("shortName") or symbol,
-                    "sector": row.get("sector") or "Unknown",
-                    "industry": row.get("industry") or "Unknown",
-                    "source": "Yahoo Quote (Peers)",
-                    "fetched_at": datetime.utcnow().isoformat(),
-                    "ttl_seconds": 60,
-                    "is_stale": False,
-                }
-            )
-        return parsed
+
+        async def fetch_one(symbol: str) -> Dict[str, Any] | None:
+            async with semaphore:
+                res = await client.get(
+                    f"https://query1.finance.yahoo.com/v8/finance/chart/{urllib.parse.quote(symbol)}",
+                    params={"range": "1d", "interval": "1d"},
+                )
+                # One delisted or mistyped symbol must not fail the whole batch. A 429 or 5xx is
+                # the provider talking, so that one is raised for the caller's cooldown to see.
+                if res.status_code == 429 or res.status_code >= 500:
+                    res.raise_for_status()
+                if res.status_code >= 400:
+                    return None
+                payload = res.json() or {}
+                results = (payload.get("chart") or {}).get("result") or []
+                if not results:
+                    return None
+                return _parse_yahoo_chart_meta(results[0].get("meta") or {})
+
+        settled = await asyncio.gather(
+            *(fetch_one(symbol) for symbol in symbols), return_exceptions=True
+        )
+
+    parsed: list[Dict[str, Any]] = []
+    provider_error: BaseException | None = None
+    for outcome in settled:
+        if isinstance(outcome, BaseException):
+            provider_error = provider_error or outcome
+            continue
+        if outcome:
+            parsed.append(outcome)
+
+    # Only raise when the provider said so and nothing at all came back; a partial batch is a
+    # better answer than an exception the caller turns into an empty strip.
+    if provider_error is not None and not parsed:
+        raise provider_error
+    return parsed
 
 
 async def fetch_market_data_batch(

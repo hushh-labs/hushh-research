@@ -364,6 +364,13 @@ from api.routes import tickers  # noqa: E402
 
 app.include_router(tickers.router)
 
+# Public batch market quotes. Same public posture as the ticker search above: prices for symbols
+# the caller names, nothing derived from a person. Serves Hushh Tech's marquee off the same warm
+# L1/L2 cache this service already keeps, instead of a second Yahoo client in that repository.
+from api.routes import market_quotes  # noqa: E402
+
+app.include_router(market_quotes.router)
+
 # Identity compatibility routes
 from api.routes import identity  # noqa: E402
 
