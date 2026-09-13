@@ -507,3 +507,9 @@ their provisional statements while preserving the original evidence trail.
 
 - The previously observed orphan-sweep edits on `claude/hushh-infrastructure-analysis-7o991c` were subsequently committed and pushed by their owning workflow as `a0239a1dc937da0b0cc022f988009ad1591ce1e6` (`feat(pods): erase accounts whose owner no longer exists`). The private worktree is now clean and remote-matched.
 - This does not change the consumer branch or authorize a merge: `feat/consumer-mcp` remains clean and remote-matched at `28fafdf23`, and the private branch’s ownership boundaries remain separate. No deployment or hosted mutation occurred.
+
+## Fresh local safety and completion receipts — 13 September 2026
+
+- `uv run python scripts/ops/owner_direct_acceptance.py --dry-run` passed at source `9e6dc5f31aec1576cce8216e2f23641152291481` in `2,056 ms`. The receipt observed `hub_calls=0`, Puppy provider/relay mode, revoked-device refusal, stale-incarnation fencing, monotonic endpoint state and refusal of unauthenticated `/pod/info` access. Its declared limits remain binding: all dependencies are in-memory fakes, no deployed pod/device socket/Cloud Run IAM was touched, and `target.mode=local` cannot satisfy a deployed acceptance assertion.
+- `uv run python scripts/ops/pod_parity_probe.py --self-test` passed. This proves the local parity classifier pipeline only; it is not a deployed specialist or Puppy result.
+- `uv run python scripts/ops/pod_completion_judge.py --ledger ../config/pod-completion-ledger.yaml` evaluated **15 passing, 11 failing, 1 unknown and 0 not falsifiable of 27**. Failing assertions remain first-run proof, pool economics, durable identity/recovery, owner-direct zero-hub authority, real upgrade recall, teardown erasure, provider Memory Bank, independent learning evidence and scheduled learning-loop execution; the unknown assertion is pod-native DB-backed specialist execution. No failing or unknown item was relabeled.
