@@ -497,3 +497,8 @@ their provisional statements while preserving the original evidence trail.
 - The packaged MCP client gate also passed its current `npm test`: **1 file, 7 tests**, completed in 285 ms. This confirms the launch wrapper contract only; it does not substitute for a live external-host acceptance.
 - This is branch-local source evidence. No deployment, hosted migration, IAM or credential mutation, main/UAT/production promotion, Hermes edit or ADK worktree edit occurred. Owner-authenticated custody/onboarding, installed-pod canonical-memory execution, live Puppy/direct transport, replacement recovery, economics and Claude/ChatGPT host acceptance remain open.
 - The private infrastructure worktree still contains another agent's uncommitted orphan-sweep changes; those files were not staged, modified or merged. `feat/consumer-mcp` remains clean and remote-matched, and this branch is the only publication target for this work.
+
+## Broad validation process closure — 13 September 2026
+
+- The previously running broad validation process in the separate private infrastructure worktree (PID `69641`) terminated after approximately five hours. Its output was held in process-temporary files that were removed at termination; no exit code or complete test receipt is recoverable. This run is therefore **unknown**, not a pass, and supplies no acceptance credit.
+- The focused branch-local gates above remain the authoritative current evidence. No deployment, hosted migration, IAM or credential mutation, main/UAT/production promotion, Hermes edit or ADK worktree edit occurred.
