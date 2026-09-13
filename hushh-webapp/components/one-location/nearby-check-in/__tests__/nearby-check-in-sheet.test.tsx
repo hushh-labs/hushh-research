@@ -39,6 +39,20 @@ const visitNotes = vi.hoisted(() => ({
   recordVisitNote: vi.fn(),
 }));
 
+const locationAnalytics = vi.hoisted(() => ({
+  trackOneLocationJourneyAction: vi.fn(),
+}));
+
+vi.mock("@/lib/observability/location-events", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@/lib/observability/location-events")>();
+  return {
+    ...actual,
+    trackOneLocationJourneyAction:
+      locationAnalytics.trackOneLocationJourneyAction,
+  };
+});
+
 vi.mock("@/lib/one-location/visit-notes", async (importOriginal) => {
   const actual =
     await importOriginal<typeof import("@/lib/one-location/visit-notes")>();
@@ -115,6 +129,7 @@ describe("NearbyCheckInSheet", () => {
     locationMemory.readLastKnownFix.mockReset();
     locationMemory.rememberLastKnownFix.mockReset();
     locationMemory.rememberLocationGrant.mockReset();
+    locationAnalytics.trackOneLocationJourneyAction.mockReset();
     // Default: nothing carried over, which is what every pre-existing test in
     // this file assumed before durable memory existed.
     locationMemory.readLastKnownFix.mockResolvedValue(null);
@@ -523,6 +538,11 @@ describe("NearbyCheckInSheet", () => {
         consentAccepted: true,
         allowConnectionRequests: false,
       });
+    });
+    expect(locationAnalytics.trackOneLocationJourneyAction).toHaveBeenCalledWith({
+      action: "nearby_check_in_result",
+      result: "success",
+      routeId: "one_location_check_in",
     });
     expect(capture).toHaveBeenCalledTimes(2);
   });

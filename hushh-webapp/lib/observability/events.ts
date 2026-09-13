@@ -87,6 +87,7 @@ export type OneLocationJourneyAction =
   | "location_request_denied"
   | "location_request_fulfilled"
   | "location_share_viewed"
+  | "nearby_check_in_result"
   | "public_link_opened"
   | "public_link_shared"
   | "public_link_revoked";

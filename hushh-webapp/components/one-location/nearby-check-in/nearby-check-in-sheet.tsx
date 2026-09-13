@@ -35,6 +35,7 @@ import {
 } from "@/lib/one-location/place-rating-consent";
 import { recordVisitNote } from "@/lib/one-location/visit-notes";
 import {
+  trackOneLocationJourneyAction,
   trackReviewHandoffOpened,
   trackVisitRated,
 } from "@/lib/observability/location-events";
@@ -1591,6 +1592,11 @@ export function NearbyCheckInSheet({
         return;
       }
       if (!hasCheckInAccuracy(freshPoint)) {
+        trackOneLocationJourneyAction({
+          action: "nearby_check_in_result",
+          result: "expected_error",
+          routeId: "one_location_check_in",
+        });
         setPoint(null);
         setLocationRecovery(isNative() ? "app-settings" : null);
         setLocationError(
@@ -1615,6 +1621,11 @@ export function NearbyCheckInSheet({
         return;
       }
       publishState(next);
+      trackOneLocationJourneyAction({
+        action: "nearby_check_in_result",
+        result: "success",
+        routeId: "one_location_check_in",
+      });
       setViewState("active");
       setCompletedCheckIn(null);
       setAddTimeOpen(false);
@@ -1635,6 +1646,11 @@ export function NearbyCheckInSheet({
         return;
       }
       const details = OneLocationService.nearbyCheckInErrorDetails(error);
+      trackOneLocationJourneyAction({
+        action: "nearby_check_in_result",
+        result: "error",
+        routeId: "one_location_check_in",
+      });
       if (details.retryLocation) {
         setPoint(null);
         setLocationError(details.message);
@@ -1866,6 +1882,12 @@ export function NearbyCheckInSheet({
       try {
         const freshPoint = await captureCurrentPosition({ fresh: true });
         if (!hasCheckInAccuracy(freshPoint)) {
+          trackOneLocationJourneyAction({
+            action: "nearby_check_in_result",
+            result: "expected_error",
+            routeId: "one_location_check_in",
+            entrySurface: "agent",
+          });
           setPoint(null);
           setLocationRecovery(isNative() ? "app-settings" : null);
           setLocationError(
@@ -1887,6 +1909,12 @@ export function NearbyCheckInSheet({
           allowConnectionRequests: allowConnectionRequestsDefault,
         });
         publishState(next);
+        trackOneLocationJourneyAction({
+          action: "nearby_check_in_result",
+          result: "success",
+          routeId: "one_location_check_in",
+          entrySurface: "agent",
+        });
         setViewState("active");
         setCompletedCheckIn(null);
         setAddTimeOpen(false);
@@ -1906,6 +1934,12 @@ export function NearbyCheckInSheet({
         };
       } catch (error) {
         const details = OneLocationService.nearbyCheckInErrorDetails(error);
+        trackOneLocationJourneyAction({
+          action: "nearby_check_in_result",
+          result: "error",
+          routeId: "one_location_check_in",
+          entrySurface: "agent",
+        });
         toast.error(details.message);
         return { status: "blocked" as const, summary: details.message };
       } finally {
