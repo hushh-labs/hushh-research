@@ -13,7 +13,7 @@ later -- but until now there was no sweep, and a stalled row stayed stalled
 forever. Symmetrically, every provisioned pod is a billable host that keeps
 costing money whether or not its owner ever comes back.
 
-Two sweeps, one pass:
+Four sweeps, one pass:
 
   retry
     Rows the fleet gave up on are handed back to the provisioning service, which
@@ -33,6 +33,26 @@ Two sweeps, one pass:
     ``PersonalAgentProvisioningService.deprovision`` -- that path revokes the
     standing read, tombstones the HusshID and deletes the row, which is account
     teardown, a completely different act.
+
+  upgrade
+    Pods whose recorded build is behind the hub's image are moved onto it, a
+    bounded batch per pass (see ``_upgrade_stale``).
+
+  erase orphans
+    A registry row whose OWNER no longer exists in the identity provider is the
+    one case where account teardown IS the right act. Account deletion through
+    the app erases the database first and the Firebase identity last, so the
+    normal order never produces this. It appears when the identity is deleted out
+    of band (a console delete, a test account swept by hand, the 2026-09-12 demo
+    reset) and leaves a billing pod, a bucket, a KMS key and a HusshID that nobody
+    can ever sign in to release. Nothing else in the system looks for it, so it
+    would sit there until the invoice found it. The sweep asks the identity
+    provider per owner, treats only a definitive "no such user" as absence (any
+    error is "unknown" and never acts), requires the absence to hold across two
+    passes ``orphan_confirm_after`` apart, refuses a pass in which most owners
+    read absent (that is a misconfigured identity backend, not an orphan wave),
+    and then runs the SAME full erasure the account route runs. See
+    ``_erase_orphans``.
 
 Ship-dark
 ---------
@@ -189,6 +209,37 @@ class StalePod:
     image: str
 
 
+@dataclass(frozen=True)
+class OrphanCandidate:
+    """
+    Minimal record returned by the fetch_orphan_candidates callable.
+
+    user_id  — owner of the registry row, the identity the sweep asks about
+    hushh_id — opaque agent identifier; may be empty
+    status   — the registry status, for the log line only; every status is a
+               candidate, because an orphan is an orphan whether its pod is
+               ``provisioned`` or stuck at ``awaiting_agent_record``
+    """
+
+    user_id: str
+    hushh_id: str
+    status: str
+
+
+#: At most this many orphaned accounts are erased per pass. A full erasure tears
+#: down a pod, a bucket and KMS material in the person's own project, so a wave of
+#: them is spread over passes rather than run in one burst.
+_ORPHAN_ERASE_BATCH = 5
+#: The mass-absence breaker: when at least this many owners read absent in one
+#: pass AND they are more than half of the owners checked, the pass refuses to
+#: erase anything. Real orphans arrive one or two at a time; "everyone is gone" is
+#: the signature of the identity backend answering for the wrong project.
+_MASS_ABSENCE_MIN = 3
+#: How long an owner must stay absent before the sweep acts. Two passes at the
+#: default interval, so a momentary lie from the identity provider costs nothing.
+DEFAULT_ORPHAN_CONFIRM_AFTER = timedelta(minutes=10)
+
+
 @dataclass
 class ReconcileReport:
     """Summary returned by a single scan_and_reconcile() call."""
@@ -203,6 +254,10 @@ class ReconcileReport:
     label: str = _LABEL
     upgraded_count: int = 0
     upgrade_failed_count: int = 0
+    orphans_erased_count: int = 0
+    orphan_erase_failed_count: int = 0
+    #: Owners absent this pass but not yet for ``orphan_confirm_after``.
+    orphans_pending_count: int = 0
 
     @property
     def total_scanned(self) -> int:
@@ -213,16 +268,25 @@ class ReconcileReport:
             + self.reap_failed_count
             + self.upgraded_count
             + self.upgrade_failed_count
+            + self.orphans_erased_count
+            + self.orphan_erase_failed_count
         )
 
     def summary(self) -> str:
         elapsed = (self.scan_end - self.scan_start).total_seconds()
+        failed = (
+            self.retry_failed_count
+            + self.reap_failed_count
+            + self.upgrade_failed_count
+            + self.orphan_erase_failed_count
+        )
         return (
             f"[{self.label}] Reconcile scan: "
             f"{self.retried_count} retried, {self.reaped_count} reaped, "
             f"{self.upgraded_count} upgraded, "
-            f"{self.retry_failed_count + self.reap_failed_count + self.upgrade_failed_count} "
-            f"failed of {self.total_scanned} in {elapsed:.2f}s"
+            f"{self.orphans_erased_count} orphans erased "
+            f"({self.orphans_pending_count} pending confirmation), "
+            f"{failed} failed of {self.total_scanned} in {elapsed:.2f}s"
         )
 
 
@@ -284,6 +348,23 @@ class PersonalAgentReconcileWorker:
 
             async def fetch_stale() -> list[StalePod]: ...
             async def upgrade(user_id: str) -> None: ...
+
+    fetch_orphan_candidates / owner_exists / erase_orphan (optional)
+        The owner-existence sweep. ``fetch_orphan_candidates`` returns registry
+        rows (every status); ``owner_exists`` asks the identity provider about
+        ONE owner and answers ``True``, ``False`` (a definitive "no such user")
+        or ``None`` (could not tell: timeout, outage, misconfiguration), and the
+        sweep acts only on ``False``, only once it has held for
+        ``orphan_confirm_after``, and only when the pass is not a mass-absence
+        reading. ``erase_orphan`` runs the full account erasure for one owner,
+        the same cascade the account route runs, so the pod, the bucket, the
+        keys, the HusshID tombstone and every user-keyed table go together. All
+        three default to None, which disables the sweep structurally.
+        Signatures::
+
+            async def fetch_orphan_candidates() -> list[OrphanCandidate]: ...
+            async def owner_exists(user_id: str) -> bool | None: ...
+            async def erase_orphan(user_id: str) -> None: ...
     """
 
     def __init__(
@@ -294,6 +375,11 @@ class PersonalAgentReconcileWorker:
         reap: Callable[[str], Awaitable[None]],
         fetch_stale: Optional[Callable[[], Awaitable[list[StalePod]]]] = None,
         upgrade: Optional[Callable[[str], Awaitable[None]]] = None,
+        fetch_orphan_candidates: Optional[Callable[[], Awaitable[list[OrphanCandidate]]]] = None,
+        owner_exists: Optional[Callable[[str], Awaitable[Optional[bool]]]] = None,
+        erase_orphan: Optional[Callable[[str], Awaitable[None]]] = None,
+        orphan_confirm_after: timedelta = DEFAULT_ORPHAN_CONFIRM_AFTER,
+        clock: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
     ) -> None:
         self._fetch_stalled = fetch_stalled
         self._retry = retry
@@ -301,6 +387,17 @@ class PersonalAgentReconcileWorker:
         self._reap = reap
         self._fetch_stale = fetch_stale
         self._upgrade = upgrade
+        self._fetch_orphan_candidates = fetch_orphan_candidates
+        self._owner_exists = owner_exists
+        self._erase_orphan = erase_orphan
+        self._orphan_confirm_after = orphan_confirm_after
+        self._clock = clock
+        #: user_id -> the instant this worker first saw the owner absent. Worker
+        #: local on purpose: the loop runs in every gunicorn worker, and a shared
+        #: record would need a schema change for a sweep that must stay boring.
+        #: The cost is that two workers can each erase the same orphan; erasure
+        #: is idempotent, so the second one counts a no-op, not damage.
+        self._absent_first_seen: dict[str, datetime] = {}
 
     async def scan_and_reconcile(self) -> ReconcileReport:
         """
@@ -321,6 +418,7 @@ class PersonalAgentReconcileWorker:
         retried, retry_failed = await self._retry_stalled()
         reaped, reap_failed = await self._reap_idle()
         upgraded, upgrade_failed = await self._upgrade_stale()
+        orphans_erased, orphan_failed, orphans_pending = await self._erase_orphans()
 
         report = ReconcileReport(
             retried_count=retried,
@@ -331,6 +429,9 @@ class PersonalAgentReconcileWorker:
             scan_end=datetime.now(timezone.utc),
             upgraded_count=upgraded,
             upgrade_failed_count=upgrade_failed,
+            orphans_erased_count=orphans_erased,
+            orphan_erase_failed_count=orphan_failed,
+            orphans_pending_count=orphans_pending,
         )
         logger.info(report.summary())
         return report
@@ -455,6 +556,126 @@ class PersonalAgentReconcileWorker:
             )
         return upgraded, failed
 
+    async def _erase_orphans(self) -> tuple[int, int, int]:
+        """Erase accounts whose owner the identity provider no longer knows.
+
+        Returns ``(erased, failed, pending)``. Structurally inert unless all three
+        callables were injected. The decision ladder, in order, each step
+        fail-closed:
+
+        1. ``owner_exists`` answered ``None`` -> unknown, forget any earlier
+           absence, never act. An outage must not read as a wave of deletions.
+        2. Answered ``True`` -> present, forget any earlier absence.
+        3. Answered ``False`` for the first time -> remember when, act later.
+        4. Most owners absent this pass (``_MASS_ABSENCE_MIN`` and over half) ->
+           refuse the whole pass and say so loudly; that is the identity backend
+           answering for the wrong project, not an orphan wave.
+        5. Absent for at least ``orphan_confirm_after`` -> erase, bounded by
+           ``_ORPHAN_ERASE_BATCH`` per pass.
+
+        The erasure is the account route's own cascade, so what an orphan leaves
+        behind is exactly what a person's own deletion would leave behind: the
+        retained accountability tables and nothing that bills.
+        """
+        if (
+            self._fetch_orphan_candidates is None
+            or self._owner_exists is None
+            or self._erase_orphan is None
+        ):
+            return 0, 0, 0
+        try:
+            candidates = await self._fetch_orphan_candidates()
+        except Exception:
+            logger.exception("[%s] fetch_orphan_candidates failed; skipping sweep", _LABEL)
+            return 0, 0, 0
+
+        now = self._clock()
+        absent: list[OrphanCandidate] = []
+        checked = 0
+        for candidate in candidates:
+            user_id = candidate.user_id
+            if not user_id:
+                continue
+            try:
+                exists = await self._owner_exists(user_id)
+            except Exception as exc:
+                # Contract says the callable answers None for "unknown"; a raise is
+                # the same thing said less carefully. Treat it identically.
+                logger.warning(
+                    "[%s] owner_exists raised hushh_id=%s error=%s",
+                    _LABEL,
+                    candidate.hushh_id or "<none>",
+                    type(exc).__name__,
+                )
+                exists = None
+            if exists is None:
+                self._absent_first_seen.pop(user_id, None)
+                continue
+            checked += 1
+            if exists:
+                self._absent_first_seen.pop(user_id, None)
+                continue
+            self._absent_first_seen.setdefault(user_id, now)
+            absent.append(candidate)
+
+        # Owners that stopped being candidates (already erased, row gone) must not
+        # keep an absence clock running against a user id that may be reused.
+        live_ids = {c.user_id for c in candidates}
+        for stale_id in [k for k in self._absent_first_seen if k not in live_ids]:
+            self._absent_first_seen.pop(stale_id, None)
+
+        if not absent:
+            return 0, 0, 0
+        if len(absent) >= _MASS_ABSENCE_MIN and len(absent) * 2 > checked:
+            logger.error(
+                "[%s] personal_agent.orphan_sweep_refused absent=%d checked=%d "
+                "reason=mass_absence (identity backend answering for the wrong "
+                "project?) nothing erased",
+                _LABEL,
+                len(absent),
+                checked,
+            )
+            return 0, 0, len(absent)
+
+        confirmed = [
+            c
+            for c in absent
+            if now - self._absent_first_seen[c.user_id] >= self._orphan_confirm_after
+        ]
+        pending = len(absent) - len(confirmed)
+        batch = confirmed[:_ORPHAN_ERASE_BATCH]
+        erased = 0
+        failed = 0
+        for candidate in batch:
+            first_seen = self._absent_first_seen[candidate.user_id]
+            try:
+                await self._erase_orphan(candidate.user_id)
+                erased += 1
+                self._absent_first_seen.pop(candidate.user_id, None)
+                logger.warning(
+                    "[%s] personal_agent.orphan_erased hushh_id=%s status=%s absent_for_s=%d",
+                    _LABEL,
+                    candidate.hushh_id or "<none>",
+                    candidate.status,
+                    int((now - first_seen).total_seconds()),
+                )
+            except Exception as exc:
+                failed += 1
+                logger.warning(
+                    "[%s] personal_agent.orphan_erase_failed hushh_id=%s error=%s detail=%s",
+                    _LABEL,
+                    candidate.hushh_id or "<none>",
+                    type(exc).__name__,
+                    _safe_detail(exc),
+                )
+        if len(confirmed) > len(batch):
+            logger.warning(
+                "[%s] %d confirmed orphans remain after this batch",
+                _LABEL,
+                len(confirmed) - len(batch),
+            )
+        return erased, failed, pending
+
 
 async def _reconcile_loop(
     worker: PersonalAgentReconcileWorker,
@@ -482,6 +703,9 @@ def start_personal_agent_reconcile_loop(
     interval_seconds: float = 900.0,
     fetch_stale: Optional[Callable[[], Awaitable[list[StalePod]]]] = None,
     upgrade: Optional[Callable[[str], Awaitable[None]]] = None,
+    fetch_orphan_candidates: Optional[Callable[[], Awaitable[list[OrphanCandidate]]]] = None,
+    owner_exists: Optional[Callable[[str], Awaitable[Optional[bool]]]] = None,
+    erase_orphan: Optional[Callable[[str], Awaitable[None]]] = None,
 ) -> asyncio.Task | None:
     """
     Schedule the reconcile worker as a background asyncio Task.
@@ -505,6 +729,9 @@ def start_personal_agent_reconcile_loop(
         reap=reap,
         fetch_stale=fetch_stale,
         upgrade=upgrade,
+        fetch_orphan_candidates=fetch_orphan_candidates,
+        owner_exists=owner_exists,
+        erase_orphan=erase_orphan,
     )
     return asyncio.create_task(
         _reconcile_loop(worker, interval_seconds),

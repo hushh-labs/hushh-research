@@ -1239,6 +1239,66 @@ async def startup_personal_agent_reconcile_worker() -> None:
                 user_id=user_id, current_image=_current_pod_image()
             )
 
+        # The owner-existence sweep. Account deletion through the app erases the
+        # database first and the Firebase identity last, so it never leaves this
+        # shape behind; an identity deleted out of band (console, a hand-swept test
+        # account) does, and the pod it leaves keeps billing with nobody able to
+        # sign in and release it. The worker owns the caution (two-pass
+        # confirmation, the mass-absence breaker); these three callables own the
+        # facts: which owners exist, and the account route's own erasure.
+        async def fetch_orphan_candidates() -> list:
+            from hushh_mcp.services.personal_agent_reconcile_worker import OrphanCandidate
+            from hushh_mcp.services.personal_agent_registry_repo import (
+                PersonalAgentRegistryRepo,
+            )
+
+            rows = await PersonalAgentRegistryRepo().fetch_owner_rows()
+            return [
+                OrphanCandidate(
+                    user_id=str(r.get("user_id") or ""),
+                    hushh_id=str(r.get("hushh_id") or ""),
+                    status=str(r.get("status") or ""),
+                )
+                for r in rows
+                if r.get("user_id")
+            ]
+
+        async def owner_exists(user_id: str):
+            # True / False / None. Only Firebase's own "no such user" is a False;
+            # a timeout, an outage or a credential problem is None, and the worker
+            # never acts on None. Same lookup shape as account_deletion_lifecycle.
+            from firebase_admin import auth as firebase_auth
+
+            from api.utils.firebase_admin import get_firebase_auth_app
+
+            try:
+                firebase_app = get_firebase_auth_app()
+                await asyncio.wait_for(
+                    asyncio.to_thread(firebase_auth.get_user, user_id, app=firebase_app),
+                    timeout=3.0,
+                )
+                return True
+            except firebase_auth.UserNotFoundError:
+                return False
+            except Exception as exc:  # noqa: BLE001 - unknown is a first-class answer here
+                logger.warning(
+                    "personal_agent_reconcile.owner_lookup_unavailable error=%s",
+                    type(exc).__name__,
+                )
+                return None
+
+        async def erase_orphan(user_id: str) -> None:
+            # The account route's own cascade: user-keyed tables, the pod, the
+            # substrate teardown where the lane allows it, the HusshID tombstone.
+            # An orphan must leave behind exactly what a person's own deletion
+            # leaves behind, so this is that code path and not a parallel one.
+            from hushh_mcp.services.account_service import AccountService
+
+            result = await AccountService().delete_account(user_id)
+            if not (result or {}).get("success"):
+                code = (result or {}).get("error_code") or (result or {}).get("error")
+                raise RuntimeError(f"account erasure incomplete: {code or 'unknown'}")
+
         task = start_personal_agent_reconcile_loop(
             fetch_stalled=fetch_stalled,
             retry=retry,
@@ -1247,6 +1307,9 @@ async def startup_personal_agent_reconcile_worker() -> None:
             interval_seconds=300,
             fetch_stale=fetch_stale,
             upgrade=upgrade,
+            fetch_orphan_candidates=fetch_orphan_candidates,
+            owner_exists=owner_exists,
+            erase_orphan=erase_orphan,
         )
         if task is None:
             logger.info("startup.personal_agent_reconcile_off flag=disabled")

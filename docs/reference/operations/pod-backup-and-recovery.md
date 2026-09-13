@@ -389,6 +389,51 @@ resolves the mutable source tag again:
 Guard: `consent-protocol/tests/test_pod_image_upgrade_path.py`, the ledger item
 `pod-image-has-a-supported-upgrade-path`.
 
+## Orphans: an identity deleted out of band (2026-09-13)
+
+Account deletion through the app erases the database first and the Firebase identity
+last (`AccountDeletionLifecycleService` drains the identity after the row is gone), so
+the normal order never leaves a pod without an owner. The reverse shape does happen:
+an identity deleted in the Firebase console, a test account swept by hand, the
+2026-09-12 demo reset. What survives is a registry row, a HusshID, and a billing pod
+with a bucket and KMS material in a project that nobody can ever sign in to release.
+Until 2026-09-13 nothing in the system looked for this; the invoice would have found
+it first.
+
+**The sweep** is the fourth pass of the reconcile worker
+(`personal_agent_reconcile_worker._erase_orphans`), gated by the same two switches as
+the rest (`PERSONAL_AGENT_ENABLED`, `PERSONAL_AGENT_RECONCILE_ENABLED`), no new flag.
+Per pass it reads every registry row's owner (`fetch_owner_rows`, every status, because
+a row stuck at `awaiting_agent_record` bills the same) and asks Firebase per owner.
+The decision ladder is fail-closed at every step:
+
+| Answer from Firebase | What the sweep does |
+|---|---|
+| user record found | forget any earlier absence |
+| timeout, outage, credential error, any raise | **unknown**: forget any earlier absence, never act |
+| `UserNotFoundError`, first time | remember the instant, act later |
+| absent, but most owners checked read absent (3 or more and over half) | **refuse the pass**, log `orphan_sweep_refused` at ERROR: that is the identity backend answering for the wrong project, not an orphan wave |
+| absent for at least 10 minutes (two passes) | erase, at most 5 per pass |
+
+**The erasure is the account route's own cascade**, `AccountService().delete_account`,
+which is what makes the leftover set honest: an orphan leaves behind exactly what a
+person's own deletion leaves behind (the retained accountability tables listed in
+`ACCOUNT_ERASURE_RETAINED_TABLES`, nothing that bills). The pod, the substrate where the
+lane allows teardown, the HusshID tombstone and every user-keyed table go together. A
+result without `success: true` is counted as `orphan_erase_failed` and retried next pass;
+the failing owner stays on the absence clock.
+
+The absence clock is worker-local (the loop runs in every gunicorn worker), so two
+workers can each erase the same orphan; erasure is idempotent, so the second one counts
+a no-op. Read the outcome from the scan line:
+`Reconcile scan: … N orphans erased (M pending confirmation) …` and the per-owner
+`personal_agent.orphan_erased hushh_id=… absent_for_s=…` at WARNING.
+
+Guard: `consent-protocol/tests/test_personal_agent_orphan_sweep.py` (14 cases: unknown
+is never absent, absence must persist, mass absence refuses, structurally inert without
+all three callables, bounded per pass, one failure never stops the batch, cloud error
+bodies are redacted).
+
 ## Detecting an update, honestly (2026-09-03)
 
 The founder's rule is that an upgrade is *a software update when the person opens the

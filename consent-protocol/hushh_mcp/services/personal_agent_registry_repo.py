@@ -1422,6 +1422,22 @@ class PersonalAgentRegistryRepo:
         )
         return list(response.data or [])
 
+    async def fetch_owner_rows(self, *, limit: int = 200) -> list[dict]:
+        """Every registry row's owner, for the owner-existence sweep.
+
+        No status filter on purpose: a row stuck at ``awaiting_agent_record`` or
+        ``failed`` whose owner is gone is as orphaned as a ``provisioned`` one, and
+        the substrate it may hold (a project, a bucket) bills the same.
+        """
+        response = (
+            self._db()
+            .table(_REGISTRY)
+            .select("user_id", "hushh_id", "status")
+            .limit(limit)
+            .execute()
+        )
+        return list(response.data or [])
+
     async def fetch_upgrade_candidates(self, *, limit: int = 200) -> list[dict]:
         """Every whole pod, with the metadata that says which image it runs.
 
