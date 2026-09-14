@@ -17,7 +17,6 @@ from api.routes.kai import market_insights
 from hushh_mcp.operons.kai import fetchers
 from hushh_mcp.services.market_insights_cache import MarketInsightsCache
 
-
 # ---------------------------------------------------------------------------
 # Symbol handling
 # ---------------------------------------------------------------------------
