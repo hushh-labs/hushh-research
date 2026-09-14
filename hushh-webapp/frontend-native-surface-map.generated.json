@@ -1918,6 +1918,55 @@
       "thread_and_consent_contract": null
     },
     {
+      "route": "/manishhussh",
+      "page_file": "app/manishhussh/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "standard",
+        "exemption_reason": "Foundation public route intentionally uses the shared ambient public canvas outside the signed-in shell.",
+        "shell_verification_file": null,
+        "shell_verification_includes": [],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.manishhussh",
+          "purpose": "Help the person understand and use the manishhussh screen through its generated controls.",
+          "screen": "app",
+          "entry_cue": "",
+          "proactivity": "ambient",
+          "primary_action_id": null,
+          "happy_path_action_ids": [],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain the current guard and retain the goal.",
+            "cancelled": "Respect the cancellation and retain a safe next step.",
+            "failed": "Acknowledge the failure without claiming completion.",
+            "timeout": "Retain the goal and offer one safe retry.",
+            "callback_error": "Return to the verified callback recovery path without claiming success.",
+            "route_mismatch": "Use the verified current route and its generated actions only."
+          },
+          "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
+          "next_route": null,
+          "return_policy": "navigate",
+          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+        }
+      },
+      "native": null,
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
       "route": "/marketplace",
       "page_file": "app/marketplace/page.tsx",
       "physical_page_exists": true,
@@ -9473,5 +9522,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "626892861bdc2c98235bb60ea8eeb2820d468d94c8fedf34f5b09c5844eeddfb"
+  "content_sha256": "1be85289799b7b382cfda7c0d6b459cde114988cd718f4c2d9862fbee4873c4c"
 }

@@ -89,6 +89,7 @@ export const ROUTES = {
   RESEARCH: "/research",
   RESEARCH_PROTOCOL: "/research/protocol",
   BLOG: "/blog",
+  MANISH_SAINANI: "/manishhussh",
   LOGIN: "/login",
   GETTING_STARTED: "/getting-started",
   LOGOUT: "/logout",
@@ -483,6 +484,7 @@ export function isOnboardingAdmissionExemptRoute(pathname: string): boolean {
     normalizedPathname.startsWith(`${ROUTES.RESEARCH}/`) ||
     normalizedPathname === ROUTES.BLOG ||
     normalizedPathname.startsWith(`${ROUTES.BLOG}/`) ||
+    normalizedPathname === ROUTES.MANISH_SAINANI ||
     normalizedPathname === ROUTES.LOGIN ||
     isFirebaseSessionOnlyRoute(normalizedPathname) ||
     normalizedPathname === ROUTES.GETTING_STARTED ||
@@ -739,6 +741,7 @@ export function isPublicRoute(pathname: string): boolean {
     normalizedPathname.startsWith(`${ROUTES.RESEARCH}/`) ||
     normalizedPathname === ROUTES.BLOG ||
     normalizedPathname.startsWith(`${ROUTES.BLOG}/`) ||
+    normalizedPathname === ROUTES.MANISH_SAINANI ||
     // Both prefixes. `/view/` is where public live-location links point now;
     // `/request/` is what every link minted before the rename carries, and it
     // has to stay public or those land on /login instead of on the forwarder
@@ -780,7 +783,8 @@ export function isFoundationPublicRoute(pathname: string): boolean {
     normalizedPathname === ROUTES.RESEARCH ||
     normalizedPathname.startsWith(`${ROUTES.RESEARCH}/`) ||
     normalizedPathname === ROUTES.BLOG ||
-    normalizedPathname.startsWith(`${ROUTES.BLOG}/`)
+    normalizedPathname.startsWith(`${ROUTES.BLOG}/`) ||
+    normalizedPathname === ROUTES.MANISH_SAINANI
   );
 }
 
