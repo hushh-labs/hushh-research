@@ -8,7 +8,7 @@ def test_uat_deploy_wires_the_personal_gmail_monitor_identity() -> None:
 
     assert (
         "GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_SCHEDULER_SERVICE_ACCOUNT_ID: "
-        "gmail-personal-monitor-scheduler"
+        "gmail-personal-monitor-sched"
     ) in workflow
     assert "_GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_AUTH_ENABLED=true" in workflow
     assert (

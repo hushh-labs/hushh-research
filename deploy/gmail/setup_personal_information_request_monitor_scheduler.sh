@@ -12,11 +12,17 @@ JOB_NAME="${JOB_NAME:-gmail-personal-information-request-monitor-uat}"
 CRON="${CRON:-*/5 * * * *}"
 TIMEZONE="${TIMEZONE:-America/Los_Angeles}"
 MAX_USERS="${MAX_USERS:-20}"
-SCHEDULER_SERVICE_ACCOUNT_NAME="${SCHEDULER_SERVICE_ACCOUNT_NAME:-gmail-personal-monitor-scheduler}"
+SCHEDULER_SERVICE_ACCOUNT_NAME="${SCHEDULER_SERVICE_ACCOUNT_NAME:-gmail-personal-monitor-sched}"
 SCHEDULER_SERVICE_ACCOUNT_EMAIL="${SCHEDULER_SERVICE_ACCOUNT_EMAIL:-}"
 
 if [[ -z "${BACKEND_URL}" ]]; then
   echo "BACKEND_URL is required" >&2
+  exit 1
+fi
+
+if (( ${#SCHEDULER_SERVICE_ACCOUNT_NAME} < 6 || ${#SCHEDULER_SERVICE_ACCOUNT_NAME} > 30 )) \
+  || ! [[ "${SCHEDULER_SERVICE_ACCOUNT_NAME}" =~ ^[a-z][a-z0-9-]*[a-z0-9]$ ]]; then
+  echo "SCHEDULER_SERVICE_ACCOUNT_NAME must be a valid 6-30 character Google service-account ID" >&2
   exit 1
 fi
 

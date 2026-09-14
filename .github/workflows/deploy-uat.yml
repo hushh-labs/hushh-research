@@ -36,7 +36,7 @@ env:
   FRONTEND_SERVICE: hushh-webapp
   FRONTEND_RUNTIME_SERVICE_ACCOUNT: hushh-webapp-runtime@hushh-pda-uat.iam.gserviceaccount.com
   ACCOUNT_DELETION_SCHEDULER_SERVICE_ACCOUNT_ID: account-deletion-cleanup
-  GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_SCHEDULER_SERVICE_ACCOUNT_ID: gmail-personal-monitor-scheduler
+  GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_SCHEDULER_SERVICE_ACCOUNT_ID: gmail-personal-monitor-sched
   APP_FRONTEND_ORIGIN: https://uat.one.hushh.ai
   CONSENT_API_PUBLIC_ORIGIN: https://api.uat.hushh.ai
   CONSENT_API_RUNTIME_ORIGIN: https://consent-protocol-f2gsa4kfsq-uc.a.run.app
