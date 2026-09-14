@@ -574,6 +574,7 @@ class PersonalKnowledgeModelPlugin : Plugin() {
             put("summary", summary)
             call.getObject("structureDecision")?.let { put("structure_decision", it) }
             call.getObject("mutationPlan")?.let { put("mutation_plan", it) }
+            call.getObject("locationFinalizeAuthorization")?.let { put("location_finalize_authorization", it) }
             call.getObject("manifest")?.let { put("manifest", it) }
             call.getInt("expectedDataVersion")?.let { put("expected_data_version", it) }
             call.getObject("upgradeContext")?.let { claim ->
@@ -684,6 +685,8 @@ class PersonalKnowledgeModelPlugin : Plugin() {
                             if (jsonResult.has("manifest_revision")) {
                                 put("manifestRevision", jsonResult.optInt("manifest_revision"))
                             }
+                            if (!jsonResult.isNull("location_run_revision")) put("locationRunRevision", jsonResult.getInt("location_run_revision"))
+                            jsonResult.optString("location_place_receipt_id").takeIf { it.isNotBlank() && it != "null" }?.let { put("locationPlaceReceiptId", it) }
                             jsonResult.optString("commit_id")
                                 .takeIf { it.isNotBlank() }
                                 ?.let { put("commitId", it) }

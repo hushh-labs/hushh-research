@@ -12,7 +12,7 @@ function read(relativePath: string) {
 describe("One interactive audio ownership", () => {
   it("delegates Agent Chat voice requests to the persistent command capture owner", () => {
     const workspace = read("components/agent/agent-chat-workspace.tsx");
-    const agentBar = read("components/agent/command-agent-bar.tsx");
+    const provider = read("components/agent/location-command-provider.tsx");
 
     expect(workspace).toContain("const startConversationalVoice = requestAgentConversation");
     expect(workspace).not.toContain("AgentVoiceClient");
@@ -21,18 +21,18 @@ describe("One interactive audio ownership", () => {
     expect(workspace).not.toContain('owner: "agent_chat"');
     expect(workspace).not.toContain("/agent/voice/");
 
-    expect(agentBar).toContain("AGENT_CONVERSATION_REQUEST_EVENT");
-    expect(agentBar).toContain("new CommandCapture()");
-    expect(agentBar).toContain("new LocationCommandRuntime(");
-    expect(agentBar).not.toContain("createRealtimeVoiceTransport");
-    expect(agentBar).not.toContain("GeminiLiveClient");
+    expect(provider).toContain("AGENT_CONVERSATION_REQUEST_EVENT");
+    expect(provider).toContain("new CommandCapture()");
+    expect(provider).toContain("new LocationCommandRuntime(");
+    expect(provider).not.toContain("createRealtimeVoiceTransport");
+    expect(provider).not.toContain("GeminiLiveClient");
   });
 
   it("keeps the explicit stop inside the same single-owner broker", () => {
     // A cancellation control must never take the release-and-submit request path.
     const workspace = read("components/agent/agent-chat-workspace.tsx");
     const settings = read("lib/agent/agent-voice-settings.ts");
-    const agentBar = read("components/agent/command-agent-bar.tsx");
+    const provider = read("components/agent/location-command-provider.tsx");
 
     expect(settings).toContain("AGENT_CONVERSATION_STOP_EVENT");
     expect(settings).toContain("export function requestAgentConversationStop");
@@ -43,9 +43,9 @@ describe("One interactive audio ownership", () => {
     expect(workspace).not.toContain("onCancel={startConversationalVoice}");
     expect(workspace).not.toContain("onToggleMute={startConversationalVoice}");
     expect(workspace).not.toContain("AgentVoiceClient");
-    expect(agentBar).toContain("AGENT_CONVERSATION_STOP_EVENT");
-    expect(agentBar).toContain("cancelCapture();");
-    expect(agentBar).toContain("command.pause();");
+    expect(provider).toContain("AGENT_CONVERSATION_STOP_EVENT");
+    expect(provider).toContain("cancelCapture();");
+    expect(provider).toContain("command.pause();");
   });
 
   it("keeps removed chained STT and TTS modules out of the app contract", () => {

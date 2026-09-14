@@ -21,6 +21,24 @@ function jsonResponse(body: unknown, status = 200): Response {
 describe("ConnectionsService", () => {
   beforeEach(() => mockApiFetch.mockReset());
 
+  it.each([
+    {person:{userId:"different",relationship:"none"},request:null},
+    {person:{userId:"target",relationship:"pending_outgoing"},request:null},
+    {person:{userId:"target",relationship:"pending_outgoing"},request:{id:"r",direction:"incoming",status:"pending"}},
+    {person:{userId:"target",relationship:"pending_incoming"},request:{id:5,direction:"incoming",status:"pending"}},
+    {person:{userId:"target",relationship:"pending_incoming"},request:{id:"r",direction:"incoming",status:"accepted"}},
+  ])("rejects mismatched or malformed current connection context",async(payload)=>{
+    mockApiFetch.mockResolvedValue(jsonResponse(payload));
+    await expect(ConnectionsService.getPersonContext({idToken:"token",counterpartUserId:"target"})).rejects.toThrow("could not be verified");
+  });
+
+  it("reads participant context with Firebase authentication without gaining Location authority",async()=>{
+    const payload = {person:{userId:"target",relationship:"none",displayName:"Synthetic",photoUrl:null,email:null},request:{id:"r",direction:"outgoing",status:"accepted"}};
+    mockApiFetch.mockResolvedValue(jsonResponse(payload));
+    expect(await ConnectionsService.getPersonContext({idToken:"token",counterpartUserId:"target"})).toEqual(payload);
+    expect(mockApiFetch).toHaveBeenCalledWith("/api/one/connections/target/context",expect.objectContaining({method:"GET",headers:expect.objectContaining({Authorization:"Bearer token"})}));
+  });
+
   it("surfaces a safe FastAPI detail message for contact-sync failures", async () => {
     mockApiFetch.mockResolvedValue(
       jsonResponse(

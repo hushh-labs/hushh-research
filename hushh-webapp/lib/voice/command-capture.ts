@@ -1,6 +1,6 @@
 "use client";
 
-import { Capacitor } from "@capacitor/core";
+import { Capacitor, type PluginListenerHandle } from "@capacitor/core";
 import { NativeOneVoiceInvocation } from "@/lib/capacitor/one-voice-invocation";
 
 export type CommandRecording = {
@@ -15,6 +15,11 @@ export type CommandCapturePermission = {
   state: "granted" | "prompt" | "denied";
   sourcePlatform: "ios" | "android";
 };
+export type CommandCaptureLevel = {
+  sessionId: string;
+  level: number;
+  elapsedMs: number;
+};
 /** One recording in memory. Cancel invalidates permission and worklet callbacks. */
 export class CommandCapture {
   private session: string | null = null;
@@ -25,11 +30,45 @@ export class CommandCapture {
   private rejectFinish: ((error: Error) => void) | null = null;
   private finishTimer: ReturnType<typeof setTimeout> | null = null;
   private finishing = false;
+  private levelListener: PluginListenerHandle | null = null;
+  private resolveFinish: ((wav: ArrayBuffer) => void) | null = null;
+  private webPermissionReady = false;
 
-  async start(sessionId: string, onLimit: () => void): Promise<void> {
+  haptic(kind: "ready" | "cancel"): void {
+    if (this.session && Capacitor.isNativePlatform()) {
+      void NativeOneVoiceInvocation.commandCaptureHaptic({
+        kind,
+        sessionId: this.session,
+      }).catch(() => undefined);
+    }
+  }
+
+  async start(
+    sessionId: string,
+    onLimit: () => void,
+    onLevel?: (event: CommandCaptureLevel) => void,
+  ): Promise<void> {
     if (this.session) throw new Error("The microphone is already in use.");
     this.session = sessionId;
     const requestedAtMs = Date.now();
+    const publishLevel = (event: CommandCaptureLevel) => {
+      if (
+        this.session !== sessionId ||
+        event.sessionId !== sessionId ||
+        this.finishing
+      )
+        return;
+      if (!Number.isFinite(event.level) || !Number.isFinite(event.elapsedMs))
+        return;
+      if (
+        event.level < 0 ||
+        event.level > 1 ||
+        event.elapsedMs < 0 ||
+        event.elapsedMs > 60_000
+      )
+        return;
+      onLevel?.(event);
+    };
     try {
       if (Capacitor.isNativePlatform()) {
         const permission =
@@ -45,6 +84,17 @@ export class CommandCapture {
           );
         }
         this.assertSession(sessionId);
+        if (onLevel) {
+          const listener = await NativeOneVoiceInvocation.addListener(
+            "commandCaptureLevel",
+            publishLevel,
+          );
+          if (this.session !== sessionId) {
+            await listener.remove();
+            this.assertSession(sessionId);
+          }
+          this.levelListener = listener;
+        }
         await NativeOneVoiceInvocation.startCommandCapture({
           sessionId,
           maxDurationMs: 60_000,
@@ -55,22 +105,44 @@ export class CommandCapture {
           throw new Error("Recording cancelled.");
         }
       } else {
+        const permission = await navigator.permissions
+          ?.query({ name: "microphone" as PermissionName })
+          .catch(() => null);
+        const needsFreshGesture = permission?.state === "prompt" || (!permission && !this.webPermissionReady);
+        this.assertSession(sessionId);
         const stream = await navigator.mediaDevices.getUserMedia({
           audio: { channelCount: 1, echoCancellation: true },
         });
+        this.webPermissionReady = true;
         if (this.session !== sessionId) {
           stream.getTracks().forEach((track) => track.stop());
           throw new Error("Recording cancelled.");
         }
         this.stream = stream;
+        // A first permission grant must not turn a released gesture into audio.
+        if (needsFreshGesture) {
+          throw new Error(
+            "Microphone permission updated. Tap Talk to One to record.",
+          );
+        }
         const audio = new AudioContext();
         this.audio = audio;
         await audio.audioWorklet.addModule(
           "/audio/one-command-capture.worklet.js",
         );
         this.assertSession(sessionId);
-        const node = new AudioWorkletNode(audio, "one-command-capture");
+        const node = new AudioWorkletNode(audio, "one-command-capture", {
+          processorOptions: { sessionId },
+        });
         this.node = node;
+        node.port.onmessage = (event) => {
+          const value = event.data;
+          if (this.session !== sessionId || value?.sessionId !== sessionId)
+            return;
+          if (value.type === "level") publishLevel(value);
+          if (value.type === "finished" && value.wav instanceof ArrayBuffer)
+            this.resolveFinish?.(value.wav);
+        };
         audio.createMediaStreamSource(stream).connect(node);
         const silent = audio.createGain();
         silent.gain.value = 0;
@@ -106,15 +178,12 @@ export class CommandCapture {
             "The microphone is still starting. Please record again.",
           );
         const wav = await new Promise<ArrayBuffer>((resolve, reject) => {
+          this.resolveFinish = resolve;
           this.rejectFinish = reject;
           this.finishTimer = setTimeout(
             () => reject(new Error("Recording could not be finalized.")),
             3_000,
           );
-          node.port.onmessage = (event: MessageEvent<ArrayBuffer>) => {
-            if (this.finishTimer) clearTimeout(this.finishTimer);
-            resolve(event.data);
-          };
           node.port.postMessage("finish");
         });
         this.assertSession(sessionId);
@@ -167,6 +236,9 @@ export class CommandCapture {
     if (this.finishTimer) clearTimeout(this.finishTimer);
     this.finishTimer = null;
     this.rejectFinish = null;
+    this.resolveFinish = null;
+    void this.levelListener?.remove().catch(() => undefined);
+    this.levelListener = null;
     this.node?.disconnect();
     if (this.node) this.node.port.onmessage = null;
     this.node = null;

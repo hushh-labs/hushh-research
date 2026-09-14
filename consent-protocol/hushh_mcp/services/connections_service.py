@@ -584,6 +584,66 @@ class ConnectionsService:
             "offerableItems": self._scope_catalog_for_owner(viewer),
         }
 
+    def get_person_context(self, viewer_user_id: str, counterpart_user_id: str) -> dict[str, Any]:
+        """Directory-bounded identity and participant-only connection state.
+
+        A resolved request is historical information, never present eligibility.
+        Location must independently re-read its own relationship/key rules.
+        """
+        viewer, counterpart = viewer_user_id.strip(), counterpart_user_id.strip()
+        if not viewer or not counterpart or viewer == counterpart:
+            raise ConnectionsError(
+                "CONNECTION_SCOPE_TARGET_INVALID", "Invalid connection target.", status_code=422
+            )
+        self._assert_directory_visible(viewer, counterpart)
+        params = {"viewer": viewer, "counterpart": counterpart}
+        row = self._execute_one(
+            """SELECT identity.display_name,
+            COALESCE(identity.custom_photo_url,identity.photo_url) AS photo_url,
+            EXISTS(SELECT 1 FROM connections c WHERE c.status='active'
+                AND ((c.user_a_id=:viewer AND c.user_b_id=:counterpart)
+                  OR (c.user_b_id=:viewer AND c.user_a_id=:counterpart))) AS connected
+            FROM actor_identity_cache identity WHERE identity.user_id=:counterpart""",
+            params,
+        )
+        if not row:
+            raise ConnectionsError(
+                "CONNECTION_SCOPE_TARGET_FORBIDDEN",
+                "That connection target is not available.",
+                status_code=404,
+            )
+        request = self._execute_one(
+            """SELECT id,requester_user_id,addressee_user_id,status FROM connection_requests
+            WHERE (requester_user_id=:viewer AND addressee_user_id=:counterpart)
+               OR (requester_user_id=:counterpart AND addressee_user_id=:viewer)
+            ORDER BY (status='pending') DESC,created_at DESC,id DESC LIMIT 1""",
+            params,
+        )
+        direction = "outgoing" if request and request["requester_user_id"] == viewer else "incoming"
+        relationship = (
+            "connected"
+            if row["connected"]
+            else f"pending_{direction}"
+            if request and request["status"] == "pending"
+            else "none"
+        )
+        return {
+            "person": {
+                "userId": counterpart,
+                "displayName": row.get("display_name"),
+                "photoUrl": row.get("photo_url"),
+                "email": None,
+                "relationship": relationship,
+            },
+            "request": {
+                "id": str(request["id"]),
+                "direction": direction,
+                "status": request["status"],
+            }
+            if request
+            else None,
+        }
+
     def get_information_scope_catalog(
         self,
         viewer_user_id: str,

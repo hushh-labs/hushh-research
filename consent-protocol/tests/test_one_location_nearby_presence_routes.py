@@ -80,6 +80,82 @@ def test_nearby_check_in_uses_token_identity_and_server_resolved_place(
     assert response.headers["cache-control"] == "private, no-store"
 
 
+def test_command_check_in_accepts_the_shared_ledgers_operation_id_shape(client, monkeypatch):
+    operation = "a" * 64
+
+    async def place_details(self, place_id, **_kwargs):
+        return {"placeId": place_id, "label": "Fixture venue", "latitude": 0, "longitude": 0}
+
+    class Presence:
+        def check_in(self, **kwargs):
+            assert kwargs["command_operation_id"] == operation
+            assert kwargs["consent_version"] == "one-location-nearby-presence-v3"
+            return {
+                "presence": None,
+                "attendees": [],
+                "operationReceipt": {"operation_id": operation},
+            }
+
+    monkeypatch.setattr(gms.GoogleMapsService, "place_details", place_details)
+    monkeypatch.setattr(location_routes, "_nearby_presence_service", lambda: Presence())
+    response = client.post(
+        "/api/one/location/nearby-presence/check-in",
+        json={
+            "placeId": "fixture",
+            "currentLat": 0,
+            "currentLng": 0,
+            "accuracyM": 10,
+            "capturedAt": datetime.now(timezone.utc).isoformat(),
+            "durationMinutes": 60,
+            "consentAccepted": True,
+            "commandOperationId": operation,
+            "consentVersion": "one-location-nearby-presence-v3",
+        },
+    )
+    assert response.status_code == 200
+    assert response.json()["operationReceipt"]["operation_id"] == operation
+
+
+def test_command_checkout_requires_complete_binding_and_uses_token_owner(client, monkeypatch):
+    calls = []
+
+    class Presence:
+        def checkout(self, **kwargs):
+            calls.append(kwargs)
+            return {"presence": None, "attendees": [], "checkedOut": True}
+
+    monkeypatch.setattr(location_routes, "_nearby_presence_service", lambda: Presence())
+    body = {
+        "commandOperationId": "a" * 64,
+        "presenceId": "00000000-0000-4000-8000-000000000001",
+        "presenceVersion": 3,
+    }
+    assert (
+        client.request("DELETE", "/api/one/location/nearby-presence", json=body).status_code == 200
+    )
+    assert calls == [
+        {
+            "user_id": "u1",
+            "command_operation_id": "a" * 64,
+            "presence_id": body["presenceId"],
+            "presence_version": 3,
+        }
+    ]
+    for malformed in (
+        {"commandOperationId": "a" * 64},
+        {**body, "presenceVersion": True},
+        {**body, "userId": "other"},
+        {**body, "commandOperationId": "bad"},
+    ):
+        assert (
+            client.request(
+                "DELETE", "/api/one/location/nearby-presence", json=malformed
+            ).status_code
+            == 422
+        )
+    assert len(calls) == 1
+
+
 def test_nearby_check_in_rejects_a_non_check_in_place_before_persistence(
     client,
     monkeypatch,

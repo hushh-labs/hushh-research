@@ -17,8 +17,11 @@ import json
 import re
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 from typing import Any, Literal, Mapping
 from uuid import uuid4
+
+from sqlalchemy import text
 
 from db.db_client import get_db
 from hushh_mcp.runtime_settings import get_core_security_settings
@@ -245,7 +248,9 @@ class CapabilityRunStore:
         db: Any | None = None,
         cipher: Any | None = None,
         hmac_key: str | None = None,
+        connection: Any = None,
     ) -> None:
+        self._connection = connection
         self._db = db
         # AgentChatService imports the text agent tree.  Loading it while the
         # Live action tools are importing would create a cycle, even though a
@@ -274,6 +279,11 @@ class CapabilityRunStore:
         return self._cipher
 
     async def _execute(self, sql: str, params: dict[str, Any]) -> Any:
+        if self._connection is not None:
+            result = self._connection.execute(text(sql), params)
+            return SimpleNamespace(
+                data=[dict(row) for row in result.mappings()] if result.returns_rows else []
+            )
         return await asyncio.to_thread(self.db.execute_raw, sql, params)
 
     def _hmac(self, value: Any) -> str:
@@ -1176,6 +1186,12 @@ class CapabilityRunStore:
               SELECT run_id
               FROM one_capability_runs
               WHERE expires_at <= NOW()
+                -- Finalized Location slots contain only opaque receipt IDs.
+                -- Preserve that historical setup proof, never its execution
+                -- authority. Other runs still obey the bounded retention.
+                AND NOT (capability_id='workflow.setup.location' AND capability_version=2
+                  AND status='verified_succeeded' AND step_cursor='location.onboarding.complete'
+                  AND NULLIF(settlement_reference_hmac,'') IS NOT NULL)
               ORDER BY expires_at ASC, run_id ASC
               LIMIT :limit
               FOR UPDATE SKIP LOCKED

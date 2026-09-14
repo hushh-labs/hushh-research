@@ -15,6 +15,8 @@
  * Caching: uses CacheService for in-memory caching with TTL to reduce API calls.
  */
 
+import type { LocationPkmFinalizeAuthorizationV1 } from "@/lib/services/one-location-onboarding-run-client";
+import { locationFinalizeWire } from "@/lib/one-location/pkm-finalize-authorization";
 import { Capacitor } from "@capacitor/core";
 import { HushhPersonalKnowledgeModel } from "@/lib/capacitor";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
@@ -150,6 +152,8 @@ export interface StoreDomainDataResult {
   updatedAt?: string;
   manifestRevision?: number;
   commitId?: string;
+  locationRunRevision?: number;
+  locationPlaceReceiptId?: string;
   archivedRevisionId?: string;
   preservationReceipt?: PreservationReceiptV1;
 }
@@ -1965,6 +1969,8 @@ export class PersonalKnowledgeModelService {
     upgradeContext?: PkmUpgradeContext;
     preservationReceipt?: PreservationReceiptV1;
     mutationPlan?: PkmMutationPlanV2;
+    locationFinalizeAuthorization?: LocationPkmFinalizeAuthorizationV1;
+    beforeEffect?: () => Promise<void>;
     syncCheckpoint?: PkmSyncCheckpointMetadata;
     vaultOwnerToken?: string;
   }): Promise<StoreDomainDataResult> {
@@ -2035,6 +2041,7 @@ export class PersonalKnowledgeModelService {
       : undefined;
 
     if (Capacitor.isNativePlatform()) {
+      await params.beforeEffect?.();
       const result = await HushhPersonalKnowledgeModel.storeDomainData({
         userId: params.userId,
         domain: params.domain,
@@ -2053,6 +2060,7 @@ export class PersonalKnowledgeModelService {
         upgradeContext: params.upgradeContext,
         preservationReceipt: params.preservationReceipt,
         mutationPlan: params.mutationPlan,
+        locationFinalizeAuthorization: params.locationFinalizeAuthorization ? locationFinalizeWire(params.locationFinalizeAuthorization) : undefined,
         syncCheckpoint: params.syncCheckpoint,
         vaultOwnerToken: this.getVaultOwnerToken(params.vaultOwnerToken),
       });
@@ -2088,6 +2096,8 @@ export class PersonalKnowledgeModelService {
         updatedAt: resolvedUpdatedAt,
         manifestRevision: result.manifestRevision,
         commitId: result.commitId,
+        locationRunRevision: result.locationRunRevision,
+        locationPlaceReceiptId: result.locationPlaceReceiptId,
         archivedRevisionId: result.archivedRevisionId,
         preservationReceipt: result.preservationReceipt,
       };
@@ -2112,6 +2122,7 @@ export class PersonalKnowledgeModelService {
         payload: projection.payload,
       })),
       mutation_plan: params.mutationPlan,
+      location_finalize_authorization: params.locationFinalizeAuthorization ? locationFinalizeWire(params.locationFinalizeAuthorization) : undefined,
     };
     if (Number.isFinite(params.expectedDataVersion)) {
       payload.expected_data_version = Math.max(0, Number(params.expectedDataVersion));
@@ -2166,6 +2177,7 @@ export class PersonalKnowledgeModelService {
     }
 
     // Web: Use ApiService.apiFetch() for tri-flow compliance
+    await params.beforeEffect?.();
     const response = await ApiService.apiFetch(`${this.PKM_API_PREFIX}/store-domain`, {
       method: "POST",
       headers: {
@@ -2243,6 +2255,8 @@ export class PersonalKnowledgeModelService {
       manifestRevision:
         typeof data.manifest_revision === "number" ? data.manifest_revision : undefined,
       commitId: typeof data.commit_id === "string" ? data.commit_id : undefined,
+      locationRunRevision: typeof data.location_run_revision === "number" ? data.location_run_revision : undefined,
+      locationPlaceReceiptId: typeof data.location_place_receipt_id === "string" ? data.location_place_receipt_id : undefined,
       archivedRevisionId:
         typeof data.archived_revision_id === "string" ? data.archived_revision_id : undefined,
       preservationReceipt:
@@ -3141,6 +3155,8 @@ export class PersonalKnowledgeModelService {
     upgradeContext?: PkmUpgradeContext;
     preservationReceipt?: PreservationReceiptV1;
     mutationPlan?: PkmMutationPlanV2;
+    locationFinalizeAuthorization?: LocationPkmFinalizeAuthorizationV1;
+    beforeEffect?: () => Promise<void>;
     syncCheckpoint?: PkmSyncCheckpointMetadata;
     vaultOwnerToken?: string;
     cacheFullBlob?: boolean;
@@ -3150,6 +3166,9 @@ export class PersonalKnowledgeModelService {
     message?: string;
     dataVersion?: number;
     updatedAt?: string;
+    commitId?: string;
+    locationRunRevision?: number;
+    locationPlaceReceiptId?: string;
     fullBlob: Record<string, unknown>;
   }> {
     const previousManifest = await this.getDomainManifest(
@@ -3198,6 +3217,8 @@ export class PersonalKnowledgeModelService {
       upgradeContext: params.upgradeContext,
       preservationReceipt: params.preservationReceipt,
       mutationPlan: params.mutationPlan,
+      locationFinalizeAuthorization: params.locationFinalizeAuthorization,
+      beforeEffect: params.beforeEffect,
       syncCheckpoint: params.syncCheckpoint,
       vaultOwnerToken: params.vaultOwnerToken,
     });
@@ -3228,6 +3249,9 @@ export class PersonalKnowledgeModelService {
       message: result.message,
       dataVersion: result.dataVersion,
       updatedAt: result.updatedAt,
+      commitId: result.commitId,
+      locationRunRevision: result.locationRunRevision,
+      locationPlaceReceiptId: result.locationPlaceReceiptId,
       fullBlob: merged.fullBlob,
     };
   }

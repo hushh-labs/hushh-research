@@ -65,7 +65,7 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { Switch } from "@/components/ui/switch";
-import { useLocalOnboardingActionHandler } from "@/lib/agent/local-onboarding-actions";
+import { useLocalOnboardingActionHandler, type LocalOnboardingActionContext, type LocalOnboardingActionResult } from "@/lib/agent/local-onboarding-actions";
 import { relationshipCta } from "@/lib/connections/relationship-label";
 import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
 import { appInteractionCoordinator } from "@/lib/interaction/interaction-intent-coordinator";
@@ -76,16 +76,13 @@ import {
 } from "@/lib/one-location/location-grant-memory";
 import { locationBlockReason } from "@/lib/one-location/location-readiness";
 import {
-  ambiguousMatchNames,
-  resolveSpokenNames,
-} from "@/lib/one-location/resolve-spoken-names";
-import {
   addSavedLocation,
   DuplicateSavedLocationError,
   findDuplicateSavedLocation,
   loadSavedLocations,
 } from "@/lib/one-location/saved-locations";
 import { OneLocationService } from "@/lib/one-location/service";
+import { prepareNearbyCommand, performNearbyCheckIn, prepareNearbyCheckout, performNearbyCheckout, type NearbyCommandBinding, type NearbyCheckoutBinding } from "@/lib/one-location/command-nearby";
 import { ONE_LOCATION_NEARBY_MAX_ACCURACY_METERS } from "@/lib/one-location/nearby-check-in-availability";
 import type {
   OneLocationNearbyAttendee,
@@ -419,9 +416,8 @@ function hasCheckInAccuracy(point: PlainLocationPoint): boolean {
 }
 
 /**
- * Maps a spoken duration to the nearest of the three fixed options the sheet
- * itself offers -- never a free-form number, matching how `location.share_selected`
- * only accepts the durations its own screen presents.
+ * Accept only the actual choices. Keep the exported name for existing callers;
+ * unsupported durations require the user to choose, never silent rounding.
  */
 export function nearestCheckInDurationMinutes(
   spoken: unknown,
@@ -430,10 +426,7 @@ export function nearestCheckInDurationMinutes(
   if (!raw) return null;
   const numeric = Number(raw);
   if (!Number.isFinite(numeric) || numeric <= 0) return null;
-  const options: Array<30 | 60 | 120> = [30, 60, 120];
-  return options.reduce((closest, option) =>
-    Math.abs(option - numeric) < Math.abs(closest - numeric) ? option : closest,
-  );
+  return numeric === 30 || numeric === 60 || numeric === 120 ? numeric : null;
 }
 
 function timeLeftLabel(expiresAt: string): string {
@@ -862,12 +855,14 @@ export function NearbyCheckInSheet({
           return;
         }
         const boundedSuggestions = normalizeAutomaticPlaces(suggestions);
+        automaticPlacesRef.current = boundedSuggestions;
         setAutomaticPlaces(boundedSuggestions);
         if (boundedSuggestions.length === 0) {
           setPlacesError(
             "No places found. Search another place or update your location.",
           );
         }
+        return boundedSuggestions;
       } catch (error) {
         if (
           ownerEpochRef.current !== expectedOwnerEpoch ||
@@ -878,6 +873,7 @@ export function NearbyCheckInSheet({
         setAutomaticPlaces([]);
         setPlacesError(OneLocationService.placesSearchErrorMessage(error));
       }
+      return undefined;
     },
     [ownerId, vaultOwnerToken],
   );
@@ -1078,7 +1074,7 @@ export function NearbyCheckInSheet({
         rememberLocationGrant(ownerId);
         setPointOrigin("fresh");
         setPoint(nextPoint);
-        await loadPlaces(nextPoint, generation, expectedOwnerEpoch);
+        return await loadPlaces(nextPoint, generation, expectedOwnerEpoch);
       } catch {
         if (
           ownerEpochRef.current !== expectedOwnerEpoch ||
@@ -1103,6 +1099,7 @@ export function NearbyCheckInSheet({
           setCapturing(false);
         }
       }
+      return undefined;
     },
     [
       adoptLastKnownPoint,
@@ -1606,14 +1603,14 @@ export function NearbyCheckInSheet({
         return;
       }
       setPoint(freshPoint);
-      const next = await OneLocationService.checkInNearby({
-        vaultOwnerToken: ownerToken,
-        placeId: selectedPlace.placeId,
-        point: freshPoint,
-        durationMinutes,
-        consentAccepted: true,
-        allowConnectionRequests,
+      const completed = await performNearbyCheckIn({
+        placeId: selectedPlace.placeId, durationMinutes, consentAccepted, allowConnectionRequests,
+        capture: async () => freshPoint,
+        current: () => ownerEpochRef.current === expectedOwnerEpoch && presenceMutationGenerationRef.current === generation,
+        save: (point) => OneLocationService.checkInNearby({ vaultOwnerToken: ownerToken, placeId: selectedPlace.placeId,
+          point, durationMinutes, consentAccepted, allowConnectionRequests }),
       });
+      const next = completed.state;
       if (
         ownerEpochRef.current !== expectedOwnerEpoch ||
         presenceMutationGenerationRef.current !== generation
@@ -1698,256 +1695,88 @@ export function NearbyCheckInSheet({
     }
   };
 
-  useLocalOnboardingActionHandler("location.nearby_check_in", async (slots) => {
-    if (!ownerId || !vaultOwnerToken) {
-      return {
-        status: "blocked" as const,
-        summary: "Unlock One first to check in.",
-      };
-    }
-    const requestedDuration = nearestCheckInDurationMinutes(
-      slots?.duration_minutes,
-    );
-    if (requestedDuration) setDurationMinutes(requestedDuration);
-
-    await captureAndLoadPlaces();
-    const candidates = automaticPlacesRef.current;
-
-    const rawPlace = String(slots?.place ?? "").trim();
-    if (rawPlace && candidates.length > 0) {
-      const { resolved, unresolved } = resolveSpokenNames(
-        candidates,
-        rawPlace,
-        (place) => place.name ?? place.text,
-      );
-      if (resolved.length === 1) {
-        const match = resolved[0]!;
-        setSelectedPlaceId(match.placeId);
-        const matchName = match.name ?? match.text;
-        return {
-          status: "succeeded" as const,
-          summary: `Matched ${matchName}. Call confirm_nearby_check_in with this place${
-            requestedDuration
-              ? ` for ${requestedDuration} minutes`
-              : " and how long to check in for"
-          } to finish.`,
-          data: { subject: { name: matchName, detail: null } },
-        };
-      }
-      const ambiguous = unresolved.find((entry) => entry.kind === "ambiguous");
-      if (ambiguous && ambiguous.kind === "ambiguous") {
-        const names = ambiguousMatchNames(
-          ambiguous.matches,
-          (place) => place.name ?? place.text,
-        );
-        return {
-          status: "blocked" as const,
-          summary: names
-            ? `${ambiguous.matches.length} nearby places match that: ${names}. Ask which one.`
-            : "More than one nearby place matches that name. Ask which one.",
-        };
-      }
-      // Named but not among the candidates -- fall through to listing what's
-      // actually nearby rather than guessing.
-    }
-
-    if (candidates.length === 0) {
-      // The same capture that fills automaticPlaces also sets one of these on
-      // failure. Surfacing the real reason (permission denied, GPS too
-      // coarse, a search error) instead of a generic "nothing is nearby"
-      // matters here specifically -- the person just said where they are.
-      const specificReason = locationErrorRef.current ?? placesErrorRef.current;
-      return {
-        status: "blocked" as const,
-        summary: specificReason
-          ? `${specificReason} Check-In is open -- search for the place there instead.`
-          : "No plausible places nearby right now. Check-In is open -- search for the place there instead.",
-      };
-    }
-    // Five short names comfortably fits the 320-char settlement-summary budget
-    // (see adk_live.py's bounded_text) -- this is a hard cap on candidates
-    // offered, not merely a display truncation.
-    const names = candidates
-      .slice(0, 5)
-      .map((place) => place.name ?? place.text)
-      .filter(Boolean)
-      .join(", ");
+  useLocalOnboardingActionHandler("location.nearby_check_in", async (slots, context) => {
+    if (!ownerId || !vaultOwnerToken || context?.signal?.aborted)
+      return { status: "blocked", summary: "Unlock One to find nearby places." };
+    const expectedOwnerEpoch = ownerEpochRef.current;
+    // Use the exact completed provider read. A React effect may still hold the
+    // previous search while this promise resolves.
+    const observed = await captureAndLoadPlaces();
+    if (ownerEpochRef.current !== expectedOwnerEpoch || context?.signal?.aborted)
+      return { status: "blocked", summary: "The search was interrupted." };
+    if (!observed) return { status: "blocked", summary: "A fresh nearby search could not finish. Review Location access and try again." };
+    const venueType = String(slots.venue_type || "all");
+    const count = Number(slots.count || "10");
+    const candidates = observed.filter((place) => venueType === "all" || place.primaryType === venueType || place.primaryType?.endsWith(`_${venueType}`)).slice(0, count);
+    const observedAt = new Date().toISOString();
     return {
-      status: "succeeded" as const,
-      summary: `Nearby: ${names}. Call confirm_nearby_check_in once they say which one${
-        requestedDuration ? "" : " and for how long"
-      }.`,
+      status: "succeeded",
+      summary: candidates.length ? candidates.map((place, index) => `${index + 1}. ${place.name || place.text}`).join("\n") : "No matching places were returned nearby. Try another category or search on this screen.",
+      data: { command_observations: candidates.map((place) => ({
+        reference: `candidate_${crypto.randomUUID().replaceAll("-", "")}`, kind: "place", id: place.placeId,
+        name: (place.name || place.text).slice(0, 120), observed_at: observedAt,
+      })) },
     };
-  });
+  }, { prepare: () => ({ status: "ready", binding: { owner: ownerId, read: "nearby_places" }, summary: "Find current nearby places. This does not publish a check-in." }) });
 
-  useLocalOnboardingActionHandler(
-    "location.confirm_nearby_check_in",
-    async (slots) => {
-      if (!ownerId || !vaultOwnerToken) {
-        return {
-          status: "blocked" as const,
-          summary: "Unlock One first to check in.",
-        };
-      }
-      const candidates = automaticPlacesRef.current;
-      if (candidates.length === 0) {
-        return {
-          status: "blocked" as const,
-          summary: "Say check in near me first so I know what's nearby.",
-        };
-      }
-      const rawPlace = String(slots?.place ?? "").trim();
-      if (!rawPlace) {
-        return {
-          status: "blocked" as const,
-          summary: "Which place from the list?",
-        };
-      }
-      const { resolved, unresolved } = resolveSpokenNames(
-        candidates,
-        rawPlace,
-        (place) => place.name ?? place.text,
-      );
-      if (resolved.length !== 1) {
-        const ambiguous = unresolved.find(
-          (entry) => entry.kind === "ambiguous",
-        );
-        if (ambiguous && ambiguous.kind === "ambiguous") {
-          const names = ambiguousMatchNames(
-            ambiguous.matches,
-            (place) => place.name ?? place.text,
-          );
-          return {
-            status: "blocked" as const,
-            summary: names
-              ? `${ambiguous.matches.length} nearby places match that: ${names}. Ask which one.`
-              : "More than one nearby place matches that name. Ask which one.",
-          };
-        }
-        return {
-          status: "blocked" as const,
-          summary:
-            "That doesn't match any of the nearby places. Check-In is open -- search for it there instead.",
-        };
-      }
-      const place = resolved[0]!;
-      const resolvedDuration = nearestCheckInDurationMinutes(
-        slots?.duration_minutes,
-      );
-      if (!resolvedDuration) {
-        return {
-          status: "blocked" as const,
-          summary: "For how long -- 30 minutes, 1 hour, or 2 hours?",
-        };
-      }
-      if (mutationInFlightRef.current) {
-        return {
-          status: "blocked" as const,
-          summary: "Already checking in -- one moment.",
-        };
-      }
-      // Read Part 1's standing defaults directly rather than the on-screen
-      // consentAccepted/allowConnectionRequests state: those default to
-      // false and reset every mount, and calling checkIn() right after a
-      // setState here would still see THIS render's stale, pre-update
-      // closure -- setState does not retroactively change what an
-      // already-created closure reads.
-      let visibilityDefault: boolean;
-      let allowConnectionRequestsDefault: boolean;
-      try {
-        const preferences =
-          await OneLocationService.getNearbyCheckInPreferences(vaultOwnerToken);
-        visibilityDefault = preferences.visible;
-        allowConnectionRequestsDefault = preferences.allowConnectionRequests;
-      } catch {
-        return {
-          status: "blocked" as const,
-          summary:
-            "Couldn't read your Nearby Check-In defaults. Try again in a moment, or tap to check in and confirm there.",
-        };
-      }
-      if (!visibilityDefault) {
-        return {
-          status: "blocked" as const,
-          summary:
-            "Nearby Check-In visibility is turned off in Voice Settings, so I can't check you in without a tap. Turn it on there, or tap to check in and confirm on screen.",
-        };
-      }
-      setSelectedPlaceId(place.placeId);
-      setDurationMinutes(resolvedDuration);
-      setConsentAccepted(true);
-      setAllowConnectionRequests(allowConnectionRequestsDefault);
-      mutationInFlightRef.current = true;
-      setBusy("check-in");
-      try {
-        const freshPoint = await captureCurrentPosition({ fresh: true });
-        if (!hasCheckInAccuracy(freshPoint)) {
-          trackOneLocationJourneyAction({
-            action: "nearby_check_in_result",
-            result: "expected_error",
-            routeId: "one_location_check_in",
-            entrySurface: "agent",
-          });
-          setPoint(null);
-          setLocationRecovery(isNative() ? "app-settings" : null);
-          setLocationError(
-            "We couldn't confirm where you are at the moment you checked in. Nothing was shared — try again in a second.",
-          );
-          return {
-            status: "blocked" as const,
-            summary:
-              "Couldn't confirm your location precisely enough. Nothing was shared — try again in a second.",
-          };
-        }
-        setPoint(freshPoint);
-        const next = await OneLocationService.checkInNearby({
-          vaultOwnerToken,
-          placeId: place.placeId,
-          point: freshPoint,
-          durationMinutes: resolvedDuration,
-          consentAccepted: true,
-          allowConnectionRequests: allowConnectionRequestsDefault,
-        });
-        publishState(next);
+  useLocalOnboardingActionHandler("location.confirm_nearby_check_in", async (_slots, context) => {
+    const binding = context?.preparedBinding as NearbyCommandBinding | undefined;
+    if (!ownerId || !vaultOwnerToken || !binding || !context?.operationId || !context.humanConfirmationToken)
+      return { status: "blocked", summary: "Review this place and Nearby visibility before checking in." };
+    if (mutationInFlightRef.current) return { status: "blocked", summary: "A check-in is already finishing. Review its result first." };
+    const expectedOwnerEpoch = ownerEpochRef.current;
+    const generation = ++presenceMutationGenerationRef.current;
+    presenceReadGenerationRef.current += 1;
+    mutationInFlightRef.current = true;
+    setBusy("check-in");
+    const current = () => ownerEpochRef.current === expectedOwnerEpoch && presenceMutationGenerationRef.current === generation;
+    let accuracyUnavailable = false;
+    try {
+      const completed = await performNearbyCheckIn({
+        placeId: binding.placeId, durationMinutes: binding.durationMinutes, allowConnectionRequests: binding.allowConnectionRequests,
+        consentAccepted: true, consentVersion: binding.consentVersion, operationId: context.operationId, signal: context.signal, current,
+        capture: async () => {
+          const point = await captureCurrentPosition({ fresh: true });
+          if (!hasCheckInAccuracy(point)) {
+            accuracyUnavailable = true;
+            throw Error("A precise location reading is needed before check-in.");
+          }
+          return point;
+        },
+        save: (point) => OneLocationService.checkInNearby({ vaultOwnerToken, placeId: binding.placeId, point,
+          durationMinutes: binding.durationMinutes, consentAccepted: true, allowConnectionRequests: binding.allowConnectionRequests,
+          commandOperationId: context.operationId, consentVersion: binding.consentVersion }),
+      });
+      setPoint(completed.point);
+      publishState(completed.state);
+      setViewState(completed.state.presence ? "active" : "setup");
+      setCompletedCheckIn(null); setAddTimeOpen(false); setAddTimeBusy(null);
+      setAutomaticPlaces([]); setSearchResults([]); setSelectedPlaceId(""); setSearch("");
+      trackOneLocationJourneyAction({
+        action: "nearby_check_in_result",
+        result: "success",
+        routeId: "one_location_check_in",
+        entrySurface: "agent",
+      });
+      return { status: "succeeded", summary: `Check-in saved at ${binding.placeLabel} for ${binding.durationMinutes} minutes.` };
+    } catch (error) {
+      if (current() && !context.signal?.aborted) {
         trackOneLocationJourneyAction({
           action: "nearby_check_in_result",
-          result: "success",
+          result: accuracyUnavailable ? "expected_error" : "error",
           routeId: "one_location_check_in",
           entrySurface: "agent",
         });
-        setViewState("active");
-        setCompletedCheckIn(null);
-        setAddTimeOpen(false);
-        setAddTimeBusy(null);
-        setAutomaticPlaces([]);
-        setSearchResults([]);
-        setSelectedPlaceId("");
-        setSearch("");
-        toast.success("You're checked in nearby.");
-        const placeName = place.name ?? place.text;
-        return {
-          status: "succeeded" as const,
-          summary: `Checked in at ${placeName} for ${resolvedDuration} minutes.`,
-          data: {
-            subject: { name: placeName, detail: `${resolvedDuration} min` },
-          },
-        };
-      } catch (error) {
-        const details = OneLocationService.nearbyCheckInErrorDetails(error);
-        trackOneLocationJourneyAction({
-          action: "nearby_check_in_result",
-          result: "error",
-          routeId: "one_location_check_in",
-          entrySurface: "agent",
-        });
-        toast.error(details.message);
-        return { status: "blocked" as const, summary: details.message };
-      } finally {
-        mutationInFlightRef.current = false;
-        setBusy(null);
       }
-    },
-  );
+      return { status: "failed", summary: OneLocationService.nearbyCheckInErrorDetails(error).message };
+    } finally {
+      if (current()) { mutationInFlightRef.current = false; setBusy(null); }
+    }
+  }, { prepare: (slots, choice, resources) => prepareNearbyCommand({ owner: ownerId, slots, choice, resources,
+    candidates: [...automaticPlacesRef.current, ...searchResults].map((place) => ({ placeId: place.placeId, name: place.name || place.text })),
+    currentPresence: state.presence?.checkedInAt || null,
+    details: (placeId) => OneLocationService.placeDetails({ vaultOwnerToken: vaultOwnerToken || "", placeId }),
+  }) });
 
   /**
    * Decide whether the checked-out venue is worth offering to Saved Places.
@@ -2169,8 +1998,12 @@ export function NearbyCheckInSheet({
     }
   };
 
-  const checkout = async () => {
-    if (!ownerId || !vaultOwnerToken || mutationInFlightRef.current) return;
+  const checkout = async (context?: LocalOnboardingActionContext): Promise<LocalOnboardingActionResult> => {
+    if (!ownerId || !vaultOwnerToken || mutationInFlightRef.current)
+      return { status: "blocked", summary: "Unlock One and wait for the current Nearby operation to finish." };
+    const binding = context?.preparedBinding as NearbyCheckoutBinding | undefined;
+    if (context && (!context.operationId || binding?.owner !== ownerId || !context.humanConfirmationToken))
+      return { status: "blocked", summary: "Review the current Nearby check-in before ending it." };
     const ownerToken = vaultOwnerToken;
     // Snapshot the anchor before checkout clears the presence record.
     const savedPlaceOffer = savePlaceCandidate(state.presence);
@@ -2179,17 +2012,28 @@ export function NearbyCheckInSheet({
     presenceReadGenerationRef.current += 1;
     mutationInFlightRef.current = true;
     setBusy("checkout");
+    const current = () => ownerEpochRef.current === expectedOwnerEpoch && presenceMutationGenerationRef.current === generation;
     try {
-      const next = await OneLocationService.checkoutNearby({
-        vaultOwnerToken: ownerToken,
+      const next = await performNearbyCheckout({
+        binding, operationId: context?.operationId, signal: context?.signal, current,
+        save: () => OneLocationService.checkoutNearby({ vaultOwnerToken: ownerToken,
+          ...(context?.operationId ? { commandOperationId: context.operationId,
+            presenceId: binding!.presenceId, presenceVersion: binding!.presenceVersion } : {}),
+        }),
       });
       if (
         ownerEpochRef.current !== expectedOwnerEpoch ||
         presenceMutationGenerationRef.current !== generation
       ) {
-        return;
+        return { status: "blocked", summary: "Your account changed. Review Nearby after unlocking." };
       }
       publishState(next);
+      if (context) {
+        setViewState(next.presence ? "active" : "setup");
+        return { status: "succeeded", summary: next.presence
+          ? "The earlier checkout is complete. A newer Nearby check-in is active."
+          : binding?.presenceId ? "That Nearby check-in has ended." : "You have no active Nearby check-in." };
+      }
       setViewState("completed");
       setCompletedCheckIn({
         placeLabel:
@@ -2215,15 +2059,17 @@ export function NearbyCheckInSheet({
       setAddTimeOpen(false);
       setAddTimeBusy(null);
       void offerSavePlace(savedPlaceOffer);
-    } catch {
+      return { status: "succeeded", summary: "Your Nearby check-in has ended." };
+    } catch (error) {
       if (
         ownerEpochRef.current === expectedOwnerEpoch &&
         presenceMutationGenerationRef.current === generation
       ) {
-        toast.error(
+        if (!context) toast.error(
           "Couldn't end the check-in. You may still be visible nearby.",
         );
       }
+      return { status: "failed", summary: error instanceof Error ? error.message : "Checkout could not be verified. Review Nearby before trying again." };
     } finally {
       if (
         ownerEpochRef.current === expectedOwnerEpoch &&
@@ -2235,13 +2081,12 @@ export function NearbyCheckInSheet({
     }
   };
 
-  // No voice handler for location.checkout_nearby lives here, deliberately.
-  // It is in BACKEND_DIRECT_ACTION_IDS (consent-protocol's action_tools.py),
-  // so the backend mutates through the service layer directly and never parks
-  // a client directive for a local handler to pick up -- a handler registered
-  // here could not fire. One briefly existed on the mistaken reading that a
-  // missing local handler meant the action was broken; a backend-direct action
-  // needs no frontend registration at all.
+  useLocalOnboardingActionHandler("location.checkout_nearby", (_slots, context) => {
+    if (!context) return { status: "blocked", summary: "Review the current Nearby check-in first." };
+    return checkout(context);
+  }, { prepare: () => prepareNearbyCheckout({ owner: ownerId,
+    read: () => OneLocationService.getNearbyPresence({ vaultOwnerToken: vaultOwnerToken || "" }),
+  }) });
 
   const connect = async (attendee: OneLocationNearbyAttendee) => {
     if (

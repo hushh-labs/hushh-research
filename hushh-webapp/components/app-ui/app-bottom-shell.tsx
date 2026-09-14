@@ -1,8 +1,15 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+} from "react";
 
 import { AgentBar } from "@/components/agent/agent-bar";
+import { useOptionalLocationCommand } from "@/components/agent/location-command-provider";
 import { Navbar } from "@/components/navbar";
 import { AmbientChromeMask } from "@/components/app-ui/ambient-chrome-mask";
 import { snapKaiBottomChromeVisible } from "@/lib/navigation/kai-bottom-chrome-visibility";
@@ -19,6 +26,8 @@ const BOTTOM_SCROLL_TRANSFORM =
 
 /** Shared persistent bottom chrome: one material/motion owner, separate controls. */
 export function AppBottomShell({ model }: { model: BottomShellModel }) {
+  const command = useOptionalLocationCommand();
+  const hidden = model.hidden && !command?.active;
   const shellRef = useRef<HTMLDivElement | null>(null);
   const navigationSlotRef = useRef<HTMLDivElement | null>(null);
   // AgentBar reads client-only auth and agent-popover state. Rendering its
@@ -31,7 +40,7 @@ export function AppBottomShell({ model }: { model: BottomShellModel }) {
   }, []);
 
   useLayoutEffect(() => {
-    if (model.hidden) {
+    if (hidden) {
       const root = document.documentElement;
       root.style.setProperty("--app-bottom-shell-height", "0px");
       root.style.setProperty("--bottom-nav-travel", "0px");
@@ -60,9 +69,9 @@ export function AppBottomShell({ model }: { model: BottomShellModel }) {
     observer.observe(shell);
     if (navigationSlotRef.current) observer.observe(navigationSlotRef.current);
     return () => observer.disconnect();
-  }, [model.hidden, model.navigationHidden]);
+  }, [hidden, model.navigationHidden]);
 
-  if (model.hidden) return null;
+  if (hidden) return null;
 
   const maskStyle = {
     height:
@@ -81,6 +90,7 @@ export function AppBottomShell({ model }: { model: BottomShellModel }) {
       <div
         ref={shellRef}
         data-app-bottom-shell
+        data-command-active={command?.active || undefined}
         data-ui-role="bottom-shell"
         data-bottom-shell-navigation-hidden={
           model.navigationHidden || undefined

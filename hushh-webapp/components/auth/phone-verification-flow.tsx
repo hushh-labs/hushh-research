@@ -1111,7 +1111,12 @@ export function PhoneVerificationFlow({
                       aria-hidden="true"
                       className="pointer-events-none absolute inset-y-0 left-4 z-10 flex min-w-0 max-w-[calc(100%-3.5rem)] items-center gap-2 whitespace-nowrap text-[15px] text-[#17130c] dark:text-[#f5f5f7]"
                     >
-                      <FigmaCountryFlag />
+                      <FigmaCountryFlag
+                        countryCode={
+                          selectedCountryOption?.value ??
+                          DEFAULT_PHONE_COUNTRY_OPTION.value
+                        }
+                      />
                       <span className="min-w-0 truncate">{selectedCountryDisplayLabel}</span>
                     </span>
                   ) : null}

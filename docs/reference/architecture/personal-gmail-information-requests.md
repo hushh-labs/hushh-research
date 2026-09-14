@@ -12,8 +12,10 @@ platform map.
 
 ```mermaid
 flowchart LR
-  optin["Owner enables monitor"] --> baseline["Capture Gmail history baseline"]
-  baseline --> scan["Bounded new-message scan"]
+  optin["Owner starts monitor"] --> baseline["Capture Gmail history baseline"]
+  baseline --> catchup["Bounded newest-30 Inbox scan"]
+  catchup --> scan["Incremental new-message scan"]
+  catchup --> classify
   scan --> classify["Transient classification"]
   classify --> queue["Metadata-only review queue"]
   queue --> local["Unlocked client creates draft"]
@@ -24,14 +26,18 @@ flowchart LR
 ## Current delivery slice
 
 1. An owner explicitly enables monitoring from the Gmail workspace.
-2. Enabling captures the connected Gmail account's current History API marker.
-   A separate scheduled monitor (or the owner's bounded refresh) then reads
-   only Inbox messages added after that marker that are still unread when the
-   monitor reaches them. Messages already in the inbox, or messages read before
-   their scan, are never scanned.
+2. Enabling captures the connected Gmail account's current History API marker,
+   then transiently checks its newest 30 Inbox messages, whether read or unread.
+   The scheduled monitor subsequently reads only Inbox messages added after
+   that marker. **Scan inbox** repeats the bounded newest-30 Inbox check and
+   also advances the incremental History cursor; it never scans the full
+   mailbox. Sent, draft, spam, and trash messages are excluded.
 3. Gemini classifies messages transiently as possible personal-information or
    KYC requests. It receives only the opted-in email during classification and
-   must return field labels and domains, never extracted values.
+   must return field labels and domains, never extracted values. If one message
+   cannot be classified, successfully processed messages remain recorded, the
+   response reports the partial result, and the unadvanced Inbox or History
+   slice is retried rather than being dropped.
 4. The workflow persists only provider identifiers, timestamps, classifier
    confidence, requested field labels, exact manifest-leaf scope handles and
    segment identifiers, attachment-presence metadata, and keyed fingerprints.
@@ -79,10 +85,11 @@ scheduler.
 
 ## Consent boundary
 
-Enabling the monitor authorizes only temporary classification of new unread
-Inbox messages after its captured start point. An email read before the monitor
-reaches it is intentionally skipped rather than backfilled. It does **not** authorize a disclosure
-or a send. Before a draft is created, the owner explicitly selects exact
+Starting the monitor authorizes temporary classification of the newest 30 Inbox
+messages, then each new Inbox message after its captured start point, whether
+read or unread. The bounded Inbox scan requires the live vault owner token and
+does not include sent, draft, spam, or trash messages. Neither path authorizes a
+disclosure or a send. Before a draft is created, the owner explicitly selects exact
 candidate leaf scopes; the unlocked client reads only their declared PKM
 segments, projects only those paths, and keeps the resulting draft in memory.
 The server never receives a PKM value until the owner submits the edited body

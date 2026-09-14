@@ -75,7 +75,7 @@ describe("Profile, Location People, and Location Links consistency contract", ()
     expect(source).toContain('<div className="w-full space-y-4 sm:space-y-5">');
     expect(source).toContain("PUBLIC_LINK_CONTROLS_CLASSNAME");
     expect(source).toContain("equalWidthButtons");
-    expect(ctaLayout).toContain("mx-auto w-full max-w-[280px] space-y-3");
+    expect(ctaLayout).toContain("w-full space-y-3 sm:max-w-[280px]");
     expect(ctaLayout).toContain("h-11 min-h-11 w-full rounded-[13px]");
   });
 

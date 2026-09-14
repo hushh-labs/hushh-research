@@ -2399,7 +2399,7 @@
         },
         "voice_playbook": {
           "playbook_id": "route.connect",
-          "purpose": "Find people, send connection requests, and manage who you are connected to.",
+          "purpose": "Find people, review scoped connection requests, and manage connections. The exact-person reviewPerson query sends nothing automatically; a retained Location task rechecks eligibility only after the owner returns with Continue.",
           "screen": "connect",
           "entry_cue": "",
           "proactivity": "ambient",
@@ -4125,6 +4125,7 @@
         "location.checkout_nearby",
         "location.confirm_nearby_check_in",
         "location.create_circle",
+        "location.create_public_link",
         "location.decline_circle_invite",
         "location.decline_request",
         "location.delete_circle",
@@ -4155,12 +4156,15 @@
         "location.remove_from_circle",
         "location.rename_circle",
         "location.resume_updates",
+        "location.revoke_public_link",
         "location.save_current_location",
         "location.select_ask_recipient",
         "location.select_share_recipient",
         "location.send_check_in",
         "location.send_request",
         "location.set_auto_share",
+        "location.set_ghost_mode",
+        "location.share_public_link",
         "location.share_selected",
         "location.sos_default",
         "location.stop_share",
@@ -9469,5 +9473,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "c0cc947908d7b6035f879cfc78355ddcdec3bbc4d3bff4cce362e12a7b6d3db9"
+  "content_sha256": "626892861bdc2c98235bb60ea8eeb2820d468d94c8fedf34f5b09c5844eeddfb"
 }

@@ -120,6 +120,8 @@ export type LocationRunProjectionV1 = {
   status: LocationCapabilityRunStatus;
   cursor: string;
   completionClaimAllowed: boolean;
+  /** Presentation association only; all execution authority stays server-owned. */
+  commandBinding?: { commandId: string; commandStep: number; operationId: string } | null;
   pendingDirective: LocationTechnicalInteractionDirectiveV1 | null;
   evidence: {
     permission: boolean;
@@ -556,7 +558,9 @@ function parsePkmFinalizeAuthorization(
     draftRef,
     draftDigest,
     expectedCommitId: expectedCommitId.toLowerCase(),
-    expiresAt: new Date(expiresAt).toISOString(),
+    // This is an authority binding, not a display timestamp. JavaScript Date
+    // drops PostgreSQL microseconds and would change the capability on return.
+    expiresAt,
   };
 }
 
@@ -569,6 +573,19 @@ export function parseLocationRunProjection(
 ): LocationRunProjectionV1 | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const source = value as Record<string, unknown>;
+  const rawBinding = field(source, "commandBinding", "command_binding");
+  let commandBinding: LocationRunProjectionV1["commandBinding"] = null;
+  if (rawBinding !== null && rawBinding !== undefined) {
+    if (typeof rawBinding !== "object" || Array.isArray(rawBinding)) return null;
+    const binding = rawBinding as Record<string, unknown>;
+    const commandId = field(binding, "commandId", "command_id");
+    const commandStep = field(binding, "commandStep", "command_step");
+    const operationId = field(binding, "operationId", "operation_id");
+    if (typeof commandId !== "string" || !/^[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(commandId)
+      || typeof commandStep !== "number" || !Number.isInteger(commandStep) || commandStep < 0 || commandStep > 11
+      || typeof operationId !== "string" || !/^[0-9a-f]{64}$/.test(operationId)) return null;
+    commandBinding = { commandId, commandStep, operationId };
+  }
   const schemaVersion = field(source, "schemaVersion", "schema_version");
   const workflowId = field(source, "workflowId", "workflow_id");
   const workflowVersion = integer(
@@ -711,6 +728,7 @@ export function parseLocationRunProjection(
     status: normalizedStatus,
     cursor,
     completionClaimAllowed,
+    ...(commandBinding ? { commandBinding } : {}),
     pendingDirective,
     evidence: {
       permission: evidence.permission,
@@ -1066,9 +1084,9 @@ export class OneLocationOnboardingRunClient {
     }
     const draftMetadata = input.draftMetadata ?? null;
     if (
-      (result === "vault_unavailable" && !draftMetadata) ||
+      (["vault_unavailable", "draft_prepared"].includes(result) && !draftMetadata) ||
       (draftMetadata &&
-        (result !== "vault_unavailable" ||
+        (!["vault_unavailable", "draft_prepared"].includes(result) ||
           draftMetadata.schemaVersion !==
             "one.location.pre_vault.draft_metadata.v1" ||
           draftMetadata.status !== "staged" ||

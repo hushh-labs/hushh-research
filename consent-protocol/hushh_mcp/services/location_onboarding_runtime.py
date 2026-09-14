@@ -21,8 +21,11 @@ import logging
 import re
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 from typing import Any, Iterable, Literal, Mapping, Protocol
 from uuid import UUID, uuid4, uuid5
+
+from sqlalchemy import text
 
 from db.db_client import get_db
 from hushh_mcp.runtime_settings import get_core_security_settings
@@ -104,6 +107,7 @@ LocationInteractionAction = Literal[
     "save_place",
     "skip_place",
     "vault_unavailable",
+    "draft_prepared",
     "draft_unavailable",
     "retry_circle",
     "retry_completion",
@@ -248,7 +252,7 @@ _SURFACE_CONTRACTS: Mapping[str, LocationStepContractV2] = {
         "one.location.place_persisting.v2",
         "one.location.place_persisting.title",
         "one.location.place_persisting.body",
-        ("vault_unavailable", "skip_place", "pause"),
+        ("vault_unavailable", "draft_prepared", "skip_place", "pause"),
     ),
     "one.location.awaiting_vault_finalize.v2": LocationStepContractV2(
         "one.location.awaiting_vault_finalize.v2",
@@ -841,7 +845,6 @@ class OneLocationCircleProvisioningAdapter:
                 OneLocationCircleService().bootstrap_first_circle,
                 user_id=user_id,
                 name="My Circle",
-                capability_run_id=run_id,
             )
         except Exception:  # noqa: BLE001 - domain detail must not enter workflow output/logs
             logger.info("location_onboarding_circle_provisioning_unavailable")
@@ -924,7 +927,10 @@ class VaultLocationCompletionAdapter:
 class LocationOnboardingLedgerStore:
     """Metadata-only one-time leases and opaque workflow receipts."""
 
-    def __init__(self, *, db: Any | None = None, hmac_key: str | None = None) -> None:
+    def __init__(
+        self, *, db: Any | None = None, hmac_key: str | None = None, connection: Any = None
+    ) -> None:
+        self._connection = connection
         self._db = db
         self._hmac_key = hmac_key
 
@@ -939,7 +945,23 @@ class LocationOnboardingLedgerStore:
         return self._hmac_key or get_core_security_settings().app_signing_key
 
     async def _execute(self, sql: str, params: dict[str, Any]) -> Any:
+        if self._connection is not None:
+            result = self._connection.execute(text(sql), params)
+            return SimpleNamespace(
+                data=[dict(row) for row in result.mappings()] if result.returns_rows else []
+            )
         return await asyncio.to_thread(self.db.execute_raw, sql, params)
+
+    async def command_binding(self, *, user_id: str, run_id: str) -> dict[str, Any] | None:
+        result = await self._execute(
+            """SELECT session_id AS command_id, command_step, operation_id
+               FROM one_action_directive_ledger
+               WHERE user_id=:user AND workflow_run_id=:run AND channel='command'
+                 AND command_effect='workflow' AND state IN ('consumed','settled')
+               ORDER BY issued_at DESC LIMIT 1""",
+            {"user": user_id, "run": run_id},
+        )
+        return dict(result.data[0]) if result.data else None
 
     def digest(self, kind: str, value: Mapping[str, Any]) -> str:
         return _evidence_digest(kind, value, hmac_key=self.hmac_key)
@@ -1346,9 +1368,13 @@ class LocationOnboardingLedgerStore:
         )
         result = await self._execute(
             """
-            WITH eligible AS (
+            WITH locked_run AS MATERIALIZED (
+              SELECT * FROM one_capability_runs
+              WHERE run_id=:run_id AND user_id=:user_id
+              FOR UPDATE
+            ), eligible AS (
               SELECT run.run_id
-              FROM one_capability_runs run
+              FROM locked_run run
               JOIN one_location_onboarding_interactions interaction
                 ON interaction.run_id = run.run_id
                AND interaction.user_id = run.user_id
@@ -1383,7 +1409,7 @@ class LocationOnboardingLedgerStore:
                   WHERE prior.run_id = run.run_id
                     AND prior.receipt_kind = 'place'
                 )
-              FOR UPDATE OF run, interaction, draft
+              FOR UPDATE OF interaction, draft
             )
             INSERT INTO one_location_pkm_finalize_authorizations AS authority (
               authorization_id, token_sha256, user_id, run_id, workflow_version,
@@ -1481,6 +1507,18 @@ class LocationOnboardingLedgerStore:
             WITH authority_purge AS (
               DELETE FROM one_location_pkm_finalize_authorizations
               WHERE consumed_at IS NULL AND expires_at <= NOW()
+            ), historical_interaction_purge AS (
+              DELETE FROM one_location_onboarding_interactions
+              WHERE lease_id IN (
+                SELECT interaction.lease_id
+                FROM one_location_onboarding_interactions interaction
+                JOIN one_capability_runs run ON run.run_id=interaction.run_id AND run.user_id=interaction.user_id
+                WHERE interaction.expires_at <= NOW()
+                  AND run.capability_id='workflow.setup.location' AND run.capability_version=2
+                  AND run.status='verified_succeeded' AND run.step_cursor='location.onboarding.complete'
+                  AND NULLIF(run.settlement_reference_hmac,'') IS NOT NULL
+                ORDER BY interaction.expires_at LIMIT 500
+              )
             )
             DELETE FROM one_location_onboarding_drafts
             WHERE run_id IN (
@@ -1502,6 +1540,7 @@ class LocationOnboardingLedgerStore:
         contract: LocationStepContractV2,
         resume_surface_id: str | None = None,
         ttl_seconds: int = 300,
+        renew_finalizer: bool = False,
     ) -> tuple[CapabilityRunV1, LocationInteractionLeaseV1]:
         if contract.surface_id == "one.location.paused.v2":
             if (
@@ -1525,8 +1564,14 @@ class LocationOnboardingLedgerStore:
                 and (resume_surface_id is None or active.resume_surface_id == resume_surface_id)
                 and hmac.compare_digest(active.allowed_actions_digest, expected_digest)
             ):
-                return run, active
-            raise LocationOnboardingConflictError("Location interaction lease is inconsistent.")
+                if not renew_finalizer:
+                    return run, active
+                if contract.surface_id != "one.location.awaiting_vault_finalize.v2":
+                    raise LocationOnboardingAuthorityError(
+                        "Only an unfinished private save can renew its attempt."
+                    )
+            else:
+                raise LocationOnboardingConflictError("Location interaction lease is inconsistent.")
 
         lease_id = f"loclease_{uuid4().hex}"
         directive_id = f"locdirective_{uuid4().hex}"
@@ -1684,10 +1729,14 @@ class LocationOnboardingLedgerStore:
         }
         result = await self._execute(
             """
-            WITH eligible AS (
+            WITH locked_run AS MATERIALIZED (
+              SELECT * FROM one_capability_runs
+              WHERE run_id=:run_id AND user_id=:user_id
+              FOR UPDATE
+            ), eligible AS (
               SELECT interaction.lease_id
-              FROM one_location_onboarding_interactions interaction
-              JOIN one_capability_runs run
+              FROM locked_run run
+              JOIN one_location_onboarding_interactions interaction
                 ON run.run_id = interaction.run_id AND run.user_id = interaction.user_id
               WHERE interaction.lease_id = :lease_id
                 AND interaction.directive_id = :directive_id
@@ -1718,7 +1767,7 @@ class LocationOnboardingLedgerStore:
                       )
                   )
                 )
-              FOR UPDATE OF interaction, run
+              FOR UPDATE OF interaction
             ), advanced AS (
               UPDATE one_capability_runs run
               SET status = :next_status,
@@ -1933,7 +1982,10 @@ class LocationOnboardingLedgerStore:
               ON run.run_id = receipt.run_id AND run.user_id = receipt.user_id
             WHERE receipt.run_id = :run_id AND receipt.user_id = :user_id
               AND receipt.workflow_version = :workflow_version
-              AND receipt.expires_at > NOW()
+              AND (receipt.expires_at > NOW() OR (
+                run.capability_id='workflow.setup.location' AND run.capability_version=2
+                AND run.status='verified_succeeded' AND run.step_cursor='location.onboarding.complete'
+                AND NULLIF(run.settlement_reference_hmac,'') IS NOT NULL))
             ORDER BY receipt.issued_at, receipt.receipt_id
             """,
             {
@@ -2196,11 +2248,21 @@ class LocationOnboardingRuntimeService:
         # new task. Receipts are run-bound; draft metadata is also purged now
         # so recovery never mistakes it for current device authority.
         await self.ledger_store.purge_secure_draft(user_id=run.user_id, run_id=run.run_id)
+        # A closed status view is the sole exception: retain only the original
+        # immutable completion locator after rechecking its full receipt chain.
+        # This is information, never a draft, permission or save authority.
+        slots = {}
+        if await self._has_verified_prior_completion(run):
+            slots = {
+                key: run.slots[key]
+                for key in ("verified_prior_run_id", "verified_prior_run_revision")
+            }
         return await self._create_v2_run(
             user_id=run.user_id,
             graph_revision=graph_revision,
             context_revision=context_revision,
             idempotency_scope=self._restart_scope(run),
+            slots=slots,
         )
 
     async def _restart_unmigratable_run(
@@ -2299,18 +2361,18 @@ class LocationOnboardingRuntimeService:
             slots={},
         )
 
-    async def start_or_resume(
+    async def reserve_run(
         self,
         *,
         user_id: str,
         graph_revision: str,
         run_id: str | None = None,
         context_revision: str = "",
-        full_guide_requested: bool = False,
         compatible_graph_revisions: Iterable[str] = (),
         migration_required_graph_revisions: Iterable[str] = (),
         rejected_graph_revisions: Iterable[str] = (),
-    ) -> dict[str, Any]:
+    ) -> CapabilityRunV1:
+        """Reserve/reuse identity only; callers may join this to an effect claim transaction."""
         owner = self._validate_owner(user_id)
         current_graph = self._validate_graph_revision(graph_revision)
         clean_context = str(context_revision or "").strip()[:192]
@@ -2416,11 +2478,80 @@ class LocationOnboardingRuntimeService:
                     reason="graph_revision_rejected",
                 )
 
+        return run
+
+    async def start_or_resume(
+        self,
+        *,
+        user_id: str,
+        graph_revision: str,
+        run_id: str | None = None,
+        context_revision: str = "",
+        full_guide_requested: bool = False,
+        compatible_graph_revisions: Iterable[str] = (),
+        migration_required_graph_revisions: Iterable[str] = (),
+        rejected_graph_revisions: Iterable[str] = (),
+    ) -> dict[str, Any]:
+        run = await self.reserve_run(
+            user_id=user_id,
+            graph_revision=graph_revision,
+            run_id=run_id,
+            context_revision=context_revision,
+            compatible_graph_revisions=compatible_graph_revisions,
+            migration_required_graph_revisions=migration_required_graph_revisions,
+            rejected_graph_revisions=rejected_graph_revisions,
+        )
+        return await self.advance_reserved_run(
+            user_id=user_id,
+            run_id=run.run_id,
+            full_guide_requested=full_guide_requested,
+            graph_revision=graph_revision,
+            compatible_graph_revisions=compatible_graph_revisions,
+            migration_required_graph_revisions=migration_required_graph_revisions,
+            rejected_graph_revisions=rejected_graph_revisions,
+        )
+
+    async def advance_reserved_run(
+        self,
+        *,
+        user_id: str,
+        run_id: str,
+        graph_revision: str,
+        full_guide_requested: bool = False,
+        renew_finalizer: bool = False,
+        compatible_graph_revisions: Iterable[str] = (),
+        migration_required_graph_revisions: Iterable[str] = (),
+        rejected_graph_revisions: Iterable[str] = (),
+    ) -> dict[str, Any]:
+        """Drive an already reserved identity, never restart a cancelled/expired run."""
+        run = await self._load_run(user_id=self._validate_owner(user_id), run_id=run_id)
+        if run is None or run.capability_version != LOCATION_ONBOARDING_WORKFLOW_VERSION:
+            raise LocationOnboardingAuthorityError("Location workflow reservation is unavailable.")
+        if not run.is_terminal:
+            self._assert_run_graph_compatible(
+                run=run,
+                current_graph_revision=self._validate_graph_revision(graph_revision),
+                compatible_graph_revisions=compatible_graph_revisions,
+                migration_required_graph_revisions=migration_required_graph_revisions,
+                rejected_graph_revisions=rejected_graph_revisions,
+            )
         run, waiting_reason = await self._drive_automatic_steps(
             run, full_guide_requested=full_guide_requested
         )
-        run, lease = await self._ensure_interaction(run)
-        return await self._projection(run, lease=lease, waiting_reason=waiting_reason)
+        previous_revision = run.revision
+        run, lease = await self._ensure_interaction(run, renew_finalizer=renew_finalizer)
+        result = await self._projection(run, lease=lease, waiting_reason=waiting_reason)
+        # Explicit command recovery advances the existing run under the same
+        # row lock as the atomic writer. Older in-flight attempts cannot write
+        # after this acknowledged fence; ordinary reads never rotate authority.
+        result["finalize_retry_fenced"] = bool(
+            renew_finalizer
+            and run.revision > previous_revision
+            and lease is not None
+            and lease.surface_id == "one.location.awaiting_vault_finalize.v2"
+            and result.get("pkm_finalize_authorization")
+        )
+        return result
 
     async def get(
         self,
@@ -2604,9 +2735,9 @@ class LocationOnboardingRuntimeService:
             raise LocationOnboardingConflictError("Location interaction lease is stale or invalid.")
         if contract is None or action not in contract.allowed_actions:
             raise LocationOnboardingConflictError("Action is not allowed at this Location step.")
-        if draft_metadata is not None and action != "vault_unavailable":
-            raise ValueError("Draft metadata is accepted only while waiting for a vault.")
-        if action == "vault_unavailable" and draft_metadata is None:
+        if draft_metadata is not None and action not in {"vault_unavailable", "draft_prepared"}:
+            raise ValueError("Draft metadata is accepted only when staging a private place.")
+        if action in {"vault_unavailable", "draft_prepared"} and draft_metadata is None:
             raise ValueError("Secure Location draft metadata is required.")
         if action != "position_captured" and position_observation is not None:
             raise ValueError("Position observations are accepted only for a captured position.")
@@ -2689,7 +2820,7 @@ class LocationOnboardingRuntimeService:
             receipt_digest = self.ledger_store.digest(
                 "location_place_skip", {"run_id": run.run_id, "lease_id": lease.lease_id}
             )
-        elif action == "vault_unavailable":
+        elif action in {"vault_unavailable", "draft_prepared"}:
             metadata = dict(draft_metadata or {})
             if set(metadata) != {
                 "schemaVersion",
@@ -2867,6 +2998,11 @@ class LocationOnboardingRuntimeService:
                 LOCATION_PLACE_STEP,
                 "one.location.place_persisting.v2",
                 "vault_unavailable",
+            ): ("interaction_required", None),
+            (
+                LOCATION_PLACE_STEP,
+                "one.location.place_persisting.v2",
+                "draft_prepared",
             ): ("interaction_required", None),
             (
                 LOCATION_PLACE_STEP,
@@ -3211,10 +3347,19 @@ class LocationOnboardingRuntimeService:
             await self.ledger_store.consume_receipts(user_id=current.user_id, run_id=current.run_id)
         except Exception:  # noqa: BLE001 - receipts remain run-bound and cannot authorize another run
             logger.info("location_onboarding_receipt_consumption_pending")
-        return current
+        # Generic transitions intentionally omit encrypted slots. Completion
+        # projection needs the stored receipt locators, not that redacted row;
+        # otherwise the first successful finalize response falsely reports
+        # completion_claim_allowed=false and strands the device continuation.
+        verified = await self.run_store.get(
+            user_id=current.user_id, run_id=current.run_id, include_slots=True
+        )
+        if not verified or not self._is_bound_verified_completion(verified, receipts):
+            raise LocationOnboardingAuthorityError("Location completion could not be verified.")
+        return verified
 
     async def _ensure_interaction(
-        self, run: CapabilityRunV1
+        self, run: CapabilityRunV1, *, renew_finalizer: bool = False
     ) -> tuple[CapabilityRunV1, LocationInteractionLeaseV1 | None]:
         if run.status in _TERMINAL_STATUSES or run.status in {
             "authorized",
@@ -3248,6 +3393,10 @@ class LocationOnboardingRuntimeService:
         contract = _SURFACE_CONTRACTS.get(surface_id or "")
         if contract is None:
             return run, None
+        if renew_finalizer and contract.surface_id == "one.location.awaiting_vault_finalize.v2":
+            return await self.ledger_store.issue_lease(
+                run=run, contract=contract, renew_finalizer=True
+            )
         return await self.ledger_store.issue_lease(run=run, contract=contract)
 
     async def _projection(
@@ -3299,6 +3448,9 @@ class LocationOnboardingRuntimeService:
                     "expires_at": authority.expires_at.isoformat(),
                 }
         completion_claim_allowed = self._is_bound_verified_completion(run, receipts)
+        command_binding = await self.ledger_store.command_binding(
+            user_id=run.user_id, run_id=run.run_id
+        )
         return {
             "schema_version": LOCATION_ONBOARDING_SCHEMA_VERSION,
             "workflow_id": LOCATION_ONBOARDING_WORKFLOW_ID,
@@ -3309,6 +3461,7 @@ class LocationOnboardingRuntimeService:
             "step": run.step_cursor,
             "revision": run.revision,
             "completion_claim_allowed": completion_claim_allowed,
+            "command_binding": command_binding,
             "evidence": {
                 "permission": "permission" in receipts,
                 "place": "place" in receipts,

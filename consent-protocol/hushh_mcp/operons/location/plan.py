@@ -31,10 +31,33 @@ class LocationCommandStep(CommandValue):
         return slots
 
 
+class LocationWorkflowStep(CommandValue):
+    workflow_id: str = Field(min_length=1, max_length=128)
+    # Workflow policy, run identity and authority are never model inputs.
+    slots: dict[str, str | int | float | bool] = Field(default_factory=dict, max_length=0)
+
+
+class LocationStepDependency(CommandValue):
+    slot: str = Field(min_length=1, max_length=128)
+    source_step: int = Field(ge=0, lt=12)
+
+
+class LocationCommandStepV2(LocationCommandStep):
+    dependencies: list[LocationStepDependency] = Field(default_factory=list, max_length=8)
+    references: list["LocationStepReference"] = Field(default_factory=list, max_length=8)
+
+
+class LocationStepReference(CommandValue):
+    slot: str = Field(min_length=1, max_length=128)
+    reference: str = Field(pattern=r"^candidate_[a-f0-9]{32}$")
+
+
 class LocationAssessment(CommandValue):
     """The model proposes meaning and steps; it cannot issue execution authority."""
 
-    steps: list[LocationCommandStep] = Field(default_factory=list, max_length=12)
+    steps: list[LocationCommandStepV2 | LocationWorkflowStep] = Field(
+        default_factory=list, max_length=12
+    )
     clarification: str | None = Field(default=None, max_length=400)
     unsupported: bool = False
     intent_summary: str | None = Field(default=None, max_length=600)
@@ -47,15 +70,29 @@ class LocationGate(CommandValue):
     route: str | None = None
 
 
-class LocationPlanV1(CommandValue):
-    schema_version: Literal["location.plan.v1"] = "location.plan.v1"
+class _LocationPlanFields(CommandValue):
     capability_revision: str = Field(min_length=1, max_length=128)
     context_revision: str = Field(min_length=1, max_length=128)
     mode: LocationPlanMode
-    steps: list[LocationCommandStep] = Field(default_factory=list, max_length=12)
     gate_step: int = Field(default=0, ge=0, lt=12)
     gate: LocationGate | None = None
     intent_summary: str | None = Field(default=None, max_length=600)
+
+
+class LocationPlanV1(_LocationPlanFields):
+    # Preserve the legacy wire shape exactly: retained plans are HMAC-bound.
+    schema_version: Literal["location.plan.v1"] = "location.plan.v1"
+    steps: list[LocationCommandStep] = Field(default_factory=list, max_length=12)
+
+
+class LocationPlanV2(_LocationPlanFields):
+    schema_version: Literal["location.plan.v2"] = "location.plan.v2"
+    steps: list[LocationCommandStepV2 | LocationWorkflowStep] = Field(
+        default_factory=list, max_length=12
+    )
+
+
+LocationPlan = LocationPlanV1 | LocationPlanV2
 
 
 class CommandCapsule(CommandValue):
@@ -106,7 +143,10 @@ def validate_assessment(
     *,
     capability_revision: str,
     context_revision: str,
-) -> LocationPlanV1:
+    plan_version: Literal["location.plan.v1", "location.plan.v2"] = "location.plan.v1",
+    completed_steps: list[LocationCommandStep | LocationWorkflowStep] | None = None,
+    reference_kinds: dict[str, str] | None = None,
+) -> LocationPlan:
     """Validate exact generated IDs and inputs, never infer intent from words."""
     if (
         assessment.clarification
@@ -116,14 +156,58 @@ def validate_assessment(
         raise ValueError("An unresolved request needs a normalized continuation intent.")
     gate = None
     mode: LocationPlanMode = "end_to_end"
-    gate_step = 0
+    prefix = [step.model_copy(deep=True) for step in completed_steps or []]
+    gate_step = len(prefix)
+    # The authored workflow owns its required client tail. This expands an
+    # already selected capability; it never classifies the user's sentence.
+    steps: list[LocationCommandStep | LocationWorkflowStep] = list(prefix)
+    source_indexes: dict[int, int] = {index: index for index in range(len(prefix))}
+    for index, step in enumerate(assessment.steps):
+        global_index = len(prefix) + index
+        source_indexes[global_index] = len(steps)
+        if isinstance(step, LocationCommandStepV2):
+            if plan_version == "location.plan.v1":
+                if step.dependencies or step.references:
+                    raise ValueError("Step dependencies require the current plan version.")
+                step = LocationCommandStep(action_id=step.action_id, slots=step.slots)
+            else:
+                step = step.model_copy(deep=True)
+                for dependency in step.dependencies:
+                    if dependency.source_step >= global_index:
+                        raise ValueError("A dependency must reference a verified earlier step.")
+                    dependency.source_step = source_indexes[dependency.source_step]
+        steps.append(step)
+        if isinstance(step, LocationWorkflowStep) and plan_version == "location.plan.v2":
+            workflow = (catalog.get(step.workflow_id) or {}).get("workflow") or {}
+            tail = workflow.get("command_completion_action_ids") or []
+            for action_id in tail:
+                completion = LocationCommandStepV2(action_id=action_id)
+                if index + 1 >= len(assessment.steps) or assessment.steps[index + 1] != completion:
+                    steps.append(completion)
+    if len(steps) > 12:
+        raise ValueError("The command exceeds the step limit.")
     if assessment.unsupported or not assessment.steps:
         gate = LocationGate(
             kind="input" if assessment.clarification else "unavailable",
             message=assessment.clarification or "That request is not supported by Location yet.",
         )
         mode = "needs_user_gate"
-    for index, step in enumerate(assessment.steps):
+    for index, step in enumerate(steps):
+        if index < len(prefix):
+            continue  # Already settled and HMAC-verified by the command owner.
+        if isinstance(step, LocationWorkflowStep):
+            workflow = (catalog.get(step.workflow_id) or {}).get("workflow") or {}
+            execution = workflow.get("execution") or {}
+            if (
+                plan_version != "location.plan.v2"
+                or execution.get("outcome") != "EXECUTE"
+                or execution.get("mode") != "durable_capability_run"
+                or not execution.get("binding_ref")
+                or workflow.get("settlement_proof")
+                != "server_location_onboarding_completion_receipt"
+            ):
+                raise ValueError("The workflow has no verified Location execution binding.")
+            continue
         action = catalog.get(step.action_id)
         if action is None:
             raise ValueError("The proposed action is outside the Location capability package.")
@@ -133,6 +217,37 @@ def validate_assessment(
         allowed_slots = {str(s.get("slot") or s.get("name")) for s in specs}
         if set(step.slots) - allowed_slots:
             raise ValueError("The proposed inputs are not declared by the action.")
+        dependencies = step.dependencies if isinstance(step, LocationCommandStepV2) else []
+        bound_slots: set[str] = set()
+        for dependency in dependencies:
+            if dependency.slot in bound_slots or dependency.slot in step.slots:
+                raise ValueError("An input cannot have more than one source.")
+            source = steps[dependency.source_step]
+            resource_kind = (
+                ((catalog.get(source.action_id) or {}).get("command") or {}).get("result_resource")
+                if isinstance(source, LocationCommandStep)
+                else None
+            )
+            if (
+                not resource_kind
+                or (action.get("command") or {}).get("resource_inputs", {}).get(dependency.slot)
+                != resource_kind
+            ):
+                raise ValueError(
+                    "The dependency does not match an authored resource result and input."
+                )
+            bound_slots.add(dependency.slot)
+        for reference in step.references if isinstance(step, LocationCommandStepV2) else []:
+            kind = (reference_kinds or {}).get(reference.reference)
+            if (
+                not kind
+                or reference.slot in bound_slots
+                or reference.slot in step.slots
+                or (action.get("command") or {}).get("resource_inputs", {}).get(reference.slot)
+                != kind
+            ):
+                raise ValueError("A reference must match one observed, authored resource input.")
+            bound_slots.add(reference.slot)
         for spec in specs:
             name = str(spec.get("slot") or spec.get("name"))
             value = step.slots.get(name)
@@ -140,8 +255,12 @@ def validate_assessment(
                 value = step.slots[name] = spec["default_value"]
             if value is not None and spec.get("options") and str(value) not in spec["options"]:
                 raise ValueError("A proposed input is outside the declared choices.")
-        missing = missing_input(action, step.slots)
-        if missing and gate is None:
+        missing = missing_input(
+            action, {**step.slots, **dict.fromkeys(bound_slots, "verified_prior_result")}
+        )
+        # Manual screens own their form inputs and device gates. Opening one
+        # must not ask command-only questions before the authored handoff.
+        if missing and gate is None and not (action.get("command") or {}).get("review_only"):
             gate, mode, gate_step = missing, "needs_user_gate", index
         target = action.get("execution_target") or {}
         if action.get("execution_policy") == "manual_only" or target.get("status") != "wired":
@@ -163,11 +282,12 @@ def validate_assessment(
             mode, gate_step = "simulate", index
     if assessment.clarification and gate is None:
         gate, mode = LocationGate(kind="input", message=assessment.clarification), "needs_user_gate"
-    return LocationPlanV1(
+    plan_type = LocationPlanV2 if plan_version == "location.plan.v2" else LocationPlanV1
+    return plan_type(
         capability_revision=capability_revision,
         context_revision=context_revision,
         mode=mode,
-        steps=assessment.steps,
+        steps=steps,
         gate=gate,
         gate_step=gate_step,
         intent_summary=assessment.intent_summary,

@@ -9,12 +9,18 @@ import json
 import wave
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 from google.genai import types
 from pydantic import Field
 
 from hushh_mcp.operons.location.capabilities import semantic_catalog
-from hushh_mcp.operons.location.plan import CommandValue, LocationAssessment
+from hushh_mcp.operons.location.plan import (
+    CommandValue,
+    LocationAssessment,
+    LocationStepDependency,
+    LocationStepReference,
+)
 from hushh_mcp.runtime_providers.gemini_config import build_generate_content_config
 
 
@@ -26,6 +32,13 @@ class SemanticInput(CommandValue):
 class SemanticStep(CommandValue):
     action_id: str = Field(min_length=1, max_length=128)
     inputs: list[SemanticInput] = Field(max_length=32)
+    dependencies: list[LocationStepDependency] = Field(default_factory=list, max_length=8)
+    references: list[LocationStepReference] = Field(default_factory=list, max_length=8)
+
+
+class SemanticWorkflowStep(CommandValue):
+    workflow_id: str = Field(min_length=1, max_length=128)
+    inputs: list[SemanticInput] = Field(max_length=0)
 
 
 class SemanticAssessment(CommandValue):
@@ -35,7 +48,7 @@ class SemanticAssessment(CommandValue):
     comes from the generated catalog and LocationAssessment validation.
     """
 
-    steps: list[SemanticStep] = Field(max_length=12)
+    steps: list[SemanticStep | SemanticWorkflowStep] = Field(max_length=12)
     clarification: str | None = Field(max_length=400)
     unsupported: bool
     intent_summary: str = Field(min_length=1, max_length=600)
@@ -50,7 +63,17 @@ class SemanticAssessment(CommandValue):
                 return {
                     key: shape(item)
                     for key, item in value.items()
-                    if key not in {"minLength", "maxLength", "minItems", "maxItems"}
+                    if key
+                    not in {
+                        "minLength",
+                        "maxLength",
+                        "minItems",
+                        "maxItems",
+                        "minimum",
+                        "maximum",
+                        "exclusiveMinimum",
+                        "exclusiveMaximum",
+                    }
                 }
             if isinstance(value, list):
                 return [shape(item) for item in value]
@@ -64,7 +87,16 @@ class SemanticAssessment(CommandValue):
             slots = {item.name: item.value for item in step.inputs}
             if len(slots) != len(step.inputs):
                 raise ValueError("The model repeated an input name.")
-            steps.append({"action_id": step.action_id, "slots": slots})
+            identity = (
+                {"workflow_id": step.workflow_id}
+                if isinstance(step, SemanticWorkflowStep)
+                else {
+                    "action_id": step.action_id,
+                    "dependencies": step.dependencies,
+                    "references": step.references,
+                }
+            )
+            steps.append({**identity, "slots": slots})
         return LocationAssessment(
             steps=steps,
             clarification=self.clarification,
@@ -74,7 +106,7 @@ class SemanticAssessment(CommandValue):
 
 
 class LocationCommandBrain:
-    def __init__(self, *, client: Any = None, manifest: Any = None):
+    def __init__(self, *, client: Any = None, manifest: Any = None, adk_model: Any = None):
         from hushh_mcp.hushh_adk.manifest import ManifestLoader
         from hushh_mcp.runtime_providers import build_managed_runtime_client
         from hushh_mcp.runtime_providers.gemini_config import resolve_fleet_model_name
@@ -82,6 +114,7 @@ class LocationCommandBrain:
         self.manifest = manifest or ManifestLoader.load(str(Path(__file__).with_name("agent.yaml")))
         self.client = client or build_managed_runtime_client(runtime_provider="gemini")
         self.model = resolve_fleet_model_name(self.manifest.model_config_for_runtime().name)
+        self.adk_model = adk_model
 
     async def transcribe(self, encoded_audio: str) -> str:
         try:
@@ -122,31 +155,92 @@ class LocationCommandBrain:
         return str(result.text or "").strip()[:4096]
 
     async def assess(
-        self, *, query: str, context: dict[str, Any], catalog: dict[str, dict[str, Any]]
+        self,
+        *,
+        query: str,
+        context: dict[str, Any],
+        catalog: dict[str, dict[str, Any]],
+        read_tools: list[Any] | None = None,
+        knowledge: dict[str, Any] | None = None,
     ) -> LocationAssessment:
-        result = await asyncio.wait_for(
-            self.client.aio.models.generate_content(
-                model=self.model,
-                contents=json.dumps(
-                    {
-                        "request": query,
-                        "current_state": context,
-                        "capabilities": semantic_catalog(catalog),
-                    },
-                    ensure_ascii=False,
-                ),
-                config=build_generate_content_config(
-                    types,
-                    self.model,
-                    system_instruction=self.manifest.capabilities["command_instruction"],
-                    response_mime_type="application/json",
-                    response_schema=SemanticAssessment.provider_schema(),
-                    temperature=0,
-                    max_output_tokens=2048,
-                ),
+        from google.adk.agents import LlmAgent, SequentialAgent
+        from google.adk.agents.run_config import RunConfig, StreamingMode
+        from google.adk.runners import Runner
+        from google.adk.sessions import InMemorySessionService
+        from google.adk.telemetry.context import ContentCapturingMode, TelemetryConfig
+
+        from hushh_mcp.runtime_providers import build_managed_gemini_adk_model
+
+        telemetry = TelemetryConfig(capture_message_content=ContentCapturingMode.NO_CONTENT)
+        if (
+            telemetry.resolved_content_capturing_mode != ContentCapturingMode.NO_CONTENT
+            or telemetry.should_add_content_to_legacy_spans
+        ):
+            raise ValueError("Command model content telemetry must be disabled.")
+        agent = LlmAgent(
+            name="location_command",
+            mode="single_turn",
+            model=self.adk_model or build_managed_gemini_adk_model(self.model),
+            instruction=self.manifest.capabilities["command_instruction"],
+            tools=read_tools or [],
+            output_schema=SemanticAssessment.provider_schema(),
+            output_key="location_assessment",
+            disallow_transfer_to_parent=True,
+            disallow_transfer_to_peers=True,
+            generate_content_config=build_generate_content_config(
+                types, self.model, temperature=0, max_output_tokens=4096
             ),
-            timeout=30,
         )
-        if isinstance(result.parsed, SemanticAssessment):
-            return result.parsed.proposal()
-        return SemanticAssessment.model_validate_json(result.text or "{}").proposal()
+        sessions = InMemorySessionService()
+        # Random invocation labels keep owner identifiers out of model/session
+        # telemetry. The real owner and read authority remain host-only.
+        session_id = uuid4().hex
+        app_name, transient_user = "location_command", "command_invocation"
+        await sessions.create_session(
+            app_name=app_name, user_id=transient_user, session_id=session_id
+        )
+        # ADK permits single_turn nodes inside a workflow; a root LlmAgent is
+        # chat-only. This one-node container adds no model/router or tools.
+        runner = Runner(
+            app_name=app_name,
+            agent=SequentialAgent(name="location_command_turn", sub_agents=[agent]),
+            session_service=sessions,
+            auto_create_session=False,
+        )
+        content = types.Content(
+            role="user",
+            parts=[
+                types.Part.from_text(
+                    text=json.dumps(
+                        {
+                            "request": query,
+                            "current_state": context,
+                            "capabilities": semantic_catalog(catalog),
+                            "location_knowledge": knowledge or {},
+                        },
+                        ensure_ascii=False,
+                    )
+                )
+            ],
+        )
+        try:
+            async with asyncio.timeout(30):
+                async for _event in runner.run_async(
+                    user_id=transient_user,
+                    session_id=session_id,
+                    new_message=content,
+                    run_config=RunConfig(
+                        max_llm_calls=6, streaming_mode=StreamingMode.NONE, telemetry=telemetry
+                    ),
+                ):
+                    pass  # Events are neither conversation output nor execution evidence.
+            session = await sessions.get_session(
+                app_name=app_name, user_id=transient_user, session_id=session_id
+            )
+            return SemanticAssessment.model_validate(
+                session.state.get("location_assessment") if session else None
+            ).proposal()
+        finally:
+            await sessions.delete_session(
+                app_name=app_name, user_id=transient_user, session_id=session_id
+            )

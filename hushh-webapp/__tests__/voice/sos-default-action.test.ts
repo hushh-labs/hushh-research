@@ -23,10 +23,14 @@ describe("location.sos_default", () => {
     expect(action?.goal?.slot_schema ?? {}).toEqual({});
   });
 
-  it("carries enough words that a reader can tell it defers to a stored preference", () => {
+  it("makes its review handoff explicit without claiming an alert was sent", () => {
     const action = getKaiActionById(DEFAULT_ACTION);
     expect((action?.meaning || "").length).toBeGreaterThan(40);
-    expect(action?.meaning ?? "").toMatch(/default/i);
+    expect(action?.command).toMatchObject({
+      review_only: true,
+      review_route: "/one/location?action=sos",
+    });
+    expect(action?.meaning ?? "").toContain("visible emergency controls own sending");
   });
 
   it("is escortable to Location, same as open_sos and trigger_sos", () => {

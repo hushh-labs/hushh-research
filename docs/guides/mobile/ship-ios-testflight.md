@@ -33,7 +33,7 @@ revision with the same provenance. The normal archive job then runs:
 UAT configuration and native Firebase materialization
 → One Voice safety, generated-action, and Capacitor plugin checks
 → privacy-manifest, App Intent, archive-asset, and symbol checks
-→ verified UAT browser-ASR and intent-ranker pack readiness
+→ ordinary Gemini transcription and semantic model access against the matching UAT backend
 → optional focused iOS App Intent/action smoke tests (full AppTests remain in change-aware CI)
 → optional physical-iPhone capture evidence when requested
 → signed archive and TestFlight upload
@@ -59,6 +59,12 @@ physical-device claim. If the lane is requested, a missing device, permission,
 metric, or result remains a release failure. The One Voice privacy,
 generated-action, and Capacitor checks remain required on every run; the
 compile-heavy simulator XCTest gate is opt-in through `run_core_tests`.
+
+The Location command repair additionally requires the complete spoken onboarding
+journey on web, a physical iPhone and a physical Android phone before release.
+The capture benchmark alone does not prove that journey, and an optional-device
+skip cannot satisfy this acceptance requirement. Track the remaining evidence in
+the [owning runtime contract](../../reference/one/one-voice-runtime-architecture.md).
 
 When the `run_core_tests` dispatch input is `true`, the release simulator step
 runs five tests that prove the shipped App Intent surface: the ten-shortcut
@@ -148,7 +154,7 @@ model bytes are removed or never uploaded.
 | --- | --- |
 | No connected iPhone / missing timing result | If `require_hardware: true`, restore the dedicated runner or permission bootstrap and rerun. If physical evidence is not needed, rerun with `require_hardware: false` after the mandatory simulator and native gates pass. |
 | UAT backend provenance differs from source SHA | Deploy that exact reviewed SHA to UAT, then restart the release workflow. |
-| Local model readiness fails | Publish checksum-verified packs for the same SHA; do not hard-code signed URLs. |
+| Transcription or semantic model access fails | Restore the configured non-Live provider access and verify it against the matching backend; local model packs are retired. |
 | Missing group, contact, notes, or privacy attestation | Configure the protected UAT release material; the workflow intentionally will not upload. |
 | External beta review pending | Internal testers can use the valid build; wait for Apple's beta-review decision for external testers. |
 | External beta review rejected | Correct the reviewer-facing issue and dispatch a new build; the workflow fails closed. |

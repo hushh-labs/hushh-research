@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import logging
 import os
@@ -333,7 +334,8 @@ class PkmUpgradeService:
 
     async def _list_runs(self, user_id: str) -> list[dict[str, Any]]:
         try:
-            result = self.db.table("pkm_upgrade_runs").select("*").eq("user_id", user_id).execute()
+            query = self.db.table("pkm_upgrade_runs").select("*").eq("user_id", user_id)
+            result = await asyncio.to_thread(query.execute)
             return self._sort_runs(result.data or [])
         except Exception as exc:
             logger.error("Failed to list PKM upgrade runs for %s: %s", user_id, exc)
@@ -341,7 +343,8 @@ class PkmUpgradeService:
 
     async def _list_steps(self, run_id: str) -> list[dict[str, Any]]:
         try:
-            result = self.db.table("pkm_upgrade_steps").select("*").eq("run_id", run_id).execute()
+            query = self.db.table("pkm_upgrade_steps").select("*").eq("run_id", run_id)
+            result = await asyncio.to_thread(query.execute)
             rows = [
                 step for step in (self._normalize_step(row) for row in (result.data or [])) if step
             ]
@@ -366,14 +369,8 @@ class PkmUpgradeService:
         available_domains = list(index.available_domains) if index else []
         if not available_domains:
             try:
-                rows = (
-                    self.db.table("pkm_manifests")
-                    .select("domain")
-                    .eq("user_id", user_id)
-                    .execute()
-                    .data
-                    or []
-                )
+                query = self.db.table("pkm_manifests").select("domain").eq("user_id", user_id)
+                rows = (await asyncio.to_thread(query.execute)).data or []
                 available_domains = sorted(
                     {
                         self._clean_text(row.get("domain")) or ""

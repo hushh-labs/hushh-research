@@ -988,6 +988,9 @@ class ServiceKnowledgePackageV2(StrictManifestModel):
         pattern=r"^[a-z][a-z0-9_.:-]*$",
     )
     completion_receipt_schema: str = Field(min_length=3, max_length=160)
+    # Command v2 continues these existing client actions after the durable
+    # workflow receipt. Legacy/manual workflow cursors remain unchanged.
+    command_completion_action_ids: list[str] = Field(default_factory=list, max_length=4)
     required_presentation_states: list[str] = Field(default_factory=list, max_length=16)
     # These are schema-versioned policy mappings rather than Location model
     # types. A future service owns its policy vocabulary, while Location still

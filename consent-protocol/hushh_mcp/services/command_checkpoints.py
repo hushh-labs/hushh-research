@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from types import SimpleNamespace
 from typing import Any
 
 from sqlalchemy import text
@@ -24,9 +25,10 @@ class CommandCheckpointConflict(RuntimeError):
 
 
 class CommandCheckpointStore:
-    def __init__(self, *, db: Any = None, cipher: Any = None):
+    def __init__(self, *, db: Any = None, cipher: Any = None, connection: Any = None):
         self._db = db
         self._cipher = cipher
+        self._connection = connection
 
     @property
     def db(self):
@@ -42,6 +44,11 @@ class CommandCheckpointStore:
 
     async def _execute(self, sql: str, params: dict[str, Any]):
         try:
+            if self._connection is not None:
+                result = self._connection.execute(text(sql), params)
+                return SimpleNamespace(
+                    data=[dict(row) for row in result.mappings()] if result.returns_rows else []
+                )
             return await asyncio.to_thread(self.db.execute_raw, sql, params)
         except DatabaseExecutionError:
             # Database errors may contain bound values. Never propagate them.

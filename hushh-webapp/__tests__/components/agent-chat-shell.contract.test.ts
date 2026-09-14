@@ -145,12 +145,13 @@ describe("private-agent chat shell contract", () => {
 
   it("pauses One command capture on the way into Puppy One", () => {
     const workspace = read("components/agent/agent-chat-workspace.tsx");
-    const bar = read("components/agent/command-agent-bar.tsx");
+    const provider = read("components/agent/location-command-provider.tsx");
 
     expect(workspace).toContain("requestAgentConversationStop();");
     expect(workspace).toContain("enterPuppySurface();");
-    expect(bar).toContain("AGENT_CONVERSATION_STOP_EVENT");
-    expect(bar).toContain("command.pause();");
+    expect(provider).toContain("AGENT_CONVERSATION_STOP_EVENT");
+    expect(provider).toContain("cancelCapture();");
+    expect(provider).toContain("command.pause();");
   });
 
   it("keeps both transcripts mounted and mounts Puppy One only once it is asked for", () => {

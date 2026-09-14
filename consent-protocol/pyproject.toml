@@ -197,6 +197,8 @@ module = [
     "hushh_mcp.services.one_location_agent_service",
     # Preserve the public URL helper's return types at the service boundary.
     "hushh_mcp.services.one_location_public_invite_url",
+    # Keep the shared manual/command public-link writer's return contract typed.
+    "hushh_mcp.services.location_public_link_writer",
     "hushh_mcp.services.connections_service",
     # A pure table plus one classifier. Cheap to check, and its return types are
     # what `google_maps_service` builds a response contract on.

@@ -109,7 +109,7 @@ jobs:
     timeout-minutes: 30
     services:
       command-postgres:
-        image: postgres:17
+        image: pgvector/pgvector:0.8.6-pg17-bookworm
         env:
           POSTGRES_USER: command_test
           POSTGRES_PASSWORD: command_test

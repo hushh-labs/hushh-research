@@ -11,7 +11,10 @@ import {
 } from "@/lib/agent/agent-voice-settings";
 import { useAgentVoiceState } from "@/lib/agent/agent-voice-state";
 
-const REQUEST_HANDOFF_TIMEOUT_MS = 25_000;
+// Matches the native free-text handoff bound: up to two bounded HTTP calls
+// (assessment and encrypted checkpoint) plus foreground startup. Acceptance
+// still means durable app ownership, never a prediction that execution worked.
+const REQUEST_HANDOFF_TIMEOUT_MS = 150_000;
 
 /**
  * Thin foreground component that:
@@ -97,7 +100,7 @@ export function SiriOneRequestHandoff() {
           "handoff_timeout",
           "Agent One could not open the command surface in time. Try again in the app.",
         );
-      }, REQUEST_HANDOFF_TIMEOUT_MS);
+      }, Math.max(0, Math.min(REQUEST_HANDOFF_TIMEOUT_MS, state.invocation.handoffDeadlineAt - Date.now())));
     });
 
     const handleOutcome = (event: Event) => {

@@ -75,6 +75,7 @@ capabilities:
   - { capability_id: location.stop_share, kind: action, feature_group_id: sharing }
   - { capability_id: location.change_share_duration, kind: action, feature_group_id: sharing }
   - { capability_id: location.pause_updates, kind: action, feature_group_id: sharing }
+  - { capability_id: location.set_ghost_mode, kind: action, feature_group_id: sharing }
   - { capability_id: location.resume_updates, kind: action, feature_group_id: sharing }
   - { capability_id: location.open_ask, kind: action, feature_group_id: requests }
   - { capability_id: location.select_ask_recipient, kind: action, feature_group_id: requests }
@@ -98,6 +99,9 @@ capabilities:
   - { capability_id: location.accept_circle_invite, kind: action, feature_group_id: circles }
   - { capability_id: location.decline_circle_invite, kind: action, feature_group_id: circles }
   - { capability_id: location.open_temporary_link, kind: action, feature_group_id: links }
+  - { capability_id: location.create_public_link, kind: action, feature_group_id: links }
+  - { capability_id: location.share_public_link, kind: action, feature_group_id: links }
+  - { capability_id: location.revoke_public_link, kind: action, feature_group_id: links }
   - { capability_id: location.save_current_location, kind: action, feature_group_id: places }
   - { capability_id: location.delete_saved_location, kind: action, feature_group_id: places }
   - { capability_id: location.open_check_in, kind: action, feature_group_id: checkins }
@@ -128,6 +132,7 @@ route_pattern: /one/setup/location
 screen: one_setup_location
 entry_action_id: setup.open_location
 completion_action_id: setup.finish_location
+command_completion_action_ids: [location.resume_updates]
 initial_step_id: location.onboarding.preflight
 completion_receipt_schema: one.location_onboarding_completion_receipt.v1
 required_presentation_states: [welcome, features, place, ready]
@@ -292,6 +297,7 @@ steps:
       - { when: save_place, target: location.onboarding.place }
       - { when: skip_place, target: location.onboarding.circle }
       - { when: vault_unavailable, target: location.onboarding.circle }
+      - { when: draft_prepared, target: location.onboarding.circle }
       - { when: pause, target: $paused }
   - step_id: location.onboarding.circle
     label: Provision personal Circle

@@ -36,6 +36,7 @@ env:
   FRONTEND_SERVICE: hushh-webapp
   FRONTEND_RUNTIME_SERVICE_ACCOUNT: hushh-webapp-runtime@hushh-pda-uat.iam.gserviceaccount.com
   ACCOUNT_DELETION_SCHEDULER_SERVICE_ACCOUNT_ID: account-deletion-cleanup
+  GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_SCHEDULER_SERVICE_ACCOUNT_ID: gmail-personal-monitor-scheduler
   APP_FRONTEND_ORIGIN: https://uat.one.hushh.ai
   CONSENT_API_PUBLIC_ORIGIN: https://api.uat.hushh.ai
   CONSENT_API_RUNTIME_ORIGIN: https://consent-protocol-f2gsa4kfsq-uc.a.run.app
@@ -673,6 +674,7 @@ jobs:
           SUBSTITUTIONS="${SUBSTITUTIONS}##_RUNTIME_SERVICE_ACCOUNT=${{ env.RUNTIME_SERVICE_ACCOUNT }}"
           SUBSTITUTIONS="${SUBSTITUTIONS}##_CONSENT_API_PUBLIC_ORIGIN=${{ env.CONSENT_API_PUBLIC_ORIGIN }}"
           SUBSTITUTIONS="${SUBSTITUTIONS}##_ACCOUNT_DELETION_CLEANUP_AUDIENCE=${{ env.CONSENT_API_PUBLIC_ORIGIN }}##_ACCOUNT_DELETION_CLEANUP_SERVICE_ACCOUNT_EMAIL=${{ env.ACCOUNT_DELETION_SCHEDULER_SERVICE_ACCOUNT_ID }}@${{ env.GCP_PROJECT_ID }}.iam.gserviceaccount.com"
+          SUBSTITUTIONS="${SUBSTITUTIONS}##_GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_AUTH_ENABLED=true##_GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_AUDIENCE=${{ env.CONSENT_API_PUBLIC_ORIGIN }}##_GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_SERVICE_ACCOUNT_EMAIL=${{ env.GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_SCHEDULER_SERVICE_ACCOUNT_ID }}@${{ env.GCP_PROJECT_ID }}.iam.gserviceaccount.com"
           SUBSTITUTIONS="${SUBSTITUTIONS}##_SKIP_IMAGE_BUILD=true##_IMAGE_REFERENCE=${{ steps.build-backend-image.outputs.image_reference }}##_CLOUD_RUN_TAG=account-deletion-${{ github.run_id }}"
           SUBSTITUTIONS="${SUBSTITUTIONS}##_VPC_CONNECTOR=${{ vars.UAT_VPC_CONNECTOR || '' }}"
           # Route only managed Vertex/Gemini to the dedicated personal Vertex
@@ -1810,6 +1812,20 @@ jobs:
             | tee /tmp/uat-account-deletion-fence-removal.log
           echo "activated=true" >> "$GITHUB_OUTPUT"
 
+      - name: Activate personal Gmail monitor
+        id: activate-personal-gmail-monitor
+        if: steps.classify-uat-release.outputs.release_failed == 'false' && steps.scope.outputs.deploy_backend == 'true'
+        shell: bash
+        env:
+          BACKEND_URL: ${{ env.CONSENT_API_PUBLIC_ORIGIN }}
+          PROJECT_ID: ${{ env.GCP_PROJECT_ID }}
+          SCHEDULER_LOCATION: ${{ env.GCP_REGION }}
+          SCHEDULER_SERVICE_ACCOUNT_NAME: ${{ env.GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_SCHEDULER_SERVICE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          bash deploy/gmail/setup_personal_information_request_monitor_scheduler.sh \
+            | tee /tmp/uat-personal-gmail-monitor-scheduler-setup.log
+
       - name: Resolve final Cloud Run state
         if: always()
         id: final-state
@@ -1853,7 +1869,8 @@ jobs:
 
           if [ "${{ steps.classify-uat-release.outputs.release_failed }}" != "true" ]; then
             if [ "${{ steps.scope.outputs.deploy_backend }}" = "true" ] \
-               && [ "${{ steps.activate-account-deletion.outcome }}" != "success" ]; then
+               && { [ "${{ steps.activate-account-deletion.outcome }}" != "success" ] \
+                 || [ "${{ steps.activate-personal-gmail-monitor.outcome }}" != "success" ]; }; then
               STATUS="blocked"
             else
               STATUS="healthy"

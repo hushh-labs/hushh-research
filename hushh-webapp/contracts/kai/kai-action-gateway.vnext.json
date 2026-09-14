@@ -479,7 +479,8 @@
         ],
         "command": {
           "domain": "location",
-          "review_route": "/one/setup/location"
+          "review_route": "/one/setup/location",
+          "review_only": true
         }
       },
       "orchestration": {
@@ -5610,7 +5611,11 @@
     {
       "command": {
         "domain": "location",
-        "review_route": "/one/location?action=ask"
+        "review_route": "/one/location?action=ask",
+        "resource_inputs": {
+          "person": "person",
+          "circle": "circle"
+        }
       },
       "action_id": "location.select_ask_recipient",
       "surface_id": "one_location",
@@ -5693,14 +5698,22 @@
           {
             "name": "person",
             "prompt": "Who do you want to ask?",
-            "required": true,
+            "required": false,
             "slot": "person",
             "resolver": "spoken_person_name_list"
+          },
+          {
+            "name": "circle",
+            "prompt": "Which circle should be included?",
+            "required": false,
+            "slot": "circle",
+            "resolver": "spoken_circle_name"
           }
         ],
         "input_resolvers": [],
         "slot_schema": {
-          "person": "spoken_person_name_list"
+          "person": "spoken_person_name_list",
+          "circle": "spoken_circle_name"
         },
         "workflow_steps": [
           {
@@ -5737,7 +5750,12 @@
     {
       "command": {
         "domain": "location",
-        "review_route": "/one/location?action=ask"
+        "review_route": "/one/location?action=ask",
+        "resource_inputs": {
+          "person": "person",
+          "circle": "circle"
+        },
+        "client_receipt": "location.audience.v1"
       },
       "text_backend_executor": {
         "binding": "location.send_request",
@@ -5832,7 +5850,7 @@
           {
             "name": "duration_hours",
             "prompt": "For how long do you want location? You can say 15 minutes, 30 minutes, 1 hour, 2 hours, 4 hours, 8 hours, or 24 hours.",
-            "required": true,
+            "required": false,
             "slot": "duration_hours",
             "resolver": "location_share_duration",
             "options": [
@@ -5844,12 +5862,20 @@
               "8",
               "24"
             ]
+          },
+          {
+            "name": "circle",
+            "prompt": "Which circle should be included?",
+            "required": false,
+            "slot": "circle",
+            "resolver": "spoken_circle_name"
           }
         ],
         "input_resolvers": [],
         "slot_schema": {
           "person": "spoken_person_name_list",
-          "duration_hours": "location_share_duration"
+          "duration_hours": "location_share_duration",
+          "circle": "spoken_circle_name"
         },
         "workflow_steps": [
           {
@@ -6230,7 +6256,7 @@
     {
       "command": {
         "domain": "location",
-        "review_route": "/one/location?action=temp-link&view=links"
+        "review_route": "/one/location?view=links"
       },
       "action_id": "location.open_temporary_link",
       "surface_id": "one_location",
@@ -6278,7 +6304,7 @@
       "execution_target": {
         "status": "wired",
         "path": "route",
-        "target": "/one/location?action=temp-link&view=links"
+        "target": "/one/location?view=links"
       },
       "control_ids": [
         "one-location-action-temp-link"
@@ -6293,7 +6319,7 @@
       "external_callback": null,
       "expected_effects": {
         "state_changes": [
-          "current route becomes /one/location?action=temp-link&view=links"
+          "current route becomes /one/location?view=links"
         ],
         "backend_effects": []
       },
@@ -6318,7 +6344,7 @@
             "label": "Create a temporary link",
             "failure_behavior": "stop",
             "settlement_target": {
-              "route": "/one/location?action=temp-link&view=links",
+              "route": "/one/location?view=links",
               "screen": "one_location"
             }
           }
@@ -6484,7 +6510,7 @@
         "help",
         "panic"
       ],
-      "meaning": "Opens the emergency SOS screen, where an alert with your location can be sent to your emergency contacts. Opening it does not send anything. Say this only when the person explicitly asks to look at the screen or manage contacts, not for a bare or ambiguous emergency phrase like 'help' or 'save me' -- those go to sos_default instead, which respects the person's own SOS default. To send a real alert immediately, use trigger_sos.",
+      "meaning": "Opens the authored Save My Soul review screen for emergency contacts and alert controls. Opening the screen sends no alert and does not call emergency services.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
@@ -7167,7 +7193,8 @@
     {
       "command": {
         "domain": "location",
-        "review_route": "/one/location"
+        "review_route": "/one/location?view=people",
+        "review_only": true
       },
       "action_id": "location.find_contacts",
       "surface_id": "one_location",
@@ -7189,7 +7216,7 @@
         "people",
         "phonebook"
       ],
-      "meaning": "Checks your phone contacts against Hushh accounts and shows which of them are already here. Phone numbers are hashed on your device; your contact list is never stored.",
+      "meaning": "Opens People to use Find contacts from Add or manage people. Contact permission and device scanning happen only through that authored control. No contacts have been scanned when the screen opens.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
@@ -7742,7 +7769,11 @@
     {
       "command": {
         "domain": "location",
-        "review_route": "/one/location?action=share"
+        "review_route": "/one/location?action=share",
+        "resource_inputs": {
+          "person": "person",
+          "circle": "circle"
+        }
       },
       "action_id": "location.select_share_recipient",
       "surface_id": "one_location",
@@ -7826,14 +7857,22 @@
           {
             "name": "person",
             "prompt": "Who do you want to share with?",
-            "required": true,
+            "required": false,
             "slot": "person",
             "resolver": "spoken_person_name_list"
+          },
+          {
+            "name": "circle",
+            "prompt": "Which circle should be included?",
+            "required": false,
+            "slot": "circle",
+            "resolver": "spoken_circle_name"
           }
         ],
         "input_resolvers": [],
         "slot_schema": {
-          "person": "spoken_person_name_list"
+          "person": "spoken_person_name_list",
+          "circle": "spoken_circle_name"
         },
         "workflow_steps": [
           {
@@ -7871,7 +7910,12 @@
       "command": {
         "domain": "location",
         "review_route": "/one/location?action=share",
-        "permission": "location"
+        "permission": "location",
+        "resource_inputs": {
+          "person": "person",
+          "circle": "circle"
+        },
+        "client_receipt": "location.audience.v1"
       },
       "text_backend_executor": {
         "binding": "location.share_selected",
@@ -7968,7 +8012,7 @@
           {
             "name": "duration_hours",
             "prompt": "For how long? You can say 15 minutes, 30 minutes, 1 hour, 2 hours, 4 hours, 8 hours, 24 hours, or until you stop it.",
-            "required": true,
+            "required": false,
             "slot": "duration_hours",
             "resolver": "location_share_duration",
             "options": [
@@ -7980,12 +8024,20 @@
               "8",
               "24"
             ]
+          },
+          {
+            "name": "circle",
+            "prompt": "Which circle should be included?",
+            "required": false,
+            "slot": "circle",
+            "resolver": "spoken_circle_name"
           }
         ],
         "input_resolvers": [],
         "slot_schema": {
           "person": "spoken_person_name_list",
-          "duration_hours": "location_share_duration"
+          "duration_hours": "location_share_duration",
+          "circle": "spoken_circle_name"
         },
         "workflow_steps": [
           {
@@ -8398,7 +8450,8 @@
     {
       "command": {
         "domain": "location",
-        "review_route": "/one/location?action=active-shares"
+        "review_route": "/one/location?action=active-shares",
+        "review_only": true
       },
       "action_id": "location.change_share_duration",
       "surface_id": "one_location",
@@ -8417,7 +8470,7 @@
         "time",
         "share"
       ],
-      "meaning": "Changes how much longer the named person can see your live location, without stopping and restarting the share. It only acts on a share already active with them.",
+      "meaning": "Opens active shares to select a current recipient and review the new sharing duration in the existing form. Opening the screen does not change access or extend a share.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
@@ -8744,11 +8797,31 @@
               "on",
               "off"
             ]
+          },
+          {
+            "name": "scope",
+            "prompt": "Which people may be auto-approved: all contacts or one circle?",
+            "required": false,
+            "slot": "scope",
+            "resolver": "auto_approval_scope",
+            "options": [
+              "all_contacts",
+              "circle"
+            ]
+          },
+          {
+            "name": "circle",
+            "prompt": "Which circle?",
+            "required": false,
+            "slot": "circle",
+            "resolver": "spoken_circle_name"
           }
         ],
         "input_resolvers": [],
         "slot_schema": {
-          "enabled": "on_or_off"
+          "enabled": "on_or_off",
+          "scope": "auto_approval_scope",
+          "circle": "spoken_circle_name"
         },
         "workflow_steps": [
           {
@@ -8785,7 +8858,11 @@
     {
       "command": {
         "domain": "location",
-        "review_route": "/one/location?action=sms-contacts"
+        "review_route": "/one/location?action=sms-contacts",
+        "client_receipt": "location.effect.v1",
+        "resource_inputs": {
+          "person": "person"
+        }
       },
       "action_id": "location.add_emergency_contact",
       "surface_id": "one_location",
@@ -8908,7 +8985,11 @@
     {
       "command": {
         "domain": "location",
-        "review_route": "/one/location?action=sms-contacts"
+        "review_route": "/one/location?action=sms-contacts",
+        "client_receipt": "location.effect.v1",
+        "resource_inputs": {
+          "person": "person"
+        }
       },
       "action_id": "location.remove_emergency_contact",
       "surface_id": "one_location",
@@ -9051,7 +9132,7 @@
         "start",
         "location"
       ],
-      "meaning": "Turns location updates back on for this device and refreshes your live position. This makes you visible again to everyone you have an active grant with, so it asks before it runs.",
+      "meaning": "Turns location updates back on for this device and refreshes your live position. Uses only existing, unexpired sharing grants and requests device permission only when needed. It does not create or restore sharing access.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
@@ -9073,7 +9154,7 @@
         "auth_signed_in"
       ],
       "risk_level": "medium",
-      "execution_policy": "confirm_required",
+      "execution_policy": "allow_direct",
       "activation_policy": "none",
       "siri_mode": "direct",
       "siri_requires_vault": true,
@@ -9150,7 +9231,8 @@
       "command": {
         "domain": "location",
         "review_route": "/one/location",
-        "backend_binding": "location.create_circle"
+        "backend_binding": "location.create_circle",
+        "result_resource": "circle"
       },
       "text_backend_executor": {
         "binding": "location.create_circle"
@@ -9177,7 +9259,7 @@
         "new",
         "name"
       ],
-      "meaning": "Creates a circle with the name the person says, without opening the create-circle screen. If no name was said, asks for one first. A new circle starts empty; people join only after they accept an invitation.",
+      "meaning": "Creates an empty circle with the name the person requests. If the name is missing, asks for it. Creating the circle sends no invitations or location. Adding people is a separate action using current eligible connections.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
@@ -9198,8 +9280,8 @@
       "guard_ids": [
         "auth_signed_in"
       ],
-      "risk_level": "high",
-      "execution_policy": "confirm_required",
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
       "activation_policy": "none",
       "siri_mode": "direct",
       "siri_requires_vault": true,
@@ -9283,7 +9365,11 @@
     {
       "command": {
         "domain": "location",
-        "review_route": "/one/location"
+        "review_route": "/one/location",
+        "resource_inputs": {
+          "circle": "circle",
+          "person": "person"
+        }
       },
       "text_backend_executor": {
         "binding": "location.add_to_circle"
@@ -9305,7 +9391,7 @@
         "member",
         "group"
       ],
-      "meaning": "Invites one or more of your connections to join a circle -- multiple people can be named in one turn, e.g. 'Alice and Bob'. They are not in the circle until they accept, so this sends an invitation rather than adding them outright. Only people already connected to you can be invited.",
+      "meaning": "Adds all selected eligible existing connections directly to the chosen circle after one audience review. Existing members are skipped. A new connection request is separate and must become eligible before membership. Named people, all eligible connections, and connected contacts are distinct audiences.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
@@ -9368,7 +9454,7 @@
           {
             "name": "person",
             "prompt": "Who should I invite to the circle?",
-            "required": true,
+            "required": false,
             "slot": "person",
             "resolver": "spoken_person_name_list"
           },
@@ -9378,12 +9464,26 @@
             "required": false,
             "slot": "circle",
             "resolver": "spoken_circle_name"
+          },
+          {
+            "name": "audience",
+            "prompt": "Named people, all eligible connections, or connected contacts?",
+            "required": false,
+            "slot": "audience",
+            "resolver": "enum",
+            "default_value": "named",
+            "options": [
+              "named",
+              "all_connections",
+              "all_contacts"
+            ]
           }
         ],
         "input_resolvers": [],
         "slot_schema": {
           "person": "spoken_person_name_list",
-          "circle": "spoken_circle_name"
+          "circle": "spoken_circle_name",
+          "audience": "enum"
         },
         "workflow_steps": [
           {
@@ -9420,7 +9520,12 @@
     {
       "command": {
         "domain": "location",
-        "review_route": "/one/location"
+        "review_route": "/one/location?view=people",
+        "client_receipt": "location.effect.v1",
+        "resource_inputs": {
+          "circle": "circle",
+          "person": "person"
+        }
       },
       "action_id": "location.remove_from_circle",
       "surface_id": "one_location",
@@ -9554,7 +9659,11 @@
     {
       "command": {
         "domain": "location",
-        "review_route": "/one/location"
+        "review_route": "/one/location?view=people",
+        "client_receipt": "location.effect.v1",
+        "resource_inputs": {
+          "circle": "circle"
+        }
       },
       "text_backend_executor": {
         "binding": "location.rename_circle"
@@ -9689,7 +9798,11 @@
     {
       "command": {
         "domain": "location",
-        "review_route": "/one/location"
+        "review_route": "/one/location?view=people",
+        "client_receipt": "location.effect.v1",
+        "resource_inputs": {
+          "circle": "circle"
+        }
       },
       "text_backend_executor": {
         "binding": "location.leave_circle"
@@ -9817,7 +9930,11 @@
     {
       "command": {
         "domain": "location",
-        "review_route": "/one/location"
+        "review_route": "/one/location?view=people",
+        "client_receipt": "location.effect.v1",
+        "resource_inputs": {
+          "circle": "circle"
+        }
       },
       "text_backend_executor": {
         "binding": "location.delete_circle"
@@ -9945,7 +10062,8 @@
     {
       "command": {
         "domain": "location",
-        "review_route": "/one/location"
+        "review_route": "/one/location?view=people",
+        "client_receipt": "location.effect.v1"
       },
       "action_id": "location.accept_circle_invite",
       "surface_id": "one_location",
@@ -9964,7 +10082,7 @@
         "invitation",
         "join"
       ],
-      "meaning": "Joins a circle you were invited to. Once accepted you start sharing your location with, and seeing shares from, that circle's members. This only works on an invitation already pending for you; if you have a code instead, use open_join_circle. A bare 'accept' or 'approve' while a circle invite is the thing in view means this, not approve_request.",
+      "meaning": "Accept the selected pending invitation to join its named circle. The connection with the named inviter remains after leaving the circle. Location sharing is a separate action; accepting sends no location.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
@@ -10071,7 +10189,8 @@
     {
       "command": {
         "domain": "location",
-        "review_route": "/one/location"
+        "review_route": "/one/location?view=people",
+        "client_receipt": "location.effect.v1"
       },
       "action_id": "location.decline_circle_invite",
       "surface_id": "one_location",
@@ -10197,7 +10316,8 @@
       "command": {
         "domain": "location",
         "review_route": "/one/location?action=settings",
-        "permission": "location"
+        "permission": "location",
+        "review_only": true
       },
       "action_id": "location.save_current_location",
       "surface_id": "one_location",
@@ -10216,7 +10336,7 @@
         "home",
         "work"
       ],
-      "meaning": "Saves where you are right now as a named place -- home, work, or a custom name. Home and work replace any earlier place saved under that same category; a custom name is added alongside your existing places.",
+      "meaning": "Opens Settings and Saved places to capture, name and save the current location through the existing vault-protected form. Opening Settings does not save a place.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
@@ -10322,7 +10442,8 @@
     {
       "command": {
         "domain": "location",
-        "review_route": "/one/location?action=settings"
+        "review_route": "/one/location?action=settings",
+        "review_only": true
       },
       "action_id": "location.delete_saved_location",
       "surface_id": "one_location",
@@ -10340,7 +10461,7 @@
         "place",
         "remove"
       ],
-      "meaning": "Permanently removes a saved place from your list. It does not affect any active or past shares of your location; it only forgets the saved point itself.",
+      "meaning": "Opens Settings and Saved places to select and review deletion through the existing form. Opening Settings does not delete any saved place or change location shares.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
@@ -10447,7 +10568,8 @@
       "command": {
         "domain": "location",
         "review_route": "/one/location?action=check-in",
-        "permission": "location"
+        "permission": "location",
+        "client_receipt": "location.audience.v1"
       },
       "action_id": "location.send_check_in",
       "surface_id": "one_location",
@@ -10575,7 +10697,7 @@
         "places",
         "start"
       ],
-      "meaning": "Starts checking in to a nearby place: opens Check-In if not already there, then looks up the places closest to you right now. If the place is already named in the same turn and it matches one of the nearby results, confirm_nearby_check_in should be called next to finish. Otherwise it lists the nearby options for the person to choose from; if nothing plausible is nearby, Check-In stays open for the person to search manually.",
+      "meaning": "Finds actual provider-backed nearby places without publishing a check-in. Returns up to ten ordered results for selection or a later check-in command. Permission and Nearby eligibility remain required.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
@@ -10658,12 +10780,47 @@
               "60",
               "120"
             ]
+          },
+          {
+            "name": "venue_type",
+            "prompt": "Which kind of place?",
+            "required": false,
+            "slot": "venue_type",
+            "resolver": "enum",
+            "default_value": "all",
+            "options": [
+              "all",
+              "restaurant",
+              "cafe"
+            ]
+          },
+          {
+            "name": "count",
+            "prompt": "How many places, up to ten?",
+            "required": false,
+            "slot": "count",
+            "resolver": "enum",
+            "default_value": "10",
+            "options": [
+              "1",
+              "2",
+              "3",
+              "4",
+              "5",
+              "6",
+              "7",
+              "8",
+              "9",
+              "10"
+            ]
           }
         ],
         "input_resolvers": [],
         "slot_schema": {
           "place": "spoken_place_name",
-          "duration_minutes": "nearby_check_in_duration_minutes"
+          "duration_minutes": "nearby_check_in_duration_minutes",
+          "venue_type": "enum",
+          "count": "enum"
         },
         "workflow_steps": [
           {
@@ -10701,7 +10858,11 @@
       "command": {
         "domain": "location",
         "review_route": "/one/location/check-in",
-        "permission": "location"
+        "permission": "location",
+        "resource_inputs": {
+          "place": "place"
+        },
+        "client_receipt": "location.effect.v1"
       },
       "action_id": "location.confirm_nearby_check_in",
       "surface_id": "one_location",
@@ -10719,7 +10880,7 @@
         "nearby",
         "duration"
       ],
-      "meaning": "Finishes a nearby check-in already started by nearby_check_in: matches the named place against the nearby candidates it returned and, once a duration is given, checks in immediately. Only works after nearby_check_in has listed candidates in this conversation; if the named place does not match any of them, it stops and Check-In stays open for the person to search manually instead of guessing.",
+      "meaning": "Publishes a nearby check-in at the exact selected provider place for 30, 60 or 120 minutes after one review of Nearby visibility and connection-request settings. Fresh location, actual provider validation and Nearby eligibility are required.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
@@ -10788,14 +10949,14 @@
           {
             "name": "place",
             "prompt": "Which place from the list?",
-            "required": true,
+            "required": false,
             "slot": "place",
             "resolver": "spoken_place_name"
           },
           {
             "name": "duration_minutes",
             "prompt": "For how long -- 30 minutes, 1 hour, or 2 hours?",
-            "required": true,
+            "required": false,
             "slot": "duration_minutes",
             "resolver": "nearby_check_in_duration_minutes",
             "options": [
@@ -10803,12 +10964,25 @@
               "60",
               "120"
             ]
+          },
+          {
+            "name": "allow_connection_requests",
+            "prompt": "Allow people nearby to ask to connect?",
+            "required": false,
+            "slot": "allow_connection_requests",
+            "resolver": "enum",
+            "default_value": "off",
+            "options": [
+              "on",
+              "off"
+            ]
           }
         ],
         "input_resolvers": [],
         "slot_schema": {
           "place": "spoken_place_name",
-          "duration_minutes": "nearby_check_in_duration_minutes"
+          "duration_minutes": "nearby_check_in_duration_minutes",
+          "allow_connection_requests": "enum"
         },
         "workflow_steps": [
           {
@@ -10841,7 +11015,8 @@
     {
       "command": {
         "domain": "location",
-        "review_route": "/one/location/check-in"
+        "review_route": "/one/location/check-in",
+        "client_receipt": "location.effect.v1"
       },
       "text_backend_executor": {
         "binding": "location.checkout_nearby"
@@ -10978,7 +11153,7 @@
         "help",
         "send"
       ],
-      "meaning": "Sends an emergency alert to your ready emergency contacts right now, sharing your live location with them and emailing anyone a push notification could not reach. It does not call emergency services. Use this only when the person explicitly says to send, trigger, or call for help right now -- for a bare or ambiguous emergency phrase like 'help' or 'save me', use sos_default instead, which respects the person's own SOS default rather than assuming they meant send. This is a real, immediate alert, not the SOS screen -- to just look at the screen or manage contacts without alerting anyone, use open_sos.",
+      "meaning": "Requests an SOS using the authored Save My Soul review screen. The person must use its genuine send confirmation; this command currently opens that review and cannot report an alert as sent. The owning service reports complete or partial delivery after execution. It does not call emergency services.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
@@ -11113,7 +11288,7 @@
         "save",
         "danger"
       ],
-      "meaning": "Handles a bare or ambiguous emergency phrase -- 'save me', 'sos', 'help', 'emergency', 'turn on sos' -- by doing whatever the person's own SOS default says: either opening the SOS screen so they can decide, or going straight to the send-alert confirm card. Change the default in Voice Settings. Never use this for an explicit 'open the SOS screen' (use open_sos) or an explicit 'send an SOS' (use trigger_sos) -- those always do exactly what they say, regardless of this default.",
+      "meaning": "Opens the authored Save My Soul review for an emergency request that needs clarification or a sending decision. It never assumes disclosure authority or reports an alert as sent. The visible emergency controls own sending; no retired voice-persona preference can bypass that review.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
@@ -11184,6 +11359,458 @@
               "route": "/one/location",
               "screen": "one_location"
             }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "command": {
+        "domain": "location",
+        "review_route": "/one/location?action=settings"
+      },
+      "action_id": "location.set_ghost_mode",
+      "surface_id": "one_location",
+      "label": "Set Ghost Mode",
+      "aliases": [],
+      "search_keywords": [
+        "ghost",
+        "map",
+        "visibility"
+      ],
+      "meaning": "Turns Ghost Mode on or off for the map. Ghost hides your map presence while retaining existing private location shares. It is separate from pausing device location updates.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/location"
+        ],
+        "screens": [
+          "one_location"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "location.set_ghost_mode"
+      },
+      "control_ids": [],
+      "state_exposure": [
+        "map presence mode"
+      ],
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/location"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.location.set_ghost_mode",
+        "required_inputs": [
+          {
+            "name": "enabled",
+            "prompt": "Ghost Mode on or off?",
+            "required": true,
+            "slot": "enabled",
+            "resolver": "enum",
+            "options": [
+              "on",
+              "off"
+            ]
+          }
+        ],
+        "input_resolvers": [],
+        "slot_schema": {
+          "enabled": "enum"
+        },
+        "workflow_steps": [
+          {
+            "type": "action",
+            "label": "Set Ghost Mode",
+            "failure_behavior": "stop",
+            "action_id": "location.set_ghost_mode",
+            "settlement_target": {
+              "route": "/one/location",
+              "screen": "one_location"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "command": {
+        "domain": "location",
+        "review_route": "/one/location?view=links",
+        "client_receipt": "location.effect.v1",
+        "permission": "location"
+      },
+      "action_id": "location.create_public_link",
+      "surface_id": "one_location",
+      "label": "Create a public location link",
+      "aliases": [],
+      "search_keywords": [
+        "location",
+        "public",
+        "link"
+      ],
+      "meaning": "Create or extend an expiring public location link after reviewing that anyone with the URL can see live location. Default duration is one hour. To share through WhatsApp or another app, follow this with Share the public location link.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/location"
+        ],
+        "screens": [
+          "one_location"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "high",
+      "execution_policy": "confirm_required",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "location.create_public_link"
+      },
+      "control_ids": [],
+      "state_exposure": [
+        "active public links"
+      ],
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/location?view=links"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.location.create_public_link",
+        "required_inputs": [
+          {
+            "name": "duration_hours",
+            "prompt": "How long should the public link stay live? Default is one hour.",
+            "required": false,
+            "slot": "duration_hours",
+            "resolver": "location_share_duration",
+            "options": [
+              "0.25",
+              "0.5",
+              "1"
+            ]
+          }
+        ],
+        "input_resolvers": [],
+        "slot_schema": {
+          "duration_hours": "location_share_duration"
+        },
+        "workflow_steps": [
+          {
+            "type": "action",
+            "label": "Create a public location link",
+            "failure_behavior": "stop",
+            "action_id": "location.create_public_link",
+            "settlement_target": {
+              "route": "/one/location?view=links",
+              "screen": "one_location"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "command": {
+        "domain": "location",
+        "review_route": "/one/location?view=links"
+      },
+      "action_id": "location.share_public_link",
+      "surface_id": "one_location",
+      "label": "Share the public location link",
+      "aliases": [],
+      "search_keywords": [
+        "location",
+        "public",
+        "link"
+      ],
+      "meaning": "Open the existing system share sheet for an active public location link; the user chooses WhatsApp or another app and recipient. If no link exists, create one first with its own public visibility review. This action never claims delivery.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/location"
+        ],
+        "screens": [
+          "one_location"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "location.share_public_link"
+      },
+      "control_ids": [],
+      "state_exposure": [
+        "active public links"
+      ],
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "The mounted action reports its browser-observed outcome."
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.location.share_public_link",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "location.share_public_link",
+            "label": "Share the public location link",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "command": {
+        "domain": "location",
+        "review_route": "/one/location?view=links",
+        "client_receipt": "location.effect.v1"
+      },
+      "action_id": "location.revoke_public_link",
+      "surface_id": "one_location",
+      "label": "Revoke a public location link",
+      "aliases": [],
+      "search_keywords": [
+        "location",
+        "public",
+        "link"
+      ],
+      "meaning": "Revoke the selected active public location link after reviewing its exact expiry. People holding that link lose access.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/location"
+        ],
+        "screens": [
+          "one_location"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "high",
+      "execution_policy": "confirm_required",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "location.revoke_public_link"
+      },
+      "control_ids": [],
+      "state_exposure": [
+        "active public links"
+      ],
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "The mounted action reports its browser-observed outcome."
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.location.revoke_public_link",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "location.revoke_public_link",
+            "label": "Revoke a public location link",
+            "failure_behavior": "stop"
           }
         ],
         "progress_contract": {
@@ -14936,7 +15563,8 @@
     {
       "command": {
         "domain": "location",
-        "review_route": "/one/setup/location"
+        "review_route": "/one/setup/location",
+        "review_only": true
       },
       "action_id": "location.onboarding.choose_place",
       "surface_id": "one_setup_location",
@@ -15097,6 +15725,7 @@
       "command": {
         "domain": "location",
         "review_route": "/one/setup/location",
+        "review_only": true,
         "permission": "location"
       },
       "action_id": "setup.finish_location",
@@ -15216,7 +15845,8 @@
     {
       "command": {
         "domain": "location",
-        "review_route": "/one/setup/location"
+        "review_route": "/one/setup/location",
+        "review_only": true
       },
       "action_id": "setup.skip_location",
       "surface_id": "one_setup_location",

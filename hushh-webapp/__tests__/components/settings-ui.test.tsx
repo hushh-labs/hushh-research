@@ -718,4 +718,3 @@ describe("row hover surface", () => {
     expect(primary?.className ?? "").not.toContain("hover:bg-foreground");
   });
 });
-

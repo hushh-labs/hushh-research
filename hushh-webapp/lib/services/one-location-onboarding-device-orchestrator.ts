@@ -22,6 +22,9 @@ export type LocationPermissionSettlement =
   | "permission_restricted"
   | "services_disabled";
 
+/** The writer cannot establish whether its effect committed; never retry it here. */
+export class LocationSaveOutcomeUnknown extends Error {}
+
 type SurfaceAction = () => unknown | Promise<unknown>;
 
 export type OneLocationInteractionSurfacePort = {
@@ -55,26 +58,30 @@ export type OneLocationInteractionSurfacePort = {
 };
 
 export type OneLocationDeviceInteractionPort = {
-  requestPermission: () => Promise<LocationPermissionSettlement>;
+  requestedPrivateSetup?: () => boolean;
+  observePermission?: (run: LocationRunProjectionV1) => Promise<LocationPermissionSettlement | null>;
+  resumeRequestedWorkflow?: () => Promise<void>;
+  reviewRequestedSave?: (runId: string) => void;
+  requestPermission: (run: LocationRunProjectionV1) => Promise<LocationPermissionSettlement>;
   /** Capture returns an opaque, device-local value; it is never transported. */
-  capturePosition: () => Promise<unknown>;
+  capturePosition: (run: LocationRunProjectionV1) => Promise<unknown>;
   /** Retain a fix only after it arrived inside the bounded capture window. */
-  retainPosition: (capture: unknown) => Promise<boolean>;
+  retainPosition: (capture: unknown, run: LocationRunProjectionV1) => Promise<boolean>;
   /** Save through the page's encrypted-draft + v5 finalizer path. */
   savePlace: (input: {
     run: LocationRunProjectionV1;
     category: "home" | "work" | "other";
     label: string;
-  }) => Promise<boolean>;
+  }) => Promise<boolean | LocationOnboardingRunResultV1>;
   /** Open the approved form only when a retained fix is available. */
   openPlaceForm: (input?: {
     runId: string;
     category: "other";
   }) => Promise<boolean>;
-  openSettings: () => Promise<void>;
+  openSettings: (run?: LocationRunProjectionV1) => Promise<void>;
   /** Remove the Location-scoped ciphertext and device key after server skip. */
   discardPreparedDraft: (runId: string) => Promise<void>;
-  showReady: () => void;
+  showReady: (run?: LocationRunProjectionV1) => void;
   openLocation: () => void;
 };
 
@@ -88,6 +95,7 @@ export type OneLocationDeviceInteractionPort = {
 export class OneLocationOnboardingDeviceOrchestrator {
   private epoch = 0;
   private automaticDirectiveId: string | null = null;
+  private permissionRequest: symbol | null = null;
 
   constructor(
     private readonly surface: OneLocationInteractionSurfacePort,
@@ -97,9 +105,14 @@ export class OneLocationOnboardingDeviceOrchestrator {
   cancel(): void {
     this.epoch += 1;
     this.automaticDirectiveId = null;
+    this.permissionRequest = null;
   }
 
   async startOrResume(contextRevision?: string | null): Promise<void> {
+    if (this.device.requestedPrivateSetup?.()) {
+      await this.device.resumeRequestedWorkflow?.();
+      return;
+    }
     const epoch = ++this.epoch;
     try {
       const result = await this.surface.startOrResume(contextRevision);
@@ -122,7 +135,7 @@ export class OneLocationOnboardingDeviceOrchestrator {
         result.run.completionClaimAllowed
       ) {
         this.surface.dismiss();
-        this.device.showReady();
+        this.device.showReady(result.run);
         return;
       }
       this.publishRecovery(result.run);
@@ -149,6 +162,12 @@ export class OneLocationOnboardingDeviceOrchestrator {
             pause,
           },
         });
+        if (this.device.requestedPrivateSetup?.() && this.device.observePermission) {
+          const epoch = this.epoch;
+          void this.device.observePermission(result.run).then((permission) => {
+            if (epoch === this.epoch && permission === "permission_granted") void this.requestPermission(result.run, permission);
+          }).catch(() => undefined);
+        }
         return;
       case "one.location.paused.v2":
         this.surface.presentServerResult(result, {
@@ -189,6 +208,13 @@ export class OneLocationOnboardingDeviceOrchestrator {
         });
         return;
       case "one.location.place_choice.v2":
+        if (this.device.requestedPrivateSetup?.()) {
+          if (this.automaticDirectiveId !== directive.directiveId) {
+            this.automaticDirectiveId = directive.directiveId;
+            void this.choosePlace(result.run);
+          }
+          return;
+        }
         this.surface.presentServerResult(result, {
           onResult: {
             save_place: () => this.choosePlace(result.run),
@@ -198,10 +224,18 @@ export class OneLocationOnboardingDeviceOrchestrator {
         });
         return;
       case "one.location.place_persisting.v2":
+        if (this.device.requestedPrivateSetup?.()) {
+          this.saveRequestedPlace(result);
+          return;
+        }
         this.surface.presentServerResult(result, { onResult: { pause } });
         void this.openPlaceForm(result.run);
         return;
       case "one.location.awaiting_vault_finalize.v2":
+        if (this.device.requestedPrivateSetup?.()) {
+          this.saveRequestedPlace(result);
+          return;
+        }
         this.surface.presentServerResult(result, {
           onResult: {
             skip_place: () => this.skipPreparedPlace(result.run),
@@ -240,7 +274,28 @@ export class OneLocationOnboardingDeviceOrchestrator {
   private publishRecovery(run: LocationRunProjectionV1 | null): void {
     this.surface.publishLocal("resume_required", {
       run,
-      onPrimary: () => this.startOrResume(),
+      onPrimary: () => this.device.requestedPrivateSetup?.()
+        ? this.device.resumeRequestedWorkflow?.() : this.startOrResume(),
+    });
+  }
+
+  private saveRequestedPlace(result: LocationOnboardingRunResultV1): void {
+    if (!result.directive || this.automaticDirectiveId === result.directive.directiveId) return;
+    this.automaticDirectiveId = result.directive.directiveId;
+    const epoch = ++this.epoch;
+    void this.device.savePlace({ run: result.run, category: "other", label: "Current location" }).then((next) => {
+      if (epoch !== this.epoch) return;
+      // Only a server run projection continues the workflow. A local boolean
+      // cannot establish an encrypted save or completion receipt.
+      if (typeof next === "object") this.present(next);
+      else this.publishRecovery(result.run);
+    }).catch((error: unknown) => {
+      if (epoch !== this.epoch) return;
+      if (error instanceof LocationSaveOutcomeUnknown && this.device.reviewRequestedSave) {
+        this.device.reviewRequestedSave(result.run.runId);
+        return;
+      }
+      this.publishRecovery(result.run);
     });
   }
 
@@ -259,14 +314,17 @@ export class OneLocationOnboardingDeviceOrchestrator {
     }
   }
 
-  private async requestPermission(run: LocationRunProjectionV1): Promise<void> {
+  private async requestPermission(run: LocationRunProjectionV1, observed?: "permission_granted"): Promise<void> {
+    if (this.permissionRequest) return;
+    const ticket = Symbol();
+    this.permissionRequest = ticket;
     const epoch = ++this.epoch;
     // Invoke the native/browser permission API synchronously inside the
     // trusted button handler. The server transition runs concurrently so its
     // network latency cannot delay the OS prompt.
     recordLocationPermissionRequestStarted(run);
     const permission = OneLocationOnboardingRunClient.settleWithin(
-      this.device.requestPermission(),
+      observed ? Promise.resolve(observed) : this.device.requestPermission(run),
     );
     void permission.catch(() => undefined);
     try {
@@ -285,14 +343,19 @@ export class OneLocationOnboardingDeviceOrchestrator {
       void permission.catch(() => undefined);
       if (epoch !== this.epoch) return;
       this.publishRecovery(run);
+    } finally {
+      if (this.permissionRequest === ticket) this.permissionRequest = null;
     }
   }
 
   private async retryPermission(run: LocationRunProjectionV1): Promise<void> {
+    if (this.permissionRequest) return;
+    const ticket = Symbol();
+    this.permissionRequest = ticket;
     const epoch = ++this.epoch;
     recordLocationPermissionRequestStarted(run);
     const permission = OneLocationOnboardingRunClient.settleWithin(
-      this.device.requestPermission(),
+      this.device.requestPermission(run),
     );
     void permission.catch(() => undefined);
     try {
@@ -311,6 +374,8 @@ export class OneLocationOnboardingDeviceOrchestrator {
       void permission.catch(() => undefined);
       if (epoch !== this.epoch) return;
       this.publishRecovery(run);
+    } finally {
+      if (this.permissionRequest === ticket) this.permissionRequest = null;
     }
   }
 
@@ -325,7 +390,7 @@ export class OneLocationOnboardingDeviceOrchestrator {
     try {
       const permission = await (primedPermission ??
         OneLocationOnboardingRunClient.settleWithin(
-          this.device.requestPermission(),
+          this.device.requestPermission(run),
         ));
       if (epoch !== this.epoch) return;
       if (permission.status === "timed_out") {
@@ -344,7 +409,7 @@ export class OneLocationOnboardingDeviceOrchestrator {
       if (permission.value === "permission_granted") {
         recordLocationPositionCaptureStarted(run);
         primedPosition = OneLocationOnboardingRunClient.settleWithin(
-          this.device.capturePosition(),
+          this.device.capturePosition(run),
         );
       }
       void primedPosition?.catch(() => undefined);
@@ -373,7 +438,7 @@ export class OneLocationOnboardingDeviceOrchestrator {
       // Location page rebinds its registered actions; no generic paused card
       // or model-generated instruction is inserted between OS state and retry.
       this.present(waitingForReturn);
-      await this.device.openSettings();
+      await this.device.openSettings(run);
     } catch {
       if (epoch !== this.epoch) return;
       this.publishRecovery(run);
@@ -394,7 +459,7 @@ export class OneLocationOnboardingDeviceOrchestrator {
       try {
         const captured = await (primedPosition ??
           OneLocationOnboardingRunClient.settleWithin(
-            this.device.capturePosition(),
+            this.device.capturePosition(result.run),
           ));
         if (epoch !== this.epoch) return;
         if (captured.status === "timed_out") {
@@ -411,7 +476,7 @@ export class OneLocationOnboardingDeviceOrchestrator {
         }
         const point = parseFreshLocationRuntimeCapture(captured.value);
         const retained = point
-          ? await this.device.retainPosition(point)
+          ? await this.device.retainPosition(point, result.run)
           : false;
         if (epoch !== this.epoch) return;
         const next = await this.surface.settle({
@@ -517,12 +582,12 @@ export class OneLocationOnboardingDeviceOrchestrator {
     try {
       if (await this.device.openPlaceForm(input)) return true;
       const captured = await OneLocationOnboardingRunClient.settleWithin(
-        this.device.capturePosition(),
+        this.device.capturePosition(run),
       );
       if (epoch !== this.epoch) return false;
       if (
         captured.status === "settled" &&
-        (await this.device.retainPosition(captured.value)) &&
+        (await this.device.retainPosition(captured.value, run)) &&
         epoch === this.epoch &&
         (await this.device.openPlaceForm(input))
       ) {

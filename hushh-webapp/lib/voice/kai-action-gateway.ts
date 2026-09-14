@@ -172,6 +172,9 @@ export type KaiActionDefinition = {
   command?: {
     domain: "location";
     backend_binding?: "location.create_circle";
+    client_receipt?: "location.effect.v1" | "location.audience.v1";
+    result_resource?: "circle";
+    resource_inputs?: Record<string, "circle" | "person" | "place">;
     review_route: string;
     review_only?: boolean;
     permission?: "location";
@@ -658,6 +661,11 @@ function validateAction(value: unknown): KaiActionDefinition | null {
             permission:
               value.command.permission === "location" ? "location" : undefined,
             review_only: value.command.review_only === true,
+            client_receipt: value.command.client_receipt === "location.effect.v1" || value.command.client_receipt === "location.audience.v1" ? value.command.client_receipt : undefined,
+            result_resource: value.command.result_resource === "circle" ? "circle" : undefined,
+            resource_inputs: isPlainObject(value.command.resource_inputs)
+              && Object.values(value.command.resource_inputs).every((kind) => kind === "circle" || kind === "person" || kind === "place")
+                ? value.command.resource_inputs as Record<string, "circle" | "person" | "place"> : undefined,
             backend_binding:
               value.command.backend_binding === "location.create_circle"
                 ? "location.create_circle"

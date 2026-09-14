@@ -184,7 +184,15 @@
     "209_one_capability_runs.sql",
     "210_one_location_onboarding_runtime.sql",
     "211_one_capability_runs_rls_lockdown.sql",
-    "212_location_command_runtime.sql"
+    "212_location_command_runtime.sql",
+    "213_location_command_workflow_binding.sql",
+    "214_location_command_private_finalize.sql",
+    "215_location_command_resource_receipt.sql",
+    "216_location_command_membership_receipts.sql",
+    "217_location_command_effect_receipts.sql",
+    "218_location_command_audience_receipts.sql",
+    "219_location_presence_rating_visit.sql",
+    "220_gmail_personal_information_request_initial_inbox_scan.sql"
   ],
   "environment_overlays": {
     "uat": [
@@ -318,7 +326,15 @@
       "209_one_capability_runs.sql",
       "210_one_location_onboarding_runtime.sql",
       "211_one_capability_runs_rls_lockdown.sql",
-      "212_location_command_runtime.sql"
+      "212_location_command_runtime.sql",
+      "213_location_command_workflow_binding.sql",
+      "214_location_command_private_finalize.sql",
+      "215_location_command_resource_receipt.sql",
+      "216_location_command_membership_receipts.sql",
+      "217_location_command_effect_receipts.sql",
+      "218_location_command_audience_receipts.sql",
+      "219_location_presence_rating_visit.sql",
+      "220_gmail_personal_information_request_initial_inbox_scan.sql"
     ],
     "pkm": [
       "030_pkm_cutover.sql",

@@ -248,7 +248,7 @@ final class OneVoiceInvocationCoordinatorTests: XCTestCase {
         XCTAssertEqual(
             (pending.bridgePayload["handoffDeadlineAt"] as? Int64 ?? 0)
                 - (pending.bridgePayload["createdAt"] as? Int64 ?? 0),
-            25_000
+            150_000
         )
 
         let claimed = try XCTUnwrap(coordinator.claimRecord(id: pending.id))
@@ -301,7 +301,9 @@ final class OneVoiceInvocationCoordinatorTests: XCTestCase {
 
         XCTAssertEqual(coordinator.captureRequest("enable location"), .captured)
         let pending = try XCTUnwrap(coordinator.pending())
-        now = now.addingTimeInterval(26)
+        now = now.addingTimeInterval(149)
+        XCTAssertEqual(coordinator.pending()?.id, pending.id)
+        now = now.addingTimeInterval(1)
 
         XCTAssertNil(coordinator.claimRecord(id: pending.id))
         XCTAssertNil(coordinator.pending())

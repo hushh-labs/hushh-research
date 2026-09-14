@@ -133,8 +133,10 @@ repair command into an alternative release path.
 ## Location command runtime deployment
 
 Talk to One now uses bounded recording, ordinary Gemini transcription and
-semantic Location planning. Deploy the matching generated contracts and
-migration 208 with the backend; rebuild and sync native web assets before
+semantic Location planning. Deploy the matching generated contracts and the
+complete ordered release migration manifest with the backend. The Location
+repair requires migrations 213–219 in addition to the existing command schema;
+rebuild and sync native web assets before
 packaging the apps. The existing fleet model configuration supplies command
 reasoning. No Live API key, websocket relay, ASR pack, intent-ranker pack, or
 model-pack registry is required by the command path.

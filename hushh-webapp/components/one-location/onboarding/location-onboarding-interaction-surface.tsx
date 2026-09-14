@@ -88,6 +88,8 @@ type RememberOutcome = {
 };
 
 export type LocationInteractionSurfaceContextValue = {
+  claimCommandPresentation: (runId: string | null) => void;
+  commandPresentation: ReactNode;
   currentRun: LocationRunProjectionV1 | null;
   directive: LocationInteractionDirectiveV1 | null;
   startOrResume: (
@@ -250,6 +252,7 @@ export function OneLocationInteractionSurfaceProvider({
 }) {
   const { userId } = useAuth();
   const { vaultOwnerToken, isVaultUnlocked } = useVault();
+  const [commandRunId, claimCommandPresentation] = useState<string | null>(null);
   const [currentRun, setCurrentRun] = useState<LocationRunProjectionV1 | null>(
     null,
   );
@@ -500,10 +503,12 @@ export function OneLocationInteractionSurfaceProvider({
     return owner;
   }, [ownerIsCurrent, renderedOwnerGeneration, renderedUserId]);
 
-  const captureRenderedRequest = useCallback((): RequestSnapshot => {
+  const captureRenderedRequest = useCallback((advanceAdmission = true): RequestSnapshot => {
     return {
       ...captureRenderedOwner(),
-      admissionSequence: ++admissionSequenceRef.current,
+      admissionSequence: advanceAdmission
+        ? ++admissionSequenceRef.current
+        : admissionSequenceRef.current,
     };
   }, [captureRenderedOwner]);
 
@@ -596,7 +601,16 @@ export function OneLocationInteractionSurfaceProvider({
       ) {
         return;
       }
-      const admissionSequence = ++admissionSequenceRef.current;
+      // Binding callbacks to the same server presentation is not a new
+      // interaction. Advancing admission here would discard an in-flight
+      // settlement as soon as the device bridge renders its callbacks.
+      const samePresentation = serverPresentationMatchesExactly(
+        directiveRef.current,
+        createServerLocationInteractionDirective(result),
+      );
+      const admissionSequence = samePresentation
+        ? committedAdmissionSequenceRef.current
+        : ++admissionSequenceRef.current;
       commitServerResult(result, {
         actions: { byResult: options.onResult },
         admissionSequence,
@@ -827,7 +841,11 @@ export function OneLocationInteractionSurfaceProvider({
   const refreshOnForeground = useCallback(() => {
     let request: RequestSnapshot;
     try {
-      request = captureRenderedRequest();
+      // Returning from an OS permission prompt observes the current task;
+      // it must not supersede the user interaction still awaiting settlement.
+      // Same-run revisions reject stale reads, while owner and interaction
+      // generations still reject reads after cancellation or a newer task.
+      request = captureRenderedRequest(false);
     } catch {
       return;
     }
@@ -847,10 +865,8 @@ export function OneLocationInteractionSurfaceProvider({
     lastForegroundSignalAtRef.current = nowMs;
     const refresh = captureRequestBearer(request)
       .then((bearerToken) =>
-        OneLocationOnboardingRunClient.startOrResume({
-          runId: run.runId,
-          bearerToken,
-        }),
+        // Foreground is a read, never consent to resume an unfinished command.
+        OneLocationOnboardingRunClient.get(run.runId, { bearerToken }),
       )
       .then(async (result) => {
         if (!ownerIsCurrent(request)) {
@@ -945,6 +961,7 @@ export function OneLocationInteractionSurfaceProvider({
         }
       : null;
     previousUserRef.current = renderedUserId;
+    claimCommandPresentation(null);
     currentRunRef.current = null;
     foregroundRefreshRef.current = null;
     lastForegroundSignalAtRef.current = 0;
@@ -1072,6 +1089,16 @@ export function OneLocationInteractionSurfaceProvider({
 
   const value = useMemo<LocationInteractionSurfaceContextValue>(
     () => ({
+      claimCommandPresentation,
+      commandPresentation: commandRunId && directive?.run?.runId === commandRunId && isVaultUnlocked ? (
+        <OneLocationInteractionSurfaceHost
+          embedded
+          directive={directive}
+          onDismiss={dismiss}
+          onCancelExactRunForLocationDeviceGate={cancelExactRunForLocationDeviceGate}
+          actionsRef={actionsRef}
+        />
+      ) : null,
       currentRun,
       directive,
       startOrResume,
@@ -1084,6 +1111,9 @@ export function OneLocationInteractionSurfaceProvider({
       clear,
     }),
     [
+      commandRunId,
+      isVaultUnlocked,
+      cancelExactRunForLocationDeviceGate,
       clear,
       currentRun,
       directive,
@@ -1104,7 +1134,7 @@ export function OneLocationInteractionSurfaceProvider({
         // A Circle-name form is a separate, leased command run. It takes the
         // foreground while active; the durable onboarding directive remains
         // intact and returns after the form is dismissed or settles.
-        directive={circleNameDirective ? null : directive}
+        directive={circleNameDirective || directive?.run?.commandBinding || directive?.run?.runId === commandRunId ? null : directive}
         onDismiss={dismiss}
         onCancelExactRunForLocationDeviceGate={
           cancelExactRunForLocationDeviceGate
@@ -1235,11 +1265,13 @@ function OneLocationCircleNameInteractionHost({
 }
 
 function OneLocationInteractionSurfaceHost({
+  embedded = false,
   directive,
   onDismiss,
   onCancelExactRunForLocationDeviceGate,
   actionsRef,
 }: {
+  embedded?: boolean;
   directive: LocationInteractionDirectiveV1 | null;
   onDismiss: () => void;
   onCancelExactRunForLocationDeviceGate: SurfaceAction;
@@ -1363,7 +1395,7 @@ function OneLocationInteractionSurfaceHost({
 
   return (
     <div
-      className="pointer-events-none fixed inset-x-0 bottom-[calc(var(--bottom-inset,0px)+16px)] z-[10020] mx-auto flex w-full max-w-lg justify-center px-4"
+      className={embedded ? "w-full" : "pointer-events-none fixed inset-x-0 bottom-[calc(var(--bottom-inset,0px)+16px)] z-[10020] mx-auto flex w-full max-w-lg justify-center px-4"}
       data-testid="one-location-interaction-surface"
       data-location-interaction-state={interactionId}
       data-location-interaction-authority={directive.authority}

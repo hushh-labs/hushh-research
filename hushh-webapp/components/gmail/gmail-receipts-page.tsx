@@ -70,6 +70,10 @@ import {
   mergeCachedReceiptItems,
   primeCachedGmailReceipts,
 } from "@/lib/profile/gmail-receipts-cache";
+import {
+  getGmailWorkspaceSession,
+  setGmailWorkspaceSession,
+} from "@/lib/profile/gmail-workspace-session";
 import { PkmDomainResourceService } from "@/lib/pkm/pkm-domain-resource";
 import { PkmWriteCoordinator } from "@/lib/services/pkm-write-coordinator";
 import {
@@ -437,9 +441,30 @@ export default function GmailReceiptsPage({
   const settledGmailPopupAttemptRef = useRef<string | null>(null);
   const autoReceiptSummaryKeyRef = useRef<string | null>(null);
   const gmailPopupRef = useRef<Window | null>(null);
-  const [workspace, setWorkspace] = useState<GmailWorkspace>(
-    journeyVariant === "onboarding" ? "receipts" : initialWorkspace,
+  const resolvedInitialWorkspace =
+    journeyVariant === "onboarding"
+      ? "receipts"
+      : getGmailWorkspaceSession(user?.uid, pathname, initialWorkspace);
+  const [workspace, setWorkspaceState] = useState<GmailWorkspace>(
+    resolvedInitialWorkspace,
   );
+  const setWorkspace = useCallback(
+    (nextWorkspace: GmailWorkspace) => {
+      setWorkspaceState(nextWorkspace);
+      if (journeyVariant !== "onboarding") {
+        setGmailWorkspaceSession(user?.uid, pathname, nextWorkspace);
+      }
+    },
+    [journeyVariant, pathname, user?.uid],
+  );
+
+  useEffect(() => {
+    setWorkspaceState(
+      journeyVariant === "onboarding"
+        ? "receipts"
+        : getGmailWorkspaceSession(user?.uid, pathname, initialWorkspace),
+    );
+  }, [initialWorkspace, journeyVariant, pathname, user?.uid]);
   // This is intentionally memory-only. A KYC summary can be
   // sensitive, so workspace navigation must not write unfinished text to
   // browser storage just to preserve it.
@@ -1967,21 +1992,6 @@ export default function GmailReceiptsPage({
                       {connectGmailHelper}
                     </p>
                   ) : null}
-                  <p className="max-w-xl text-center text-xs leading-5 text-muted-foreground sm:basis-full">
-                    Connecting asks Google for read-only Gmail access to sync
-                    receipts and power Gmail features you use. Gmail-derived
-                    receipt data is deleted when you disconnect; information you
-                    explicitly save to private memory remains separate.{" "}
-                    <a
-                      className="underline underline-offset-4"
-                      href="https://www.hushh.ai/privacy"
-                      rel="noreferrer"
-                      target="_blank"
-                    >
-                      Read the privacy policy
-                    </a>
-                    .
-                  </p>
                 </div>
               ) : null}
               {isConnected &&

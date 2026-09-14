@@ -13,6 +13,7 @@ import hashlib
 import json
 import subprocess
 import sys
+from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
@@ -275,6 +276,126 @@ def _workflow_change_has_migration(
     return False
 
 
+def _workflow_change_is_additive(
+    previous: dict[str, Any], graph: dict[str, Any], semantic_id: str
+) -> bool:
+    """An added app-result transition preserves every older client operation.
+
+    All other workflow semantics remain byte-for-byte equal. In particular,
+    button/native results, executors, receipts, cursors and policies cannot be
+    changed under this compatibility rule.
+    """
+    old = deepcopy(_semantic_node(previous, semantic_id))
+    new = deepcopy(_semantic_node(graph, semantic_id))
+    if not old or not new or _node_version(old) != _node_version(new):
+        return False
+    # New command schemas may add a client completion recipe while legacy
+    # durable workflow cursors stay identical. Each referenced action retains
+    # its own independently versioned admission and settlement contract.
+    old_tail = old.get("command_completion_action_ids", [])
+    new_tail = new.get("command_completion_action_ids", [])
+    actions = {item["capability_id"]: item for item in graph.get("actions", [])}
+    if new_tail[: len(old_tail)] != old_tail or any(
+        action_id not in actions for action_id in new_tail
+    ):
+        return False
+    # Service catalog additions do not change this workflow's cursors, inputs,
+    # permissions or proof. Every new action still has its own contract gate.
+    old_catalog = old.get("knowledge_package", {}).get("catalog_capability_ids", [])
+    new_catalog = new.get("knowledge_package", {}).get("catalog_capability_ids", [])
+    catalog_additions = set(new_catalog) - set(old_catalog)
+    if not set(old_catalog).issubset(new_catalog) or any(
+        item not in actions for item in catalog_additions
+    ):
+        return False
+    if "catalog_capability_ids" in new.get("knowledge_package", {}):
+        new["knowledge_package"]["catalog_capability_ids"] = old_catalog
+    # A newly discovered, authenticated GET is documentation for the brain,
+    # not a new workflow executor. Preserve every existing endpoint exactly.
+    before_endpoints = {item["capability_id"]: item for item in old.get("api_endpoints", [])}
+    after_endpoints = {item["capability_id"]: item for item in new.get("api_endpoints", [])}
+    if any(after_endpoints.get(key) != value for key, value in before_endpoints.items()):
+        return False
+    endpoint_additions = [
+        value for key, value in after_endpoints.items() if key not in before_endpoints
+    ]
+    existing_read_authorities = {
+        value.get("authorization")
+        for value in before_endpoints.values()
+        if value.get("method") == "GET"
+    }
+    allowed_read_authorities = {"vault_owner"} | ({"firebase_auth"} & existing_read_authorities)
+    if any(
+        value.get("method") != "GET"
+        or value.get("authorization") not in allowed_read_authorities
+        or value.get("binding_status") != "discovered_unbound"
+        for value in endpoint_additions
+    ):
+        return False
+    if endpoint_additions:
+        new["api_endpoints"] = old.get("api_endpoints", [])
+        for executor in new.get("plan", {}).get("executor_hierarchy", []):
+            if (
+                executor.get("kind") == "backend_api"
+                and executor.get("status") == "adapter_required"
+            ):
+                if executor.get("discovered_endpoint_count") != len(after_endpoints):
+                    return False
+                executor["discovered_endpoint_count"] = len(before_endpoints)
+    old.pop("command_completion_action_ids", None)
+    new.pop("command_completion_action_ids", None)
+    old_surfaces = {item["surface_id"]: item for item in old.get("interaction_surfaces", [])}
+    new_surfaces = {item["surface_id"]: item for item in new.get("interaction_surfaces", [])}
+    if old_surfaces.keys() != new_surfaces.keys():
+        return False
+    added_results: set[str] = set()
+    for surface_id, before in old_surfaces.items():
+        after = new_surfaces[surface_id]
+        prior = before.get("allowed_results", [])
+        additions = [item for item in after.get("allowed_results", []) if item not in prior]
+        if not additions:
+            if before != after:
+                return False
+            continue
+        if any(item.get("presentation") != "app_result" for item in additions):
+            return False
+        codes = {item["result"] for item in additions}
+        if codes & {item["result"] for item in prior}:
+            return False
+        added_results.update(codes)
+        after["allowed_results"] = [
+            item for item in after.get("allowed_results", []) if item not in additions
+        ]
+        variants = after.get("result_schema", {}).get("oneOf", [])
+        after.get("result_schema", {})["oneOf"] = [
+            item
+            for item in variants
+            if item.get("properties", {}).get("result", {}).get("const") not in codes
+        ]
+        if before != after:
+            return False
+    if (
+        not added_results
+        and old_tail == new_tail
+        and not catalog_additions
+        and not endpoint_additions
+    ):
+        return False
+    for step in new.get("steps", []) if added_results else []:
+        step["transitions"] = [
+            item for item in step.get("transitions", []) if item.get("when") not in added_results
+        ]
+        verifier = step.get("verifier", {})
+        if "outcomes" in verifier:
+            verifier["outcomes"] = [
+                item for item in verifier["outcomes"] if item not in added_results
+            ]
+    for workflow in (old, new):
+        workflow.get("plan", {}).pop("knowledge_package_digest", None)
+        workflow.get("knowledge_package", {}).pop("source_digest", None)
+    return old == new
+
+
 def _semantic_diff(
     previous: dict[str, Any] | None,
     graph: dict[str, Any],
@@ -306,6 +427,12 @@ def _semantic_diff(
         if item.startswith("workflows:")
         and _workflow_change_has_migration(previous_graph, graph, item)
     )
+    compatible = sorted(
+        item
+        for item in changed
+        if item.startswith("workflows:")
+        and _workflow_change_is_additive(previous_graph, graph, item)
+    )
     deprecated = sorted(
         item
         for item in [*removed, *changed]
@@ -322,6 +449,7 @@ def _semantic_diff(
         for item in [*removed, *changed]
         if item.startswith(("actions:", "workflows:"))
         and item not in migrated
+        and item not in compatible
         and item not in deprecated
     )
     return {
@@ -330,6 +458,7 @@ def _semantic_diff(
         "removed": removed,
         "changed": changed,
         "migrated": migrated,
+        "compatible": compatible,
         "deprecated": deprecated,
         "breaking": breaking,
     }
@@ -387,6 +516,7 @@ def _workflow_revision_compatibility(
     previous_revision = str((previous or {}).get("revision") or "").strip()
     old_workflows = _workflow_by_id(previous or {})
     migrated = set(semantic_diff.get("migrated") or [])
+    additive = set(semantic_diff.get("compatible") or [])
     deprecated = set(semantic_diff.get("deprecated") or [])
     entries: list[dict[str, Any]] = []
     for workflow_id, workflow in sorted(_workflow_by_id(graph).items()):
@@ -408,7 +538,7 @@ def _workflow_revision_compatibility(
             elif semantic_id in deprecated:
                 rejected = sorted(set(rejected + predecessor_revisions))
                 compatible = []
-            elif old_digest == digest:
+            elif old_digest == digest or semantic_id in additive:
                 compatible = predecessor_revisions
         entries.append(
             {
@@ -427,7 +557,77 @@ def _workflow_revision_compatibility(
     }
 
 
-def build_payload() -> dict[str, Any]:
+def _read_workflow_predecessor(ref: str) -> dict[str, Any]:
+    """Import only a committed ancestor, never an arbitrary compatibility claim."""
+
+    resolved = subprocess.run(  # noqa: S603 - fixed git executable/arguments
+        ["git", "rev-parse", "--verify", "--end-of-options", f"{ref}^{{commit}}"],  # noqa: S607
+        cwd=REPO_ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    subprocess.run(  # noqa: S603 - fixed git executable/arguments
+        ["git", "merge-base", "--is-ancestor", resolved, "HEAD"],  # noqa: S607
+        cwd=REPO_ROOT,
+        check=True,
+        capture_output=True,
+    )
+    relative = OUTPUTS[0].relative_to(REPO_ROOT).as_posix()
+    completed = subprocess.run(  # noqa: S603 - fixed git executable/arguments
+        ["git", "show", f"{resolved}:{relative}"],  # noqa: S607
+        cwd=REPO_ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    payload = json.loads(completed.stdout)
+    if not isinstance(payload, dict) or not payload.get("revision"):
+        raise RuntimeError("Workflow predecessor has no generated graph revision.")
+    return payload
+
+
+def _merge_workflow_predecessor(graph: dict[str, Any], predecessor: dict[str, Any]) -> None:
+    """Preserve a merged branch's history only after proving its workflow semantics."""
+
+    current = _workflow_by_id(graph)
+    compatibility = deepcopy(graph["workflow_revision_compatibility"])
+    entries = {entry["workflow_id"]: entry for entry in compatibility["workflows"]}
+    for workflow_id, old in _workflow_by_id(predecessor).items():
+        new = current.get(workflow_id)
+        semantic_id = f"workflows:{workflow_id}"
+        equal = _semantic_index({"workflows": [old]}) == _semantic_index(
+            {"workflows": [new] if new else []}
+        )
+        if not equal and not _workflow_change_is_additive(predecessor, graph, semantic_id):
+            raise RuntimeError(f"Workflow predecessor is not compatible: {workflow_id}")
+        entry = entries[workflow_id]
+        prior = _previous_workflow_compatibility(predecessor, workflow_id)
+        for field in (
+            "compatible_graph_revisions",
+            "migration_required_graph_revisions",
+            "rejected_graph_revisions",
+        ):
+            revisions = set(_clean_revisions(entry.get(field)) + _clean_revisions(prior.get(field)))
+            if field == "compatible_graph_revisions":
+                revisions.add(str(predecessor["revision"]))
+                revisions.discard(str(graph["revision"]))
+            entry[field] = sorted(revisions)
+        compatible = set(entry["compatible_graph_revisions"])
+        migration_required = set(entry["migration_required_graph_revisions"])
+        rejected = set(entry["rejected_graph_revisions"])
+        if (
+            compatible & (migration_required | rejected)
+            or migration_required & rejected
+            or str(graph["revision"]) in migration_required | rejected
+        ):
+            raise RuntimeError(
+                f"Workflow predecessor conflicts with revision policy: {workflow_id}"
+            )
+    graph["workflow_revision_compatibility"] = compatibility
+
+
+def build_payload(*, workflow_predecessor_refs: tuple[str, ...] = ()) -> dict[str, Any]:
     previous = _read_previous()
     deprecations = _load_evolution_deprecations()
     graph = compile_capability_graph_from_sources()
@@ -466,6 +666,8 @@ def build_payload() -> dict[str, Any]:
         graph,
         semantic_diff,
     )
+    for ref in workflow_predecessor_refs:
+        _merge_workflow_predecessor(graph, _read_workflow_predecessor(ref))
     return graph
 
 
@@ -474,8 +676,14 @@ def main() -> int:
     parser.add_argument(
         "--check", action="store_true", help="fail when a committed mirror is stale"
     )
+    parser.add_argument(
+        "--workflow-predecessor-ref",
+        action="append",
+        default=[],
+        help="preserve a merged ancestor's workflow history after semantic compatibility proof",
+    )
     args = parser.parse_args()
-    payload = build_payload()
+    payload = build_payload(workflow_predecessor_refs=tuple(args.workflow_predecessor_ref))
     text = json.dumps(payload, indent=2, sort_keys=True) + "\n"
     stale = []
     for output in OUTPUTS:

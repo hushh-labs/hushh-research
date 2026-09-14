@@ -13,6 +13,7 @@ import type {
 } from "@/lib/capacitor/one-system-action-invocation";
 import type {
   CommandCapturePermission,
+  CommandCaptureLevel,
   CommandRecording,
 } from "@/lib/voice/command-capture";
 
@@ -41,6 +42,10 @@ export type OneVoiceInvocationProgressState =
   "claimed" | "app_owned" | "detached";
 
 export interface NativeOneVoiceInvocationPlugin {
+  commandCaptureHaptic(options: {
+    kind: "ready" | "cancel";
+    sessionId: string;
+  }): Promise<void>;
   getCommandCapturePermission(): Promise<CommandCapturePermission>;
   requestCommandCapturePermission(): Promise<CommandCapturePermission>;
   openCommandCaptureSettings(): Promise<{ opened: boolean }>;
@@ -97,6 +102,10 @@ export interface NativeOneVoiceInvocationPlugin {
   }>;
   cancelRequestInvocation(options?: { id?: string }): Promise<void>;
   addListener(
+    eventName: "commandCaptureLevel",
+    listener: (event: CommandCaptureLevel) => void,
+  ): Promise<PluginListenerHandle>;
+  addListener(
     eventName: "voiceInvocationAvailable",
     listener: (invocation: PendingOneVoiceInvocation) => void,
   ): Promise<PluginListenerHandle>;
@@ -115,6 +124,7 @@ const noListener = (): PluginListenerHandle => ({
 });
 
 class OneVoiceInvocationWeb extends WebPlugin {
+  async commandCaptureHaptic(): Promise<void> {}
   async getCommandCapturePermission(): Promise<CommandCapturePermission> {
     // Web capture uses getUserMedia directly; this native bridge is never its
     // authority. Return a closed native-shaped result for accidental callers.

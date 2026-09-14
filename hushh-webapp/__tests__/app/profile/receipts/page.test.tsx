@@ -147,6 +147,16 @@ vi.mock("@/components/app-ui/surfaces", () => ({
   ),
 }));
 
+vi.mock("@/components/gmail/gmail-verification-onboarding", () => ({
+  GmailVerificationOnboarding: ({ children }: { children: React.ReactNode }) => (
+    <>{children}</>
+  ),
+}));
+
+vi.mock("@/components/gmail/gmail-information-requests-section", () => ({
+  default: () => <div>KYC requests</div>,
+}));
+
 vi.mock("@/components/ui/progress", () => ({
   Progress: ({ value }: { value?: number }) => <div data-value={value} />,
 }));
@@ -228,6 +238,7 @@ vi.mock("lucide-react", () => ({
   Loader2: () => <span />,
   Lock: () => <span />,
   Mail: () => <span />,
+  MessageCircle: () => <span />,
   RefreshCw: () => <span />,
   Search: () => <span />,
   RotateCcw: () => <span />,
@@ -1151,6 +1162,27 @@ describe("ProfileReceiptsPage", () => {
     expect(
       screen.getByRole("button", { name: /connect gmail/i }),
     ).toBeVisible();
+  });
+
+  it("restores the KYC workspace after a secure-session remount", async () => {
+    const firstMount = render(<ProfileReceiptsPage />);
+
+    fireEvent.click(screen.getByRole("tab", { name: "KYC" }));
+    expect(screen.getByRole("tab", { name: "KYC" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+
+    // OnboardingJourneyGuard temporarily unmounts protected routes while a
+    // slow foreground session validation settles.
+    firstMount.unmount();
+    render(<ProfileReceiptsPage />);
+
+    expect(screen.getByRole("tab", { name: "KYC" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    expect(await screen.findByText("KYC requests")).toBeVisible();
   });
 
   it("falls back to same-window OAuth when the retained popup is unavailable", async () => {

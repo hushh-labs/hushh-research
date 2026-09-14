@@ -76,6 +76,18 @@ class LocationPkmFinalizeAuthorizationV1(BaseModel):
         return self
 
 
+class LocationRequestedWorkflowAuthorityV1(BaseModel):
+    """Non-secret locator; only the atomic writer can verify its live authority."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    command_id: uuid.UUID
+    command_step: int = Field(..., ge=0, le=11)
+    operation_id: str = Field(..., pattern=r"^[0-9a-f]{64}$")
+    workflow_id: Literal["workflow.setup.location"]
+    run_id: str = Field(..., pattern=_LOCATION_RUN_ID_PATTERN)
+
+
 class PkmConfirmationReceiptV2(BaseModel):
     """Owner-authorized receipt for an individual review or enabled auto-save policy."""
 
@@ -91,11 +103,15 @@ class PkmConfirmationReceiptV2(BaseModel):
     displayed_scope: str = Field(..., min_length=1, max_length=128)
     sharing_impact_acknowledged: bool = False
     authorization_mode: Literal[
-        "owner_confirmed", "owner_auto_save_policy", "product_default_auto_save_policy"
+        "owner_confirmed",
+        "owner_auto_save_policy",
+        "product_default_auto_save_policy",
+        "owner_requested_workflow",
     ] = "owner_confirmed"
     auto_save_policy_version: Literal[1] | None = None
     auto_save_policy_enabled_at: datetime | None = None
     product_default_effective_at: datetime | None = None
+    workflow_authority: LocationRequestedWorkflowAuthorityV1 | None = None
 
     @model_validator(mode="after")
     def validate_timestamp(self) -> PkmConfirmationReceiptV2:
@@ -108,6 +124,20 @@ class PkmConfirmationReceiptV2(BaseModel):
             raise ValueError("confirmation_timestamp_in_future")
         if normalized < now - timedelta(days=7):
             raise ValueError("confirmation_receipt_expired")
+        if self.authorization_mode == "owner_requested_workflow":
+            if self.workflow_authority is None or self.sharing_impact_acknowledged:
+                raise ValueError("requested_workflow_receipt_invalid")
+            if any(
+                value is not None
+                for value in (
+                    self.auto_save_policy_version,
+                    self.auto_save_policy_enabled_at,
+                    self.product_default_effective_at,
+                )
+            ):
+                raise ValueError("requested_workflow_cannot_include_auto_save_policy")
+        elif self.workflow_authority is not None:
+            raise ValueError("workflow_authority_requires_requested_workflow")
         if self.authorization_mode == "owner_auto_save_policy":
             if self.auto_save_policy_version != 1 or self.auto_save_policy_enabled_at is None:
                 raise ValueError("auto_save_policy_receipt_incomplete")
@@ -218,6 +248,18 @@ class PkmMutationPlanV2(BaseModel):
             raise ValueError(f"{self.operation}_requires_source_scope_handle")
         if self.operation in {"update", "move", "merge"} and not self.target_scope_handle:
             raise ValueError(f"{self.operation}_requires_target_scope_handle")
+        if self.confirmation_receipt.authorization_mode == "owner_requested_workflow":
+            if (
+                domain != "location"
+                or self.proposed_scope != "saved_places"
+                or self.operation not in {"create", "merge"}
+                or self.affected_grant_ids
+                or self.affected_export_ids
+                or self.sharing_impact.active_recipient_count
+                or self.sharing_impact.recipient_labels
+                or self.sharing_impact.enters_next_export_revision
+            ):
+                raise ValueError("requested_workflow_requires_private_location_save")
         if self.confirmation_receipt.authorization_mode in {
             "owner_auto_save_policy",
             "product_default_auto_save_policy",
@@ -268,6 +310,9 @@ def validate_location_finalize_authorization_for_write(
         authenticated_user_id=authenticated_user_id,
         domain=canonical_domain,
     )
+    workflow = plan.confirmation_receipt.workflow_authority
+    if workflow is not None and workflow.run_id != authorization.run_id:
+        raise ValueError("requested_workflow_run_mismatch")
     expected_commit_id = derive_pkm_mutation_commit_id(
         user_id=authenticated_user_id,
         domain=canonical_domain,

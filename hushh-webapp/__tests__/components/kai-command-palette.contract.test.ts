@@ -39,8 +39,8 @@ describe("Kai command palette contract", () => {
 
   it("does not feed fixed keyboard-anchored dialogs back into viewport scrolling", () => {
     expect(keyboardInsetSource).toContain(
-      "el.closest('[data-keyboard-anchor=\"bottom\"]')",
+      "element.closest('[data-keyboard-anchor=\"bottom\"]')",
     );
-    expect(keyboardInsetSource).toContain("if (el.closest");
+    expect(keyboardInsetSource).toContain("if (element.closest");
   });
 });

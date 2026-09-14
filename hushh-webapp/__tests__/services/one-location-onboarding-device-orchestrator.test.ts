@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   OneLocationOnboardingDeviceOrchestrator,
+  LocationSaveOutcomeUnknown,
   type OneLocationDeviceInteractionPort,
   type OneLocationInteractionSurfacePort,
 } from "@/lib/services/one-location-onboarding-device-orchestrator";
@@ -126,4 +127,68 @@ describe("OneLocationOnboardingDeviceOrchestrator completion claims", () => {
     expect(surface.dismiss).toHaveBeenCalledOnce();
     expect(device.showReady).toHaveBeenCalledOnce();
   });
+});
+
+it("permission callbacks survive collapse without dispatching the same OS prompt twice", async () => {
+  const current = run({ evidence: { permission: false, place: false, circle: false, completion: false } });
+  const { surface, device } = harness(current);
+  let finish!: (value: LocationOnboardingRunResultV1) => void;
+  vi.mocked(surface.settle).mockImplementation(() => new Promise((resolve) => { finish = resolve; }));
+  vi.mocked(device.requestPermission).mockResolvedValue("permission_granted");
+  const orchestrator = new OneLocationOnboardingDeviceOrchestrator(surface, device);
+  orchestrator.present(result(current, "one.location.permission_offer.v2"));
+  const actions = vi.mocked(surface.presentServerResult).mock.calls.at(-1)![1]!.onResult!;
+  const first = actions.request_permission!();
+  await actions.request_permission!();
+  expect(device.requestPermission).toHaveBeenCalledTimes(1);
+  expect(surface.settle).toHaveBeenCalledTimes(1);
+  orchestrator.cancel();
+  finish(result(current, "one.location.permission_result.v2"));
+  await first;
+  expect(surface.settle).toHaveBeenCalledTimes(1);
+  expect(device.capturePosition).not.toHaveBeenCalled();
+});
+
+it("uses a granted permission observation without opening another permission prompt", async () => {
+  const current = run();
+  const { surface, device } = harness(current);
+  device.requestedPrivateSetup = () => true;
+  device.observePermission = vi.fn().mockResolvedValue("permission_granted");
+  vi.mocked(surface.settle).mockReturnValue(new Promise(() => {}));
+  const orchestrator = new OneLocationOnboardingDeviceOrchestrator(surface, device);
+  orchestrator.present(result(current, "one.location.permission_offer.v2"));
+  await vi.waitFor(() => expect(surface.settle).toHaveBeenCalledWith({ run: expect.objectContaining({ runId: current.runId }), result: "request_permission" }));
+  expect(device.requestPermission).not.toHaveBeenCalled();
+  orchestrator.cancel();
+});
+
+it("unknown saves open review and never become success or an automatic retry", async () => {
+  const current = run();
+  const { surface, device } = harness(current);
+  device.requestedPrivateSetup = () => true;
+  device.reviewRequestedSave = vi.fn();
+  vi.mocked(device.savePlace).mockRejectedValue(new LocationSaveOutcomeUnknown());
+  const orchestrator = new OneLocationOnboardingDeviceOrchestrator(surface, device);
+  const pending = result(current, "one.location.awaiting_vault_finalize.v2");
+  orchestrator.present(pending);
+  await vi.waitFor(() => expect(device.reviewRequestedSave).toHaveBeenCalledWith(current.runId));
+  orchestrator.present(pending);
+  expect(device.savePlace).toHaveBeenCalledTimes(1);
+  expect(device.showReady).not.toHaveBeenCalled();
+  expect(surface.publishLocal).not.toHaveBeenCalled();
+});
+
+it("discarded saves cannot reopen a recovery card", async () => {
+  const current = run();
+  const { surface, device } = harness(current);
+  device.requestedPrivateSetup = () => true;
+  let reject!: (reason: Error) => void;
+  vi.mocked(device.savePlace).mockReturnValue(new Promise((_resolve, fail) => { reject = fail; }));
+  const orchestrator = new OneLocationOnboardingDeviceOrchestrator(surface, device);
+  orchestrator.present(result(current, "one.location.awaiting_vault_finalize.v2"));
+  orchestrator.cancel();
+  reject(new Error("late failure"));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(surface.publishLocal).not.toHaveBeenCalled();
+  expect(device.showReady).not.toHaveBeenCalled();
 });

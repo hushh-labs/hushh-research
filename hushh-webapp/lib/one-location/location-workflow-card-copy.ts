@@ -49,6 +49,7 @@ const COPY: Record<LocationWorkflowCardCopyKey, string> = {
     "Open Settings to allow Location for One, then return to continue.",
   "one.location.result.continue.label": "Continue",
   "one.location.result.draft_unavailable.label": "Capture again",
+  "one.location.result.draft_prepared.label": "Private draft prepared",
   "one.location.result.open_location.label": "Open Location",
   "one.location.result.open_settings.label": "Open Settings",
   "one.location.result.pause.label": "Not now",

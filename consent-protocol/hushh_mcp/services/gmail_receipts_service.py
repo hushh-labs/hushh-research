@@ -2525,7 +2525,7 @@ class GmailReceiptsService:
         return summaries
 
     async def list_personal_inbox_messages_for_monitoring(
-        self, *, user_id: str, limit: int = 25
+        self, *, user_id: str, limit: int = 30
     ) -> list[dict[str, Any]]:
         """Return full messages only to an explicitly opted-in in-process monitor.
 
@@ -2543,7 +2543,7 @@ class GmailReceiptsService:
         return messages
 
     async def list_personal_inbox_monitor_page(
-        self, *, user_id: str, page_token: str | None = None, limit: int = 25
+        self, *, user_id: str, page_token: str | None = None, limit: int = 30
     ) -> tuple[list[dict[str, Any]], str | None]:
         """Return one bounded inbox page for the opt-in monitor only.
 
@@ -2551,11 +2551,11 @@ class GmailReceiptsService:
         expose it to a browser or reuse it for receipt sync.
         """
 
-        bounded_limit = max(1, min(int(limit or 25), 25))
+        bounded_limit = max(1, min(int(limit or 30), 30))
         access_token, _row = await self._ensure_access_token(user_id=user_id)
         listing = await self._list_messages(
             access_token=access_token,
-            query_text="in:inbox newer_than:30d -category:promotions -category:social",
+            query_text="in:inbox",
             page_token=page_token,
             max_results=bounded_limit,
         )
@@ -2577,15 +2577,28 @@ class GmailReceiptsService:
             return_exceptions=True,
         )
         messages: list[dict[str, Any]] = []
-        for message_id, result in zip(message_ids, results, strict=False):
+        for _message_id, result in zip(message_ids, results, strict=False):
             if isinstance(result, Exception):
-                logger.warning(
-                    "gmail.personal_monitor.message_fetch_failed gmail_message_id=%s error=%s",
-                    message_id,
-                    type(result).__name__,
+                if isinstance(result, GmailApiError) and result.status_code == 404:
+                    logger.info("gmail.personal_information_request.message_gone_before_scan")
+                    continue
+                raise GmailApiError(
+                    "Gmail could not read a recent Inbox message. Try again.",
+                    status_code=503,
+                    code="GMAIL_MONITOR_MESSAGE_FETCH_FAILED",
                 )
-                continue
-            if isinstance(result, dict):
+            if not isinstance(result, dict):
+                raise GmailApiError(
+                    "Gmail returned an invalid recent Inbox message. Try again.",
+                    status_code=503,
+                    code="GMAIL_MONITOR_MESSAGE_FETCH_FAILED",
+                )
+            labels = {
+                _clean_text(label).upper()
+                for label in result.get("labelIds", [])
+                if _clean_text(label)
+            }
+            if "INBOX" in labels and not {"SENT", "DRAFT", "SPAM", "TRASH"} & labels:
                 messages.append(result)
         next_page_token = _clean_text(listing.get("nextPageToken")) or None
         return messages, next_page_token
@@ -2611,7 +2624,7 @@ class GmailReceiptsService:
         start_history_id: str,
         page_token: str | None = None,
         message_offset: int = 0,
-        limit: int = 25,
+        limit: int = 30,
     ) -> tuple[list[dict[str, Any]], str | None, str | None, int | None]:
         """Return inbox messages added after a monitor's saved history checkpoint.
 
@@ -2627,7 +2640,7 @@ class GmailReceiptsService:
                 status_code=409,
                 code="GMAIL_MONITOR_HISTORY_UNAVAILABLE",
             )
-        bounded_limit = max(1, min(int(limit or 25), 25))
+        bounded_limit = max(1, min(int(limit or 30), 30))
         bounded_offset = max(0, int(message_offset or 0))
         access_token, _row = await self._ensure_access_token(user_id=user_id)
         history = await self._list_history(
@@ -2656,7 +2669,7 @@ class GmailReceiptsService:
                 # A History entry can outlive the message itself: Gmail may
                 # report ``messageAdded`` and the owner (or a retention rule)
                 # can delete the message before this bounded scan hydrates it.
-                # There is no unread Inbox content left to classify in that
+                # There is no Inbox content left to classify in that
                 # case, so retrying the same immutable 404 would permanently
                 # block every later message. Other provider failures remain
                 # retryable and keep the checkpoint in place.
@@ -2682,12 +2695,10 @@ class GmailReceiptsService:
                 for label in result.get("labelIds", [])
                 if _clean_text(label)
             }
-            # Personal-information monitoring is deliberately narrower than
-            # receipt sync: after its opt-in History checkpoint it considers
-            # only messages that are still unread in the Inbox. A message read
-            # before this bounded scan is intentionally skipped rather than
-            # searched or backfilled later.
-            if "INBOX" in labels and "UNREAD" in labels and "SENT" not in labels:
+            # After the opt-in History checkpoint, every incoming Inbox
+            # message is eligible whether or not the owner opens it before the
+            # bounded scan reaches it. Sent mail is never a KYC request source.
+            if "INBOX" in labels and not {"SENT", "DRAFT", "SPAM", "TRASH"} & labels:
                 messages.append(result)
         return (
             messages,

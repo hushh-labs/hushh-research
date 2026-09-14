@@ -6106,29 +6106,35 @@
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
+          "circle": {
+            "description": "Which circle should be included?",
+            "type": "string",
+            "x-hushh-resolver": "spoken_circle_name"
+          },
           "person": {
             "description": "Who do you want to ask?",
             "type": "string",
             "x-hushh-resolver": "spoken_person_name_list"
           }
         },
-        "required": [
-          "person"
-        ],
+        "required": [],
         "type": "object"
       },
       "input_schema": {
         "additionalProperties": false,
         "properties": {
+          "circle": {
+            "description": "Which circle should be included?",
+            "type": "string",
+            "x-hushh-resolver": "spoken_circle_name"
+          },
           "person": {
             "description": "Who do you want to ask?",
             "type": "string",
             "x-hushh-resolver": "spoken_person_name_list"
           }
         },
-        "required": [
-          "person"
-        ],
+        "required": [],
         "type": "object"
       },
       "kind": "action",
@@ -6188,7 +6194,8 @@
       },
       "render_surface": "render.entity_picker",
       "required_entities": [
-        "entity.person"
+        "entity.person",
+        "entity.circle"
       ],
       "search_keywords": [
         "ask",
@@ -6276,6 +6283,11 @@
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
+          "circle": {
+            "description": "Which circle should be included?",
+            "type": "string",
+            "x-hushh-resolver": "spoken_circle_name"
+          },
           "duration_hours": {
             "description": "For how long do you want location? You can say 15 minutes, 30 minutes, 1 hour, 2 hours, 4 hours, 8 hours, or 24 hours.",
             "type": "string",
@@ -6287,14 +6299,17 @@
             "x-hushh-resolver": "spoken_person_name_list"
           }
         },
-        "required": [
-          "duration_hours"
-        ],
+        "required": [],
         "type": "object"
       },
       "input_schema": {
         "additionalProperties": false,
         "properties": {
+          "circle": {
+            "description": "Which circle should be included?",
+            "type": "string",
+            "x-hushh-resolver": "spoken_circle_name"
+          },
           "duration_hours": {
             "description": "For how long do you want location? You can say 15 minutes, 30 minutes, 1 hour, 2 hours, 4 hours, 8 hours, or 24 hours.",
             "type": "string",
@@ -6306,9 +6321,7 @@
             "x-hushh-resolver": "spoken_person_name_list"
           }
         },
-        "required": [
-          "duration_hours"
-        ],
+        "required": [],
         "type": "object"
       },
       "kind": "action",
@@ -6368,7 +6381,8 @@
       },
       "render_surface": "render.entity_picker",
       "required_entities": [
-        "entity.person"
+        "entity.person",
+        "entity.circle"
       ],
       "search_keywords": [
         "send",
@@ -6883,7 +6897,7 @@
       },
       "description": "Opens the temporary link screen, where you create a link that shows your location for a limited time to anyone who opens it.",
       "execution": {
-        "binding_ref": "route:/one/location?action=temp-link&view=links",
+        "binding_ref": "route:/one/location?view=links",
         "executor": {
           "kind": "existing_route",
           "settlement": "directive_ledger_settlement"
@@ -6893,7 +6907,7 @@
         "target": {
           "path": "route",
           "status": "wired",
-          "target": "/one/location?action=temp-link&view=links"
+          "target": "/one/location?view=links"
         }
       },
       "goal_id": "goal.location.open_temporary_link",
@@ -6916,7 +6930,7 @@
       "kind": "action",
       "label": "Create a temporary link",
       "navigation": {
-        "fallback": "/one/location?action=temp-link&view=links",
+        "fallback": "/one/location?view=links",
         "routes": [
           "/one/location"
         ],
@@ -7185,7 +7199,7 @@
         "requires_trusted_tap": false,
         "surface": null
       },
-      "description": "Opens the emergency SOS screen, where an alert with your location can be sent to your emergency contacts. Opening it does not send anything. Say this only when the person explicitly asks to look at the screen or manage contacts, not for a bare or ambiguous emergency phrase like 'help' or 'save me' -- those go to sos_default instead, which respects the person's own SOS default. To send a real alert immediately, use trigger_sos.",
+      "description": "Opens the authored Save My Soul review screen for emergency contacts and alert controls. Opening the screen sends no alert and does not call emergency services.",
       "execution": {
         "binding_ref": "route:/one/location?action=sos",
         "executor": {
@@ -8094,7 +8108,7 @@
         "requires_trusted_tap": false,
         "surface": null
       },
-      "description": "Checks your phone contacts against Hushh accounts and shows which of them are already here. Phone numbers are hashed on your device; your contact list is never stored.",
+      "description": "Opens People to use Find contacts from Add or manage people. Contact permission and device scanning happen only through that authored control. No contacts have been scanned when the screen opens.",
       "execution": {
         "binding_ref": "semantic_action:one-location-find-contacts",
         "executor": {
@@ -8874,29 +8888,35 @@
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
+          "circle": {
+            "description": "Which circle should be included?",
+            "type": "string",
+            "x-hushh-resolver": "spoken_circle_name"
+          },
           "person": {
             "description": "Who do you want to share with?",
             "type": "string",
             "x-hushh-resolver": "spoken_person_name_list"
           }
         },
-        "required": [
-          "person"
-        ],
+        "required": [],
         "type": "object"
       },
       "input_schema": {
         "additionalProperties": false,
         "properties": {
+          "circle": {
+            "description": "Which circle should be included?",
+            "type": "string",
+            "x-hushh-resolver": "spoken_circle_name"
+          },
           "person": {
             "description": "Who do you want to share with?",
             "type": "string",
             "x-hushh-resolver": "spoken_person_name_list"
           }
         },
-        "required": [
-          "person"
-        ],
+        "required": [],
         "type": "object"
       },
       "kind": "action",
@@ -8956,7 +8976,8 @@
       },
       "render_surface": "render.entity_picker",
       "required_entities": [
-        "entity.person"
+        "entity.person",
+        "entity.circle"
       ],
       "search_keywords": [
         "pick",
@@ -9045,6 +9066,11 @@
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
+          "circle": {
+            "description": "Which circle should be included?",
+            "type": "string",
+            "x-hushh-resolver": "spoken_circle_name"
+          },
           "duration_hours": {
             "description": "For how long? You can say 15 minutes, 30 minutes, 1 hour, 2 hours, 4 hours, 8 hours, 24 hours, or until you stop it.",
             "type": "string",
@@ -9056,14 +9082,17 @@
             "x-hushh-resolver": "spoken_person_name_list"
           }
         },
-        "required": [
-          "duration_hours"
-        ],
+        "required": [],
         "type": "object"
       },
       "input_schema": {
         "additionalProperties": false,
         "properties": {
+          "circle": {
+            "description": "Which circle should be included?",
+            "type": "string",
+            "x-hushh-resolver": "spoken_circle_name"
+          },
           "duration_hours": {
             "description": "For how long? You can say 15 minutes, 30 minutes, 1 hour, 2 hours, 4 hours, 8 hours, 24 hours, or until you stop it.",
             "type": "string",
@@ -9075,9 +9104,7 @@
             "x-hushh-resolver": "spoken_person_name_list"
           }
         },
-        "required": [
-          "duration_hours"
-        ],
+        "required": [],
         "type": "object"
       },
       "kind": "action",
@@ -9137,7 +9164,8 @@
       },
       "render_surface": "render.entity_picker",
       "required_entities": [
-        "entity.person"
+        "entity.person",
+        "entity.circle"
       ],
       "search_keywords": [
         "share",
@@ -9708,7 +9736,7 @@
         "requires_trusted_tap": false,
         "surface": null
       },
-      "description": "Changes how much longer the named person can see your live location, without stopping and restarting the share. It only acts on a share already active with them.",
+      "description": "Opens active shares to select a current recipient and review the new sharing duration in the existing form. Opening the screen does not change access or extend a share.",
       "execution": {
         "binding_ref": "semantic_action:location.change_share_duration",
         "executor": {
@@ -10065,10 +10093,20 @@
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
+          "circle": {
+            "description": "Which circle?",
+            "type": "string",
+            "x-hushh-resolver": "spoken_circle_name"
+          },
           "enabled": {
             "description": "Should automatic approval be on or off?",
             "type": "string",
             "x-hushh-resolver": "on_or_off"
+          },
+          "scope": {
+            "description": "Which people may be auto-approved: all contacts or one circle?",
+            "type": "string",
+            "x-hushh-resolver": "auto_approval_scope"
           }
         },
         "required": [
@@ -10079,10 +10117,20 @@
       "input_schema": {
         "additionalProperties": false,
         "properties": {
+          "circle": {
+            "description": "Which circle?",
+            "type": "string",
+            "x-hushh-resolver": "spoken_circle_name"
+          },
           "enabled": {
             "description": "Should automatic approval be on or off?",
             "type": "string",
             "x-hushh-resolver": "on_or_off"
+          },
+          "scope": {
+            "description": "Which people may be auto-approved: all contacts or one circle?",
+            "type": "string",
+            "x-hushh-resolver": "auto_approval_scope"
           }
         },
         "required": [
@@ -10145,8 +10193,10 @@
         "requires_signed_in": true,
         "requires_vault": false
       },
-      "render_surface": "render.form",
-      "required_entities": [],
+      "render_surface": "render.entity_picker",
+      "required_entities": [
+        "entity.circle"
+      ],
       "search_keywords": [
         "automatic",
         "auto",
@@ -10547,7 +10597,7 @@
         "requires_trusted_tap": false,
         "surface": null
       },
-      "description": "Turns location updates back on for this device and refreshes your live position. This makes you visible again to everyone you have an active grant with, so it asks before it runs.",
+      "description": "Turns location updates back on for this device and refreshes your live position. Uses only existing, unexpired sharing grants and requests device permission only when needed. It does not create or restore sharing access.",
       "execution": {
         "binding_ref": "semantic_action:location.resume_updates",
         "executor": {
@@ -10704,7 +10754,7 @@
         "requires_trusted_tap": false,
         "surface": null
       },
-      "description": "Creates a circle with the name the person says, without opening the create-circle screen. If no name was said, asks for one first. A new circle starts empty; people join only after they accept an invitation.",
+      "description": "Creates an empty circle with the name the person requests. If the name is missing, asks for it. Creating the circle sends no invitations or location. Adding people is a separate action using current eligible connections.",
       "execution": {
         "binding_ref": "backend_service:location.create_circle",
         "executor": {
@@ -10874,7 +10924,7 @@
         "requires_trusted_tap": false,
         "surface": null
       },
-      "description": "Invites one or more of your connections to join a circle -- multiple people can be named in one turn, e.g. 'Alice and Bob'. They are not in the circle until they accept, so this sends an invitation rather than adding them outright. Only people already connected to you can be invited.",
+      "description": "Adds all selected eligible existing connections directly to the chosen circle after one audience review. Existing members are skipped. A new connection request is separate and must become eligible before membership. Named people, all eligible connections, and connected contacts are distinct audiences.",
       "execution": {
         "binding_ref": "semantic_action:location.add_to_circle",
         "executor": {
@@ -10897,6 +10947,11 @@
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
+          "audience": {
+            "description": "Named people, all eligible connections, or connected contacts?",
+            "type": "string",
+            "x-hushh-resolver": "enum"
+          },
           "circle": {
             "description": "Which circle?",
             "type": "string",
@@ -10908,14 +10963,17 @@
             "x-hushh-resolver": "spoken_person_name_list"
           }
         },
-        "required": [
-          "person"
-        ],
+        "required": [],
         "type": "object"
       },
       "input_schema": {
         "additionalProperties": false,
         "properties": {
+          "audience": {
+            "description": "Named people, all eligible connections, or connected contacts?",
+            "type": "string",
+            "x-hushh-resolver": "enum"
+          },
           "circle": {
             "description": "Which circle?",
             "type": "string",
@@ -10927,9 +10985,7 @@
             "x-hushh-resolver": "spoken_person_name_list"
           }
         },
-        "required": [
-          "person"
-        ],
+        "required": [],
         "type": "object"
       },
       "kind": "action",
@@ -11746,7 +11802,7 @@
         "requires_trusted_tap": false,
         "surface": null
       },
-      "description": "Joins a circle you were invited to. Once accepted you start sharing your location with, and seeing shares from, that circle's members. This only works on an invitation already pending for you; if you have a code instead, use open_join_circle. A bare 'accept' or 'approve' while a circle invite is the thing in view means this, not approve_request.",
+      "description": "Accept the selected pending invitation to join its named circle. The connection with the named inviter remains after leaving the circle. Location sharing is a separate action; accepting sends no location.",
       "execution": {
         "binding_ref": "semantic_action:location.accept_circle_invite",
         "executor": {
@@ -12077,7 +12133,7 @@
         "requires_trusted_tap": false,
         "surface": null
       },
-      "description": "Saves where you are right now as a named place -- home, work, or a custom name. Home and work replace any earlier place saved under that same category; a custom name is added alongside your existing places.",
+      "description": "Opens Settings and Saved places to capture, name and save the current location through the existing vault-protected form. Opening Settings does not save a place.",
       "execution": {
         "binding_ref": "semantic_action:location.save_current_location",
         "executor": {
@@ -12245,7 +12301,7 @@
         "requires_trusted_tap": false,
         "surface": null
       },
-      "description": "Permanently removes a saved place from your list. It does not affect any active or past shares of your location; it only forgets the saved point itself.",
+      "description": "Opens Settings and Saved places to select and review deletion through the existing form. Opening Settings does not delete any saved place or change location shares.",
       "execution": {
         "binding_ref": "semantic_action:location.delete_saved_location",
         "executor": {
@@ -12558,7 +12614,7 @@
         "requires_trusted_tap": false,
         "surface": null
       },
-      "description": "Starts checking in to a nearby place: opens Check-In if not already there, then looks up the places closest to you right now. If the place is already named in the same turn and it matches one of the nearby results, confirm_nearby_check_in should be called next to finish. Otherwise it lists the nearby options for the person to choose from; if nothing plausible is nearby, Check-In stays open for the person to search manually.",
+      "description": "Finds actual provider-backed nearby places without publishing a check-in. Returns up to ten ordered results for selection or a later check-in command. Permission and Nearby eligibility remain required.",
       "execution": {
         "binding_ref": "semantic_action:location.nearby_check_in",
         "executor": {
@@ -12581,6 +12637,11 @@
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
+          "count": {
+            "description": "How many places, up to ten?",
+            "type": "string",
+            "x-hushh-resolver": "enum"
+          },
           "duration_minutes": {
             "description": "For how long -- 30 minutes, 1 hour, or 2 hours?",
             "type": "string",
@@ -12590,6 +12651,11 @@
             "description": "Where are you checking in?",
             "type": "string",
             "x-hushh-resolver": "spoken_place_name"
+          },
+          "venue_type": {
+            "description": "Which kind of place?",
+            "type": "string",
+            "x-hushh-resolver": "enum"
           }
         },
         "required": [],
@@ -12598,6 +12664,11 @@
       "input_schema": {
         "additionalProperties": false,
         "properties": {
+          "count": {
+            "description": "How many places, up to ten?",
+            "type": "string",
+            "x-hushh-resolver": "enum"
+          },
           "duration_minutes": {
             "description": "For how long -- 30 minutes, 1 hour, or 2 hours?",
             "type": "string",
@@ -12607,6 +12678,11 @@
             "description": "Where are you checking in?",
             "type": "string",
             "x-hushh-resolver": "spoken_place_name"
+          },
+          "venue_type": {
+            "description": "Which kind of place?",
+            "type": "string",
+            "x-hushh-resolver": "enum"
           }
         },
         "required": [],
@@ -12735,7 +12811,7 @@
         "requires_trusted_tap": false,
         "surface": null
       },
-      "description": "Finishes a nearby check-in already started by nearby_check_in: matches the named place against the nearby candidates it returned and, once a duration is given, checks in immediately. Only works after nearby_check_in has listed candidates in this conversation; if the named place does not match any of them, it stops and Check-In stays open for the person to search manually instead of guessing.",
+      "description": "Publishes a nearby check-in at the exact selected provider place for 30, 60 or 120 minutes after one review of Nearby visibility and connection-request settings. Fresh location, actual provider validation and Nearby eligibility are required.",
       "execution": {
         "binding_ref": "semantic_action:location.confirm_nearby_check_in",
         "executor": {
@@ -12758,6 +12834,11 @@
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
+          "allow_connection_requests": {
+            "description": "Allow people nearby to ask to connect?",
+            "type": "string",
+            "x-hushh-resolver": "enum"
+          },
           "duration_minutes": {
             "description": "For how long -- 30 minutes, 1 hour, or 2 hours?",
             "type": "string",
@@ -12769,15 +12850,17 @@
             "x-hushh-resolver": "spoken_place_name"
           }
         },
-        "required": [
-          "place",
-          "duration_minutes"
-        ],
+        "required": [],
         "type": "object"
       },
       "input_schema": {
         "additionalProperties": false,
         "properties": {
+          "allow_connection_requests": {
+            "description": "Allow people nearby to ask to connect?",
+            "type": "string",
+            "x-hushh-resolver": "enum"
+          },
           "duration_minutes": {
             "description": "For how long -- 30 minutes, 1 hour, or 2 hours?",
             "type": "string",
@@ -12789,10 +12872,7 @@
             "x-hushh-resolver": "spoken_place_name"
           }
         },
-        "required": [
-          "place",
-          "duration_minutes"
-        ],
+        "required": [],
         "type": "object"
       },
       "kind": "action",
@@ -12854,8 +12934,10 @@
         "requires_signed_in": true,
         "requires_vault": false
       },
-      "render_surface": "render.form",
-      "required_entities": [],
+      "render_surface": "render.entity_picker",
+      "required_entities": [
+        "entity.request"
+      ],
       "search_keywords": [
         "check-in",
         "confirm",
@@ -13073,7 +13155,7 @@
         "requires_trusted_tap": false,
         "surface": null
       },
-      "description": "Sends an emergency alert to your ready emergency contacts right now, sharing your live location with them and emailing anyone a push notification could not reach. It does not call emergency services. Use this only when the person explicitly says to send, trigger, or call for help right now -- for a bare or ambiguous emergency phrase like 'help' or 'save me', use sos_default instead, which respects the person's own SOS default rather than assuming they meant send. This is a real, immediate alert, not the SOS screen -- to just look at the screen or manage contacts without alerting anyone, use open_sos.",
+      "description": "Requests an SOS using the authored Save My Soul review screen. The person must use its genuine send confirmation; this command currently opens that review and cannot report an alert as sent. The owning service reports complete or partial delivery after execution. It does not call emergency services.",
       "execution": {
         "binding_ref": "semantic_action:location.trigger_sos",
         "executor": {
@@ -13244,7 +13326,7 @@
         "requires_trusted_tap": false,
         "surface": null
       },
-      "description": "Handles a bare or ambiguous emergency phrase -- 'save me', 'sos', 'help', 'emergency', 'turn on sos' -- by doing whatever the person's own SOS default says: either opening the SOS screen so they can decide, or going straight to the send-alert confirm card. Change the default in Voice Settings. Never use this for an explicit 'open the SOS screen' (use open_sos) or an explicit 'send an SOS' (use trigger_sos) -- those always do exactly what they say, regardless of this default.",
+      "description": "Opens the authored Save My Soul review for an emergency request that needs clarification or a sending decision. It never assumes disclosure authority or reports an alert as sent. The visible emergency controls own sending; no retired voice-persona preference can bypass that review.",
       "execution": {
         "binding_ref": "semantic_action:location.sos_default",
         "executor": {
@@ -13341,6 +13423,614 @@
         "panic",
         "save",
         "danger"
+      ],
+      "settlement_proof": "directive_ledger_settlement",
+      "side_effect": {
+        "classification": "client_semantic_action"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
+        "Set Ghost Mode"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "location.set_ghost_mode",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "Turns Ghost Mode on or off for the map. Ghost hides your map presence while retaining existing private location shares. It is separate from pausing device location updates.",
+      "execution": {
+        "binding_ref": "semantic_action:location.set_ghost_mode",
+        "executor": {
+          "kind": "existing_ui_semantic_action",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "EXECUTE",
+        "target": {
+          "path": "local_handler",
+          "status": "wired",
+          "target": "location.set_ghost_mode"
+        }
+      },
+      "goal_id": "goal.location.set_ghost_mode",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "enabled": {
+            "description": "Ghost Mode on or off?",
+            "type": "string",
+            "x-hushh-resolver": "enum"
+          }
+        },
+        "required": [
+          "enabled"
+        ],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "enabled": {
+            "description": "Ghost Mode on or off?",
+            "type": "string",
+            "x-hushh-resolver": "enum"
+          }
+        },
+        "required": [
+          "enabled"
+        ],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Set Ghost Mode",
+      "navigation": {
+        "fallback": "location.set_ghost_mode",
+        "routes": [
+          "/one/location"
+        ],
+        "screens": [
+          "one_location"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "mounted_surface_required": true,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": "render.form",
+      "required_entities": [],
+      "search_keywords": [
+        "ghost",
+        "map",
+        "visibility"
+      ],
+      "settlement_proof": "directive_ledger_settlement",
+      "side_effect": {
+        "classification": "client_semantic_action"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
+        "Create a public location link"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "location.create_public_link",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "Create or extend an expiring public location link after reviewing that anyone with the URL can see live location. Default duration is one hour. To share through WhatsApp or another app, follow this with Share the public location link.",
+      "execution": {
+        "binding_ref": "semantic_action:location.create_public_link",
+        "executor": {
+          "kind": "existing_ui_semantic_action",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "EXECUTE",
+        "target": {
+          "path": "local_handler",
+          "status": "wired",
+          "target": "location.create_public_link"
+        }
+      },
+      "goal_id": "goal.location.create_public_link",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "duration_hours": {
+            "description": "How long should the public link stay live? Default is one hour.",
+            "type": "string",
+            "x-hushh-resolver": "location_share_duration"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "duration_hours": {
+            "description": "How long should the public link stay live? Default is one hour.",
+            "type": "string",
+            "x-hushh-resolver": "location_share_duration"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Create a public location link",
+      "navigation": {
+        "fallback": "location.create_public_link",
+        "routes": [
+          "/one/location"
+        ],
+        "screens": [
+          "one_location"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "mounted_surface_required": true,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": "render.form",
+      "required_entities": [],
+      "search_keywords": [
+        "location",
+        "public",
+        "link"
+      ],
+      "settlement_proof": "directive_ledger_settlement",
+      "side_effect": {
+        "classification": "client_semantic_action"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
+        "Share the public location link"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "location.share_public_link",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "Open the existing system share sheet for an active public location link; the user chooses WhatsApp or another app and recipient. If no link exists, create one first with its own public visibility review. This action never claims delivery.",
+      "execution": {
+        "binding_ref": "semantic_action:location.share_public_link",
+        "executor": {
+          "kind": "existing_ui_semantic_action",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "EXECUTE",
+        "target": {
+          "path": "local_handler",
+          "status": "wired",
+          "target": "location.share_public_link"
+        }
+      },
+      "goal_id": "goal.location.share_public_link",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Share the public location link",
+      "navigation": {
+        "fallback": "location.share_public_link",
+        "routes": [
+          "/one/location"
+        ],
+        "screens": [
+          "one_location"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "mounted_surface_required": true,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": null,
+      "required_entities": [],
+      "search_keywords": [
+        "location",
+        "public",
+        "link"
+      ],
+      "settlement_proof": "directive_ledger_settlement",
+      "side_effect": {
+        "classification": "client_semantic_action"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
+        "Revoke a public location link"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "location.revoke_public_link",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "Revoke the selected active public location link after reviewing its exact expiry. People holding that link lose access.",
+      "execution": {
+        "binding_ref": "semantic_action:location.revoke_public_link",
+        "executor": {
+          "kind": "existing_ui_semantic_action",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "EXECUTE",
+        "target": {
+          "path": "local_handler",
+          "status": "wired",
+          "target": "location.revoke_public_link"
+        }
+      },
+      "goal_id": "goal.location.revoke_public_link",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Revoke a public location link",
+      "navigation": {
+        "fallback": "location.revoke_public_link",
+        "routes": [
+          "/one/location"
+        ],
+        "screens": [
+          "one_location"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "mounted_surface_required": true,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": null,
+      "required_entities": [],
+      "search_keywords": [
+        "location",
+        "public",
+        "link"
       ],
       "settlement_proof": "directive_ledger_settlement",
       "side_effect": {
@@ -32614,7 +33304,7 @@
   "mcp_compatible": true,
   "model_projections": {
     "location": {
-      "brain_revision": "d35679057d71b2ea3f199e97",
+      "brain_revision": "8577c433ad495a7becf61c43",
       "capabilities": [
         {
           "candidate_id": "location.accept_circle_invite",
@@ -32636,7 +33326,7 @@
               "type": "string"
             }
           ],
-          "semantic_boundary": "Joins a circle you were invited to. Once accepted you start sharing your location with, and seeing shares from, that circle's members. This only works on an invitation already pending for you; if you have a code instead, use open_join_circle. A bare 'accept' or 'approve' while a circle invite is the thing in view means this, not approve_request.",
+          "semantic_boundary": "Accept the selected pending invitation to join its named circle. The connection with the named inviter remains after leaving the circle. Location sharing is a separate action; accepting sends no location.",
           "verified_success_boundary": "navigation_settlement_not_product_success"
         },
         {
@@ -32693,17 +33383,22 @@
           "outcome": "NAVIGATE",
           "public_slot_types": [
             {
+              "name": "audience",
+              "required": false,
+              "type": "string"
+            },
+            {
               "name": "circle",
               "required": false,
               "type": "string"
             },
             {
               "name": "person",
-              "required": true,
+              "required": false,
               "type": "string"
             }
           ],
-          "semantic_boundary": "Invites one or more of your connections to join a circle -- multiple people can be named in one turn, e.g. 'Alice and Bob'. They are not in the circle until they accept, so this sends an invitation rather than adding them outright. Only people already connected to you can be invited.",
+          "semantic_boundary": "Adds all selected eligible existing connections directly to the chosen circle after one audience review. Existing members are skipped. A new connection request is separate and must become eligible before membership. Named people, all eligible connections, and connected contacts are distinct audiences.",
           "verified_success_boundary": "navigation_settlement_not_product_success"
         },
         {
@@ -32754,7 +33449,7 @@
               "type": "string"
             }
           ],
-          "semantic_boundary": "Changes how much longer the named person can see your live location, without stopping and restarting the share. It only acts on a share already active with them.",
+          "semantic_boundary": "Opens active shares to select a current recipient and review the new sharing duration in the existing form. Opening the screen does not change access or extend a share.",
           "verified_success_boundary": "navigation_settlement_not_product_success"
         },
         {
@@ -32798,7 +33493,9 @@
           "capability_id": "location.confirm_nearby_check_in",
           "confirmation_class": "none",
           "disposition": "NAVIGATE",
-          "entity_types": [],
+          "entity_types": [
+            "entity.request"
+          ],
           "feature_group_id": "checkins",
           "intent": "Confirm the nearby check-in",
           "interaction_class": "navigation",
@@ -32806,17 +33503,22 @@
           "outcome": "NAVIGATE",
           "public_slot_types": [
             {
+              "name": "allow_connection_requests",
+              "required": false,
+              "type": "string"
+            },
+            {
               "name": "duration_minutes",
-              "required": true,
+              "required": false,
               "type": "string"
             },
             {
               "name": "place",
-              "required": true,
+              "required": false,
               "type": "string"
             }
           ],
-          "semantic_boundary": "Finishes a nearby check-in already started by nearby_check_in: matches the named place against the nearby candidates it returned and, once a duration is given, checks in immediately. Only works after nearby_check_in has listed candidates in this conversation; if the named place does not match any of them, it stops and Check-In stays open for the person to search manually instead of guessing.",
+          "semantic_boundary": "Publishes a nearby check-in at the exact selected provider place for 30, 60 or 120 minutes after one review of Nearby visibility and connection-request settings. Fresh location, actual provider validation and Nearby eligibility are required.",
           "verified_success_boundary": "navigation_settlement_not_product_success"
         },
         {
@@ -32839,8 +33541,29 @@
               "type": "string"
             }
           ],
-          "semantic_boundary": "Creates a circle with the name the person says, without opening the create-circle screen. If no name was said, asks for one first. A new circle starts empty; people join only after they accept an invitation.",
+          "semantic_boundary": "Creates an empty circle with the name the person requests. If the name is missing, asks for it. Creating the circle sends no invitations or location. Adding people is a separate action using current eligible connections.",
           "verified_success_boundary": "backend_settlement"
+        },
+        {
+          "candidate_id": "location.create_public_link",
+          "capability_id": "location.create_public_link",
+          "confirmation_class": "none",
+          "disposition": "NAVIGATE",
+          "entity_types": [],
+          "feature_group_id": "links",
+          "intent": "Create a public location link",
+          "interaction_class": "navigation",
+          "kind": "action",
+          "outcome": "NAVIGATE",
+          "public_slot_types": [
+            {
+              "name": "duration_hours",
+              "required": false,
+              "type": "string"
+            }
+          ],
+          "semantic_boundary": "Create or extend an expiring public location link after reviewing that anyone with the URL can see live location. Default duration is one hour. To share through WhatsApp or another app, follow this with Share the public location link.",
+          "verified_success_boundary": "navigation_settlement_not_product_success"
         },
         {
           "candidate_id": "location.decline_circle_invite",
@@ -32929,7 +33652,7 @@
               "type": "string"
             }
           ],
-          "semantic_boundary": "Permanently removes a saved place from your list. It does not affect any active or past shares of your location; it only forgets the saved point itself.",
+          "semantic_boundary": "Opens Settings and Saved places to select and review deletion through the existing form. Opening Settings does not delete any saved place or change location shares.",
           "verified_success_boundary": "navigation_settlement_not_product_success"
         },
         {
@@ -32944,7 +33667,7 @@
           "kind": "action",
           "outcome": "NAVIGATE",
           "public_slot_types": [],
-          "semantic_boundary": "Checks your phone contacts against Hushh accounts and shows which of them are already here. Phone numbers are hashed on your device; your contact list is never stored.",
+          "semantic_boundary": "Opens People to use Find contacts from Add or manage people. Contact permission and device scanning happen only through that authored control. No contacts have been scanned when the screen opens.",
           "verified_success_boundary": "navigation_settlement_not_product_success"
         },
         {
@@ -32983,6 +33706,11 @@
           "outcome": "NAVIGATE",
           "public_slot_types": [
             {
+              "name": "count",
+              "required": false,
+              "type": "string"
+            },
+            {
               "name": "duration_minutes",
               "required": false,
               "type": "string"
@@ -32991,9 +33719,14 @@
               "name": "place",
               "required": false,
               "type": "string"
+            },
+            {
+              "name": "venue_type",
+              "required": false,
+              "type": "string"
             }
           ],
-          "semantic_boundary": "Starts checking in to a nearby place: opens Check-In if not already there, then looks up the places closest to you right now. If the place is already named in the same turn and it matches one of the nearby results, confirm_nearby_check_in should be called next to finish. Otherwise it lists the nearby options for the person to choose from; if nothing plausible is nearby, Check-In stays open for the person to search manually.",
+          "semantic_boundary": "Finds actual provider-backed nearby places without publishing a check-in. Returns up to ten ordered results for selection or a later check-in command. Permission and Nearby eligibility remain required.",
           "verified_success_boundary": "navigation_settlement_not_product_success"
         },
         {
@@ -33259,7 +33992,7 @@
           "kind": "action",
           "outcome": "NAVIGATE",
           "public_slot_types": [],
-          "semantic_boundary": "Opens the emergency SOS screen, where an alert with your location can be sent to your emergency contacts. Opening it does not send anything. Say this only when the person explicitly asks to look at the screen or manage contacts, not for a bare or ambiguous emergency phrase like 'help' or 'save me' -- those go to sos_default instead, which respects the person's own SOS default. To send a real alert immediately, use trigger_sos.",
+          "semantic_boundary": "Opens the authored Save My Soul review screen for emergency contacts and alert controls. Opening the screen sends no alert and does not call emergency services.",
           "verified_success_boundary": "navigation_settlement_not_product_success"
         },
         {
@@ -33399,7 +34132,22 @@
           "kind": "action",
           "outcome": "NAVIGATE",
           "public_slot_types": [],
-          "semantic_boundary": "Turns location updates back on for this device and refreshes your live position. This makes you visible again to everyone you have an active grant with, so it asks before it runs.",
+          "semantic_boundary": "Turns location updates back on for this device and refreshes your live position. Uses only existing, unexpired sharing grants and requests device permission only when needed. It does not create or restore sharing access.",
+          "verified_success_boundary": "navigation_settlement_not_product_success"
+        },
+        {
+          "candidate_id": "location.revoke_public_link",
+          "capability_id": "location.revoke_public_link",
+          "confirmation_class": "none",
+          "disposition": "NAVIGATE",
+          "entity_types": [],
+          "feature_group_id": "links",
+          "intent": "Revoke a public location link",
+          "interaction_class": "navigation",
+          "kind": "action",
+          "outcome": "NAVIGATE",
+          "public_slot_types": [],
+          "semantic_boundary": "Revoke the selected active public location link after reviewing its exact expiry. People holding that link lose access.",
           "verified_success_boundary": "navigation_settlement_not_product_success"
         },
         {
@@ -33420,7 +34168,7 @@
               "type": "string"
             }
           ],
-          "semantic_boundary": "Saves where you are right now as a named place -- home, work, or a custom name. Home and work replace any earlier place saved under that same category; a custom name is added alongside your existing places.",
+          "semantic_boundary": "Opens Settings and Saved places to capture, name and save the current location through the existing vault-protected form. Opening Settings does not save a place.",
           "verified_success_boundary": "navigation_settlement_not_product_success"
         },
         {
@@ -33429,7 +34177,8 @@
           "confirmation_class": "none",
           "disposition": "NAVIGATE",
           "entity_types": [
-            "entity.person"
+            "entity.person",
+            "entity.circle"
           ],
           "feature_group_id": "requests",
           "intent": "Pick someone to ask for location",
@@ -33438,8 +34187,13 @@
           "outcome": "NAVIGATE",
           "public_slot_types": [
             {
+              "name": "circle",
+              "required": false,
+              "type": "string"
+            },
+            {
               "name": "person",
-              "required": true,
+              "required": false,
               "type": "string"
             }
           ],
@@ -33452,7 +34206,8 @@
           "confirmation_class": "none",
           "disposition": "NAVIGATE",
           "entity_types": [
-            "entity.person"
+            "entity.person",
+            "entity.circle"
           ],
           "feature_group_id": "sharing",
           "intent": "Pick someone for the share",
@@ -33461,8 +34216,13 @@
           "outcome": "NAVIGATE",
           "public_slot_types": [
             {
+              "name": "circle",
+              "required": false,
+              "type": "string"
+            },
+            {
               "name": "person",
-              "required": true,
+              "required": false,
               "type": "string"
             }
           ],
@@ -33490,7 +34250,8 @@
           "confirmation_class": "none",
           "disposition": "NAVIGATE",
           "entity_types": [
-            "entity.person"
+            "entity.person",
+            "entity.circle"
           ],
           "feature_group_id": "requests",
           "intent": "Send the location request",
@@ -33499,8 +34260,13 @@
           "outcome": "NAVIGATE",
           "public_slot_types": [
             {
+              "name": "circle",
+              "required": false,
+              "type": "string"
+            },
+            {
               "name": "duration_hours",
-              "required": true,
+              "required": false,
               "type": "string"
             },
             {
@@ -33517,9 +34283,42 @@
           "capability_id": "location.set_auto_share",
           "confirmation_class": "none",
           "disposition": "NAVIGATE",
-          "entity_types": [],
+          "entity_types": [
+            "entity.circle"
+          ],
           "feature_group_id": "requests",
           "intent": "Turn automatic approval of location requests on or off",
+          "interaction_class": "navigation",
+          "kind": "action",
+          "outcome": "NAVIGATE",
+          "public_slot_types": [
+            {
+              "name": "circle",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "name": "enabled",
+              "required": true,
+              "type": "string"
+            },
+            {
+              "name": "scope",
+              "required": false,
+              "type": "string"
+            }
+          ],
+          "semantic_boundary": "Controls whether incoming location requests are approved without asking the person each time. Applies only to requests that arrive after it is switched on; requests already waiting still need an explicit answer.",
+          "verified_success_boundary": "navigation_settlement_not_product_success"
+        },
+        {
+          "candidate_id": "location.set_ghost_mode",
+          "capability_id": "location.set_ghost_mode",
+          "confirmation_class": "none",
+          "disposition": "NAVIGATE",
+          "entity_types": [],
+          "feature_group_id": "sharing",
+          "intent": "Set Ghost Mode",
           "interaction_class": "navigation",
           "kind": "action",
           "outcome": "NAVIGATE",
@@ -33530,7 +34329,22 @@
               "type": "string"
             }
           ],
-          "semantic_boundary": "Controls whether incoming location requests are approved without asking the person each time. Applies only to requests that arrive after it is switched on; requests already waiting still need an explicit answer.",
+          "semantic_boundary": "Turns Ghost Mode on or off for the map. Ghost hides your map presence while retaining existing private location shares. It is separate from pausing device location updates.",
+          "verified_success_boundary": "navigation_settlement_not_product_success"
+        },
+        {
+          "candidate_id": "location.share_public_link",
+          "capability_id": "location.share_public_link",
+          "confirmation_class": "none",
+          "disposition": "NAVIGATE",
+          "entity_types": [],
+          "feature_group_id": "links",
+          "intent": "Share the public location link",
+          "interaction_class": "navigation",
+          "kind": "action",
+          "outcome": "NAVIGATE",
+          "public_slot_types": [],
+          "semantic_boundary": "Open the existing system share sheet for an active public location link; the user chooses WhatsApp or another app and recipient. If no link exists, create one first with its own public visibility review. This action never claims delivery.",
           "verified_success_boundary": "navigation_settlement_not_product_success"
         },
         {
@@ -33539,7 +34353,8 @@
           "confirmation_class": "none",
           "disposition": "NAVIGATE",
           "entity_types": [
-            "entity.person"
+            "entity.person",
+            "entity.circle"
           ],
           "feature_group_id": "sharing",
           "intent": "Share with the people I picked",
@@ -33548,8 +34363,13 @@
           "outcome": "NAVIGATE",
           "public_slot_types": [
             {
+              "name": "circle",
+              "required": false,
+              "type": "string"
+            },
+            {
               "name": "duration_hours",
-              "required": true,
+              "required": false,
               "type": "string"
             },
             {
@@ -33573,7 +34393,7 @@
           "kind": "action",
           "outcome": "NAVIGATE",
           "public_slot_types": [],
-          "semantic_boundary": "Handles a bare or ambiguous emergency phrase -- 'save me', 'sos', 'help', 'emergency', 'turn on sos' -- by doing whatever the person's own SOS default says: either opening the SOS screen so they can decide, or going straight to the send-alert confirm card. Change the default in Voice Settings. Never use this for an explicit 'open the SOS screen' (use open_sos) or an explicit 'send an SOS' (use trigger_sos) -- those always do exactly what they say, regardless of this default.",
+          "semantic_boundary": "Opens the authored Save My Soul review for an emergency request that needs clarification or a sending decision. It never assumes disclosure authority or reports an alert as sent. The visible emergency controls own sending; no retired voice-persona preference can bypass that review.",
           "verified_success_boundary": "navigation_settlement_not_product_success"
         },
         {
@@ -33632,7 +34452,7 @@
               "type": "string"
             }
           ],
-          "semantic_boundary": "Sends an emergency alert to your ready emergency contacts right now, sharing your live location with them and emailing anyone a push notification could not reach. It does not call emergency services. Use this only when the person explicitly says to send, trigger, or call for help right now -- for a bare or ambiguous emergency phrase like 'help' or 'save me', use sos_default instead, which respects the person's own SOS default rather than assuming they meant send. This is a real, immediate alert, not the SOS screen -- to just look at the screen or manage contacts without alerting anyone, use open_sos.",
+          "semantic_boundary": "Requests an SOS using the authored Save My Soul review screen. The person must use its genuine send confirmation; this command currently opens that review and cannot report an alert as sent. The owning service reports complete or partial delivery after execution. It does not call emergency services.",
           "verified_success_boundary": "navigation_settlement_not_product_success"
         },
         {
@@ -33732,7 +34552,7 @@
               "type": "string"
             }
           ],
-          "semantic_boundary": "Joins a circle you were invited to. Once accepted you start sharing your location with, and seeing shares from, that circle's members. This only works on an invitation already pending for you; if you have a code instead, use open_join_circle. A bare 'accept' or 'approve' while a circle invite is the thing in view means this, not approve_request.",
+          "semantic_boundary": "Accept the selected pending invitation to join its named circle. The connection with the named inviter remains after leaving the circle. Location sharing is a separate action; accepting sends no location.",
           "verified_success_boundary": "navigation_settlement_not_product_success"
         },
         {
@@ -33789,17 +34609,22 @@
           "outcome": "NAVIGATE",
           "public_slot_types": [
             {
+              "name": "audience",
+              "required": false,
+              "type": "string"
+            },
+            {
               "name": "circle",
               "required": false,
               "type": "string"
             },
             {
               "name": "person",
-              "required": true,
+              "required": false,
               "type": "string"
             }
           ],
-          "semantic_boundary": "Invites one or more of your connections to join a circle -- multiple people can be named in one turn, e.g. 'Alice and Bob'. They are not in the circle until they accept, so this sends an invitation rather than adding them outright. Only people already connected to you can be invited.",
+          "semantic_boundary": "Adds all selected eligible existing connections directly to the chosen circle after one audience review. Existing members are skipped. A new connection request is separate and must become eligible before membership. Named people, all eligible connections, and connected contacts are distinct audiences.",
           "verified_success_boundary": "navigation_settlement_not_product_success"
         },
         {
@@ -33850,7 +34675,7 @@
               "type": "string"
             }
           ],
-          "semantic_boundary": "Changes how much longer the named person can see your live location, without stopping and restarting the share. It only acts on a share already active with them.",
+          "semantic_boundary": "Opens active shares to select a current recipient and review the new sharing duration in the existing form. Opening the screen does not change access or extend a share.",
           "verified_success_boundary": "navigation_settlement_not_product_success"
         },
         {
@@ -33894,7 +34719,9 @@
           "capability_id": "location.confirm_nearby_check_in",
           "confirmation_class": "none",
           "disposition": "NAVIGATE",
-          "entity_types": [],
+          "entity_types": [
+            "entity.request"
+          ],
           "feature_group_id": "checkins",
           "intent": "Confirm the nearby check-in",
           "interaction_class": "navigation",
@@ -33902,17 +34729,22 @@
           "outcome": "NAVIGATE",
           "public_slot_types": [
             {
+              "name": "allow_connection_requests",
+              "required": false,
+              "type": "string"
+            },
+            {
               "name": "duration_minutes",
-              "required": true,
+              "required": false,
               "type": "string"
             },
             {
               "name": "place",
-              "required": true,
+              "required": false,
               "type": "string"
             }
           ],
-          "semantic_boundary": "Finishes a nearby check-in already started by nearby_check_in: matches the named place against the nearby candidates it returned and, once a duration is given, checks in immediately. Only works after nearby_check_in has listed candidates in this conversation; if the named place does not match any of them, it stops and Check-In stays open for the person to search manually instead of guessing.",
+          "semantic_boundary": "Publishes a nearby check-in at the exact selected provider place for 30, 60 or 120 minutes after one review of Nearby visibility and connection-request settings. Fresh location, actual provider validation and Nearby eligibility are required.",
           "verified_success_boundary": "navigation_settlement_not_product_success"
         },
         {
@@ -33935,8 +34767,29 @@
               "type": "string"
             }
           ],
-          "semantic_boundary": "Creates a circle with the name the person says, without opening the create-circle screen. If no name was said, asks for one first. A new circle starts empty; people join only after they accept an invitation.",
+          "semantic_boundary": "Creates an empty circle with the name the person requests. If the name is missing, asks for it. Creating the circle sends no invitations or location. Adding people is a separate action using current eligible connections.",
           "verified_success_boundary": "backend_settlement"
+        },
+        {
+          "candidate_id": "location.create_public_link",
+          "capability_id": "location.create_public_link",
+          "confirmation_class": "none",
+          "disposition": "NAVIGATE",
+          "entity_types": [],
+          "feature_group_id": "links",
+          "intent": "Create a public location link",
+          "interaction_class": "navigation",
+          "kind": "action",
+          "outcome": "NAVIGATE",
+          "public_slot_types": [
+            {
+              "name": "duration_hours",
+              "required": false,
+              "type": "string"
+            }
+          ],
+          "semantic_boundary": "Create or extend an expiring public location link after reviewing that anyone with the URL can see live location. Default duration is one hour. To share through WhatsApp or another app, follow this with Share the public location link.",
+          "verified_success_boundary": "navigation_settlement_not_product_success"
         },
         {
           "candidate_id": "location.decline_circle_invite",
@@ -34025,7 +34878,7 @@
               "type": "string"
             }
           ],
-          "semantic_boundary": "Permanently removes a saved place from your list. It does not affect any active or past shares of your location; it only forgets the saved point itself.",
+          "semantic_boundary": "Opens Settings and Saved places to select and review deletion through the existing form. Opening Settings does not delete any saved place or change location shares.",
           "verified_success_boundary": "navigation_settlement_not_product_success"
         },
         {
@@ -34040,7 +34893,7 @@
           "kind": "action",
           "outcome": "NAVIGATE",
           "public_slot_types": [],
-          "semantic_boundary": "Checks your phone contacts against Hushh accounts and shows which of them are already here. Phone numbers are hashed on your device; your contact list is never stored.",
+          "semantic_boundary": "Opens People to use Find contacts from Add or manage people. Contact permission and device scanning happen only through that authored control. No contacts have been scanned when the screen opens.",
           "verified_success_boundary": "navigation_settlement_not_product_success"
         },
         {
@@ -34079,6 +34932,11 @@
           "outcome": "NAVIGATE",
           "public_slot_types": [
             {
+              "name": "count",
+              "required": false,
+              "type": "string"
+            },
+            {
               "name": "duration_minutes",
               "required": false,
               "type": "string"
@@ -34087,9 +34945,14 @@
               "name": "place",
               "required": false,
               "type": "string"
+            },
+            {
+              "name": "venue_type",
+              "required": false,
+              "type": "string"
             }
           ],
-          "semantic_boundary": "Starts checking in to a nearby place: opens Check-In if not already there, then looks up the places closest to you right now. If the place is already named in the same turn and it matches one of the nearby results, confirm_nearby_check_in should be called next to finish. Otherwise it lists the nearby options for the person to choose from; if nothing plausible is nearby, Check-In stays open for the person to search manually.",
+          "semantic_boundary": "Finds actual provider-backed nearby places without publishing a check-in. Returns up to ten ordered results for selection or a later check-in command. Permission and Nearby eligibility remain required.",
           "verified_success_boundary": "navigation_settlement_not_product_success"
         },
         {
@@ -34355,7 +35218,7 @@
           "kind": "action",
           "outcome": "NAVIGATE",
           "public_slot_types": [],
-          "semantic_boundary": "Opens the emergency SOS screen, where an alert with your location can be sent to your emergency contacts. Opening it does not send anything. Say this only when the person explicitly asks to look at the screen or manage contacts, not for a bare or ambiguous emergency phrase like 'help' or 'save me' -- those go to sos_default instead, which respects the person's own SOS default. To send a real alert immediately, use trigger_sos.",
+          "semantic_boundary": "Opens the authored Save My Soul review screen for emergency contacts and alert controls. Opening the screen sends no alert and does not call emergency services.",
           "verified_success_boundary": "navigation_settlement_not_product_success"
         },
         {
@@ -34495,7 +35358,22 @@
           "kind": "action",
           "outcome": "NAVIGATE",
           "public_slot_types": [],
-          "semantic_boundary": "Turns location updates back on for this device and refreshes your live position. This makes you visible again to everyone you have an active grant with, so it asks before it runs.",
+          "semantic_boundary": "Turns location updates back on for this device and refreshes your live position. Uses only existing, unexpired sharing grants and requests device permission only when needed. It does not create or restore sharing access.",
+          "verified_success_boundary": "navigation_settlement_not_product_success"
+        },
+        {
+          "candidate_id": "location.revoke_public_link",
+          "capability_id": "location.revoke_public_link",
+          "confirmation_class": "none",
+          "disposition": "NAVIGATE",
+          "entity_types": [],
+          "feature_group_id": "links",
+          "intent": "Revoke a public location link",
+          "interaction_class": "navigation",
+          "kind": "action",
+          "outcome": "NAVIGATE",
+          "public_slot_types": [],
+          "semantic_boundary": "Revoke the selected active public location link after reviewing its exact expiry. People holding that link lose access.",
           "verified_success_boundary": "navigation_settlement_not_product_success"
         },
         {
@@ -34516,7 +35394,7 @@
               "type": "string"
             }
           ],
-          "semantic_boundary": "Saves where you are right now as a named place -- home, work, or a custom name. Home and work replace any earlier place saved under that same category; a custom name is added alongside your existing places.",
+          "semantic_boundary": "Opens Settings and Saved places to capture, name and save the current location through the existing vault-protected form. Opening Settings does not save a place.",
           "verified_success_boundary": "navigation_settlement_not_product_success"
         },
         {
@@ -34525,7 +35403,8 @@
           "confirmation_class": "none",
           "disposition": "NAVIGATE",
           "entity_types": [
-            "entity.person"
+            "entity.person",
+            "entity.circle"
           ],
           "feature_group_id": "requests",
           "intent": "Pick someone to ask for location",
@@ -34534,8 +35413,13 @@
           "outcome": "NAVIGATE",
           "public_slot_types": [
             {
+              "name": "circle",
+              "required": false,
+              "type": "string"
+            },
+            {
               "name": "person",
-              "required": true,
+              "required": false,
               "type": "string"
             }
           ],
@@ -34548,7 +35432,8 @@
           "confirmation_class": "none",
           "disposition": "NAVIGATE",
           "entity_types": [
-            "entity.person"
+            "entity.person",
+            "entity.circle"
           ],
           "feature_group_id": "sharing",
           "intent": "Pick someone for the share",
@@ -34557,8 +35442,13 @@
           "outcome": "NAVIGATE",
           "public_slot_types": [
             {
+              "name": "circle",
+              "required": false,
+              "type": "string"
+            },
+            {
               "name": "person",
-              "required": true,
+              "required": false,
               "type": "string"
             }
           ],
@@ -34586,7 +35476,8 @@
           "confirmation_class": "none",
           "disposition": "NAVIGATE",
           "entity_types": [
-            "entity.person"
+            "entity.person",
+            "entity.circle"
           ],
           "feature_group_id": "requests",
           "intent": "Send the location request",
@@ -34595,8 +35486,13 @@
           "outcome": "NAVIGATE",
           "public_slot_types": [
             {
+              "name": "circle",
+              "required": false,
+              "type": "string"
+            },
+            {
               "name": "duration_hours",
-              "required": true,
+              "required": false,
               "type": "string"
             },
             {
@@ -34613,9 +35509,42 @@
           "capability_id": "location.set_auto_share",
           "confirmation_class": "none",
           "disposition": "NAVIGATE",
-          "entity_types": [],
+          "entity_types": [
+            "entity.circle"
+          ],
           "feature_group_id": "requests",
           "intent": "Turn automatic approval of location requests on or off",
+          "interaction_class": "navigation",
+          "kind": "action",
+          "outcome": "NAVIGATE",
+          "public_slot_types": [
+            {
+              "name": "circle",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "name": "enabled",
+              "required": true,
+              "type": "string"
+            },
+            {
+              "name": "scope",
+              "required": false,
+              "type": "string"
+            }
+          ],
+          "semantic_boundary": "Controls whether incoming location requests are approved without asking the person each time. Applies only to requests that arrive after it is switched on; requests already waiting still need an explicit answer.",
+          "verified_success_boundary": "navigation_settlement_not_product_success"
+        },
+        {
+          "candidate_id": "location.set_ghost_mode",
+          "capability_id": "location.set_ghost_mode",
+          "confirmation_class": "none",
+          "disposition": "NAVIGATE",
+          "entity_types": [],
+          "feature_group_id": "sharing",
+          "intent": "Set Ghost Mode",
           "interaction_class": "navigation",
           "kind": "action",
           "outcome": "NAVIGATE",
@@ -34626,7 +35555,22 @@
               "type": "string"
             }
           ],
-          "semantic_boundary": "Controls whether incoming location requests are approved without asking the person each time. Applies only to requests that arrive after it is switched on; requests already waiting still need an explicit answer.",
+          "semantic_boundary": "Turns Ghost Mode on or off for the map. Ghost hides your map presence while retaining existing private location shares. It is separate from pausing device location updates.",
+          "verified_success_boundary": "navigation_settlement_not_product_success"
+        },
+        {
+          "candidate_id": "location.share_public_link",
+          "capability_id": "location.share_public_link",
+          "confirmation_class": "none",
+          "disposition": "NAVIGATE",
+          "entity_types": [],
+          "feature_group_id": "links",
+          "intent": "Share the public location link",
+          "interaction_class": "navigation",
+          "kind": "action",
+          "outcome": "NAVIGATE",
+          "public_slot_types": [],
+          "semantic_boundary": "Open the existing system share sheet for an active public location link; the user chooses WhatsApp or another app and recipient. If no link exists, create one first with its own public visibility review. This action never claims delivery.",
           "verified_success_boundary": "navigation_settlement_not_product_success"
         },
         {
@@ -34635,7 +35579,8 @@
           "confirmation_class": "none",
           "disposition": "NAVIGATE",
           "entity_types": [
-            "entity.person"
+            "entity.person",
+            "entity.circle"
           ],
           "feature_group_id": "sharing",
           "intent": "Share with the people I picked",
@@ -34644,8 +35589,13 @@
           "outcome": "NAVIGATE",
           "public_slot_types": [
             {
+              "name": "circle",
+              "required": false,
+              "type": "string"
+            },
+            {
               "name": "duration_hours",
-              "required": true,
+              "required": false,
               "type": "string"
             },
             {
@@ -34669,7 +35619,7 @@
           "kind": "action",
           "outcome": "NAVIGATE",
           "public_slot_types": [],
-          "semantic_boundary": "Handles a bare or ambiguous emergency phrase -- 'save me', 'sos', 'help', 'emergency', 'turn on sos' -- by doing whatever the person's own SOS default says: either opening the SOS screen so they can decide, or going straight to the send-alert confirm card. Change the default in Voice Settings. Never use this for an explicit 'open the SOS screen' (use open_sos) or an explicit 'send an SOS' (use trigger_sos) -- those always do exactly what they say, regardless of this default.",
+          "semantic_boundary": "Opens the authored Save My Soul review for an emergency request that needs clarification or a sending decision. It never assumes disclosure authority or reports an alert as sent. The visible emergency controls own sending; no retired voice-persona preference can bypass that review.",
           "verified_success_boundary": "navigation_settlement_not_product_success"
         },
         {
@@ -34728,7 +35678,7 @@
               "type": "string"
             }
           ],
-          "semantic_boundary": "Sends an emergency alert to your ready emergency contacts right now, sharing your live location with them and emailing anyone a push notification could not reach. It does not call emergency services. Use this only when the person explicitly says to send, trigger, or call for help right now -- for a bare or ambiguous emergency phrase like 'help' or 'save me', use sos_default instead, which respects the person's own SOS default rather than assuming they meant send. This is a real, immediate alert, not the SOS screen -- to just look at the screen or manage contacts without alerting anyone, use open_sos.",
+          "semantic_boundary": "Requests an SOS using the authored Save My Soul review screen. The person must use its genuine send confirmation; this command currently opens that review and cannot report an alert as sent. The owning service reports complete or partial delivery after execution. It does not call emergency services.",
           "verified_success_boundary": "navigation_settlement_not_product_success"
         },
         {
@@ -34864,8 +35814,8 @@
           "label": "Location backend inventory"
         }
       ],
-      "known_unbound_implementation_count": 75,
-      "package_digest": "ebada8481d28dfaf598a957748bae38d6b3c9f896048bbbe7a86babd20790c75",
+      "known_unbound_implementation_count": 76,
+      "package_digest": "01d88a395f6d2d3b582e1abfccb69526a9e067e1792d73b58e2342ad03d9db32",
       "package_id": "location.brain",
       "package_version": 2,
       "schema_version": "one.location_brain_catalog.v1",
@@ -34930,7 +35880,7 @@
         }
       ],
       "platform": "ios",
-      "projection_digest": "4dc1b7270b9edb8bde47c9d75c7fa803aa9512a5e641c82988cc260d7c9a2c30",
+      "projection_digest": "d95d7d31ee166bc8fb3bc5a88573f1b145331fdaee4ba040825206d978298cc2",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -34940,16 +35890,16 @@
       ],
       "schema_version": "one.capability_platform_projection.v1",
       "source_digests": {
-        "capability_graph_evolution": "025c5f19f496867b7e11271e7f023ff7eb985472a848f399daefca6a253d79c4",
-        "capability_runtime_compiler": "8dc88bffd41232a1eb842119de972333b64a7180a9b6276b9f8f1b88cfc98e6c",
-        "capability_runtime_policy": "1c10fbba689d86d76868f264536c94683dc11be586dade08b03c3e970eedb58d",
-        "location_agent_manifest": "f0a055654821f46ccfcf64320afde84ca8a7ba070998483aa61159e215915c4e",
-        "location_knowledge_package": "ebada8481d28dfaf598a957748bae38d6b3c9f896048bbbe7a86babd20790c75",
-        "location_onboarding_runtime": "22eeae9aa6f4dbd4e75c286e53488c0894708f554b6190e8f39955339a9e7933",
-        "location_workflow_api_contract": "abcb54b58f01f2eb99ac4bda811187a21dd4a368987a8e570b43847b7a2a8bb2",
-        "service_knowledge_packages": "7d8c04c5b7442bb62bba406476eb3c29d2478e4dba29ff9e35ada3ef57c94674"
+        "capability_graph_evolution": "07441cbd02b76326a2d899f88e7c2b92feddb8dd3bc5d19b043bc00ec2b765cc",
+        "capability_runtime_compiler": "9a0b0b573b4e3ae42d2a49ce15f93a7cce70e5dc4046dea14922d7cd6ace9078",
+        "capability_runtime_policy": "d3f4ec0d27231ef298372a48696f8ac238f7560d03d8e72c50c7bcb5b0ffd7a9",
+        "location_agent_manifest": "e4ec895f38604384cbfb228f54d2a31225acfc25d3132fb5db42c90aac098c9b",
+        "location_knowledge_package": "01d88a395f6d2d3b582e1abfccb69526a9e067e1792d73b58e2342ad03d9db32",
+        "location_onboarding_runtime": "cd911f5e2e0f09352aeb89a74180a66fab79553423b126583f181d858459ae62",
+        "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
+        "service_knowledge_packages": "d6c9cba48241d3b0fcc96b8612bf3b9a15b122b6d476c3d6302663043043ef9c"
       },
-      "source_revision": "55a233b9b6e923ea",
+      "source_revision": "cf08fb61503832fb",
       "supported_entrypoints": [
         "typed",
         "voice",
@@ -35817,6 +36767,12 @@
                   "result": "vault_unavailable"
                 },
                 {
+                  "button_role": null,
+                  "label_key": "one.location.result.draft_prepared.label",
+                  "presentation": "app_result",
+                  "result": "draft_prepared"
+                },
+                {
                   "button_role": "secondary",
                   "label_key": "one.location.result.skip_place.label",
                   "presentation": "button",
@@ -35882,6 +36838,68 @@
                       },
                       "result": {
                         "const": "vault_unavailable",
+                        "type": "string"
+                      },
+                      "runRevision": {
+                        "minimum": 1,
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "runRevision",
+                      "leaseId",
+                      "result",
+                      "draftMetadata"
+                    ],
+                    "type": "object"
+                  },
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "draftMetadata": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "digest": {
+                            "pattern": "^[0-9a-f]{64}$",
+                            "type": "string"
+                          },
+                          "expiresAt": {
+                            "format": "date-time",
+                            "type": "string"
+                          },
+                          "revision": {
+                            "minimum": 1,
+                            "type": "integer"
+                          },
+                          "runId": {
+                            "pattern": "^run_[a-z0-9]{16,96}$",
+                            "type": "string"
+                          },
+                          "schemaVersion": {
+                            "const": "one.location.pre_vault.draft_metadata.v1",
+                            "type": "string"
+                          },
+                          "status": {
+                            "const": "staged",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "schemaVersion",
+                          "digest",
+                          "status",
+                          "expiresAt",
+                          "runId",
+                          "revision"
+                        ],
+                        "type": "object"
+                      },
+                      "leaseId": {
+                        "pattern": "^loclease_[a-z0-9]{16,96}$",
+                        "type": "string"
+                      },
+                      "result": {
+                        "const": "draft_prepared",
                         "type": "string"
                       },
                       "runRevision": {
@@ -36399,7 +37417,7 @@
       ]
     },
     "schema_version": "one.capability_platform_projection.v1",
-    "source_revision": "55a233b9b6e923ea",
+    "source_revision": "cf08fb61503832fb",
     "web": {
       "actions": [
         {
@@ -36442,7 +37460,7 @@
         }
       ],
       "platform": "web",
-      "projection_digest": "74ea3cd16d03fead726a3420e936f362a03dae76cbbef1b5cf30d5c0fb0616ed",
+      "projection_digest": "d224017f5fa19660a1ea35bc1651d3ad3bbd486394bea1e2b65ba7f19dd5e7b6",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -36452,16 +37470,16 @@
       ],
       "schema_version": "one.capability_platform_projection.v1",
       "source_digests": {
-        "capability_graph_evolution": "025c5f19f496867b7e11271e7f023ff7eb985472a848f399daefca6a253d79c4",
-        "capability_runtime_compiler": "8dc88bffd41232a1eb842119de972333b64a7180a9b6276b9f8f1b88cfc98e6c",
-        "capability_runtime_policy": "1c10fbba689d86d76868f264536c94683dc11be586dade08b03c3e970eedb58d",
-        "location_agent_manifest": "f0a055654821f46ccfcf64320afde84ca8a7ba070998483aa61159e215915c4e",
-        "location_knowledge_package": "ebada8481d28dfaf598a957748bae38d6b3c9f896048bbbe7a86babd20790c75",
-        "location_onboarding_runtime": "22eeae9aa6f4dbd4e75c286e53488c0894708f554b6190e8f39955339a9e7933",
-        "location_workflow_api_contract": "abcb54b58f01f2eb99ac4bda811187a21dd4a368987a8e570b43847b7a2a8bb2",
-        "service_knowledge_packages": "7d8c04c5b7442bb62bba406476eb3c29d2478e4dba29ff9e35ada3ef57c94674"
+        "capability_graph_evolution": "07441cbd02b76326a2d899f88e7c2b92feddb8dd3bc5d19b043bc00ec2b765cc",
+        "capability_runtime_compiler": "9a0b0b573b4e3ae42d2a49ce15f93a7cce70e5dc4046dea14922d7cd6ace9078",
+        "capability_runtime_policy": "d3f4ec0d27231ef298372a48696f8ac238f7560d03d8e72c50c7bcb5b0ffd7a9",
+        "location_agent_manifest": "e4ec895f38604384cbfb228f54d2a31225acfc25d3132fb5db42c90aac098c9b",
+        "location_knowledge_package": "01d88a395f6d2d3b582e1abfccb69526a9e067e1792d73b58e2342ad03d9db32",
+        "location_onboarding_runtime": "cd911f5e2e0f09352aeb89a74180a66fab79553423b126583f181d858459ae62",
+        "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
+        "service_knowledge_packages": "d6c9cba48241d3b0fcc96b8612bf3b9a15b122b6d476c3d6302663043043ef9c"
       },
-      "source_revision": "55a233b9b6e923ea",
+      "source_revision": "cf08fb61503832fb",
       "supported_entrypoints": [
         "typed",
         "voice"
@@ -37328,6 +38346,12 @@
                   "result": "vault_unavailable"
                 },
                 {
+                  "button_role": null,
+                  "label_key": "one.location.result.draft_prepared.label",
+                  "presentation": "app_result",
+                  "result": "draft_prepared"
+                },
+                {
                   "button_role": "secondary",
                   "label_key": "one.location.result.skip_place.label",
                   "presentation": "button",
@@ -37393,6 +38417,68 @@
                       },
                       "result": {
                         "const": "vault_unavailable",
+                        "type": "string"
+                      },
+                      "runRevision": {
+                        "minimum": 1,
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "runRevision",
+                      "leaseId",
+                      "result",
+                      "draftMetadata"
+                    ],
+                    "type": "object"
+                  },
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "draftMetadata": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "digest": {
+                            "pattern": "^[0-9a-f]{64}$",
+                            "type": "string"
+                          },
+                          "expiresAt": {
+                            "format": "date-time",
+                            "type": "string"
+                          },
+                          "revision": {
+                            "minimum": 1,
+                            "type": "integer"
+                          },
+                          "runId": {
+                            "pattern": "^run_[a-z0-9]{16,96}$",
+                            "type": "string"
+                          },
+                          "schemaVersion": {
+                            "const": "one.location.pre_vault.draft_metadata.v1",
+                            "type": "string"
+                          },
+                          "status": {
+                            "const": "staged",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "schemaVersion",
+                          "digest",
+                          "status",
+                          "expiresAt",
+                          "runId",
+                          "revision"
+                        ],
+                        "type": "object"
+                      },
+                      "leaseId": {
+                        "pattern": "^loclease_[a-z0-9]{16,96}$",
+                        "type": "string"
+                      },
+                      "result": {
+                        "const": "draft_prepared",
                         "type": "string"
                       },
                       "runRevision": {
@@ -37950,7 +39036,7 @@
       "renderer_key": "one_location_workflow_card"
     }
   ],
-  "revision": "55a233b9b6e923ea",
+  "revision": "cf08fb61503832fb",
   "schema_version": "one.capability_graph.v1",
   "screens": [
     {
@@ -38663,6 +39749,7 @@
         "location.checkout_nearby",
         "location.confirm_nearby_check_in",
         "location.create_circle",
+        "location.create_public_link",
         "location.decline_circle_invite",
         "location.decline_request",
         "location.delete_circle",
@@ -38693,12 +39780,15 @@
         "location.remove_from_circle",
         "location.rename_circle",
         "location.resume_updates",
+        "location.revoke_public_link",
         "location.save_current_location",
         "location.select_ask_recipient",
         "location.select_share_recipient",
         "location.send_check_in",
         "location.send_request",
         "location.set_auto_share",
+        "location.set_ghost_mode",
+        "location.share_public_link",
         "location.share_selected",
         "location.sos_default",
         "location.stop_share",
@@ -39638,8 +40728,9 @@
     "added": [],
     "breaking": [],
     "changed": [],
+    "compatible": [],
     "deprecated": [],
-    "from_revision": "af42538767aa6642",
+    "from_revision": "f159d8b097f5456c",
     "migrated": [],
     "removed": []
   },
@@ -39954,6 +41045,16 @@
         {
           "authorization": "firebase_auth",
           "binding_status": "discovered_unbound",
+          "capability_id": "api.connections.get.connection_person_context",
+          "kind": "backend_api_endpoint",
+          "method": "GET",
+          "operation_name": "connection_person_context",
+          "path": "/api/one/connections/{counterpart_user_id}/context",
+          "service_id": "connections"
+        },
+        {
+          "authorization": "firebase_auth",
+          "binding_status": "discovered_unbound",
           "capability_id": "api.connections.get.connection_information_scope_catalog",
           "kind": "backend_api_endpoint",
           "method": "GET",
@@ -39982,7 +41083,7 @@
       "executor_hierarchy": [
         {
           "action_ids": [],
-          "discovered_endpoint_count": 15,
+          "discovered_endpoint_count": 16,
           "kind": "backend_api",
           "reason": "Discovered endpoints are intentionally unbound until an audited action adapter registers one.",
           "status": "adapter_required"
@@ -40568,6 +41669,7 @@
         "location.checkout_nearby",
         "location.confirm_nearby_check_in",
         "location.create_circle",
+        "location.create_public_link",
         "location.decline_circle_invite",
         "location.decline_request",
         "location.delete_circle",
@@ -40599,12 +41701,15 @@
         "location.remove_from_circle",
         "location.rename_circle",
         "location.resume_updates",
+        "location.revoke_public_link",
         "location.save_current_location",
         "location.select_ask_recipient",
         "location.select_share_recipient",
         "location.send_check_in",
         "location.send_request",
         "location.set_auto_share",
+        "location.set_ghost_mode",
+        "location.share_public_link",
         "location.share_selected",
         "location.sos_default",
         "location.stop_share",
@@ -41308,6 +42413,16 @@
         {
           "authorization": "vault_owner",
           "binding_status": "discovered_unbound",
+          "capability_id": "api.location.get.get_location_sms_contacts",
+          "kind": "backend_api_endpoint",
+          "method": "GET",
+          "operation_name": "get_location_sms_contacts",
+          "path": "/api/one/location/sms-contacts",
+          "service_id": "location"
+        },
+        {
+          "authorization": "vault_owner",
+          "binding_status": "discovered_unbound",
           "capability_id": "api.location.post.add_location_sms_contact",
           "kind": "backend_api_endpoint",
           "method": "POST",
@@ -41406,6 +42521,10 @@
         {
           "capability_id": "location.create_circle",
           "disposition": "EXECUTE_SERVER_VERIFIED"
+        },
+        {
+          "capability_id": "location.create_public_link",
+          "disposition": "NAVIGATE"
         },
         {
           "capability_id": "location.decline_circle_invite",
@@ -41532,6 +42651,10 @@
           "disposition": "NAVIGATE"
         },
         {
+          "capability_id": "location.revoke_public_link",
+          "disposition": "NAVIGATE"
+        },
+        {
           "capability_id": "location.save_current_location",
           "disposition": "NAVIGATE"
         },
@@ -41553,6 +42676,14 @@
         },
         {
           "capability_id": "location.set_auto_share",
+          "disposition": "NAVIGATE"
+        },
+        {
+          "capability_id": "location.set_ghost_mode",
+          "disposition": "NAVIGATE"
+        },
+        {
+          "capability_id": "location.share_public_link",
           "disposition": "NAVIGATE"
         },
         {
@@ -41599,8 +42730,8 @@
       "capability_id": "service.location",
       "catalog_coverage": {
         "all_discovered_capabilities_classified": true,
-        "blocked_endpoint_count": 75,
-        "declared_capability_count": 57
+        "blocked_endpoint_count": 76,
+        "declared_capability_count": 61
       },
       "completion": {
         "claim_policy": "verified_persisted_state_only",
@@ -41611,7 +42742,7 @@
       "executor_hierarchy": [
         {
           "action_ids": [],
-          "discovered_endpoint_count": 75,
+          "discovered_endpoint_count": 76,
           "kind": "backend_api",
           "reason": "Discovered endpoints are intentionally unbound until an audited action adapter registers one.",
           "status": "adapter_required"
@@ -41710,9 +42841,9 @@
       ],
       "kind": "service",
       "knowledge_package": {
-        "brain_revision": "d35679057d71b2ea3f199e97",
+        "brain_revision": "8577c433ad495a7becf61c43",
         "catalog_status": "complete_and_compiled",
-        "package_digest": "ebada8481d28dfaf598a957748bae38d6b3c9f896048bbbe7a86babd20790c75",
+        "package_digest": "01d88a395f6d2d3b582e1abfccb69526a9e067e1792d73b58e2342ad03d9db32",
         "package_id": "location.brain",
         "package_version": 2,
         "schema_version": "one.service_knowledge_package.v2"
@@ -41967,27 +43098,32 @@
     }
   ],
   "source_digests": {
-    "capability_graph_evolution": "025c5f19f496867b7e11271e7f023ff7eb985472a848f399daefca6a253d79c4",
-    "capability_runtime_compiler": "8dc88bffd41232a1eb842119de972333b64a7180a9b6276b9f8f1b88cfc98e6c",
-    "capability_runtime_policy": "1c10fbba689d86d76868f264536c94683dc11be586dade08b03c3e970eedb58d",
-    "kai_action_gateway": "543417ed237e48134d7d2cc87a2f5b15c4124c0e4c85c34324d25db3e7151dff",
-    "location_agent_manifest": "f0a055654821f46ccfcf64320afde84ca8a7ba070998483aa61159e215915c4e",
-    "location_knowledge_package": "ebada8481d28dfaf598a957748bae38d6b3c9f896048bbbe7a86babd20790c75",
-    "location_onboarding_runtime": "22eeae9aa6f4dbd4e75c286e53488c0894708f554b6190e8f39955339a9e7933",
-    "location_workflow_api_contract": "abcb54b58f01f2eb99ac4bda811187a21dd4a368987a8e570b43847b7a2a8bb2",
+    "capability_graph_evolution": "07441cbd02b76326a2d899f88e7c2b92feddb8dd3bc5d19b043bc00ec2b765cc",
+    "capability_runtime_compiler": "9a0b0b573b4e3ae42d2a49ce15f93a7cce70e5dc4046dea14922d7cd6ace9078",
+    "capability_runtime_policy": "d3f4ec0d27231ef298372a48696f8ac238f7560d03d8e72c50c7bcb5b0ffd7a9",
+    "kai_action_gateway": "0c042c3f1072136c590901702084049c804f05fc488689e6702c27dbfeb7572b",
+    "location_agent_manifest": "e4ec895f38604384cbfb228f54d2a31225acfc25d3132fb5db42c90aac098c9b",
+    "location_knowledge_package": "01d88a395f6d2d3b582e1abfccb69526a9e067e1792d73b58e2342ad03d9db32",
+    "location_onboarding_runtime": "cd911f5e2e0f09352aeb89a74180a66fab79553423b126583f181d858459ae62",
+    "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
     "product_agent_registry": "49cb39b76eb39b529bec9c8f8d0bfa3c05185255546339bec80e7cab13027186",
-    "route_orchestration_index": "39bedd22b12f99d1a5f434d6271d5da7f5896868ddc7b1626ee40348846e357b",
-    "service_knowledge_packages": "7d8c04c5b7442bb62bba406476eb3c29d2478e4dba29ff9e35ada3ef57c94674"
+    "route_orchestration_index": "43959ca5acf753a3149b1ce1f45b8589df0c4431749d689d57757f7b96666949",
+    "service_knowledge_packages": "d6c9cba48241d3b0fcc96b8612bf3b9a15b122b6d476c3d6302663043043ef9c"
   },
-  "source_revision": "55a233b9b6e923ea",
+  "source_revision": "cf08fb61503832fb",
   "workflow_revision_compatibility": {
-    "current_graph_revision": "55a233b9b6e923ea",
+    "current_graph_revision": "cf08fb61503832fb",
     "schema_version": "one.workflow_revision_compatibility.v1",
     "workflows": [
       {
         "compatible_graph_revisions": [
           "511758965444c3bb",
-          "af42538767aa6642"
+          "55a233b9b6e923ea",
+          "6448b901792d40a4",
+          "af42538767aa6642",
+          "af57e85f060b7a4e",
+          "f0d84e300bb39de3",
+          "f159d8b097f5456c"
         ],
         "migration_required_graph_revisions": [],
         "rejected_graph_revisions": [],
@@ -41998,18 +43134,28 @@
       {
         "compatible_graph_revisions": [
           "511758965444c3bb",
-          "af42538767aa6642"
+          "55a233b9b6e923ea",
+          "6448b901792d40a4",
+          "af42538767aa6642",
+          "af57e85f060b7a4e",
+          "f0d84e300bb39de3",
+          "f159d8b097f5456c"
         ],
         "migration_required_graph_revisions": [],
         "rejected_graph_revisions": [],
-        "workflow_digest": "dbb6a79e6f70cedb67a4e4d7ab53d10be8fb3e5d283306698010f159d3a9efa2",
+        "workflow_digest": "736fdb278397b17bc8fe2f3f64ad5fa57ec8ab102006060cd67104eb89d4cf7f",
         "workflow_id": "workflow.setup.connections",
         "workflow_version": 1
       },
       {
         "compatible_graph_revisions": [
           "511758965444c3bb",
-          "af42538767aa6642"
+          "55a233b9b6e923ea",
+          "6448b901792d40a4",
+          "af42538767aa6642",
+          "af57e85f060b7a4e",
+          "f0d84e300bb39de3",
+          "f159d8b097f5456c"
         ],
         "migration_required_graph_revisions": [],
         "rejected_graph_revisions": [],
@@ -42020,7 +43166,12 @@
       {
         "compatible_graph_revisions": [
           "511758965444c3bb",
-          "af42538767aa6642"
+          "55a233b9b6e923ea",
+          "6448b901792d40a4",
+          "af42538767aa6642",
+          "af57e85f060b7a4e",
+          "f0d84e300bb39de3",
+          "f159d8b097f5456c"
         ],
         "migration_required_graph_revisions": [],
         "rejected_graph_revisions": [],
@@ -42031,7 +43182,12 @@
       {
         "compatible_graph_revisions": [
           "511758965444c3bb",
-          "af42538767aa6642"
+          "55a233b9b6e923ea",
+          "6448b901792d40a4",
+          "af42538767aa6642",
+          "af57e85f060b7a4e",
+          "f0d84e300bb39de3",
+          "f159d8b097f5456c"
         ],
         "migration_required_graph_revisions": [],
         "rejected_graph_revisions": [],
@@ -42042,18 +43198,28 @@
       {
         "compatible_graph_revisions": [
           "511758965444c3bb",
-          "af42538767aa6642"
+          "55a233b9b6e923ea",
+          "6448b901792d40a4",
+          "af42538767aa6642",
+          "af57e85f060b7a4e",
+          "f0d84e300bb39de3",
+          "f159d8b097f5456c"
         ],
         "migration_required_graph_revisions": [],
         "rejected_graph_revisions": [],
-        "workflow_digest": "778c3b58280a49a5a59b4ced52683a52e8e789173f2308a200c140a79bc766c6",
+        "workflow_digest": "f365a59af88a2715a0bd9b41623f10236be29336950d6c44d49e039d519a1f05",
         "workflow_id": "workflow.setup.location",
         "workflow_version": 2
       },
       {
         "compatible_graph_revisions": [
           "511758965444c3bb",
-          "af42538767aa6642"
+          "55a233b9b6e923ea",
+          "6448b901792d40a4",
+          "af42538767aa6642",
+          "af57e85f060b7a4e",
+          "f0d84e300bb39de3",
+          "f159d8b097f5456c"
         ],
         "migration_required_graph_revisions": [],
         "rejected_graph_revisions": [],
@@ -42467,6 +43633,16 @@
         {
           "authorization": "firebase_auth",
           "binding_status": "discovered_unbound",
+          "capability_id": "api.connections.get.connection_person_context",
+          "kind": "backend_api_endpoint",
+          "method": "GET",
+          "operation_name": "connection_person_context",
+          "path": "/api/one/connections/{counterpart_user_id}/context",
+          "service_id": "connections"
+        },
+        {
+          "authorization": "firebase_auth",
+          "binding_status": "discovered_unbound",
           "capability_id": "api.connections.get.connection_information_scope_catalog",
           "kind": "backend_api_endpoint",
           "method": "GET",
@@ -42521,7 +43697,7 @@
         "executor_hierarchy": [
           {
             "action_ids": [],
-            "discovered_endpoint_count": 15,
+            "discovered_endpoint_count": 16,
             "kind": "backend_api",
             "reason": "Discovered endpoints are intentionally unbound until an audited action adapter registers one.",
             "status": "adapter_required"
@@ -44036,6 +45212,16 @@
         {
           "authorization": "vault_owner",
           "binding_status": "discovered_unbound",
+          "capability_id": "api.location.get.get_location_sms_contacts",
+          "kind": "backend_api_endpoint",
+          "method": "GET",
+          "operation_name": "get_location_sms_contacts",
+          "path": "/api/one/location/sms-contacts",
+          "service_id": "location"
+        },
+        {
+          "authorization": "vault_owner",
+          "binding_status": "discovered_unbound",
           "capability_id": "api.location.post.add_location_sms_contact",
           "kind": "backend_api_endpoint",
           "method": "POST",
@@ -44103,6 +45289,9 @@
         "setup.skip_location"
       ],
       "capability_id": "workflow.setup.location",
+      "command_completion_action_ids": [
+        "location.resume_updates"
+      ],
       "completion_action_ids": [
         "setup.finish_location"
       ],
@@ -44981,6 +46170,12 @@
               "result": "vault_unavailable"
             },
             {
+              "button_role": null,
+              "label_key": "one.location.result.draft_prepared.label",
+              "presentation": "app_result",
+              "result": "draft_prepared"
+            },
+            {
               "button_role": "secondary",
               "label_key": "one.location.result.skip_place.label",
               "presentation": "button",
@@ -45047,6 +46242,68 @@
                   },
                   "result": {
                     "const": "vault_unavailable",
+                    "type": "string"
+                  },
+                  "runRevision": {
+                    "minimum": 1,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "runRevision",
+                  "leaseId",
+                  "result",
+                  "draftMetadata"
+                ],
+                "type": "object"
+              },
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "draftMetadata": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "digest": {
+                        "pattern": "^[0-9a-f]{64}$",
+                        "type": "string"
+                      },
+                      "expiresAt": {
+                        "format": "date-time",
+                        "type": "string"
+                      },
+                      "revision": {
+                        "minimum": 1,
+                        "type": "integer"
+                      },
+                      "runId": {
+                        "pattern": "^run_[a-z0-9]{16,96}$",
+                        "type": "string"
+                      },
+                      "schemaVersion": {
+                        "const": "one.location.pre_vault.draft_metadata.v1",
+                        "type": "string"
+                      },
+                      "status": {
+                        "const": "staged",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "schemaVersion",
+                      "digest",
+                      "status",
+                      "expiresAt",
+                      "runId",
+                      "revision"
+                    ],
+                    "type": "object"
+                  },
+                  "leaseId": {
+                    "pattern": "^loclease_[a-z0-9]{16,96}$",
+                    "type": "string"
+                  },
+                  "result": {
+                    "const": "draft_prepared",
                     "type": "string"
                   },
                   "runRevision": {
@@ -45479,6 +46736,7 @@
           "location.checkout_nearby",
           "location.confirm_nearby_check_in",
           "location.create_circle",
+          "location.create_public_link",
           "location.decline_circle_invite",
           "location.decline_request",
           "location.delete_circle",
@@ -45510,12 +46768,15 @@
           "location.remove_from_circle",
           "location.rename_circle",
           "location.resume_updates",
+          "location.revoke_public_link",
           "location.save_current_location",
           "location.select_ask_recipient",
           "location.select_share_recipient",
           "location.send_check_in",
           "location.send_request",
           "location.set_auto_share",
+          "location.set_ghost_mode",
+          "location.share_public_link",
           "location.share_selected",
           "location.sos_default",
           "location.stop_share",
@@ -45530,7 +46791,7 @@
         "package_id": "location.brain",
         "package_version": 2,
         "schema_version": "one.service_knowledge_package.v2",
-        "source_digest": "ebada8481d28dfaf598a957748bae38d6b3c9f896048bbbe7a86babd20790c75"
+        "source_digest": "01d88a395f6d2d3b582e1abfccb69526a9e067e1792d73b58e2342ad03d9db32"
       },
       "knowledge_projection": {
         "allowed_fact_keys": [
@@ -45712,7 +46973,7 @@
         "executor_hierarchy": [
           {
             "action_ids": [],
-            "discovered_endpoint_count": 75,
+            "discovered_endpoint_count": 76,
             "kind": "backend_api",
             "reason": "Discovered endpoints are intentionally unbound until an audited action adapter registers one.",
             "status": "adapter_required"
@@ -45753,7 +47014,7 @@
           }
         ],
         "initial_step_id": "location.onboarding.preflight",
-        "knowledge_package_digest": "ebada8481d28dfaf598a957748bae38d6b3c9f896048bbbe7a86babd20790c75",
+        "knowledge_package_digest": "01d88a395f6d2d3b582e1abfccb69526a9e067e1792d73b58e2342ad03d9db32",
         "knowledge_package_id": "location.brain",
         "knowledge_package_version": 2,
         "migrations": [
@@ -46152,6 +47413,10 @@
               "when": "vault_unavailable"
             },
             {
+              "target": "location.onboarding.circle",
+              "when": "draft_prepared"
+            },
+            {
               "target": "$paused",
               "when": "pause"
             }
@@ -46165,6 +47430,7 @@
               "save_place",
               "skip_place",
               "vault_unavailable",
+              "draft_prepared",
               "pause"
             ],
             "proof": "run_bound_place_or_skip_receipt",

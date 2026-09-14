@@ -8695,7 +8695,8 @@ describe("OneLocationAgentPage", () => {
       ...locationState(),
       publicInvites: [activePublicInvite({ publicUrl: "/one/location/view/neelesh.derived-token-abc" })],
     });
-    mockRevokePublicInvite.mockResolvedValue({ invite: { status: "revoked" } });
+    // The service unwraps the API's invite envelope before returning.
+    mockRevokePublicInvite.mockResolvedValue({ status: "revoked" });
     render(<OneLocationAgentPage />);
     await skipLocationEntryFlow();
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());

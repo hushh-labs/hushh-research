@@ -167,14 +167,19 @@ export function FigmaProviderIcon({ provider }: { provider: "apple" | "google" }
   );
 }
 
-export function FigmaCountryFlag() {
+export function FigmaCountryFlag({ countryCode }: { countryCode: string }) {
+  const normalizedCountryCode = countryCode.trim().toUpperCase();
+  const flag = /^[A-Z]{2}$/.test(normalizedCountryCode)
+    ? String.fromCodePoint(
+        ...Array.from(normalizedCountryCode, (character) =>
+          0x1f1e6 + character.charCodeAt(0) - 0x41,
+        ),
+      )
+    : "";
+
   return (
-    <ThemeAsset
-      lightSrc={`${FIGMA_ASSET_ROOT}/flag-light.png`}
-      darkSrc={`${FIGMA_ASSET_ROOT}/flag-dark.png`}
-      alt=""
-      className={styles.countryFlag}
-      draggable={false}
-    />
+    <span aria-hidden="true" className={styles.countryFlag}>
+      {flag}
+    </span>
   );
 }

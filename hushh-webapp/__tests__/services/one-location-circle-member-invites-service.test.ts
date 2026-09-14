@@ -23,11 +23,33 @@ vi.mock("@/lib/capacitor", () => ({
 }));
 
 import { OneLocationService } from "@/lib/one-location/service";
+import type { CircleManagementAction } from "@/lib/one-location/command-circle-management";
 
 describe("OneLocationService Circle member invitations", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockApiJson.mockResolvedValue({});
+  });
+
+  it.each<[CircleManagementAction, string, string]>([
+    ["location.rename_circle", "/circles/circle-1", "PATCH"],
+    ["location.delete_circle", "/circles/circle-1", "DELETE"],
+    ["location.leave_circle", "/circles/circle-1/members/me", "DELETE"],
+    ["location.remove_from_circle", "/circles/circle-1/members/friend-1", "DELETE"],
+    ["location.accept_circle_invite", "/circle-member-invites/invite-1/accept", "POST"],
+    ["location.decline_circle_invite", "/circle-member-invites/invite-1/decline", "POST"],
+  ])("carries stable command authority through the owning endpoint: %s", async (action, path, method) => {
+    const binding = { owner: "owner", action, circleId: "circle-1", circleName: "Goa", memberId: "friend-1", inviteId: "invite-1", newName: "Goa trip" };
+    const receipt = { operation_id: "ab".repeat(32), action_id: action, circle_id: "circle-1", result: "fixture" };
+    mockApiJson.mockResolvedValueOnce({ operationReceipt: receipt });
+    expect(await OneLocationService.executeCircleManagementCommand({ vaultOwnerToken: "fixture", operationId: receipt.operation_id, binding })).toEqual(receipt);
+    expect(mockApiJson).toHaveBeenCalledWith(`/api/one/location${path}`, {
+      method, headers: { Authorization: "Bearer fixture", "Content-Type": "application/json" },
+      body: JSON.stringify({ commandOperationId: receipt.operation_id, commandBinding: binding, ...(method === "PATCH" ? { name: "Goa trip" } : {}) }),
+    });
+    mockApiJson.mockClear().mockRejectedValueOnce(new Error("lost response"));
+    await expect(OneLocationService.executeCircleManagementCommand({ vaultOwnerToken: "fixture", operationId: receipt.operation_id, binding })).rejects.toThrow("lost response");
+    expect(mockApiJson).toHaveBeenCalledTimes(1);
   });
 
   it("loads eligible direct connections and outgoing pending invitations", async () => {

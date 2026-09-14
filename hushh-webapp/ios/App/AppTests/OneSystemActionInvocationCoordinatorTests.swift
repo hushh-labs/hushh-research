@@ -259,8 +259,9 @@ final class OneSystemActionInvocationCoordinatorTests: XCTestCase {
         XCTAssertEqual(OneSystemActionID.vaultRequiredActionIDs.count, 8)
         XCTAssertTrue(OneSystemActionID.pauseLocation.requiresVault)
         XCTAssertFalse(OneSystemActionID.pauseLocation.requiresSystemConfirmation)
-        XCTAssertTrue(OneSystemActionID.resumeLocation.requiresSystemConfirmation)
-        XCTAssertEqual(OneSystemActionID.systemConfirmationRequiredActionIDs.count, 6)
+        XCTAssertFalse(OneSystemActionID.resumeLocation.requiresSystemConfirmation)
+        XCTAssertFalse(OneSystemActionID.createCircle.requiresSystemConfirmation)
+        XCTAssertEqual(OneSystemActionID.systemConfirmationRequiredActionIDs.count, 4)
         // Save My Soul's sending half: reachable from exactly one App Intent,
         // vault-gated, and deliberately NOT system-confirmation-gated -- the
         // Action button hold is the confirmation.

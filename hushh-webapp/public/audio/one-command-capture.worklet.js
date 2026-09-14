@@ -1,7 +1,10 @@
 /* Bounded mono capture. Finalization includes every frame before the finish message. */
 class OneCommandCapture extends AudioWorkletProcessor {
-  constructor() {
+  constructor(options) {
     super();
+    this.sessionId = options.processorOptions.sessionId;
+    this.levelSamples = 0;
+    this.levelSquares = 0;
     this.frames = [];
     this.count = 0;
     this.closed = false;
@@ -28,7 +31,7 @@ class OneCommandCapture extends AudioWorkletProcessor {
         const value = Math.max(-1, Math.min(1, sum / (end - start)));
         view.setInt16(44 + i * 2, Math.round(value * (value < 0 ? 32768 : 32767)), true);
       }
-      this.port.postMessage(wav, [wav]);
+      this.port.postMessage({ type: "finished", sessionId: this.sessionId, wav }, [wav]);
     };
   }
   process(inputs) {
@@ -38,6 +41,17 @@ class OneCommandCapture extends AudioWorkletProcessor {
       const frame = input.slice(0, Math.min(input.length, sampleRate * 60 - this.count));
       this.frames.push(frame);
       this.count += frame.length;
+      for (const sample of frame) this.levelSquares += sample * sample;
+      this.levelSamples += frame.length;
+      if (this.levelSamples >= sampleRate * 0.05) {
+        this.port.postMessage({
+          type: "level", sessionId: this.sessionId,
+          level: Math.min(1, Math.sqrt(this.levelSquares / this.levelSamples)),
+          elapsedMs: this.count * 1000 / sampleRate,
+        });
+        this.levelSamples = 0;
+        this.levelSquares = 0;
+      }
     }
     return true;
   }

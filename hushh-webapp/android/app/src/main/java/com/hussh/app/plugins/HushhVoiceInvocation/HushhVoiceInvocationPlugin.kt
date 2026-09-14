@@ -2,6 +2,7 @@ package com.hussh.app.plugins.HushhVoiceInvocation
 
 import android.Manifest
 import android.content.Intent
+import android.content.Context
 import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.MediaRecorder
@@ -9,6 +10,7 @@ import android.net.Uri
 import android.provider.Settings
 import android.os.SystemClock
 import android.util.Base64
+import android.view.HapticFeedbackConstants
 import com.getcapacitor.JSObject
 import com.getcapacitor.PermissionState
 import com.getcapacitor.Plugin
@@ -28,6 +30,22 @@ class HushhVoiceInvocationPlugin : Plugin() {
     private var recording: CommandRecording? = null
     private var foreground = true
     private var foregroundSince = System.currentTimeMillis()
+
+    @PluginMethod
+    fun commandCaptureHaptic(call: PluginCall) {
+        activity.runOnUiThread {
+            if (recording?.id != call.getString("sessionId") || recording?.acceptsLevels != true) { call.resolve(); return@runOnUiThread }
+            if (context.getSharedPreferences("hushh_settings", Context.MODE_PRIVATE).getBoolean("hapticFeedback", true)) {
+                val feedback = when (call.getString("kind")) {
+                    "ready" -> HapticFeedbackConstants.LONG_PRESS
+                    "cancel" -> HapticFeedbackConstants.CLOCK_TICK
+                    else -> null
+                }
+                if (feedback != null) bridge.webView.performHapticFeedback(feedback)
+            }
+            call.resolve()
+        }
+    }
 
     private fun permissionPayload(): JSObject = JSObject().apply {
         put("state", when (getPermissionState("microphone")) {
@@ -69,7 +87,15 @@ class HushhVoiceInvocationPlugin : Plugin() {
         if (recording != null) { call.reject("The microphone is already in use."); return }
         if (getPermissionState("microphone") != PermissionState.GRANTED) { call.reject("Microphone permission is required."); return }
         try {
-            recording = CommandRecording(id, (call.getInt("maxDurationMs") ?: 60000).coerceIn(1, 60000)).also { it.start() }
+            recording = CommandRecording(id, (call.getInt("maxDurationMs") ?: 60000).coerceIn(1, 60000)) { level, elapsedMs ->
+                activity.runOnUiThread {
+                    synchronized(this) {
+                        if (recording?.id == id && recording?.acceptsLevels == true && foreground) {
+                            notifyListeners("commandCaptureLevel", JSObject().put("sessionId", id).put("level", level).put("elapsedMs", elapsedMs))
+                        }
+                    }
+                }
+            }.also { it.start() }
             call.resolve(JSObject().put("sessionId", id))
         } catch (_: Exception) { recording?.cancel(); recording = null; call.reject("The microphone could not start.") }
     }
@@ -101,7 +127,7 @@ class HushhVoiceInvocationPlugin : Plugin() {
 }
 
 /** Mono PCM16, bounded in memory. Stop unblocks read; finish drains before encoding. */
-private class CommandRecording(val id: String, private val durationMs: Int) {
+private class CommandRecording(val id: String, private val durationMs: Int, private val onLevel: (Double, Double) -> Unit) {
     private val limit = durationMs * 32
     private val pcm = ByteArrayOutputStream()
     private val done = CountDownLatch(1)
@@ -111,6 +137,7 @@ private class CommandRecording(val id: String, private val durationMs: Int) {
     @Volatile private var failed = false
     @Volatile private var finishing = false
     val released: Boolean get() = done.count == 0L && cancelled
+    val acceptsLevels: Boolean get() = !cancelled && !finishing
 
     @Suppress("MissingPermission")
     fun start() {
@@ -126,9 +153,25 @@ private class CommandRecording(val id: String, private val durationMs: Int) {
         Thread({
             try {
                 val buffer = ShortArray(size / 2)
+                var levelSquares = 0.0
+                var levelSamples = 0
+                var lastLevelAt = SystemClock.elapsedRealtime()
                 while (running && pcm.size() < limit && SystemClock.elapsedRealtime() < deadline) {
                     val count = input.read(buffer, 0, minOf(buffer.size, (limit - pcm.size()) / 2), AudioRecord.READ_NON_BLOCKING)
-                    if (count > 0) for (index in 0 until count) { val sample = buffer[index].toInt(); pcm.write(sample and 255); pcm.write((sample shr 8) and 255) }
+                    if (count > 0) {
+                        for (index in 0 until count) {
+                            val sample = buffer[index].toInt()
+                            pcm.write(sample and 255); pcm.write((sample shr 8) and 255)
+                            val normalized = sample / 32768.0
+                            levelSquares += normalized * normalized
+                        }
+                        levelSamples += count
+                        val now = SystemClock.elapsedRealtime()
+                        if (acceptsLevels && now - lastLevelAt >= 50) {
+                            onLevel(kotlin.math.sqrt(levelSquares / levelSamples).coerceIn(0.0, 1.0), pcm.size() / 32.0)
+                            levelSquares = 0.0; levelSamples = 0; lastLevelAt = now
+                        }
+                    }
                     else if (count < 0 && running) { failed = true; break }
                     else if (finishing) break
                     else Thread.sleep(5)

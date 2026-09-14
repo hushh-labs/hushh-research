@@ -18,6 +18,7 @@
  */
 
 import { useEffect, useRef, useSyncExternalStore } from "react";
+import type { PrivateCheckInDraft } from "@/lib/one-location/command-private-check-in";
 
 export type LocalOnboardingActionResult = {
   status: "started" | "succeeded" | "blocked" | "failed";
@@ -30,34 +31,59 @@ export type LocalOnboardingActionResult = {
 
 /**
  * Execution-only gateway context. This is deliberately separate from
- * model-resolved slots: it carries correlation metadata, never owner
- * information or provider credentials.
+ * model-resolved slots. Personal continuation stays client-owned and enters
+ * only the owner-vault-encrypted capsule, never model or server preparation.
  */
 export type LocalOnboardingActionContext = {
+  continuation?: LocalActionContinuation;
+  privateContinuation?: PrivateCheckInDraft;
   /** Prevent starting an effect after cancellation; never implies rollback. */
   signal?: AbortSignal;
   /** Stable command operation identity, passed to idempotent owning services. */
   operationId?: string;
   chosenResourceId?: string;
   preparedBinding?: Record<string, unknown>;
+  resolvedResources?: LocalActionResources;
   confirmedAt?: string;
   directiveId?: string | null;
   /** One-use token minted by the visible in-app confirmation card. */
   humanConfirmationToken?: string | null;
 };
 
+/** Non-authorizing locators from correlated service outcomes, re-read by prepare. */
+export type LocalActionResources = Record<string, Array<{ kind: "circle" | "person" | "place"; id: string; sourceStep?: number; operationId?: string }>>;
+
+/** Receipt indices describe completed work; they confer no execution authority. */
+export type LocalActionContinuation = {
+  kind: "audience" | "membership";
+  operationId: string;
+  totalUnits: number;
+  completedUnitIndices: number[];
+  pendingUnitIndices: number[];
+  originalBinding: Record<string, unknown>;
+};
+
 export type LocalActionPreparation =
-  | { status: "ready"; binding: Record<string, unknown>; summary: string }
+  | { status: "ready"; binding: Record<string, unknown>; summary: string; privateContinuation?: PrivateCheckInDraft }
+  /** A real platform limitation opens the authored review once, without a retry gate. */
+  | { status: "simulate"; summary: string }
   | {
       status: "blocked";
       summary: string;
       gate: "input" | "permission" | "navigation";
       route?: string;
+      /** Keep the authored review open; only a subsequent Continue rechecks it. */
+      waitForUser?: boolean;
+      /** Exact read-resolved choice, encrypted before leaving for a prerequisite. */
+      resolvedChoiceId?: string;
       choices?: Array<{ id: string; label: string; detail?: string }>;
     };
 export type LocalActionPreparer = (
   slots: Record<string, unknown>,
   chosenResourceId?: string,
+  resources?: LocalActionResources,
+  continuation?: LocalActionContinuation,
+  privateContinuation?: PrivateCheckInDraft,
 ) => LocalActionPreparation | Promise<LocalActionPreparation>;
 
 /** Stable comparison of an owner-prepared resource, including nested selection. */
@@ -170,12 +196,15 @@ export async function prepareLocalOnboardingAction(
   actionId: string,
   slots: Record<string, unknown>,
   chosenResourceId?: string,
+  resources?: LocalActionResources,
+  continuation?: LocalActionContinuation,
+  privateContinuation?: PrivateCheckInDraft,
 ): Promise<LocalActionPreparation | null> {
   const owners = handlers.get(actionId);
   const owner =
     owners &&
     Array.from(owners.values()).sort((a, b) => b.sequence - a.sequence)[0];
-  return owner?.prepare ? owner.prepare(slots, chosenResourceId) : null;
+  return owner?.prepare ? owner.prepare(slots, chosenResourceId, resources, continuation, privateContinuation) : null;
 }
 
 export function hasMountedLocalOnboardingHandler(actionId: string): boolean {
@@ -249,6 +278,9 @@ export function useLocalOnboardingActionHandler(
         const current = await prepareRef.current?.(
           slots,
           context.chosenResourceId,
+          context.resolvedResources,
+          context.continuation,
+          context.privateContinuation,
         );
         if (
           current?.status !== "ready" ||
@@ -273,7 +305,7 @@ export function useLocalOnboardingActionHandler(
       ownerId,
       stableHandler,
       hasPreparation
-        ? (slots, choice) => prepareRef.current!(slots, choice)
+        ? (slots, choice, resources, continuation, privateContinuation) => prepareRef.current!(slots, choice, resources, continuation, privateContinuation)
         : undefined,
     );
     return () => {

@@ -9,6 +9,7 @@ import type { AutoApproveScope } from "@/lib/one-location/location-control-state
 import { resolveRuntimeFrontendUrl } from "@/lib/runtime/settings";
 import { dispatchFeedStateChanged } from "@/lib/feed/feed-events";
 import { ApiError, apiErrorCode, apiJson } from "@/lib/services/api-client";
+import type { CircleManagementBinding, CircleManagementReceipt } from "./command-circle-management";
 import type {
   ActionResult,
   LocationChatResponse,
@@ -864,6 +865,32 @@ export class OneLocationService {
     return normalizeCircleDetail(response.circle);
   }
 
+  /** Command adapter for the same owning mutation endpoints used by taps.
+   * No automatic retries: a lost response is reconciled by its operation ID. */
+  static async executeCircleManagementCommand(params: {
+    vaultOwnerToken:string;operationId:string;binding:CircleManagementBinding;
+  }):Promise<CircleManagementReceipt> {
+    const {binding}=params;
+    const circle=`/api/one/location/circles/${encodeURIComponent(binding.circleId)}`;
+    const invite=`/api/one/location/circle-member-invites/${encodeURIComponent(binding.inviteId || "")}`;
+    const target:Record<CircleManagementBinding["action"],{path:string;method:string}>={
+      "location.rename_circle":{path:circle,method:"PATCH"},
+      "location.delete_circle":{path:circle,method:"DELETE"},
+      "location.leave_circle":{path:`${circle}/members/me`,method:"DELETE"},
+      "location.remove_from_circle":{path:`${circle}/members/${encodeURIComponent(binding.memberId || "")}`,method:"DELETE"},
+      "location.accept_circle_invite":{path:`${invite}/accept`,method:"POST"},
+      "location.decline_circle_invite":{path:`${invite}/decline`,method:"POST"},
+    };
+    const endpoint=target[binding.action];
+    const response=await apiJson<{operationReceipt:CircleManagementReceipt}>(endpoint.path,{
+      method:endpoint.method,headers:jsonAuthHeaders(params.vaultOwnerToken),
+      body:JSON.stringify({commandOperationId:params.operationId,commandBinding:binding,
+        ...(binding.action==="location.rename_circle" ? {name:binding.newName} : {})}),
+    });
+    announceFeedActivity();
+    return response.operationReceipt;
+  }
+
   static async deleteNamedCircle(params: {
     vaultOwnerToken: string;
     circleId: string;
@@ -1049,32 +1076,35 @@ export class OneLocationService {
    * so a build talking to a server that predates `added` keeps working.
    */
   static async createNamedCircleMemberInvites(params: {
-    vaultOwnerToken: string;
-    circleId: string;
-    inviteeUserIds: string[];
+    vaultOwnerToken: string; circleId: string; inviteeUserIds: string[];
   }): Promise<string[]> {
+    const result = await this.addNamedCircleMembers(params);
+    // Compatibility callers historically receive invited IDs too. Command
+    // callers use the detailed result and never confuse a pending invitation
+    // with an active membership.
+    return [...result.added, ...result.invited];
+  }
+
+  static async addNamedCircleMembers(params: {
+    vaultOwnerToken: string; circleId: string; inviteeUserIds: string[];
+    operationId?: string; batchIndex?: number; batchCount?: number;
+    commandDirectiveId?: string;
+  }): Promise<{
+    added: string[]; skipped: string[]; skippedReasons: Record<string, string>; invited: string[];
+  }> {
     const response = await apiJson<{
-      added?: string[];
-      invites?: OneLocationCircleMemberInvite[];
-      invite?: OneLocationCircleMemberInvite;
+      added?: string[]; skipped?: string[]; skippedReasons?: Record<string, string>;
+      invites?: OneLocationCircleMemberInvite[]; invite?: OneLocationCircleMemberInvite;
     }>("/api/one/location/circle-member-invites", {
-      method: "POST",
-      headers: jsonAuthHeaders(params.vaultOwnerToken),
-      body: JSON.stringify({
-        circleId: params.circleId,
-        inviteeUserIds: params.inviteeUserIds,
-      }),
+      method: "POST", headers: jsonAuthHeaders(params.vaultOwnerToken),
+      body: JSON.stringify({ circleId: params.circleId, inviteeUserIds: params.inviteeUserIds,
+        operationId: params.operationId, commandDirectiveId: params.commandDirectiveId, batchIndex: params.batchIndex, batchCount: params.batchCount }),
     });
-    if (Array.isArray(response.added)) {
-      return response.added
-        .map((userId) => String(userId || "").trim())
-        .filter(Boolean);
-    }
-    const legacy =
-      response.invites ?? (response.invite ? [response.invite] : []);
-    return legacy
-      .map((invite) => String(invite?.inviteeUserId || "").trim())
-      .filter(Boolean);
+    const ids = (items: string[] | undefined) => Array.from(new Set((items || []).map((id) => String(id || "").trim()).filter(Boolean)));
+    return {
+      added: ids(response.added), skipped: ids(response.skipped), skippedReasons: response.skippedReasons || {},
+      invited: Array.isArray(response.added) ? [] : ids((response.invites || (response.invite ? [response.invite] : [])).map((invite) => invite.inviteeUserId)),
+    };
   }
 
   static async listNamedCircleMemberInvites(params: {
@@ -1137,30 +1167,45 @@ export class OneLocationService {
   static async addSmsContact(params: {
     vaultOwnerToken: string;
     recipientUserId: string;
+    commandOperationId?: string;
   }): Promise<string[]> {
     const response = await apiJson<{ smsContactUserIds: string[] }>(
       "/api/one/location/sms-contacts",
       {
         method: "POST",
         headers: jsonAuthHeaders(params.vaultOwnerToken),
-        body: JSON.stringify({ recipientUserId: params.recipientUserId }),
+        body: JSON.stringify({ recipientUserId: params.recipientUserId, commandOperationId: params.commandOperationId }),
       },
     );
-    return response.smsContactUserIds ?? [];
+    if (!Array.isArray(response.smsContactUserIds) || response.smsContactUserIds.some((id) => typeof id !== "string" || !id)) {
+      throw new Error("Emergency contacts could not be verified.");
+    }
+    return response.smsContactUserIds;
   }
 
   static async removeSmsContact(params: {
     vaultOwnerToken: string;
     recipientUserId: string;
+    commandOperationId?: string;
   }): Promise<string[]> {
     const response = await apiJson<{ smsContactUserIds: string[] }>(
       `/api/one/location/sms-contacts/${encodeURIComponent(params.recipientUserId)}`,
       {
         method: "DELETE",
         headers: jsonAuthHeaders(params.vaultOwnerToken),
+        ...(params.commandOperationId ? { body: JSON.stringify({ commandOperationId: params.commandOperationId }) } : {}),
       },
     );
-    return response.smsContactUserIds ?? [];
+    if (!Array.isArray(response.smsContactUserIds) || response.smsContactUserIds.some((id) => typeof id !== "string" || !id)) {
+      throw new Error("Emergency contacts could not be verified.");
+    }
+    return response.smsContactUserIds;
+  }
+
+  static async getSmsContacts(vaultOwnerToken: string): Promise<string[]> {
+    const response = await apiJson<{ smsContactUserIds: string[] }>("/api/one/location/sms-contacts", { headers: authHeaders(vaultOwnerToken) });
+    if (!Array.isArray(response.smsContactUserIds)) throw new Error("Emergency contacts could not be verified.");
+    return response.smsContactUserIds;
   }
 
   /** Read-only, fresh ciphertext inventory for the immersive Your Map route. */
@@ -1240,6 +1285,8 @@ export class OneLocationService {
     vaultOwnerToken: string;
     durationHours: number;
     locationSnapshot: PlainLocationPoint;
+    commandOperationId?: string;
+    commandBinding?: Record<string, unknown>;
   }): Promise<{
     invite: OneLocationPublicInvite;
     publicToken: string;
@@ -1252,6 +1299,7 @@ export class OneLocationService {
      * watching. Worth saying out loud rather than reporting "link created".
      */
     reused?: boolean;
+    operationReceipt?: import("@/lib/one-location/types").PublicLinkOperationReceipt;
   }> {
     return apiJsonWithRetry(
       "/api/one/location/public-invites",
@@ -1261,9 +1309,10 @@ export class OneLocationService {
         body: JSON.stringify({
           durationHours: params.durationHours,
           locationSnapshot: params.locationSnapshot,
+          ...(params.commandOperationId ? {commandOperationId:params.commandOperationId,commandBinding:params.commandBinding} : {}),
         }),
       },
-      1,
+      params.commandOperationId ? 0 : 1,
     );
   }
 
@@ -1333,12 +1382,15 @@ export class OneLocationService {
   static async revokePublicInvite(params: {
     vaultOwnerToken: string;
     inviteId: string;
+    commandOperationId?: string;
+    commandBinding?: Record<string, unknown>;
   }): Promise<OneLocationPublicInvite> {
     const response = await apiJson<{ invite: OneLocationPublicInvite }>(
       `/api/one/location/public-invites/${encodeURIComponent(params.inviteId)}`,
       {
         method: "DELETE",
         headers: jsonAuthHeaders(params.vaultOwnerToken),
+        ...(params.commandOperationId ? {body:JSON.stringify({commandOperationId:params.commandOperationId,commandBinding:params.commandBinding})} : {}),
       },
     );
     return response.invite;
@@ -1536,11 +1588,13 @@ export class OneLocationService {
    * idempotent backend mutation. Safe to retry with the same operation id.
    */
   static async createGrantWithEnvelope(params: {
+    commandDirectiveId?: string;
     vaultOwnerToken: string;
     recipientUserId: string;
     recipientKeyId: string;
     durationHours?: number | null;
     durationMode?: OneLocationShareDurationMode;
+    commandOperationId?: string;
     clientOperationId: string;
     confirmedAt: string;
     envelope: OneLocationEncryptedEnvelope;
@@ -1569,10 +1623,13 @@ export class OneLocationService {
             : {}),
           ...(params.durationMode ? { durationMode: params.durationMode } : {}),
           clientOperationId: params.clientOperationId,
+          commandOperationId: params.commandOperationId,
+          commandDirectiveId: params.commandDirectiveId,
           confirmedAt: params.confirmedAt,
           envelope: params.envelope,
           ...(params.reason ? { reason: params.reason } : {}),
           ...(params.shareKind ? { shareKind: params.shareKind } : {}),
+          ...(params.sourceCircleId ? { sourceCircleId: params.sourceCircleId } : {}),
         }),
       },
       1,
@@ -1785,6 +1842,8 @@ export class OneLocationService {
     durationMinutes: 30 | 60 | 120;
     consentAccepted: boolean;
     allowConnectionRequests: boolean;
+    commandOperationId?: string;
+    consentVersion?: string;
   }): Promise<OneLocationNearbyPresenceState> {
     return apiJson<OneLocationNearbyPresenceState>(
       "/api/one/location/nearby-presence/check-in",
@@ -1800,6 +1859,8 @@ export class OneLocationService {
           durationMinutes: params.durationMinutes,
           consentAccepted: params.consentAccepted,
           allowConnectionRequests: params.allowConnectionRequests,
+          commandOperationId: params.commandOperationId,
+          consentVersion: params.consentVersion,
         }),
       },
     );
@@ -1896,12 +1957,20 @@ export class OneLocationService {
 
   static async checkoutNearby(params: {
     vaultOwnerToken: string;
+    commandOperationId?: string;
+    presenceId?: string | null;
+    presenceVersion?: number;
   }): Promise<OneLocationNearbyPresenceState> {
     return apiJson<OneLocationNearbyPresenceState>(
       "/api/one/location/nearby-presence",
       {
         method: "DELETE",
-        headers: authHeaders(params.vaultOwnerToken),
+        headers: jsonAuthHeaders(params.vaultOwnerToken),
+        ...(params.commandOperationId ? { body: JSON.stringify({
+          commandOperationId: params.commandOperationId,
+          presenceId: params.presenceId,
+          presenceVersion: params.presenceVersion,
+        }) } : {}),
       },
     );
   }
@@ -2096,12 +2165,14 @@ export class OneLocationService {
   }
 
   static async requestAccess(params: {
+    commandDirectiveId?: string;
     vaultOwnerToken: string;
     ownerUserId: string;
     message?: string;
     requestedDurationHours?: number | null;
     requestedDurationMode?: string | null;
     extendsGrantId?: string | null;
+    commandOperationId?: string;
     clientOperationId?: string;
   }): Promise<OneLocationAccessRequest> {
     const durationHours = Number(params.requestedDurationHours);
@@ -2115,6 +2186,8 @@ export class OneLocationService {
         body: JSON.stringify({
           ownerUserId: params.ownerUserId,
           clientOperationId: params.clientOperationId,
+          commandOperationId: params.commandOperationId,
+          commandDirectiveId: params.commandDirectiveId,
           message: params.message,
           requestedDurationHours:
             Number.isFinite(durationHours) && durationHours > 0

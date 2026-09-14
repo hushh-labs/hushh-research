@@ -31,6 +31,7 @@ import {
   GmailInformationRequestsService,
   type GmailInformationRequestCandidateScope,
   type GmailInformationRequestPreference,
+  type GmailInformationRequestScan,
   type GmailInformationRequestWorkflow,
 } from "@/lib/services/gmail-information-requests-service";
 
@@ -417,12 +418,17 @@ export default function GmailInformationRequestsSection({
     null,
   );
   const [activityTotalCount, setActivityTotalCount] = useState(0);
+  const [showEnableConfirm, setShowEnableConfirm] = useState(false);
   const [showDisableConfirm, setShowDisableConfirm] = useState(false);
+  const [scanSummary, setScanSummary] =
+    useState<GmailInformationRequestScan | null>(null);
+  const [scanningInbox, setScanningInbox] = useState(false);
   const [selectedWorkflowId, setSelectedWorkflowId] = useState<string | null>(
     null,
   );
   const idTokenProviderRef = useRef(idTokenProvider);
   const activityLoadingRef = useRef(false);
+  const scanInFlightRef = useRef(false);
 
   useEffect(() => {
     idTokenProviderRef.current = idTokenProvider;
@@ -470,12 +476,58 @@ export default function GmailInformationRequestsSection({
     void load();
   }, [load]);
 
+  useEffect(() => {
+    if (!isConnected || !userId || !vaultOwnerToken) return;
+    const timer = window.setInterval(() => void load(), 60_000);
+    return () => window.clearInterval(timer);
+  }, [isConnected, load, userId, vaultOwnerToken]);
+
+  const scanInbox = useCallback(async () => {
+    if (!vaultOwnerToken || !idTokenProvider || scanInFlightRef.current) {
+      return false;
+    }
+    scanInFlightRef.current = true;
+    setLoading(true);
+    setScanningInbox(true);
+    setError(null);
+    try {
+      const firebaseIdToken = await idTokenProvider();
+      const scan = await GmailInformationRequestsService.scan({
+        firebaseIdToken,
+        vaultOwnerToken,
+        maxResults: 30,
+        includeRecentInbox: true,
+      });
+      setScanSummary(scan);
+      const response = await GmailInformationRequestsService.list({
+        firebaseIdToken,
+        vaultOwnerToken,
+        limit: 25,
+      });
+      setWorkflows(response.workflows);
+      setNextOffset(response.next_offset);
+      setTotalCount(response.total_count);
+      return true;
+    } catch (scanError) {
+      setError(
+        scanError instanceof Error
+          ? scanError.message
+          : "We could not scan your Inbox. Try Scan inbox again.",
+      );
+      return false;
+    } finally {
+      scanInFlightRef.current = false;
+      setScanningInbox(false);
+      setLoading(false);
+    }
+  }, [idTokenProvider, vaultOwnerToken]);
+
   const setMonitoring = useCallback(
     async (enabled: boolean) => {
       if (!userId || !idTokenProvider) return false;
-      if (enabled && (!vaultKey || !vaultOwnerToken)) {
+      if (!vaultOwnerToken || (enabled && !vaultKey)) {
         setError(
-          "Open your private vault before turning on KYC monitoring. This keeps request history and any future drafts owner-controlled.",
+          "Open your private vault before changing KYC monitoring. This keeps request history and any future drafts owner-controlled.",
         );
         onRequestVaultUnlock();
         return false;
@@ -487,6 +539,7 @@ export default function GmailInformationRequestsSection({
         const next = await GmailInformationRequestsService.setPreference({
           userId,
           firebaseIdToken,
+          vaultOwnerToken,
           enabled,
         });
         setPreference(next);
@@ -504,15 +557,10 @@ export default function GmailInformationRequestsSection({
           activityLoadingRef.current = false;
           setListView("requests");
           setSelectedWorkflowId(null);
-        } else if (vaultOwnerToken) {
-          const response = await GmailInformationRequestsService.list({
-            firebaseIdToken,
-            vaultOwnerToken,
-            limit: 25,
-          });
-          setWorkflows(response.workflows);
-          setNextOffset(response.next_offset);
-          setTotalCount(response.total_count);
+          setScanSummary(null);
+        } else {
+          const scanned = await scanInbox();
+          return scanned;
         }
         return true;
       } catch (updateError) {
@@ -526,33 +574,15 @@ export default function GmailInformationRequestsSection({
         setUpdating(false);
       }
     },
-    [idTokenProvider, onRequestVaultUnlock, userId, vaultKey, vaultOwnerToken],
+    [
+      idTokenProvider,
+      onRequestVaultUnlock,
+      scanInbox,
+      userId,
+      vaultKey,
+      vaultOwnerToken,
+    ],
   );
-
-  const scan = useCallback(async () => {
-    if (!vaultOwnerToken || !idTokenProvider) return;
-    setLoading(true);
-    setError(null);
-    try {
-      const firebaseIdToken = await idTokenProvider();
-      await GmailInformationRequestsService.scan({
-        firebaseIdToken,
-        vaultOwnerToken,
-      });
-      const response = await GmailInformationRequestsService.list({
-        firebaseIdToken,
-        vaultOwnerToken,
-        limit: 25,
-      });
-      setWorkflows(response.workflows);
-      setNextOffset(response.next_offset);
-      setTotalCount(response.total_count);
-    } catch {
-      setError("We could not check your inbox for information requests.");
-    } finally {
-      setLoading(false);
-    }
-  }, [idTokenProvider, vaultOwnerToken]);
 
   const loadMore = useCallback(async () => {
     if (!vaultOwnerToken || !idTokenProvider || nextOffset === null) return;
@@ -867,16 +897,17 @@ export default function GmailInformationRequestsSection({
           <div className="flex items-start gap-2">
             <Mail className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
             <p>
-              We check only new unread Inbox messages after monitoring starts.
-              Request metadata is retained; email content and private details
-              are not.
+              We scan new Inbox messages, whether read or unread. Scan inbox
+              checks your last 30 Inbox emails. Their content is classified
+              transiently; only request metadata is retained.
             </p>
           </div>
         </div>
       ) : (
         <div className="rounded-xl border border-border/60 bg-background/60 p-3 text-xs text-muted-foreground">
-          Check new unread Inbox messages for KYC requests. Existing email is
-          never scanned, and monitoring never grants sharing or send permission.
+          Start monitoring to scan your last 30 Inbox emails, then keep KYC
+          requests up to date as new mail arrives. Monitoring never grants
+          sharing or send permission.
         </div>
       )}
 
@@ -885,6 +916,45 @@ export default function GmailInformationRequestsSection({
           {error}
         </p>
       ) : null}
+      {enabled && scanningInbox ? (
+        <p aria-live="polite" className="text-xs text-muted-foreground">
+          Scanning up to 30 Inbox emails…
+        </p>
+      ) : null}
+      {enabled && scanSummary ? (
+        <div
+          aria-live="polite"
+          className="grid grid-cols-3 gap-2 rounded-xl border border-border/60 bg-background/60 p-3"
+        >
+          <div>
+            <p className="text-xs text-muted-foreground">Emails checked</p>
+            <p className="mt-1 text-sm font-semibold text-foreground">
+              {scanSummary.scanned_count +
+                scanSummary.unchanged_count +
+                scanSummary.failed_count}
+            </p>
+          </div>
+          <div>
+            <p className="text-xs text-muted-foreground">Newly classified</p>
+            <p className="mt-1 text-sm font-semibold text-foreground">
+              {scanSummary.scanned_count}
+            </p>
+          </div>
+          <div>
+            <p className="text-xs text-muted-foreground">KYC requests found</p>
+            <p className="mt-1 text-sm font-semibold text-foreground">
+              {scanSummary.matched_count}
+            </p>
+          </div>
+          {scanSummary.failed_count > 0 ? (
+            <p className="col-span-3 text-xs text-amber-700 dark:text-amber-300">
+              {scanSummary.failed_count} email
+              {scanSummary.failed_count === 1 ? "" : "s"} could not be
+              classified. Scan again to retry.
+            </p>
+          ) : null}
+        </div>
+      ) : null}
 
       <div className="flex flex-wrap gap-2">
         <Button
@@ -892,10 +962,14 @@ export default function GmailInformationRequestsSection({
           size="sm"
           className="min-h-11"
           variant={enabled ? "muted" : "blue-gradient"}
-          disabled={updating || loading}
+          disabled={updating || loading || scanningInbox}
           onClick={() => {
             if (enabled) {
               setShowDisableConfirm(true);
+              return;
+            }
+            if (vaultKey && vaultOwnerToken) {
+              setShowEnableConfirm(true);
               return;
             }
             void setMonitoring(true);
@@ -909,8 +983,8 @@ export default function GmailInformationRequestsSection({
           {enabled
             ? "Turn off monitoring"
             : vaultKey && vaultOwnerToken
-              ? "Turn on monitoring"
-              : "Unlock to turn on monitoring"}
+              ? "Start KYC monitoring"
+              : "Unlock to start monitoring"}
         </Button>
         {enabled ? (
           <Button
@@ -918,15 +992,15 @@ export default function GmailInformationRequestsSection({
             size="sm"
             className="min-h-11"
             variant="muted"
-            disabled={loading}
+            disabled={loading || scanningInbox}
             onClick={() =>
-              vaultOwnerToken ? void scan() : onRequestVaultUnlock()
+              vaultOwnerToken ? void scanInbox() : onRequestVaultUnlock()
             }
           >
-            {loading
+            {scanningInbox || loading
               ? "Checking…"
               : vaultOwnerToken
-                ? "Check new messages"
+                ? "Scan inbox"
                 : "Unlock to check inbox"}
           </Button>
         ) : null}
@@ -1063,6 +1137,33 @@ export default function GmailInformationRequestsSection({
         ) : null}
       </AdaptiveDetailSurface>
       <AlertDialog
+        open={showEnableConfirm}
+        onOpenChange={(open) => setShowEnableConfirm(open)}
+      >
+        <AlertDialogContent className="w-[calc(100%-1rem)] sm:max-w-md">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Start KYC monitoring?</AlertDialogTitle>
+            <AlertDialogDescription>
+              We’ll scan your last 30 Inbox emails, including emails you have
+              already opened, to identify KYC requests. Email content is not
+              retained, and monitoring never shares or sends anything.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="flex-col-reverse gap-2 sm:flex-row">
+            <AlertDialogCancel disabled={updating}>Not now</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={updating}
+              onClick={(event) => {
+                event.preventDefault();
+                void setMonitoring(true).finally(() => setShowEnableConfirm(false));
+              }}
+            >
+              {updating ? "Starting…" : "Start monitoring"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      <AlertDialog
         open={showDisableConfirm}
         onOpenChange={(open) => setShowDisableConfirm(open)}
       >
@@ -1072,7 +1173,8 @@ export default function GmailInformationRequestsSection({
             <AlertDialogDescription>
               This stops future checks and permanently deletes KYC-request
               activity and monitoring metadata. Your Gmail emails are not
-              deleted. Turning it on again starts from future messages only.
+              deleted. Turning it on again scans your last 30 Inbox emails
+              before monitoring new mail.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter className="flex-col-reverse gap-2 sm:flex-row">

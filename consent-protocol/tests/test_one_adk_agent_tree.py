@@ -940,16 +940,24 @@ class TestRunAppAction:
 
     @pytest.mark.asyncio
     async def test_governed_mutation_ignores_model_confirmation_slot(self):
-        state: dict = {}
+        state = {
+            _STATE_SCREEN: "one_location",
+            STATE_VOICE_CONTEXT: {
+                "route_pattern": "/one/location",
+                "screen": "one_location",
+                "context_revision": "location-2",
+                "available_action_ids": ["location.share_selected"],
+            },
+        }
         result = await run_app_action(
-            "location.create_circle",
-            {"name": "Family", "confirmed": True},
+            "location.share_selected",
+            {"duration_hours": "1", "confirmed": True},
             _tool_context(state),
         )
 
         assert result["status"] == "confirm_pending"
         assert result["directive"]["needsConfirmation"] is True
-        assert result["directive"]["slots"] == {"name": "Family"}
+        assert result["directive"]["slots"] == {"duration_hours": "1"}
 
     @pytest.mark.asyncio
     async def test_unwired_specialist_action_is_not_advertised_as_executable(self):
@@ -4980,7 +4988,7 @@ class TestNamedShareChain:
         analysis.start has always spelled out {'symbol': <ticker>}; this asserts
         the same for every action the instruction tells One to start by name.
         """
-        for action_id in ("location.share_selected", "connect.send_request", "analysis.start"):
+        for action_id in ("connect.send_request", "analysis.start"):
             entry = get_action_gateway_action(action_id)
             assert action_id in ONE_IDENTITY_INSTRUCTION, action_id
             required = [
@@ -4991,6 +4999,14 @@ class TestNamedShareChain:
             assert required, action_id
             for slot in required:
                 assert f"'{slot}':" in ONE_IDENTITY_INSTRUCTION, f"{action_id} slot {slot}"
+
+    def test_location_share_defers_missing_inputs_to_reviewed_audience_preparation(self):
+        entry = get_action_gateway_action("location.share_selected")
+        assert "location.share_selected" in ONE_IDENTITY_INSTRUCTION
+        assert set(entry["goal"]["slot_schema"]) == {"person", "circle", "duration_hours"}
+        assert entry["command"]["resource_inputs"] == {"person": "person", "circle": "circle"}
+        assert entry["command"]["client_receipt"] == "location.audience.v1"
+        assert entry["execution_policy"] == "confirm_required"
 
     def test_a_wrong_or_ambiguous_name_is_relayed_not_guessed(self):
         instruction = ONE_IDENTITY_INSTRUCTION

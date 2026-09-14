@@ -111,6 +111,9 @@ class CreateGrantRequest(_CamelModel):
 
 class CreateGrantWithEnvelopeRequest(CreateGrantRequest):
     model_config = ConfigDict(populate_by_name=True, extra="forbid")
+    command_directive_id: str | None = Field(
+        default=None, alias="commandDirectiveId", pattern=r"^dir_[a-f0-9]{32}$"
+    )
 
     recipient_key_id: str = Field(
         alias="recipientKeyId",
@@ -123,12 +126,22 @@ class CreateGrantWithEnvelopeRequest(CreateGrantRequest):
         max_length=160,
         pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]+$",
     )
+    command_operation_id: str | None = Field(
+        default=None, alias="commandOperationId", pattern=r"^[a-f0-9]{64}$"
+    )
     confirmed_at: datetime = Field(alias="confirmedAt")
     envelope: dict[str, Any]
 
 
 class AddSmsContactRequest(_CamelModel):
     recipient_user_id: str = Field(alias="recipientUserId", min_length=1, max_length=160)
+    command_operation_id: str | None = Field(
+        default=None, alias="commandOperationId", pattern=r"^[a-f0-9]{64}$"
+    )
+
+
+class CommandOperationRequest(_CamelModel):
+    command_operation_id: str = Field(alias="commandOperationId", pattern=r"^[a-f0-9]{64}$")
 
 
 class SosEmailRecipientsRequest(_CamelModel):
@@ -181,6 +194,12 @@ class UpdateSosVoicePreferenceRequest(_CamelModel):
 
 
 class CreateAccessRequest(_CamelModel):
+    command_directive_id: str | None = Field(
+        default=None, alias="commandDirectiveId", pattern=r"^dir_[a-f0-9]{32}$"
+    )
+    command_operation_id: str | None = Field(
+        default=None, alias="commandOperationId", pattern=r"^[a-f0-9]{64}$"
+    )
     client_operation_id: str | None = Field(
         default=None, alias="clientOperationId", min_length=1, max_length=160
     )
@@ -288,6 +307,15 @@ class CreatePublicInviteRequest(_CamelModel):
     # edge with a field-level error, that one holds for every other caller.
     duration_hours: float = Field(default=1, alias="durationHours", gt=0, le=1)
     location_snapshot: dict[str, Any] | None = Field(default=None, alias="locationSnapshot")
+    command_operation_id: str | None = Field(
+        default=None, alias="commandOperationId", pattern=r"^[a-f0-9]{64}$"
+    )
+    command_binding: dict[str, Any] | None = Field(default=None, alias="commandBinding")
+
+
+class RevokePublicInviteRequest(_CamelModel):
+    command_operation_id: str = Field(alias="commandOperationId", pattern=r"^[a-f0-9]{64}$")
+    command_binding: dict[str, Any] = Field(alias="commandBinding")
 
 
 class CreateCircleInviteRequest(_CamelModel):
@@ -310,9 +338,31 @@ class BootstrapNamedCircleRequest(_CamelModel):
     name: str = Field(min_length=1, max_length=80)
 
 
+class CircleCommandRequest(_CamelModel):
+    command_operation_id: str = Field(alias="commandOperationId", pattern=r"^[a-f0-9]{64}$")
+    command_binding: dict[str, Any] = Field(alias="commandBinding")
+
+
 class UpdateNamedCircleRequest(_CamelModel):
+    command_operation_id: str | None = Field(
+        default=None, alias="commandOperationId", pattern=r"^[a-f0-9]{64}$"
+    )
+    command_binding: dict[str, Any] | None = Field(default=None, alias="commandBinding")
     name: str | None = Field(default=None, min_length=1, max_length=80)
     kind: str | None = Field(default=None, pattern="^(family|friends|other)$")
+
+
+def _circle_command_kwargs(
+    payload: CircleCommandRequest | UpdateNamedCircleRequest | None,
+) -> dict[str, Any]:
+    if payload is None or (
+        payload.command_operation_id is None and payload.command_binding is None
+    ):
+        return {}
+    return {
+        "command_operation_id": payload.command_operation_id,
+        "command_binding": payload.command_binding,
+    }
 
 
 class NamedCircleCodeRequest(_CamelModel):
@@ -346,6 +396,12 @@ class CircleMembersPageResponse(_CamelModel):
 
 
 class CreateCircleMemberInvitesRequest(_CamelModel):
+    command_directive_id: str | None = Field(
+        default=None, alias="commandDirectiveId", pattern=r"^dir_[a-f0-9]{32}$"
+    )
+    operation_id: str | None = Field(default=None, alias="operationId", pattern=r"^[a-f0-9]{64}$")
+    batch_index: int = Field(default=0, alias="batchIndex", ge=0, lt=250)
+    batch_count: int = Field(default=1, alias="batchCount", ge=1, le=250)
     circle_id: UUID = Field(alias="circleId")
     invitee_user_ids: list[_CircleInviteeUserId] = Field(
         alias="inviteeUserIds",
@@ -412,6 +468,18 @@ class NearbyPresenceCheckInRequest(_CamelModel):
     )
     consent_accepted: bool = Field(alias="consentAccepted")
     allow_connection_requests: bool = Field(default=False, alias="allowConnectionRequests")
+    command_operation_id: str | None = Field(
+        default=None, alias="commandOperationId", pattern=r"^[a-f0-9]{64}$"
+    )
+    consent_version: str | None = Field(default=None, alias="consentVersion", max_length=80)
+
+
+class NearbyPresenceCheckoutRequest(_CamelModel):
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    command_operation_id: str = Field(alias="commandOperationId", pattern=r"^[a-f0-9]{64}$")
+    presence_id: UUID | None = Field(alias="presenceId")
+    presence_version: int = Field(alias="presenceVersion", ge=0, strict=True)
 
 
 class NearbyPresenceExtendRequest(_CamelModel):
@@ -500,6 +568,16 @@ def _request_fingerprint_hash(request: Request) -> str | None:
 
 
 def _handle_error(exc: Exception) -> HTTPException:
+    from hushh_mcp.services.action_directive_ledger import ActionDirectiveAuthorityError
+
+    if isinstance(exc, ActionDirectiveAuthorityError):
+        return HTTPException(
+            status_code=409,
+            detail={
+                "code": "LOCATION_COMMAND_CHANGED",
+                "message": "This command changed or expired. Refresh it before continuing.",
+            },
+        )
     if isinstance(exc, PlaceRatingError):
         return HTTPException(
             status_code=exc.status_code,
@@ -651,6 +729,11 @@ def add_location_sms_contact(
             "smsContactUserIds": _service().add_sms_contact(
                 owner_user_id=_user_id(token_data),
                 contact_user_id=payload.recipient_user_id,
+                **(
+                    {"operation_id": payload.command_operation_id}
+                    if payload.command_operation_id
+                    else {}
+                ),
             )
         }
     except Exception as exc:
@@ -687,16 +770,28 @@ def list_location_sos_email_recipients(
         return {"ownerDisplayName": "", "openInOneUrl": "", "recipients": []}
 
 
+@router.get("/location/sms-contacts")
+def get_location_sms_contacts(
+    response: Response, token_data: dict = Depends(require_vault_owner_token)
+):
+    _set_private_no_store(response)
+    return {
+        "smsContactUserIds": _service().list_sms_contact_ids(owner_user_id=_user_id(token_data))
+    }
+
+
 @router.delete("/location/sms-contacts/{recipient_user_id}")
 def remove_location_sms_contact(
     recipient_user_id: _RecipientUserId,
     token_data: dict = Depends(require_vault_owner_token),
+    payload: CommandOperationRequest | None = None,
 ):
     try:
         return {
             "smsContactUserIds": _service().remove_sms_contact(
                 owner_user_id=_user_id(token_data),
                 contact_user_id=recipient_user_id,
+                **({"operation_id": payload.command_operation_id} if payload else {}),
             )
         }
     except Exception as exc:
@@ -1057,20 +1152,23 @@ def list_named_circle_eligible_connections(
 @limiter.limit(RateLimits.ONE_LOCATION_CIRCLE_MUTATION)
 def update_named_location_circle(
     request: Request,
+    response: Response,
     circle_id: _CircleId,
     payload: UpdateNamedCircleRequest,
     token_data: dict = Depends(require_vault_owner_token),
 ):
     del request
+    _set_private_no_store(response)
     try:
-        return {
-            "circle": _circle_service().update_circle(
-                owner_user_id=_user_id(token_data),
-                circle_id=circle_id,
-                name=payload.name,
-                kind=payload.kind,
-            )
-        }
+        command = _circle_command_kwargs(payload)
+        result = _circle_service().update_circle(
+            owner_user_id=_user_id(token_data),
+            circle_id=circle_id,
+            name=payload.name,
+            kind=payload.kind,
+            **command,
+        )
+        return result if command else {"circle": result}
     except Exception as exc:
         raise _handle_error(exc) from exc
 
@@ -1079,16 +1177,20 @@ def update_named_location_circle(
 @limiter.limit(RateLimits.ONE_LOCATION_CIRCLE_MUTATION)
 def delete_named_location_circle(
     request: Request,
+    response: Response,
     circle_id: _CircleId,
+    payload: CircleCommandRequest | None = None,
     token_data: dict = Depends(require_vault_owner_token),
 ):
     del request
+    _set_private_no_store(response)
     try:
-        _circle_service().delete_circle(
+        result = _circle_service().delete_circle(
             owner_user_id=_user_id(token_data),
             circle_id=circle_id,
+            **_circle_command_kwargs(payload),
         )
-        return {"deleted": True}
+        return result if payload else {"deleted": True}
     except Exception as exc:
         raise _handle_error(exc) from exc
 
@@ -1310,16 +1412,20 @@ def join_named_location_circle(
 @limiter.limit(RateLimits.ONE_LOCATION_CIRCLE_MUTATION)
 def leave_named_location_circle(
     request: Request,
+    response: Response,
     circle_id: _CircleId,
+    payload: CircleCommandRequest | None = None,
     token_data: dict = Depends(require_vault_owner_token),
 ):
     del request
+    _set_private_no_store(response)
     try:
-        _circle_service().leave_circle(
+        result = _circle_service().leave_circle(
             user_id=_user_id(token_data),
             circle_id=circle_id,
+            **_circle_command_kwargs(payload),
         )
-        return {"left": True}
+        return result if payload else {"left": True}
     except Exception as exc:
         raise _handle_error(exc) from exc
 
@@ -1328,18 +1434,22 @@ def leave_named_location_circle(
 @limiter.limit(RateLimits.ONE_LOCATION_CIRCLE_MUTATION)
 def remove_named_location_circle_member(
     request: Request,
+    response: Response,
     circle_id: _CircleId,
     member_user_id: _CircleMemberUserId,
+    payload: CircleCommandRequest | None = None,
     token_data: dict = Depends(require_vault_owner_token),
 ):
     del request
+    _set_private_no_store(response)
     try:
-        _circle_service().remove_member(
+        result = _circle_service().remove_member(
             owner_user_id=_user_id(token_data),
             circle_id=circle_id,
             member_user_id=member_user_id,
+            **_circle_command_kwargs(payload),
         )
-        return {"removed": True}
+        return result if payload else {"removed": True}
     except Exception as exc:
         raise _handle_error(exc) from exc
 
@@ -1360,6 +1470,16 @@ def create_named_circle_member_invites(
             actor_user_id=actor_user_id,
             circle_id=str(payload.circle_id),
             invitee_user_ids=invitee_user_ids,
+            **(
+                {
+                    "operation_id": payload.operation_id,
+                    "batch_index": payload.batch_index,
+                    "batch_count": payload.batch_count,
+                    "command_directive_id": payload.command_directive_id,
+                }
+                if payload.operation_id
+                else {}
+            ),
         )
         # `invites` is always empty now -- connections are added outright
         # rather than invited -- and is kept so older clients parse the same
@@ -1367,6 +1487,8 @@ def create_named_circle_member_invites(
         return {
             "invites": result.get("invites") or [],
             "added": list(result.get("addedUserIds") or []),
+            "skipped": list(result.get("skippedUserIds") or []),
+            "skippedReasons": dict(result.get("skippedReasons") or {}),
         }
     except Exception as exc:
         raise _handle_error(exc) from exc
@@ -1394,16 +1516,18 @@ def list_named_circle_member_invites(
 @limiter.limit(RateLimits.ONE_LOCATION_CIRCLE_JOIN)
 def accept_named_circle_member_invite(
     request: Request,
+    response: Response,
     invite_id: _CircleMemberInviteId,
+    payload: CircleCommandRequest | None = None,
     token_data: dict = Depends(require_vault_owner_token),
 ):
     del request
+    _set_private_no_store(response)
     try:
         result = _circle_service().accept_member_invite(
-            user_id=_user_id(token_data),
-            invite_id=invite_id,
+            user_id=_user_id(token_data), invite_id=invite_id, **_circle_command_kwargs(payload)
         )
-        return {"circle": result["circle"], "invite": result["invite"]}
+        return result if payload else {"circle": result["circle"], "invite": result["invite"]}
     except Exception as exc:
         raise _handle_error(exc) from exc
 
@@ -1412,17 +1536,18 @@ def accept_named_circle_member_invite(
 @limiter.limit(RateLimits.ONE_LOCATION_CIRCLE_MUTATION)
 def decline_named_circle_member_invite(
     request: Request,
+    response: Response,
     invite_id: _CircleMemberInviteId,
+    payload: CircleCommandRequest | None = None,
     token_data: dict = Depends(require_vault_owner_token),
 ):
     del request
+    _set_private_no_store(response)
     try:
-        return {
-            "invite": _circle_service().decline_member_invite(
-                user_id=_user_id(token_data),
-                invite_id=invite_id,
-            )
-        }
+        result = _circle_service().decline_member_invite(
+            user_id=_user_id(token_data), invite_id=invite_id, **_circle_command_kwargs(payload)
+        )
+        return result if payload else {"invite": result}
     except Exception as exc:
         raise _handle_error(exc) from exc
 
@@ -1463,6 +1588,8 @@ def create_public_location_invite(
             owner_user_id=_user_id(token_data),
             duration_hours=payload.duration_hours,
             location_snapshot=payload.location_snapshot,
+            command_operation_id=payload.command_operation_id,
+            command_binding=payload.command_binding,
         )
     except Exception as exc:
         raise _handle_error(exc) from exc
@@ -1528,6 +1655,7 @@ def submit_public_location_invite(
 def revoke_public_location_invite(
     request: Request,
     invite_id: _InviteId,
+    payload: RevokePublicInviteRequest | None = None,
     token_data: dict = Depends(require_vault_owner_token),
 ):
     del request
@@ -1536,6 +1664,8 @@ def revoke_public_location_invite(
             "invite": _service().revoke_public_invite(
                 owner_user_id=_user_id(token_data),
                 invite_id=invite_id,
+                command_operation_id=payload.command_operation_id if payload else None,
+                command_binding=payload.command_binding if payload else None,
             )
         }
     except Exception as exc:
@@ -1735,6 +1865,14 @@ async def check_in_nearby(
             consent_accepted=payload.consent_accepted,
             allow_connection_requests=payload.allow_connection_requests,
             place_category=str(place.get("primaryType") or "") or None,
+            **(
+                {
+                    "command_operation_id": str(payload.command_operation_id),
+                    "consent_version": payload.consent_version,
+                }
+                if payload.command_operation_id
+                else {}
+            ),
         )
         return state
     except GoogleMapsError as exc:
@@ -1774,11 +1912,23 @@ def get_nearby_presence(
 def checkout_nearby(
     request: Request,
     response: Response,
+    payload: NearbyPresenceCheckoutRequest | None = None,
     token_data: dict = Depends(require_vault_owner_token),
 ):
     _set_private_no_store(response)
     try:
-        return _nearby_presence_service().checkout(user_id=_user_id(token_data))
+        return _nearby_presence_service().checkout(
+            user_id=_user_id(token_data),
+            **(
+                {
+                    "command_operation_id": payload.command_operation_id,
+                    "presence_id": str(payload.presence_id) if payload.presence_id else None,
+                    "presence_version": payload.presence_version,
+                }
+                if payload
+                else {}
+            ),
+        )
     except Exception as exc:
         raise _handle_error(exc) from exc
 
@@ -2024,6 +2174,14 @@ def create_location_grant_with_envelope(
             duration_hours=payload.duration_hours,
             duration_mode=payload.duration_mode,
             client_operation_id=payload.client_operation_id,
+            **(
+                {
+                    "command_operation_id": payload.command_operation_id,
+                    "command_directive_id": payload.command_directive_id,
+                }
+                if payload.command_operation_id
+                else {}
+            ),
             confirmed_at=payload.confirmed_at,
             envelope=payload.envelope,
             reason=payload.reason,
@@ -2170,6 +2328,10 @@ def request_location_access(
                 requested_duration_mode=payload.requested_duration_mode,
                 extends_grant_id=payload.extends_grant_id,
                 client_operation_id=payload.client_operation_id,
+                command_operation_id=payload.command_operation_id,
+                command_directive_id=payload.command_directive_id
+                if payload.command_operation_id
+                else None,
             )
         }
     except Exception as exc:

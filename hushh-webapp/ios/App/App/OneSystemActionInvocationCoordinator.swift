@@ -42,8 +42,6 @@ enum OneSystemActionID: String, Codable, CaseIterable, Sendable {
         .shareLocation,
         .askForLocation,
         .stopShare,
-        .resumeLocation,
-        .createCircle,
         .renameCircle
     ]
 

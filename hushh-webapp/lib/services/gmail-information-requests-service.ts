@@ -50,6 +50,7 @@ export type GmailInformationRequestScan = {
   workflow_ids: string[];
   baseline_established?: boolean;
   baseline_reestablished?: boolean;
+  retry_pending?: boolean;
 };
 
 export type GmailInformationRequestCandidateRefresh = {
@@ -106,13 +107,14 @@ export class GmailInformationRequestsService {
   static setPreference(input: {
     userId: string;
     firebaseIdToken: string;
+    vaultOwnerToken: string;
     enabled: boolean;
   }): Promise<GmailInformationRequestPreference> {
     return apiJson<GmailInformationRequestPreference>(
       "/api/one/email/information-requests/preference",
       {
         method: "PATCH",
-        headers: accountHeaders(input.firebaseIdToken),
+        headers: ownerHeaders(input.firebaseIdToken, input.vaultOwnerToken),
         body: JSON.stringify({ user_id: input.userId, enabled: input.enabled }),
       },
     );
@@ -140,13 +142,17 @@ export class GmailInformationRequestsService {
     firebaseIdToken: string;
     vaultOwnerToken: string;
     maxResults?: number;
+    includeRecentInbox?: boolean;
   }): Promise<GmailInformationRequestScan> {
     return apiJson<GmailInformationRequestScan>(
       "/api/one/email/information-requests/scan",
       {
         method: "POST",
         headers: ownerHeaders(input.firebaseIdToken, input.vaultOwnerToken),
-        body: JSON.stringify({ max_results: input.maxResults ?? 12 }),
+        body: JSON.stringify({
+          max_results: input.maxResults ?? 30,
+          include_recent_inbox: input.includeRecentInbox === true,
+        }),
       },
     );
   }

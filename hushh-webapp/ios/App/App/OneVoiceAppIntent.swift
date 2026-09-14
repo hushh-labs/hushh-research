@@ -608,7 +608,7 @@ struct CreateOneCircleIntent: AppIntent {
     }
 
     func perform() async throws -> some IntentResult & ProvidesDialog {
-        // The command surface confirms the freshly prepared resources once.
+        // An empty circle creates no relationship or location disclosure.
         let summary = await OneAppIntentActionExecutor.run(
             OneAppIntentActionRequestFactory.createCircle(name: name)
         )

@@ -32,6 +32,12 @@ regexes = [
   # contract. This is reproducible artifact metadata, not credential material.
   # A workflow-contract change produces a different digest and is scanned again.
   '''abcb54b58f01f2eb99ac4bda811187a21dd4a368987a8e570b43847b7a2a8bb2''',
+  # Reproducible workflow API contract digest after the command repair.
+  '''4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383''',
+  # Python enum constant passed to token validation, never token material.
+  '''ConsentScope\.VAULT_OWNER''',
+  # Public algorithm identifier used by Location recipient-key fixtures.
+  '''^ECDH-P256-AES256-GCM$''',
   # HCT golden-vector deterministic test key; never used in production.
   '''golden_vector_signing_key_for_hct_parity_only_32\+''',
 ]

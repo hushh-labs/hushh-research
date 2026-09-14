@@ -27,7 +27,9 @@ from hushh_mcp.services.domain_contracts import (
 )
 from hushh_mcp.services.personal_knowledge_model_service import get_pkm_service
 from hushh_mcp.services.pkm_mutation_contracts import (
+    LocationPkmFinalizeAuthorizationV1,
     PkmMutationPlanV2,
+    validate_location_finalize_authorization_for_write,
     validate_mutation_plan_for_write,
 )
 from hushh_mcp.services.pkm_upgrade_service import get_pkm_upgrade_service
@@ -489,6 +491,7 @@ class StoreDomainRequest(BaseModel):
         max_length=100,
         description="Optional non-sensitive derived projections for read models and history surfaces",
     )
+    location_finalize_authorization: LocationPkmFinalizeAuthorizationV1 | None = None
     mutation_plan: Optional[PkmMutationPlanV2] = Field(
         default=None,
         description="Mandatory owner-confirmed PKM mutation plan for non-upgrade writes",
@@ -505,6 +508,8 @@ class StoreDomainResponse(BaseModel):
     updated_at: Optional[str] = Field(default=None, max_length=64)
     manifest_revision: Optional[int] = Field(default=None, ge=0, le=1000000)
     commit_id: Optional[str] = Field(default=None, max_length=36)
+    location_run_revision: int | None = None
+    location_place_receipt_id: str | None = None
     archived_revision_id: Optional[str] = Field(default=None, max_length=36)
     preservation_receipt: Optional[dict] = None
 
@@ -535,6 +540,32 @@ def _enforce_wallet_write_policy(request: "StoreDomainRequest", canonical_domain
         ) from exc
 
 
+def _validate_location_finalize_request(request: StoreDomainRequest, domain: str) -> None:
+    if request.location_finalize_authorization is None:
+        if (
+            request.mutation_plan
+            and request.mutation_plan.confirmation_receipt.authorization_mode
+            == "owner_requested_workflow"
+        ):
+            raise HTTPException(
+                422, "The requested workflow requires its Location finalize authority."
+            )
+        return
+    if request.upgrade_claim is not None or request.mutation_plan is None:
+        raise HTTPException(422, "Location finalization requires an ordinary, bound mutation plan.")
+    try:
+        validate_location_finalize_authorization_for_write(
+            authorization=request.location_finalize_authorization,
+            plan=request.mutation_plan,
+            authenticated_user_id=request.user_id,
+            domain=domain,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            422, "The Location finalize authority does not match this write."
+        ) from exc
+
+
 @router.post("/store-domain/validate", response_model=StoreDomainResponse)
 async def validate_store_domain(
     payload: dict = Body(...),
@@ -544,7 +575,7 @@ async def validate_store_domain(
     try:
         request = StoreDomainRequest.model_validate(payload)
     except ValidationError as exc:
-        validation_errors = exc.errors()
+        validation_errors = exc.errors(include_input=False, include_context=False)
         logger.warning(
             "[PKM Validate] Invalid no-write payload user_id=%s domain=%s errors=%s",
             payload.get("user_id"),
@@ -583,6 +614,7 @@ async def validate_store_domain(
             },
         ) from exc
     _enforce_wallet_write_policy(request, canonical_domain)
+    _validate_location_finalize_request(request, canonical_domain)
     if request.mutation_plan is not None:
         try:
             validate_mutation_plan_for_write(
@@ -642,6 +674,7 @@ async def store_domain(
         ) from exc
 
     _enforce_wallet_write_policy(request, canonical_domain)
+    _validate_location_finalize_request(request, canonical_domain)
 
     if request.upgrade_claim is None and request.mutation_plan is None:
         raise HTTPException(
@@ -767,6 +800,11 @@ async def store_domain(
         if request.mutation_plan
         else None,
         return_result=True,
+        location_finalize_authorization=request.location_finalize_authorization.model_dump(
+            mode="json"
+        )
+        if request.location_finalize_authorization
+        else None,
     )
 
     if not store_result.get("success"):
@@ -797,6 +835,8 @@ async def store_domain(
         updated_at=_isoformat_or_none(store_result.get("updated_at")),
         manifest_revision=store_result.get("manifest_revision"),
         commit_id=store_result.get("commit_id"),
+        location_run_revision=store_result.get("location_run_revision"),
+        location_place_receipt_id=store_result.get("location_place_receipt_id"),
         archived_revision_id=store_result.get("archived_revision_id"),
         preservation_receipt=store_result.get("preservation_receipt"),
     )
@@ -1639,14 +1679,12 @@ async def get_metadata(
 
         if resolved_index is None:
             encrypted_data = await pkm_service.get_encrypted_data(user_id)
-            domain_rows = (
+            domain_query = (
                 pkm_service.db.table("pkm_blobs")
                 .select("domain,content_revision,updated_at")
                 .eq("user_id", user_id)
-                .execute()
-                .data
-                or []
             )
+            domain_rows = (await asyncio.to_thread(domain_query.execute)).data or []
             if encrypted_data is None and not domain_rows:
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,

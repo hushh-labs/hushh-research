@@ -3430,7 +3430,10 @@ def test_trusted_grants_no_location_authority_anywhere() -> None:
             if block.count("one_location_circle_memberships") < 2:
                 continue
             sites += 1
-            assert "circle.system_kind IS DISTINCT FROM 'trusted'" in block, (
+            assert (
+                "circle.system_kind IS DISTINCT FROM 'trusted'" in block
+                or "circle.system_kind = 'sms'" in block
+            ), (
                 "a shared-Circle eligibility join does not exclude Trusted, so "
                 "membership of it would grant location access:\n" + block[:500]
             )

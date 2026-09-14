@@ -142,6 +142,17 @@ vi.mock("@/lib/one-location/key-bootstrap", () => ({
   bootstrapCurrentUserLocationRecipientKey: vi.fn(() => Promise.resolve()),
 }));
 
+// These are detached warm-up ports too. Their crypto/network integration is
+// tested by their owners; running it here outlives this unit-test environment.
+vi.mock("@/lib/one-marketplace/key-bootstrap", () => ({
+  bootstrapCurrentUserMarketplaceRecipientKey: vi.fn(() => Promise.resolve()),
+}));
+vi.mock("@/lib/one-marketplace/delivery-sweep", () => ({
+  runMarketplaceDeliverySweep: vi.fn(() =>
+    Promise.resolve({ delivered: 0, skipped: 0 }),
+  ),
+}));
+
 import {
   settleWithConcurrency,
   UnlockWarmOrchestrator,
@@ -151,8 +162,8 @@ import {
 
 const BASE_PARAMS = {
   userId: "user-warm-1",
-  vaultKey: "vault-key-warm-1",
-  vaultOwnerToken: "abcdefghijklmnopqrstuvwxyz0123456789",
+  vaultKey: "11".repeat(32),
+  vaultOwnerToken: "synthetic-owner-token",
 };
 
 function okJsonResponse(data: unknown) {

@@ -51,6 +51,22 @@ def _canonical_json(value: Any) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
 
 
+def command_authority_is_current(connection: Any, *, created_at: Any, expires_at: Any) -> bool:
+    """Evaluate expiry AFTER receipt callers hold their session/directive locks.
+
+    NOW() is fixed when the transaction starts. A queued write must not inherit
+    authority that expired while it waited for another command or cancellation.
+    """
+    return bool(
+        connection.execute(
+            text("""SELECT
+        CAST(:created AS TIMESTAMPTZ)>clock_timestamp()-INTERVAL '24 hours'
+        AND CAST(:expires AS TIMESTAMPTZ)>clock_timestamp()"""),
+            {"created": created_at, "expires": expires_at},
+        ).scalar()
+    )
+
+
 class ActionDirectiveStore:
     """Atomic metadata-only directive state transitions."""
 
@@ -75,10 +91,9 @@ class ActionDirectiveStore:
     async def _execute(self, sql: str, params: dict[str, Any]):
         try:
             if self._connection is not None:
+                result = self._connection.execute(text(sql), params)
                 return SimpleNamespace(
-                    data=[
-                        dict(row) for row in self._connection.execute(text(sql), params).mappings()
-                    ]
+                    data=[dict(row) for row in result.mappings()] if result.returns_rows else []
                 )
             return await asyncio.to_thread(self.db.execute_raw, sql, params)
         except DatabaseExecutionError:
@@ -98,12 +113,24 @@ class ActionDirectiveStore:
     ) -> dict[str, Any] | None:
         result = await self._execute(
             """SELECT directive_id,action_id,context_revision,requires_confirmation,state,
-               settlement_status,settlement_reason_code,expires_at,operation_id,slots_hmac,step_hmac,resource_binding_hmac,command_effect
+               settlement_status,settlement_reason_code,expires_at,operation_id,slots_hmac,step_hmac,resource_binding_hmac,command_effect,workflow_run_id,result_resource_kind,result_resource_id,membership_plan,membership_receipts,effect_request_hmac,effect_receipt,audience_plan,audience_receipts,consumed_at,action_contract_digest
                FROM one_action_directive_ledger
                WHERE user_id=:user AND session_id=:command AND command_step=:step AND channel='command'""",
             {"user": user_id, "command": command_id, "step": step},
         )
         return dict(result.data[0]) if result.data else None
+
+    async def command_results(self, *, user_id: str, command_id: str) -> list[dict[str, Any]]:
+        """Only settled domain resource receipts, scoped to the authenticated owner."""
+        result = await self._execute(
+            """SELECT command_step AS step, operation_id,
+            result_resource_kind AS kind, result_resource_id AS id, step_hmac
+            FROM one_action_directive_ledger WHERE user_id=:user AND session_id=:command
+              AND channel='command' AND state='settled' AND settlement_status='succeeded'
+              AND result_resource_id IS NOT NULL ORDER BY command_step LIMIT 12""",
+            {"user": user_id, "command": command_id},
+        )
+        return [{**dict(row), "id": str(row["id"])} for row in result.data or []]
 
     async def issue_command(
         self,
@@ -118,6 +145,7 @@ class ActionDirectiveStore:
         plan_digest: str,
         resource_binding: dict[str, Any] | None = None,
         renew: bool = False,
+        step_identity: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Stable logical identity survives renewed authority and lost responses."""
         confirmation = (
@@ -150,6 +178,13 @@ class ActionDirectiveStore:
                WHERE one_action_directive_ledger.state IN ('issued','confirmed')
                  AND one_action_directive_ledger.action_id=EXCLUDED.action_id
                  AND one_action_directive_ledger.slots_hmac=EXCLUDED.slots_hmac
+                 AND (one_action_directive_ledger.consumed_at IS NULL OR (
+                   NOT :renew AND one_action_directive_ledger.expires_at>NOW()
+                   AND one_action_directive_ledger.command_effect=EXCLUDED.command_effect
+                   AND one_action_directive_ledger.context_revision=EXCLUDED.context_revision
+                   AND one_action_directive_ledger.action_contract_digest=EXCLUDED.action_contract_digest
+                   AND one_action_directive_ledger.step_hmac=EXCLUDED.step_hmac
+                   AND one_action_directive_ledger.resource_binding_hmac IS NOT DISTINCT FROM EXCLUDED.resource_binding_hmac))
                RETURNING directive_id""",
             {
                 "id": f"dir_{uuid4().hex}",
@@ -164,7 +199,11 @@ class ActionDirectiveStore:
                 "digest": self._hmac(action),
                 "slots": self._hmac(slots),
                 "confirmation": confirmation,
-                "step_hmac": self._hmac({"action_id": action["action_id"], "slots": slots}),
+                "step_hmac": self._hmac(
+                    step_identity
+                    if step_identity is not None
+                    else {"action_id": action["action_id"], "slots": slots}
+                ),
                 "binding": self._hmac(resource_binding or {}),
                 "renew": renew,
                 "effect": action.get("_command_effect", "action"),
@@ -190,6 +229,9 @@ class ActionDirectiveStore:
         plan_digest: str,
         confirmation_receipt: str | None = None,
         resource_binding: dict[str, Any] | None = None,
+        membership_plan: dict[str, Any] | None = None,
+        effect_request_hmac: str | None = None,
+        audience_plan: dict[str, Any] | None = None,
     ) -> dict[str, str]:
         """Claim once before client effects. Ambiguous claims are reconciled, never replayed."""
         execution_receipt = secrets.token_urlsafe(32)
@@ -198,11 +240,14 @@ class ActionDirectiveStore:
                WHERE app_name='one.location.commands.v1' AND user_id=:user AND session_id=:command
                AND revision=:checkpoint_revision AND command_status IN ('ready','admitted') AND command_plan_hmac=:plan_digest
                AND created_at > NOW()-INTERVAL '24 hours' RETURNING session_id)
-               UPDATE one_action_directive_ledger SET state='consumed',consumed_at=NOW(),
-               execution_receipt_hash=:execution_hash
+               UPDATE one_action_directive_ledger SET state='consumed',consumed_at=COALESCE(consumed_at,NOW()),
+               execution_receipt_hash=:execution_hash,membership_plan=CAST(:membership_plan AS JSONB),effect_request_hmac=:effect_request_hmac,audience_plan=CAST(:audience_plan AS JSONB)
                FROM command_fence WHERE user_id=:user AND one_action_directive_ledger.session_id=:command AND command_step=:step AND channel='command'
                  AND action_id=:action AND context_revision=:revision AND action_contract_digest=:digest
                  AND slots_hmac=:slots AND resource_binding_hmac=:binding AND expires_at > NOW()
+                 AND (consumed_at IS NULL OR (membership_plan=CAST(:membership_plan AS JSONB)
+                   AND audience_plan=CAST(:audience_plan AS JSONB)
+                   AND effect_request_hmac IS NOT DISTINCT FROM :effect_request_hmac))
                  AND ((state='issued' AND requires_confirmation=FALSE)
                    OR (state='confirmed' AND receipt_hash=:confirmation_hash))
                RETURNING directive_id,operation_id""",
@@ -221,6 +266,9 @@ class ActionDirectiveStore:
                     (confirmation_receipt or "").encode()
                 ).hexdigest(),
                 "execution_hash": hashlib.sha256(execution_receipt.encode()).hexdigest(),
+                "membership_plan": json.dumps(membership_plan or {}),
+                "effect_request_hmac": effect_request_hmac,
+                "audience_plan": json.dumps(audience_plan or {}),
             },
         )
         if not result.data:
@@ -262,6 +310,114 @@ class ActionDirectiveStore:
                 "The operation result is not correlated to this command."
             )
         return await self.command_outcome(user_id=user_id, command_id=command_id, step=step) or {}
+
+    async def bind_command_workflow(
+        self, *, user_id: str, command_id: str, step: int, run_id: str
+    ) -> None:
+        """Called on the same transaction as claim + reservation, before any workflow effects."""
+        result = await self._execute(
+            """UPDATE one_action_directive_ledger AS directive SET workflow_run_id=:run
+               FROM one_capability_runs AS run
+               WHERE directive.user_id=:user AND directive.session_id=:command
+                 AND directive.command_step=:step AND directive.channel='command'
+                 AND directive.command_effect='workflow' AND directive.state='consumed'
+                 AND directive.workflow_run_id IS NULL
+                 AND run.run_id=:run AND run.user_id=directive.user_id
+                 AND run.capability_id=directive.action_id AND run.capability_version=2
+               RETURNING directive.directive_id""",
+            {"user": user_id, "command": command_id, "step": step, "run": run_id},
+        )
+        if not result.data:
+            raise ActionDirectiveAuthorityError("The workflow reservation could not be bound.")
+
+    async def settle_workflow_command(
+        self,
+        *,
+        user_id: str,
+        command_id: str,
+        step: int,
+        run_id: str,
+        run_revision: int,
+        settlement_reference_hmac: str,
+        verified_run_id: str | None = None,
+    ) -> None:
+        """Only the workflow owner calls this after verifying its complete receipt chain."""
+        result = await self._execute(
+            """WITH command_fence AS MATERIALIZED (
+               SELECT session_id FROM one_adk_sessions
+               WHERE app_name='one.location.commands.v1' AND user_id=:user AND session_id=:command
+                 AND command_status IN ('ready','admitted')
+                 AND created_at > clock_timestamp()-INTERVAL '24 hours' FOR UPDATE)
+               UPDATE one_action_directive_ledger AS directive
+               SET state='settled',settlement_status='succeeded',
+                 settlement_reason_code='verified_workflow_receipt',settled_at=NOW()
+               FROM one_capability_runs AS run, one_capability_runs AS bound, command_fence
+               WHERE directive.user_id=:user AND directive.session_id=:command
+                 AND directive.command_step=:step AND directive.channel='command'
+                 AND directive.command_effect='workflow' AND directive.state='consumed'
+                 AND directive.workflow_run_id=:run
+                 AND bound.run_id=directive.workflow_run_id AND bound.user_id=directive.user_id
+                 AND bound.status NOT IN ('cancelled','expired','verified_failed')
+                 AND bound.capability_id=directive.action_id
+                 AND run.run_id=:proof_run AND run.user_id=directive.user_id
+                 AND run.capability_id=directive.action_id AND run.capability_version=2
+                 AND run.status='verified_succeeded' AND run.revision=:revision
+                 AND run.settlement_reference_hmac=:proof
+               RETURNING directive.directive_id""",
+            {
+                "user": user_id,
+                "command": command_id,
+                "step": step,
+                "run": run_id,
+                "revision": run_revision,
+                "proof": settlement_reference_hmac,
+                "proof_run": verified_run_id or run_id,
+            },
+        )
+        if not result.data:
+            outcome = await self.command_outcome(user_id=user_id, command_id=command_id, step=step)
+            if (
+                not outcome
+                or outcome.get("state") != "settled"
+                or outcome.get("settlement_status") != "succeeded"
+                or outcome.get("workflow_run_id") != run_id
+            ):
+                raise ActionDirectiveAuthorityError("The verified workflow result changed.")
+
+    async def reconcile_membership_command(
+        self, *, user_id: str, command_id: str, step: int
+    ) -> bool:
+        """Only the owning batch receipts can recover a lost final client response.
+
+        Partial, skipped-ineligible or incomplete audiences remain review-only;
+        this never dispatches another membership effect.
+        """
+        result = await self._execute(
+            """WITH command_fence AS MATERIALIZED (
+            SELECT session_id FROM one_adk_sessions WHERE app_name='one.location.commands.v1'
+              AND user_id=:user AND session_id=:command AND command_status IN ('ready','admitted')
+              AND created_at>clock_timestamp()-INTERVAL '24 hours' FOR UPDATE)
+            UPDATE one_action_directive_ledger d SET state='settled',settlement_status='succeeded',
+              settlement_reason_code='verified_membership_receipts',settled_at=NOW()
+            FROM command_fence WHERE d.user_id=:user AND d.session_id=:command AND d.command_step=:step
+              AND d.channel='command' AND d.action_id='location.add_to_circle' AND d.state='consumed'
+              AND d.membership_receipts ? '0'
+              AND (SELECT COUNT(*) FROM jsonb_each(d.membership_plan))=(SELECT COUNT(*) FROM jsonb_each(d.membership_receipts))
+              AND (SELECT COUNT(*) FROM jsonb_each(d.membership_receipts)) = (d.membership_receipts->'0'->>'batch_count')::int
+              AND NOT EXISTS (SELECT 1 FROM jsonb_each(d.membership_receipts) r
+                WHERE r.value->>'request_hmac' IS DISTINCT FROM d.membership_plan->r.key->>'request_hmac'
+                  OR (r.key)::int NOT BETWEEN 0 AND (d.membership_receipts->'0'->>'batch_count')::int-1
+                  OR r.value->>'circle_hmac' IS DISTINCT FROM d.membership_receipts->'0'->>'circle_hmac'
+                  OR r.value->>'batch_count' IS DISTINCT FROM d.membership_receipts->'0'->>'batch_count'
+                  OR (jsonb_array_length(COALESCE(r.value->'result'->'addedUserIds','[]'::jsonb))
+                    +jsonb_array_length(COALESCE(r.value->'result'->'skippedUserIds','[]'::jsonb)))=0
+                  OR jsonb_array_length(COALESCE(r.value->'result'->'invites','[]'::jsonb))<>0
+                  OR EXISTS (SELECT 1 FROM jsonb_each_text(COALESCE(r.value->'result'->'skippedReasons','{}'::jsonb)) reason
+                    WHERE reason.value <> 'already_member'))
+            RETURNING d.directive_id""",
+            {"user": user_id, "command": command_id, "step": step},
+        )
+        return bool(result.data)
 
     async def cancel_command(self, *, user_id: str, command_id: str) -> None:
         # Consumed effects remain in the ledger for outcome lookup after cancellation.

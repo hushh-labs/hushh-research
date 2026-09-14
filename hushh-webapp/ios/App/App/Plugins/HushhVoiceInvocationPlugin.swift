@@ -8,6 +8,7 @@ public final class HushhVoiceInvocationPlugin: CAPPlugin, CAPBridgedPlugin {
     public let identifier = "HushhVoiceInvocationPlugin"
     public let jsName = "HushhVoiceInvocation"
     public let pluginMethods: [CAPPluginMethod] = [
+        CAPPluginMethod(name: "commandCaptureHaptic", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "getCommandCapturePermission", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "requestCommandCapturePermission", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "openCommandCaptureSettings", returnType: CAPPluginReturnPromise),
@@ -101,6 +102,19 @@ public final class HushhVoiceInvocationPlugin: CAPPlugin, CAPBridgedPlugin {
 
     @objc func getCommandCapturePermission(_ call: CAPPluginCall) { call.resolve(commandPermission()) }
 
+    @objc func commandCaptureHaptic(_ call: CAPPluginCall) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.commandRecording?.sessionID == call.getString("sessionId") else { call.resolve(); return }
+            guard UserDefaults.standard.object(forKey: "hapticFeedback") as? Bool ?? true else { call.resolve(); return }
+            if call.getString("kind") == "ready" {
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            } else if call.getString("kind") == "cancel" {
+                UISelectionFeedbackGenerator().selectionChanged()
+            }
+            call.resolve()
+        }
+    }
+
     @objc func requestCommandCapturePermission(_ call: CAPPluginCall) {
         AVAudioSession.sharedInstance().requestRecordPermission { [weak self] _ in
             DispatchQueue.main.async { guard let self else { call.reject("Capture unavailable."); return }; call.resolve(self.commandPermission()) }
@@ -122,7 +136,12 @@ public final class HushhVoiceInvocationPlugin: CAPPlugin, CAPBridgedPlugin {
                   requestedAt <= Date().timeIntervalSince1970 * 1000 + 1000 else { call.reject("Recording gesture expired. Tap to record again."); return }
             guard self.commandRecording == nil else { call.reject("The microphone is already in use."); return }
             guard AVAudioSession.sharedInstance().recordPermission == .granted else { call.reject("Microphone permission is required."); return }
-            let recording = OneCommandRecording(sessionID: id, maxDurationMs: call.getInt("maxDurationMs") ?? 60_000)
+            let recording = OneCommandRecording(sessionID: id, maxDurationMs: call.getInt("maxDurationMs") ?? 60_000, onLevel: { [weak self] level, elapsedMs in
+                DispatchQueue.main.async {
+                    guard let self, self.commandRecording?.sessionID == id else { return }
+                    self.notifyListeners("commandCaptureLevel", data: ["sessionId": id, "level": level, "elapsedMs": elapsedMs])
+                }
+            })
             do { try recording.start(); self.commandRecording = recording; call.resolve(["sessionId": id]) }
             catch { recording.cancel(); call.reject("The microphone could not start.") }
         }

@@ -153,15 +153,21 @@ final class OneCommandRecording {
     private let maximumBytes: Int
     private let onFirstPCMWrite: ((Int) -> Void)?
     private var firstPCMWriteObserved = false
+    private let onLevel: ((Double, Double) -> Void)?
+    private var levelSquares = 0.0
+    private var levelSamples = 0
+    private var lastLevelAt = ProcessInfo.processInfo.systemUptime
 
     init(
         sessionID: String,
         maxDurationMs: Int,
-        onFirstPCMWrite: ((Int) -> Void)? = nil
+        onFirstPCMWrite: ((Int) -> Void)? = nil,
+        onLevel: ((Double, Double) -> Void)? = nil
     ) {
         self.sessionID = sessionID
         maximumBytes = min(60_000, max(1, maxDurationMs)) * 32
         self.onFirstPCMWrite = onFirstPCMWrite
+        self.onLevel = onLevel
     }
 
     func start() throws {
@@ -175,6 +181,7 @@ final class OneCommandRecording {
 
     private func append(_ buffer: AVAudioPCMBuffer, sequence: Int) {
         var firstPCMWrite: ((Int) -> Void)?
+        var level: (Double, Double)?
         lock.lock()
         guard !closed, pcm.count < maximumBytes else {
             lock.unlock()
@@ -209,10 +216,18 @@ final class OneCommandRecording {
             firstPCMWriteObserved = true
             firstPCMWrite = onFirstPCMWrite
         }
+        let now = ProcessInfo.processInfo.systemUptime
+        if levelSamples > 0, now - lastLevelAt >= 0.05 {
+            level = (min(1, sqrt(levelSquares / Double(levelSamples))), Double(pcm.count) / 32)
+            levelSamples = 0
+            levelSquares = 0
+            lastLevelAt = now
+        }
         lock.unlock()
         // Test observers receive proof only after converted PCM is in the
         // transient buffer, and never while the audio callback holds the lock.
         firstPCMWrite?(sequence)
+        if let level { onLevel?(level.0, level.1) }
     }
 
     @discardableResult
@@ -220,6 +235,11 @@ final class OneCommandRecording {
         guard let samples = buffer.int16ChannelData?[0] else { return false }
         let count = min(Int(buffer.frameLength) * 2, maximumBytes - pcm.count)
         guard count > 0 else { return false }
+        for index in 0..<(count / 2) {
+            let value = Double(samples[index]) / 32768
+            levelSquares += value * value
+        }
+        levelSamples += count / 2
         pcm.append(UnsafeBufferPointer(start: UnsafeRawPointer(samples).assumingMemoryBound(to: UInt8.self), count: count))
         return true
     }

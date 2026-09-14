@@ -9,17 +9,8 @@ describe("nearestCheckInDurationMinutes", () => {
     expect(nearestCheckInDurationMinutes("120")).toBe(120);
   });
 
-  it("rounds to the nearest of the three fixed options the sheet offers", () => {
-    expect(nearestCheckInDurationMinutes("45")).toBe(30);
-    expect(nearestCheckInDurationMinutes("46")).toBe(60);
-    expect(nearestCheckInDurationMinutes("90")).toBe(60);
-    expect(nearestCheckInDurationMinutes("91")).toBe(120);
-    expect(nearestCheckInDurationMinutes("500")).toBe(120);
-  });
-
-  it("never returns a free-form number outside 30/60/120", () => {
-    const result = nearestCheckInDurationMinutes("75");
-    expect([30, 60, 120]).toContain(result);
+  it.each(["20", "45", "46", "75", "90", "91", "500"])("requires an explicit choice for unsupported %s minutes", (duration) => {
+    expect(nearestCheckInDurationMinutes(duration)).toBeNull();
   });
 
   it("returns null rather than guessing when nothing usable was said", () => {

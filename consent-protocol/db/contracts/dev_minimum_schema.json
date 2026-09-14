@@ -1,6 +1,6 @@
 {
   "contract_name": "dev_minimum_schema",
-  "expected_migration_version": 212,
+  "expected_migration_version": 220,
   "migration_version_policy": "minimum",
   "required_functions": [
     "resolve_feed_counterpart_user_id",
@@ -28,7 +28,9 @@
     "reject_deleted_account_identity_write",
     "record_account_deletion_tombstone",
     "refresh_account_deletion_guards_after_identity_ddl",
-    "commit_pkm_domain_mutation_v5"
+    "commit_pkm_domain_mutation_v5",
+    "clear_location_presence_rating_visit",
+    "preserve_active_location_rating_visit"
   ],
   "required_tables": {
     "account_deletion_tombstones": [
@@ -413,6 +415,7 @@
       "scan_lease_expires_at",
       "last_scan_attempted_at",
       "last_scan_completed_at",
+      "initial_inbox_scan_completed_at",
       "created_at",
       "updated_at"
     ],
@@ -696,7 +699,21 @@
       "expires_at",
       "confirmed_at",
       "consumed_at",
-      "settled_at"
+      "settled_at",
+      "command_effect",
+      "step_hmac",
+      "command_step",
+      "operation_id",
+      "execution_receipt_hash",
+      "workflow_run_id",
+      "result_resource_kind",
+      "result_resource_id",
+      "membership_plan",
+      "membership_receipts",
+      "effect_request_hmac",
+      "effect_receipt",
+      "audience_plan",
+      "audience_receipts"
     ],
     "one_adk_sessions": [
       "app_name",
@@ -708,7 +725,9 @@
       "payload_algorithm",
       "revision",
       "created_at",
-      "updated_at"
+      "updated_at",
+      "command_status",
+      "command_plan_hmac"
     ],
     "one_agent_message_feedback": [
       "user_id",

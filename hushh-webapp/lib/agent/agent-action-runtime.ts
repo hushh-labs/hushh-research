@@ -1,3 +1,4 @@
+import { executeOneCommandInvocation } from "@/lib/agent/one-system-action-executor";
 import { executeKaiCommand } from "@/lib/kai/command-executor";
 import type { KaiCommandAction } from "@/lib/kai/kai-command-types";
 import {
@@ -510,6 +511,20 @@ export async function executeAgentGatewayAction(
       resultSummary: "Agent could not find that action.",
       reason: "missing_action",
     });
+  }
+
+  if (action.command?.domain === "location" && action.execution_target.status === "wired" && action.execution_target.path === "local_handler"
+    && !input.executionContext?.operationId) {
+    if (input.signal?.aborted) return buildResult({ status: "failed", actionId: action.action_id,
+      routeBefore: routeBefore.pathname, resultSummary: "Action was interrupted." });
+    // Chat and typed app actions use the same preparation/confirmation owner.
+    // The command's post-claim call carries operationId and bypasses this handoff.
+    const slots = input.slots || {};
+    if (Object.values(slots).some((value) => !["string", "number", "boolean"].includes(typeof value)))
+      return buildResult({ status: "invalid", actionId: action.action_id, routeBefore: routeBefore.pathname,
+        resultSummary: "This Location action needs typed inputs." });
+    return executeOneCommandInvocation({ id: crypto.randomUUID(), actionId: action.action_id,
+      slots: slots as Record<string, string | number | boolean>, expectedOwner: input.userId });
   }
 
   let effectiveRuntimeState = input.appRuntimeState;

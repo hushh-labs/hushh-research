@@ -77,3 +77,26 @@ export function prepareCommandPeople(input: {
     summary: `Confirm this Location action for ${people.map((person) => person.name).join(", ")}.`,
   };
 }
+
+/** Read the complete bounded audience before changing anything. Never paginate
+ * a shrinking eligibility list between mutations or silently truncate it. */
+export async function readAllCommandPeople<T extends { userId: string }>(
+  read: (page: number) => Promise<{ items: T[]; page: number; hasMore: boolean; totalCount: number }>,
+): Promise<T[]> {
+  const items = new Map<string, T>();
+  let total: number | undefined;
+  for (let page = 1; page <= 50; page++) {
+    const result = await read(page);
+    if (result.page !== page || (total !== undefined && total !== result.totalCount))
+      throw new Error("The circle audience changed while loading. Retry to refresh it.");
+    total = result.totalCount;
+    const previous = items.size;
+    result.items.forEach((item) => items.set(item.userId, item));
+    if (!result.hasMore) {
+      if (items.size !== total) throw new Error("The circle audience is incomplete. Retry to refresh it.");
+      return [...items.values()];
+    }
+    if (items.size === previous) break;
+  }
+  throw new Error("The complete audience could not be loaded. Review this circle.");
+}

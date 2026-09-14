@@ -18,10 +18,12 @@ const mocks = vi.hoisted(() => ({
   cancel: vi.fn(),
   removeConnection: vi.fn(),
   getScopeCatalog: vi.fn(),
+  getPersonContext: vi.fn(),
   searchInformationScopes: vi.fn(),
   onConnectionCapabilityMutated: vi.fn(),
   onConnectionGraphMutated: vi.fn(),
   routerPush: vi.fn(),
+  routerReplace: vi.fn(),
   searchParams: new URLSearchParams(),
   shareLink: vi.fn(),
   toastSuccess: vi.fn(),
@@ -97,7 +99,7 @@ vi.mock("@/lib/contacts/use-contact-discoverability-consent", () => ({
 vi.mock("next/navigation", () => ({
   useRouter: () => ({
     push: mocks.routerPush,
-    replace: vi.fn(),
+    replace: mocks.routerReplace,
     back: vi.fn(),
   }),
   usePathname: () => "/one/connect",
@@ -131,6 +133,7 @@ vi.mock("@/lib/services/connections-service", () => ({
     cancel: mocks.cancel,
     removeConnection: mocks.removeConnection,
     getScopeCatalog: mocks.getScopeCatalog,
+    getPersonContext: mocks.getPersonContext,
     searchInformationScopes: mocks.searchInformationScopes,
   },
 }));
@@ -257,8 +260,90 @@ const EVERYONE = Array.from({ length: 100 }, (_, index) =>
   person(`u${index}`, `Person ${index}`),
 );
 
+describe("Location command connection prerequisite",()=>{
+  it("discards the previous person's review and pending catalog when the requested person changes",async()=>{
+    mocks.searchParams=new URLSearchParams("reviewPerson=u9");
+    mocks.getPersonContext.mockResolvedValueOnce({person:person("u9","First target"),request:null})
+      .mockResolvedValue({person:{...person("u10","Already connected"),relationship:"connected"},request:null});
+    const catalog=deferred<any>();
+    mocks.getScopeCatalog.mockReturnValueOnce(catalog.promise);
+    const view=render(<ConnectPageClient/>);
+    await screen.findByRole("dialog",{name:"Send connection requests"});
+    mocks.searchParams=new URLSearchParams("reviewPerson=u10");
+    view.rerender(<ConnectPageClient/>);
+    await waitFor(()=>expect(screen.queryByRole("dialog",{name:"Send connection requests"})).toBeNull());
+    await act(async()=>catalog.resolve({counterpartUserId:"u9",items:[],offerableItems:[]}));
+    expect(screen.queryByRole("dialog",{name:"Send connection requests"})).toBeNull();
+    expect(mocks.sendRequest).not.toHaveBeenCalled();
+    expect(mocks.routerReplace).not.toHaveBeenCalled();
+  });
+
+  it("correlates a freshly discovered incoming request redirect to its exact person review",async()=>{
+    mocks.searchParams=new URLSearchParams("reviewPerson=u9");
+    mocks.getPersonContext.mockResolvedValue({person:{...person("u9","Incoming"),relationship:"pending_incoming"},request:{id:"request-9",direction:"incoming",status:"pending"}});
+    render(<ConnectPageClient/>);
+    await waitFor(()=>expect(mocks.routerPush).toHaveBeenCalled());
+    const destination=new URL(mocks.routerPush.mock.calls[0]![0],"https://app.invalid");
+    expect(destination.searchParams.get("from")).toBe("/one/connect?reviewPerson=u9");
+    expect(destination.searchParams.get("requestId")).toBe("request-9");
+    expect(mocks.sendRequest).not.toHaveBeenCalled();
+  });
+  it("opens the actual scope review without sending and can reopen after cancellation",async()=>{
+    mocks.searchParams = new URLSearchParams("reviewPerson=u9");
+    mocks.getPersonContext.mockResolvedValue({person:person("u9","Command Person"),request:null});
+    const view = render(<ConnectPageClient/>);
+    const dialog = await screen.findByRole("dialog",{name:"Send connection requests"});
+    await within(dialog).findByRole("button",{name:"Send requests"});
+    expect(mocks.sendRequest).not.toHaveBeenCalled();
+    fireEvent.click(within(dialog).getByRole("button",{name:"Cancel"}));
+    view.rerender(<ConnectPageClient/>);
+    await waitFor(()=>expect(screen.queryByRole("dialog",{name:"Send connection requests"})).toBeNull());
+    expect(mocks.routerReplace).toHaveBeenCalledWith("/one/connect");
+    mocks.searchParams=new URLSearchParams("reviewPerson=u9");
+    view.rerender(<ConnectPageClient/>);
+    await screen.findByRole("dialog",{name:"Send connection requests"});
+    expect(mocks.sendRequest).not.toHaveBeenCalled();
+  });
+
+  it("discards the old owner's pending catalog even after A to B to A",async()=>{
+    mocks.searchParams=new URLSearchParams("reviewPerson=u9");
+    mocks.getPersonContext.mockResolvedValueOnce({person:person("u9","Owner A target"),request:null})
+      .mockResolvedValue({person:{...person("u9","Pending"),relationship:"pending_outgoing"},request:{id:"r",direction:"outgoing",status:"pending"}});
+    const catalog = deferred<any>();
+    mocks.getScopeCatalog.mockReturnValueOnce(catalog.promise);
+    const view=render(<ConnectPageClient/>);
+    await screen.findByRole("dialog",{name:"Send connection requests"});
+    const ownerA=mocks.user;
+    mocks.user={uid:"owner-b",getIdToken:async()=>"token-b"};
+    view.rerender(<ConnectPageClient/>);
+    await waitFor(()=>expect(screen.queryByRole("dialog",{name:"Send connection requests"})).toBeNull());
+    mocks.user=ownerA;
+    view.rerender(<ConnectPageClient/>);
+    await act(async()=>catalog.resolve({counterpartUserId:"u9",items:[],offerableItems:[]}));
+    expect(screen.queryByRole("dialog",{name:"Send connection requests"})).toBeNull();
+    expect(mocks.sendRequest).not.toHaveBeenCalled();
+  });
+
+  it("treats a raced reverse request as incoming review, never as a sent or accepted connection",async()=>{
+    mocks.searchParams=new URLSearchParams("reviewPerson=u9");
+    mocks.getPersonContext.mockResolvedValue({person:person("u9","Command Person"),request:null});
+    mocks.sendRequest.mockResolvedValue({id:"incoming-request",status:"pending",requesterUserId:"u9",addresseeUserId:"me"});
+    render(<ConnectPageClient/>);
+    const dialog=await screen.findByRole("dialog",{name:"Send connection requests"});
+    const send=await within(dialog).findByRole("button",{name:"Send requests"});
+    await waitFor(()=>expect(send).not.toBeDisabled());
+    fireEvent.click(send);
+    await waitFor(()=>expect(mocks.routerPush).toHaveBeenCalledWith(expect.stringContaining("incoming-request")));
+    expect(mocks.toastSuccess).toHaveBeenCalledWith("1 incoming request needs your review.");
+    expect(mocks.sendRequest).toHaveBeenCalledOnce();
+  });
+});
+
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.user = {uid:"me",getIdToken:async()=>"id-token"};
+  mocks.getPersonContext.mockReset();
+  mocks.routerReplace.mockImplementation((href:string)=>{mocks.searchParams=new URLSearchParams(href.split("?")[1] || "");});
   mocks.requestContactCheck.mockReturnValue(true);
   mocks.authPhoneNumber = "+919000000001";
   mocks.resolveVerifiedPhoneNumber.mockImplementation(
@@ -1402,7 +1487,7 @@ describe("Connect — People", () => {
       hasMore: false,
       page: 1,
     });
-    mocks.sendRequest.mockResolvedValue({ id: "request-9" });
+    mocks.sendRequest.mockResolvedValue({ id: "request-9", status: "pending", requesterUserId: "me" });
     render(<ConnectPageClient />);
     await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalledTimes(1));
 
@@ -1519,7 +1604,7 @@ describe("Connect — People", () => {
       hasMore: false,
       page: 1,
     });
-    mocks.sendRequest.mockResolvedValue({ id: "request-10" });
+    mocks.sendRequest.mockResolvedValue({ id: "request-10", status: "pending", requesterUserId: "me" });
     render(<ConnectPageClient />);
     await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalledTimes(1));
 
@@ -1556,7 +1641,7 @@ describe("Connect — People", () => {
       hasMore: false,
       page: 1,
     });
-    mocks.sendRequest.mockResolvedValue({ id: "request-9" });
+    mocks.sendRequest.mockResolvedValue({ id: "request-9", status: "pending", requesterUserId: "me" });
     render(<ConnectPageClient />);
     await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalledTimes(1));
 
@@ -1584,7 +1669,7 @@ describe("Connect — People", () => {
       hasMore: false,
       page: 1,
     });
-    mocks.sendRequest.mockResolvedValue({ id: "request-9" });
+    mocks.sendRequest.mockResolvedValue({ id: "request-9", status: "pending", requesterUserId: "me" });
     render(<ConnectPageClient />);
     await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalledTimes(1));
 
@@ -1671,7 +1756,7 @@ describe("Connect — People", () => {
   });
 
   it("sends a one-person request directly without opening the review dialog", async () => {
-    mocks.sendRequest.mockResolvedValue({ id: "request" });
+    mocks.sendRequest.mockResolvedValue({ id: "request", status: "pending", requesterUserId: "me" });
 
     render(<ConnectPageClient />);
     expect(await screen.findByText("Person 0")).toBeTruthy();

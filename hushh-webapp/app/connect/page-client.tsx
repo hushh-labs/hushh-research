@@ -71,6 +71,7 @@ import {
   CONNECT_CIRCLE_ACTION_PARAM,
   CONNECT_CIRCLE_ID_PARAM,
   CONNECT_SEARCH_QUERY_PARAM,
+  CONNECT_REVIEW_PERSON_PARAM,
   CONNECT_SURFACE_PARAM,
   connectCircleTaskTitle,
   isFocusedConnectCircleTask,
@@ -473,6 +474,10 @@ export default function ConnectPageClient() {
   const router = useRouter();
 
   const searchParams = useSearchParams();
+  const commandReviewPerson = searchParams.get(CONNECT_REVIEW_PERSON_PARAM);
+  const openedCommandReview = useRef<string | null>(null);
+  const connectOwnerRef = useRef(user?.uid);
+  connectOwnerRef.current = user?.uid;
   /**
    * The route-backed Connect surface, from `?tab=`.
    *
@@ -636,7 +641,9 @@ export default function ConnectPageClient() {
   const [isConnectingMultiple, setIsConnectingMultiple] = useState(false);
   /** Which open of the review sheet is allowed to write its catalogs back. */
   const batchDraftGenerationRef = useRef(0);
+  const batchSendingRef = useRef(false);
   const [batchConnectDraft, setBatchConnectDraft] = useState<{
+    ownerId: string;
     people: DirectoryPerson[];
     /** Per person: what THEY can be asked for. Absent until loaded. */
     catalogs: Record<string, ConnectionScopeCatalog>;
@@ -647,6 +654,37 @@ export default function ConnectPageClient() {
     loadingCatalogs: boolean;
   } | null>(null);
   const [showLimitBanner, setShowLimitBanner] = useState(false);
+
+  useEffect(() => {
+    setBatchConnectDraft(null);
+    setSelectedPeople(new Map());
+    setIsConnectingMultiple(false);
+    batchSendingRef.current = false;
+    openedCommandReview.current = null;
+    return () => { batchDraftGenerationRef.current += 1; };
+  }, [user?.uid]);
+
+  useEffect(() => {
+    // A new requested person invalidates the previous review even when the
+    // new relationship is already connected/pending and opens no new draft.
+    batchDraftGenerationRef.current += 1;
+    setBatchConnectDraft(null);
+    setIsConnectingMultiple(false);
+    batchSendingRef.current = false;
+    openedCommandReview.current = null;
+  }, [commandReviewPerson]);
+
+  const closeBatchConnectDraft = useCallback(() => {
+    if (batchSendingRef.current) return;
+    batchDraftGenerationRef.current += 1;
+    setBatchConnectDraft(null);
+    openedCommandReview.current = null;
+    if (commandReviewPerson) {
+      const next = new URLSearchParams(searchParams.toString());
+      next.delete(CONNECT_REVIEW_PERSON_PARAM);
+      router.replace(`${ROUTES.CONNECT}${next.size ? `?${next}` : ""}`);
+    }
+  }, [commandReviewPerson, router, searchParams]);
 
   const getIdToken = useCallback(
     async () => (user ? await user.getIdToken() : null),
@@ -1098,23 +1136,30 @@ export default function ConnectPageClient() {
       offeredScopeHandles: string[] = [],
     ): Promise<boolean> => {
       if (!user) return false;
+      const ownerId = user.uid;
+      const generation = batchDraftGenerationRef.current;
+      const isCurrent = () => connectOwnerRef.current === ownerId && batchDraftGenerationRef.current === generation;
       try {
         setBusyId(person.userId);
         const idToken = await user.getIdToken();
+        if (!isCurrent()) return false;
         const request = await ConnectionsService.sendRequest({
           idToken,
           addresseeUserId: person.userId,
           requestedScopeHandles,
           offeredScopeHandles,
         });
+        if (!isCurrent()) return false;
+        if (request.status !== "pending") throw new Error("The request state changed. Refresh Connect before trying again.");
+        const outgoing = request.requesterUserId === user.uid;
         setPeople((prev) =>
           prev.map((p) =>
             p.userId === person.userId
-              ? { ...p, relationship: "pending_outgoing" }
+              ? { ...p, relationship: outgoing ? "pending_outgoing" : "pending_incoming" }
               : p,
           ),
         );
-        setOutgoingRequestIds((current) => ({
+        if (outgoing) setOutgoingRequestIds((current) => ({
           ...current,
           [person.userId]: request.id,
         }));
@@ -1122,9 +1167,11 @@ export default function ConnectPageClient() {
         // A Circle roster open behind this sheet is now stale: the row that
         // said "Connect" should say "Requested". Re-read rather than patch.
         setCircleRefreshToken((token) => token + 1);
-        toast.success("Connection request sent");
+        toast.success(outgoing ? "Connection request sent" : "This person already asked to connect. Review their request.");
+        if (!outgoing) router.push(buildConsentCenterHref("pending",{requestId:request.id}));
         return true;
       } catch (sendError) {
+        if (!isCurrent()) return false;
         toast.error(
           sendError instanceof Error
             ? sendError.message
@@ -1132,10 +1179,10 @@ export default function ConnectPageClient() {
         );
         return false;
       } finally {
-        setBusyId(null);
+        if (isCurrent()) setBusyId(null);
       }
     },
-    [user],
+    [user,router],
   );
 
   const sendConnectRequest = useCallback(
@@ -1317,8 +1364,10 @@ export default function ConnectPageClient() {
       // gets to write.
       const generation = batchDraftGenerationRef.current + 1;
       batchDraftGenerationRef.current = generation;
-      const isCurrent = () => batchDraftGenerationRef.current === generation;
+      const ownerId = user.uid;
+      const isCurrent = () => batchDraftGenerationRef.current === generation && connectOwnerRef.current === ownerId;
       setBatchConnectDraft({
+        ownerId,
         people,
         catalogs: {},
         requestedHandles: {},
@@ -1327,11 +1376,13 @@ export default function ConnectPageClient() {
       });
       try {
         const idToken = await user.getIdToken();
+        if (!isCurrent()) return;
         const loaded = await mapWithConcurrency(
           people,
           CONNECT_REQUEST_CONCURRENCY,
           async (person) => {
             try {
+              if (!isCurrent()) return null;
               return await ConnectionsService.getScopeCatalog({
                 idToken,
                 counterpartUserId: person.userId,
@@ -1365,6 +1416,33 @@ export default function ConnectPageClient() {
     [user],
   );
 
+  useEffect(() => {
+    if (!user || !commandReviewPerson || commandReviewPerson.length > 128) return;
+    const key = `${user.uid}:${commandReviewPerson}`;
+    if (openedCommandReview.current === key) return;
+    let cancelled = false;
+    void (async()=>{
+      try {
+        const idToken = await user.getIdToken();
+        if (cancelled) return;
+        const result = await ConnectionsService.getPersonContext({idToken,counterpartUserId:commandReviewPerson});
+        if (cancelled) return;
+        openedCommandReview.current = key;
+        if (result.person.relationship === "pending_incoming" && result.request?.direction === "incoming") {
+          router.push(buildConsentCenterHref("pending",{requestId:result.request.id,
+            from: `${ROUTES.CONNECT}?${new URLSearchParams({[CONNECT_REVIEW_PERSON_PARAM]:commandReviewPerson})}`}));
+        } else if (result.person.relationship === "none") {
+          await openBatchConnectDraft([result.person]);
+        } else {
+          toast.info(result.person.relationship === "connected" ? "This connection is active. Continue your Location task to check its requirements." : "Your connection request is still pending. Nothing has been sent again.");
+        }
+      } catch {
+        if (!cancelled) toast.error("This connection could not be checked. Refresh Connect or cancel the task.");
+      }
+    })();
+    return ()=>{cancelled=true;};
+  },[user,commandReviewPerson,openBatchConnectDraft,router]);
+
   const toggleBatchRequestedHandle = useCallback(
     (userId: string, handle: string, checked: boolean) => {
       setBatchConnectDraft((current) => {
@@ -1396,10 +1474,13 @@ export default function ConnectPageClient() {
   );
 
   const handleConnectMultiple = useCallback(async () => {
-    if (!user || !batchConnectDraft || batchConnectDraft.people.length === 0)
+    if (!user || !batchConnectDraft || batchConnectDraft.ownerId !== user.uid || batchConnectDraft.loadingCatalogs || batchSendingRef.current || batchConnectDraft.people.length === 0)
       return;
     const draft = batchConnectDraft;
     const draftPeople = draft.people;
+    const ownerId = user.uid;
+    const generation = batchDraftGenerationRef.current;
+    const isCurrent = () => connectOwnerRef.current === ownerId && batchDraftGenerationRef.current === generation;
 
     // Keep the dispatch boundary bounded even if selection state is restored or
     // changed outside the row controls.
@@ -1410,11 +1491,13 @@ export default function ConnectPageClient() {
       return;
     }
 
+    batchSendingRef.current = true;
     setIsConnectingMultiple(true);
     const successfulUserIds = new Set<string>();
 
     try {
       const idToken = await user.getIdToken();
+      if (!isCurrent()) return;
 
       // Anyone already asked is skipped: a pending request in either direction
       // makes the server return the existing one and discard the scopes, so
@@ -1428,6 +1511,7 @@ export default function ConnectPageClient() {
         CONNECT_REQUEST_CONCURRENCY,
         async (person) => {
           try {
+            if (!isCurrent()) return {success:false,person} as const;
             const request = await ConnectionsService.sendRequest({
               idToken,
               addresseeUserId: person.userId,
@@ -1436,6 +1520,7 @@ export default function ConnectPageClient() {
                 draft.requestedHandles[person.userId] ?? [],
               offeredScopeHandles: draft.offeredHandles,
             });
+            if (request.status !== "pending") return {success:false,person} as const;
             return { success: true, person, request } as const;
           } catch (sendError) {
             console.error(
@@ -1446,11 +1531,14 @@ export default function ConnectPageClient() {
           }
         },
       );
+      if (!isCurrent()) return;
 
       const outgoing: Record<string, string> = {};
+      const incoming = new Set<string>();
       for (const result of results) {
         if (result.success) {
-          outgoing[result.person.userId] = result.request.id;
+          if (result.request.requesterUserId === ownerId) outgoing[result.person.userId] = result.request.id;
+          else incoming.add(result.person.userId);
           successfulUserIds.add(result.person.userId);
         }
       }
@@ -1461,7 +1549,7 @@ export default function ConnectPageClient() {
       setPeople((prev) =>
         prev.map((p) =>
           successfulUserIds.has(p.userId) && p.relationship === "none"
-            ? { ...p, relationship: "pending_outgoing" }
+            ? { ...p, relationship: incoming.has(p.userId) ? "pending_incoming" : "pending_outgoing" }
             : p,
         ),
       );
@@ -1471,11 +1559,14 @@ export default function ConnectPageClient() {
         CacheSyncService.onConnectionCapabilityMutated(user.uid);
         // Report what happened rather than only what worked. A partial send
         // that says "Sent 6 requests" leaves two people quietly unasked.
-        toast.success(
-          failedCount > 0
-            ? `Sent ${successfulUserIds.size}. ${failedCount} couldn't be sent.`
-            : `Sent ${successfulUserIds.size} request${successfulUserIds.size !== 1 ? "s" : ""}.`,
-        );
+        const sentCount = Object.keys(outgoing).length;
+        toast.success([sentCount ? `Sent ${sentCount} connection request${sentCount === 1 ? "" : "s"}.` : "",
+          incoming.size ? `${incoming.size} incoming request${incoming.size === 1 ? " needs" : "s need"} your review.` : "",
+          failedCount ? `${failedCount} couldn't be sent.` : ""].filter(Boolean).join(" "));
+        if (incoming.size === 1 && sendable.length === 1) {
+          const response = results.find((result) => result.success && incoming.has(result.person.userId));
+          if (response?.success) router.push(buildConsentCenterHref("pending",{requestId:response.request.id}));
+        }
       } else if (sendable.length === 0) {
         toast.error("Already asked.");
       } else {
@@ -1511,11 +1602,14 @@ export default function ConnectPageClient() {
         );
       }
     } catch {
-      toast.error("Couldn't send. Try again.");
+      if (isCurrent()) toast.error("Couldn't send. Try again.");
     } finally {
-      setIsConnectingMultiple(false);
+      if (isCurrent()) {
+        batchSendingRef.current = false;
+        setIsConnectingMultiple(false);
+      }
     }
-  }, [user, batchConnectDraft]);
+  }, [user, batchConnectDraft,router]);
 
   const cancelConnectionRequest = useCallback(
     async (person: DirectoryPerson) => {
@@ -3180,9 +3274,9 @@ export default function ConnectPageClient() {
         )}
 
         <Dialog
-          open={batchConnectDraft !== null}
+          open={batchConnectDraft !== null && batchConnectDraft.ownerId === user?.uid}
           onOpenChange={(open) => {
-            if (!open && !isConnectingMultiple) setBatchConnectDraft(null);
+            if (!open && !isConnectingMultiple) closeBatchConnectDraft();
           }}
         >
           <DialogContent className="gap-5 max-h-[85vh] flex flex-col overflow-hidden bg-[color:var(--app-card-surface-default-solid)]">
@@ -3202,7 +3296,7 @@ export default function ConnectPageClient() {
               </DialogHeader>
             </div>
 
-            {batchConnectDraft ? (
+            {batchConnectDraft && batchConnectDraft.ownerId === user?.uid ? (
               <div className="space-y-4 overflow-y-auto min-h-0 flex-1 px-1 pb-2">
                 <SettingsGroup title="Selected people" separatorInset>
                   {batchConnectDraft.people.map((person) => {
@@ -3382,7 +3476,7 @@ export default function ConnectPageClient() {
                 effect="fade"
                 className="min-w-[96px]"
                 disabled={isConnectingMultiple}
-                onClick={() => setBatchConnectDraft(null)}
+                onClick={closeBatchConnectDraft}
               >
                 Cancel
               </Button>

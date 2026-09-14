@@ -88,6 +88,14 @@ export async function startAppGoal(
   // contract, not named here. This used to read `!== "analysis.start"`, so
   // the browser could only ever walk one journey however many were authored.
   const journeyAction = getKaiActionById(input.actionId);
+  if (journeyAction?.command?.domain === "location" && journeyAction.execution_target.status === "wired" && journeyAction.execution_target.path === "local_handler"
+    && !input.executionContext?.operationId) {
+    // The command provider owns its durable result. A handoff or navigation
+    // cannot complete this older in-memory goal/journey on its behalf.
+    return executeAgentGatewayAction({ ...input, actionId: input.actionId, slots,
+      appRuntimeState: input.getAppRuntimeState(), surfaceMetadata: input.getSurfaceMetadata(),
+      allowedActionIds: initialState.executable_action_ids ?? initialState.available_action_ids });
+  }
   const journey = journeyAction
     ? resolveNavigationJourney(input.actionId, journeyAction)
     : null;

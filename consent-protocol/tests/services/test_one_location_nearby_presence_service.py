@@ -49,6 +49,7 @@ def _anchor_row(
         owner_user_id=user_id,
     )
     return {
+        "id": "00000000-0000-4000-8000-000000000001",
         "owner_user_id": user_id,
         "participant_alias": alias,
         "status": "active",
@@ -84,6 +85,7 @@ class FakeStore:
         self.upsert_args = kwargs
         envelope = kwargs["anchor_envelope"]
         self.presence = {
+            "id": "00000000-0000-4000-8000-000000000001",
             "owner_user_id": kwargs["user_id"],
             "participant_alias": "viewer-alias",
             "status": "active",

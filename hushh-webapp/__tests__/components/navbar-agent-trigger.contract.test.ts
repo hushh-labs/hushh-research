@@ -55,7 +55,7 @@ describe("Navbar bottom chrome contract", () => {
     expect(agentBar).toContain('data-native-voice-control-id="one_voice_agent_bar_start"');
     expect(agentBar).toContain('data-agent-action="voice"');
     expect(agentBar).toContain("onPointerCancel");
-    expect(agentBar).toContain("suppressClick.current");
+    expect(agentBar).toContain("event.detail !== 0");
     expect(agentBar).toContain("MessageCircle");
     expect(agentBar).not.toContain("isRiaChrome");
     expect(agentBar).toContain('layout = "fixed"');
@@ -111,12 +111,12 @@ describe("Navbar bottom chrome contract", () => {
     expect(bottomShell).toContain("items-center gap-1.5");
     expect(agentBar).toContain('data-agent-dock="one-agent-dock"');
     expect(agentBar).toContain('role="group"');
-    expect(agentBar).toContain('aria-label="One assistant"');
+    expect(agentBar).toContain('aria-label="One private agent"');
     const dockClass = agentBar.match(
       /data-testid="one-voice-agent-bar"[\s\S]*?className=\{cn\((?<classes>[\s\S]*?)\)\}/,
     )?.groups?.classes;
     expect(dockClass).toBeDefined();
-    expect(dockClass).not.toContain("bottom-chrome-surface");
+    expect(dockClass).toContain("bottom-chrome-surface");
     expect(dockClass).not.toContain("backdrop-blur");
     expect(agentBar).not.toContain('? "h-11 rounded-[22px] px-2.5"');
     expect(agentBar).toContain("var(--app-agent-bar-max-width)");
