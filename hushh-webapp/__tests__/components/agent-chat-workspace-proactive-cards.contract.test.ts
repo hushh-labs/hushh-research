@@ -66,3 +66,68 @@ describe("Agent One proactive Gmail cards wiring contract", () => {
     expect(welcomeIndex).toBeGreaterThan(nudgeIndex);
   });
 });
+
+describe("Agent One proactive Calendar cards wiring contract", () => {
+  // There are now two <AgentConnectAccessCard usages (Gmail's, then
+  // Calendar's) -- anchor on Calendar's title, which is unique, rather than
+  // a positional "second occurrence" that would silently break if a card is
+  // ever reordered.
+  const calendarConnectIndex = source.indexOf('title="See what\'s coming up"');
+  const calendarEventIndex = source.indexOf("<AgentCalendarEventCard");
+
+  it("imports the Calendar card component and both new hooks", () => {
+    expect(source).toContain(
+      'import { AgentCalendarEventCard } from "@/components/agent/agent-calendar-event-card"',
+    );
+    expect(source).toContain(
+      'import { useCalendarConnectionStatus } from "@/lib/calendar/use-calendar-connection-status"',
+    );
+    expect(source).toContain(
+      'import { useCalendarUpcomingEvents } from "@/lib/calendar/use-calendar-upcoming-events"',
+    );
+  });
+
+  it("defines the one-card-at-a-time priority flag", () => {
+    expect(source).toContain("const gmailCardShowing =");
+  });
+
+  it("gates the connect card to page variant, chat access, a fresh conversation, disconnected Calendar, and Gmail's slot being empty", () => {
+    expect(calendarConnectIndex).toBeGreaterThan(-1);
+    const connectBlock = source.slice(calendarConnectIndex - 500, calendarConnectIndex);
+    expect(connectBlock).toContain("hasChatAccess");
+    expect(connectBlock).toContain("!hasStartedConversation");
+    expect(connectBlock).toContain("!calendarConnectCardDismissed");
+    expect(connectBlock).toContain("calendarConnectionStatus.connected === false");
+    expect(connectBlock).toContain("!gmailCardShowing");
+  });
+
+  it("gates the event card to page variant, chat access, a fresh conversation, connected Calendar, pending events, and Gmail's slot being empty", () => {
+    expect(calendarEventIndex).toBeGreaterThan(-1);
+    const eventBlock = source.slice(calendarEventIndex - 500, calendarEventIndex);
+    expect(eventBlock).toContain("hasChatAccess");
+    expect(eventBlock).toContain("!hasStartedConversation");
+    expect(eventBlock).toContain("!calendarEventCardDismissed");
+    expect(eventBlock).toContain("calendarConnectionStatus.connected === true");
+    expect(eventBlock).toContain("calendarEvents.events.length > 0");
+    expect(eventBlock).toContain("!gmailCardShowing");
+  });
+
+  it("routes the proactive connect CTA through GoogleCalendarService.startConnect with accessLevel read, scoped to handleConnectCalendar", () => {
+    const handlerIndex = source.indexOf("const handleConnectCalendar = useCallback");
+    expect(handlerIndex).toBeGreaterThan(-1);
+    // Bound to the handler body, not the pre-existing calendar.connect
+    // specialist-directive branch elsewhere in the file, which legitimately
+    // allows "manage" too.
+    const handlerBody = source.slice(handlerIndex, handlerIndex + 700);
+    expect(handlerBody).toContain("GoogleCalendarService.startConnect(");
+    expect(handlerBody).toContain('accessLevel: "read"');
+  });
+
+  it("mounts both Calendar cards after Gmail's cards and before the welcome panel", () => {
+    const gmailNudgeIndex = source.indexOf("<AgentGmailNudgeCard");
+    const welcomeIndex = source.indexOf("<AgentWelcomePanel");
+    expect(calendarConnectIndex).toBeGreaterThan(gmailNudgeIndex);
+    expect(calendarEventIndex).toBeGreaterThan(calendarConnectIndex);
+    expect(welcomeIndex).toBeGreaterThan(calendarEventIndex);
+  });
+});

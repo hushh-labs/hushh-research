@@ -89,6 +89,7 @@ import {
   type SpecialistPendingConsentRequestItem,
 } from "@/components/agent/specialist-directive-card";
 import { copyTextToClipboard } from "@/components/agent/chat-markdown-link";
+import { AgentCalendarEventCard } from "@/components/agent/agent-calendar-event-card";
 import { AgentConnectAccessCard } from "@/components/agent/agent-connect-access-card";
 import { AgentGmailNudgeCard } from "@/components/agent/agent-gmail-nudge-card";
 import { AgentMarkdown } from "@/components/agent/agent-markdown";
@@ -230,6 +231,8 @@ import { GmailInformationRequestsService } from "@/lib/services/gmail-informatio
 import { GmailReceiptsService } from "@/lib/services/gmail-receipts-service";
 import { useGmailNudges } from "@/lib/gmail/use-gmail-nudges";
 import { useGmailConnectorStatus } from "@/lib/profile/gmail-connector-store";
+import { useCalendarConnectionStatus } from "@/lib/calendar/use-calendar-connection-status";
+import { useCalendarUpcomingEvents } from "@/lib/calendar/use-calendar-upcoming-events";
 
 type AgentMessage = {
   id: string;
@@ -1718,6 +1721,51 @@ export function AgentChatWorkspace({
       setGmailConnectBusy(false);
     }
   }, [user]);
+  // Proactive Calendar connect/event cards: same page-variant-only, gated
+  // shape as Gmail's above. A separate idTokenProvider on purpose -- reusing
+  // gmailIdTokenProvider under its Gmail-specific name here would read as
+  // confusing, not as sharing.
+  const calendarIdTokenProvider = useCallback(
+    () => (user?.getIdToken ? user.getIdToken() : Promise.resolve("")),
+    [user],
+  );
+  const calendarConnectionStatus = useCalendarConnectionStatus({
+    userId: user?.uid || null,
+    idTokenProvider: user?.getIdToken ? calendarIdTokenProvider : null,
+    enabled: !isPopover && hasChatAccess,
+  });
+  const calendarEvents = useCalendarUpcomingEvents({
+    userId: user?.uid || null,
+    vaultOwnerToken: vaultOwnerToken || null,
+    isConnected: calendarConnectionStatus.connected,
+  });
+  const [calendarConnectCardDismissed, setCalendarConnectCardDismissed] = useState(false);
+  const [calendarEventCardDismissed, setCalendarEventCardDismissed] = useState(false);
+  const [calendarConnectBusy, setCalendarConnectBusy] = useState(false);
+  const handleConnectCalendar = useCallback(async () => {
+    if (!user?.uid || !user?.getIdToken) return;
+    setCalendarConnectBusy(true);
+    try {
+      const idToken = await user.getIdToken();
+      const start = await GoogleCalendarService.startConnect({
+        idToken,
+        userId: user.uid,
+        accessLevel: "read",
+      });
+      window.location.assign(start.authorize_url);
+    } catch {
+      setCalendarConnectBusy(false);
+    }
+  }, [user]);
+  // One proactive card at a time (reference video shows a single card, not
+  // a wall of them). Gmail's connect/nudge slot takes priority since it
+  // shipped first; Calendar's cards only occupy the region when Gmail's
+  // isn't showing.
+  const gmailCardShowing =
+    (gmailConnectorStatus.status?.connected === false && !gmailConnectCardDismissed) ||
+    (gmailConnectorStatus.status?.connected === true &&
+      !gmailNudgeCardDismissed &&
+      gmailNudges.nudges.length > 0);
   const availablePersonas = useMemo(() => {
     const personas = new Set<typeof activePersona>([activePersona]);
     personas.add("investor");
@@ -5426,6 +5474,40 @@ export function AgentChatWorkspace({
                 <AgentGmailNudgeCard
                   nudges={gmailNudges.nudges}
                   onDismiss={() => setGmailNudgeCardDismissed(true)}
+                />
+              ) : null}
+
+              {!isPopover &&
+              hasChatAccess &&
+              !hasStartedConversation &&
+              !calendarConnectCardDismissed &&
+              calendarConnectionStatus.connected === false &&
+              !gmailCardShowing ? (
+                <AgentConnectAccessCard
+                  title="See what's coming up"
+                  bullets={[
+                    "Reads your calendar for what's coming up next",
+                    "Shows event titles and times — nothing more",
+                    "Never shares or sells your data",
+                    "Never acts without your yes",
+                  ]}
+                  ctaLabel="Connect Calendar & continue"
+                  busy={calendarConnectBusy}
+                  onConnect={() => void handleConnectCalendar()}
+                  onDismiss={() => setCalendarConnectCardDismissed(true)}
+                />
+              ) : null}
+
+              {!isPopover &&
+              hasChatAccess &&
+              !hasStartedConversation &&
+              !calendarEventCardDismissed &&
+              calendarConnectionStatus.connected === true &&
+              calendarEvents.events.length > 0 &&
+              !gmailCardShowing ? (
+                <AgentCalendarEventCard
+                  events={calendarEvents.events}
+                  onDismiss={() => setCalendarEventCardDismissed(true)}
                 />
               ) : null}
 
