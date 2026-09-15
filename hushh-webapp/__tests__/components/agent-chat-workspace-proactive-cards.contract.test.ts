@@ -131,3 +131,63 @@ describe("Agent One proactive Calendar cards wiring contract", () => {
     expect(welcomeIndex).toBeGreaterThan(calendarEventIndex);
   });
 });
+
+// The in-chat, agent-initiated Calendar directive (delegateAgentId
+// "agent_calendar", surfaced when the model proposes scheduling/rescheduling/
+// cancelling an event or needs a fresh Calendar connection) is a different
+// moment from the proactive pre-chat cards above -- it used to render through
+// the generic, un-styled SpecialistDirectiveCard for both its "connect" and
+// "execute_proposal" payload types. This guards the rework: the connect
+// moment now reuses AgentConnectAccessCard (the same component the proactive
+// card uses, unifying the two "connect Calendar" moments), and the proposal
+// moment renders the new structured AgentCalendarProposalCard instead of a
+// flattened summary sentence -- without changing what actually executes on
+// confirm.
+describe("Agent One in-chat Calendar directive cards wiring contract", () => {
+  it("imports AgentCalendarProposalCard and the typed payload helper", () => {
+    expect(source).toContain(
+      'import { AgentCalendarProposalCard } from "@/components/agent/agent-calendar-proposal-card"',
+    );
+    expect(source).toContain("function getCalendarPayload(");
+  });
+
+  // The source has CRLF line endings, and the JSX conditional's `? (` and the
+  // component tag it renders sit on different lines -- normalize whitespace
+  // before matching instead of depending on an exact literal newline/indent.
+  const normalized = source.replace(/\s+/g, " ");
+
+  it("renders AgentConnectAccessCard, not SpecialistDirectiveCard, for the calendar.connect directive", () => {
+    expect(normalized).toContain('"calendar.connect" ? ( <AgentConnectAccessCard');
+  });
+
+  it("wires the connect card's onConnect through GoogleCalendarService.startConnect, unchanged", () => {
+    const connectIndex = normalized.indexOf('"calendar.connect" ? ( <AgentConnectAccessCard');
+    const onConnectIndex = normalized.indexOf("onConnect={async () => {", connectIndex);
+    const block = normalized.slice(onConnectIndex, onConnectIndex + 900);
+    expect(block).toContain("GoogleCalendarService.startConnect(");
+    expect(block).toContain("clearCalendarSetupOAuthReturn();");
+  });
+
+  it("renders AgentCalendarProposalCard, not SpecialistDirectiveCard, for the calendar.execute_proposal directive", () => {
+    expect(normalized).toContain(
+      '"calendar.execute_proposal" ? ( <AgentCalendarProposalCard',
+    );
+  });
+
+  it("wires the proposal card's onConfirm through the pre-existing enqueueCalendarDirective, unchanged", () => {
+    const proposalIndex = normalized.indexOf(
+      '"calendar.execute_proposal" ? ( <AgentCalendarProposalCard',
+    );
+    const onConfirmIndex = normalized.indexOf("onConfirm={async () => {", proposalIndex);
+    const block = normalized.slice(onConfirmIndex, onConfirmIndex + 500);
+    expect(block).toContain("enqueueCalendarDirective(directive, token, user.uid);");
+  });
+
+  it("passes the structured event fields (not just summary) into AgentCalendarProposalCard", () => {
+    const proposalIndex = source.indexOf("<AgentCalendarProposalCard");
+    const block = source.slice(proposalIndex, proposalIndex + 1600);
+    for (const prop of ["action=", "title=", "startAt=", "endAt=", "attendees=", "conflicts="]) {
+      expect(block).toContain(prop);
+    }
+  });
+});
