@@ -109,6 +109,42 @@ steps:
           fi
         done
 
+        # The analytics measurement id must belong to the environment being
+        # built. uat.hushh.ai currently ships G-2PCECPSKCR -- the production id
+        # -- so every UAT session writes into the production GA4 property
+        # (~1,052 events from 14 devices over a month), and the UAT property
+        # receives none of the validation traffic it exists for.
+        #
+        # The pipeline itself is correct: the id is read from Secret Manager in
+        # $PROJECT_ID, so each environment already resolves its own secret. The
+        # wrong value is stored in the secret. This check refuses to bake a
+        # swapped id into an image, in either direction, so the next occurrence
+        # fails the build instead of silently polluting a property for months.
+        #
+        # Both ids are public -- they ship in the HTML of every page -- and are
+        # the ones recorded in
+        # .codex/skills/analytics-observability-governance/references/property-stream-dataset-matrix.md
+        prod_measurement_id="G-2PCECPSKCR"
+        uat_measurement_id="G-H1KGXGZTCF"
+        case "${_DEPLOY_ENV}" in
+          uat)
+            if [ "$${NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID_VAL}" = "$${prod_measurement_id}" ]; then
+              echo "UAT build resolved the PRODUCTION analytics measurement id ($${prod_measurement_id})."
+              echo "UAT traffic would be written to the production GA4 property."
+              echo "Fix: set secret NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID in $PROJECT_ID to the UAT id."
+              exit 1
+            fi
+            ;;
+          prod|production)
+            if [ "$${NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID_VAL}" = "$${uat_measurement_id}" ]; then
+              echo "Production build resolved the UAT analytics measurement id ($${uat_measurement_id})."
+              echo "Production traffic would be written to the UAT GA4 property."
+              echo "Fix: set secret NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID in $PROJECT_ID to the production id."
+              exit 1
+            fi
+            ;;
+        esac
+
         google_contacts_client_id_file="/workspace/.google-contacts-client-id"
         if [[ ! -f "$${google_contacts_client_id_file}" ]]; then
           echo "Google Contacts OAuth client resolver artifact is missing."
