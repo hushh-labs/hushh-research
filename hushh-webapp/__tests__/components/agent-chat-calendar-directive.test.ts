@@ -106,6 +106,105 @@ describe("getCalendarDirectiveFromToolEvent", () => {
     expect(result?.directive.payload.confirmLabel).toBe("Schedule anyway");
   });
 
+  it("carries structured event fields through the explicit-directive path untouched", () => {
+    const directive = {
+      kind: "action",
+      delegateAgentId: "agent_calendar",
+      payload: {
+        type: "calendar.execute_proposal",
+        proposalId: "gcal_structured",
+        action: "create",
+        summary: "Schedule 'Planning'",
+        confirmLabel: "Schedule",
+        expiresAt: "2026-09-04T12:00:00Z",
+        title: "Planning",
+        startAt: "2026-08-11T10:00:00+05:30",
+        endAt: "2026-08-11T10:30:00+05:30",
+        attendees: ["person@example.com"],
+        location: "Room 4",
+        sendUpdates: true,
+        conflicts: [],
+      },
+    };
+    const event = makeToolEvent("propose_calendar_event", {
+      status: "confirmation_required",
+      proposal_id: "gcal_structured",
+      directive,
+    });
+
+    const result = getCalendarDirectiveFromToolEvent(event);
+    expect(result?.directive.payload).toEqual(directive.payload);
+  });
+
+  it("builds structured event fields for the legacy path from plan.title/start_at/end_at", () => {
+    const event = makeToolEvent("propose_calendar_event", {
+      status: "confirmation_required",
+      proposal_id: "gcal_legacy_structured",
+      plan: {
+        title: "Study Session",
+        start_at: "2026-09-04T16:00:00+05:30",
+        end_at: "2026-09-04T17:00:00+05:30",
+        attendees: ["a@example.com"],
+        location: "Library",
+        send_updates: true,
+      },
+      conflicts: [],
+    });
+
+    const result = getCalendarDirectiveFromToolEvent(event);
+    expect(result?.directive.payload).toMatchObject({
+      title: "Study Session",
+      startAt: "2026-09-04T16:00:00+05:30",
+      endAt: "2026-09-04T17:00:00+05:30",
+      attendees: ["a@example.com"],
+      location: "Library",
+      sendUpdates: true,
+    });
+  });
+
+  it("builds structured event fields for a legacy cancel proposal from plan.current_event, not the bare event_id", () => {
+    const event = makeToolEvent("propose_calendar_cancellation", {
+      status: "confirmation_required",
+      proposal_id: "gcal_legacy_cancel",
+      plan: {
+        event_id: "evt-1",
+        send_updates: true,
+        current_event: {
+          title: "Design review",
+          start: { dateTime: "2026-08-11T10:00:00+05:30" },
+          end: { dateTime: "2026-08-11T10:30:00+05:30" },
+          location: "Room 4",
+          attendees: [{ email: "person@example.com", response_status: "accepted" }],
+        },
+      },
+      conflicts: [],
+    });
+
+    const result = getCalendarDirectiveFromToolEvent(event);
+    expect(result?.directive.payload).toMatchObject({
+      eventId: "evt-1",
+      title: "Design review",
+      startAt: "2026-08-11T10:00:00+05:30",
+      endAt: "2026-08-11T10:30:00+05:30",
+      location: "Room 4",
+      attendees: ["person@example.com"],
+    });
+  });
+
+  it("maps legacy conflicts into the structured {title, startAt} shape", () => {
+    const event = makeToolEvent("propose_calendar_event", {
+      status: "confirmation_required",
+      proposal_id: "gcal_legacy_conflicts",
+      plan: { title: "Study Session" },
+      conflicts: [{ title: "Existing meeting", start: { dateTime: "2026-09-04T16:00:00Z" } }],
+    });
+
+    const result = getCalendarDirectiveFromToolEvent(event);
+    expect(result?.directive.payload.conflicts).toEqual([
+      { title: "Existing meeting", startAt: "2026-09-04T16:00:00Z" },
+    ]);
+  });
+
   it("extracts connection directive when Google Calendar requires authorization", () => {
     const event = makeToolEvent("propose_calendar_event", {
       status: "connection_required",
