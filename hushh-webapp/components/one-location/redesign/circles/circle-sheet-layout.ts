@@ -48,7 +48,7 @@
 /**
  * The sheet's header, aligned with the body under it.
  *
- * `p-0` before `pt-1`, not `px-0 pt-1 pb-0`: `SheetHeader`'s own `p-4` is a
+ * `p-0` before `pt-5`, not `px-0 pt-5 pb-0`: `SheetHeader`'s own `p-4` is a
  * single shorthand, and clearing it side by side leaves the reader checking
  * four tailwind-merge groups to be sure nothing survived. One reset, then the
  * one value this surface wants back.
@@ -56,8 +56,22 @@
  * The horizontal padding belongs to `SheetContent` (`px-4 sm:px-6`), which is
  * what the search field and the list are measured against -- so the title
  * lines up with them instead of sitting 16px inboard of both.
+ *
+ * `pt-5` and not the `pt-1` this started at, because the top padding is the
+ * only thing holding the title off a 24px corner. The sheets round their top
+ * at `rounded-t-[24px]` and the title starts at the `px-4` gutter, 16px in --
+ * which is still inside that corner's 24px arc. Solve the circle there and
+ * the surface only begins about 1.4px down, so 4px of padding left the title
+ * sitting in the curve rather than below it, and it read as text crowding the
+ * rounded edge.
+ *
+ * 20px clears the arc, and it also lands the title's optical centre within a
+ * couple of pixels of the close button's, which `SheetContent` pins at
+ * `top-4` with a 32px box (centre 32px; the title's is ~34px). Matching the
+ * radius exactly at `pt-6` would clear the curve just as well but push the
+ * title 6px below that centre, so the X would read as floating high.
  */
-export const CIRCLE_SHEET_HEADER_CLASSNAME = "p-0 pt-1 text-left";
+export const CIRCLE_SHEET_HEADER_CLASSNAME = "p-0 pt-5 text-left";
 
 /**
  * A sheet body that is simply as tall as its content (Rename, Invite code).
