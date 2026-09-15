@@ -51,28 +51,21 @@ describe("private-agent chat shell contract", () => {
     expect(workspace).not.toContain("streamAbortControllerRef.current?.abort();\n    streamAbortControllerRef.current = streamAbortController");
   });
 
-  it("keeps compact composer controls inside a rectangular editor and opens a separate long-form editor", () => {
+  it("uses a unified auto-resizing composer editor without an expand/collapse toggle", () => {
     const workspace = read("components/agent/agent-chat-workspace.tsx");
 
-    expect(workspace).toContain("agent-chat-composer-expand");
-    expect(workspace).toContain("agent-chat-composer-expanded");
-    expect(workspace).toContain("agent-chat-composer-expanded-textarea");
+    expect(workspace).not.toContain("agent-chat-composer-expand");
+    expect(workspace).not.toContain("agent-chat-composer-expanded");
+    expect(workspace).not.toContain("agent-chat-composer-expanded-textarea");
+    expect(workspace).toContain("agent-chat-composer-textarea");
     expect(workspace).toContain("overflow-y-auto");
-    expect(workspace).toContain("px-7 py-3 pr-14");
-    expect(workspace).toContain("sm:px-8 sm:pr-14");
     expect(workspace).toContain("rounded-[24px] bg-foreground/[0.045]");
-    expect(workspace).not.toContain("agent-chat-composer\"\n                      className=\"flex min-h-16 items-end gap-2 rounded-2xl border");
     expect(workspace).toContain('className="flex shrink-0 items-center gap-2"');
     expect(workspace).toContain("max-h-28");
     expect(workspace).toContain("sm:max-h-36");
-    expect(workspace).toContain("h-[min(38dvh,18rem)]");
-    expect(workspace).toContain("sm:h-[min(48dvh,30rem)]");
-    // `composerLong` was removed from this file some time ago; the expanded
-    // editor is driven by `composerExpanded` now. The stale name had left this
-    // whole case red, which is how a red suite stops being read at all.
-    expect(workspace).toContain("composerExpanded ?");
-    expect(workspace).not.toContain("Expanded message</span>");
-    expect(workspace).not.toContain("Writing in expanded composer");
+    expect(workspace).not.toContain("composerExpanded");
+    expect(workspace).not.toContain("Maximize2");
+    expect(workspace).not.toContain("Minimize2");
   });
 
   it("captures a large paste as an editable in-memory text attachment", () => {

@@ -25,9 +25,7 @@ import {
   Laptop,
   LogIn,
   Menu,
-  Maximize2,
   Mic,
-  Minimize2,
   Minus,
   Pencil,
   RotateCcw,
@@ -1423,7 +1421,11 @@ export function AgentChatWorkspace({
   // Which model runs this person's agent. The catalog is served, so a new
   // generation appears here without a client release.
   const [modelPreference, setModelPreference] = useState<ModelPreference | null>(null);
+<<<<<<< HEAD
   const [composerExpanded, setComposerExpanded] = useState(false);
+=======
+  const [composerPurpose, setComposerPurpose] = useState<"memory" | "chat" | null>(null);
+>>>>>>> 38cbab2fb (fix(agent): remove expand-collapse button and state from chat input box)
   const [queuedPrompts, setQueuedPrompts] = useState<QueuedAgentPrompt[]>([]);
   const [editingQueuedPromptId, setEditingQueuedPromptId] = useState<
     string | null
@@ -2018,24 +2020,9 @@ export function AgentChatWorkspace({
   useEffect(() => {
     const textarea = composerTextareaRef.current;
     if (!textarea || voiceActive) return;
-    textarea.style.height = "0px";
-    const nextHeight = textarea.scrollHeight;
-    // `scrollHeight` includes soft-wrapped text, which is the visual behavior
-    // people notice. Reveal the larger editor after roughly four rendered rows.
-    const long = input.trim().length > 0 && nextHeight > 96;
-    if (!long) setComposerExpanded(false);
-    // The expanded writing surface owns its fixed, spacious height. The compact
-    // pill grows only to its CSS ceiling and then scrolls internally.
-    textarea.style.height = composerExpanded ? "" : `${nextHeight}px`;
-  }, [composerExpanded, input, voiceActive]);
-
-  useEffect(() => {
-    if (!composerExpanded) return;
-    const frame = window.requestAnimationFrame(() =>
-      composerTextareaRef.current?.focus(),
-    );
-    return () => window.cancelAnimationFrame(frame);
-  }, [composerExpanded]);
+    textarea.style.height = "auto";
+    textarea.style.height = `${textarea.scrollHeight}px`;
+  }, [input, voiceActive]);
 
   useEffect(() => {
     if (!isHistoryDrawerOpen) return;
@@ -4630,6 +4617,7 @@ export function AgentChatWorkspace({
 
   const submitComposerText = async () => {
     const attachment = longPromptAttachment;
+<<<<<<< HEAD
     const draftText = input;
     const attachmentText = attachment?.isExpanded ? draftText : attachment?.text ?? null;
     const text = combineAttachmentAndComposerText({
@@ -4640,6 +4628,32 @@ export function AgentChatWorkspace({
     setInput("");
     setLongPromptAttachment(null);
     setComposerExpanded(false);
+=======
+    if (draftText.length >= LONG_PROMPT_ATTACHMENT_CHARS && !attachment) {
+      setLongPromptAttachment({
+        text: draftText,
+        byteSize: new TextEncoder().encode(draftText).byteLength,
+      });
+      setInput("");
+      setComposerPurpose(null);
+      return;
+    }
+    const text = attachment?.text ?? draftText;
+    if (!text || isLoadingHistory || isVoiceConnecting || voiceActive) return;
+    setInput("");
+    setLongPromptAttachment(null);
+    const purpose = composerPurpose;
+    setComposerPurpose(null);
+    // The memory-import path sends plaintext to the PKM structuring API, so
+    // the card-number paste guard must run here too, not only in runAgentTurn.
+    // A long recap is not thrown away for one card line: the number is
+    // redacted on this device before anything leaves it, and the summary says
+    // so. A plain chat message carrying a card number is still blocked.
+    if (purpose === "memory" && detectLikelyPan(text)) {
+      enqueueMemoryImport(redactLikelyPans(text), countLikelyPans(text));
+      return;
+    }
+>>>>>>> 38cbab2fb (fix(agent): remove expand-collapse button and state from chat input box)
     if (detectLikelyPan(text)) {
       appendMessage({
         id: `msg-${Date.now()}-pan-blocked`,
@@ -4671,6 +4685,7 @@ export function AgentChatWorkspace({
 
   const handleComposerPaste = (event: ReactClipboardEvent<HTMLTextAreaElement>) => {
     const pasted = event.clipboardData.getData("text");
+<<<<<<< HEAD
     if (!shouldCaptureLargePaste(pasted)) return;
     event.preventDefault();
     const nextComposerText = mergePastedText({
@@ -4707,6 +4722,10 @@ export function AgentChatWorkspace({
     if (longPromptAttachment?.isExpanded) {
       setLongPromptAttachment(createPendingTextAttachment(input));
       setInput("");
+=======
+    if (pasted.length >= 1_200 || pasted.split(/\r?\n/).length >= 12) {
+      setComposerPurpose("memory");
+>>>>>>> 38cbab2fb (fix(agent): remove expand-collapse button and state from chat input box)
     }
     setComposerExpanded(false);
   };
@@ -6376,15 +6395,53 @@ export function AgentChatWorkspace({
                       </Button>
                     </div>
                   ) : null}
-                  {composerExpanded ? (
+                  {composerPurpose ? (
                     <div
-                      data-testid="agent-chat-composer-expanded"
-                      className="relative mb-2 overflow-hidden rounded-[24px] bg-foreground/[0.045] shadow-[0_18px_55px_-42px_rgba(0,0,0,0.55)] ring-1 ring-inset ring-foreground/[0.045]"
+                      className="mb-2 flex flex-wrap items-center justify-between gap-2 rounded-[18px] bg-[color:var(--app-accent-soft)] px-3 py-2 text-xs shadow-[0_14px_34px_-28px_var(--app-accent-deep)]"
+                      role="status"
+                      aria-live="polite"
+                      data-testid="agent-chat-paste-purpose"
                     >
+                      <span className="font-medium text-foreground">
+                        Long paste detected — choose where it belongs.
+                      </span>
+                      <div className="inline-flex items-center gap-1 rounded-lg bg-background/70 p-1">
+                        <button
+                          type="button"
+                          className={cn(
+                            "rounded-md px-2.5 py-1.5 font-medium transition-colors",
+                            composerPurpose === "memory"
+                              ? "bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)]"
+                              : "text-muted-foreground hover:text-foreground",
+                          )}
+                          onClick={() => setComposerPurpose("memory")}
+                        >
+                          Review for Memory
+                        </button>
+                        <button
+                          type="button"
+                          className={cn(
+                            "rounded-md px-2.5 py-1.5 font-medium transition-colors",
+                            composerPurpose === "chat"
+                              ? "bg-foreground text-background"
+                              : "text-muted-foreground hover:text-foreground",
+                          )}
+                          onClick={() => setComposerPurpose("chat")}
+                        >
+                          Send as chat
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
+                  <div
+                    data-testid="agent-chat-composer"
+                    className="flex min-h-16 items-center gap-2 rounded-[24px] bg-foreground/[0.045] px-3 py-2 shadow-[0_18px_55px_-42px_rgba(0,0,0,0.55)] ring-1 ring-inset ring-foreground/[0.045] transition-[background-color,box-shadow] focus-within:bg-background/96 focus-within:shadow-[0_20px_60px_-38px_var(--app-accent-deep)] focus-within:ring-[color:var(--app-accent-ring)]"
+                  >
+                    <div className="relative min-w-0 flex-1">
                       <textarea
                         ref={composerTextareaRef}
-                        data-testid="agent-chat-composer-expanded-textarea"
-                        aria-label="Expanded message One"
+                        data-testid="agent-chat-composer-textarea"
+                        aria-label="Message One"
                         value={input}
                         onChange={(event) => setInput(event.target.value)}
                         onPaste={handleComposerPaste}
@@ -6412,90 +6469,18 @@ export function AgentChatWorkspace({
                             ? "Preparing your reply to the selected Gmail request…"
                             : gmailKycMissingLabels.length > 0
                             ? `Reply with: ${gmailKycMissingLabels.join(", ")}`
-                            : "Write a longer message..."
+                            : "Message One..."
                         }
-                        className="block h-[min(38dvh,18rem)] w-full resize-none overscroll-contain overflow-y-auto bg-transparent px-4 pb-14 pr-32 pt-4 text-[16px] leading-6 text-foreground outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-60 sm:h-[min(48dvh,30rem)] sm:px-5 sm:pb-16 sm:pr-36 sm:pt-5 sm:text-sm"
+                        rows={1}
+                        className="block min-h-10 max-h-28 w-full resize-none overscroll-contain overflow-y-auto bg-transparent py-3 pl-3 pr-3 text-[16px] leading-6 text-foreground outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-60 sm:max-h-36 sm:py-3 sm:pl-4 sm:pr-3 sm:text-sm"
                       />
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        className="absolute right-2 top-2 h-8 w-8 rounded-lg text-muted-foreground"
-                        aria-label="Collapse message editor"
-                        title="Collapse"
-                        onClick={collapseComposer}
-                      >
-                        <Minimize2 className="h-4 w-4" />
-                      </Button>
-                      <div className="absolute bottom-3 right-3 flex items-center gap-2 sm:bottom-4 sm:right-4">
-                        {composerActionRail}
-                      </div>
                     </div>
-                  ) : null}
-                  {!composerExpanded ? (
-                    <div
-                      data-testid="agent-chat-composer"
-                      className="flex min-h-16 items-center gap-2 rounded-[24px] bg-foreground/[0.045] px-3 py-2 shadow-[0_18px_55px_-42px_rgba(0,0,0,0.55)] ring-1 ring-inset ring-foreground/[0.045] transition-[background-color,box-shadow] focus-within:bg-background/96 focus-within:shadow-[0_20px_60px_-38px_var(--app-accent-deep)] focus-within:ring-[color:var(--app-accent-ring)]"
-                    >
-                      <div className="relative min-w-0 flex-1">
-                        <textarea
-                          ref={composerTextareaRef}
-                          data-testid="agent-chat-composer-textarea"
-                          aria-label="Message One"
-                          value={input}
-                          onChange={(event) => setInput(event.target.value)}
-                          onPaste={handleComposerPaste}
-                          onKeyDown={(event) => {
-                            if (
-                              event.key !== "Enter" ||
-                              event.shiftKey ||
-                              event.nativeEvent.isComposing
-                            ) {
-                              return;
-                            }
-                            event.preventDefault();
-                            if (canSend) {
-                              event.currentTarget.form?.requestSubmit();
-                            }
-                          }}
-                          disabled={
-                            isLoadingHistory ||
-                            isVoiceConnecting ||
-                            emailDraftOpen ||
-                            isGmailKycSaving
-                          }
-                          placeholder={
-                            isGmailKycSaving && gmailKycReplyRequest
-                              ? "Preparing your reply to the selected Gmail request…"
-                              : gmailKycMissingLabels.length > 0
-                              ? `Reply with: ${gmailKycMissingLabels.join(", ")}`
-                              : "Message One..."
-                          }
-                          rows={1}
-                          className="block min-h-10 max-h-28 w-full resize-none overscroll-contain overflow-y-auto bg-transparent px-7 py-3 pr-14 text-[16px] leading-6 text-foreground outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-60 sm:max-h-36 sm:px-8 sm:pr-14 sm:text-sm"
-                        />
-                        {/* Always top-right. It used to appear only once the
-                            message grew past a threshold, so the control the
-                            owner reaches for arrived late and moved the moment
-                            it did. */}
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          data-testid="agent-chat-composer-expand"
-                          className="absolute right-1 top-1.5 h-9 w-9 rounded-xl text-muted-foreground"
-                          aria-label="Expand message editor"
-                          title="Expand"
-                          onClick={() => setComposerExpanded(true)}
-                        >
-                          <Maximize2 className="h-4 w-4" />
-                        </Button>
-                      </div>
-                      <div className="flex shrink-0 items-center gap-2">
-                        {composerActionRail}
-                      </div>
+                    <div className="flex shrink-0 items-center gap-2">
+                      {composerActionRail}
                     </div>
-                  ) : null}
+                  </div>
+                    </div>
+                  </div>
                 </>
               )}
             </div>
