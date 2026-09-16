@@ -59,6 +59,7 @@ import {
 } from "@/components/agent/email-delivery-history-card";
 import { bucketEmailDeliveryTimelineItems } from "@/lib/agent/agent-chat-email-delivery-timeline";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
+import { AnimatedMenuCrossIcon } from "@/components/agent/animated-menu-cross-icon";
 import { loadPkmAgentLabContext } from "@/lib/profile/pkm-agent-lab-capture";
 import { AgentPkmContextStore } from "@/lib/agent/agent-pkm-context-store";
 import { SecureCardAddForm } from "@/components/wallet/secure-card-add-form";
@@ -975,20 +976,19 @@ function AgentPromptSuggestions({
       )}
     >
       {prompts.map((prompt) => (
-        <ShellActionSurface
+        <button
           key={prompt}
           type="button"
-          variant="pill"
           disabled={disabled}
           onClick={() => onPromptSelect(prompt)}
-          className="!h-auto !min-h-11 max-w-full !justify-between gap-2.5 !rounded-2xl !px-4 !py-2.5 text-left text-sm font-medium"
+          className="group relative inline-flex !h-auto !min-h-11 max-w-full items-center !justify-between gap-2.5 !rounded-2xl border border-[color:var(--app-glass-border)] bg-[color:var(--app-glass-surface)] !px-4 !py-2.5 text-left text-sm font-medium text-foreground shadow-[var(--app-glass-shadow)] transition-colors duration-150 hover:bg-[color:var(--app-shell-surface-bg-hover)] active:opacity-90 disabled:pointer-events-none disabled:opacity-60"
         >
           <span className="min-w-0 whitespace-normal leading-5">{prompt}</span>
           <ChevronRight
             className="h-4 w-4 shrink-0 text-[color:var(--app-accent-deep)]"
             aria-hidden
           />
-        </ShellActionSurface>
+        </button>
       ))}
     </div>
   );
@@ -2287,10 +2287,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     if (!textarea || voiceActive) return;
     textarea.style.height = "0px";
     const nextHeight = textarea.scrollHeight;
-    // `scrollHeight` includes soft-wrapped text, which is the visual behavior
-    // people notice. Reveal the larger editor after roughly four rendered rows.
-    const long = input.trim().length > 0 && nextHeight > 96;
-    if (!long) setComposerExpanded(false);
+    if (!input.trim()) setComposerExpanded(false);
     // The expanded writing surface owns its fixed, spacious height. The compact
     // pill grows only to its CSS ceiling and then scrolls internally.
     textarea.style.height = composerExpanded ? "" : `${nextHeight}px`;
@@ -5262,6 +5259,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       className={sidebarClassName}
       collapsed={collapsed}
       mode={mode}
+      hideCloseButton={true}
       surface={agentSurface}
       onClose={onClose}
       onToggleCollapsed={() => setIsHistoryCollapsed((current) => !current)}
@@ -5367,22 +5365,22 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           className={cn(
             "relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-[radial-gradient(circle_at_78%_8%,color-mix(in_srgb,var(--app-accent-soft)_42%,transparent),transparent_34%),var(--background)]",
           )}
-          inert={isHistoryDrawerOpen}
         >
           <div
             className={cn(
-              "agent-chat-header flex shrink-0 touch-pan-y items-center justify-between gap-3 bg-background/90 px-4 pt-[var(--agent-chat-header-safe-top)] backdrop-blur-2xl sm:px-5",
+              "agent-chat-header relative z-[540] flex shrink-0 touch-pan-y items-center justify-between gap-3 bg-background/90 px-4 pt-[var(--agent-chat-header-safe-top)] backdrop-blur-2xl sm:px-5",
               "min-h-[calc(3.75rem+var(--agent-chat-header-safe-top))] sm:min-h-[calc(4rem+var(--app-safe-area-top-effective,0px))] sm:pt-[var(--app-safe-area-top-effective,0px)] lg:px-6",
             )}
           >
             <div className="flex min-w-0 items-center gap-3">
               <ShellActionSurface
                 variant="icon"
-                onClick={openHistoryDrawer}
-                aria-label="Open chat history"
-                title="Open chat history"
+                onClick={() => setIsHistoryDrawerOpen((open) => !open)}
+                aria-label={isHistoryDrawerOpen ? "Close chat history" : "Open chat history"}
+                title={isHistoryDrawerOpen ? "Close chat history" : "Open chat history"}
+                className="relative z-[540]"
               >
-                <Menu className="h-4 w-4" />
+                <AnimatedMenuCrossIcon isOpen={isHistoryDrawerOpen} />
               </ShellActionSurface>
               <div className="grid h-9 w-9 shrink-0 place-items-center overflow-hidden rounded-[13px] bg-[color:var(--app-accent-soft)] shadow-[0_10px_28px_-20px_var(--app-accent-deep)]">
                 {isPuppySurface ? (
@@ -5597,7 +5595,10 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
             />
           ) : null}
 
-          <div className="relative min-h-0 flex-1 overflow-hidden">
+          <div
+            className="relative min-h-0 flex-1 overflow-hidden"
+            inert={isHistoryDrawerOpen}
+          >
             <div
               ref={transcriptRef}
               onScroll={(event) => {
@@ -6572,6 +6573,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
 
           <form
             onSubmit={handleSubmit}
+            inert={isHistoryDrawerOpen}
             data-agent-chat-composer-form={
               isCanonicalChatRoute ? "root" : "embedded"
             }
@@ -6862,9 +6864,15 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                           variant="ghost"
                           size="icon"
                           data-testid="agent-chat-composer-expand"
-                          className="h-8 w-8 shrink-0 rounded-lg text-muted-foreground hover:bg-foreground/[0.06] hover:text-foreground"
+                          className="h-8 w-8 shrink-0 rounded-lg text-muted-foreground hover:bg-foreground/[0.06] hover:text-foreground disabled:pointer-events-none disabled:opacity-30"
                           aria-label="Expand message editor"
                           title="Expand"
+                          disabled={
+                            !input.trim() ||
+                            isVoiceConnecting ||
+                            emailDraftOpen ||
+                            isGmailKycSaving
+                          }
                           onClick={() => setComposerExpanded(true)}
                         >
                           <Maximize2 className="h-4 w-4" />

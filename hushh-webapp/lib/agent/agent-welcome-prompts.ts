@@ -13,10 +13,26 @@ export type AgentWelcomePromptContext = {
 };
 
 const WELCOME_PROMPT_DECK: readonly (readonly AgentWelcomePrompt[])[] = [
-  ["Review my portfolio", "Save a memory", "Explain consent flows"],
-  ["Analyze a stock", "Help me organize a memory", "What can I safely share?"],
-  ["Review my portfolio", "How does my vault stay private?", "Show my consent requests"],
-  ["What moved in the market today?", "Save a memory", "What can One help with?"],
+  [
+    "Review my portfolio",
+    "Save a memory to my vault",
+    "Who can see my information right now?",
+  ],
+  [
+    "What moved in the market today?",
+    "How does my vault stay private?",
+    "Who is sharing their location with me?",
+  ],
+  [
+    "Review my portfolio",
+    "Show my consent requests",
+    "What do you remember about my preferences?",
+  ],
+  [
+    "Analyze a stock",
+    "Share my location with trusted contacts",
+    "What capabilities can One run?",
+  ],
 ] as const;
 
 const SET_UP_PORTFOLIO_PROMPT = "Set up my portfolio";

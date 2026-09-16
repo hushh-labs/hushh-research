@@ -380,9 +380,14 @@ function AppShellFrame({ children }: ProvidersProps) {
   // RIA and Foundation both use a persistent-but-pinned lower utility. Keep
   // the scroll-hide driver for ordinary signed-in navigation only.
   const pinnedBottomChrome = isRiaRoute(pathname) || foundationVoiceOnlyChrome;
+  const isChatRoute =
+    pathname === ROUTES.HOME || pathname === "/one" || pathname === "/agent";
   const bottomShellModel = {
     ambientEnabled:
-      ambientChromeEnabled && !isFullscreenTopFlow && !bottomChromeHidden,
+      ambientChromeEnabled &&
+      !isFullscreenTopFlow &&
+      !bottomChromeHidden &&
+      !isChatRoute,
     navigationHidden: hideBottomNavigation,
     // The canonical Chat route already exposes its text composer. Keep the
     // idle voice launcher out of that route's visual hierarchy while allowing

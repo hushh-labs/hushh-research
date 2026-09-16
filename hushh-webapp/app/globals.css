@@ -2143,17 +2143,11 @@ body:has(.profile-account-content)
   );
 }
 
-/* Chat's text composer remains always visible in the viewport. It adapts
- * position smoothly relative to the bottom chrome without ever translating
- * out of the viewport (var(--bottom-nav-travel, 0px) travel is bounded). */
+/* Chat's text composer stays stable at the bottom without bouncing or transform jitter. */
 .agent-chat-workspace[data-agent-chat-route="root"]
   [data-agent-chat-composer-form="root"] {
-  transform: translate3d(
-    0,
-    calc(var(--bottom-chrome-progress, 0) * var(--bottom-nav-travel, 0px)),
-    0
-  );
-  will-change: transform;
+  transform: none !important;
+  will-change: auto;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -2163,13 +2157,31 @@ body:has(.profile-account-content)
   }
 }
 
+/* Ensure no colored/frosted mask overlay washes out chat responses in the background. */
+body:has(.agent-chat-workspace) .ambient-chrome-mask,
 body:has(.agent-chat-workspace) .ambient-chrome-mask--bottom {
+  display: none !important;
   background-image: none !important;
   background-color: transparent !important;
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
   mask-image: none !important;
   -webkit-mask-image: none !important;
+}
+
+body:has(.agent-chat-workspace) [data-app-bottom-shell] {
+  background: transparent !important;
+  background-color: transparent !important;
+}
+
+/* Translucent glass surfaces for composer and nav in chat workspace so responses are visible behind them. */
+.agent-chat-workspace .bottom-chrome-surface,
+.agent-chat-workspace [data-testid="agent-chat-composer"],
+body:has(.agent-chat-workspace) [data-app-bottom-shell] .bottom-chrome-surface,
+body:has(.agent-chat-workspace) [data-app-bottom-shell] .kai-bottom-nav-pill {
+  background: color-mix(in srgb, var(--background) 72%, transparent) !important;
+  backdrop-filter: blur(16px) saturate(140%) !important;
+  -webkit-backdrop-filter: blur(16px) saturate(140%) !important;
 }
 
 html.kb-open .agent-chat-workspace,

@@ -45,6 +45,7 @@ type AgentHistorySidebarProps = {
   className?: string;
   collapsed?: boolean;
   mode?: "desktop" | "mobile";
+  hideCloseButton?: boolean;
   /**
    * Which agent is on screen beside this list.
    *
@@ -155,6 +156,7 @@ export function AgentHistorySidebar({
   className,
   collapsed = false,
   mode = "desktop",
+  hideCloseButton = false,
   surface = "one",
   onClose,
   onToggleCollapsed,
@@ -429,7 +431,7 @@ export function AgentHistorySidebar({
       >
         {isMobileMode ? (
           <div className="border-b border-border/65 px-4 pb-3 pt-[max(1rem,var(--app-safe-area-top-effective))] dark:border-white/10">
-            <div className="flex items-center justify-between gap-3">
+            <div className={cn("flex items-center justify-between gap-3", hideCloseButton && "pl-11")}>
               <div className="flex min-w-0 items-center gap-2">
                 <h2 className="truncate text-[16px] font-semibold tracking-[-0.01em] text-foreground">
                   {listTitle}
@@ -440,7 +442,7 @@ export function AgentHistorySidebar({
                   </span>
                 ) : null}
               </div>
-              {onClose ? (
+              {onClose && !hideCloseButton ? (
                 <Button
                   type="button"
                   variant="ghost"

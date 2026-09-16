@@ -220,15 +220,14 @@ describe("private-agent chat shell contract", () => {
     expect(providers).toContain("agentBarHidden:");
   });
 
-  it("lets root Chat use the top spacer and move its composer with bottom chrome", () => {
+  it("lets root Chat use the top spacer and keep its composer stable at the bottom", () => {
     const workspace = read("components/agent/agent-chat-workspace.tsx");
     const styles = read("app/globals.css");
 
     expect(workspace).toContain("agent-chat-workspace--root");
     expect(workspace).toContain('data-agent-chat-composer-form={');
     expect(workspace).toContain("h-[calc(100dvh-var(--app-top-content-offset,0px)-var(--app-bottom-shell-height");
-    expect(styles).toContain("fixed ambient mask");
     expect(styles).toContain('[data-agent-chat-composer-form="root"]');
-    expect(styles).toContain("var(--bottom-nav-travel, 0px)");
+    expect(styles).toContain("transform: none !important");
   });
 });
