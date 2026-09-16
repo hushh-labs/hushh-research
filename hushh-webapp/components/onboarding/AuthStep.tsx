@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import Image from "next/image";
 import { ArrowLeft, Shield } from "lucide-react";
 import lightStyles from "./AuthStepLight.module.css";
-import { OneArcIllustration } from "@/components/onboarding/OneArcIllustration";
 import { AuthService } from "@/lib/services/auth-service";
 import { ApiService } from "@/lib/services/api-service";
 import { useAuth } from "@/lib/firebase/auth-context";
@@ -1050,15 +1049,7 @@ export function AuthStep({
           data-auth-signin-clusters
         >
           <div className={cn("flex w-full flex-col items-center gap-3", lightStyles.hero)}>
-            <div className={lightStyles.existingIllustration}><OneArcIllustration /></div>
-            <div className={lightStyles.illustration} aria-hidden="true">
-              <div className={lightStyles.imageCrop}>
-                <Image src="/onboarding/figma/screen-7-art.png" alt="" width={1536} height={1024} priority unoptimized draggable={false} className={lightStyles.darkArtwork} />
-                <Image src="/onboarding/figma/screen-3-art.png" alt="" width={950} height={1698} priority unoptimized draggable={false} />
-              </div>
-              <span className={lightStyles.glow} />
-              <span className={lightStyles.emoji}>🤫</span>
-            </div>
+            <span className={lightStyles.brandMark} aria-hidden="true">🤫</span>
 
             <h1
               role="heading"

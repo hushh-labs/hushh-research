@@ -114,27 +114,24 @@ describe("OneDashboardPage", () => {
     for (const id of expectedProfileFormatIcons) {
       const icon = screen.getAllByTestId(`one-agent-icon-${id}`)[0];
       expect(icon).toBeTruthy();
-      expect(icon).toHaveAttribute("data-agent-icon-kind", "lucide");
-      expect(icon.querySelector("svg")).toBeTruthy();
+      expect(icon).toHaveAttribute("data-agent-icon-kind", "image");
+      expect(icon.querySelector("img")).toBeTruthy();
     }
     const financeIcon = screen.getAllByTestId("one-agent-icon-finance")[0];
-    expect(financeIcon).toHaveStyle({
-      "--agent-icon-profile-bg": "rgba(88, 86, 214, 0.16)",
-      "--agent-icon-profile-fg": "#5856D6",
-    });
+    expect(financeIcon.style.getPropertyValue("--agent-icon-profile-bg")).toBe("");
     // Palette slots are assigned by roster position, so this list must track
     // ONE_CAPABILITIES order: the palette exists to keep adjacent rows
     // distinguishable, and that property is preserved.
     const rosterPaletteOrder = [
-      "finance",
-      "wallet",
       "location",
-      "ria",
       "gmail",
       "calendar",
       "email",
-      "pkm",
+      "finance",
+      "ria",
+      "wallet",
       "consent",
+      "pkm",
     ] as const;
     const rosterPaletteSlots = rosterPaletteOrder.map((id) =>
       screen
@@ -164,18 +161,9 @@ describe("OneDashboardPage", () => {
     expect(iconBackgrounds.wallet).toBe(iconBackgrounds.location);
     expect(iconBackgrounds.gmail).toBe(iconBackgrounds.location);
     expect(iconBackgrounds.calendar).toBe(iconBackgrounds.location);
-    expect(iconBackgrounds.email).toBe(iconBackgrounds.location);
-    expect(iconBackgrounds.pkm).toBe(iconBackgrounds.consent);
-    expect(new Set(Object.values(iconBackgrounds)).size).toBe(3);
-    expect(financeIcon.className).toContain(
-      "dark:bg-[var(--agent-icon-profile-bg-dark)]",
-    );
-    expect(financeIcon.querySelector("svg")?.className.baseVal).toContain(
-      "text-current",
-    );
-    expect(financeIcon.querySelector("svg")?.className.baseVal).not.toContain(
-      "dark:!text-[#1d1d1f]",
-    );
+    expect(Object.values(iconBackgrounds).every((background) => background === "")).toBe(true);
+    expect(financeIcon.className).not.toContain("bg-");
+    expect(financeIcon.querySelector("img")).toHaveAttribute("src", "/agents/finance.png");
     expect(financeIcon.querySelector(".backdrop-blur-\\[8px\\]")).toBeNull();
     const riaLink = screen.getByRole("link", { name: "Open RIA" });
     expect(riaLink.getAttribute("href")).toBe(

@@ -2261,7 +2261,7 @@ function LocationHeaderIconTile() {
   // The tile itself now lives with the header primitive, so RIA's agent
   // screens draw the same one instead of a second copy of these classes.
   return (
-    <AgentHeaderIcon icon={MapPin} data-testid="one-location-header-icon" />
+    <AgentHeaderIcon icon={MapPin} capabilityId="location" data-testid="one-location-header-icon" />
   );
 }
 

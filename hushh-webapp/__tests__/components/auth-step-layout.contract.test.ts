@@ -4,6 +4,13 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 describe("AuthStep layout contract", () => {
+  it("shows only the quiet brand mark above sign-in, without the floating agents", () => {
+    const source = readFileSync(join(process.cwd(), "components/onboarding/AuthStep.tsx"), "utf8");
+    expect(source).toContain("lightStyles.brandMark");
+    expect(source).not.toContain("OneArcIllustration");
+    expect(source).not.toContain("screen-3-art.png");
+    expect(source).not.toContain("screen-7-art.png");
+  });
   it("returns to the canonical onboarding parent instead of browser history", () => {
     const source = readFileSync(
       join(process.cwd(), "components/onboarding/AuthStep.tsx"),

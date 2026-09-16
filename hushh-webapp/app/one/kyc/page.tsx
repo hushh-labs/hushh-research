@@ -31,6 +31,7 @@ import {
 } from "@/components/app-ui/app-page-shell";
 import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
 import { PageHeader } from "@/components/app-ui/page-sections";
+import { AgentIdentityIcon } from "@/components/app-ui/agent-section-icon";
 import {
   SettingsDetailPanel,
   SettingsGroup,
@@ -1888,6 +1889,7 @@ export function OneKycWorkspace({
           title="KYC"
           description="Review and approve each request."
           icon={ShieldCheck}
+          leading={<AgentIdentityIcon id="email" size="pageHeader" />}
           accent="neutral"
           actions={
             <div className="flex flex-wrap justify-end gap-2">

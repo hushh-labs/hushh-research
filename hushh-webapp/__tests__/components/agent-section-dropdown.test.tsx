@@ -50,7 +50,7 @@ describe("AgentSectionDropdown", () => {
     ).toBe(getAgentSections().length);
     // Branded Solar glyphs retain their own contrast treatment in cmdk rows.
     expect(
-      screen.getByTestId("top_agent_section_finance").querySelector("svg"),
+      screen.getByTestId("top_agent_section_finance").querySelector('img[src="/agents/finance.png"]'),
     ).toBeTruthy();
     expect(
       document.querySelector('[data-slot="popover-content"]')?.className,

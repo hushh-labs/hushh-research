@@ -1,16 +1,7 @@
 
 import {
-  BookMarked,
-  CalendarDays,
   ContactRound,
-  CreditCard,
-  FileCheck2,
-  KeyRound,
-  Landmark,
-  Mail,
-  MapPin,
   Store,
-  UsersRound,
   type LucideIcon,
 } from "lucide-react";
 
@@ -58,15 +49,16 @@ export type OneCapabilityGroup = "workflow" | "memory" | "access";
 
 export type OneCapabilityIcon =
   | { kind: "lucide"; icon: LucideIcon }
-  | { kind: "image"; src: string; alt: string };
+  | { kind: "image"; src: string; alt: string; contentBox?: readonly [number, number, number, number, number] };
 
 export function lucideCapabilityIcon(icon: LucideIcon): OneCapabilityIcon {
   return { kind: "lucide", icon };
 }
 
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-function imageCapabilityIcon(src: string, alt: string): OneCapabilityIcon {
-  return { kind: "image", src, alt };
+// Visible tile bounds: x, y, width, height, square source-canvas size.
+// This preserves supplied assets while accounting for their transparent margins.
+function imageCapabilityIcon(src: string, alt: string, contentBox: readonly [number, number, number, number, number]): OneCapabilityIcon {
+  return { kind: "image", src, alt, contentBox };
 }
 
 export interface OneCapability {
@@ -129,41 +121,6 @@ export interface OneCapability {
  */
 export const ONE_CAPABILITIES: readonly OneCapability[] = [
   {
-    id: "finance",
-    setupActionId: "setup.open_finance",
-    setupControlId: "one_setup_tile_finance",
-    agentId: "agent_kai",
-    // Public agent name is "Finance" (renamed back from a brief "Investor"
-    // pass). Kai remains the internal finance runtime naming: id, routes,
-    // contracts, and code identifiers unchanged.
-    title: "Finance",
-    description: "Market, portfolio, analysis, and RIA handoff.",
-    previewLabel: "Market, portfolio & analysis",
-    href: ROUTES.KAI_HOME,
-    icon: lucideCapabilityIcon(Landmark),
-    tone: "finance",
-    group: "workflow",
-    requiresVault: true,
-  },
-  {
-    id: "wallet",
-    agentId: "agent_wallet",
-    title: "Wallet",
-    description: "Every credit and debit card, encrypted in your vault.",
-    previewLabel: "Your cards, in your vault",
-    href: ROUTES.ONE_WALLET,
-    icon: lucideCapabilityIcon(CreditCard),
-    tone: "pkm",
-    group: "workflow",
-    requiresVault: true,
-  },
-  {
-    // Second, deliberately. Location was row 6 of 10 and below the fold on a
-    // phone; 391 people reached this screen in 30 days and 18 opened Location,
-    // while the feature converts at 76% once found. Unlike Finance and Consent
-    // it has no inbound entry point -- no push, no toast, no feed row reaches
-    // someone who does not already have a share -- so its only discovery path
-    // is this list.
     id: "location",
     setupActionId: "setup.open_location",
     setupControlId: "one_setup_tile_location",
@@ -172,24 +129,8 @@ export const ONE_CAPABILITIES: readonly OneCapability[] = [
     description: "Share where you are with people you trust.",
     previewLabel: "Live location & Alerts",
     href: ROUTES.ONE_LOCATION,
-    icon: lucideCapabilityIcon(MapPin),
+    icon: imageCapabilityIcon("/agents/location.png", "Location", [138, 147, 978, 963, 1254]),
     tone: "location",
-    group: "workflow",
-    requiresVault: true,
-  },
-  {
-    id: "ria",
-    setupActionId: "setup.open_ria",
-    setupControlId: "one_setup_tile_ria",
-    // RIA setup is an account/persona workflow owned by the existing RIA
-    // onboarding route. It is not a separate product-agent delegation lane.
-    agentId: null,
-    title: "RIA",
-    description: "Advisor verification, profile, clients, and requests.",
-    previewLabel: "Advisor profile & verification",
-    href: ROUTES.RIA_ONBOARDING,
-    icon: lucideCapabilityIcon(UsersRound),
-    tone: "ria",
     group: "workflow",
     requiresVault: true,
   },
@@ -204,7 +145,7 @@ export const ONE_CAPABILITIES: readonly OneCapability[] = [
     description: "Receipt sync and purchase-memory review.",
     previewLabel: "Receipt & purchase memory",
     href: ROUTES.GMAIL,
-    icon: lucideCapabilityIcon(Mail),
+    icon: imageCapabilityIcon("/agents/gmail.png", "Gmail", [138, 157, 977, 940, 1254]),
     tone: "gmail",
     group: "memory",
     requiresVault: true,
@@ -218,7 +159,7 @@ export const ONE_CAPABILITIES: readonly OneCapability[] = [
     description: "Calendar summaries, availability, and confirmed scheduling.",
     previewLabel: "Availability & scheduling",
     href: ROUTES.CALENDAR,
-    icon: lucideCapabilityIcon(CalendarDays),
+    icon: imageCapabilityIcon("/agents/calendar.png", "Calendar", [132, 143, 986, 948, 1254]),
     tone: "calendar",
     group: "workflow",
     requiresVault: true,
@@ -231,21 +172,54 @@ export const ONE_CAPABILITIES: readonly OneCapability[] = [
     title: "KYC",
     description: "Review information requests and approve each response.",
     href: ROUTES.ONE_KYC,
-    icon: lucideCapabilityIcon(FileCheck2),
+    icon: imageCapabilityIcon("/agents/kyc.svg", "KYC", [0, 0, 100, 100, 100]),
     tone: "email",
     group: "workflow",
     requiresVault: true,
   },
   {
-    id: "pkm",
-    // Memory is a direct private-agent surface, not Marketplace delegation.
+    id: "finance",
+    setupActionId: "setup.open_finance",
+    setupControlId: "one_setup_tile_finance",
+    agentId: "agent_kai",
+    // Public agent name is "Finance" (renamed back from a brief "Investor"
+    // pass). Kai remains the internal finance runtime naming: id, routes,
+    // contracts, and code identifiers unchanged.
+    title: "Finance",
+    description: "Market, portfolio, analysis, and RIA handoff.",
+    previewLabel: "Market, portfolio & analysis",
+    href: ROUTES.KAI_HOME,
+    icon: imageCapabilityIcon("/agents/finance.png", "Finance", [159, 195, 936, 900, 1254]),
+    tone: "finance",
+    group: "workflow",
+    requiresVault: true,
+  },
+  {
+    id: "ria",
+    setupActionId: "setup.open_ria",
+    setupControlId: "one_setup_tile_ria",
+    // RIA setup is an account/persona workflow owned by the existing RIA
+    // onboarding route. It is not a separate product-agent delegation lane.
     agentId: null,
-    title: "Memory",
-    description: "Saved knowledge and context you can review.",
-    href: ROUTES.PKM,
-    icon: lucideCapabilityIcon(BookMarked),
+    title: "RIA",
+    description: "Advisor verification, profile, clients, and requests.",
+    previewLabel: "Advisor profile & verification",
+    href: ROUTES.RIA_ONBOARDING,
+    icon: imageCapabilityIcon("/agents/ria.png", "RIA", [160, 177, 932, 903, 1254]),
+    tone: "ria",
+    group: "workflow",
+    requiresVault: true,
+  },
+  {
+    id: "wallet",
+    agentId: "agent_wallet",
+    title: "Wallet",
+    description: "Every credit and debit card, encrypted in your vault.",
+    previewLabel: "Your cards, in your vault",
+    href: ROUTES.ONE_WALLET,
+    icon: imageCapabilityIcon("/agents/wallet.png", "Wallet", [138, 146, 978, 962, 1254]),
     tone: "pkm",
-    group: "memory",
+    group: "workflow",
     requiresVault: true,
   },
   {
@@ -256,10 +230,22 @@ export const ONE_CAPABILITIES: readonly OneCapability[] = [
     title: "Consent",
     description: "Access requests, approvals, and revocations.",
     href: buildConsentCenterHref("pending"),
-    icon: lucideCapabilityIcon(KeyRound),
+    icon: imageCapabilityIcon("/agents/consent.png", "Consent", [137, 146, 978, 965, 1254]),
     tone: "consent",
     group: "access",
     isExploreOnly: true,
+  },
+  {
+    id: "pkm",
+    // Memory is a direct private-agent surface, not Marketplace delegation.
+    agentId: null,
+    title: "Memory",
+    description: "Saved knowledge and context you can review.",
+    href: ROUTES.PKM,
+    icon: imageCapabilityIcon("/agents/memory.png", "Memory", [145, 158, 965, 938, 1254]),
+    tone: "pkm",
+    group: "memory",
+    requiresVault: true,
   },
   {
     id: "marketplace",

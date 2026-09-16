@@ -17,6 +17,8 @@ import {
 } from "@/components/app-ui/typography";
 import { Icon } from "@/lib/morphy-ux/ui";
 import { cn } from "@/lib/utils";
+import { AgentIdentityIcon } from "@/components/app-ui/agent-section-icon";
+import { getOneCapability } from "@/lib/onboarding/one-capabilities";
 
 type SectionAccent =
   | "neutral"
@@ -129,12 +131,17 @@ const ACCENT_STYLES: Record<
  */
 export function AgentHeaderIcon({
   icon: IconComponent,
+  capabilityId,
   className,
   ...props
 }: {
   icon: LucideIcon;
+  capabilityId?: string;
   className?: string;
 } & Omit<ComponentPropsWithoutRef<"span">, "children">) {
+  if (capabilityId && getOneCapability(capabilityId)?.icon.kind === "image") {
+    return <span aria-hidden="true" className={cn("inline-flex shrink-0", className)} {...props}><AgentIdentityIcon id={capabilityId} /></span>;
+  }
   return (
     <span
       aria-hidden="true"

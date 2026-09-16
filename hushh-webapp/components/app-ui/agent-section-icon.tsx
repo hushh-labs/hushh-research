@@ -2,6 +2,7 @@ import type { CSSProperties } from "react";
 import Image from "next/image";
 
 import {
+  getOneCapability,
   ONE_CAPABILITY_ICON_CLASS_BY_TONE,
   type OneCapabilityIcon,
   type OneCapabilityTone,
@@ -23,6 +24,9 @@ const AGENT_ICON_SURFACE_FALLBACK_CLASSNAME =
   "bg-[color:var(--app-card-surface-compact)] text-foreground ring-1 ring-border/60 group-data-[selected=true]:bg-accent-surface group-data-[selected=true]:text-accent-strong";
 
 const ICON_SIZE_CLASS = {
+  header: { surface: "h-11 w-11", lucideSurface: "", imageSurface: "", lucide: "h-[22px] w-[22px]", image: "h-full w-full object-contain", pixels: 44 },
+  pageHeader: { surface: "h-[34px] w-[34px]", lucideSurface: "", imageSurface: "", lucide: "h-6 w-6", image: "h-full w-full object-contain", pixels: 34 },
+  inline: { surface: "h-4 w-4", lucideSurface: "", imageSurface: "", lucide: "h-4 w-4", image: "h-full w-full object-contain", pixels: 16 },
   card: {
     surface: "h-14 w-14",
     lucideSurface:
@@ -95,6 +99,9 @@ const ICON_SIZE_CLASS = {
 } as const;
 
 const PROFILE_ICON_RADIUS_CLASS: Record<AgentSectionIconSize, string> = {
+  header: "rounded-[11px]",
+  pageHeader: "rounded-[10px]",
+  inline: "rounded-none",
   card: "rounded-[16px]",
   launcher: "rounded-[17px] sm:rounded-[20px]",
   topbar: "rounded-[10px]",
@@ -106,6 +113,17 @@ const PROFILE_ICON_RADIUS_CLASS: Record<AgentSectionIconSize, string> = {
 };
 
 type AgentSectionIconSize = keyof typeof ICON_SIZE_CLASS;
+
+/** Equal optical width, not equal transparent source-canvas width. */
+export function getAgentArtworkStyle(icon: OneCapabilityIcon): CSSProperties | undefined {
+  if (icon.kind !== "image" || !icon.contentBox) return undefined;
+  const [x, y, width, height, canvas] = icon.contentBox;
+  // 56pt artwork within the existing 68pt grid slot; proportional on other surfaces.
+  const scale = (56 / 68) * canvas / Math.max(width, height);
+  const dx = (0.5 - (x + width / 2) / canvas) * scale * 100;
+  const dy = (0.5 - (y + height / 2) / canvas) * scale * 100;
+  return { transform: `translate(${dx}%, ${dy}%) scale(${scale})` };
+}
 
 function resolveProfileIconStyle(
   tone: OneCapabilityTone | null | undefined,
@@ -119,6 +137,17 @@ function resolveProfileIconStyle(
     ];
   }
   return tone ? AGENT_THEME_BY_TONE[tone]?.profileIconStyle : undefined;
+}
+
+/** Resolve agent artwork from the catalog without duplicating asset paths. */
+export function AgentIdentityIcon({ id, size = "header", className }: {
+  id: string;
+  size?: keyof typeof ICON_SIZE_CLASS;
+  className?: string;
+}) {
+  const capability = getOneCapability(id);
+  if (!capability) return null;
+  return <AgentSectionIcon id={id} icon={capability.icon} tone={capability.tone} size={size} className={className} />;
 }
 
 export function AgentSectionIcon({
@@ -212,6 +241,7 @@ export function AgentSectionIcon({
       data-testid={`one-agent-icon-${id}`}
       data-agent-icon-kind={icon.kind}
       data-agent-icon-src={icon.kind === "image" ? icon.src : undefined}
+      data-agent-icon-palette-index={paletteIndex}
       aria-hidden
     >
       {icon.kind === "image" ? (
@@ -223,6 +253,7 @@ export function AgentSectionIcon({
           unoptimized
           draggable={false}
           className={classes.image}
+          style={getAgentArtworkStyle(icon)}
         />
       ) : Icon ? (
         <Icon

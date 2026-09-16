@@ -102,8 +102,6 @@ export function IntroStep({ onLogin }: { onLogin?: () => void }) {
             <div className={styles.privacy}>
               <FigmaPrivacyNote>
                 You have full control over your data.
-                <br />
-                Your data. Your rules.
               </FigmaPrivacyNote>
             </div>
             <button

@@ -4,6 +4,11 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 describe("IntroStep responsive layout contract", () => {
+  it("keeps one concise privacy assurance", () => {
+    const source = readFileSync(join(process.cwd(), "components/onboarding/IntroStep.tsx"), "utf8");
+    expect(source).toContain("You have full control over your data.");
+    expect(source).not.toContain("Your data. Your rules.");
+  });
   it("uses one stable small-viewport canvas instead of growing with mobile browser chrome", () => {
     const styles = readFileSync(
       join(process.cwd(), "components/onboarding/IntroStep.module.css"),

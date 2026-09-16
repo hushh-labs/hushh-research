@@ -13,6 +13,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { usePersonaState } from "@/lib/persona/persona-context";
 import { ROUTES } from "@/lib/navigation/routes";
 import { RIA_COPY } from "@/lib/ria/ria-screen-copy";
+import { AgentIdentityIcon } from "@/components/app-ui/agent-section-icon";
 import { Button } from "@/lib/morphy-ux/button";
 
 import {
@@ -77,6 +78,7 @@ export function RiaPrimaryWorkspaceShell({
           <PageHeader
             title="RIA"
             icon={BriefcaseBusiness}
+            leading={<AgentIdentityIcon id="ria" />}
             accent="ria"
             titleRole="agent"
             actionsInlineMobile

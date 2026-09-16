@@ -321,7 +321,7 @@ function WorkspaceArea() {
       <AppPageHeaderRegion className="space-y-4">
         <PageHeader
           title="Location"
-          leading={<AgentHeaderIcon icon={MapPin} />}
+          leading={<AgentHeaderIcon icon={MapPin} capabilityId="location" />}
           accent="location"
           titleRole="agent"
           testId="location-area-header"

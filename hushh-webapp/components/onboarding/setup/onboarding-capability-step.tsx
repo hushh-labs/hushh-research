@@ -170,6 +170,7 @@ export function OnboardingCapabilityStep({
           title={title}
           description={blurb}
           icon={HeaderIcon}
+          leading={capability.icon.kind === "image" ? <AgentSectionIcon id={capability.id} icon={capability.icon} tone={capability.tone} size="pageHeader" /> : undefined}
           accent="neutral"
           className={styles.stepHeader}
           actions={

@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Capacitor } from "@capacitor/core";
-import { CalendarDays, CheckCircle2, Loader2 } from "lucide-react";
+import { CheckCircle2, Loader2 } from "lucide-react";
+import { AgentIdentityIcon } from "@/components/app-ui/agent-section-icon";
 import { toast } from "sonner";
 
 import { AskOneButton } from "@/components/agent/ask-one-button";
@@ -344,9 +345,7 @@ export function CalendarAgentPage({
       <AppPageContentRegion className={CALENDAR_SETUP_REGION_CLASSNAME}>
         <SurfaceCard className="overflow-hidden w-full shadow-md text-center">
           <SurfaceCardHeader className="pb-3 pt-5 flex flex-col items-center text-center space-y-0.5">
-            <div className="flex size-11 items-center justify-center rounded-[12px] bg-primary/10 text-primary mb-2">
-              <CalendarDays className="size-5" aria-hidden />
-            </div>
+            <AgentIdentityIcon id="calendar" className="mb-2" />
             <SurfaceCardTitle className="text-lg font-semibold tracking-tight">
               {connected ? "Google Calendar" : "Connect Google Calendar"}
             </SurfaceCardTitle>

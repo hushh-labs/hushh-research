@@ -1,4 +1,5 @@
 "use client";
+import { AgentIdentityIcon } from "@/components/app-ui/agent-section-icon";
 
 /**
  * Unified Top Shell
@@ -268,6 +269,7 @@ function resolveCommonRouteBreadcrumb(
 
 function getScrolledRouteTitle(pathname: string): {
   label: string;
+  capabilityId?: string;
   icon?: LucideIcon;
   interactive: boolean;
 } | null {
@@ -289,11 +291,12 @@ function getScrolledRouteTitle(pathname: string): {
     };
   }
   if (pathname === ROUTES.GMAIL) {
-    return { label: "Gmail", icon: Mail, interactive: false as const };
+    return { label: "Gmail", icon: Mail, capabilityId: "gmail", interactive: false as const };
   }
   if (pathname === ROUTES.PKM) {
     return {
       label: "Memory",
+      capabilityId: "pkm",
       icon: FolderSearch,
       interactive: false as const,
     };
@@ -308,12 +311,13 @@ function getScrolledRouteTitle(pathname: string): {
   if (pathname === ROUTES.CONSENTS || pathname === ROUTES.LEGACY_CONSENTS) {
     return {
       label: "Access & sharing",
+      capabilityId: "consent",
       icon: Shield,
       interactive: false as const,
     };
   }
   if (pathname === ROUTES.ONE_KYC) {
-    return { label: "KYC", icon: FileCheck2, interactive: false as const };
+    return { label: "KYC", icon: FileCheck2, capabilityId: "email", interactive: false as const };
   }
   if (pathname === ROUTES.KAI_ANALYSIS) {
     return {
@@ -1185,7 +1189,9 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
                           "pointer-events-auto",
                         )}
                       >
-                        {centerTitle.icon ? (
+                        {"capabilityId" in centerTitle && typeof centerTitle.capabilityId === "string" ? (
+                          <AgentIdentityIcon id={centerTitle.capabilityId} size="inline" />
+                        ) : centerTitle.icon ? (
                           <Icon
                             icon={centerTitle.icon}
                             size="sm"
