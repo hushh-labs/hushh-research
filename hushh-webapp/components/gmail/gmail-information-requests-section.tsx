@@ -192,7 +192,7 @@ function WorkflowCard({
           <textarea
             value={draft.body}
             onChange={(event) => onDraftChange(event.target.value)}
-            className="min-h-36 w-full rounded-lg border border-border bg-background p-3 text-sm text-foreground"
+            className="min-h-36 w-full rounded-xl border border-border bg-background p-4 text-sm leading-relaxed text-foreground"
             aria-label="Private information reply draft"
           />
           {draft.preview ? (
