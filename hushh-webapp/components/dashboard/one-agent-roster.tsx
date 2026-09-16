@@ -550,7 +550,7 @@ function AgentGridItem({
         />
         {badgeCount !== null && (
           <span
-            className="pointer-events-none absolute -top-1 -right-1 z-20 flex h-[20px] min-w-[20px] items-center justify-center rounded-full bg-[#FF3B30] px-1 text-[11px] font-bold leading-none text-white shadow-[0_2px_4px_rgba(0,0,0,0.25)] ring-2 ring-white dark:ring-[#1C1C1E]"
+            className="pointer-events-none absolute -top-1.5 -right-1.5 z-20 flex size-[22px] shrink-0 aspect-square items-center justify-center rounded-full bg-[#EA544E] text-[12px] font-bold leading-none text-white shadow-[0_2px_4px_rgba(0,0,0,0.18)]"
             data-testid={`one-agent-badge-${mode.id}`}
           >
             {badgeCount}
