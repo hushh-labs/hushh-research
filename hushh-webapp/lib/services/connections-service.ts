@@ -38,6 +38,11 @@ export interface DirectoryPage {
   audience?: DirectoryAudience;
 }
 
+export type ConnectionPersonContext = {
+  person: DirectoryPerson;
+  request: { id: string; direction: "incoming" | "outgoing"; status: string } | null;
+};
+
 export interface ConnectionSummaryEntry {
   connectionId: string;
   userId: string;
@@ -251,6 +256,16 @@ async function jsonOrThrow<T>(response: Response): Promise<T> {
 }
 
 export class ConnectionsService {
+  static async getPersonContext(opts: { idToken: string; counterpartUserId: string }): Promise<ConnectionPersonContext> {
+    const response = await ApiService.apiFetch(`/api/one/connections/${encodeURIComponent(opts.counterpartUserId)}/context`,
+      { method: "GET", headers: authHeaders(opts.idToken) });
+    const result = await jsonOrThrow<ConnectionPersonContext>(response);
+    if (!result || result.person?.userId !== opts.counterpartUserId || !["none","connected","pending_incoming","pending_outgoing"].includes(result.person.relationship)
+      || (result.request && (typeof result.request.id !== "string" || !result.request.id || !["incoming","outgoing"].includes(result.request.direction) || !["pending","accepted","rejected","cancelled","expired"].includes(result.request.status)))
+      || (result.person.relationship.startsWith("pending_") && (result.request?.status !== "pending" || result.person.relationship !== `pending_${result.request.direction}`)))
+      throw new Error("The connection state could not be verified.");
+    return result;
+  }
   static async syncContacts(opts: {
     idToken: string;
     lookups: ContactSyncLookup[];

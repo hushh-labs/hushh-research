@@ -31,6 +31,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, AsyncGenerator, Dict, List, Optional
 
+from hushh_mcp.agents.kai.runtime import run_kai_debate_turn
 from hushh_mcp.operons.kai.llm import stream_gemini_response
 
 from .config import (
@@ -170,6 +171,8 @@ class DebateEngine:
         disconnection_event: Optional[asyncio.Event] = None,
         user_context: Optional[Dict[str, Any]] = None,
         renaissance_context: Optional[Dict[str, Any]] = None,
+        user_id: Optional[str] = None,
+        consent_token: Optional[str] = None,
     ):
         self.risk_profile = risk_profile
         self.agent_weights = AGENT_WEIGHTS[risk_profile]
@@ -178,6 +181,8 @@ class DebateEngine:
         self._disconnection_event = disconnection_event
         self.user_context = user_context or {}
         self.renaissance_context = renaissance_context or {}
+        self.user_id = str(user_id or "").strip()
+        self.consent_token = str(consent_token or "").strip()
 
     async def orchestrate_debate_stream(
         self,
@@ -444,9 +449,35 @@ class DebateEngine:
         full_response = ""
         used_fallback = False
 
-        # Stream from Gemini
+        # Authenticated product traffic uses the manifest-owned ADK debate gene.
+        # Keep the legacy stream seam only for isolated compatibility fixtures that
+        # do not have an owner token; those callers cannot perform product work.
         stream_error_message: Optional[str] = None
-        async for chunk in stream_gemini_response(prompt, agent_name=agent_name):
+        if self.user_id and self.consent_token:
+            try:
+                debate_text = await run_kai_debate_turn(
+                    prompt=prompt,
+                    user_id=self.user_id,
+                    consent_token=self.consent_token,
+                    timeout_seconds=60.0,
+                )
+
+                async def _adk_chunks():
+                    yield {"type": "token", "text": debate_text}
+
+                chunk_stream = _adk_chunks()
+            except Exception as error:
+                stream_error_message = type(error).__name__
+
+                async def _empty_chunks():
+                    if False:
+                        yield {"type": "token", "text": ""}
+
+                chunk_stream = _empty_chunks()
+        else:
+            chunk_stream = stream_gemini_response(prompt, agent_name=agent_name)
+
+        async for chunk in chunk_stream:
             if chunk.get("type") == "token":
                 text = chunk.get("text", "")
                 full_response += text

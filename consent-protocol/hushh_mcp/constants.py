@@ -415,9 +415,11 @@ DEFAULT_TRUST_LINK_EXPIRY_MS = 1000 * 60 * 60 * 24 * 30  # 30 days
 # at once (manifests say `gemini-default` and resolve here). The default is the
 # last generation proven in every lane; a lane flips the switch through the
 # `_HUSSH_GEMINI_TEXT_MODEL` deploy substitution once its Vertex allowed-models
-# policy admits the new id. Pins that name a different family (the memory chain
-# on 3.1 pro preview, the reducer on 3.1 flash lite, the Live head) are
-# deliberate and stay explicit in their manifests.
+# policy admits the new id. Founder rule 2026-09-14: the Gemini catalog
+# (runtime_providers/model_catalog.py and registry.py) lists only the last two
+# releases at all times; a roll-forward replaces the oldest, never adds a third.
+# Every text manifest, the memory chain included, names `gemini-default`; only
+# the Live head pins a model directly, and that pin stays explicit in its manifest.
 FLEET_TEXT_MODEL_DEFAULT = "gemini-3.8-flash"
 
 

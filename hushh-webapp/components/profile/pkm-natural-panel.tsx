@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Loader2, Lock, ShieldAlert } from "lucide-react";
 import { SearchClearButton } from "@/components/app-ui/search-clear-button";
@@ -14,6 +14,7 @@ import {
   type MemorySharingState,
 } from "@/components/profile/pkm-memory-detail";
 import { SettingsGroup, SettingsRow, SegmentedTabs } from "@/components/app-ui/settings-ui";
+import { PkmExportService } from "@/lib/services/pkm-export-service";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
@@ -66,6 +67,7 @@ import {
 } from "@/lib/services/personal-knowledge-model-service";
 import { PkmWriteCoordinator } from "@/lib/services/pkm-write-coordinator";
 import { usePkmDomainChangeRevision } from "@/lib/pkm/use-pkm-domain-change-revision";
+import { PkmDomainResourceService } from "@/lib/pkm/pkm-domain-resource";
 import { useVault } from "@/lib/vault/vault-context";
 
 type DomainDetailState = {
@@ -136,6 +138,44 @@ export function PkmNaturalPanel({
   const [autoSavePolicyLoading, setAutoSavePolicyLoading] = useState(false);
   const [autoSavePolicySaving, setAutoSavePolicySaving] = useState(false);
   const [autoSavePolicyError, setAutoSavePolicyError] = useState<string | null>(null);
+  const [exportBusy, setExportBusy] = useState(false);
+  const [exportStatus, setExportStatus] = useState<string | null>(null);
+  const [exportError, setExportError] = useState<string | null>(null);
+
+  /**
+   * Hand the owner everything One remembers about them, as a file they keep.
+   *
+   * Only possible while the vault is unlocked: the readable half is decrypted in
+   * this browser, because the backend holds ciphertext and no key.
+   */
+  const handleExportMemory = useCallback(async () => {
+    if (!user?.uid || !vaultKey || !vaultOwnerToken) return;
+    setExportBusy(true);
+    setExportError(null);
+    setExportStatus(null);
+    try {
+      const result = await PkmExportService.downloadMemoryExport({
+        userId: user.uid,
+        vaultKey,
+        vaultOwnerToken,
+      });
+      // On a phone the file only exists once the share sheet accepts it, so the
+      // two outcomes are reported differently rather than both as success.
+      setExportStatus(
+        result.saved
+          ? `Saved ${result.filename}. It holds ${result.domainCount} ${
+              result.domainCount === 1 ? "area" : "areas"
+            } of what One remembers.`
+          : "Nothing was saved. You can try again whenever you like.",
+      );
+    } catch (error) {
+      setExportError(
+        error instanceof Error ? error.message : "The file could not be prepared.",
+      );
+    } finally {
+      setExportBusy(false);
+    }
+  }, [user?.uid, vaultKey, vaultOwnerToken]);
   const [autoSavePolicyRetryValue, setAutoSavePolicyRetryValue] = useState<
     boolean | null
   >(null);
@@ -154,6 +194,7 @@ export function PkmNaturalPanel({
   const [homeSearchQuery, setHomeSearchQuery] = useState("");
   const [memoryCards, setMemoryCards] = useState<PkmMemoryCard[]>([]);
   const [memoryCardsLoading, setMemoryCardsLoading] = useState(false);
+  const [memoryCardsLoadError, setMemoryCardsLoadError] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -501,28 +542,42 @@ export function PkmNaturalPanel({
       return undefined;
     }
     setMemoryCardsLoading(true);
-    void PersonalKnowledgeModelService.loadFullBlob({
+    setMemoryCardsLoadError(false);
+    const loadedDomains: Record<string, Record<string, unknown>> = {};
+    const updateCards = () => {
+      const snapshot = buildPkmMemorySnapshot({
+        metadata,
+        fullBlob: loadedDomains,
+        maxCards: 400,
+        maxCardsPerDomain: 80,
+      });
+      const sorted = [...snapshot.cards].sort((left, right) => {
+        const leftTime = left.updatedAt ? Date.parse(left.updatedAt) : 0;
+        const rightTime = right.updatedAt ? Date.parse(right.updatedAt) : 0;
+        return rightTime - leftTime;
+      });
+      setMemoryCards(sorted);
+    };
+    void PkmDomainResourceService.getManyStaleFirst({
       userId: user.uid,
+      domains: visibleMetadataDomains.map((domain) => domain.key),
       vaultKey,
       vaultOwnerToken,
+      forceRefresh: refreshNonce > 0 || memoryCardsNonce > 0 || pkmChangeRevision > 0,
+      backgroundRefresh: true,
+      onProgress: ({ domain, snapshot }) => {
+        if (cancelled || !snapshot?.data) return;
+        loadedDomains[domain] = snapshot.data;
+        updateCards();
+      },
     })
-      .then((fullBlob) => {
+      .then(({ snapshots, failedDomains }) => {
         if (cancelled) return;
-        const snapshot = buildPkmMemorySnapshot({
-          metadata,
-          fullBlob,
-          maxCards: 400,
-          maxCardsPerDomain: 80,
-        });
-        const sorted = [...snapshot.cards].sort((left, right) => {
-          const leftTime = left.updatedAt ? Date.parse(left.updatedAt) : 0;
-          const rightTime = right.updatedAt ? Date.parse(right.updatedAt) : 0;
-          return rightTime - leftTime;
-        });
-        setMemoryCards(sorted);
-      })
-      .catch(() => {
-        if (!cancelled) setMemoryCards([]);
+        for (const [domain, snapshot] of Object.entries(snapshots)) {
+          loadedDomains[domain] = snapshot.data;
+        }
+        updateCards();
+        setMemoryCardsLoadError(failedDomains.length > 0);
       })
       .finally(() => {
         if (!cancelled) setMemoryCardsLoading(false);
@@ -539,6 +594,7 @@ export function PkmNaturalPanel({
     user,
     vaultKey,
     vaultOwnerToken,
+    visibleMetadataDomains,
     workspaceTab,
   ]);
 
@@ -1121,6 +1177,17 @@ export function PkmNaturalPanel({
               <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
               Opening Memory…
             </SurfaceInset>
+          ) : memoryCardsLoadError && memoryCards.length === 0 ? (
+            <SurfaceInset className="space-y-3 p-4 text-sm text-muted-foreground">
+              <p>Some saved details couldn’t be opened.</p>
+              <Button
+                size="sm"
+                variant="muted"
+                onClick={() => setMemoryCardsNonce((current) => current + 1)}
+              >
+                Try again
+              </Button>
+            </SurfaceInset>
           ) : trimmedQuery ? (
             searchResults.length === 0 && matchedCategories.length === 0 ? (
               <SurfaceInset className="p-4 text-sm text-muted-foreground" data-pkm-search-empty="true">
@@ -1169,7 +1236,7 @@ export function PkmNaturalPanel({
                 </SettingsGroup>
               ) : (
                 <>
-                  {!memoryCardsLoading ? (
+                  {!memoryCardsLoading && !memoryCardsLoadError ? (
                     <p className="px-1 text-sm text-muted-foreground">
                       One hasn’t saved anything yet.
                     </p>
@@ -1182,6 +1249,18 @@ export function PkmNaturalPanel({
                 <p className="px-1 text-sm text-muted-foreground">
                   Some memories couldn’t be loaded. Pull to refresh.
                 </p>
+              ) : null}
+              {memoryCardsLoadError ? (
+                <div className="flex items-center justify-between gap-3 px-1 text-sm text-muted-foreground">
+                  <p>Some saved details couldn’t be refreshed. Your available details are still here.</p>
+                  <Button
+                    size="sm"
+                    variant="muted"
+                    onClick={() => setMemoryCardsNonce((current) => current + 1)}
+                  >
+                    Retry
+                  </Button>
+                </div>
               ) : null}
             </>
           )}
@@ -1215,10 +1294,10 @@ export function PkmNaturalPanel({
           <SettingsGroup separatorInset testId="memory-auto-save-group">
             <SettingsRow
               testId="memory-auto-save-row"
-              title="Let One remember useful preferences"
+              title="Let One save useful details"
               description={
                 autoSavePolicyError ||
-                "One can save simple preferences automatically. Sensitive details will still ask first."
+                "One can automatically save clear details you type. Secrets, sensitive details, corrections, and details with active recipient access still ask first."
               }
               tone={autoSavePolicyError ? "destructive" : "default"}
               stackTrailingOnMobile
@@ -1270,6 +1349,53 @@ export function PkmNaturalPanel({
               </p>
             ) : null}
 
+            <SettingsGroup
+              title="Your copy"
+              description="Everything One remembers about you, in one file you keep."
+              separatorInset
+              testId="memory-export-group"
+            >
+              <SettingsRow
+                title="Download what One remembers"
+                description={
+                  isVaultUnlocked
+                    ? "Readable, plus an encrypted copy that can put it back. The readable part is plain text once it is on your device."
+                    : "Unlock first. Without your key, nothing here can be read."
+                }
+                stackTrailingOnMobile
+                trailing={
+                  <Button
+                    type="button"
+                    variant="muted"
+                    size="sm"
+                    disabled={!isVaultUnlocked || exportBusy}
+                    onClick={() => void handleExportMemory()}
+                    data-testid="memory-export-button"
+                  >
+                    {exportBusy ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden />
+                        Preparing…
+                      </>
+                    ) : (
+                      "Download"
+                    )}
+                  </Button>
+                }
+              />
+            </SettingsGroup>
+
+            {exportStatus ? (
+              <p className="px-1 text-sm text-muted-foreground" role="status">
+                {exportStatus}
+              </p>
+            ) : null}
+            {exportError ? (
+              <p className="px-1 text-sm text-[color:var(--app-destructive)]" role="alert">
+                {exportError}
+              </p>
+            ) : null}
+
             {!sharingManifestsLoading &&
               visibleMetadataDomains.map((domain) => {
                 const manifest = sharingManifests[domain.key] || null;
@@ -1315,7 +1441,8 @@ export function PkmNaturalPanel({
                   >
                     {bundles.map((bundle) => {
                       const bundleKey = `${domain.key}:${bundle.scopeHandle || bundle.topLevelScopePath}`;
-                      return (
+
+  return (
                         <SettingsRow
                           key={bundleKey}
                           title={bundle.label}

@@ -12,7 +12,9 @@ from __future__ import annotations
 
 import logging
 import os
-from datetime import datetime, timezone
+import uuid
+from datetime import datetime, timedelta, timezone
+from hmac import compare_digest
 from typing import Optional
 
 from fastapi import APIRouter, Body, Depends, HTTPException
@@ -30,6 +32,7 @@ from hushh_mcp.services.personal_agent_provisioning_service import (
     UPGRADE_ATTEMPTS_PER_IMAGE,
     PersonalAgentProvisioningService,
     _lease_is_fresh,
+    upgrade_release_id,
 )
 from hushh_mcp.services.personal_agent_registry_repo import PersonalAgentRegistryRepo
 from hushh_mcp.services.pod_connector_keypair_service import WRAPPING_ALG
@@ -73,9 +76,41 @@ class ProvisionRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
 
+class UpgradeApprovalRequest(BaseModel):
+    """Owner approval for the exact release currently offered in Feed."""
+
+    release_id: str = Field(..., alias="releaseId", min_length=8, max_length=128)
+    idempotency_key: str = Field(..., alias="idempotencyKey", min_length=8, max_length=128)
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class UpgradeDeferralRequest(BaseModel):
+    """Owner request to remind them about the same release later."""
+
+    release_id: str = Field(..., alias="releaseId", min_length=8, max_length=128)
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
 def _require_enabled() -> None:
     if not personal_agent_enabled():
         raise HTTPException(status_code=404, detail="personal agent is not available")
+
+
+async def _upgrade_offer(user_id: str) -> tuple[PersonalAgentRegistryRepo, dict, str, str]:
+    repo = PersonalAgentRegistryRepo()
+    row = await repo.get(user_id)
+    if row is None or str(row.get("status") or "") != "provisioned":
+        raise HTTPException(status_code=409, detail="a running private agent is required")
+    target_reference = str(os.getenv("HUSSH_ONE_POD_IMAGE") or "").strip()
+    if not target_reference:
+        raise HTTPException(status_code=409, detail="no software update is currently offered")
+    update = describe_pod_update(row, target_image=target_reference)
+    if update.get("updateAvailable") is not True:
+        raise HTTPException(status_code=409, detail="your private agent is already up to date")
+    release_id = upgrade_release_id(row, target_reference)
+    return repo, row, target_reference, release_id
 
 
 def _service() -> PersonalAgentProvisioningService:
@@ -279,9 +314,10 @@ def describe_pod_update(row: Optional[dict], *, target_image: Optional[str] = No
             observed_tag,
             deployed_tag,
         )
-    target = _image_tag(
+    target_reference = (
         target_image if target_image is not None else os.getenv("HUSSH_ONE_POD_IMAGE")
     )
+    target = _image_tag(target_reference)
     out: dict = {}
     if running:
         out["runningImage"] = running
@@ -294,6 +330,27 @@ def describe_pod_update(row: Optional[dict], *, target_image: Optional[str] = No
     if not (running and target):
         return out
     out["updateAvailable"] = running != target
+    if out["updateAvailable"]:
+        approval = metadata.get("upgradeApproval")
+        deferral = metadata.get("upgradeDeferral")
+        release = upgrade_release_id(row, target_reference or target)
+        update: dict[str, object] = {
+            "releaseId": release,
+            "summary": "Keeps your private agent current and preserves its information.",
+            "presentationState": "ready",
+        }
+        if isinstance(deferral, dict) and deferral.get("releaseId") == release:
+            reminder = str(deferral.get("remindAt") or "").strip()
+            if reminder:
+                update["remindAt"] = reminder
+            update["presentationState"] = "deferred"
+        if isinstance(approval, dict) and approval.get("releaseId") == release:
+            status = str(approval.get("status") or "").strip()
+            if status in {"approved", "scheduled", "updating"}:
+                update["presentationState"] = "scheduled" if status == "approved" else status
+                if approval.get("operationId"):
+                    update["operationId"] = str(approval["operationId"])
+        out["update"] = update
     marker = metadata.get("upgrade")
     if (
         isinstance(marker, dict)
@@ -459,6 +516,81 @@ async def personal_agent_status_route(
 ) -> dict:
     """The caller's own personal-agent state. Thin shell over the testable core."""
     return await resolve_personal_agent_status(user_id=user_id)
+
+
+@router.post("/update/approve")
+async def approve_personal_agent_update(
+    payload: UpgradeApprovalRequest = Body(...),
+    user_id: str = Depends(require_firebase_auth),
+) -> dict:
+    """Approve one exact release; reconciliation performs the later mutation."""
+    _require_enabled()
+    repo, row, target_reference, release_id = await _upgrade_offer(user_id)
+    if not compare_digest(payload.release_id, release_id):
+        raise HTTPException(status_code=409, detail="this software update is no longer current")
+    existing = (row.get("backend_metadata") or {}).get("upgradeApproval")
+    if isinstance(existing, dict) and existing.get("releaseId") == release_id:
+        operation_id = str(existing.get("operationId") or "").strip()
+        if operation_id:
+            return {"operationId": operation_id, "releaseId": release_id, "status": "scheduled"}
+    operation_id = "op_" + uuid.uuid4().hex
+    now = datetime.now(timezone.utc).isoformat()
+    approval = {
+        "version": 1,
+        "status": "approved",
+        "releaseId": release_id,
+        "operationId": operation_id,
+        "idempotencyKey": payload.idempotency_key,
+        "ownerId": user_id,
+        "hushhId": row.get("hushh_id"),
+        "podIncarnation": str(
+            (row.get("backend_metadata") or {}).get("serviceUid")
+            or row.get("external_agent_id")
+            or (row.get("backend_metadata") or {}).get("service")
+            or "unknown"
+        ),
+        "targetImage": target_reference,
+        "approvedAt": now,
+    }
+    stored = await repo.record_upgrade_approval(user_id=user_id, approval=approval)
+    if not isinstance(stored, dict) or stored.get("releaseId") != release_id:
+        # Another device won the conditional write. Return its operation when it
+        # is the same release; a changed release is a stale client request.
+        latest = await repo.get(user_id)
+        winner = ((latest or {}).get("backend_metadata") or {}).get("upgradeApproval")
+        if isinstance(winner, dict) and winner.get("releaseId") == release_id:
+            return {
+                "operationId": str(winner.get("operationId") or operation_id),
+                "releaseId": release_id,
+                "status": "scheduled",
+            }
+        raise HTTPException(status_code=409, detail="software update approval was superseded")
+    return {"operationId": operation_id, "releaseId": release_id, "status": "scheduled"}
+
+
+@router.post("/update/defer")
+async def defer_personal_agent_update(
+    payload: UpgradeDeferralRequest = Body(...),
+    user_id: str = Depends(require_firebase_auth),
+) -> dict:
+    """Defer the current offer for a server-controlled three-day interval."""
+    _require_enabled()
+    repo, row, target_reference, release_id = await _upgrade_offer(user_id)
+    if not compare_digest(payload.release_id, release_id):
+        raise HTTPException(status_code=409, detail="this software update is no longer current")
+    now = datetime.now(timezone.utc)
+    deferral = {
+        "version": 1,
+        "releaseId": release_id,
+        "ownerId": user_id,
+        "hushhId": row.get("hushh_id"),
+        "remindAt": (now + timedelta(days=3)).isoformat(),
+        "deferredAt": now.isoformat(),
+    }
+    stored = await repo.record_upgrade_deferral(user_id=user_id, deferral=deferral)
+    if not isinstance(stored, dict) or stored.get("releaseId") != release_id:
+        raise HTTPException(status_code=409, detail="software update is already scheduled")
+    return {"releaseId": release_id, "status": "deferred", "remindAt": stored["remindAt"]}
 
 
 @router.get("/endpoint")

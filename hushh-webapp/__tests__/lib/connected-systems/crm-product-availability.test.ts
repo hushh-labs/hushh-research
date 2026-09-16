@@ -38,7 +38,10 @@ describe("local CRM product availability", () => {
 
   it("hides a crafted local-CRM profile route in disabled builds", () => {
     const source = readFileSync(
-      path.resolve(__dirname, "../../../app/profile/profile-workspace-page.tsx"),
+      path.resolve(
+        __dirname,
+        "../../../components/profile/profile-workspace-page.tsx",
+      ),
       "utf8",
     );
 

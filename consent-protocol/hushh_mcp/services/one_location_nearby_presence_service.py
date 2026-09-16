@@ -30,8 +30,9 @@ import math
 import os
 import re
 import unicodedata
+from contextlib import contextmanager
 from datetime import datetime, timezone
-from typing import Any, Callable, Protocol
+from typing import TYPE_CHECKING, Any, Callable, Protocol
 from uuid import UUID
 
 from cryptography.hazmat.primitives import hashes
@@ -42,7 +43,42 @@ from db.db_client import get_db
 from hushh_mcp.config import VAULT_DATA_KEY
 from hushh_mcp.services.connections_service import ConnectionsService
 
+if TYPE_CHECKING:
+    from hushh_mcp.services.one_location_place_rating_service import PreparedRatingVisit
+
 logger = logging.getLogger(__name__)
+
+
+@contextmanager
+def _optional_rating_write(connection: Any):
+    """Optional rating work must not hold up a visibility change.
+
+    Settings and failed work roll back with the savepoint. Restore the caller's
+    settings on success too, so the command receipt retains its normal budget.
+    """
+    from sqlalchemy import text
+
+    with connection.begin_nested():
+        settings = (
+            connection.execute(
+                text("""SELECT
+            current_setting('lock_timeout') AS lock_timeout,
+            current_setting('statement_timeout') AS statement_timeout""")
+            )
+            .mappings()
+            .one()
+        )
+        connection.execute(
+            text("""SELECT set_config('lock_timeout','250ms',true),
+            set_config('statement_timeout','750ms',true)""")
+        )
+        yield
+        connection.execute(
+            text("""SELECT set_config('lock_timeout',:lock_timeout,true),
+            set_config('statement_timeout',:statement_timeout,true)"""),
+            dict(settings),
+        )
+
 
 NEARBY_PRESENCE_CONSENT_VERSION = "one-location-nearby-presence-v3"
 NEARBY_PRESENCE_DURATION_MINUTES = frozenset({30, 60, 120})
@@ -166,6 +202,9 @@ class NearbyPresenceStore(Protocol):
         anchor_envelope: dict[str, str],
         anchor_cell_epoch: int,
         anchor_cell_token: str,
+        command_operation_id: str | None = None,
+        place_id: str | None = None,
+        prepared_rating_visit: PreparedRatingVisit | None = None,
     ) -> dict[str, Any]: ...
 
     def get_active_presence(self, user_id: str) -> dict[str, Any] | None: ...
@@ -192,7 +231,14 @@ class NearbyPresenceStore(Protocol):
         consent_version: str,
     ) -> list[dict[str, Any]]: ...
 
-    def checkout(self, user_id: str) -> bool: ...
+    def checkout(
+        self,
+        user_id: str,
+        *,
+        command_operation_id: str | None = None,
+        presence_id: str | None = None,
+        presence_version: int = 0,
+    ) -> bool | dict[str, Any]: ...
 
     def extend_presence(
         self,
@@ -263,10 +309,12 @@ class PostgresNearbyPresenceStore:
         anchor_envelope: dict[str, str],
         anchor_cell_epoch: int,
         anchor_cell_token: str,
+        command_operation_id: str | None = None,
+        place_id: str | None = None,
+        prepared_rating_visit: PreparedRatingVisit | None = None,
     ) -> dict[str, Any]:
         self._expire_due()
-        row = self._execute_one(
-            """
+        sql = """
             INSERT INTO one_location_nearby_presences (
               owner_user_id,
               participant_alias,
@@ -331,29 +379,89 @@ class PostgresNearbyPresenceStore:
               version = one_location_nearby_presences.version + 1,
               updated_at = NOW()
             RETURNING *
-            """,
-            {
-                "user_id": user_id,
-                "allow_connection_requests": bool(allow_connection_requests),
-                "consent_version": consent_version,
-                "duration_minutes": int(duration_minutes),
-                "radius_meters": int(radius_meters),
-                "anchor_ciphertext": anchor_envelope["ciphertext"],
-                "anchor_iv": anchor_envelope["iv"],
-                "anchor_tag": anchor_envelope["tag"],
-                "anchor_algorithm": anchor_envelope["algorithm"],
-                "anchor_key_id": anchor_envelope["key_id"],
-                "anchor_cell_epoch": int(anchor_cell_epoch),
-                "anchor_cell_token": anchor_cell_token,
-            },
-        )
+            """
+        params = {
+            "user_id": user_id,
+            "allow_connection_requests": bool(allow_connection_requests),
+            "consent_version": consent_version,
+            "duration_minutes": int(duration_minutes),
+            "radius_meters": int(radius_meters),
+            "anchor_ciphertext": anchor_envelope["ciphertext"],
+            "anchor_iv": anchor_envelope["iv"],
+            "anchor_tag": anchor_envelope["tag"],
+            "anchor_algorithm": anchor_envelope["algorithm"],
+            "anchor_key_id": anchor_envelope["key_id"],
+            "anchor_cell_epoch": int(anchor_cell_epoch),
+            "anchor_cell_token": anchor_cell_token,
+        }
+        receipt_value = None
+        from sqlalchemy import text
+
+        from hushh_mcp.services.location_command_effect_receipts import CommandEffectReceipt
+
+        with get_db().engine.begin() as connection:
+            receipt = None
+            if command_operation_id:
+                receipt = CommandEffectReceipt(
+                    connection,
+                    owner=user_id,
+                    operation=command_operation_id,
+                    action="location.confirm_nearby_check_in",
+                    terms={
+                        "placeId": place_id,
+                        "durationMinutes": duration_minutes,
+                        "consentVersion": consent_version,
+                        "allowConnectionRequests": allow_connection_requests,
+                    },
+                )
+                prior = receipt.claim()
+                if prior:
+                    return {"_command_receipt": prior, "_command_replayed": True}
+            row = connection.execute(text(sql), params).mappings().first()
+            if row and prepared_rating_visit is not None:
+                try:
+                    with _optional_rating_write(connection):
+                        from hushh_mcp.services.one_location_place_rating_service import (
+                            PostgresPlaceRatingStore,
+                        )
+
+                        visit = prepared_rating_visit
+                        if visit.owner_user_id != user_id:
+                            raise ValueError("The prepared visit belongs to a different owner.")
+                        saved_visit = PostgresPlaceRatingStore().insert_visit(
+                            connection=connection,
+                            user_id=user_id,
+                            envelope=visit.envelope,
+                            place_token_value=visit.place_token_value,
+                            checked_in_at=row["checked_in_at"],
+                            expires_at=row["checked_in_at"]
+                            + (visit.expires_at - visit.checked_in_at),
+                        )
+                        if not saved_visit:
+                            raise ValueError("The visit writer returned no identity.")
+                        connection.execute(
+                            text("""UPDATE one_location_nearby_presences SET rating_visit_id=:visit
+                            WHERE id=:presence AND owner_user_id=:owner"""),
+                            {"visit": saved_visit["id"], "presence": row["id"], "owner": user_id},
+                        )
+                except Exception:
+                    logger.warning("nearby_presence.record_visit_failed", exc_info=False)
+            if row and receipt is not None:
+                receipt_value = receipt.save(
+                    {
+                        "operation_id": command_operation_id,
+                        "presence_id": str(row["id"]),
+                        "version": int(row["version"]),
+                        "expires_at": row["expires_at"].isoformat(),
+                    }
+                )
         if not row:
             raise NearbyPresenceError(
                 "NEARBY_PRESENCE_WRITE_FAILED",
                 "Check-in could not be saved.",
                 status_code=503,
             )
-        return row
+        return {**row, "_command_receipt": receipt_value} if receipt_value else row
 
     def get_active_presence(self, user_id: str) -> dict[str, Any] | None:
         self._expire_due()
@@ -534,29 +642,100 @@ class PostgresNearbyPresenceStore:
             },
         )
 
-    def checkout(self, user_id: str) -> bool:
-        row = self._execute_one(
-            """
-            UPDATE one_location_nearby_presences
-            SET
-              status = 'checked_out',
-              anchor_ciphertext = NULL,
-              anchor_iv = NULL,
-              anchor_tag = NULL,
-              anchor_algorithm = NULL,
-              anchor_key_id = NULL,
-              anchor_cell_epoch = NULL,
-              anchor_cell_token = NULL,
-              checked_out_at = NOW(),
-              version = version + 1,
-              updated_at = NOW()
-            WHERE owner_user_id = :user_id
-              AND status = 'active'
-            RETURNING id
-            """,
-            {"user_id": user_id},
-        )
-        return bool(row)
+    def checkout(
+        self,
+        user_id: str,
+        *,
+        command_operation_id: str | None = None,
+        presence_id: str | None = None,
+        presence_version: int = 0,
+    ) -> dict[str, Any]:
+        from sqlalchemy import text
+
+        from hushh_mcp.services.action_directive_ledger import ActionDirectiveAuthorityError
+        from hushh_mcp.services.location_command_effect_receipts import CommandEffectReceipt
+
+        with get_db().engine.begin() as connection:
+            receipt = None
+            if command_operation_id:
+                receipt = CommandEffectReceipt(
+                    connection,
+                    owner=user_id,
+                    operation=command_operation_id,
+                    action="location.checkout_nearby",
+                    terms={"presenceId": presence_id, "presenceVersion": presence_version},
+                )
+                prior = receipt.claim()
+                if prior:
+                    return prior
+            row = (
+                connection.execute(
+                    text("""SELECT id,version,status,rating_visit_id,expires_at>clock_timestamp() AS active
+                FROM one_location_nearby_presences WHERE owner_user_id=:owner FOR UPDATE"""),
+                    {"owner": user_id},
+                )
+                .mappings()
+                .first()
+            )
+            active = bool(row and row["status"] == "active" and row["active"])
+            if command_operation_id:
+                if presence_id is None:
+                    if active or presence_version != 0:
+                        raise ActionDirectiveAuthorityError(
+                            "Nearby changed. Refresh before checking out."
+                        )
+                elif not row or str(row["id"]) != presence_id or row["version"] != presence_version:
+                    raise ActionDirectiveAuthorityError(
+                        "Nearby changed. Review the current check-in first."
+                    )
+            visit_id = None
+            changed = bool(row and row["status"] == "active")
+            if changed:
+                # The presence lock fences manual and command callers alike.
+                # Optional ratings cannot roll back the requested visibility change.
+                # Clear the pointer first: migration 219 protects active visits
+                # from a delayed older checkout. Both effects still commit together.
+                connection.execute(
+                    text("""UPDATE one_location_nearby_presences SET status='checked_out',
+                    anchor_ciphertext=NULL,anchor_iv=NULL,anchor_tag=NULL,anchor_algorithm=NULL,anchor_key_id=NULL,
+                    anchor_cell_epoch=NULL,anchor_cell_token=NULL,checked_out_at=NOW(),version=version+1,updated_at=NOW()
+                    WHERE owner_user_id=:owner AND id=:presence AND version=:version"""),
+                    {"owner": user_id, "presence": row["id"], "version": row["version"]},
+                )
+                if row["rating_visit_id"]:
+                    try:
+                        with _optional_rating_write(connection):
+                            from hushh_mcp.services.one_location_place_rating_service import (
+                                PostgresPlaceRatingStore,
+                            )
+
+                            saved = PostgresPlaceRatingStore().end_exact_visit(
+                                connection=connection,
+                                user_id=user_id,
+                                visit_id=str(row["rating_visit_id"]),
+                                ended_at=datetime.now(timezone.utc),
+                            )
+                            if saved:
+                                visit_id = str(saved["id"])
+                    except Exception:
+                        logger.warning("nearby_presence.end_visit_failed", exc_info=False)
+            result = {
+                "operation_id": command_operation_id,
+                "presence_id": presence_id
+                if command_operation_id
+                else str(row["id"])
+                if row
+                else None,
+                "version": presence_version
+                if command_operation_id
+                else int(row["version"])
+                if row
+                else 0,
+                "checked_out": True,
+            }
+            if visit_id:
+                result["rating_visit_id"] = visit_id
+            return receipt.save(result) if receipt else result
 
     def extend_presence(
         self,
@@ -890,6 +1069,9 @@ def _iso(value: Any) -> str | None:
 
 def _presence_payload(row: dict[str, Any], anchor: dict[str, Any]) -> dict[str, Any]:
     return {
+        # Owner-only operation locators, never included in the nearby roster.
+        "id": str(row["id"]),
+        "version": int(row["version"]),
         "status": "active",
         "audience": str(row.get("audience") or "all_opted_in"),
         "allowConnectionRequests": bool(row.get("allow_connection_requests")),
@@ -1082,8 +1264,16 @@ class OneLocationNearbyPresenceService:
         # the route. Never persisted on the presence row; used only to decide
         # whether this place may ever carry a public rating average.
         place_category: str | None = None,
+        command_operation_id: str | None = None,
+        consent_version: str | None = None,
     ) -> dict[str, Any]:
         owner_user_id = self._require_user(user_id)
+        if command_operation_id and consent_version != NEARBY_PRESENCE_CONSENT_VERSION:
+            raise NearbyPresenceError(
+                "NEARBY_PRESENCE_CONSENT_CHANGED",
+                "Nearby visibility terms changed. Review them again.",
+                status_code=409,
+            )
         if not consent_accepted:
             raise NearbyPresenceError(
                 "NEARBY_PRESENCE_CONSENT_REQUIRED",
@@ -1204,24 +1394,11 @@ class OneLocationNearbyPresenceService:
             lng=normalized_place_lng,
         )
         epoch = _cell_epoch(now)
-        self._store.upsert_presence(
-            user_id=owner_user_id,
-            allow_connection_requests=bool(allow_connection_requests),
-            consent_version=NEARBY_PRESENCE_CONSENT_VERSION,
-            duration_minutes=normalized_duration,
-            radius_meters=NEARBY_PRESENCE_RADIUS_METERS,
-            anchor_envelope=envelope,
-            anchor_cell_epoch=epoch,
-            anchor_cell_token=_cell_token(epoch=epoch, x=tile_x, y=tile_y),
-        )
-        # Record the visit so the place can be rated after checkout, and so the
-        # continuity guard above has something to read once checkout has wiped
-        # the anchor. Best-effort on purpose: a rating ledger that is down must
-        # never be able to stop somebody checking in.
-        service = self._place_ratings()
-        if service is not None:
+        prepared_visit = None
+        ratings = self._place_ratings()
+        if ratings is not None:
             try:
-                service.record_visit(
+                prepared_visit = ratings.prepare_visit(
                     user_id=owner_user_id,
                     place_id=normalized_place_id,
                     place_label=anchor["label"],
@@ -1230,9 +1407,28 @@ class OneLocationNearbyPresenceService:
                     place_category=place_category,
                     checked_in_at=now,
                 )
-            except Exception:  # noqa: BLE001 - see comment above
-                logger.warning("nearby_presence.record_visit_failed", exc_info=True)
-        return self.get_state(user_id=owner_user_id)
+            except Exception:
+                logger.warning("nearby_presence.prepare_visit_failed", exc_info=False)
+        saved_presence = self._store.upsert_presence(
+            user_id=owner_user_id,
+            allow_connection_requests=bool(allow_connection_requests),
+            consent_version=NEARBY_PRESENCE_CONSENT_VERSION,
+            duration_minutes=normalized_duration,
+            radius_meters=NEARBY_PRESENCE_RADIUS_METERS,
+            anchor_envelope=envelope,
+            anchor_cell_epoch=epoch,
+            anchor_cell_token=_cell_token(epoch=epoch, x=tile_x, y=tile_y),
+            **({"prepared_rating_visit": prepared_visit} if prepared_visit is not None else {}),
+            **(
+                {"command_operation_id": command_operation_id, "place_id": normalized_place_id}
+                if command_operation_id
+                else {}
+            ),
+        )
+        state = self.get_state(user_id=owner_user_id)
+        if command_operation_id:
+            state["operationReceipt"] = saved_presence.get("_command_receipt")
+        return state
 
     def get_state(self, *, user_id: str) -> dict[str, Any]:
         owner_user_id = self._require_user(user_id)
@@ -1337,24 +1533,51 @@ class OneLocationNearbyPresenceService:
             "checkedInAt": checked_in_at,
         }
 
-    def checkout(self, *, user_id: str) -> dict[str, Any]:
+    def checkout(
+        self,
+        *,
+        user_id: str,
+        command_operation_id: str | None = None,
+        presence_id: str | None = None,
+        presence_version: int = 0,
+    ) -> dict[str, Any]:
         owner_user_id = self._require_user(user_id)
-        self._store.checkout(owner_user_id)
-        # Additive: the sheet uses this to offer the rating step for the place
-        # the person just left. `None` whenever there is nothing rateable, and
-        # never a reason to fail the checkout itself.
-        review_prompt: dict[str, Any] | None = None
-        service = self._place_ratings()
-        if service is not None:
-            try:
-                review_prompt = service.end_visit(user_id=owner_user_id)
-            except Exception:  # noqa: BLE001 - checkout must always succeed
-                logger.warning("nearby_presence.end_visit_failed", exc_info=True)
+        result = self._store.checkout(
+            owner_user_id,
+            **(
+                {
+                    "command_operation_id": command_operation_id,
+                    "presence_id": presence_id,
+                    "presence_version": presence_version,
+                }
+                if command_operation_id
+                else {}
+            ),
+        )
+        review_prompt = None
+        if isinstance(result, dict) and result.get("rating_visit_id"):
+            ratings = self._place_ratings()
+            if ratings is not None:
+                try:
+                    review_prompt = ratings.describe_exact_visit(
+                        user_id=owner_user_id, visit_id=result["rating_visit_id"]
+                    )
+                except Exception:
+                    logger.warning("nearby_presence.read_visit_failed", exc_info=False)
+        # A historical receipt is not the current visibility state. Another
+        # device may have checked in again after this operation committed.
+        current = (
+            self.get_state(user_id=owner_user_id)
+            if command_operation_id
+            else {"presence": None, "attendees": []}
+        )
         return {
-            "presence": None,
-            "attendees": [],
-            "checkedOut": True,
+            **current,
+            "checkedOut": bool(result.get("checked_out"))
+            if isinstance(result, dict)
+            else bool(result),
             "reviewPrompt": review_prompt,
+            **({"checkoutReceipt": result} if command_operation_id else {}),
         }
 
     def extend(

@@ -266,3 +266,10 @@ def test_db_guard_rejects_malformed_packed_config_without_disclosing_it(tmp_path
         assert "secret-fixture" not in result.stdout + result.stderr
         assert "guard-must-not-run" not in result.stdout + result.stderr
         assert not (tmp_path / "report.json").exists()
+def test_calendar_oauth_callback_uses_the_dedicated_return_path():
+    module = _module()
+
+    assert module._expected_oauth_redirect_uri(
+        "https://uat.one.hushh.ai/",
+        module.CALENDAR_OAUTH_RETURN_PATH,
+    ) == "https://uat.one.hushh.ai/one/profile/google/oauth/return"

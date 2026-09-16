@@ -170,9 +170,9 @@ async function proxyRequest(request: NextRequest, params: { path: string[] }) {
     if (voiceTurnIdHeader) headers.set("X-Voice-Turn-Id", voiceTurnIdHeader);
 
     let body: BodyInit | undefined;
-    if (request.method !== "GET" && request.method !== "DELETE") {
+    if (request.method !== "GET" && request.method !== "HEAD") {
       headers.set("Content-Type", contentType || "application/json");
-      body = await request.text();
+      body = (await request.text()) || undefined;
     }
 
     const response = await fetch(url, {
@@ -207,6 +207,14 @@ async function proxyRequest(request: NextRequest, params: { path: string[] }) {
           "x-request-id": requestId,
         },
       });
+    }
+
+    // The active-workflow read uses 204 to mean no unfinished run. Adding a
+    // JSON body to that status throws and turns a valid empty state into 502.
+    if (response.status === 204) {
+      const headers = privateResponseHeaders(response);
+      headers.set("x-request-id", requestId);
+      return new Response(null, { status: 204, headers });
     }
 
     const data = await response.json().catch(() => ({}));

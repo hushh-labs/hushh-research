@@ -12,6 +12,7 @@ Usage:
 
 Starts the local stack in production-style fast mode:
   - activates the local runtime profile
+  - starts the local Cloud SQL proxy on :6543 when one is not already running
   - starts the local backend on :8000 without Uvicorn reload
   - builds the frontend once
   - starts the optimized frontend on :3000 from its standalone build
@@ -45,8 +46,18 @@ for arg in "$@"; do
   esac
 done
 
+PROXY_PID=""
 BACKEND_PID=""
 WEB_PID=""
+
+# Keep each child in its own process group. Terminal-generated Ctrl-C is sent
+# to the foreground process group, so without this boundary the proxy can be
+# killed before the backend drains its in-flight database requests.
+run_in_private_process_group() {
+  exec python3 -c \
+    'import os, sys; os.setpgrp(); os.execvpe(sys.argv[1], sys.argv[1:], os.environ)' \
+    "$@"
+}
 
 cleanup() {
   if [ -n "${WEB_PID:-}" ] && kill -0 "$WEB_PID" >/dev/null 2>&1; then
@@ -56,6 +67,10 @@ cleanup() {
   if [ -n "${BACKEND_PID:-}" ] && kill -0 "$BACKEND_PID" >/dev/null 2>&1; then
     kill "$BACKEND_PID" >/dev/null 2>&1 || true
     wait "$BACKEND_PID" >/dev/null 2>&1 || true
+  fi
+  if [ -n "${PROXY_PID:-}" ] && kill -0 "$PROXY_PID" >/dev/null 2>&1; then
+    kill "$PROXY_PID" >/dev/null 2>&1 || true
+    wait "$PROXY_PID" >/dev/null 2>&1 || true
   fi
 }
 # EXIT owns child cleanup. INT and TERM must exit the foreground supervisor
@@ -106,6 +121,28 @@ fi
 echo "Activating local runtime profile..."
 bash "$REPO_ROOT/scripts/env/use_profile.sh" local
 
+if port_is_listening 127.0.0.1 6543; then
+  echo "Reusing existing Cloud SQL proxy on :6543..."
+else
+  echo "Starting local Cloud SQL proxy on :6543..."
+  (
+    # A terminal-generated Ctrl-C is delivered to the foreground process
+    # group, including these background children. Keep the proxy alive until
+    # the supervisor has stopped the backend and drained its requests.
+    export HUSHH_SUPERVISED_RUNTIME=1
+    trap '' INT
+    run_in_private_process_group "$REPO_ROOT/bin/hushh" proxy --mode local
+  ) &
+  PROXY_PID=$!
+  until port_is_listening 127.0.0.1 6543; do
+    if ! kill -0 "$PROXY_PID" >/dev/null 2>&1; then
+      wait "$PROXY_PID"
+      exit $?
+    fi
+    sleep 1
+  done
+fi
+
 backend_args=(backend --mode local --skip-activate --no-reload)
 if [ "$SKIP_PREFLIGHT" = "true" ]; then
   backend_args+=(--skip-preflight)
@@ -113,7 +150,14 @@ fi
 
 echo "Starting local backend on :8000 without reload..."
 (
-  exec "$REPO_ROOT/bin/hushh" "${backend_args[@]}"
+  # Let the supervisor own shutdown ordering. The backend receives SIGTERM
+  # from cleanup after the frontend is stopped, then closes the proxy last.
+  export HUSHH_SUPERVISED_RUNTIME=1
+  # Local fast startup should prove the app, not exhaust shared market-provider
+  # quotas by warming a broad public-market baseline before anyone opens Kai.
+  export KAI_MARKET_BACKGROUND_REFRESH=false
+  trap '' INT
+  run_in_private_process_group "$REPO_ROOT/bin/hushh" "${backend_args[@]}"
 ) &
 BACKEND_PID=$!
 
@@ -148,7 +192,7 @@ if [ -d "$WEB_DIR/public" ]; then
 fi
 (
   cd "$STANDALONE_APP_DIR"
-  exec env HOSTNAME=0.0.0.0 PORT=3000 node "$STANDALONE_SERVER"
+  run_in_private_process_group env HOSTNAME=0.0.0.0 PORT=3000 node "$STANDALONE_SERVER"
 ) &
 WEB_PID=$!
 

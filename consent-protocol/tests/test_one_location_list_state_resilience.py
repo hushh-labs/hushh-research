@@ -112,6 +112,27 @@ def test_list_state_degrades_when_one_section_fails():
         assert key in state
 
 
+@pytest.mark.parametrize(
+    ("pool_size", "configured_limit", "expected"),
+    [
+        ("2", None, 1),
+        ("5", None, 4),
+        ("5", "2", 2),
+    ],
+)
+def test_parallel_location_reads_reserve_sqlalchemy_pool_capacity(
+    monkeypatch, pool_size, configured_limit, expected
+):
+    monkeypatch.setenv("DB_SQLALCHEMY_POOL_SIZE", pool_size)
+    if configured_limit is None:
+        monkeypatch.delenv("ONE_LOCATION_READ_MAX_WORKERS", raising=False)
+    else:
+        monkeypatch.setenv("ONE_LOCATION_READ_MAX_WORKERS", configured_limit)
+
+    service = OneLocationAgentService()
+    assert service._location_read_worker_limit(max_workers=8) == expected
+
+
 def test_list_state_degrades_when_recipients_fail():
     state = _RecipientsFailureService().list_state(user_id="user_a")
     assert isinstance(state, dict)

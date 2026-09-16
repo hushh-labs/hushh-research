@@ -954,6 +954,78 @@ class PersonalAgentRegistryRepo:
             {"user_id": user_id, "endpoint": json.dumps(endpoint)},
         )
 
+    async def record_upgrade_approval(self, *, user_id: str, approval: dict) -> Optional[dict]:
+        """Atomically offer one exact release to the owner's current pod.
+
+        The release predicate makes concurrent approval clicks converge on the
+        first durable operation and refuses a stale release after the pod changes.
+        The target image remains registry metadata; clients receive only the
+        opaque release and operation identifiers.
+        """
+        release_id = str(approval.get("releaseId") or "").strip()
+        if not release_id:
+            raise ValueError("upgrade approval release is required")
+        response = await asyncio.to_thread(
+            self._db().execute_raw,
+            """
+            UPDATE personal_agent_registry
+            SET backend_metadata = jsonb_set(
+                    coalesce(backend_metadata, '{}'::jsonb),
+                    '{upgradeApproval}', CAST(:approval AS jsonb), true
+                ) - 'upgradeDeferral'
+            WHERE user_id = :user_id
+              AND status = 'provisioned'
+              AND (
+                    backend_metadata->'upgradeApproval' IS NULL
+                    OR backend_metadata->'upgradeApproval'->>'releaseId' = :release_id
+                  )
+            RETURNING backend_metadata
+            """,
+            {
+                "user_id": user_id,
+                "release_id": release_id,
+                "approval": json.dumps(approval),
+            },
+        )
+        rows = list(getattr(response, "data", None) or [])
+        if not rows:
+            return None
+        metadata = rows[0].get("backend_metadata") or {}
+        return metadata.get("upgradeApproval") if isinstance(metadata, dict) else None
+
+    async def record_upgrade_deferral(self, *, user_id: str, deferral: dict) -> Optional[dict]:
+        """Persist a server-side reminder without creating an upgrade operation."""
+        release_id = str(deferral.get("releaseId") or "").strip()
+        if not release_id:
+            raise ValueError("upgrade deferral release is required")
+        response = await asyncio.to_thread(
+            self._db().execute_raw,
+            """
+            UPDATE personal_agent_registry
+            SET backend_metadata = jsonb_set(
+                    coalesce(backend_metadata, '{}'::jsonb),
+                    '{upgradeDeferral}', CAST(:deferral AS jsonb), true
+                )
+            WHERE user_id = :user_id
+              AND status = 'provisioned'
+              AND (
+                    backend_metadata->'upgradeApproval' IS NULL
+                    OR backend_metadata->'upgradeApproval'->>'releaseId' <> :release_id
+                  )
+            RETURNING backend_metadata
+            """,
+            {
+                "user_id": user_id,
+                "release_id": release_id,
+                "deferral": json.dumps(deferral),
+            },
+        )
+        rows = list(getattr(response, "data", None) or [])
+        if not rows:
+            return None
+        metadata = rows[0].get("backend_metadata") or {}
+        return metadata.get("upgradeDeferral") if isinstance(metadata, dict) else None
+
     async def append_pending_tombstone(self, *, user_id: str, entry: dict) -> None:
         """Queue one owner-signed revocation for the pod's next heartbeat to collect."""
         await asyncio.to_thread(

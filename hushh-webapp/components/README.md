@@ -8,6 +8,16 @@
 5. Keep chart primitives stock via `components/ui/chart.tsx`.
 6. Never add custom files to `components/ui`.
 
+## Form geometry
+
+Core direct-entry controls use the shared `--app-input-radius` capsule token.
+`Input`, `InputGroup`, `Textarea`, `SelectTrigger`, `CommandInput`, and
+combobox field shells must use that token; compound controls keep inner
+controls square. Use the shared `--app-form-field-gap`, `--app-form-related-gap`, and
+`--app-form-section-gap` tokens for label, related-action, and section rhythm.
+Credential escape actions keep Recovery key beside Sign out in one quiet group
+when the hard gate exposes both, while preserving 44px hit targets.
+
 ## Folder Ownership
 | Folder | Purpose |
 |---|---|

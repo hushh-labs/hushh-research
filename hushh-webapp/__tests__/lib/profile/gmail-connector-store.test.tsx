@@ -267,6 +267,49 @@ describe("gmail-connector-store", () => {
     });
   });
 
+  it("backs off automatic status retries after a failure while allowing an explicit retry", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const userId = "user-status-cooldown";
+    vi.mocked(GmailReceiptsService.getStatus).mockRejectedValue(
+      new Error("Gmail status unavailable"),
+    );
+
+    try {
+      const { result, rerender } = renderHook(
+        ({ enabled }) =>
+          useGmailConnectorStatus({
+            userId,
+            enabled,
+            idTokenProvider: async () => "id-token",
+          }),
+        { initialProps: { enabled: true } },
+      );
+
+      await waitFor(() => {
+        expect(GmailReceiptsService.getStatus).toHaveBeenCalledTimes(1);
+        expect(result.current.statusError).toBeTruthy();
+      });
+
+      rerender({ enabled: false });
+      rerender({ enabled: true });
+      await Promise.resolve();
+
+      expect(GmailReceiptsService.getStatus).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        await result.current.refreshStatus({
+          force: true,
+          reconcile: false,
+        });
+      });
+
+      expect(GmailReceiptsService.getStatus).toHaveBeenCalledTimes(2);
+    } finally {
+      errorSpy.mockRestore();
+      clearConnectorStatus(userId);
+    }
+  });
+
   it("uses a fresh persisted-status read when an OAuth popup closes", async () => {
     vi.mocked(GmailReceiptsService.getStatus).mockResolvedValue({
       configured: true,

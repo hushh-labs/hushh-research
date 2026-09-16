@@ -278,13 +278,23 @@ export function SwipeViews({
       ) {
         return false;
       }
-      // Boundary panes use the small release gesture below. Letting Embla own
-      // their pointer-down enables its elastic transform before direction is
-      // known, which exposes empty canvas beyond the first/last pane.
-      const index = resolveVisualIndex(emblaApi, options.length);
-      return index > 0 && index < options.length - 1;
+      // Every pane tracks the finger, including the first and last.
+      //
+      // This used to return `index > 0 && index < options.length - 1`, so Embla
+      // never owned the gesture on a boundary pane. On a three-tab surface that
+      // left drag working on exactly one pane, and on any two-tab surface the
+      // predicate was unsatisfiable and drag never worked at all. What people
+      // got instead was the release-only fallback below: 48px of travel and
+      // then a jump on lift, which is the "not smooth" everyone means.
+      //
+      // The original worry -- elastic over-drag exposing empty canvas past the
+      // ends -- is already answered by `containScroll: "trimSnaps"` on the
+      // carousel: Embla clamps to the snap bounds, and the resistance you feel
+      // at the edge is the rubber-banding a native pager has. That is the
+      // behaviour being asked for, not a defect to suppress.
+      return true;
     },
-    [options.length],
+    [],
   );
   const [emblaRef, emblaApi] = useEmblaCarousel({
     loop: false,

@@ -14,7 +14,26 @@ export type AuthSessionGenerationSnapshot = Readonly<{
   generation: number;
 }>;
 
-export type AuthSessionOwnerSnapshot = AuthSessionGenerationSnapshot & Readonly<{ userId: string }>;
+export type AuthSessionOwnerSnapshot = AuthSessionGenerationSnapshot &
+  Readonly<{ userId: string }>;
+
+export const AUTH_SESSION_VERIFICATION_REQUIRED_EVENT =
+  "auth-session-verification-required";
+
+export type AuthSessionVerificationRequiredDetail = AuthSessionOwnerSnapshot &
+  Readonly<{ reason: string }>;
+
+/** Availability uncertainty gates access without destroying a local unlock. */
+export function dispatchAuthSessionVerificationRequired(
+  owner: AuthSessionOwnerSnapshot,
+  reason: string,
+): void {
+  if (!isValidatedAuthSessionOwnerCurrent(owner)) return;
+  window.dispatchEvent(new CustomEvent<AuthSessionVerificationRequiredDetail>(
+    AUTH_SESSION_VERIFICATION_REQUIRED_EVENT,
+    { detail: { ...owner, reason } },
+  ));
+}
 
 let browserUserId: string | null = null;
 let browserGeneration = 0;

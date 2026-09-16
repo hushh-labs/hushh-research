@@ -5,7 +5,7 @@ loaded through ``hushh_mcp.services.action_gateway``) is the routing authority:
 
 - Actions WITHOUT a wired ``delegate_agent_id`` execute as client directives:
   ``run_app_action`` validates policy + slots and parks a
-  ``{kind: "action"}`` directive the relay forwards to the app. Zero LLM
+  ``{kind: "action"}`` directive for the app's governed executor. Zero LLM
   calls, zero agent hops; the app re-checks guards before executing.
 - Actions whose ``delegate_agent_id`` maps to a wired specialist tool are
   REFUSED with a redirect to that ``ask_*`` tool, so contract ownership can
@@ -63,6 +63,15 @@ from hushh_mcp.services.action_gateway import (
     list_action_gateway_actions,
 )
 from hushh_mcp.services.actor_identity_service import ActorIdentityService
+from hushh_mcp.services.agent_task_context import (
+    read_agent_task_context,
+    read_completed_action,
+    read_failed_action,
+    read_unknown_action_attempts,
+    record_completed_action,
+    record_failed_action,
+    record_unknown_action_attempt,
+)
 from hushh_mcp.services.connections_service import ConnectionsError, ConnectionsService
 from hushh_mcp.services.consent_center_service import ConsentCenterService
 from hushh_mcp.services.consent_lifecycle_service import (
@@ -75,17 +84,7 @@ from hushh_mcp.services.domain_contracts import (
     normalize_domain_key,
 )
 from hushh_mcp.services.information_request_service import (
-    InformationRequestError,
     InformationRequestService,
-)
-from hushh_mcp.services.live_voice_context import (
-    read_completed_action,
-    read_failed_action,
-    read_live_voice_context,
-    read_unknown_action_attempts,
-    record_completed_action,
-    record_failed_action,
-    record_unknown_action_attempt,
 )
 from hushh_mcp.services.one_email_kyc_service import OneEmailKycService
 from hushh_mcp.services.one_location_agent_service import (
@@ -136,6 +135,7 @@ _STATE_TIMEZONE = "hussh:timezone"
 _DELEGATE_TOOL_BY_AGENT_ID: dict[str, str] = {
     "agent_email": "ask_email_agent",
     "agent_location": "ask_location_agent",
+    "agent_personal_information": "ask_memory_agent",
     "agent_connections": "ask_consent_agent",
     "agent_connected_systems": "ask_connected_systems_agent",
     "agent_nav": "ask_consent_agent",
@@ -208,35 +208,29 @@ _AVAILABILITY_ORDER = {
 }
 
 
-def _voice_context(tool_context: ToolContext) -> Any:
-    """The freshest sanitized browser context available to this tool.
+def _agent_context(tool_context: ToolContext) -> Any:
+    """Return the freshest sanitized browser context available to this tool.
 
-    ``run_live`` opens one long invocation per socket, so ``tool_context.state``
-    is frozen at connect time: after a navigation the relay knows the new
-    screen while every tool still reads the screen the person was on when they
-    started talking. A cross-screen journey could therefore never continue, and
-    each retry re-read the same stale value instead of converging.
-
-    Prefer the relay's live publication, keyed by this session, and fall back
-    to session state for non-live callers (typed chat, tests) which have no
-    socket and no staleness problem.
+    ``tool_context.state`` can be frozen before a route settles. Prefer the
+    latest browser publication keyed by this task, then fall back to session
+    state when no newer context is available.
     """
     session_id = getattr(getattr(tool_context, "session", None), "id", None)
-    live = read_live_voice_context(session_id) if session_id else None
-    if isinstance(live, dict):
-        return live
+    published = read_agent_task_context(session_id) if session_id else None
+    if isinstance(published, dict):
+        return published
     return tool_context.state.get(_STATE_VOICE_CONTEXT)
 
 
 def _available_action_ids(tool_context: ToolContext) -> set[str] | None:
-    """Return the browser-declared executable ids when live context exists.
+    """Return browser-declared executable ids when published context exists.
 
     The browser may publish arbitrary descriptive metadata, but action ids are
     filtered against the generated gateway before reaching this state. An
-    absent context preserves compatibility for non-live callers; a present but
+    absent context preserves compatibility for older callers; a present but
     empty list deliberately means no executable controls are available.
     """
-    context = _voice_context(tool_context)
+    context = _agent_context(tool_context)
     if not isinstance(context, dict):
         return None
     ids = context.get("available_action_ids")
@@ -264,10 +258,10 @@ def _executable_action_ids(tool_context: ToolContext) -> set[str] | None:
     apart is what stops a ranking decision from surfacing as a refusal.
 
     Server-derived, from the generated route orchestration index, so it cannot
-    be widened by a forged frame. Absent for non-live callers and older
+    be widened by a forged frame. Absent for older
     payloads, where the caller falls back to the declared inventory.
     """
-    context = _voice_context(tool_context)
+    context = _agent_context(tool_context)
     if not isinstance(context, dict) or "executable_action_ids" not in context:
         return None
     ids = context.get("executable_action_ids")
@@ -281,10 +275,10 @@ def _voice_settings(tool_context: ToolContext) -> dict[str, Any]:
 
     Already bounded and allowlisted by sanitize_voice_settings on the way in;
     this only re-reads what the trust boundary already validated. Absent
-    context (non-live callers, tests) means no restriction, matching
+    context (older callers, tests) means no restriction, matching
     sanitize_voice_settings' own fail-open default.
     """
-    context = _voice_context(tool_context)
+    context = _agent_context(tool_context)
     settings = context.get("voice_settings") if isinstance(context, dict) else None
     return settings if isinstance(settings, dict) else {}
 
@@ -324,40 +318,9 @@ def _missing_required_slot(entry: dict[str, Any], slots: dict[str, Any]) -> dict
 
 
 _GOVERNED_LEDGER_CONFIRMATION_ACTION_IDS: frozenset[str] = frozenset(
-    {
-        # Backend-direct actions must still obtain the directive-ledger proof
-        # before their browser-visible handler can mutate state.
-        "location.leave_circle",
-        "location.delete_circle",
-        "location.stop_share",
-        "location.approve_request",
-        "location.decline_request",
-        "location.create_circle",
-        "location.add_to_circle",
-        "location.rename_circle",
-        "location.checkout_nearby",
-        # These are mounted local handlers rather than backend-direct calls,
-        # but they are still destructive. Without the ledger flag, the
-        # browser would pass the ordinary directive id as execution context
-        # and the handler would mistake that correlation id for approval.
-        "location.remove_emergency_contact",
-        "location.remove_from_circle",
-        "location.delete_saved_location",
-        "connect.remove_connection",
-        "connect.cancel_request",
-        "connect.send_request",
-        "connect.accept_request",
-        "connect.reject_request",
-        "location.send_request",
-        "location.share_selected",
-        "consent.request",
-        "consent.deny",
-        "consent.revoke",
-        "consent.cancel_request",
-        # This action is also available on the profile surface, where its
-        # mounted handler must receive the same ledger-bound context.
-        "people.profile.remove_connection",
-    }
+    entry["action_id"]
+    for entry in list_action_gateway_actions()
+    if entry.get("execution_policy") == "confirm_required"
 )
 
 
@@ -407,45 +370,28 @@ def _directive_flags(
 # here -- see the "Backend-direct voice execution" plan for the full
 # reasoning. Extend this set action by action, not by widening the shape.
 BACKEND_DIRECT_ACTION_IDS: frozenset[str] = frozenset(
-    {
-        "location.leave_circle",
-        "location.delete_circle",
-        "location.stop_share",
-        "location.approve_request",
-        "location.decline_request",
-        "location.create_circle",
-        "location.add_to_circle",
-        "location.rename_circle",
-        "connect.remove_connection",
-        "connect.cancel_request",
-        "connect.send_request",
-        "connect.accept_request",
-        "connect.reject_request",
-        "location.checkout_nearby",
-        "consent.request",
-        "consent.deny",
-        "consent.revoke",
-        "consent.cancel_request",
-    }
+    entry["action_id"]
+    for entry in list_action_gateway_actions()
+    if entry.get("text_backend_executor")
+    and not entry["text_backend_executor"].get("required_slots")
 )
-
-# Consent lifecycle ids remain listed for compatibility with the backend
-# service seam, but the live action contract routes them through the browser's
-# directive ledger and mounted handler. No model-provided `confirmed` slot is
-# accepted as authorization.
 BACKEND_DIRECT_VERBAL_CONFIRMATION_IDS: frozenset[str] = frozenset(
-    {
-        "consent.request",
-        "consent.deny",
-        "consent.revoke",
-        "consent.cancel_request",
-    }
+    entry["action_id"]
+    for entry in list_action_gateway_actions()
+    if (entry.get("text_backend_executor") or {}).get("confirmation_only")
 )
 
 # Proposals parked by propose_information_request, keyed by an opaque id the
 # model hands back to consent.request. The model never sees a scope ref.
 _STATE_INFORMATION_REQUEST_PROPOSALS = "hussh:information_request_proposals"
 _STATE_LAST_INFORMATION_REQUEST = "hussh:last_information_request"
+# Opaque handles for the other two ends of the lifecycle, parked by the read
+# tool that listed them and resolved in _resolved_directive_slots. Same shape
+# and same reason as the proposal handles above: a revoke needs a raw scope and
+# a cancel needs a bundle id, and neither is something the model may hold or
+# say out loud.
+_STATE_ACTIVE_GRANT_HANDLES = "hussh:active_grant_handles"
+_STATE_SENT_REQUEST_HANDLES = "hussh:sent_request_handles"
 _INFORMATION_REQUEST_DEFAULT_HOURS = 168
 _INFORMATION_REQUEST_MAX_HOURS = 720
 _INFORMATION_REQUEST_MAX_PROPOSALS = 5
@@ -463,10 +409,9 @@ _DIRECTORY_RESOLVE_PAGE_SIZE = 50
 # path below, which still correctly uses the browser's own selection state,
 # completely unaffected.
 BACKEND_DIRECT_WHEN_PERSON_NAMED_ACTION_IDS: frozenset[str] = frozenset(
-    {
-        "location.send_request",
-        "location.share_selected",
-    }
+    entry["action_id"]
+    for entry in list_action_gateway_actions()
+    if (entry.get("text_backend_executor") or {}).get("required_slots")
 )
 
 
@@ -482,7 +427,12 @@ def _is_backend_direct(clean_id: str, clean_slots: dict[str, Any]) -> bool:
     if clean_id in BACKEND_DIRECT_ACTION_IDS:
         return True
     if clean_id in BACKEND_DIRECT_WHEN_PERSON_NAMED_ACTION_IDS:
-        return bool(str(clean_slots.get("person") or "").strip())
+        return all(
+            str(clean_slots.get(slot) or "").strip()
+            for slot in (get_action_gateway_action(clean_id) or {})["text_backend_executor"][
+                "required_slots"
+            ]
+        )
     return False
 
 
@@ -1528,9 +1478,6 @@ async def _execute_backend_direct_mutation(
         OneLocationNearbyPresenceService().checkout(user_id=user_id)
         return "Checked you out. You're no longer visible to people nearby.", None
 
-    if action_id in BACKEND_DIRECT_VERBAL_CONFIRMATION_IDS:
-        return await _execute_consent_lifecycle_action(action_id, slots, user_id, tool_context)
-
     raise AssertionError(f"{action_id} is in BACKEND_DIRECT_ACTION_IDS with no execution branch")
 
 
@@ -2105,7 +2052,7 @@ async def list_pending_information_requests(tool_context: ToolContext) -> dict[s
     Labels only, never a raw scope or an internal id. Approval is not a tool:
     the browser shows each request as a card and the owner's tap approves it,
     because the export is encrypted in their unlocked browser. To decline one,
-    use consent.deny with its requestId after the owner says yes.
+    run consent.deny with its requestId; the app shows the confirmation.
     """
     user_id, blocked = await _read_tool_user_id(tool_context)
     if blocked is not None:
@@ -2129,9 +2076,115 @@ async def list_pending_information_requests(tool_context: ToolContext) -> dict[s
         "nextStep": (
             "Say who is asking and for what. The browser is showing each request as a card "
             "with Approve and Deny; approving is the owner's tap. To decline one from here, "
-            "name it, get a yes, then use the in-app confirmation control to deny it."
+            'name it and run run_app_action("consent.deny") with its requestId; the app '
+            "shows the confirmation."
             if pending
             else "Nothing is waiting on them right now."
+        ),
+    }
+
+
+async def list_active_grants(tool_context: ToolContext) -> dict[str, Any]:
+    """List what this person is currently sharing and with whom, ready to end.
+
+    The other end of the lifecycle from list_pending_information_requests.
+    Names each thing in plain words and hands back an opaque grant id; pass
+    that id to consent.revoke to end one. Never says a scope or a token.
+    """
+    user_id, blocked = await _read_tool_user_id(tool_context)
+    if blocked is not None:
+        return blocked
+    if user_id is None:
+        raise AssertionError("_read_tool_user_id returned no user_id with blocked=None")
+    try:
+        grants = await ConsentLifecycleService().list_active_grants(user_id)
+    except Exception:  # noqa: BLE001 - consumer-safe boundary
+        logger.exception("list_active_grants failed")
+        return {
+            "status": "failed",
+            "message": "What you're sharing is temporarily unavailable. Please try again.",
+        }
+
+    # The scope and the request id are what revoke_active_grant matches on, and
+    # they are exactly what must not reach the model. Park them against a
+    # handle and return only the words.
+    handles: dict[str, dict[str, Any]] = {}
+    spoken: list[dict[str, Any]] = []
+    for index, grant in enumerate(grants, start=1):
+        handle = f"g{index}"
+        handles[handle] = grant
+        spoken.append(
+            {
+                "grantId": handle,
+                "label": grant.get("label"),
+                "sharedWith": grant.get("holderLabel"),
+                "expiresAt": grant.get("expiresAt"),
+            }
+        )
+    tool_context.state[_STATE_ACTIVE_GRANT_HANDLES] = handles
+    return {
+        "status": "ok",
+        "grants": spoken,
+        "count": len(spoken),
+        "nextStep": (
+            "Say what is shared and with whom. To end one, run "
+            'run_app_action("consent.revoke") with its grantId; the app shows the '
+            "confirmation."
+            if spoken
+            else "They are not sharing anything right now."
+        ),
+    }
+
+
+async def list_my_outgoing_information_requests(tool_context: ToolContext) -> dict[str, Any]:
+    """List the information requests this person sent that are still open.
+
+    The mirror of list_pending_information_requests, which is the incoming
+    direction. Hands back an opaque request id; pass it to
+    consent.cancel_request to withdraw one, or omit it to withdraw the most
+    recent. Never says a bundle id.
+    """
+    user_id, blocked = await _read_tool_user_id(tool_context)
+    if blocked is not None:
+        return blocked
+    if user_id is None:
+        raise AssertionError("_read_tool_user_id returned no user_id with blocked=None")
+    try:
+        sent = await InformationRequestService().list_outgoing(requester_user_id=user_id)
+    except Exception:  # noqa: BLE001 - consumer-safe boundary
+        logger.exception("list_my_outgoing_information_requests failed")
+        return {
+            "status": "failed",
+            "message": "The requests you sent are temporarily unavailable. Please try again.",
+        }
+
+    handles: dict[str, dict[str, Any]] = {}
+    spoken: list[dict[str, Any]] = []
+    for index, record in enumerate(sent, start=1):
+        handle = f"r{index}"
+        handles[handle] = record
+        spoken.append(
+            {
+                "requestId": handle,
+                "person": record.get("displayName"),
+                "purpose": record.get("purpose"),
+                "sentAt": record.get("sentAt"),
+            }
+        )
+    # Insertion order is the service's order, newest first, and
+    # _resolved_directive_slots takes the first entry when the model names
+    # none. Re-sorting this dict would silently retarget "the one I just sent".
+    tool_context.state[_STATE_SENT_REQUEST_HANDLES] = handles
+    return {
+        "status": "ok",
+        "requests": spoken,
+        "count": len(spoken),
+        "nextStep": (
+            "Say who was asked and for what. To withdraw one, run "
+            'run_app_action("consent.cancel_request") with its requestId; the app '
+            "shows the confirmation."
+            if spoken
+            else "They have no requests waiting on anyone."
         ),
     }
 
@@ -2148,10 +2201,12 @@ async def propose_information_request(
     Resolves the person (connections, then the directory), matches the spoken
     fields to that person's requestable catalog by label or domain, checks the
     purpose and duration, and parks a proposal. Nothing is sent: read the
-    proposal back, and only after a yes run_app_action("consent.request") with
-    the proposal id through the in-app confirmation control. If connectorReady is false the request
-    cannot be sent from chat yet; open profilePath once to set up the secure
-    connector.
+    proposal back so they know what is about to be asked, then run
+    run_app_action("consent.request") with the proposal id. The app shows the
+    confirmation and that tap is the authorization, so do not ask for a yes
+    first and then hand over to a card that asks again. If connectorReady is
+    false the owner's secure key is not ready and nothing can be asked for
+    yet; tell them to unlock their private agent and try again.
     """
     user_id, blocked = await _read_tool_user_id(tool_context)
     if blocked is not None:
@@ -2236,12 +2291,16 @@ async def propose_information_request(
             "durationHours": hours,
             "connectorReady": connector_ready,
             "nextStep": (
-                "Read back the person, the fields, the purpose, and the duration, then ask for a yes. "
-                "After the yes, call run_app_action with action_id consent.request and slots "
-                "the in-app confirmation control. Say nothing was sent until that result confirms it."
+                "Read back who you are asking, what you are asking for, why, and for how long, "
+                "in plain words. Name the things themselves, never a path or an id. Then call "
+                "run_app_action with action_id consent.request and slots "
+                '{"proposal_id": "<proposalId>"}. The app shows the confirmation and their tap '
+                "is what authorizes it, so do not ask for a yes yourself first. Say nothing was "
+                "sent until the action result confirms it."
                 if connector_ready
-                else "This request cannot be sent from chat yet: their secure connector is not set up. "
-                "Send them to profilePath once to set it up, then they can ask again."
+                else "The owner's secure key is not ready yet, so nothing can be asked for. "
+                "Say exactly that in plain words, tell them to unlock their private agent and try "
+                "again, and do not use the word connector: it means nothing to them."
             ),
         }
     except ConsentLifecycleError as exc:
@@ -2259,111 +2318,6 @@ async def propose_information_request(
             "status": "failed",
             "message": "That information catalog is temporarily unavailable. Please try again.",
         }
-
-
-async def _execute_consent_lifecycle_action(
-    action_id: str, slots: dict[str, Any], user_id: str, tool_context: ToolContext
-) -> tuple[str, dict[str, str] | None]:
-    """Legacy service seam; live consent actions use the directive ledger."""
-    if action_id in _GOVERNED_LEDGER_CONFIRMATION_ACTION_IDS:
-        raise AssertionError(f"{action_id} must be executed through the directive ledger")
-    if action_id == "consent.request":
-        proposal_id = str(slots.get("proposal_id") or "").strip()
-        proposals = tool_context.state.get(_STATE_INFORMATION_REQUEST_PROPOSALS) or {}
-        proposal = proposals.get(proposal_id) if isinstance(proposals, dict) else None
-        if not proposal:
-            raise ConsentLifecycleError(
-                "PROPOSAL_NOT_FOUND",
-                "Propose the request first with propose_information_request, then confirm it.",
-            )
-        name = str(proposal.get("displayName") or "this person")
-        labels = list(proposal.get("labels") or [])
-        connector = await OneEmailKycService().get_client_connector(user_id=user_id)
-        connector_key_id = str(
-            ((connector or {}).get("connector") or {}).get("connector_key_id") or ""
-        )
-        if not connector_key_id:
-            raise ConsentLifecycleError(
-                "CONNECTOR_NOT_READY",
-                f"Your secure connector is not set up yet. Open {name}'s profile once to set it up, "
-                "then ask me again.",
-                status_code=409,
-            )
-        try:
-            created = await InformationRequestService().create(
-                requester_user_id=user_id,
-                person_ref=str(proposal.get("personRef")),
-                scope_refs=list(proposal.get("scopeRefs") or []),
-                purpose=str(proposal.get("purpose") or ""),
-                duration_seconds=int(proposal.get("durationHours") or 0) * 3600,
-                connector_key_id=connector_key_id,
-                idempotency_key=f"agent-chat-{proposal_id}",
-            )
-        except InformationRequestError as exc:
-            raise ConsentLifecycleError(
-                "INFORMATION_REQUEST_FAILED", str(exc), status_code=exc.status_code
-            ) from exc
-        except PersonProfileNotFoundError as exc:
-            raise ConsentLifecycleError(
-                "PERSON_NOT_FOUND", f"{name}'s request profile is no longer available."
-            ) from exc
-        remaining = dict(proposals)
-        remaining.pop(proposal_id, None)
-        tool_context.state[_STATE_INFORMATION_REQUEST_PROPOSALS] = remaining
-        bundle_id = str((created or {}).get("bundleId") or (created or {}).get("bundle_id") or "")
-        tool_context.state[_STATE_LAST_INFORMATION_REQUEST] = {
-            "bundleId": bundle_id,
-            "displayName": name,
-        }
-        return (
-            f"Sent {name} a request for {join_names_for_speech(labels)}. "
-            "They will see it in their Consent Center; what they approve appears on their profile.",
-            {"name": name},
-        )
-
-    if action_id == "consent.deny":
-        request_id = str(slots.get("request_id") or "").strip()
-        if not request_id:
-            raise ConsentLifecycleError(
-                "CONSENT_REQUEST_ID_REQUIRED",
-                "Say which request to deny; list_pending_information_requests names them.",
-            )
-        result = await ConsentLifecycleService().deny_pending_request(user_id, request_id)
-        return f"Denied that request. {result.get('message') or ''}".strip(), None
-
-    if action_id == "consent.revoke":
-        revoke_request_id = str(slots.get("request_id") or "").strip() or None
-        scope = str(slots.get("scope") or "").strip() or None
-        if not revoke_request_id and not scope:
-            raise ConsentLifecycleError(
-                "CONSENT_REVOKE_TARGET_REQUIRED", "Say which grant to revoke."
-            )
-        await ConsentLifecycleService().revoke_active_grant(
-            user_id, scope=scope, request_id=revoke_request_id
-        )
-        return "Revoked. They no longer have that access.", None
-
-    if action_id == "consent.cancel_request":
-        bundle_id = str(slots.get("bundle_id") or "").strip()
-        last = tool_context.state.get(_STATE_LAST_INFORMATION_REQUEST) or {}
-        if bundle_id.lower() in ("", "last", "latest", "that", "it"):
-            bundle_id = str(last.get("bundleId") or "")
-        if not bundle_id:
-            raise ConsentLifecycleError(
-                "INFORMATION_REQUEST_ID_REQUIRED",
-                "Say which request to cancel; the ones you sent are on that person's profile.",
-            )
-        try:
-            await InformationRequestService().cancel(requester_user_id=user_id, bundle_id=bundle_id)
-        except InformationRequestError as exc:
-            raise ConsentLifecycleError(
-                "INFORMATION_REQUEST_CANCEL_FAILED", str(exc), status_code=exc.status_code
-            ) from exc
-        if str(last.get("bundleId") or "") == bundle_id:
-            tool_context.state[_STATE_LAST_INFORMATION_REQUEST] = {}
-        return "Cancelled that request.", None
-
-    raise AssertionError(f"{action_id} is not a consent lifecycle action")
 
 
 async def list_pending_connection_requests(
@@ -2506,6 +2460,100 @@ async def get_location_circle_members(circle: str, tool_context: ToolContext) ->
     }
 
 
+def _resolved_directive_slots(
+    action_id: str, slots: dict[str, Any], tool_context: ToolContext
+) -> dict[str, Any]:
+    """Expand an opaque handle into the mutation the browser must actually run.
+
+    Every consent action executes in the browser, because the directive ledger
+    is what actually authorises a consent mutation -- a model saying it heard a
+    yes is not authority, which is why `confirmed` is stripped a few hundred
+    lines above this. But the browser cannot resolve any of these handles: the
+    proposal, the grant and the sent request all live in this session's state,
+    parked by the read tool that listed them.
+
+    So the server resolves them here and hands over the result. The model only
+    ever passes the opaque handle. It never names a scope, a person ref, a
+    duration, a token or a bundle id, so it cannot widen a request between the
+    read-back the owner agreed to and the mutation that actually runs -- which
+    is the whole property that makes doing this from chat safe, and the reason
+    the handles exist rather than the real identifiers.
+
+    An unknown handle expands to nothing and the directive goes out as it came
+    in; the handler refuses it rather than guessing.
+    """
+    if action_id == "consent.request":
+        proposal_id = str(slots.get("proposal_id") or slots.get("proposalId") or "").strip()
+        if not proposal_id:
+            return slots
+        proposals = tool_context.state.get(_STATE_INFORMATION_REQUEST_PROPOSALS) or {}
+        proposal = proposals.get(proposal_id) if isinstance(proposals, dict) else None
+        if not isinstance(proposal, dict):
+            return slots
+        return {
+            **slots,
+            "personRef": proposal.get("personRef"),
+            "displayName": proposal.get("displayName"),
+            "scopeRefs": list(proposal.get("scopeRefs") or []),
+            "labels": list(proposal.get("labels") or []),
+            "purpose": proposal.get("purpose"),
+            "durationHours": proposal.get("durationHours"),
+            # The idempotency key the browser must send, minted here so it is
+            # STABLE for this proposal. The bundle id is a uuid5 of a hash of
+            # this key (information_request_service.create), and the table's
+            # unique (requester_user_id, idempotency_hash) makes a redelivered
+            # directive a no-op -- but only if the key is the same one. A key
+            # the browser generates per attempt defeats the constraint
+            # entirely and turns one retried directive into two live requests,
+            # which is exactly how one ask showed up twice.
+            "idempotencyKey": f"agent-chat-{proposal_id}",
+        }
+
+    if action_id == "consent.revoke":
+        handle = str(slots.get("grant_id") or slots.get("grantId") or "").strip()
+        grants = tool_context.state.get(_STATE_ACTIVE_GRANT_HANDLES) or {}
+        grant = grants.get(handle) if isinstance(grants, dict) else None
+        if not isinstance(grant, dict):
+            return slots
+        return {
+            **slots,
+            "scope": grant.get("scope"),
+            "requestId": grant.get("requestId"),
+            "label": grant.get("label"),
+            "holderLabel": grant.get("holderLabel"),
+        }
+
+    if action_id == "consent.cancel_request":
+        handle = str(slots.get("request_id") or slots.get("requestId") or "").strip()
+        sent = tool_context.state.get(_STATE_SENT_REQUEST_HANDLES) or {}
+        if not isinstance(sent, dict) or not sent:
+            return slots
+        # "withdraw the one I just sent" is the usual case and names nothing.
+        # The listing parks its rows newest-first, so the first handle is that
+        # request; resolving it here keeps the model from having to repeat an
+        # identifier back, which it is told never to do.
+        record = sent.get(handle) if handle else next(iter(sent.values()), None)
+        if not isinstance(record, dict):
+            return slots
+        return {
+            **slots,
+            "bundleId": record.get("bundleId"),
+            "displayName": record.get("displayName"),
+        }
+
+    if action_id == "consent.deny":
+        # The only consent target the model may legitimately hold verbatim:
+        # list_pending_information_requests returns requestId precisely so a
+        # decline can name one. Normalised to the camelCase the browser
+        # handlers read, so every consent directive has one slot spelling.
+        request_id = str(slots.get("request_id") or slots.get("requestId") or "").strip()
+        if not request_id:
+            return slots
+        return {**slots, "requestId": request_id}
+
+    return slots
+
+
 async def run_app_action(
     action_id: str, slots: dict[str, Any], tool_context: ToolContext
 ) -> dict[str, Any]:
@@ -2599,7 +2647,7 @@ async def run_app_action(
             "next_tool": "report_no_app_action",
         }
 
-    context = _voice_context(tool_context)
+    context = _agent_context(tool_context)
     if isinstance(context, dict) and context.get("context_pending") is True:
         # The live relay seeded this marker at session start; the browser's
         # first app_context frame has not landed yet. Refusing outright here
@@ -2902,9 +2950,10 @@ async def run_app_action(
         label = str(entry.get("label") or clean_id)
         return await _run_backend_direct_action(clean_id, clean_slots, tool_context, label=label)
 
+    # Resolve a parked proposal SERVER-SIDE before the directive leaves.
     directive_payload: dict[str, Any] = {
         "actionId": clean_id,
-        "slots": clean_slots,
+        "slots": _resolved_directive_slots(clean_id, clean_slots, tool_context),
         "needsConfirmation": needs_confirmation,
         "trustedActivationRequired": trusted_activation,
     }
@@ -2966,7 +3015,7 @@ async def run_app_action(
 
 
 def _context_revision(tool_context: ToolContext) -> str:
-    context = _voice_context(tool_context)
+    context = _agent_context(tool_context)
     if not isinstance(context, dict):
         return ""
     return str(context.get("context_revision") or "").strip()[:128]
@@ -3385,7 +3434,7 @@ async def start_app_goal(
             "message": missing["prompt"],
         }
     journey_slots = _journey_slots(entry or {}, slots or {})
-    context = _voice_context(tool_context)
+    context = _agent_context(tool_context)
     if not isinstance(context, dict) or context.get("context_pending") is True:
         logger.info(
             "one_adk_goal_decision goal=%s action=%s status=context_not_ready", goal_id, clean_id
@@ -3468,7 +3517,7 @@ async def _continue_settled_journey(
     run: dict[str, Any], tool_context: ToolContext
 ) -> dict[str, Any]:
     """Make an authored choice eligible only on its accepted destination."""
-    context = _voice_context(tool_context)
+    context = _agent_context(tool_context)
     if not isinstance(context, dict) or context.get("context_pending") is True:
         return {"status": "settling", "message": "Waiting for the destination screen."}
     expected = run.get("settlement_target")
@@ -3533,7 +3582,7 @@ async def continue_app_goal(tool_context: ToolContext) -> dict[str, Any]:
     goal_id = str(run["goal_id"])
     journey_action_id = str(run.get("action_id") or "").strip()
     destination_screen = str(run.get("expected_screen") or "").strip()
-    context = _voice_context(tool_context)
+    context = _agent_context(tool_context)
     if not isinstance(context, dict) or context.get("context_pending") is True:
         logger.info("one_adk_goal_decision status=settling reason=context_pending")
         return {"status": "settling", "message": "Waiting for fresh destination context."}
@@ -4154,6 +4203,32 @@ async def set_preferred_model(model_id: str, tool_context: ToolContext) -> dict[
         "running_now": preference["effective_model"],
         "following_default": preference["selected_model"] is None,
         "takes_effect": "next_message",
+    }
+
+
+async def add_to_pkm(memory_text: str, reason: str, tool_context: ToolContext) -> dict[str, Any]:
+    """Save or queue durable personal context to the user's encrypted PKM through the frontend PKM writer.
+
+    Use only when the user explicitly asks to save, remember, store, or add information to PKM or memory.
+    """
+    clean_text = str(memory_text or "").strip()
+    if not clean_text:
+        return {
+            "status": "missing_text",
+            "message": "Specify the exact information to save to memory.",
+        }
+
+    # If PKM write uses source_text in slots, let's match the AgentChatActionPlan logic:
+    tool_context.state[f"{_STATE_PENDING_DIRECTIVE}:pkm_add"] = {
+        "kind": "action",
+        "payload": {
+            "actionId": "pkm.add",
+            "slots": {"source_text": clean_text[:50_000]},
+        },
+    }
+    return {
+        "status": "directive_parked",
+        "message": "Saving eligible details privately.",
     }
 
 

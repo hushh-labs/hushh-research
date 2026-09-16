@@ -49,3 +49,22 @@ export function resolvePlaidRedirectUri(
 
   return toHttpsRedirectUrl(configuredOrigin, path);
 }
+
+/**
+ * Plaid Link requires the redirect URI used to mint the token, while native
+ * Universal/App Links may deliver the callback through an app URL. Preserve
+ * the provider query on the original HTTPS URI without ever passing the app
+ * scheme back to Plaid.
+ */
+export function mergePlaidCallbackQuery(
+  redirectUri: string,
+  callbackUrl: string | URL,
+): string {
+  const redirect = new URL(redirectUri);
+  const callback = callbackUrl instanceof URL ? callbackUrl : new URL(callbackUrl);
+  callback.searchParams.forEach((value, key) => {
+    redirect.searchParams.set(key, value);
+  });
+  if (callback.hash) redirect.hash = callback.hash;
+  return redirect.toString();
+}

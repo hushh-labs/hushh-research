@@ -39,6 +39,20 @@ const visitNotes = vi.hoisted(() => ({
   recordVisitNote: vi.fn(),
 }));
 
+const locationAnalytics = vi.hoisted(() => ({
+  trackOneLocationJourneyAction: vi.fn(),
+}));
+
+vi.mock("@/lib/observability/location-events", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@/lib/observability/location-events")>();
+  return {
+    ...actual,
+    trackOneLocationJourneyAction:
+      locationAnalytics.trackOneLocationJourneyAction,
+  };
+});
+
 vi.mock("@/lib/one-location/visit-notes", async (importOriginal) => {
   const actual =
     await importOriginal<typeof import("@/lib/one-location/visit-notes")>();
@@ -95,7 +109,6 @@ vi.mock("@/lib/one-location/saved-locations", async (importOriginal) => {
 });
 
 import { NearbyCheckInSheet } from "@/components/one-location/nearby-check-in/nearby-check-in-sheet";
-import { toast } from "sonner";
 
 const point = {
   latitude: 37.4275,
@@ -115,6 +128,7 @@ describe("NearbyCheckInSheet", () => {
     locationMemory.readLastKnownFix.mockReset();
     locationMemory.rememberLastKnownFix.mockReset();
     locationMemory.rememberLocationGrant.mockReset();
+    locationAnalytics.trackOneLocationJourneyAction.mockReset();
     // Default: nothing carried over, which is what every pre-existing test in
     // this file assumed before durable memory existed.
     locationMemory.readLastKnownFix.mockResolvedValue(null);
@@ -524,6 +538,11 @@ describe("NearbyCheckInSheet", () => {
         allowConnectionRequests: false,
       });
     });
+    expect(locationAnalytics.trackOneLocationJourneyAction).toHaveBeenCalledWith({
+      action: "nearby_check_in_result",
+      result: "success",
+      routeId: "one_location_check_in",
+    });
     expect(capture).toHaveBeenCalledTimes(2);
   });
 
@@ -744,7 +763,6 @@ describe("NearbyCheckInSheet", () => {
 
     expect(await screen.findByText("Maya Chen")).toBeInTheDocument();
     expect(screen.getByTestId("nearby-attendee-roster")).toBeInTheDocument();
-    expect(screen.queryByText("At this place")).not.toBeInTheDocument();
     expect(
       screen.queryByTestId("nearby-private-share-card"),
     ).not.toBeInTheDocument();
@@ -800,9 +818,7 @@ describe("NearbyCheckInSheet", () => {
     const completed = await screen.findByTestId("nearby-presence-completed");
     expect(completed).toHaveTextContent("Check-in ended");
     expect(completed).toHaveTextContent("Stanford University");
-    expect(completed).toHaveTextContent(
-      "You're no longer visible at Stanford University.",
-    );
+    expect(completed).toHaveTextContent("This check-in has ended.");
     expect(
       screen.queryByTestId("nearby-presence-setup"),
     ).not.toBeInTheDocument();
@@ -946,7 +962,7 @@ describe("NearbyCheckInSheet", () => {
     expect(drift).not.toHaveTextContent(/match against the place/i);
   });
 
-  it("makes leaving the primary active action without using destructive red", async () => {
+  it("ends the check-in with a neutral action, not a destructive one", async () => {
     service.getNearbyPresence.mockResolvedValue({
       presence: {
         status: "active",
@@ -980,14 +996,23 @@ describe("NearbyCheckInSheet", () => {
       screen.queryByRole("button", { name: "Check out now" }),
     ).not.toBeInTheDocument();
 
-    expect(checkout.className).toContain("w-full");
-    expect(checkout.className).toContain("h-[52px]");
+    // Checking out ends a presence that was always going to end on its own
+    // timer and can be redone in three taps. The destructive fill is this
+    // product's signal for SOS, delete, revoke and stop-sharing; spending it
+    // on a reversible lifecycle step makes the calm state read as an alarm.
+    //
+    // Asserted on the FILL token, not on the substring "destructive": every
+    // button in this design system carries `aria-invalid:ring-destructive/20`
+    // in its base class, so a substring check here would pass on a red button
+    // and prove nothing. (Mutation-checked: reinstating variant="destructive"
+    // fails both lines below.)
     expect(checkout.className).not.toContain(
       "bg-[color:var(--app-destructive)]",
     );
     expect(checkout.className).toContain("bg-[color:var(--app-neutral-fill)]");
     const addTime = screen.getByRole("button", { name: "Add time" });
     expect(addTime.className).toContain("text-[color:var(--app-accent)]");
+    expect(checkout.className).not.toContain("text-white");
 
     // Behaviour is untouched: the same one call, with no arguments of its own.
     fireEvent.click(checkout);
@@ -2318,8 +2343,9 @@ describe("NearbyCheckInSheet", () => {
 
       const completed = await screen.findByTestId("nearby-presence-completed");
       expect(completed.textContent).toContain("Check-in ended");
+      expect(completed.textContent).toContain("Blue Bottle Coffee");
       expect(completed.textContent).toContain(
-        "You're no longer visible at Blue Bottle Coffee.",
+        "You're no longer visible nearby.",
       );
       expect(
         screen.queryByTestId("nearby-presence-setup"),
@@ -2330,7 +2356,6 @@ describe("NearbyCheckInSheet", () => {
           name: "Save for faster check-ins",
         }),
       ).toBeInTheDocument();
-      expect(toast.success).not.toHaveBeenCalledWith("Check-in ended.");
     });
 
     it("suppresses the save action when that venue is already saved", async () => {

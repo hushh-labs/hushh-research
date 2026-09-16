@@ -71,6 +71,19 @@ vi.mock("@/lib/agent/agent-chat-history-cache", () => ({
   warmAgentChatHistoryCache: (...a: unknown[]) => agentHistoryWarmMock(...a),
 }));
 
+const oneLocationGetStateMock = vi.fn();
+vi.mock("@/lib/one-location/service", () => ({
+  OneLocationService: {
+    getState: (...a: unknown[]) => oneLocationGetStateMock(...a),
+  },
+}));
+
+vi.mock("@/lib/one-location/one-location-state-resource", () => ({
+  OneLocationStateResource: {
+    load: (_userId: string, load: () => Promise<unknown>) => load(),
+  },
+}));
+
 vi.mock("@/lib/services/cache-service", () => {
   const store = new Map<string, unknown>();
   return {
@@ -142,6 +155,17 @@ vi.mock("@/lib/one-location/key-bootstrap", () => ({
   bootstrapCurrentUserLocationRecipientKey: vi.fn(() => Promise.resolve()),
 }));
 
+// These are detached warm-up ports too. Their crypto/network integration is
+// tested by their owners; running it here outlives this unit-test environment.
+vi.mock("@/lib/one-marketplace/key-bootstrap", () => ({
+  bootstrapCurrentUserMarketplaceRecipientKey: vi.fn(() => Promise.resolve()),
+}));
+vi.mock("@/lib/one-marketplace/delivery-sweep", () => ({
+  runMarketplaceDeliverySweep: vi.fn(() =>
+    Promise.resolve({ delivered: 0, skipped: 0 }),
+  ),
+}));
+
 import {
   settleWithConcurrency,
   UnlockWarmOrchestrator,
@@ -151,8 +175,8 @@ import {
 
 const BASE_PARAMS = {
   userId: "user-warm-1",
-  vaultKey: "vault-key-warm-1",
-  vaultOwnerToken: "abcdefghijklmnopqrstuvwxyz0123456789",
+  vaultKey: "11".repeat(32),
+  vaultOwnerToken: "synthetic-owner-token",
 };
 
 function okJsonResponse(data: unknown) {
@@ -174,6 +198,7 @@ function setupDefaultMocks() {
   consentRefreshEnsureRunningMock.mockResolvedValue(undefined);
   agentPkmWarmMock.mockResolvedValue(undefined);
   agentHistoryWarmMock.mockResolvedValue(undefined);
+  oneLocationGetStateMock.mockResolvedValue({});
 }
 
 /* ---------- tests ---------- */
@@ -285,6 +310,30 @@ describe("UnlockWarmOrchestrator", () => {
       expect(pkmLoadDomainDataMock).not.toHaveBeenCalled();
       expect(result.metadataWarmed).toBe(false);
       expect(result.financialWarmed).toBe(false);
+    });
+
+    it("does not fetch full Location state while unlocking PKM", async () => {
+      setupDefaultMocks();
+      const result = await UnlockWarmOrchestrator.run({
+        ...BASE_PARAMS,
+        routePath: "/one/pkm",
+      });
+
+      expect(oneLocationGetStateMock).not.toHaveBeenCalled();
+      expect(result.locationStateWarmed).toBe(false);
+    });
+
+    it("warms Location state only for the Location workspace", async () => {
+      setupDefaultMocks();
+      const result = await UnlockWarmOrchestrator.run({
+        ...BASE_PARAMS,
+        routePath: "/one/location",
+      });
+
+      expect(oneLocationGetStateMock).toHaveBeenCalledWith(
+        BASE_PARAMS.vaultOwnerToken,
+      );
+      expect(result.locationStateWarmed).toBe(true);
     });
 
     it('resolves null routePath to "default" priority and warms the route resources', async () => {

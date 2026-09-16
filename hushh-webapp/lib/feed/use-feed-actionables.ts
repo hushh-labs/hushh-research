@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import type { LucideIcon } from "lucide-react";
 import {
   MapPin,
+  Download,
   ShieldCheck,
   Siren,
   TrendingUp,
@@ -66,6 +67,8 @@ import {
   type ConnectionRequest,
 } from "@/lib/services/connections-service";
 import { buildKaiMarketRoute } from "@/lib/navigation/routes";
+import { ApiService } from "@/lib/services/api-service";
+import { useAgentDeploymentFollow } from "@/lib/feed/use-agent-deployment-follow";
 
 /** Subset of SettingsRow's icon-well tones (that type is not exported). */
 export type FeedIconTone =
@@ -280,6 +283,11 @@ export function useFeedActionables(): UseFeedActionablesResult {
   const { user } = useAuth();
   const { vaultOwnerToken } = useVault();
   const userId = user?.uid ?? null;
+  const { update: agentUpdate } = useAgentDeploymentFollow({
+    enabled: Boolean(userId),
+    userId,
+  });
+  const updateActionBusyRef = useRef(false);
   const [dismissedSmsEmergencyIds, setDismissedSmsEmergencyIds] = useState<
     Set<string>
   >(() => new Set());
@@ -521,6 +529,63 @@ export function useFeedActionables(): UseFeedActionablesResult {
     if (!userId) return [];
     const items: FeedActionable[] = [];
 
+    // Software updates are owner-approved mutations. Keep one calm card in the
+    // existing Feed queue; the API binds approval to this pod incarnation and
+    // exact release, so a stale tab cannot choose an arbitrary image.
+    const updateReminderDue =
+      agentUpdate.presentationState !== "deferred" ||
+      !agentUpdate.remindAt ||
+      !Number.isFinite(Date.parse(agentUpdate.remindAt)) ||
+      Date.parse(agentUpdate.remindAt) <= Date.now();
+    if (
+      agentUpdate.available === true &&
+      agentUpdate.releaseId &&
+      updateReminderDue &&
+      agentUpdate.presentationState !== "scheduled" &&
+      agentUpdate.presentationState !== "updating"
+    ) {
+      const releaseId = agentUpdate.releaseId;
+      const approve = async () => {
+        if (updateActionBusyRef.current) return;
+        updateActionBusyRef.current = true;
+        try {
+          await ApiService.approvePersonalAgentUpdate({
+            releaseId,
+            idempotencyKey:
+              typeof crypto !== "undefined" && "randomUUID" in crypto
+                ? crypto.randomUUID()
+                : `${userId}:${releaseId}`,
+          });
+          notifyFeedActionResolved();
+        } finally {
+          updateActionBusyRef.current = false;
+        }
+      };
+      const defer = async () => {
+        if (updateActionBusyRef.current) return;
+        updateActionBusyRef.current = true;
+        try {
+          await ApiService.deferPersonalAgentUpdate({ releaseId });
+          notifyFeedActionResolved();
+        } finally {
+          updateActionBusyRef.current = false;
+        }
+      };
+      items.push({
+        id: `personal-agent-update:${releaseId}`,
+        icon: Download,
+        iconTone: "blue",
+        title: "An update is ready",
+        description: agentUpdate.summary || "Keeps your private agent current.",
+        actions: [
+          { key: "approve", label: "Update now", tone: "primary", run: approve },
+          { key: "defer", label: "Later", tone: "ghost", run: defer },
+        ],
+        sortAt: Date.now(),
+        displayTimestamp: null,
+      });
+    }
+
     // Consent — Review deep-link (approve needs the BYOK export ceremony that
     // lives in the consent manager, so the feed routes there rather than
     // one-tap approving; mirrors the prior consent inbox).
@@ -737,7 +802,7 @@ export function useFeedActionables(): UseFeedActionablesResult {
           label !== "Someone"
             ? {
                 displayName: label,
-                photoUrl: invite.inviterPhotoUrl ?? null,
+                photoUrl: null,
               }
             : null,
         title: label,
@@ -1021,6 +1086,7 @@ export function useFeedActionables(): UseFeedActionablesResult {
     // streaming debate's frequent ticks would rebuild every row each render.
   }, [
     appTaskState.tasks,
+    agentUpdate,
     connectionRequests,
     connectionsRefresh,
     consentItems,
@@ -1037,6 +1103,7 @@ export function useFeedActionables(): UseFeedActionablesResult {
     user,
     userId,
     vaultOwnerToken,
+    updateActionBusyRef,
   ]);
 
   const loading =

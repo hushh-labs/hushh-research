@@ -16,6 +16,7 @@ Security:
 - All connections use Cloud SQL session pooler (DB_*); SSL required
 """
 
+import asyncio
 import logging
 import os
 import re
@@ -37,6 +38,10 @@ MIN_VAULT_WRITE_CLIENT_VERSION = os.getenv("MIN_VAULT_WRITE_CLIENT_VERSION", "2.
 ENFORCE_VAULT_WRITE_CLIENT_VERSION = os.getenv(
     "ENFORCE_VAULT_WRITE_CLIENT_VERSION", "true"
 ).strip().lower() not in {"0", "false", "no"}
+# The phone shadow is advisory metadata on the vault bootstrap response. It
+# must not hold the authenticated setup/vault admission path while its separate
+# async database pool cold-starts through Cloud SQL.
+VAULT_BOOTSTRAP_PHONE_SHADOW_TIMEOUT_SECONDS = 2.0
 
 
 def _mask_user_id(user_id: str) -> str:
@@ -374,9 +379,18 @@ async def vault_bootstrap_state(
         # identity read instead of being wrongly treated as unverified.
         phone_verified: bool | None = None
         try:
-            identity = (await ActorIdentityService().get_many([user_id])).get(user_id)
+            identities = await asyncio.wait_for(
+                ActorIdentityService().get_many([user_id]),
+                timeout=VAULT_BOOTSTRAP_PHONE_SHADOW_TIMEOUT_SECONDS,
+            )
+            identity = identities.get(user_id)
             if identity is not None:
                 phone_verified = identity.get("phone_verified") is True
+        except TimeoutError:
+            logger.warning(
+                "vault/bootstrap-state phone-shadow lookup timed out user=%s",
+                _mask_user_id(user_id),
+            )
         except Exception as identity_error:
             logger.warning(
                 "vault/bootstrap-state phone-shadow lookup failed user=%s error=%s",

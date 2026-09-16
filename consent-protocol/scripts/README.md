@@ -43,7 +43,8 @@ Legacy/bootstrap SQL and one-off repair scripts here are not the release lane.
 - `audit_active_pkm_shape_readonly.py`: read-only redacted audit for active `pkm_blobs`; uses the env-wired reviewer by default, can resolve reviewer secrets from Secret Manager with `--gcp-secret-project`, decrypts locally in memory, and emits structural painpoints without plaintext values.
 - `eval_pkm_structure_agent.py`: evaluate PKM structure-agent output; use `--enforce-gates` for protocol/prompt hardening so fallback, mutation, domain, fragmentation, finance-contamination, and unresolved-domain drift fail nonzero.
 - `eval_portfolio_stream_quality.py`: evaluate portfolio/stream quality signals.
-- `run_kai_accuracy_suite.py`: maintainer-only Kai quality suite.
+- `run_kai_accuracy_suite.py`: maintainer-only portfolio extraction benchmark and Kai contract suite; its direct-provider benchmark does not exercise migrated analyst/debate/chat runtime paths.
+- `eval_kai_adk_synthetic.py --report <new-path>`: bounded, fixture-only live smoke of migrated analysts, one debate statement, synthesis and chat. Requires Gemini 3.8 on personal54/global, retains model receipts and failures, and refuses to overwrite a report. This is a manual runtime/schema smoke, not financial accuracy or full-route acceptance; CI runs its mocked tests only. For a targeted recheck use `--paths synthesis` and a fresh report path. Multiple selected paths run sequentially with `--interval-seconds 10` by default and stop after the first failure, preserving unattempted paths. A subset pass proves only those selected paths. Provider SDK retries may still occur inside a single path; pacing is not a project-wide quota limiter.
 
 ### Data Imports and Normalization
 

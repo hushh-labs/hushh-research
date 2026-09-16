@@ -1,6 +1,7 @@
 import { ApiService } from "@/lib/services/api-service";
 import { HttpAgent, type AgentSubscriber, type Tool } from "@ag-ui/client";
 import { getKaiActionById } from "@/lib/voice/kai-action-gateway";
+import { describeDirectiveForOwner } from "@/lib/agent/action-directive-summary";
 import {
   parseAgentActivityExperience,
   parseAgentToolResultExperience,
@@ -75,6 +76,7 @@ export type AgentChatStreamHandlers = {
   onThought?: (text: string) => void;
   onSources?: (sources: AgentSource[]) => void;
   onStructuredExperience?: (experience: AgentStructuredExperience) => void;
+  onSpecialistDirective?: (directive: SpecialistDirectiveEvent) => void;
 };
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -293,22 +295,32 @@ export async function streamAgentChat(input: {
     const actionId = tools.find((tool) => tool.name === name)?.metadata?.actionId;
     const action = getKaiActionById(typeof actionId === "string" ? actionId : null);
     const serverPresentation = SERVER_TOOL_PRESENTATION[name];
+    const resolvedActionId = typeof actionId === "string" ? actionId : null;
+    const label = action?.label || serverPresentation?.label || "One task";
+    const requiresConfirmation = action?.execution_policy === "confirm_required";
+    const trustedActivationRequired =
+      action?.activation_policy === "trusted_activation_required";
     return {
       callId,
       directiveId: null,
       conversationId: threadId,
       contextRevision: null,
       expiresAt: null,
-      actionId: typeof actionId === "string" ? actionId : null,
-      label: action?.label || serverPresentation?.label || "One task",
+      actionId: resolvedActionId,
+      label,
       execution: "frontend",
       slots: args,
-      message:
-        action?.meaning ||
-        serverPresentation?.message ||
-        "One is working on your request.",
-      requiresConfirmation: action?.execution_policy === "confirm_required",
-      trustedActivationRequired: action?.activation_policy === "trusted_activation_required",
+      // The gateway's `meaning` is written for the model and names a category
+      // of action, never this one. The owner confirms a sentence built from the
+      // resolved slots instead. Only a directive that waits on the owner may
+      // say so; most actions run directly and this sentence shows while they do.
+      message: action
+        ? describeDirectiveForOwner(resolvedActionId, label, args, {
+            requiresConfirmation: requiresConfirmation || trustedActivationRequired,
+          })
+        : serverPresentation?.message || "One is working on your request.",
+      requiresConfirmation,
+      trustedActivationRequired,
       raw: {
         protocol: "ag-ui",
         toolName: name,
@@ -361,12 +373,17 @@ export async function streamAgentChat(input: {
         handlers.onPendingConsentRequests?.(pendingIds);
       }
       // A server-side run_app_action parks a directive for the browser. The
-      // Live relay delivers parked directives through session state; this
-      // text transport has no such relay, so the parked action is surfaced
-      // here as a frontend tool event and staged (or run) by the workspace.
+      // text transport surfaces the directive as a frontend tool event, where
+      // the workspace stages it or routes it through the governed executor.
       const parked = parseParkedAppActionDirective(event.content);
       if (parked) {
         const action = getKaiActionById(parked.actionId);
+        const parkedLabel = action?.label || parked.actionId;
+        const parkedRequiresConfirmation =
+          parked.needsConfirmation || action?.execution_policy === "confirm_required";
+        const parkedTrustedActivationRequired =
+          parked.trustedActivationRequired ||
+          action?.activation_policy === "trusted_activation_required";
         handlers.onToolWaiting?.({
           callId: `${event.toolCallId}:directive`,
           directiveId: event.toolCallId,
@@ -374,15 +391,19 @@ export async function streamAgentChat(input: {
           contextRevision: null,
           expiresAt: null,
           actionId: parked.actionId,
-          label: action?.label || parked.actionId,
+          label: parkedLabel,
           execution: "frontend",
           slots: parked.slots,
-          message: action?.meaning || parked.message || "One is ready to continue.",
-          requiresConfirmation:
-            parked.needsConfirmation || action?.execution_policy === "confirm_required",
-          trustedActivationRequired:
-            parked.trustedActivationRequired ||
-            action?.activation_policy === "trusted_activation_required",
+          // A parked directive that owes no confirmation runs at once in the
+          // workspace, so the sentence may only promise a pause when one is owed.
+          message: action
+            ? describeDirectiveForOwner(parked.actionId, parkedLabel, parked.slots, {
+                requiresConfirmation:
+                  parkedRequiresConfirmation || parkedTrustedActivationRequired,
+              })
+            : parked.message || "One is ready to continue.",
+          requiresConfirmation: parkedRequiresConfirmation,
+          trustedActivationRequired: parkedTrustedActivationRequired,
           raw: {
             protocol: "ag-ui",
             toolName,
@@ -411,6 +432,37 @@ export async function streamAgentChat(input: {
         activityMessage?.content,
       );
       if (experience) handlers.onStructuredExperience?.(experience);
+    },
+    onStateDeltaEvent: ({ event }) => {
+      const patches = Array.isArray(event.delta) ? event.delta : [];
+      for (const patch of patches) {
+        if (!patch || typeof patch !== "object") continue;
+        const op = patch as { op?: string; path?: string; value?: unknown };
+        if (
+          op.op === "add" &&
+          typeof op.path === "string" &&
+          op.path.startsWith("/hussh:pending_directive:")
+        ) {
+          const val = op.value as Record<string, unknown> | null;
+          if (
+            val &&
+            typeof val === "object" &&
+            typeof val.delegateAgentId === "string"
+          ) {
+            const directivePayload = (val.payload || {}) as Record<string, unknown>;
+            const directiveEvent: SpecialistDirectiveEvent = {
+              delegateAgentId: val.delegateAgentId,
+              directive: {
+                kind: val.kind === "prompt" ? "prompt" : "action",
+                payload: directivePayload,
+              },
+              message: String(directivePayload.summary || val.message || ""),
+              stateChanged: true,
+            };
+            handlers.onSpecialistDirective?.(directiveEvent);
+          }
+        }
+      }
     },
     onRunFinishedEvent: (params) => {
       if (params.outcome === "interrupt") {

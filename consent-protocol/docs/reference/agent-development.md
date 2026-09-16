@@ -4,7 +4,7 @@
 
 The executable lifecycle route is `./bin/hushh codex route-task product-agent-development`.
 Runtime product agents live under `consent-protocol/hushh_mcp/agents`; repo-scoped
-engineering evidence agents live under `agents`. They are separate namespaces.
+engineering evidence agents live under `agents/`. They are separate namespaces.
 
 `agent.yaml` is the only authored product-agent source. The strict
 `AgentManifestV2` loader rejects unknown fields, and
@@ -18,65 +18,40 @@ PKM behavior, surface applicability, privacy allowlist, telemetry namespace,
 evaluation threshold, performance budget, kill switch, rollout, and rollback.
 Invocation authority never implies private-data access or mutation authority.
 
+
 ## One authored fleet, explicit runtime dependencies
 
-Email reuses `EmailChatService` with an injected Gmail read port, model and
-sealed store. Its runtime wrapper validates live owner/email scope before and
-after execution; this read-only OAuth path does not manufacture export refs or
-permit sends. Keep default shared callers' export guard intact. See the
-[broker contract](../../../docs/reference/architecture/pod-data-door.md) for
-query and projection limits.
+Keep each specialist's existing task and result contract. Register an optional
+`service_handler` through `adk_bridge.dispatch.register_specialist` when the
+same handler needs replaceable dependencies. Without a bound runtime, dispatch
+continues through the existing shared handler.
 
-Use the same manifest, specialist wrapper, model/tool loop and result contract in
-shared execution and a private pod. A topology setting selects dependencies; it
-does not supply missing consent, information adapters or persistence. Registration
-alone therefore does not establish pod readiness.
+Authenticated ingress may bind `SpecialistRuntime` for one invocation. Dispatch
+checks owner identity and active invocation authority before obtaining services,
+checks access before and after execution, and restores the previous context on
+exit. Missing runtime services fail closed. Information and Location chat
+services accept explicit `service_ports` and `scope_tokens`; bind these from
+verified ingress, never model arguments. Tool-specific consent remains required.
+In this shared-runtime branch, omitted individual ports retain shared defaults;
+these hooks alone do not establish private isolation. No ingress binding is added
+by the generic dependency seam.
 
-For a specialist that needs pod support:
-
-1. Keep its definition in `agent.yaml` and its dispatch entry in the existing
-   `hushh_mcp/adk_bridge` registry. Extend its existing service injection seam;
-   preserve the default shared handler and its behavior. Do not fork the agent,
-   prompt, tools or routing authority for the pod.
-2. Supply its dependencies through
-   `hushh_mcp/services/pod_specialist_runtime.py` and the existing
-   `SpecialistRuntime.service_for` contract. Authenticated text and private Live
-   ingress bind that runtime for the invocation; model arguments cannot choose
-   the owner or runtime. Reset context on completion, cancellation and failure.
-3. Verify the owner before dependency resolution, retrieval, hydration or provider
-   I/O, and recheck access before returning a result. Preserve separate invocation,
-   information and action authority. Use actual scoped grants, encrypted export
-   references and confirmation receipts where the specialist requires them;
-   neither `pkm.read` nor fabricated references substitute for these contracts.
-4. Inject the existing pod provider, scoped information ports and sealed history
-   as needed. PKM remains information authority; conversation history remains
-   agent experience. Preserve the caller's conversation ID and isolate history
-   by owner and specialist. A missing adapter or unavailable authority must refuse
-   execution, never select a shared service singleton as a fallback.
-5. Verify the shared default still works, foreign-owner calls stop before I/O,
-   missing/revoked authority refuses, and invocation context clears. For durable
-   specialists, exercise the real ingress-to-wrapper/tool path and history
-   recovery. A synthetic provider or fresh log object is local evidence, not a
-   live provider or genuine process-restart result. Reuse existing tests and
-   `config/pod-completion-ledger.yaml`; do not create a second readiness checklist.
-
-Location, Nav and Personal Information queries illustrate these seams, with qualified implementation limits in
-[the pod data-door reference](../../../docs/reference/architecture/pod-data-door.md#shared-fleet-integration-8-september-2026).
-That reference records remaining adapters and transitional broker reads; it does
-not declare the entire fleet complete. The
-[private-agent north star](../../../docs/reference/architecture/private-agent-north-star.md)
-owns the persistent-pod requirements.
-
-### Transferring common changes to shared execution
-
-Review portable dependency injection, owner checks and read-only service behavior
-as bounded changes in the existing ADK worktree, preserving its shared defaults.
-Keep pod ingress, grant couriering, remote verification, sealed recovery and pod
-information adapters on the private branch. Include dependent contracts and
-focused regressions in each transfer; do not cherry-pick a mixed pod integration
-commit or replace shared deployment configuration wholesale. Branch ancestry and
-source parity are separate from deployed acceptance.
-
+This branch retains Location, Nav and Personal Information registrations. Nav
+uses a manifest-owned Consent AgentTool child with scoped read tools. A selected
+Connections turn additionally requires exact manifest invocation capabilities,
+trusted task/owner bindings, and a database-confirmed owner token before and
+throughout its read/proposal tools. Connection proposals return to One with exact
+record IDs for the existing generated action/confirmation path; the legacy
+selection executor is not exposed by the child. Live migration acceptance remains
+open in the migration baseline report. Shared specialist
+turn execution lives in `hushh_mcp/hushh_adk/turn.py`; event deadlines and
+cancellation live in `hushh_mcp/hushh_adk/events.py`. Each turn receives fresh
+in-memory session state and explicit HushhContext authority. No whole-turn retry
+replays completed tool effects.
+Dependency hooks do not register additional agents, grant information access,
+or establish deployment readiness. Preserve shared defaults when transferring
+portable changes from a private deployment branch; keep deployment adapters and
+pod admission policy with their owning topology.
 
 ## Visual Context
 
@@ -688,15 +663,26 @@ The verifier checks:
 - Required agent -> operon data-source calls for fundamental/sentiment/valuation paths.
 
 The current pinned runtime is intentionally **not** an A2A v1 release
-candidate. An isolated dependency spike resolves `google-adk==2.4.0` with
-`a2a-sdk==1.1.0`, but importing ADK's `RemoteA2aAgent` fails because ADK
-imports `a2a.client.ClientEvent`, which A2A SDK 1.1.0 does not export. Keep
-One's endpoint marked `officialA2A: false` until a pinned ADK/A2A pair passes
-the complete Agent Card, Task, streaming, cancellation, and resume matrix.
+candidate. Measured on 2026-09-14 when the pin moved from `google-adk==2.4.0`
+to `google-adk==2.9.0`:
 
-The same spike confirms that `google-adk==2.4.0` can import
-`RemoteA2aAgent` with `a2a-sdk==0.3.26`. That establishes only legacy SDK
-compatibility; it must never be treated as A2A v1 compatibility.
+- `google-adk==2.9.0` declares `a2a-sdk[http-server]>=0.3.4,<2` (2.4.0
+  declared `<0.4`). The committed `uv.lock` still resolves `a2a-sdk==0.3.26`.
+- With that locked pair, `from google.adk.agents.remote_a2a_agent import
+  RemoteA2aAgent` imports. `tests/test_adk_pin_contract.py` pins this.
+- An isolated temporary environment with `google-adk==2.9.0` and
+  `a2a-sdk==1.1.2` now proves that `RemoteA2aAgent` and the v1 Agent Card types
+  import. It does **not** prove transport compatibility: constructing
+  `create_kai_official_a2a_app()` fails before serving with `AgentCard has no
+  "url" field`, because the current adapter still uses the pre-1.1 `AgentCard`
+  shape. ADK 2.9.0 ships `google/adk/a2a/_compat.py`, which rebuilds the
+  `ClientEvent` tuple that 1.x removed and that broke the 2.4.0 import; that
+  import fix is not a substitute for the complete transport matrix.
+
+Keep One's endpoint marked `officialA2A: false` until a pinned ADK/A2A pair
+passes the complete Agent Card, Task, streaming, cancellation, and resume
+matrix. Importing against 0.3.26 establishes only legacy SDK compatibility; it
+must never be treated as A2A v1 compatibility.
 
 ### Local ADK A2A transport rehearsal
 

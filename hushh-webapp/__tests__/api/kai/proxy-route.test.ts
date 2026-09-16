@@ -81,6 +81,35 @@ describe("/api/kai/[...path] proxy", () => {
     expect(options?.signal).not.toBe(req.signal);
   });
 
+  it("reports the Gmail completion deadline as a timeout, not a user cancellation", async () => {
+    vi.spyOn(globalThis, "fetch").mockRejectedValue(
+      new DOMException(
+        "The operation was aborted due to timeout",
+        "AbortError",
+      ),
+    );
+
+    const req = createRequest("http://localhost:3000/api/kai/gmail/connect/complete", {
+      method: "POST",
+      headers: {
+        Authorization: "Bearer id-token",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ user_id: "user_123", code: "code", state: "state" }),
+    });
+
+    const res = await kaiRoute.POST(req, {
+      params: Promise.resolve({ path: ["gmail", "connect", "complete"] }),
+    });
+
+    expect(res.status).toBe(504);
+    const payload = await res.json();
+    expect(payload).toEqual({
+      error: "Gmail temporarily unavailable",
+      message: "Gmail is taking too long to respond right now. Please try again in a moment.",
+    });
+  });
+
   it("forwards Authorization for import multipart path without overriding multipart content-type", async () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(JSON.stringify({ success: true }), {

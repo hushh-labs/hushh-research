@@ -50,7 +50,9 @@ export const PUBLIC_ROUTE_SEMANTICS: Record<PublicRoute, PublicRouteSemantic> = 
     title: "Hussh One | Your Private Agent",
     description: "Private AI agents with consent at the core. Your information, your control.",
     schemaType: "WebPage",
-    voicePlaybookId: "route.one.intro",
+    // `/` is dual-mode: anonymous visitors receive the intro surface, while
+    // the authenticated canonical route is the Chat workspace.
+    voicePlaybookId: "route.chat.root",
   },
   "/getting-started": {
     title: "Get started with Hussh One",

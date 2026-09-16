@@ -253,6 +253,34 @@ describe("observability schema", () => {
     expect(circle.ok).toBe(false);
     expect(circle.droppedKeys).toContain("circle_name");
     expect(circle.sanitized.circle_kind).toBe("family");
+
+    const journey = validateAndSanitizeEvent("one_location_journey_action", {
+      env: "production",
+      platform: "ios",
+      event_category: "feature",
+      app_version: "2.1.0",
+      route_id: "connect",
+      action: "circle_member_invited",
+      result: "success",
+      entry_surface: "connect_circles",
+      target_type: "circle",
+      circle_kind: "friends",
+      count_bucket: "2_3",
+      circle_name: "Weekend trip",
+      request_id: "request-secret",
+      public_token: "share-secret",
+    } as any);
+    expect(journey.ok).toBe(false);
+    expect(journey.droppedKeys).toEqual(
+      expect.arrayContaining(["circle_name", "request_id", "public_token"]),
+    );
+    expect(journey.sanitized).toMatchObject({
+      action: "circle_member_invited",
+      entry_surface: "connect_circles",
+      target_type: "circle",
+      circle_kind: "friends",
+      count_bucket: "2_3",
+    });
   });
 
   it("drops sensitive fields from cache performance events", () => {

@@ -110,6 +110,27 @@ export function normalizeRichEmailText(value: string): string {
   return normalized;
 }
 
+/**
+ * Converts the reviewed rich editor value into the plain-text companion that
+ * Gmail sends alongside its HTML body. Keeping this here means every sender
+ * uses the same, user-visible content rather than inventing a second parser.
+ */
+export function richEmailPlainText(value: string): string {
+  const normalized = normalizeRichEmailText(value).trim();
+  if (!normalized.startsWith("<") || !normalized.includes(">")) {
+    return normalized;
+  }
+  if (typeof document === "undefined") {
+    return normalized.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
+  }
+  const container = document.createElement("div");
+  container.innerHTML = sanitizePastedHtml(normalized);
+  return (container.innerText || container.textContent || "")
+    .replace(/\u00a0/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 function parseBlocks(value: string): EmailBlock[] {
   const lines = normalizeRichEmailText(value).replaceAll("\r\n", "\n").split("\n");
   const blocks: EmailBlock[] = [];

@@ -1,3 +1,4 @@
+import { executeOneCommandInvocation } from "@/lib/agent/one-system-action-executor";
 import { executeKaiCommand } from "@/lib/kai/command-executor";
 import type { KaiCommandAction } from "@/lib/kai/kai-command-types";
 import {
@@ -512,6 +513,20 @@ export async function executeAgentGatewayAction(
     });
   }
 
+  if (action.command?.domain === "location" && action.execution_target.status === "wired" && action.execution_target.path === "local_handler"
+    && !input.executionContext?.operationId) {
+    if (input.signal?.aborted) return buildResult({ status: "failed", actionId: action.action_id,
+      routeBefore: routeBefore.pathname, resultSummary: "Action was interrupted." });
+    // Chat and typed app actions use the same preparation/confirmation owner.
+    // The command's post-claim call carries operationId and bypasses this handoff.
+    const slots = input.slots || {};
+    if (Object.values(slots).some((value) => !["string", "number", "boolean"].includes(typeof value)))
+      return buildResult({ status: "invalid", actionId: action.action_id, routeBefore: routeBefore.pathname,
+        resultSummary: "This Location action needs typed inputs." });
+    return executeOneCommandInvocation({ id: crypto.randomUUID(), actionId: action.action_id,
+      slots: slots as Record<string, string | number | boolean>, expectedOwner: input.userId });
+  }
+
   let effectiveRuntimeState = input.appRuntimeState;
   const initialAvailability = evaluateKaiActionAvailability({
     action,
@@ -630,6 +645,17 @@ export async function executeAgentGatewayAction(
     }
 
     const handler = await waitForLocalOnboardingHandler(action.action_id);
+    if (input.signal?.aborted) {
+      return buildResult({
+        status: "failed",
+        actionId: action.action_id,
+        label: action.label,
+        routeBefore: routeBefore.pathname,
+        screenBefore: routeBefore.screen,
+        resultSummary: "Action was interrupted.",
+        reason: "execution_aborted",
+      });
+    }
     if (!handler) {
       return buildResult({
         status: "blocked",
@@ -644,15 +670,17 @@ export async function executeAgentGatewayAction(
 
     try {
       // A local handler may begin an external mutation (for example, sending a
-      // connection request). The handler contract has no cancellation signal,
-      // and its backing services do not promise rollback on abort. Racing it
+      // connection request). Its backing services do not promise rollback on
+      // abort. Racing it
       // against a local timeout or a later voice utterance would therefore
       // report a false terminal failure while the request can still succeed.
       // Once invocation begins, wait for the authoritative handler outcome;
       // the pre-invocation abort check above still avoids starting new work.
       const handlerResult = await handler(
         input.slots || {},
-        input.executionContext,
+        input.signal
+          ? { ...input.executionContext, signal: input.signal }
+          : input.executionContext,
       );
 
       return buildLocalHandlerResult({
@@ -687,7 +715,9 @@ export async function executeAgentGatewayAction(
     try {
       const handlerResult = await mountedHandler(
         input.slots || {},
-        input.executionContext,
+        input.signal
+          ? { ...input.executionContext, signal: input.signal }
+          : input.executionContext,
       );
       return buildLocalHandlerResult({
         actionId: action.action_id,

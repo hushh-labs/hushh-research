@@ -21,10 +21,9 @@ export type ProfileDetail =
   | "gemini"
   | "device"
   | "voice"
-  | "voice-changelog"
-  | "voice-examples"
   | "vault"
   | "session"
+  | "trusted-devices"
   | "gmail-connection"
   | "gmail-actions"
   | "support-routing"
@@ -109,13 +108,20 @@ export function normalizeProfileDetail(
     (detail === "kai-preferences" ||
       detail === "gemini" ||
       detail === "device" ||
-      detail === "voice" ||
-      detail === "voice-changelog" ||
-      detail === "voice-examples")
+      detail === "voice")
   ) {
     return detail;
   }
-  if (panel === "security" && (detail === "vault" || detail === "session")) {
+  if (
+    panel === "preferences" &&
+    (detail === "voice-changelog" || detail === "voice-examples")
+  ) {
+    return "voice";
+  }
+  if (
+    panel === "security" &&
+    (detail === "vault" || detail === "session" || detail === "trusted-devices")
+  ) {
     return detail;
   }
   if (
@@ -242,24 +248,16 @@ export function buildProfileRoute(params?: {
         params?.searchParams,
       );
     }
-    if (detail === "voice-changelog") {
-      return appendQuery(
-        ROUTES.PROFILE_PREFERENCES_VOICE_CHANGELOG,
-        {},
-        params?.searchParams,
-      );
-    }
-    if (detail === "voice-examples") {
-      return appendQuery(
-        ROUTES.PROFILE_PREFERENCES_VOICE_EXAMPLES,
-        {},
-        params?.searchParams,
-      );
-    }
     return appendQuery(ROUTES.PROFILE_PREFERENCES, {}, params?.searchParams);
   }
 
   if (panel === "security") {
+    // Trusted devices is intentionally pane-only. Route-level callers fall
+    // back to the security parent instead of generating the retired page URL;
+    // the recursive sheet uses buildProfilePaneHref for the detail itself.
+    if (detail === "trusted-devices") {
+      return appendQuery(ROUTES.PROFILE_SECURITY, {}, params?.searchParams);
+    }
     if (detail === "vault") {
       return appendQuery(
         ROUTES.PROFILE_SECURITY_VAULT,
@@ -387,10 +385,10 @@ export function resolveProfileRouteState(
     return { panel: "preferences", detail: "voice" };
   }
   if (normalizedPath === ROUTES.PROFILE_PREFERENCES_VOICE_CHANGELOG) {
-    return { panel: "preferences", detail: "voice-changelog" };
+    return { panel: "preferences", detail: "voice" };
   }
   if (normalizedPath === ROUTES.PROFILE_PREFERENCES_VOICE_EXAMPLES) {
-    return { panel: "preferences", detail: "voice-examples" };
+    return { panel: "preferences", detail: "voice" };
   }
 
   if (normalizedPath === ROUTES.PROFILE_SECURITY) {

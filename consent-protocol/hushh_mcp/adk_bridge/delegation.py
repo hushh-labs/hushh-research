@@ -6,6 +6,46 @@ from dataclasses import dataclass
 
 from hushh_mcp.consent.token import validate_token, validate_token_with_db
 from hushh_mcp.constants import ConsentScope
+from hushh_mcp.types import HushhConsentToken
+
+
+async def validate_first_party_owner_token(
+    user_id: str, consent_token: str
+) -> HushhConsentToken | None:
+    """Validate exact self-owner authority, without the generic DB outage grace.
+
+    This is an ingress prerequisite for scoped first-party invocation, not an
+    information export or action confirmation. Never emit credential diagnostics.
+    """
+    if not isinstance(user_id, str) or not user_id.strip():
+        return None
+    if not isinstance(consent_token, str) or not consent_token:
+        return None
+    try:
+        valid, _reason, payload = validate_token(
+            consent_token, ConsentScope.VAULT_OWNER, require_commercial=False
+        )
+        if (
+            not valid
+            or payload is None
+            or payload.user_id != user_id
+            or payload.agent_id != "self"
+            or payload.scope != ConsentScope.VAULT_OWNER
+            or payload.scope_str != ConsentScope.VAULT_OWNER.value
+            or payload.commercial is not False
+        ):
+            return None
+        from hushh_mcp.services.consent_db import ConsentDBService
+
+        active = await ConsentDBService().is_token_active(
+            user_id, ConsentScope.VAULT_OWNER.value, "self", token_id=consent_token
+        )
+        return payload if active is True else None
+    except Exception:
+        # Missing grants, backend failures and malformed validation results must
+        # never authorize a new delegation. Cancellation still propagates.
+        return None
+
 
 SPECIALIST_A2A_SCOPE_MAP: dict[str, ConsentScope] = {
     "agent_one": ConsentScope.CAP_ONE_INVOKE,

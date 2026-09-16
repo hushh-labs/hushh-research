@@ -36,8 +36,9 @@ ran=0
 
 # Account deletion is an auth/session boundary on every client. Keep the
 # production-code regressions and rendered recovery notice in the PR gate.
-if has_match '^(hushh-webapp/(lib/(auth/|firebase/auth-context|flows/delete-account|services/(account-service|api-service|auth-service|vault-service)|vault/vault-context)|components/(auth/|vault/|onboarding/)|app/(login/|page\.tsx)|e2e/account-session-recovery|__tests__/.*(account|session|vault))|consent-protocol/(api/(routes/account|utils/firebase_auth)|hushh_mcp/services/account|db/migrations/201_))'; then
+if has_match '^(hushh-webapp/(lib/(auth/|firebase/auth-context|flows/delete-account|services/(account-service|api-service|auth-service|vault-(service|bootstrap-service|method-service))|vault/|capacitor/(session-privacy|plugins/(keychain-web|vault-web)))|components/(auth/|vault/|onboarding/)|app/(login/|page\.tsx|api/consent/vault-owner-token/)|e2e/account-session-recovery|__tests__/.*(account|session|vault))|consent-protocol/(api/(routes/(account|consent)|utils/firebase_auth)|hushh_mcp/(services/(account|consent_db)|consent/token)|db/migrations/201_))'; then
   run_check "account session recovery" npm run verify:account-session
+  run_check "vault unlock and enrollment" npm run verify:vault-unlock
   NEXT_PUBLIC_APP_ENV="${NEXT_PUBLIC_APP_ENV:-development}" \
   NEXT_PUBLIC_BACKEND_URL="${NEXT_PUBLIC_BACKEND_URL:-http://127.0.0.1:9}" \
   NEXT_PUBLIC_FIREBASE_API_KEY="${NEXT_PUBLIC_FIREBASE_API_KEY:-test-api-key}" \
@@ -48,9 +49,48 @@ if has_match '^(hushh-webapp/(lib/(auth/|firebase/auth-context|flows/delete-acco
   ran=1
 fi
 
-if has_match '^hushh-webapp/(lib/voice/|components/agent/|scripts/voice/|__tests__/.*(voice|agent)|app/api/(kai|one)/.*(voice|realtime)|\.voice-action-contract\.json)'; then
+# Consent surfaces and the Memory route they are supposed to match.
+#
+# The founder's benchmark for how information should read is the Memory tab --
+# one domain, then attributes, one level at a time. Its tests already assert
+# every property that makes it good: immediate children only, a back control
+# named for its parent, ancestors-only breadcrumbs, descendant counts that
+# exclude hidden keys, human labels for opaque segments. NONE of it gated a pull
+# request, because no pack named components/profile or lib/pkm, so the reference
+# surface was free to drift away from its own contract.
+#
+# The consent side is here for the same reason and a sharper one: it is where a
+# person decides what another person may see. It shipped offering 24 rows of
+# which roughly five were information about anybody -- the rest onboarding
+# checkpoints and routing telemetry -- and no test in the repository could have
+# said so.
+if has_match '^hushh-webapp/(components/(consent/|profile/)|lib/(consent/|pkm/|personal-knowledge-model/)|components/connections/person-profile-page\.tsx|__tests__/.*(consent|pkm|person-profile))'; then
+  run_check "consent + memory parity" npm run test:consent-memory-parity
+  ran=1
+fi
+
+if has_match '^hushh-webapp/(lib/voice/|lib/one-voice/|components/one-voice/|components/agent/|components/one-location/onboarding/(location-command-device-bridge|location-onboarding-interaction-surface)\.tsx|lib/services/(gemini-live-client|one-location-onboarding-device-orchestrator|one-location-onboarding-run-client)\.ts|scripts/voice/|__tests__/.*(voice|agent)|app/api/(kai|one)/.*(voice|realtime)|\.voice-action-contract\.json)'; then
   run_check "voice gateway" npm run verify:voice-gateway
   run_check "One Voice runtime evaluations" npm run verify:one-voice
+  ran=1
+fi
+
+# Agent Chat is a two-agent window: One in the cloud and Puppy One on the
+# owner's own Mac. The invariants that matter are COMPOSITION properties (which
+# of One's controls survive the switch, whether a command capture or an
+# in-flight turn does), and none of the eleven Puppy suites gated a pull
+# request before this lane existed, which is how a cloud model picker shipped
+# sitting over the on-device transcript. Kept separate from the voice-gateway
+# lane above: that one is the Kai action-gateway generator check, and folding
+# them together would hide which contract failed.
+if has_match '^hushh-webapp/(components/agent/|lib/hermes/|lib/services/puppy-one-service\.ts|lib/agent/agent-voice-settings\.ts|lib/morphy-ux/ui/segmented-control\.tsx|app/api/hermes/|app/one/puppy/|__tests__/agent/)'; then
+  run_check "agent surface" npm run verify:agent-surface
+  # And the same question asked of a real browser. JSDOM cannot report that a
+  # cloud model picker is SITTING on the on-device screen, or that the mode
+  # toggle slides sideways under the thumb that pressed it, which is exactly
+  # the shape the reported defect took. This spec needs no dev server: it
+  # compiles its fixture from the shipped source and loads it over file://.
+  run_check "agent surface layout" npm run test:agent-surface-layout
   ran=1
 fi
 
@@ -175,7 +215,7 @@ fi
 # only filters what it is handed. A taxonomy change is a backend-only diff that
 # nothing on this side would otherwise run -- which is how "Hotels" shipped
 # listing a lounge.
-if has_match '^(hushh-webapp/(components/one-location/|__tests__/components/one-location|app/one/location/|lib/one-location/|lib/contacts/|lib/marketplace/contact-matching\.ts)|consent-protocol/hushh_mcp/services/(google_maps_service|place_taxonomy)\.py)'; then
+if has_match '^(hushh-webapp/(components/one-location/|components/location/|lib/location/|__tests__/components/one-location|app/one/location/|lib/one-location/|lib/contacts/|lib/marketplace/contact-matching\.ts)|consent-protocol/hushh_mcp/services/(google_maps_service|place_taxonomy)\.py)'; then
   run_check "One Location flows" npm run verify:one-location
   ran=1
 fi

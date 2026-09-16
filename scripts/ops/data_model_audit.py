@@ -420,6 +420,7 @@ def _validate_contract(contract: dict[str, Any]) -> list[str]:
         "kai_brokerage_provider_cache",
         "pkm_encrypted_memory",
         "one_action_directive_authority",
+        "one_capability_runtime",
         "one_location_agent",
         "information_marketplace_requests",
         "one_email_kyc_workflow",

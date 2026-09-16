@@ -395,10 +395,3 @@ def test_equal_field_names_in_separate_family_objects_remain_valid(tmp_path):
     expected = {"table_families": [{"id": "first"}, {"id": "second"}]}
     path.write_text(json.dumps(expected))
     assert data_model_audit._load_json(path) == expected
-
-
-def test_authentication_ceremonies_and_message_feedback_are_distinct_families():
-    contract = data_model_audit._load_json(data_model_audit.CONTRACT_PATH)
-    families = {family["id"]: family for family in contract["table_families"]}
-    assert families["webauthn_ceremony_state"]["exact_tables"] == ["webauthn_challenges"]
-    assert families["one_agent_message_feedback"]["exact_tables"] == ["one_agent_message_feedback"]

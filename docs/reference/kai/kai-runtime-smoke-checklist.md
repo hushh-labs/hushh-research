@@ -42,32 +42,19 @@ Runtime truth note:
    - `/one/kai/portfolio/performance`
    - `/one/kai/portfolio/sources`
    - `/one/kai/analysis`
- 4. Verify required voice routes are present and reachable in the protected API surface:
-   - `/api/kai/voice/capability`
-   - `/api/kai/voice/realtime/session`
-   - `/api/kai/voice/plan`
-   - `/api/kai/voice/compose`
+ 4. Verify the protected command endpoints: `POST /api/one/transcriptions`, `POST /api/one/agent-chat/proposals`, and the `/api/one/action-proposals` lifecycle. Obsolete Live clients must receive the explicit retirement response.
 
 ## 0a) Voice Runtime Sanity
-1. Open a signed-in Kai route where voice is eligible.
-2. Confirm voice capability reports enabled for the current user/runtime and that the mic surface can enter listening state.
-3. Run one `answer_now` turn such as:
-   - `Who are you?`
-4. Run one `execute_and_wait` turn such as:
-   - `Take me to my profile.`
-5. Run one post-navigation explanation turn such as:
-   - `Open Gmail and tell me what I can do here.`
-6. Run one `start_background_and_ack` turn such as:
-   - `Analyze Nvidia.`
-7. Confirm:
-   - planner/dispatch/tts stages progress without a generic `stt_unusable` fallback,
-   - successful navigation waits for route/screen settlement before final speech,
-   - analysis start responds with an acknowledgement rather than a fake completion claim,
-   - final spoken text comes from the post-execution compose path or the explicit deterministic fallback.
-8. Confirm the English-only voice contract:
-   - realtime session metadata reports `transcription_language: "en"`,
-   - non-English speech or transcript input returns an English clarification instead of executing,
-   - spoken output remains English even when the input asks for another language.
+The microphone now enters the Location command runtime. Ordinary typed Kai text continues through its existing specialist. Use [One Voice Runtime Architecture](../one/one-voice-runtime-architecture.md) for the current contract.
+
+1. Authenticate and unlock. Hold, speak and release; verify the final words reach the transcript. Repeat with accessible tap-to-start/finish.
+2. Cancel or background during capture; verify no command submits. Completion must return to idle without restarting listening.
+3. Exercise English, Hindi and Hinglish requests for a circle with a supplied name. Verify the actual service result, not only the proposed action.
+4. Ask to enable Location with and without permission. Observe the real permission gate and continuation of the same task. Ambiguous people must produce a choice or clarification.
+5. Confirm sensitive cards describe the exact people, duration and scope. Change a selected record while a card is open; stale approval must not execute.
+6. Exercise a screen-only capability. The card may report that its screen opened; it must not report the underlying operation completed.
+7. Terminate before/after effects and at gates. After authentication and unlock, require explicit Resume or Cancel; completed steps must not replay. Check owner changes and 24-hour expiry separately.
+8. Check Agent Bar, Chat microphone and Siri entrypoints for zero Gemini Live or generated-audio requests. Repeat the microphone, permission and restart scenarios on web, iOS and Android before release.
 
 ## 1) Fresh User Import Flow
 1. Sign in with a user that has no `financial` domain.

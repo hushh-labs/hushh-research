@@ -14,7 +14,8 @@ import {
 // page, pass `force: true` to bypass this cache), but long enough that
 // repeated mounts of the same screen (e.g. `/one/setup`) within a few
 // seconds don't each trigger their own network round trip.
-const gmailStatusCacheKey = (userId: string) => `gmail_connection_status_${userId}`;
+const gmailStatusCacheKey = (userId: string) =>
+  `gmail_connection_status_${userId}`;
 
 export type GmailConnectionState =
   | "disconnected"
@@ -32,7 +33,8 @@ export interface GmailSyncRun {
   user_id: string;
   trigger_source: string;
   status: "queued" | "running" | "completed" | "failed" | "canceled";
-  sync_mode?: "bootstrap" | "incremental" | "manual" | "recovery" | "backfill" | null;
+  sync_mode?:
+    "bootstrap" | "incremental" | "manual" | "recovery" | "backfill" | null;
   start_history_id?: string | null;
   end_history_id?: string | null;
   requested_at?: string | null;
@@ -67,7 +69,8 @@ export interface GmailConnectionStatus {
     | "backfill_running"
     | "failed"
     | null;
-  bootstrap_state?: "idle" | "queued" | "running" | "completed" | "failed" | null;
+  bootstrap_state?:
+    "idle" | "queued" | "running" | "completed" | "failed" | null;
   watch_status?:
     | "unknown"
     | "active"
@@ -86,7 +89,8 @@ export interface GmailConnectionStatus {
   /** Google granted the Gmail send provider scope during the shared connection. */
   send_permission_granted?: boolean;
   last_sync_at?: string | null;
-  last_sync_status: "idle" | "queued" | "running" | "completed" | "failed" | "canceled";
+  last_sync_status:
+    "idle" | "queued" | "running" | "completed" | "failed" | "canceled";
   last_sync_error?: string | null;
   auto_sync_enabled: boolean;
   revoked: boolean;
@@ -106,6 +110,7 @@ export interface GmailConnectStartResponse {
 export interface GmailNativeConnectStartResponse {
   configured: boolean;
   server_client_id: string;
+  purpose: "read" | "send";
 }
 
 export interface GmailSyncQueueResponse {
@@ -175,12 +180,17 @@ interface ErrorEnvelope {
   error?: string;
 }
 
-async function extractError(response: Response, fallback: string): Promise<string> {
+async function extractError(
+  response: Response,
+  fallback: string,
+): Promise<string> {
   const raw = await response.text().catch(() => "");
   try {
     const payload = (raw ? JSON.parse(raw) : null) as ErrorEnvelope | null;
     const detailObj =
-      payload?.detail && typeof payload.detail === "object" && !Array.isArray(payload.detail)
+      payload?.detail &&
+      typeof payload.detail === "object" &&
+      !Array.isArray(payload.detail)
         ? payload.detail
         : null;
     const message =
@@ -194,7 +204,10 @@ async function extractError(response: Response, fallback: string): Promise<strin
   }
 }
 
-function buildSealedHeaders(idToken: string, vaultOwnerToken: string): HeadersInit {
+function buildSealedHeaders(
+  idToken: string,
+  vaultOwnerToken: string,
+): HeadersInit {
   return {
     Authorization: `Bearer ${idToken}`,
     "X-Hushh-Consent": `Bearer ${vaultOwnerToken}`,
@@ -222,11 +235,13 @@ export class GmailReceiptsService {
         headers: {
           Authorization: `Bearer ${params.idToken}`,
         },
-      }
+      },
     );
 
     if (!response.ok) {
-      throw new Error(await extractError(response, "Failed to load Gmail connector status."));
+      throw new Error(
+        await extractError(response, "Failed to load Gmail connector status."),
+      );
     }
 
     const status = (await response.json()) as GmailConnectionStatus;
@@ -239,31 +254,38 @@ export class GmailReceiptsService {
     userId: string;
     loginHint?: string | null;
     includeGrantedScopes: boolean;
+    purpose?: "read" | "send";
   }): Promise<GmailConnectStartResponse> {
     trackEvent("gmail_connect_started", {
       action: params.includeGrantedScopes ? "incremental" : "full",
       result: "success",
     });
 
-    const response = await ApiService.apiFetch(GMAIL_RECEIPTS_API_TEMPLATES.connectStart, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${params.idToken}`,
+    const response = await ApiService.apiFetch(
+      GMAIL_RECEIPTS_API_TEMPLATES.connectStart,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${params.idToken}`,
+        },
+        body: JSON.stringify({
+          user_id: params.userId,
+          login_hint: params.loginHint || null,
+          include_granted_scopes: params.includeGrantedScopes,
+          purpose: params.purpose || "read",
+        }),
       },
-      body: JSON.stringify({
-        user_id: params.userId,
-        login_hint: params.loginHint || null,
-        include_granted_scopes: params.includeGrantedScopes,
-      }),
-    });
+    );
 
     if (!response.ok) {
       trackEvent("gmail_connect_result", {
         action: "start",
         result: "error",
       });
-      throw new Error(await extractError(response, "Failed to start Gmail OAuth."));
+      throw new Error(
+        await extractError(response, "Failed to start Gmail OAuth."),
+      );
     }
 
     trackEvent("gmail_connect_result", {
@@ -275,16 +297,23 @@ export class GmailReceiptsService {
 
   static async startNativeConnect(params: {
     idToken: string;
+    purpose?: "read" | "send";
   }): Promise<GmailNativeConnectStartResponse> {
     const response = await ApiService.apiFetch(
       GMAIL_RECEIPTS_API_TEMPLATES.connectNativeStart,
       {
         method: "POST",
-        headers: { Authorization: `Bearer ${params.idToken}` },
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${params.idToken}`,
+        },
+        body: JSON.stringify({ purpose: params.purpose || "read" }),
       },
     );
     if (!response.ok) {
-      throw new Error(await extractError(response, "Failed to start native Gmail OAuth."));
+      throw new Error(
+        await extractError(response, "Failed to start native Gmail OAuth."),
+      );
     }
     return (await response.json()) as GmailNativeConnectStartResponse;
   }
@@ -309,7 +338,9 @@ export class GmailReceiptsService {
       },
     );
     if (!response.ok) {
-      throw new Error(await extractError(response, "Failed to complete native Gmail OAuth."));
+      throw new Error(
+        await extractError(response, "Failed to complete native Gmail OAuth."),
+      );
     }
     return (await response.json()) as GmailConnectionStatus;
   }
@@ -320,25 +351,30 @@ export class GmailReceiptsService {
     code: string;
     state: string;
   }): Promise<GmailConnectionStatus> {
-    const response = await ApiService.apiFetch(GMAIL_RECEIPTS_API_TEMPLATES.connectComplete, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${params.idToken}`,
+    const response = await ApiService.apiFetch(
+      GMAIL_RECEIPTS_API_TEMPLATES.connectComplete,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${params.idToken}`,
+        },
+        body: JSON.stringify({
+          user_id: params.userId,
+          code: params.code,
+          state: params.state,
+        }),
       },
-      body: JSON.stringify({
-        user_id: params.userId,
-        code: params.code,
-        state: params.state,
-      }),
-    });
+    );
 
     if (!response.ok) {
       trackEvent("gmail_connect_result", {
         action: "complete",
         result: "error",
       });
-      throw new Error(await extractError(response, "Failed to complete Gmail OAuth."));
+      throw new Error(
+        await extractError(response, "Failed to complete Gmail OAuth."),
+      );
     }
 
     trackEvent("gmail_connect_result", {
@@ -352,18 +388,23 @@ export class GmailReceiptsService {
     idToken: string;
     userId: string;
   }): Promise<GmailConnectionStatus> {
-    const response = await ApiService.apiFetch(GMAIL_RECEIPTS_API_TEMPLATES.disconnect, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${params.idToken}`,
+    const response = await ApiService.apiFetch(
+      GMAIL_RECEIPTS_API_TEMPLATES.disconnect,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${params.idToken}`,
+        },
+        body: JSON.stringify({ user_id: params.userId }),
       },
-      body: JSON.stringify({ user_id: params.userId }),
-    });
+    );
 
     if (!response.ok) {
       trackEvent("gmail_disconnect_result", { result: "error" });
-      throw new Error(await extractError(response, "Failed to disconnect Gmail."));
+      throw new Error(
+        await extractError(response, "Failed to disconnect Gmail."),
+      );
     }
 
     trackEvent("gmail_disconnect_result", { result: "success" });
@@ -374,17 +415,25 @@ export class GmailReceiptsService {
     idToken: string;
     userId: string;
   }): Promise<GmailConnectionStatus> {
-    const response = await ApiService.apiFetch(GMAIL_RECEIPTS_API_TEMPLATES.reconcile, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${params.idToken}`,
+    const response = await ApiService.apiFetch(
+      GMAIL_RECEIPTS_API_TEMPLATES.reconcile,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${params.idToken}`,
+        },
+        body: JSON.stringify({ user_id: params.userId }),
       },
-      body: JSON.stringify({ user_id: params.userId }),
-    });
+    );
 
     if (!response.ok) {
-      throw new Error(await extractError(response, "Failed to refresh Gmail connector status."));
+      throw new Error(
+        await extractError(
+          response,
+          "Failed to refresh Gmail connector status.",
+        ),
+      );
     }
 
     const status = (await response.json()) as GmailConnectionStatus;
@@ -405,21 +454,26 @@ export class GmailReceiptsService {
       result: "success",
     });
 
-    const response = await ApiService.apiFetch(GMAIL_RECEIPTS_API_TEMPLATES.sync, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${params.idToken}`,
+    const response = await ApiService.apiFetch(
+      GMAIL_RECEIPTS_API_TEMPLATES.sync,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${params.idToken}`,
+        },
+        body: JSON.stringify({ user_id: params.userId }),
       },
-      body: JSON.stringify({ user_id: params.userId }),
-    });
+    );
 
     if (!response.ok) {
       trackEvent("gmail_sync_result", {
         action: "queue",
         result: "error",
       });
-      throw new Error(await extractError(response, "Failed to queue Gmail receipt sync."));
+      throw new Error(
+        await extractError(response, "Failed to queue Gmail receipt sync."),
+      );
     }
 
     const payload = (await response.json()) as GmailSyncQueueResponse;
@@ -443,11 +497,13 @@ export class GmailReceiptsService {
         headers: {
           Authorization: `Bearer ${params.idToken}`,
         },
-      }
+      },
     );
 
     if (!response.ok) {
-      throw new Error(await extractError(response, "Failed to load Gmail sync run status."));
+      throw new Error(
+        await extractError(response, "Failed to load Gmail sync run status."),
+      );
     }
 
     return (await response.json()) as { run: GmailSyncRun };
@@ -469,14 +525,16 @@ export class GmailReceiptsService {
       {
         method: "GET",
         headers: buildSealedHeaders(params.idToken, params.vaultOwnerToken),
-      }
+      },
     );
 
     if (!response.ok) {
       trackEvent("gmail_receipts_loaded", {
         result: "error",
       });
-      throw new Error(await extractError(response, "Failed to load synced Gmail receipts."));
+      throw new Error(
+        await extractError(response, "Failed to load synced Gmail receipts."),
+      );
     }
 
     trackEvent("gmail_receipts_loaded", {
@@ -499,11 +557,13 @@ export class GmailReceiptsService {
       {
         method: "GET",
         headers: buildSealedHeaders(params.idToken, params.vaultOwnerToken),
-      }
+      },
     );
 
     if (!response.ok) {
-      throw new Error(await extractError(response, "Failed to load Gmail nudges."));
+      throw new Error(
+        await extractError(response, "Failed to load Gmail nudges."),
+      );
     }
 
     return (await response.json()) as GmailNudgesResponse;

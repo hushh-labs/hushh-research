@@ -15,6 +15,7 @@ from typing import Any
 from hushh_mcp.constants import ConsentScope
 from hushh_mcp.hushh_adk.context import HushhContext
 from hushh_mcp.hushh_adk.tools import hushh_tool
+from hushh_mcp.one_adk.action_tools import read_my_pkm_domain_summary
 from hushh_mcp.services.marketplace_information_service import (
     MarketplaceInformationService,
 )
@@ -32,10 +33,6 @@ def _service() -> MarketplaceInformationService:
     context = _ctx()
     if "marketplace_information" in context.service_ports:
         return context.service_ports["marketplace_information"]
-    from hushh_mcp.runtime_settings import pod_mode
-
-    if pod_mode():
-        raise RuntimeError("Marketplace information is unavailable in this pod")
     return MarketplaceInformationService()
 
 
@@ -43,10 +40,6 @@ def _requests() -> MarketplaceRequestService:
     context = _ctx()
     if "marketplace_requests" in context.service_ports:
         return context.service_ports["marketplace_requests"]
-    from hushh_mcp.runtime_settings import pod_mode
-
-    if pod_mode():
-        raise RuntimeError("Marketplace requests are unavailable in this pod")
     return MarketplaceRequestService()
 
 
@@ -146,6 +139,7 @@ async def propose_publish(topic: str | None = None) -> dict[str, Any]:
 
 # Read-only query tools available to the marketplace chatbot (slice 1).
 PERSONAL_INFORMATION_QUERY_TOOLS = [
+    read_my_pkm_domain_summary,
     list_published_slices,
     get_earnings_summary,
     propose_publish,

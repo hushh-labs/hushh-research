@@ -1,6 +1,8 @@
 package com.hussh.app.plugins.HushhVault
 
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.util.Base64
 import android.util.Log
 import androidx.credentials.CreateCredentialResponse
@@ -27,8 +29,8 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
 import java.security.SecureRandom
+import java.util.concurrent.CancellationException
 import java.util.concurrent.TimeUnit
-import java.util.concurrent.atomic.AtomicBoolean
 import javax.crypto.Cipher
 import javax.crypto.Mac
 import javax.crypto.SecretKeyFactory
@@ -37,6 +39,7 @@ import javax.crypto.spec.PBEKeySpec
 import javax.crypto.spec.SecretKeySpec
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 
@@ -51,15 +54,30 @@ class HushhVaultPlugin : Plugin() {
 
     private val TAG = "HushhVault"
     private val pluginScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
-    // Credential Manager presents a process-wide UI surface. Keep duplicate
-    // callers from opening a second Google Password Manager prompt while the
-    // first request is still resolving or being cancelled.
-    private val passkeyAuthenticationInFlight = AtomicBoolean(false)
+    // Credential Manager presents a process-wide UI surface. Retain one
+    // operation until its original coroutine callback settles, including while
+    // cancellation is dismissing the system-owned passkey sheet.
+    private val passkeyOperationLock = Any()
+    private val passkeyCancellationHandler = Handler(Looper.getMainLooper())
+    private var activePasskeyOperation: ActivePasskeyOperation? = null
     private val accountNotFoundCode = "AUTH_ACCOUNT_NOT_FOUND"
     private val maxLifecyclePayloadDepth = 6
     private val maxLifecyclePayloadNodes = 64
     private val maxLifecyclePayloadEntries = 32
     private val maxLifecyclePayloadBytes = 16_384
+
+    private class ActivePasskeyOperation(
+        val requestId: String?,
+        val call: PluginCall,
+    ) {
+        var job: Job? = null
+        var cancellationRequested = false
+        var cancellationFallback: Runnable? = null
+    }
+
+    private companion object {
+        const val PASSKEY_CANCELLATION_SETTLE_TIMEOUT_MS = 2_000L
+    }
     
     // Configure OkHttpClient with 30-second timeouts to prevent infinite hangs
     private val httpClient = OkHttpClient.Builder()
@@ -794,6 +812,7 @@ class HushhVaultPlugin : Plugin() {
         val userId = call.getString("userId")?.trim().orEmpty()
         val displayName = call.getString("displayName")?.trim().orEmpty()
         val rpId = call.getString("rpId")?.trim().orEmpty()
+        val requestId = call.getString("requestId")?.trim()?.takeIf { it.isNotEmpty() }
 
         when {
             activity == null -> {
@@ -816,6 +835,12 @@ class HushhVaultPlugin : Plugin() {
                 call.reject("Missing rpId")
                 return
             }
+        }
+
+        val operation = beginPasskeyOperation(call, requestId)
+        if (operation == null) {
+            call.reject("A passkey request is already in progress.", "PASSKEY_AUTH_IN_PROGRESS")
+            return
         }
 
         val challenge = randomBytes(32)
@@ -878,25 +903,26 @@ class HushhVaultPlugin : Plugin() {
 
         val credentialManager = CredentialManager.create(activity)
         val request = CreatePublicKeyCredentialRequest(requestJson.toString())
-        pluginScope.launch {
+        val job = pluginScope.launch {
             try {
                 val result: CreateCredentialResponse = credentialManager.createCredential(activity, request)
                 if (result !is CreatePublicKeyCredentialResponse) {
-                    call.reject("Unexpected passkey registration response.")
+                    settlePasskeyFailure(operation, "Unexpected passkey registration response.")
                     return@launch
                 }
 
                 val responseJson = JSONObject(result.registrationResponseJson)
                 val credentialId = extractCredentialId(responseJson)
                 if (credentialId.isBlank()) {
-                    call.reject("Passkey registration missing credential ID.")
+                    settlePasskeyFailure(operation, "Passkey registration missing credential ID.")
                     return@launch
                 }
 
                 val prfSalt = randomBytes(32)
                 val prfOutput = extractPrfOutput(responseJson)
                 if (prfOutput != null) {
-                    call.resolve(
+                    settlePasskeySuccess(
+                        operation,
                         JSObject().apply {
                             put("credentialId", credentialId)
                             put("prfSalt", Base64.encodeToString(prfSalt, Base64.NO_WRAP))
@@ -906,30 +932,37 @@ class HushhVaultPlugin : Plugin() {
                     return@launch
                 }
 
-                authenticatePasskeyPrfInternal(
+                val authentication = authenticatePasskeyPrfInternal(
                     userId = userId,
                     rpId = rpId,
                     credentialId = credentialId,
-                    prfSalt = prfSalt,
-                    onSuccess = { resolvedCredentialId, vaultKeyHex ->
-                        call.resolve(
-                            JSObject().apply {
-                                put("credentialId", resolvedCredentialId)
-                                put("prfSalt", Base64.encodeToString(prfSalt, Base64.NO_WRAP))
-                                put("vaultKeyHex", vaultKeyHex)
-                            }
-                        )
-                    },
-                    onError = { errorMessage ->
-                        call.reject(errorMessage)
+                    prfSalt = prfSalt
+                )
+                settlePasskeySuccess(
+                    operation,
+                    JSObject().apply {
+                        put("credentialId", authentication.credentialId)
+                        put("prfSalt", Base64.encodeToString(prfSalt, Base64.NO_WRAP))
+                        put("vaultKeyHex", authentication.vaultKeyHex)
                     }
                 )
+            } catch (_: CancellationException) {
+                settlePasskeyFailure(operation, "Passkey request cancelled.", "PASSKEY_CANCELLED")
             } catch (error: CreateCredentialException) {
-                call.reject("Passkey registration failed: ${error.message ?: error.javaClass.simpleName}")
+                if (isPasskeyCancellation(error)) {
+                    settlePasskeyFailure(operation, "Passkey request cancelled.", "PASSKEY_CANCELLED")
+                } else {
+                    settlePasskeyFailure(operation, "Passkey registration failed.")
+                }
             } catch (e: Exception) {
-                call.reject("Passkey registration failed: ${e.message}")
+                if (isPasskeyCancellation(e)) {
+                    settlePasskeyFailure(operation, "Passkey request cancelled.", "PASSKEY_CANCELLED")
+                } else {
+                    settlePasskeyFailure(operation, "Passkey registration failed.")
+                }
             }
         }
+        setPasskeyOperationJob(operation, job)
     }
 
     @PluginMethod
@@ -938,6 +971,7 @@ class HushhVaultPlugin : Plugin() {
         val rpId = call.getString("rpId")?.trim().orEmpty()
         val credentialId = call.getString("credentialId")?.trim()
         val prfSaltRaw = call.getString("prfSalt")?.trim().orEmpty()
+        val requestId = call.getString("requestId")?.trim()?.takeIf { it.isNotEmpty() }
 
         when {
             activity == null -> {
@@ -973,30 +1007,79 @@ class HushhVaultPlugin : Plugin() {
             return
         }
 
-        if (!passkeyAuthenticationInFlight.compareAndSet(false, true)) {
-            call.reject("A passkey authentication is already in progress.")
+        val operation = beginPasskeyOperation(call, requestId)
+        if (operation == null) {
+            call.reject("A passkey request is already in progress.", "PASSKEY_AUTH_IN_PROGRESS")
             return
         }
 
-        authenticatePasskeyPrfInternal(
-            userId = userId,
-            rpId = rpId,
-            credentialId = credentialId,
-            prfSalt = prfSalt,
-            onSuccess = { resolvedCredentialId, vaultKeyHex ->
-                passkeyAuthenticationInFlight.set(false)
-                call.resolve(
+        val job = pluginScope.launch {
+            try {
+                val authentication = authenticatePasskeyPrfInternal(
+                    userId = userId,
+                    rpId = rpId,
+                    credentialId = credentialId,
+                    prfSalt = prfSalt
+                )
+                settlePasskeySuccess(
+                    operation,
                     JSObject().apply {
-                        put("credentialId", resolvedCredentialId)
-                        put("vaultKeyHex", vaultKeyHex)
+                        put("credentialId", authentication.credentialId)
+                        put("vaultKeyHex", authentication.vaultKeyHex)
                     }
                 )
-            },
-            onError = { errorMessage ->
-                passkeyAuthenticationInFlight.set(false)
-                call.reject(errorMessage)
+            } catch (_: CancellationException) {
+                settlePasskeyFailure(operation, "Passkey request cancelled.", "PASSKEY_CANCELLED")
+            } catch (error: Exception) {
+                if (isPasskeyCancellation(error)) {
+                    settlePasskeyFailure(operation, "Passkey request cancelled.", "PASSKEY_CANCELLED")
+                } else {
+                    settlePasskeyFailure(operation, error.message ?: "Passkey authentication failed.")
+                }
             }
-        )
+        }
+        setPasskeyOperationJob(operation, job)
+    }
+
+    @PluginMethod
+    fun cancelPasskeyAuthentication(call: PluginCall) {
+        val requestedId = call.getString("requestId")?.trim()?.takeIf { it.isNotEmpty() }
+        val operation = synchronized(passkeyOperationLock) {
+            val active = activePasskeyOperation
+            if (active == null || active.cancellationRequested ||
+                (requestedId != null && requestedId != active.requestId)) {
+                null
+            } else {
+                active.cancellationRequested = true
+                active
+            }
+        }
+
+        if (operation == null) {
+            call.resolve(JSObject().put("cancelled", false))
+            return
+        }
+
+        val fallback = Runnable {
+            settlePasskeyFailure(operation, "Passkey request cancelled.", "PASSKEY_CANCELLED")
+        }
+        val shouldScheduleFallback = synchronized(passkeyOperationLock) {
+            if (activePasskeyOperation === operation && operation.cancellationFallback == null) {
+                operation.cancellationFallback = fallback
+                true
+            } else {
+                false
+            }
+        }
+        if (shouldScheduleFallback) {
+            passkeyCancellationHandler.postDelayed(fallback, PASSKEY_CANCELLATION_SETTLE_TIMEOUT_MS)
+        }
+
+        // Coroutine cancellation is the Credential Manager cancellation
+        // signal. The native operation remains latched until its callback or
+        // the bounded fallback above settles it.
+        operation.job?.cancel()
+        call.resolve(JSObject().put("cancelled", true))
     }
 
     // ==================== Domain Data Methods ====================
@@ -1544,94 +1627,172 @@ class HushhVaultPlugin : Plugin() {
         return okm.copyOf(32).toHexString()
     }
 
-    private fun authenticatePasskeyPrfInternal(
+    private data class PasskeyAuthenticationResult(
+        val credentialId: String,
+        val vaultKeyHex: String,
+    )
+
+    private class PasskeyOperationFailure(message: String) : Exception(message)
+
+    /**
+     * Perform an assertion inside the caller's coroutine so registration's
+     * fallback assertion and a direct unlock share the same cancellable native
+     * operation. Starting a second coroutine here would let cancellation lose
+     * track of the actual Credential Manager request.
+     */
+    private suspend fun authenticatePasskeyPrfInternal(
         userId: String,
         rpId: String,
         credentialId: String?,
         prfSalt: ByteArray,
-        onSuccess: (credentialId: String, vaultKeyHex: String) -> Unit,
-        onError: (String) -> Unit
-    ) {
-        val activity = activity
-        if (activity == null) {
-            onError("Activity unavailable for passkey authentication.")
-            return
-        }
+    ): PasskeyAuthenticationResult {
+        val activeActivity = activity
+            ?: throw PasskeyOperationFailure("Activity unavailable for passkey authentication.")
 
-        val prfInput = "hushh-vault-prf-$userId".toByteArray(Charsets.UTF_8)
-        val requestJson = JSONObject().apply {
-            put("challenge", base64UrlEncode(randomBytes(32)))
-            put("rpId", rpId)
-            put("userVerification", "required")
-            put("timeout", 120000)
-            if (!credentialId.isNullOrBlank()) {
-                put(
-                    "allowCredentials",
-                    JSONArray().put(
-                        JSONObject().apply {
-                            put("id", base64UrlEncode(Base64.decode(credentialId, Base64.DEFAULT)))
-                            put("type", "public-key")
-                        }
+        try {
+            val prfInput = "hushh-vault-prf-$userId".toByteArray(Charsets.UTF_8)
+            val requestJson = JSONObject().apply {
+                put("challenge", base64UrlEncode(randomBytes(32)))
+                put("rpId", rpId)
+                put("userVerification", "required")
+                put("timeout", 120000)
+                if (!credentialId.isNullOrBlank()) {
+                    put(
+                        "allowCredentials",
+                        JSONArray().put(
+                            JSONObject().apply {
+                                put("id", base64UrlEncode(Base64.decode(credentialId, Base64.DEFAULT)))
+                                put("type", "public-key")
+                            }
+                        )
                     )
+                }
+                put(
+                    "extensions",
+                    JSONObject().apply {
+                        put(
+                            "prf",
+                            JSONObject().apply {
+                                put(
+                                    "eval",
+                                    JSONObject().apply {
+                                        put("first", base64UrlEncode(prfInput))
+                                    }
+                                )
+                            }
+                        )
+                    }
                 )
             }
-            put(
-                "extensions",
-                JSONObject().apply {
-                    put(
-                        "prf",
-                        JSONObject().apply {
-                            put(
-                                "eval",
-                                JSONObject().apply {
-                                    put("first", base64UrlEncode(prfInput))
-                                }
-                            )
-                        }
-                    )
-                }
+
+            val option = GetPublicKeyCredentialOption(requestJson.toString())
+            val request = GetCredentialRequest(listOf(option))
+            val result: GetCredentialResponse = CredentialManager.create(activeActivity)
+                .getCredential(activeActivity, request)
+            val credential = result.credential
+            if (credential !is PublicKeyCredential) {
+                throw PasskeyOperationFailure("Unexpected passkey authentication response.")
+            }
+
+            val responseJson = JSONObject(credential.authenticationResponseJson)
+            val prfOutput = extractPrfOutput(responseJson)
+                ?: throw PasskeyOperationFailure(
+                    "PRF extension output missing. Ensure Google Password Manager passkeys are enabled."
+                )
+            val resolvedCredentialId = extractCredentialId(responseJson).ifBlank {
+                credentialId.orEmpty()
+            }
+            if (resolvedCredentialId.isBlank()) {
+                throw PasskeyOperationFailure("Passkey authentication missing credential ID.")
+            }
+            return PasskeyAuthenticationResult(
+                credentialId = resolvedCredentialId,
+                vaultKeyHex = deriveVaultKeyHex(prfOutput, prfSalt),
             )
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: GetCredentialException) {
+            if (isPasskeyCancellation(error)) {
+                throw CancellationException("Passkey request cancelled.")
+            }
+            throw PasskeyOperationFailure("Passkey authentication failed.")
+        } catch (error: Exception) {
+            if (isPasskeyCancellation(error)) {
+                throw CancellationException("Passkey request cancelled.")
+            }
+            if (error is PasskeyOperationFailure) throw error
+            throw PasskeyOperationFailure("Passkey authentication failed.")
         }
+    }
 
-        val option = GetPublicKeyCredentialOption(requestJson.toString())
-        val request = GetCredentialRequest(listOf(option))
-        pluginScope.launch {
-            try {
-                val result: GetCredentialResponse = CredentialManager.create(activity).getCredential(activity, request)
-                val credential = result.credential
-                if (credential !is PublicKeyCredential) {
-                    onError("Unexpected passkey authentication response.")
-                    return@launch
-                }
+    private fun beginPasskeyOperation(
+        call: PluginCall,
+        requestId: String?,
+    ): ActivePasskeyOperation? {
+        val operation = ActivePasskeyOperation(requestId = requestId, call = call)
+        synchronized(passkeyOperationLock) {
+            if (activePasskeyOperation != null) {
+                return null
+            }
+            activePasskeyOperation = operation
+        }
+        return operation
+    }
 
-                val responseJson = JSONObject(credential.authenticationResponseJson)
-                val prfOutput = extractPrfOutput(responseJson)
-                if (prfOutput == null) {
-                    onError("PRF extension output missing. Ensure Google Password Manager passkeys are enabled.")
-                    return@launch
-                }
-                val resolvedCredentialId = extractCredentialId(responseJson).ifBlank {
-                    credentialId.orEmpty()
-                }
-                if (resolvedCredentialId.isBlank()) {
-                    onError("Passkey authentication missing credential ID.")
-                    return@launch
-                }
-                onSuccess(resolvedCredentialId, deriveVaultKeyHex(prfOutput, prfSalt))
-            } catch (error: GetCredentialException) {
-                if (isPasskeyCancellation(error)) {
-                    onError("Passkey authentication cancelled.")
-                } else {
-                    onError("Passkey authentication failed: ${error.message ?: error.javaClass.simpleName}")
-                }
-            } catch (e: Exception) {
-                if (isPasskeyCancellation(e)) {
-                    onError("Passkey authentication cancelled.")
-                } else {
-                    onError("Passkey authentication failed: ${e.message}")
-                }
+    private fun setPasskeyOperationJob(operation: ActivePasskeyOperation, job: Job) {
+        val cancelJob = synchronized(passkeyOperationLock) {
+            if (activePasskeyOperation !== operation) {
+                true
+            } else {
+                operation.job = job
+                operation.cancellationRequested
             }
         }
+        if (cancelJob) {
+            job.cancel()
+        }
+    }
+
+    private fun settlePasskeySuccess(operation: ActivePasskeyOperation, payload: JSObject) {
+        finishPasskeyOperation(operation) { wasCancelled ->
+            if (wasCancelled) {
+                operation.call.reject("Passkey request cancelled.", "PASSKEY_CANCELLED")
+            } else {
+                operation.call.resolve(payload)
+            }
+        }
+    }
+
+    private fun settlePasskeyFailure(
+        operation: ActivePasskeyOperation,
+        message: String,
+        code: String? = null,
+    ) {
+        finishPasskeyOperation(operation) { wasCancelled ->
+            if (wasCancelled) {
+                operation.call.reject("Passkey request cancelled.", "PASSKEY_CANCELLED")
+            } else if (code == null) {
+                operation.call.reject(message)
+            } else {
+                operation.call.reject(message, code)
+            }
+        }
+    }
+
+    private fun finishPasskeyOperation(
+        operation: ActivePasskeyOperation,
+        completion: (wasCancelled: Boolean) -> Unit,
+    ) {
+        val wasCancelled = synchronized(passkeyOperationLock) {
+            if (activePasskeyOperation !== operation) {
+                return
+            }
+            activePasskeyOperation = null
+            operation.cancellationFallback?.let(passkeyCancellationHandler::removeCallbacks)
+            operation.cancellationFallback = null
+            operation.cancellationRequested
+        }
+        completion(wasCancelled)
     }
 
     private fun isPasskeyCancellation(error: Throwable): Boolean {

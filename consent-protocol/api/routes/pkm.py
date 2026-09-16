@@ -148,6 +148,7 @@ class PKMAgentLabStructureRequest(BaseModel):
     current_domains: list[str] = Field(default_factory=list, max_length=256)
     current_manifests: list[dict] = Field(default_factory=list, max_length=256)
     simulated_state: dict | None = None
+    memory_profile: Literal["general", "kyc_identity_v1"] = "general"
 
 
 class PKMAgentLabStructureResponse(BaseModel):
@@ -434,6 +435,7 @@ async def _generate_pkm_memory_proposals(
             current_domains=request.current_domains,
             current_manifests=request.current_manifests,
             simulated_state=request.simulated_state,
+            memory_profile=request.memory_profile,
         )
     except Exception:
         logger.exception(

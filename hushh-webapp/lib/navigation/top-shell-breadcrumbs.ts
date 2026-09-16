@@ -16,7 +16,7 @@ import {
 import {
   CONNECT_CIRCLES_LIST_HREF,
   connectCircleTaskTitle,
-  isFocusedConnectCircleTask,  readConnectCircleAction,
+  readConnectCircleAction,
 } from "@/lib/navigation/connect-routes";
 import {
   buildNearbyCheckInResumeHref,
@@ -101,6 +101,13 @@ function oneLocationActionLabel(action: string): string {
     "sms-contacts": "Emergency contacts",
     settings: "Settings",
     privacy: "Settings",
+    // Voice-first Location area flows. Each label must equal the flow's own
+    // TaskFlowHeader title.
+    "create-circle": "New circle",
+    "join-circle": "Join circle",
+    "circle-detail": "Circle",
+    "invite-circle": "Invite to circle",
+    ratings: "Ratings",
   };
   return labels[action] ?? titleizeSegment(action);
 }
@@ -312,7 +319,7 @@ function resolveTopShellBreadcrumbInner(
   }
 
   // Welcome's tabs are peers, just like Finance and Location. The shared back
-  // affordance exits the workspace to One; the tab strip and swipe pager own
+  // affordance exits to the public root; the tab strip and swipe pager own
   // movement between Research, Blog, and Developers.
   if (pathname === ROUTES.WELCOME) {
     const tabSet = resolvePublicKnowledgeTopShellTabSet(
@@ -321,7 +328,7 @@ function resolveTopShellBreadcrumbInner(
     if (!tabSet) return null;
 
     return {
-      backHref: ROUTES.ONE_HOME,
+      backHref: ROUTES.HOME,
       width: "content",
       align: "center",
       hideBack: false,
@@ -1035,21 +1042,26 @@ function resolveTopShellBreadcrumbInner(
       searchParams?.get("action") ?? null,
     );
     const label = connectCircleTaskTitle(action);
-    const isFocusedTask = isFocusedConnectCircleTask(
-      "circles",
-      action,
-      searchParams?.get("circleId") ?? null,
-    );
-    if (label && isFocusedTask) {      return {
+    if (label) {
+      const isFocusedTask =
+        action === "create-circle" || action === "join-circle";
+      return {
         // Back closes the flow and returns to the list, naming the tab
         // explicitly -- the App Router refuses a navigation whose only change
         // is the whole query string disappearing.
         backHref: CONNECT_CIRCLES_LIST_HREF,
-        backLabel: "Back to Circles",
+        backLabel: isFocusedTask ? "Back to Circles" : undefined,
         width: "profile",
         align: "center",
         hideBack: false,
-        items: [{ label }],      };
+        items: isFocusedTask
+          ? [{ label }]
+          : [
+              { label: "One", href: ROUTES.ONE_HOME },
+              { label: "Connect", href: CONNECT_CIRCLES_LIST_HREF },
+              { label },
+            ],
+      };
     }
   }
 
@@ -1195,38 +1207,22 @@ function resolveTopShellBreadcrumbInner(
     };
   }
 
-  // Voice's changelog is a third level nested under the Voice detail screen,
-  // one deeper than the generic panel/detail breadcrumb below can express (it
-  // only carries a single detail label). Back must retrace to Voice itself,
-  // not to Preferences.
-  if (pathname === ROUTES.PROFILE_PREFERENCES_VOICE_CHANGELOG) {
+  // The former examples and changelog URLs are retained as command-settings
+  // aliases. They intentionally render no handwritten phrases or Live-era
+  // history, so navigation presents the current command surface directly.
+  if (
+    pathname === ROUTES.PROFILE_PREFERENCES_VOICE_CHANGELOG ||
+    pathname === ROUTES.PROFILE_PREFERENCES_VOICE_EXAMPLES
+  ) {
     const preferencesHref = profilePanelHref("preferences");
     return {
-      backHref: ROUTES.PROFILE_PREFERENCES_VOICE,
+      backHref: preferencesHref,
       width: "profile",
       align: "center",
       items: [
         { label: "Profile", href: ROUTES.PROFILE },
         { label: "Preferences", href: preferencesHref },
-        { label: "Voice", href: ROUTES.PROFILE_PREFERENCES_VOICE },
-        { label: "What's new" },
-      ],
-    };
-  }
-
-  // Same third-level nesting as the changelog above, for the "what can I
-  // say" examples screen.
-  if (pathname === ROUTES.PROFILE_PREFERENCES_VOICE_EXAMPLES) {
-    const preferencesHref = profilePanelHref("preferences");
-    return {
-      backHref: ROUTES.PROFILE_PREFERENCES_VOICE,
-      width: "profile",
-      align: "center",
-      items: [
-        { label: "Profile", href: ROUTES.PROFILE },
-        { label: "Preferences", href: preferencesHref },
-        { label: "Voice", href: ROUTES.PROFILE_PREFERENCES_VOICE },
-        { label: "What can I say" },
+        { label: "Location commands" },
       ],
     };
   }
@@ -1240,18 +1236,6 @@ function resolveTopShellBreadcrumbInner(
         { label: "One", href: ROUTES.ONE_HOME },
         { label: "Gmail", href: ROUTES.GMAIL },
         { label: "Legacy receipts" },
-      ],
-    };
-  }
-
-  if (pathname === ROUTES.PROFILE_SECURITY_DEVICES) {
-    return {
-      backHref: ROUTES.PROFILE,
-      width: "profile",
-      align: "center",
-      items: [
-        { label: "Profile", href: ROUTES.PROFILE },
-        { label: "Trusted devices" },
       ],
     };
   }

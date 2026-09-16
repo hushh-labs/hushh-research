@@ -166,76 +166,13 @@ When `--require-gmail` is set, it also checks without rendering values that
 `APP_FRONTEND_ORIGIN + /one/profile/gmail/oauth/return`. This blocks a deployment
 whose Gmail callback secret belongs to another environment.
 
-Deploy workflows add Gmail, One mailbox, and voice runtime checks with `--require-gmail --require-one-email --require-voice`. That enforcement stays in deploy/runtime verification and is not part of the default contributor PR CI lane.
+When `--require-calendar` is set, it requires the dedicated Calendar OAuth tuple
+(`GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET`,
+`GOOGLE_OAUTH_REDIRECT_URI`, and `GOOGLE_OAUTH_TOKEN_KEY`) and checks that its
+callback equals `APP_FRONTEND_ORIGIN + /one/profile/google/oauth/return`.
+Calendar must not rely on Gmail OAuth credentials in hosted environments.
 
-### Google OAuth redirect URIs, per lane (verified 2026-09-03)
-
-**Two OAuth clients, not one.** `dev` and every localhost port use the client in the
-`hushh-pda-uat` project (`745506018753-…`); **`uat` and `prod` share the client in the
-`hushh-pda` project** (`1006304528804-…`). A change to one says nothing about the other.
-
-**Two flows, two return paths**, each with a no-`/one` shim that 307s to the real page
-(verified live on dev and localhost, query preserved):
-
-| Flow | Canonical path | Who sends it |
-|---|---|---|
-| Gmail / Google connect | `/one/profile/gmail/oauth/return` | `GMAIL_OAUTH_REDIRECT_URI`, enforced by `verify-env-secrets-parity.py --require-gmail` to equal `APP_FRONTEND_ORIGIN` + that path |
-| Google cloud-platform (BYOC authorize, Calendar) | `/one/profile/google/oauth/return` | `GOOGLE_OAUTH_REDIRECT_URI` when set, else derived from `APP_FRONTEND_ORIGIN` |
-
-Because the Gmail secret's form is **enforced at deploy**, the console is what moves: the
-registered URI has to be the `/one` form, never the secret bent to match an old
-registration.
-
-**Measured state** (probed against both clients, no console needed:
-`curl -s -o /dev/null -w '%{redirect_url}' "https://accounts.google.com/o/oauth2/v2/auth?client_id=…&redirect_uri=<enc>&response_type=code&scope=openid"` —
-`authError=` means unregistered, `signin/` means registered):
-
-| Origin | `/one/…/gmail/…` | `/one/…/google/…` | no-`/one` gmail |
-|---|---|---|---|
-| `https://one.hushh.ai` (prod) | registered | registered | registered |
-| `https://uat.one.hushh.ai` | registered | registered | registered |
-| `https://dev.one.hushh.ai` | **MISSING** | registered | registered |
-| `http://localhost:3000` | **MISSING** | **MISSING** | registered |
-| `http://localhost:3002` | **MISSING** | **MISSING** | registered |
-
-So **uat and prod are correct and need nothing.** The dev client is the drift, and it is
-what produced `redirect_uri_mismatch` on a dev BYOC authorize
-(`redirect_uri=https://dev.one.hushh.ai/one/profile/gmail/oauth/return`, founder
-2026-09-03) — the authorizer was borrowing the Gmail door, which dev does not register
-in that form. The borrow is gone (`byoc_oauth_authorizer` now resolves the canonical
-Google return), so **dev BYOC works with no console change**.
-
-**Still founder-only console work, on the dev client `745506018753-…` (add, never remove):**
-
-- `https://dev.one.hushh.ai/one/profile/gmail/oauth/return` — Gmail connect on dev, which
-  the deploy gate forces into this form
-- `http://localhost:3000/one/profile/google/oauth/return`
-- `http://localhost:3002/one/profile/google/oauth/return` — BYOC and Calendar from a local
-  hub; the derived URI is `APP_FRONTEND_ORIGIN` + `/one/profile/google/oauth/return`
-- `http://localhost:3000/one/profile/gmail/oauth/return`,
-  `http://localhost:3002/one/profile/gmail/oauth/return` — only if a local `.env` is to obey
-  the enforced Gmail convention; today the local `.env` uses the registered no-`/one` form
-
-**Why this cannot be done from a service account, checked 2026-09-03.** There is no API
-for the redirect URIs of a *Web application* OAuth client: `clientauthconfig` and
-`apikeys` answer 404 to the operator SA, and the IAP OAuth Admin API (the only
-programmatic client surface) manages a different object whose redirect URI is fixed to
-IAP's own callback — and Google has shut it down besides. The console is the only door.
-
-**And the deploy gate cannot be relaxed on a branch to route around it.** `deploy-dev.yml`
-checks out `ref: main` before running `scripts/ops/verify-env-secrets-parity.py
---require-gmail`, so the canonical-path assertion in effect is always `main`'s copy.
-Pointing a lane's `GMAIL_OAUTH_REDIRECT_URI` at the registered no-`/one` shim therefore
-breaks that lane's next deploy until the relaxation lands on `main`. Do not set the
-secret to the shim expecting a branch-side gate change to cover it.
-
-**Localhost needs no console entry.** A local hub sets
-`GOOGLE_OAUTH_REDIRECT_URI=https://dev.one.hushh.ai/one/profile/google/oauth/return`
-(already registered) and lets the callback complete on the deployed dev frontend: local
-rides the dev database and shares dev's `APP_SIGNING_KEY` (verified equal by digest), so
-the signed state validates and the row lands where the local hub reads it.
-
-Re-run the probe above after saving; the console takes 5 minutes to a few hours.
+Deploy workflows add Gmail and One mailbox checks with `--require-gmail --require-one-email`. That enforcement stays in deploy/runtime verification and is not part of the default contributor PR CI lane.
 
 ### Runtime profile shape audit
 
@@ -263,6 +200,7 @@ It checks that:
 6. App-review toggles, reviewer identity secrets, bypass flags, and rehearsal keys are maintainer-only overlays and are intentionally excluded from the canonical contributor runtime contract.
 7. UAT backend revisions still mount `REVIEWER_UID` and `REVIEWER_VAULT_PASSPHRASE` from Secret Manager so reviewer-mode smoke can mint the Firebase custom token after deploy.
 8. The canonical non-production reviewer fixture is `REVIEWER_UID` plus `REVIEWER_VAULT_PASSPHRASE`; `UAT_SMOKE_*` and `KAI_TEST_*` are deprecated migration aliases, and no `NEXT_PUBLIC_*` passphrase is allowed.
+   The second non-production fixture for two-person proofs is `REVIEWER_COUNTERPART_UID` plus `REVIEWER_COUNTERPART_VAULT_PASSPHRASE`, Secret-Manager-only like the first, with no aliases: the review-mode session route mints the counterpart uid when the supplied passphrase matches the counterpart pair and otherwise behaves exactly as before the pair existed (the primary is minted; no passphrase, a backend holding no passphrase, and production are unchanged). Nothing mounts the counterpart yet (`deploy/backend.cloudbuild.yaml`, `scripts/ops/sync_backend_runtime_secrets.py`, `scripts/ops/verify-env-secrets-parity.py`, `config/deploy-env-coverage.json` and the deploy workflow substitutions carry only the primary pair), so until a maintainer adds it there a counterpart passphrase on dev or uat mints the primary, and the two-person proof detects that through the client-side expected-uid check.
 9. Localhost private-agent review: the local backend loads `consent-protocol/.env.local` as a maintainer overlay (`hushh_mcp/runtime_settings.py`; the file is absent in deployed environments, so this is a no-op there, and `override=False` keeps the canonical `.env` authoritative). Use `bash scripts/env/reviewer_mode.sh enable`, restart the backend, and run the reviewer preflight with `REVIEWER_SECRET_PROJECT=hushh-pda-uat`; it resolves `REVIEWER_UID` and `REVIEWER_VAULT_PASSPHRASE` from Secret Manager only into the test process. The overlay holds only `APP_REVIEW_MODE=true`; it never holds reviewer secrets. The preflight proves the localhost custom-token minter is enabled before Chromium launches, and the standard rehearsal blocks unapproved state-changing HTTP. Afterward, disable the mode and restart the backend. The overlay never ships.
 
 ### Environment divergence note (current)
@@ -277,37 +215,26 @@ It checks that:
 every text agent to one Gemini generation at once: agent manifests say
 `gemini-default`, which resolves to `constants.GEMINI_MODEL`. Blank keeps the last
 default generation (`FLEET_TEXT_MODEL_DEFAULT`, **3.8 Flash** since 2026-09-02).
-Production's workflow retains its explicit `gemini-3.7-flash` pin. The previous
-2026-09-02 policy failures on `hushh-pda` and `hushh-gemini-bridge` describe the old
-routing, not the current target. Since the 2026-09-07 billing repair, production
-and UAT target `hushh-vertex-personal54`; a direct Gemini 3.8 Flash request there
-returned HTTP 200 with generated text. Dev continues to target `hushh-pda-uat`.
-Changing a lane's model still requires verifying its target project's policy. The
+Production pins `gemini-3.7-flash` explicitly in `deploy-production.yml`, because its
+Vertex allowed-models policy still refuses 3.8 (verified live: 400 on `hushh-pda`,
+3.7 succeeds). Remove that pin once an org-policy admin admits 3.8 there. A
+lane may flip it only after its project's `constraints/vertexai.allowedModels`
+policy admits the id. `gemini-3.8-flash` was admitted for `hushh-pda-uat` on
+2026-09-02, so the dev lane (whose Gemini project is `hushh-pda-uat`) runs it. UAT's
+and production's Gemini project is `hushh-vertex-personal54` (`_GENAI_PROJECT_ID` in
+`deploy-uat.yml` / `deploy-production.yml`); UAT runs `gemini-3.8-flash` and
+production pins `gemini-3.7-flash` until an org-policy admin admits 3.8 there.
+
+One Live Voice adds three names on every lane: `ONE_VOICE_LIVE_ENABLED` (kill switch,
+`false` in production until UAT sign-off), `VERTEX_LIVE_MODEL_ID` (an exact Live model
+id that must be a native-realtime entry in `hushh_mcp/runtime_providers/registry.py`;
+the lane's `constraints/vertexai.allowedModels` must admit it) and `VERTEX_LIVE_LOCATION`
+(one regional Vertex endpoint, never `global`). No API key exists for Live anywhere;
+see `docs/reference/one/one-voice-live-tool-contract.md`. The
 deploy-time Vertex readiness probe resolves the alias through the same resolver and
 receives `HUSSH_GEMINI_TEXT_MODEL`, so it validates the lane's switched model, never
-the literal alias. Every text agent names the alias, the memory chain and reducer included; only the
+the literal alias. Every text agent names the alias, including the memory chain; only the
 Live head keeps an explicit pin.
-
-### Managed Vertex billing isolation (2026-09-07)
-
-Production and UAT managed Vertex requests target `hushh-vertex-personal54`, funded
-by personal billing account `010AF8-16B789-3305B7`. This dedicated project has no
-application deployments, databases, storage buckets, or Developer API keys created
-by the repair. Only the Vertex API was explicitly enabled. Runtime authentication
-remains each environment's Cloud Run service-account ADC; never install personal
-OAuth credentials in a deployed service.
-
-The runtime projects `hushh-pda`, `hushh-pda-uat`, and `hushh-pda-dev` remain on
-native billing account `014D7F-FD970D-D2459E`. Keep SQL, Cloud Run, builds, secrets,
-and other infrastructure in their native projects. `_GENAI_PROJECT_ID` changes
-managed Vertex routing only. Do not move an application project's billing account
-to fund model calls. Developer API keys and local ADC are separate configurations.
-
-The backend workflow substitutions, fallback release script, and Cloud Build
-cross-project allowlist must agree on this target. The live repair used existing
-image digests; source changes must land before a regular deployment can preserve
-it. The old bridge remains on closed account `013848-8258FA-2D068F` and is not a
-fallback for production or UAT managed Vertex.
 
 ### Wallet subagent flags and the central One mailbox (2026-09-02)
 
@@ -390,14 +317,9 @@ Used by:
 | `ONE_EMAIL_WEBHOOK_AUDIENCE` | `hushh_mcp/services/one_email_kyc_service.py` | Yes (hosted intake) | Expected Pub/Sub push OIDC audience. Falls back to `GMAIL_WEBHOOK_AUDIENCE`. |
 | `ONE_EMAIL_WEBHOOK_SERVICE_ACCOUNT_EMAIL` | `hushh_mcp/services/one_email_kyc_service.py` | Recommended | Expected Pub/Sub push service account. Falls back to `GMAIL_WEBHOOK_SERVICE_ACCOUNT_EMAIL`. |
 | `ONE_EMAIL_WEBHOOK_AUTH_ENABLED` | `hushh_mcp/services/one_email_kyc_service.py` | Yes (hosted intake) | Must be `true` in UAT/production so Pub/Sub push OIDC verification cannot silently default off. |
-| `ONE_EMAIL_WATCH_RENEW_SCHEDULER_SERVICE_ACCOUNTS` | `hushh_mcp/services/scheduler_identity.py` | Yes (hosted watch renewal) | Comma-separated allowlist of Cloud Scheduler service accounts that may call `POST /api/one/email/watch/renew`. Empty refuses everyone. |
-| `ONE_EMAIL_WATCH_RENEW_AUDIENCE` | `hushh_mcp/services/scheduler_identity.py` | Yes (hosted watch renewal) | OIDC audience the scheduler token must carry. Must equal the job's `--oidc-token-audience` exactly; never inferred from the request URL. |
-| `ONE_EMAIL_WATCH_RENEW_TOKEN` | `api/routes/one/email.py` | Legacy, being retired | Pre-OIDC shared maintenance token. Accepted only while `HUSHH_MAINTENANCE_LEGACY_TOKEN_ENABLED` is on. |
-| `ONE_EMAIL_WATCH_RENEW_AUTH_ENABLED` | `api/routes/one/email.py` | Yes (hosted renewal) | Must be `true` in UAT/production so the maintenance endpoint cannot silently default open. |
-| `ONE_LOCATION_RETENTION_SCHEDULER_SERVICE_ACCOUNTS` | `hushh_mcp/services/scheduler_identity.py` | Yes (hosted retention) | Comma-separated allowlist of Cloud Scheduler service accounts that may call the One Location retention purge. Empty refuses everyone. |
-| `ONE_LOCATION_RETENTION_AUDIENCE` | `hushh_mcp/services/scheduler_identity.py` | Yes (hosted retention) | OIDC audience for the retention purge token. Must equal the job's `--oidc-token-audience` exactly. |
-| `ONE_LOCATION_RETENTION_TOKEN` | `api/routes/one/location.py` | Legacy, being retired | Pre-OIDC dedicated maintenance token. Accepted only while `HUSHH_MAINTENANCE_LEGACY_TOKEN_ENABLED` is on. |
-| `HUSHH_MAINTENANCE_LEGACY_TOKEN_ENABLED` | `hushh_mcp/services/scheduler_identity.py` | Defaults on | Set to `0` once both scheduler jobs authenticate with OIDC. That is the step that actually retires the shared `X-Hushh-Maintenance-Token` header. |
+| `ONE_EMAIL_WATCH_RENEW_TOKEN` | `api/routes/one/email.py` | Yes (hosted watch renewal) | Shared maintenance token for `POST /api/one/email/watch/renew`. |
+| `ONE_EMAIL_WATCH_RENEW_AUTH_ENABLED` | `api/routes/one/email.py` | Yes (hosted renewal) | Must be `true` in UAT/production so maintenance endpoints require `X-Hushh-Maintenance-Token`. |
+| `ONE_LOCATION_RETENTION_TOKEN` | `api/routes/one/location.py` | Yes (hosted retention) | Dedicated maintenance token for One Location retention purge. It is not shared with One Email maintenance tokens. |
 | `ACCOUNT_DELETION_CLEANUP_AUDIENCE` | `api/routes/account.py` | Yes (hosted account deletion) | Exact backend origin expected in Google OIDC tokens for `POST /api/account/deletion-cleanup/drain`. |
 | `ACCOUNT_DELETION_CLEANUP_SERVICE_ACCOUNT_EMAIL` | `api/routes/account.py` | Yes (hosted account deletion) | Exact dedicated Cloud Scheduler identity allowed to invoke the durable cleanup drain. |
 | `ONE_LOCATION_RETENTION_AUTH_ENABLED` | `api/routes/one/location.py` | Optional local/test override | One Location retention auth defaults on; `false` is honored only in local/test environments. |
@@ -414,8 +336,11 @@ Used by:
 | `GMAIL_OAUTH_CLIENT_SECRET` | `hushh_mcp/services/gmail_receipts_service.py` | Yes (Gmail sync) | Gmail OAuth client secret. Same key name across local, UAT, and production. |
 | `GMAIL_OAUTH_REDIRECT_URI` | `hushh_mcp/services/gmail_receipts_service.py` | Yes (Gmail receipts and owner-approved send) | Environment-owned Gmail OAuth callback. It must equal `APP_FRONTEND_ORIGIN + /one/profile/gmail/oauth/return`; register that exact URI in the Google OAuth client for each environment. |
 | `GMAIL_OAUTH_TOKEN_KEY` | `hushh_mcp/services/gmail_receipts_service.py` | Yes (Gmail sync) | Encryption key for persisted Gmail OAuth tokens. Same key name across local, UAT, and production. |
+| `GOOGLE_OAUTH_CLIENT_ID` | `hushh_mcp/services/google_connection_service.py` | Yes (Calendar) | Dedicated Google Calendar OAuth client id. |
+| `GOOGLE_OAUTH_CLIENT_SECRET` | `hushh_mcp/services/google_connection_service.py` | Yes (Calendar) | Dedicated Google Calendar OAuth client secret. |
+| `GOOGLE_OAUTH_REDIRECT_URI` | `hushh_mcp/services/google_connection_service.py` | Yes (Calendar) | Must equal `APP_FRONTEND_ORIGIN + /one/profile/google/oauth/return`; register that exact URI in the Calendar OAuth client. |
+| `GOOGLE_OAUTH_TOKEN_KEY` | `hushh_mcp/services/google_connection_service.py` | Yes (Calendar) | Encryption key for persisted Calendar OAuth tokens. |
 | `OPENAI_API_KEY` | `hushh_mcp/services/voice_intent_service.py` | Yes (voice) | Required for the Kai voice lane's realtime transcription, planning/composition, and TTS. |
-| `VOICE_RUNTIME_CONFIG_JSON` | `hushh_mcp/runtime_settings.py`, `api/routes/kai/voice.py`, `hushh_mcp/services/voice_intent_service.py` | Yes (voice) | Structured voice runtime config covering rollout, canary, allowlists, fail-fast policy, and model defaults. |
 | `HUSHH_LOCAL_RUNTIME_PACK_REGISTRY_SECRET` | `api/routes/kai/local_runtime.py` | Required when hosted local voice packs are enabled | Secret Manager registry name holding immutable model-object metadata and rollback entries, never a bearer URL or protected application information. |
 | `HUSHH_LOCAL_RUNTIME_PACK_REGISTRY_PROJECT` | `api/routes/kai/local_runtime.py` | Required when hosted local voice packs are enabled | Project that owns the model-pack registry. |
 | `HUSHH_LOCAL_RUNTIME_PACK_SIGNER_SERVICE_ACCOUNT` | `api/routes/kai/local_runtime.py` | Required when hosted local voice packs are enabled | IAM signBlob identity used by Cloud Run ADC to issue a fresh short-lived URL per capability request; no key file is mounted. |
@@ -467,7 +392,6 @@ Used by:
 | `NEXT_PUBLIC_OBSERVABILITY_ENV` | `lib/app-env.ts` | Optional legacy | Read-only fallback when `NEXT_PUBLIC_APP_ENV` is unset |
 | `NEXT_PUBLIC_ENVIRONMENT_MODE` | `lib/app-env.ts` | Optional legacy | Read-only fallback when `NEXT_PUBLIC_APP_ENV` is unset |
 | `NEXT_PUBLIC_OBSERVABILITY_ENABLED` / `NEXT_PUBLIC_OBSERVABILITY_DEBUG` / `NEXT_PUBLIC_OBSERVABILITY_SAMPLE_RATE` | `lib/observability/env.ts` | No | Client analytics rollout controls |
-| `NEXT_PUBLIC_AGENT_GEMINI_VOICE_ENABLED` | `lib/agent/agent-voice-settings.ts` | No | Frontend One Live kill switch. Defaults enabled; set `false`, `0`, `off`, `disabled`, or `no` to hide every request affordance for the Agent Bar's single Live owner. |
 | `NEXT_PUBLIC_CONSENT_TIMEOUT_SECONDS` | `lib/constants.ts` | No | |
 | `CAPACITOR_BUILD` | `next.config.ts` | Build script | |
 | `BACKEND_URL` | Server-side api routes | Hosted runtime required | Canonical runtime backend origin for Next.js route handlers |
@@ -490,8 +414,9 @@ Used by:
 | `DB_PORT` | No | No | Local: `.env`; Prod: Cloud Run env (default 5432) | |
 | `DB_NAME` | No | No | Local: `.env`; Prod: Cloud Run env (default postgres) | |
 | `APP_FRONTEND_ORIGIN` | Yes | Yes (prod) | Local: `.env`; Prod: Secret Manager | CORS fallback source |
-| `BACKEND_RUNTIME_CONFIG_JSON` | Yes | Yes (prod) | Local: `.env`; Prod: Secret Manager | Structured runtime policy for DB socket, CORS, remote toggles, and platform settings |
+| `BACKEND_RUNTIME_CONFIG_JSON` | Yes | Yes (prod) | Local: `.env`; Prod: Secret Manager | Structured runtime policy for DB socket, CORS, remote toggles, and platform settings; `passkey_allowed_rp_ids` is derived as `localhost,127.0.0.1,<APP_FRONTEND_ORIGIN host>` |
 | `CORS_ALLOWED_ORIGINS` | Yes (prod recommended) | No | Local: `.env`; Prod: Cloud Run env | Explicit CORS allowlist (comma-separated) |
+| `PASSKEY_ALLOWED_RP_IDS` | No | No | Local: `.env`; Prod: `BACKEND_RUNTIME_CONFIG_JSON` | WebAuthn RP allowlist generated as `localhost,127.0.0.1,<APP_FRONTEND_ORIGIN host>`; extra or cross-environment hosts are rejected by the sync/parity contracts |
 | `HUSHH_GENAI_AUTH_MODE` | Optional local | Yes | Local: `.env`; Prod: Cloud Run env | Hosted value is `vertex_adc`; local API-key compatibility must be selected explicitly. |
 | `GOOGLE_API_KEY` / `GEMINI_API_KEY` | Optional local | No | Local: `.env` only | Used only with `developer_api_key`; prohibited as hosted Gemini credentials. |
 | `GOOGLE_CLOUD_PROJECT` / `GOOGLE_CLOUD_LOCATION` | ADC local/hosted | Yes | Local: env; Prod: Cloud Run env | Vertex routing; authentication comes from ADC. |
@@ -501,8 +426,11 @@ Used by:
 | `GMAIL_OAUTH_CLIENT_SECRET` | Yes (Gmail sync) | Yes | Local: `.env`; Hosted: Secret Manager | Same key name across local, UAT, and production. |
 | `GMAIL_OAUTH_REDIRECT_URI` | Yes (Gmail receipts and owner-approved send) | Yes | Local: `.env`; Hosted: Secret Manager | Must equal the active environment origin plus `/one/profile/gmail/oauth/return`; local bootstrap explicitly restores the localhost callback after reading shared connector credentials. |
 | `GMAIL_OAUTH_TOKEN_KEY` | Yes (Gmail sync) | Yes | Local: `.env`; Hosted: Secret Manager | Same key name across local, UAT, and production. |
+| `GOOGLE_OAUTH_CLIENT_ID` | Yes (Calendar) | Yes | Local: `.env`; Hosted: Secret Manager | Dedicated Calendar OAuth client id. |
+| `GOOGLE_OAUTH_CLIENT_SECRET` | Yes (Calendar) | Yes | Local: `.env`; Hosted: Secret Manager | Dedicated Calendar OAuth client secret. |
+| `GOOGLE_OAUTH_REDIRECT_URI` | Yes (Calendar) | Yes | Local: `.env`; Hosted: Secret Manager | Must equal the active environment origin plus `/one/profile/google/oauth/return`. |
+| `GOOGLE_OAUTH_TOKEN_KEY` | Yes (Calendar) | Yes | Local: `.env`; Hosted: Secret Manager | Encryption key for persisted Calendar OAuth tokens. |
 | `OPENAI_API_KEY` | Yes (voice) | Yes | Local: `.env`; Hosted: Secret Manager | Required for voice runtime. |
-| `VOICE_RUNTIME_CONFIG_JSON` | Yes (voice) | Yes | Local: `.env`; Hosted: Secret Manager | Structured runtime config for voice rollout, fail-fast policy, and model selection. |
 | `FIREBASE_ADMIN_CREDENTIALS_JSON` | Yes (auth) | Yes | Local: `.env`; Prod: Secret Manager | JSON string. Also canonical Workspace DWD credential for `one@hushh.ai`. |
 | `FIREBASE_SERVICE_ACCOUNT_JSON` | Optional alias | Yes | Legacy/runtime Secret Manager alias only | Accepted by backend for compatibility; prefer `FIREBASE_ADMIN_CREDENTIALS_JSON`. |
 | `ONE_EMAIL_ADDRESS` | Optional | No | Local: `.env`; Prod: Cloud Run env or default | Defaults to `one@hushh.ai`. |
@@ -512,14 +440,9 @@ Used by:
 | `ONE_EMAIL_WEBHOOK_AUDIENCE` | Yes (hosted intake) | No | Hosted Cloud Run env | Pub/Sub OIDC audience. |
 | `ONE_EMAIL_WEBHOOK_SERVICE_ACCOUNT_EMAIL` | Recommended | No | Hosted Cloud Run env | Pub/Sub push identity. |
 | `ONE_EMAIL_WEBHOOK_AUTH_ENABLED` | Yes (hosted intake) | No | Hosted Cloud Run env | Must be `true` in UAT/production. |
-| `ONE_EMAIL_WATCH_RENEW_SCHEDULER_SERVICE_ACCOUNTS` | Yes (hosted renewal) | No | Hosted Cloud Run env | Not a secret: a service-account allowlist. |
-| `ONE_EMAIL_WATCH_RENEW_AUDIENCE` | Yes (hosted renewal) | No | Hosted Cloud Run env | Must match the scheduler job's `--oidc-token-audience`. |
-| `ONE_EMAIL_WATCH_RENEW_TOKEN` | Legacy, being retired | Yes | Secret Manager | Delete once `HUSHH_MAINTENANCE_LEGACY_TOKEN_ENABLED=0`. |
+| `ONE_EMAIL_WATCH_RENEW_TOKEN` | Yes (hosted renewal) | Yes | Secret Manager | Send as `X-Hushh-Maintenance-Token`. |
 | `ONE_EMAIL_WATCH_RENEW_AUTH_ENABLED` | Yes (hosted renewal) | No | Hosted Cloud Run env | Must be `true` in UAT/production. |
-| `ONE_LOCATION_RETENTION_SCHEDULER_SERVICE_ACCOUNTS` | Yes (hosted retention) | No | Hosted Cloud Run env | Not a secret: a service-account allowlist. |
-| `ONE_LOCATION_RETENTION_AUDIENCE` | Yes (hosted retention) | No | Hosted Cloud Run env | Must match the scheduler job's `--oidc-token-audience`. |
-| `ONE_LOCATION_RETENTION_TOKEN` | Legacy, being retired | Yes | Secret Manager | Delete once `HUSHH_MAINTENANCE_LEGACY_TOKEN_ENABLED=0`. |
-| `HUSHH_MAINTENANCE_LEGACY_TOKEN_ENABLED` | Defaults on | No | Hosted Cloud Run env | Set `0` after both jobs are on OIDC. |
+| `ONE_LOCATION_RETENTION_TOKEN` | Yes (hosted retention) | Yes | Secret Manager | Dedicated token for location retention purge. Do not reuse `ONE_EMAIL_WATCH_RENEW_TOKEN`. |
 | `ACCOUNT_DELETION_CLEANUP_AUDIENCE` | Yes (hosted account deletion) | No | Hosted Cloud Run env | Exact backend-origin audience for the Google OIDC scheduler token. |
 | `ACCOUNT_DELETION_CLEANUP_SERVICE_ACCOUNT_EMAIL` | Yes (hosted account deletion) | No | Hosted Cloud Run env | Exact dedicated scheduler service account; do not grant it project roles or reuse the runtime identity. |
 | `ONE_LOCATION_RETENTION_AUTH_ENABLED` | Optional local/test override | No | Local/test env only | Auth defaults on; hosted environments require `ONE_LOCATION_RETENTION_TOKEN` even if this flag is set false. |
@@ -532,13 +455,6 @@ Used by:
 | `SUPPORT_EMAIL_TO` | Optional | No | Local: `.env`; Prod: Cloud Run env | Defaults to `ONE_EMAIL_ADDRESS`. |
 | `SUPPORT_EMAIL_TEST_TO` | Optional | No | Local/UAT env | Non-production verification recipient. |
 | `SUPPORT_EMAIL_MODE` | Optional | No | Local/UAT env | `live` or `test`. |
-| `HUSHH_DEV_SIMULATION_ENABLED` | Simulation lane only | No | Set by `scripts/deploy/backend-deploy.sh` when `_DEPLOY_ENV=dev` | The opt-in `dev_simulation_guard` requires on top of a dev deploy lane. Unset denies, so the dev phone lane refuses. Never set outside dev. **As of 2026-08-25 this no longer gates pod provisioning** — that moved to `HUSSH_HOSTED_POD_TIER_ENABLED` so opening the hosted tier on a lane can never widen a phone-verification bypass there. |
-| `HUSSH_HOSTED_POD_TIER_ENABLED` | Required to create a hussh-operated pod | No | Set by `scripts/deploy/backend-deploy.sh` when `_DEPLOY_ENV=dev` | The opt-in `hosted_tier_guard` requires, on top of a stated deploy lane **and** `HUSSH_POD_PROJECT`. Unset denies. Not a dev-only fence: the hosted tier is a production path under the conditions in the north star, so lane admission is a deployment decision rather than an environment allowlist. |
-| `HUSSH_POD_PROJECT` | Required alongside the hosted-tier opt-in | No | Set by `scripts/deploy/backend-deploy.sh` when `_DEPLOY_ENV=dev` | Where the pod fleet is created. Highest precedence in `gcp_backend._resolve_pod_project`; without it the project falls through to ambient credentials or `GOOGLE_CLOUD_PROJECT` (the Vertex project on dev), so a fleet would materialise wherever the hub happened to hold. Moving the fleet to a dedicated hosting project is a change to this value, not to code. |
-| `POD_DATA_DOOR_ENABLED` | Dev only for now | No | Set by `scripts/deploy/backend-deploy.sh` when `_DEPLOY_ENV=dev` | The consent-gated read doors that let an in-pod specialist see owner state without the pod holding a database credential. Fail-closed at two levels with an allowlisted projection. Dev-only while managed-tier pod identity is asserted rather than verified. |
-| `CONSENT_AUDIT_CHAIN_ENABLED` | Dev only for now | No | Set by `scripts/deploy/backend-deploy.sh` when `_DEPLOY_ENV=dev` | The per-subject consent audit hash chain (migration 904, parked dev-only). Off, consent writes leave no tamper-evident ledger entry. Promotion needs the migration renumbered into the release lane. |
-| `HUSHH_DEV_PHONE_TEST_NUMBERS` | Simulation lane only | No | Pinned in `scripts/deploy/backend-deploy.sh` | Simulation phone allowlist. Reserved fictitious numbers only (`+1 555 0100`–`0199`); the backend raises on anything else. Pinned in git rather than held as a secret because these identify nobody and an auditable allowlist beats a hidden one. |
-| `HUSHH_DEV_PHONE_TEST_CODE` | Simulation lane only | Yes | Dev Secret Manager / operator-set | Fixed OTP for the simulation allowlist. Deliberately not set by the deploy script: until an operator supplies it the lane stays dark, since both numbers and code are required. |
 | `HUSHH_UAT_PHONE_TEST_NUMBERS` | UAT test only | Yes | UAT Secret Manager | Comma-separated E.164 allowlist for fixed-code phone verification; only honored when `ENVIRONMENT=uat`. |
 | `HUSHH_UAT_PHONE_TEST_CODE` | UAT test only | Yes | UAT Secret Manager | Fixed OTP for the UAT phone allowlist. Never expose as `NEXT_PUBLIC_*`. |
 | `HUSHH_UAT_PHONE_TEST_CHALLENGE_SECRET` | Optional | Yes | UAT Secret Manager | Optional HMAC key for stateless UAT phone challenge IDs; falls back to `APP_SIGNING_KEY`. |
@@ -552,31 +468,18 @@ Used by:
 One mailbox production caveats:
 
 - `one@hushh.ai` is a real Workspace user mailbox. UAT and production must not independently renew Gmail watches for the same mailbox unless a label/topic fanout strategy is explicitly documented and tested.
-- Hosted One intake requires a daily Scheduler or equivalent maintenance call to `POST /api/one/email/watch/renew`. The runtime gate should confirm `one_email_mailbox_state.watch_status=active` and a future `watch_expiration_at`.
-- Hosted One KYC retention uses `deploy/one-email/setup_kyc_retention_scheduler.sh` to schedule `POST /api/one/kyc/retention/purge?older_than_days=30`.
+- Hosted One intake requires a daily Scheduler or equivalent maintenance call to `POST /api/one/email/watch/renew` with `X-Hushh-Maintenance-Token`. The runtime gate should confirm `one_email_mailbox_state.watch_status=active` and a future `watch_expiration_at`.
+- Hosted One KYC retention uses `deploy/one-email/setup_kyc_retention_scheduler.sh` to schedule `POST /api/one/kyc/retention/purge?older_than_days=30` with the same maintenance token.
 - Hosted One Location retention must run
   `deploy/one-location/setup_retention_scheduler.sh` and verify the hourly
-  `one-location-retention-purge-uat` job before nearby presence is enabled, and
-  on UAT before the read-only state rollout is enabled. The job calls
-  `POST /api/one/location/retention/purge?older_than_hours=12`. The UAT deploy
-  checks that the job exists in `hushh-pda-uat/us-central1`, is `ENABLED`, and
-  calls exactly that endpoint; the private check also requires a non-empty
-  maintenance-auth header, while its sanitized evidence exposes only header
-  presence and never the value. Never print that header during verification.
-- **Both scheduler jobs authenticate with a per-invocation Google-signed OIDC
-  token, not with a secret baked into the job.** They previously carried the
-  Secret Manager value as a literal `X-Hushh-Maintenance-Token` header, which
-  `gcloud scheduler jobs describe` prints: the credential was readable by anyone
-  with scheduler view access, it never rotated unless a human re-ran the setup
-  script, and because both jobs used the same header name one value opened both
-  endpoints. An OIDC token's `aud` claim binds it to one endpoint. Each setup
-  script needs `SCHEDULER_SERVICE_ACCOUNT` and reads the job back to prove the
-  identity landed and the old header is gone.
-- The migration is ordered: deploy the backend, re-run both setup scripts, then
-  set `HUSHH_MAINTENANCE_LEGACY_TOKEN_ENABLED=0` and delete the two secrets (the
-  location job's is `ONE_LOCATION_RETENTION_TOKEN`). Until that last step the
-  shared-header path is still open, which is why it is a variable rather than an
-  assumption.
+  `one-location-retention-purge-uat` job before the UAT read-only state rollout
+  is enabled. The UAT deploy checks that the job exists in
+  `hushh-pda-uat/us-central1`, is `ENABLED`, and calls exactly
+  `POST /api/one/location/retention/purge?older_than_hours=12`. The private
+  check also requires a non-empty maintenance-auth header, while its sanitized
+  evidence exposes only header presence and never the value. The scheduler
+  authenticates with `X-Hushh-Maintenance-Token` set to the dedicated
+  `ONE_LOCATION_RETENTION_TOKEN`; never print that header during verification.
 - Account-deletion cleanup uses a dedicated Google OIDC scheduler identity and
   exact backend-origin audience. Never copy a reusable token into Cloud
   Scheduler headers or job metadata; the Scheduler service agent may mint only
@@ -671,7 +574,7 @@ Secret Manager must hold **exactly** the keys the code uses. No extra secrets; n
 | `GOOGLE_MAPS_API_KEY` | `GOOGLE_MAPS_API_KEY` (`hushh_mcp/services/google_maps_service.py`) |
 | `FIREBASE_ADMIN_CREDENTIALS_JSON` | `FIREBASE_ADMIN_CREDENTIALS_JSON` (api/utils/firebase_admin.py) |
 | `APP_FRONTEND_ORIGIN` | `APP_FRONTEND_ORIGIN` (server.py CORS) |
-| `BACKEND_RUNTIME_CONFIG_JSON` | `BACKEND_RUNTIME_CONFIG_JSON` (runtime settings hydration for DB socket, CORS, remote toggles, and service policy) |
+| `BACKEND_RUNTIME_CONFIG_JSON` | `BACKEND_RUNTIME_CONFIG_JSON` (runtime settings hydration for DB socket, CORS, remote toggles, service policy, and the exact `localhost,127.0.0.1,<APP_FRONTEND_ORIGIN host>` passkey RP allowlist) |
 | `DB_USER` | `DB_USER` (db/connection.py, db/db_client.py) |
 | `DB_PASSWORD` | `DB_PASSWORD` (same) |
 
@@ -680,7 +583,6 @@ Secret Manager must hold **exactly** the keys the code uses. No extra secrets; n
 | Secret name | Env var / usage in code |
 |-------------|-------------------------|
 | `OPENAI_API_KEY` | `OPENAI_API_KEY` (`hushh_mcp/services/voice_intent_service.py`) |
-| `VOICE_RUNTIME_CONFIG_JSON` | `VOICE_RUNTIME_CONFIG_JSON` (`hushh_mcp/runtime_settings.py`, `api/routes/kai/voice.py`) |
 
 ### Backend market-data add-ons (2 secrets)
 
@@ -696,9 +598,9 @@ Secret Manager must hold **exactly** the keys the code uses. No extra secrets; n
 | `HUSHH_PROD_PHONE_TEST_NUMBERS` | `HUSHH_PROD_PHONE_TEST_NUMBERS` (`api/routes/account.py`) |
 | `HUSHH_PROD_PHONE_TEST_CODE` | `HUSHH_PROD_PHONE_TEST_CODE` (`api/routes/account.py`) |
 | `HUSHH_PROD_PHONE_TEST_CHALLENGE_SECRET` | `HUSHH_PROD_PHONE_TEST_CHALLENGE_SECRET` (`api/routes/account.py`) |
-**Literal Cloud Run env vars, not in Secret Manager:** `ENVIRONMENT`, `HUSHH_GENAI_AUTH_MODE`, `GOOGLE_GENAI_USE_VERTEXAI`, `GOOGLE_CLOUD_PROJECT`, `GOOGLE_CLOUD_LOCATION`, `HUSHH_VERTEX_LOCATIONS`.
+**Literal Cloud Run env vars, not in Secret Manager:** `ENVIRONMENT`, `HUSHH_GENAI_AUTH_MODE`, `GOOGLE_GENAI_USE_VERTEXAI`, `GOOGLE_CLOUD_PROJECT`, `GENAI_GOOGLE_CLOUD_PROJECT`, `GOOGLE_CLOUD_LOCATION`, `HUSHH_VERTEX_LOCATIONS`.
 
-**Sourced from the `BACKEND_RUNTIME_CONFIG_JSON` secret, not literal Cloud Run env vars:** `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_UNIX_SOCKET`, `CLOUDSQL_INSTANCE_CONNECTION_NAME`, `CONSENT_SSE_ENABLED`, `SYNC_REMOTE_ENABLED`, `DEVELOPER_API_ENABLED`, `REMOTE_MCP_ENABLED`, `CORS_ALLOWED_ORIGINS`, and the non-secret `HUSSH_TECH_*` policy keys. Each key is copied into `os.environ` at process start by `hydrate_runtime_environment()` (`hushh_mcp/runtime_settings.py`), so the actual Cloud Run service spec never shows these as plain env vars — only a `secretKeyRef` to `BACKEND_RUNTIME_CONFIG_JSON`. `HUSSH_TECH_LAUNCH_PEPPER` is the exception: it is a separate direct secret binding. A prior version of this doc claimed these were literal Cloud Run env vars; production ran with a stale Supabase `db_host` in this JSON for months as a direct result of that being untrue.
+**Sourced from the `BACKEND_RUNTIME_CONFIG_JSON` secret, not literal Cloud Run env vars:** `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_UNIX_SOCKET`, `CLOUDSQL_INSTANCE_CONNECTION_NAME`, `CONSENT_SSE_ENABLED`, `SYNC_REMOTE_ENABLED`, `DEVELOPER_API_ENABLED`, `REMOTE_MCP_ENABLED`, `CORS_ALLOWED_ORIGINS`, `PASSKEY_ALLOWED_RP_IDS`, and the non-secret `HUSSH_TECH_*` policy keys. Each key is copied into `os.environ` at process start by `hydrate_runtime_environment()` (`hushh_mcp/runtime_settings.py`), so the actual Cloud Run service spec never shows these as plain env vars — only a `secretKeyRef` to `BACKEND_RUNTIME_CONFIG_JSON`. `HUSSH_TECH_LAUNCH_PEPPER` is the exception: it is a separate direct secret binding. A prior version of this doc claimed these were literal Cloud Run env vars; production ran with a stale Supabase `db_host` in this JSON for months as a direct result of that being untrue.
 
 **Strict parity:** `DATABASE_URL` is not used anywhere. Migrations (`db/migrate.py`) use **DB_*** only, via `db.connection.get_database_url()`. Do **not** create or keep `DATABASE_URL` in Secret Manager; delete it if present.
 
@@ -714,10 +616,15 @@ Secret Manager must hold **exactly** the keys the code uses. No extra secrets; n
 | `NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID` | `NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID` |
 | `NEXT_PUBLIC_FIREBASE_APP_ID` | `NEXT_PUBLIC_FIREBASE_APP_ID` |
 | `NEXT_PUBLIC_FIREBASE_VAPID_KEY` | `NEXT_PUBLIC_FIREBASE_VAPID_KEY` (Web FCM push key) |
-| `APP_FRONTEND_ORIGIN` | `NEXT_PUBLIC_APP_URL` |
+| `APP_FRONTEND_ORIGIN` | `NEXT_PUBLIC_APP_URL`; Cloud Build derives the exact browser `NEXT_PUBLIC_PASSKEY_RP_ID` host from this value |
 | `NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID` | `NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID` |
 | `NEXT_PUBLIC_GTM_ID` | `NEXT_PUBLIC_GTM_ID` |
 | `NEXT_PUBLIC_GOOGLE_MAPS_BROWSER_API_KEY` | `NEXT_PUBLIC_GOOGLE_MAPS_BROWSER_API_KEY` (restricted browser Maps key) |
+
+`NEXT_PUBLIC_PASSKEY_RP_ID` is intentionally not a second Secret Manager key.
+It is public build configuration derived from the environment's canonical
+`APP_FRONTEND_ORIGIN`, which prevents a stale standalone RP secret from drifting
+away from the URL it protects. Localhost web follows the same rule at runtime.
 
 Cloud Run frontend runtime secrets (server-only Next.js API handlers):
 
@@ -741,7 +648,6 @@ echo -n "https://your-backend.run.app" | gcloud secrets versions add BACKEND_URL
 ```
 
 **Required backend 8:** `APP_SIGNING_KEY`, `VAULT_DATA_KEY`, `GOOGLE_MAPS_API_KEY`, `FIREBASE_ADMIN_CREDENTIALS_JSON`, `APP_FRONTEND_ORIGIN`, `BACKEND_RUNTIME_CONFIG_JSON`, `DB_USER`, `DB_PASSWORD`.
-**Required backend voice secrets when enabled:** `OPENAI_API_KEY`, `VOICE_RUNTIME_CONFIG_JSON`.
 **Required backend Plaid secrets when brokerage is enabled:** `PLAID_CLIENT_ID`, `PLAID_SECRET`, `PLAID_ACCESS_TOKEN_KEY`.
 **Required frontend 12:** `BACKEND_URL`, `APP_FRONTEND_ORIGIN`, `NEXT_PUBLIC_FIREBASE_API_KEY`, `NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN`, `NEXT_PUBLIC_FIREBASE_PROJECT_ID`, `NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET`, `NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID`, `NEXT_PUBLIC_FIREBASE_APP_ID`, `NEXT_PUBLIC_FIREBASE_VAPID_KEY`, `NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID`, `NEXT_PUBLIC_GTM_ID`, `NEXT_PUBLIC_GOOGLE_MAPS_BROWSER_API_KEY`.
 

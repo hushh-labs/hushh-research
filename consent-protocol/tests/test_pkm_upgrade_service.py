@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+import threading
 from datetime import UTC, datetime
 
 import pytest
@@ -74,6 +76,32 @@ class _FakePkmService:
 
     def upsert(self, *_args, **_kwargs):
         return self
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("method", ["_list_runs", "_list_steps", "build_status"])
+async def test_upgrade_metadata_reads_leave_the_event_loop_responsive(method):
+    started = threading.Event()
+    release = threading.Event()
+
+    class BlockingPkmService(_FakePkmService):
+        def execute(self):
+            started.set()
+            release.wait(timeout=1)
+            return super().execute()
+
+    service = PkmUpgradeService()
+    service._pkm_service = BlockingPkmService()
+    service._pkm_service._index.available_domains = []
+    query = asyncio.create_task(getattr(service, method)("synthetic-owner"))
+    try:
+        assert await asyncio.to_thread(started.wait, 2)
+        # This coroutine must progress while SQL is still waiting. An async
+        # function that executes synchronous SQL inline freezes it instead.
+        assert not query.done()
+    finally:
+        release.set()
+        await query
 
 
 def test_v7_commit_policy_is_fail_closed_by_default(monkeypatch):

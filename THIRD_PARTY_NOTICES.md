@@ -2,12 +2,12 @@
 
 Third-party dependency inventory for the hushh-research monorepo.
 
-This file is generated from repo lockfiles, exact-version installed license evidence, the installed Python environment, and the governed imported-resource inventory.
+This file is generated from repo lockfiles, exact-version installed license evidence, and the installed Python environment.
 Regenerate it with `python3 scripts/licenses/generate_third_party_notices.py`.
 
 ## Frontend npm packages
 
-Package count: 1260
+Package count: 1258
 
 ### License summary
 
@@ -23,9 +23,9 @@ Package count: 1260
 - `BSD-3-Clause`: 26
 - `CC-BY-4.0`: 1
 - `CC0-1.0`: 1
-- `ISC`: 76
+- `ISC`: 75
 - `LGPL-3.0-or-later`: 10
-- `MIT`: 907
+- `MIT`: 906
 - `MIT AND ISC`: 1
 - `MIT OR SEE LICENSE IN FEEL-FREE.md`: 1
 - `MIT-0`: 1
@@ -75,7 +75,6 @@ Package count: 1260
 - `@capacitor-firebase/messaging` `8.2.0` — Apache-2.0
 - `@capacitor/android` `8.3.1` — MIT
 - `@capacitor/app` `8.1.0` — MIT
-- `@capacitor/browser` `8.0.4` — MIT
 - `@capacitor/camera` `8.2.1` — MIT
 - `@capacitor/cli` `8.4.1` — MIT
 - `@capacitor/core` `8.3.1` — MIT
@@ -1287,7 +1286,6 @@ Package count: 1260
 - `xmlchars` `2.2.0` — MIT
 - `y18n` `5.0.8` — ISC
 - `yallist` `3.1.1` — ISC
-- `yaml` `2.9.0` — ISC
 - `yargs` `17.7.2` — MIT
 - `yargs-parser` `21.1.1` — ISC
 - `yauzl` `3.2.1` — MIT
@@ -1299,14 +1297,14 @@ Package count: 1260
 
 ## Backend Python packages
 
-Package count: 199
+Package count: 197
 
 ### License summary
 
 - `3-Clause BSD License`: 1
 - `Apache 2.0 License`: 1
 - `Apache License 2.0`: 1
-- `Apache Software License`: 34
+- `Apache Software License`: 35
 - `Apache Software License; BSD License`: 1
 - `Apache Software License; MIT License`: 1
 - `Apache-2.0`: 26
@@ -1318,15 +1316,15 @@ Package count: 199
 - `Apache-2.0 OR MIT`: 1
 - `BSD License`: 18
 - `BSD-2-Clause`: 2
-- `BSD-3-Clause`: 18
+- `BSD-3-Clause`: 17
 - `BSD-3-Clause AND 0BSD AND MIT AND Zlib AND CC0-1.0`: 1
 - `BSD-3-Clause, Apache-2.0, dependency licenses`: 1
 - `GNU Lesser General Public License v3 (LGPLv3)`: 1
 - `GNU Library or Lesser General Public License (LGPL)`: 1
 - `ISC License (ISCL)`: 1
 - `LGPL-2.1-only`: 1
-- `MIT`: 49
-- `MIT License`: 27
+- `MIT`: 48
+- `MIT License`: 26
 - `MIT-CMU`: 1
 - `Mozilla Public License 2.0 (MPL 2.0)`: 2
 - `MPL-2.0 AND (Apache-2.0 OR MIT)`: 1
@@ -1361,7 +1359,6 @@ Package count: 199
 - `botocore` `1.42.90` — Apache-2.0
 - `CacheControl` `0.14.4` — Apache-2.0
 - `cachetools` `7.1.7` — MIT
-- `cbor2` `6.1.4` — MIT
 - `certifi` `2026.2.25` — Mozilla Public License 2.0 (MPL 2.0)
 - `cffi` `2.0.0` — MIT
 - `charset-normalizer` `3.4.7` — MIT
@@ -1381,18 +1378,20 @@ Package count: 199
 - `frozendict` `2.4.7` — GNU Lesser General Public License v3 (LGPLv3)
 - `frozenlist` `1.8.0` — Apache-2.0
 - `fsspec` `2026.7.0` — BSD-3-Clause
-- `google-adk` `2.4.0` — Apache Software License
+- `google-adk` `2.9.0` — Apache Software License
 - `google-api-core` `2.29.0` — Apache Software License
-- `google-auth` `2.49.2` — Apache Software License
+- `google-auth` `2.58.0` — Apache Software License
 - `google-cloud-core` `2.5.1` — Apache Software License
 - `google-cloud-firestore` `2.27.0` — Apache Software License
+- `google-cloud-secret-manager` `2.30.0` — Apache Software License
 - `google-cloud-storage` `3.10.1` — Apache Software License
 - `google-cloud-trace` `1.19.0` — Apache Software License
 - `google-crc32c` `1.8.0` — Apache-2.0
-- `google-genai` `2.10.0` — Apache-2.0
+- `google-genai` `2.23.0` — Apache-2.0
 - `google-resumable-media` `2.8.2` — Apache Software License
 - `googleapis-common-protos` `1.74.0` — Apache Software License
 - `graphviz` `0.21` — MIT
+- `grpc-google-iam-v1` `0.14.5` — Apache Software License
 - `grpcio` `1.76.0` — Apache Software License
 - `grpcio-status` `1.76.0` — Apache Software License
 - `gunicorn` `25.3.0` — MIT
@@ -1476,7 +1475,6 @@ Package count: 199
 - `pydantic_core` `2.46.1` — MIT
 - `Pygments` `2.20.0` — BSD-2-Clause
 - `PyJWT` `2.13.0` — MIT
-- `pyOpenSSL` `26.4.0` — Apache Software License
 - `pypdfium2` `5.11.0` — BSD-3-Clause, Apache-2.0, dependency licenses
 - `pytesseract` `0.3.13` — Apache Software License
 - `pytest` `9.0.3` — MIT
@@ -1521,13 +1519,11 @@ Package count: 199
 - `typer` `0.27.2` — MIT
 - `typing-inspection` `0.4.2` — MIT
 - `typing_extensions` `4.15.0` — PSF-2.0
-- `tzlocal` `5.3.1` — MIT License
 - `urllib3` `2.7.0` — MIT
 - `uuid_utils` `0.14.1` — BSD-3-Clause
 - `uvicorn` `0.44.0` — BSD-3-Clause
 - `watchdog` `6.0.0` — Apache Software License
 - `watchfiles` `1.2.0` — MIT License
-- `webauthn` `3.0.0` — BSD-3-Clause
 - `websockets` `15.0.1` — BSD License
 - `Werkzeug` `3.1.8` — BSD-3-Clause
 - `wrapt` `1.17.3` — BSD License
@@ -1535,18 +1531,3 @@ Package count: 199
 - `yarl` `1.23.0` — Apache-2.0
 - `yfinance` `1.3.0` — Apache Software License
 - `zstandard` `0.25.0` — BSD-3-Clause
-
-## Vendored engineering resources
-
-Package count: 3
-
-### License summary
-
-- `Apache-2.0; upstream NOTICE identifies MIT-derived platform references`: 1
-- `MIT`: 2
-
-### Package inventory
-
-- `impeccable` `4.0.4` — Apache-2.0; upstream NOTICE identifies MIT-derived platform references; [License](.claude/skills/impeccable/LICENSE); [Upstream notice](.claude/skills/impeccable/NOTICE.md)
-- `impeccable/modern-screenshot` `4.7.0` — MIT; [License](.claude/skills/impeccable/THIRD_PARTY_LICENSES/modern-screenshot.txt)
-- `impeccable/platform-design-skills` `derived references; original revision not recorded by importer` — MIT; [License](.claude/skills/impeccable/THIRD_PARTY_LICENSES/platform-design-skills.txt); [Upstream notice](.claude/skills/impeccable/NOTICE.md)

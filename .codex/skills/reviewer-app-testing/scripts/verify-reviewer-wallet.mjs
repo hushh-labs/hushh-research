@@ -101,15 +101,15 @@ async function cardRows(page) {
   return page.locator('[data-testid="one-wallet-list"] li').allInnerTexts().catch(() => []);
 }
 
-/** Chat steps must run on /agent; a navigation action in an earlier turn may have moved the page. */
-async function ensureOnAgent(page) {
+/** Chat steps must run on the canonical root Chat surface; an earlier action may have moved the page. */
+async function ensureOnChat(page) {
   const pathname = await page.evaluate(() => window.location.pathname);
-  if (pathname === "/agent") return;
-  await reviewer.navigateInApp(page, "/agent");
+  if (pathname === "/") return;
+  await reviewer.navigateInApp(page, "/");
 }
 
 async function sendPrompt(page, text) {
-  await ensureOnAgent(page);
+  await ensureOnChat(page);
   const composer = page.getByTestId("agent-chat-composer-textarea");
   await composer.waitFor({ state: "visible", timeout: 60_000 });
   const baselineAssistant = await page.locator('[data-message-role="assistant"]').count();
@@ -327,9 +327,9 @@ try {
   });
 
   // ── Chat permutations (same session, Next client navigation) ───────────
-  await reviewer.navigateInApp(page, "/agent");
-  await step("same-session navigation to /agent keeps the vault unlocked", async () => {
-    await reviewer.assertVaultContinuity(page, "/agent");
+  await reviewer.navigateInApp(page, "/");
+  await step("same-session navigation to root Chat keeps the vault unlocked", async () => {
+    await reviewer.assertVaultContinuity(page, "/");
   });
 
   await step("chat: 'what cards do I have' returns metadata (last4) and never the PAN", async () => {

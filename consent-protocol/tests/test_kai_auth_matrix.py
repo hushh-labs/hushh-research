@@ -78,7 +78,13 @@ class _StubChatDB:
 class _StubChatService:
     chat_db = _StubChatDB()
 
-    async def process_message(self, user_id: str, message: str, conversation_id: str | None = None):
+    async def process_message(
+        self,
+        user_id: str,
+        message: str,
+        conversation_id: str | None = None,
+        consent_token: str | None = None,
+    ):
         return KaiChatResponse(
             conversation_id=conversation_id or "conv_test",
             response="ok",

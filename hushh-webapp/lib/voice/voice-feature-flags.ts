@@ -8,86 +8,13 @@ function isTruthyEnvFlag(raw: string | undefined): boolean {
   );
 }
 
-function isFalseyEnvFlag(raw: string | undefined): boolean {
-  return ["0", "false", "no", "off", "disabled"].includes(
-    String(raw || "")
-      .trim()
-      .toLowerCase(),
-  );
-}
-
-function resolveFlag(raw: string | undefined, defaultValue: boolean): boolean {
-  if (isTruthyEnvFlag(raw)) return true;
-  if (isFalseyEnvFlag(raw)) return false;
-  return defaultValue;
-}
-
+/** Remaining presentation flag for the shared Morphy AX surface. */
 export type VoiceV2Flags = {
-  enabled: boolean;
-  autoturnEnabled: boolean;
-  submitDebugVisible: boolean;
-  clientVadFallbackEnabled: boolean;
-  ttsBackendFallbackEnabled: boolean;
-  groundedActionResolutionEnabled: boolean;
-  groundedActionPolicyEnforcementEnabled: boolean;
-  groundedActionExecutionEnabled: boolean;
   morphyAxEnabled: boolean;
-  nativeFluidAudioEnabled: boolean;
-  localRuntimeMode: "off" | "shadow" | "local_known_actions" | "hybrid";
 };
 
-function resolveLocalRuntimeMode(): VoiceV2Flags["localRuntimeMode"] {
-  const raw = String(
-    process.env.NEXT_PUBLIC_ONE_VOICE_LOCAL_RUNTIME_MODE || "hybrid",
-  )
-    .trim()
-    .toLowerCase();
-  return raw === "shadow" ||
-    raw === "local_known_actions" ||
-    raw === "hybrid"
-    ? raw
-    : "off";
-}
-
 export function getVoiceV2Flags(): VoiceV2Flags {
-  const enabled = resolveFlag(process.env.NEXT_PUBLIC_VOICE_V2_ENABLED, true);
-  const groundedActionResolutionEnabled = resolveFlag(
-    process.env.NEXT_PUBLIC_VOICE_V2_GROUNDED_ACTION_RESOLUTION_ENABLED,
-    enabled,
-  );
   return {
-    enabled,
-    autoturnEnabled: resolveFlag(
-      process.env.NEXT_PUBLIC_VOICE_V2_AUTOTURN_ENABLED,
-      enabled,
-    ),
-    submitDebugVisible: resolveFlag(
-      process.env.NEXT_PUBLIC_VOICE_V2_SUBMIT_DEBUG_VISIBLE,
-      false,
-    ),
-    clientVadFallbackEnabled: resolveFlag(
-      process.env.NEXT_PUBLIC_VOICE_V2_CLIENT_VAD_FALLBACK_ENABLED,
-      enabled,
-    ),
-    ttsBackendFallbackEnabled: false,
-    groundedActionResolutionEnabled,
-    groundedActionPolicyEnforcementEnabled: resolveFlag(
-      process.env
-        .NEXT_PUBLIC_VOICE_V2_GROUNDED_ACTION_POLICY_ENFORCEMENT_ENABLED,
-      groundedActionResolutionEnabled,
-    ),
-    groundedActionExecutionEnabled: resolveFlag(
-      process.env.NEXT_PUBLIC_VOICE_V2_GROUNDED_ACTION_EXECUTION_ENABLED,
-      groundedActionResolutionEnabled,
-    ),
-    morphyAxEnabled: resolveFlag(
-      process.env.NEXT_PUBLIC_MORPHY_AX_ENABLED,
-      false,
-    ),
-    nativeFluidAudioEnabled: resolveFlag(
-      process.env.NEXT_PUBLIC_ONE_VOICE_FLUID_AUDIO_ENABLED,
-      false,
-    ),
-    localRuntimeMode: resolveLocalRuntimeMode(),
+    morphyAxEnabled: isTruthyEnvFlag(process.env.NEXT_PUBLIC_MORPHY_AX_ENABLED),
   };
 }

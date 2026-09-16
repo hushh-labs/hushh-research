@@ -2,7 +2,10 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import Image from "next/image";
 import { ArrowLeft, Shield } from "lucide-react";
+import lightStyles from "./AuthStepLight.module.css";
+import { OneArcIllustration } from "@/components/onboarding/OneArcIllustration";
 import { AuthService } from "@/lib/services/auth-service";
 import { ApiService } from "@/lib/services/api-service";
 import { useAuth } from "@/lib/firebase/auth-context";
@@ -11,7 +14,7 @@ import { SessionVerificationRecovery } from "@/components/auth/session-verificat
 import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
 import { OnboardingHeroBackground } from "@/components/onboarding/OnboardingHeroBackground";
 import { useStepProgress } from "@/lib/progress/step-progress-context";
-import { isAndroid } from "@/lib/capacitor/platform";
+import { isAndroid, isWeb } from "@/lib/capacitor/platform";
 import { Icon } from "@/lib/morphy-ux/ui";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
 import { cn } from "@/lib/utils";
@@ -45,30 +48,25 @@ import {
 } from "@/lib/testing/native-test";
 import { resolveLocalReviewerCredentials } from "@/lib/testing/local-reviewer-auth";
 
-// Firebase error codes that mean the user deliberately dismissed the provider
-// popup. These are not real failures, so we stay silent for them and only toast
-// on genuine errors (network, account-exists, blocked popup, etc.).
 const AUTH_CANCEL_CODES = new Set([
   "auth/popup-closed-by-user",
   "auth/cancelled-popup-request",
   "auth/user-cancelled",
 ]);
 
-// Provider-button treatments MATCH the theme (light surfaces in light mode,
-// dark surfaces in dark mode) so the sheet reads as one coherent material:
-// Apple/Google are white cards with ink text on the light sheet, and deep
-// charcoal cards with light text on the dark sheet. Reviewer stays a quiet
-// outlined tertiary in both themes.
 const APPLE_BTN_CLASS =
-  "!bg-white !text-[#17130C] border border-black/10 shadow-sm hover:!bg-black/[0.02] dark:!bg-[#1c1c1e] dark:!text-[#F7F3EA] dark:border-white/12 dark:hover:!bg-[#26262a]";
+  "!bg-white !text-zinc-900 border border-slate-200/90 shadow-sm hover:!bg-slate-50 h-[56px] sm:h-[60px] rounded-[20px] text-[17px] font-medium whitespace-nowrap flex items-center justify-center dark:!bg-[#1C1C1E] dark:!text-white dark:border-white/10 dark:hover:!bg-[#26262a]";
 const GOOGLE_BTN_CLASS =
-  "!bg-white !text-[#17130C] border border-black/10 shadow-sm hover:!bg-black/[0.02] dark:!bg-[#1c1c1e] dark:!text-[#F7F3EA] dark:border-white/12 dark:hover:!bg-[#26262a]";
+  "!bg-white !text-zinc-900 border border-slate-200/90 shadow-sm hover:!bg-slate-50 h-[56px] sm:h-[60px] rounded-[20px] text-[17px] font-medium whitespace-nowrap flex items-center justify-center dark:!bg-[#1C1C1E] dark:!text-white dark:border-white/10 dark:hover:!bg-[#26262a]";
 const REVIEWER_BTN_CLASS =
   "!bg-transparent !text-[#6b6b70] border border-black/10 shadow-none hover:!bg-black/[0.03] dark:!text-white/60 dark:border-white/15 dark:hover:!bg-white/[0.05]";
 
 type AuthProviderId = "google" | "apple";
 type ProviderAttemptPhase =
-  "launching" | "provider_open" | "attention_required" | "settling";
+  | "launching"
+  | "provider_open"
+  | "attention_required"
+  | "settling";
 type ProviderAttempt = {
   id: string;
   provider: AuthProviderId;
@@ -125,10 +123,6 @@ export function AuthStep({
   redirectPath: string;
   compact?: boolean;
 }) {
-  // Firebase/native persistence may settle before this Suspense subtree is
-  // hydrated. Keep the server and first client paint identical so Login never
-  // throws away its tree (and a one-shot account-recovery toast) during a
-  // hydration mismatch.
   const [hydrated, setHydrated] = useState(false);
   const nativeTestConfig = useNativeTestConfig();
   const router = useRouter();
@@ -261,7 +255,6 @@ export function AuthStep({
   }, [updateProviderAttemptPhase, user]);
 
   const openLegalDoc = useCallback(async (docType: KaiLegalDocumentType) => {
-    // Defer open so the originating tap does not get interpreted as outside-interact.
     await new Promise<void>((resolve) => {
       requestAnimationFrame(() => {
         legalReturnControlIdRef.current =
@@ -305,15 +298,12 @@ export function AuthStep({
   );
 
   const returnToWelcome = useCallback(async () => {
-    // A stale directive must not pull the person away from an OAuth attempt.
     if (providerBusy) {
       return {
         status: "blocked" as const,
         summary: "Sign-in is still in progress.",
       };
     }
-    // A legal document is nested beneath Login, so return to Login before
-    // considering the journey parent even if an old directive arrives late.
     if (activeLegalDoc) {
       await closeLegalDoc();
       return {
@@ -321,11 +311,6 @@ export function AuthStep({
         summary: "Returned to sign-in.",
       };
     }
-    // Login has one logical parent in the app-router hierarchy: One's public
-    // introduction. Browser history can point at an external OAuth page, a
-    // protected deep link, or a stale pre-auth page, none of which is a safe
-    // back destination. Keep a valid pending destination on the welcome
-    // screen so claiming One again resumes the same journey.
     router.replace(
       buildWelcomeRoute(redirectPath === ROUTES.HOME ? null : redirectPath),
     );
@@ -384,10 +369,6 @@ export function AuthStep({
           isOnboardingFlowActiveCookieEnabled();
         const nextPath = resumeImportFlow ? ROUTES.KAI_IMPORT : resolvedPath;
 
-        // This runs only after Firebase's redirect callback has produced a
-        // user. The provider launch itself remains a `started` settlement;
-        // the durable journey is never advanced merely because a redirect was
-        // opened or a popup was requested.
         const firebaseSessionOnly = isFirebaseSessionOnlyRoute(nextPath);
         if (!firebaseSessionOnly) {
           await PreVaultUserStateService.syncOnboardingJourney({
@@ -399,25 +380,18 @@ export function AuthStep({
             callbackState: "succeeded",
             idToken: resolvedIdToken,
           }).catch((journeyError) => {
-            // The existing post-auth route remains the rollback path while the
-            // additive journey migration rolls out.
             console.warn(
               "[AuthStep] Failed to persist onboarding journey:",
               journeyError,
             );
           });
         }
-        // Product handoffs require only the settled Firebase session. They do
-        // not start or resume One setup and never create a private-place gate.
         setOnboardingRequiredCookie(
           !firebaseSessionOnly && nextPath === ROUTES.ONE_SETUP,
         );
         setOnboardingFlowActiveCookie(
           !firebaseSessionOnly && nextPath === ROUTES.KAI_IMPORT,
         );
-        // Replace, not push: the login screen must not stay on the back stack,
-        // so an onboarded user pressing Back never lands back on /login or the
-        // setup hub it forwards to.
         router.replace(nextPath);
         lastResolvedNavigationPathRef.current = nextPath;
         return nextPath;
@@ -458,8 +432,6 @@ export function AuthStep({
   useEffect(() => {
     if (authLoading || sessionVerificationRequired) return;
     completeStep();
-    // Provider popup attempts own token verification and navigation while
-    // active. The ordinary auth observer handles only restored sessions.
     if (user && !providerAttemptRef.current) {
       if (growthJourney) {
         trackGrowthFunnelStepCompleted({
@@ -669,8 +641,6 @@ export function AuthStep({
       publishProviderAttempt(attempt);
       trackEvent("auth_started", { action: provider });
 
-      // This call must remain before any await/timer. The direct button and
-      // provider-specific Agent Bar action both enter here with a trusted tap.
       const providerPromise =
         provider === "google"
           ? AuthService.signInWithGoogle()
@@ -723,9 +693,6 @@ export function AuthStep({
               action: provider,
               result: "success",
             });
-            // Welcome on the first sign-in, welcome back afterwards. The server
-            // decides which; this is the one point per sign-in that asks. It is
-            // never awaited — navigation must not wait on a mail.
             void ApiService.notifyAuthMail("signed_in", { idToken });
             if (growthJourney) {
               trackGrowthFunnelStepCompleted({
@@ -1020,31 +987,19 @@ export function AuthStep({
         },
       ];
 
-  // Reviewer credentials are a governed native-test fixture, never a normal
-  // sign-in choice. Keeping this control behind the explicit test bridge
-  // prevents local/UAT configuration from leaking a fixture account into the
-  // product UI while preserving the native runner's observable test mode.
-  const showReviewer = nativeTestConfig.enabled && nativeReviewerVisible;
+  const showReviewer =
+    (nativeTestConfig.enabled && nativeReviewerVisible) || reviewModeConfig.enabled;
 
   return (
     <main
-      // The outer app scroll root reserves --app-scroll-bottom-pad below this
-      // element for the fixed onboarding Agent Bar, then re-adds it as its
-      // own padding-bottom. Sizing this element to a full 100dvh on top of
-      // that reservation forced scroll on every device. Inline style (not a
-      // Tailwind arbitrary-value class) because Tailwind's arbitrary calc()
-      // parser requires escaped whitespace around the minus sign
-      // ("100dvh_-_var(...)"); without it the whole declaration is invalid
-      // CSS and silently dropped, which is what happened here before.
-      className="relative w-full overflow-hidden"
+      className={cn("relative w-full overflow-hidden bg-white dark:bg-[#000000]", lightStyles.shell)}
       style={{
         height: "calc(100dvh - var(--app-scroll-bottom-pad, 0px))",
         minHeight: "calc(100svh - var(--app-scroll-bottom-pad, 0px))",
       }}
       data-testid="auth-step-primary"
     >
-      {/* Shared immersive gradient backdrop (welcome / login / carousel). */}
-      <OnboardingHeroBackground />
+      <div className={lightStyles.existingBackdrop}><OnboardingHeroBackground /></div>
       <NativeTestBeacon
         routeId="/login"
         marker="native-route-login"
@@ -1077,13 +1032,14 @@ export function AuthStep({
         data-voice-control-id={
           activeLegalDoc || providerBusy ? undefined : "auth_back"
         }
-        className="fixed left-4 top-[calc(max(var(--app-safe-area-top-effective),0.5rem))] z-50 grid h-9 w-9 place-items-center rounded-full bg-black/[0.05] text-[#1d1d1f]/70 transition-colors hover:bg-black/[0.08] disabled:pointer-events-none disabled:opacity-40 dark:bg-white/10 dark:text-white/80 dark:hover:bg-white/15"
+        className={cn("fixed left-4 top-[calc(max(var(--app-safe-area-top-effective),0.75rem))] z-50 grid h-9 w-9 place-items-center rounded-full bg-black/[0.05] text-[#1d1d1f]/70 transition-colors hover:bg-black/[0.08] disabled:pointer-events-none disabled:opacity-40 dark:bg-white/10 dark:text-white/80 dark:hover:bg-white/15", lightStyles.back, isWeb() && lightStyles.webBack)}
       >
-        <ArrowLeft className="h-[18px] w-[18px]" strokeWidth={2} />
+        <ArrowLeft className={cn("h-[18px] w-[18px]", lightStyles.existingBackIcon)} strokeWidth={2} />
+        <Image src="/onboarding/figma/auth-back-chevron.svg" alt="" width={10} height={17} unoptimized className={lightStyles.backGlyph} />
       </button>
 
       <div
-        className="relative mx-auto flex w-full max-w-[440px] flex-col justify-center"
+        className={cn("relative mx-auto flex w-full max-w-[440px] flex-col justify-center px-4", lightStyles.content)}
         style={{
           height: "calc(100dvh - var(--app-scroll-bottom-pad, 0px))",
           minHeight: "calc(100svh - var(--app-scroll-bottom-pad, 0px))",
@@ -1095,39 +1051,32 @@ export function AuthStep({
             copy is anchored separately at the bottom like a standard auth
             footer, so it does not read as primary sign-in content. */}
         <div
-          className="flex w-full flex-none flex-col items-center gap-6 px-6 pb-6 text-center"
+          className={cn("flex w-full flex-none flex-col items-center gap-5 px-2 text-center", lightStyles.clusters)}
           data-auth-signin-clusters
         >
-          <div className="flex flex-col items-center gap-4">
-            {/* Quiet mark: the bare 🤫 over a soft accent glow, no medallion
-                chrome (badge circle removed by design). */}
-            <div
-              className="relative flex h-[92px] w-[92px] items-center justify-center"
-              aria-hidden="true"
-            >
-              <span className="pointer-events-none absolute h-28 w-28 rounded-full bg-accent/20 blur-2xl" />
-              <span className="hushh-brand-mark relative select-none text-[56px] leading-none drop-shadow-[0_6px_14px_rgba(0,0,0,0.25)]">
-                🤫
-              </span>
+          <div className={cn("flex w-full flex-col items-center gap-3", lightStyles.hero)}>
+            <div className={lightStyles.existingIllustration}><OneArcIllustration /></div>
+            <div className={lightStyles.illustration} aria-hidden="true">
+              <div className={lightStyles.imageCrop}>
+                <Image src="/onboarding/figma/screen-7-art.png" alt="" width={1536} height={1024} priority unoptimized draggable={false} className={lightStyles.darkArtwork} />
+                <Image src="/onboarding/figma/screen-3-art.png" alt="" width={950} height={1698} priority unoptimized draggable={false} />
+              </div>
+              <span className={lightStyles.glow} />
+              <span className={lightStyles.emoji}>🤫</span>
             </div>
+
             <h1
               role="heading"
               aria-level={1}
               aria-label="Welcome to One"
-              className="font-[family-name:var(--font-app-display)] text-[34px] font-extrabold leading-[1.05] tracking-[-1.1px] text-[#17130C] dark:text-[#FAF6EE]"
+              className={cn("whitespace-nowrap font-bold text-[25px] sm:text-[27px] leading-[32px] tracking-[-0.5px] text-[#17130C] dark:text-[#F2F2F7]", lightStyles.title)}
             >
               Welcome to One
-              <span style={{ color: "var(--app-accent)" }}>.</span>
+              <span className="text-[#387BF5]">.</span>
             </h1>
           </div>
 
-          {/* Buttons sit directly on the shared hero background (no card/sheet
-              behind them), matching the welcome ("/") page's direct-on-canvas
-              CTA. The outer app scroll root already reserves clearance for the
-              fixed onboarding Agent Bar (--onboarding-agent-bar-clearance in
-              app/providers.tsx), so this is a plain content gap rather than a
-              second bar-height reservation. */}
-          <div className="relative mx-auto w-full max-w-[21.5rem] space-y-4">
+          <div className={cn("relative mx-auto w-full max-w-[344px] space-y-3.5", lightStyles.actions)}>
             <div className="space-y-3" data-auth-provider-actions>
               {providerAttempt?.phase === "attention_required" ? (
                 <p
@@ -1142,7 +1091,11 @@ export function AuthStep({
                 <AuthProviderButton
                   key={option.id}
                   label={option.label}
-                  icon={option.icon}
+                  icon={<>
+                    <span className={lightStyles.existingProviderIcon}>{option.icon}</span>
+                    {option.id === "apple" && <Image src="/onboarding/figma/auth-apple-dark.png" alt="" width={37} height={37} unoptimized className={lightStyles.darkAppleIcon} />}
+                    <Image src={option.id === "apple" ? "/onboarding/figma/auth-apple-light.png" : "/onboarding/figma/google.png"} alt="" width={option.id === "apple" ? 41 : 46} height={23} unoptimized className={cn(lightStyles.providerIcon, option.id === "apple" ? lightStyles.appleIcon : lightStyles.googleIcon)} />
+                  </>}
                   onClick={() => {
                     void option.onClick();
                   }}
@@ -1150,6 +1103,7 @@ export function AuthStep({
                   voiceControlId={`auth_${option.id}`}
                   className={cn(
                     option.id === "apple" ? APPLE_BTN_CLASS : GOOGLE_BTN_CLASS,
+                    lightStyles.providerButton,
                   )}
                 />
               ))}
@@ -1164,6 +1118,7 @@ export function AuthStep({
                 />
               ) : null}
             </div>
+
           </div>
         </div>
       </div>

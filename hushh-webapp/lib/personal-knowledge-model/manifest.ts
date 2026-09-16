@@ -1,15 +1,30 @@
+import { isInternalManifestPath } from "@/lib/pkm/internal-path-keys";
 import {
   CURRENT_PKM_CONTRACT_VERSION,
   CURRENT_READABLE_SUMMARY_VERSION,
   CURRENT_READABLE_PROJECTION_VERSION,
   currentDomainContractVersion,
 } from "@/lib/personal-knowledge-model/upgrade-contracts";
+import { humanizeMemoryPath } from "@/lib/pkm/humanize-segment";
 
 export type PathDescriptor = {
   json_path: string;
   parent_path?: string | null;
   path_type: "object" | "array" | "leaf";
   exposure_eligibility: boolean;
+  /**
+   * This path's own final segment, as the owner's data actually spelled it.
+   *
+   * `json_path` is normalized for authorization and is therefore lowercased,
+   * which destroys the word boundary in a key like `addressDetails`. That loss
+   * is irreversible: no downstream function can tell `addressdetails` from a
+   * genuine single word. Keeping the original segment here is what lets any
+   * consumer render one level of the path in the owner's own words.
+   *
+   * Null for the synthetic collection segments (`_items`, `_entities`), which
+   * were never keys the owner wrote.
+   */
+  display_segment?: string | null;
   consent_label?: string | null;
   sensitivity_label?: string | null;
   segment_id?: string | null;
@@ -106,12 +121,19 @@ function joinPath(parts: string[]): string {
   return parts.filter(Boolean).join(".");
 }
 
+/**
+ * The owner-facing label for a path, built from the segments AS WRITTEN.
+ *
+ * This must be called with the raw path, never the normalized one. The
+ * normalized path has already been lowercased for authorization, and the words
+ * cannot be recovered from it: that is exactly how a chat row came to read
+ * "Saved Places Locations Items Addressdetails Buildingcolor". The shared
+ * resolver handles camelCase, letter-to-digit runs and separators; a caller
+ * that hands it `addressdetails` gets "Addressdetails", correctly, because by
+ * then the information is gone.
+ */
 function titleizePath(path: string): string {
-  return path
-    .split(".")
-    .map((segment) => segment.replace(/_/g, " "))
-    .join(" ")
-    .replace(/\b\w/g, (match) => match.toUpperCase());
+  return humanizeMemoryPath(path);
 }
 
 function cloneValue<T>(value: T): T {
@@ -165,8 +187,44 @@ const BLOCKED_EXTERNAL_PATH_PARTS = new Set([
   "workflow_state",
 ]);
 
-function isExternalizablePath(path: string, pathType: PathDescriptor["path_type"]): boolean {
+/** Segments the walk invents; they were never keys the owner wrote. */
+const SYNTHETIC_SEGMENTS = new Set(["_items", ENTITY_COLLECTION_SEGMENT]);
+
+function isExternalizablePath(
+  path: string,
+  pathType: PathDescriptor["path_type"],
+  value: unknown,
+): boolean {
   if (pathType !== "leaf") return false;
+
+  // A value nobody ever set is not information about anybody.
+  //
+  // This returned true for `null`, so `nav_skipped_at: null` -- a thing that
+  // never happened -- became a requestable scope. kai-profile-service
+  // initialises a dozen such fields to null at :181-196, which is a large part
+  // of how one person's finance catalogue reached fifty rows. `countMaterializedLeaves`
+  // above has always treated null as zero; this now agrees with it.
+  if (value === null || value === undefined) return false;
+  if (typeof value === "string" && !value.trim()) return false;
+
+  // Plumbing, at any depth. BLOCKED_EXTERNAL_PATH_PARTS stays as the
+  // write-time list it always was; the shared contract adds the app-state
+  // shapes it never covered -- setup checkpoints, nested domain_intent, and the
+  // *_selected_at / *_anchor_at timestamps that listed beside the answers they
+  // timestamp and read as duplicates.
+  // Synthetic segments are exempt. `_entities` and `_items` are invented by
+  // this walk, not written by the owner (see SYNTHETIC_SEGMENTS), so the
+  // leading-underscore convention -- which means "the OWNER marked this
+  // private" -- does not apply to them. Without this carve-out the filter ate
+  // every entity-collapsed holding, which manifest-entity-collapse caught
+  // immediately: exactly the job of the half of these tests that assert what
+  // must survive.
+  const ownerWrittenPath = path
+    .split(".")
+    .filter((segment) => !SYNTHETIC_SEGMENTS.has(segment))
+    .join(".");
+  if (ownerWrittenPath && isInternalManifestPath(ownerWrittenPath)) return false;
+
   return !path.split(".").some((part) => BLOCKED_EXTERNAL_PATH_PARTS.has(part));
 }
 
@@ -206,10 +264,21 @@ function countEntityMaps(value: unknown): number {
   return count;
 }
 
+
 function walkValue(
   value: unknown,
   path: string[],
-  descriptors: Map<string, PathDescriptor>
+  descriptors: Map<string, PathDescriptor>,
+  /**
+   * The same path, segment for segment, spelled as the owner's data spells it.
+   *
+   * Carried alongside `path` rather than derived from it, because `path` has
+   * been through `normalizePathSegment` and the word boundaries are already
+   * gone. This is the only point in the system where both forms exist at once,
+   * which is why the label has to be authored here and not at any of the five
+   * places downstream that used to try.
+   */
+  displayPath: string[]
 ): void {
   if (value === undefined) {
     return;
@@ -217,6 +286,7 @@ function walkValue(
 
   const pathKey = joinPath(path);
   if (pathKey) {
+    const rawSegment = displayPath[displayPath.length - 1] ?? "";
     const isArray = Array.isArray(value);
     const isObject =
       !!value && typeof value === "object" && !isArray;
@@ -226,8 +296,9 @@ function walkValue(
       json_path: pathKey,
       parent_path: path.length > 1 ? joinPath(path.slice(0, -1)) : null,
       path_type: pathType,
-      exposure_eligibility: isExternalizablePath(pathKey, pathType),
-      consent_label: titleizePath(pathKey),
+      exposure_eligibility: isExternalizablePath(pathKey, pathType, value),
+      display_segment: SYNTHETIC_SEGMENTS.has(rawSegment) ? null : rawSegment || null,
+      consent_label: titleizePath(joinPath(displayPath)),
       sensitivity_label: sensitivityLabel,
       segment_id: path[0] || "root",
       source_agent: "pkm_structure_agent",
@@ -259,7 +330,7 @@ function walkValue(
   if (Array.isArray(value)) {
     for (const item of value) {
       if (item !== undefined) {
-        walkValue(item, [...path, "_items"], descriptors);
+        walkValue(item, [...path, "_items"], descriptors, [...displayPath, "_items"]);
       }
     }
     return;
@@ -281,7 +352,10 @@ function walkValue(
   if (path[path.length - 1] === ENTITY_MAP_KEY) {
     for (const childValue of Object.values(record)) {
       if (childValue !== undefined) {
-        walkValue(childValue, [...path, ENTITY_COLLECTION_SEGMENT], descriptors);
+        walkValue(childValue, [...path, ENTITY_COLLECTION_SEGMENT], descriptors, [
+          ...displayPath,
+          ENTITY_COLLECTION_SEGMENT,
+        ]);
       }
     }
     return;
@@ -291,7 +365,8 @@ function walkValue(
     if (!normalizedKey) {
       continue;
     }
-    walkValue(childValue, [...path, normalizedKey], descriptors);
+    // rawKey, not normalizedKey: this is the moment the spelling still exists.
+    walkValue(childValue, [...path, normalizedKey], descriptors, [...displayPath, rawKey]);
   }
 }
 
@@ -305,7 +380,7 @@ export function buildPersonalKnowledgeModelStructureArtifacts(params: {
 } {
   const normalizedDomain = normalizePathSegment(params.domain) || "general";
   const descriptors = new Map<string, PathDescriptor>();
-  walkValue(params.domainData, [], descriptors);
+  walkValue(params.domainData, [], descriptors, []);
 
   const paths = [...descriptors.values()].sort((a, b) =>
     a.json_path.localeCompare(b.json_path)

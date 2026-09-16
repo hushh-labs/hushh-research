@@ -38,6 +38,7 @@ _SPECIALIST_LABELS = {
     "agent_connections": "Connections",
     "agent_email": "Email",
     "agent_location": "Location",
+    "agent_personal_information": "Memory",
     "agent_nav": "Consent Center",
 }
 _AUTHORITY_INGRESS_ONLY = frozenset({"agent_connected_systems", "agent_connections", "agent_email"})
@@ -74,18 +75,8 @@ def resolve_specialist_availability(
     user_id: str,
     consent_token: str,
     voice_context: object,
-    exact_authority_available: bool = False,
-    scoped_read_only: bool = False,
 ) -> SpecialistAvailabilityV1:
-    """Resolve a specialist's callable state from redacted current context.
-
-    ``exact_authority_available`` says whether the turn's authority carries anything
-    beyond permission to start a task. It defaults to False so a caller that does not
-    pass it fails closed -- the wrong answer here is the one that reports a specialist
-    ready and then refuses it.
-    """
-    # scoped_read_only selects the existing email read broker, not A2A authority.
-    # Its caller must refuse broker failure rather than fall through to dispatch.
+    """Resolve a specialist's callable state from redacted current context."""
     context = voice_context if isinstance(voice_context, dict) else {}
     route_family = str(context.get("route_family") or "").strip()
     screen = str(context.get("screen") or "").strip()
@@ -136,23 +127,13 @@ def resolve_specialist_availability(
     if is_location_setup:
         return result("setup_required", "location_setup_incomplete")
 
-    # These three call `require_attenuated_authority(information=True)` in their
-    # handlers, so a turn without exact authority cannot reach them.
-    #
-    # This used to read `not is_wired_specialist(agent_id)` -- i.e. it asked whether
-    # the specialist was REGISTERED. Registration is a different question from
-    # authorisation, and once all three were wired the condition could never fire.
-    # The branch became dead code, the accurate per-specialist messages downstream
-    # became unreachable, and admission started answering `ready` for specialists
-    # that were about to fail with a raw EXACT_AUTHORITY_REQUIRED.
-    if (
-        agent_id in _AUTHORITY_INGRESS_ONLY
-        and not exact_authority_available
-        and not (agent_id == "agent_email" and scoped_read_only)
-    ):
+    # Connections is composed beneath Nav; this is deployment availability,
+    # not authority. Nav still validates the exact owner-bound hop before tools.
+    runtime_agent_id = "agent_nav" if agent_id == "agent_connections" else agent_id
+    if agent_id in _AUTHORITY_INGRESS_ONLY and not is_wired_specialist(runtime_agent_id):
         return result("authority_required", "exact_a2a_authority_required")
 
-    if not is_wired_specialist(agent_id):
+    if not is_wired_specialist(runtime_agent_id):
         return result("unavailable", "specialist_unwired")
 
     if not user_id:

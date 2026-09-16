@@ -128,3 +128,37 @@ to the secure form rather than redirected into a plain memory. The review is
 grouped by domain › scope with per-item keep or skip; nothing is written until
 the owner saves the kept items, and `add_to_pkm` now carries the exact passage
 the model meant (`source_text`) instead of the whole turn.
+
+## Decision: structured KYC capture and product-default auto-save (2026-09-04)
+
+One may automatically capture eligible facts that an owner intentionally types
+in One Chat or the Gmail KYC import/chat flow. A vault with no saved preference
+uses the product default, while an explicit owner opt-out remains authoritative.
+The write receipt records the distinction: a default write uses
+`product_default_auto_save_policy` with a policy version/effective time; a
+setting chosen by the owner continues to use `owner_auto_save_policy`. The PKM
+settings control and a chat receipt make the behavior visible and reversible.
+
+This does not turn every message into memory. Secrets, ambiguous or
+low-confidence claims, corrections/deletions, and facts with active sharing
+recipients remain review-first. Failed background writes do not change the
+conversation result and surface an explicit failure notification.
+
+`kyc_identity_v1` is a profile of the existing `/api/pkm/memory/proposals`
+contract, not another memory system. It uses one constrained extraction pass
+for a pasted or chat-entered KYC description, writes only explicit stable facts
+to existing `identity.identity_profile`, its `education` subtree, or
+`professional.profile`, and retains source type/update metadata. It never
+stores an unstructured "about me" blob. The same pass may produce a
+review-first, structured general-PKM fact for a safe durable detail that does
+not fit the KYC registry, so it is not silently discarded. A versioned
+field/alias registry is shared by ingestion, Gmail classification, retrieval,
+and drafting.
+
+Targeted KYC requests first resolve the registry fields, then decrypt only the
+matching manifest-backed encrypted segments in the unlocked client. Exact
+canonical IDs and aliases rank before path and lexical matches. The five-minute
+in-memory cache is invalidated per changed domain after a write. This phase has
+no server-side vector database, no embeddings, and no Gmail-content RAG: Gmail
+content remains outside PKM and is classified transiently under its separate
+consent boundary.

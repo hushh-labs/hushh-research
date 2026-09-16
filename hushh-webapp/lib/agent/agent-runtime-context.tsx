@@ -11,8 +11,8 @@
 // active voice mode.
 //
 // Security posture: this context only describes state. It never carries vault
-// keys or owner tokens. Realtime and STT remain tool-less regardless of tier;
-// only typed chat (which separately holds the vault owner token) touches data.
+// keys or owner tokens. Command interpretation remains tool-less regardless of
+// tier; only typed chat (which separately holds the vault owner token) touches data.
 
 import {
   createContext,
@@ -80,14 +80,6 @@ export type AgentAccessTier =
   | "signed_locked"
   | "signed_unlocked";
 
-// The agent bar can be in one of these interaction modes at a time.
-//   - idle:     resting, no live channel
-//   - ambient:  visual-only affordance (no capture, no socket)
-//   - stt:      browser/STT dictation turn (tool-less)
-//   - realtime: Gemini Live conversational session (tool-less)
-//   - chat:     typed chat workspace is the active channel (vault-backed)
-export type AgentVoiceMode = "idle" | "ambient" | "stt" | "realtime" | "chat";
-
 export type AgentRuntimeState = {
   /** The full app runtime snapshot consumed by the voice/chat planner. */
   appRuntimeState: AppRuntimeState;
@@ -95,7 +87,7 @@ export type AgentRuntimeState = {
   tier: AgentAccessTier;
   /** True when the user is inside the onboarding / intro flow. */
   onboardingActive: boolean;
-  /** True on the marketing root route ("/"). */
+  /** True on the canonical root route ("/"); the route is Chat when signed in. */
   isHomeRoute: boolean;
   /** True when vault is unlocked AND a fresh owner token is available. */
   hasVaultAccess: boolean;
@@ -103,7 +95,7 @@ export type AgentRuntimeState = {
   activePersona: Persona;
   /** Normalized current screen id derived from the route. */
   screen: string;
-  /** Redacted One Voice snapshot safe for realtime prompt shaping. */
+  /** Redacted One context snapshot safe for command and chat shaping. */
   oneVoiceContextSnapshot: OneVoiceContextSnapshot;
   /** Redacted lifecycle and mounted-control state for action discovery. */
   capabilityState: VoiceCapabilityStateV1;
@@ -205,8 +197,8 @@ export function AgentRuntimeStateProvider({ children }: { children: ReactNode })
   const path = pathname ?? "";
   const pathnameWithQuery = routeQuery ? `${path}?${routeQuery}` : path;
   const routeInfo = useMemo(
-    () => deriveVoiceRouteScreen(path, routeQuery),
-    [path, routeQuery]
+    () => deriveVoiceRouteScreen(path, routeQuery, { authenticated: signedIn }),
+    [path, routeQuery, signedIn]
   );
 
   const isHomeRoute = path === ROUTES.HOME;
@@ -214,14 +206,14 @@ export function AgentRuntimeStateProvider({ children }: { children: ReactNode })
     const chrome = getKaiChromeState(path);
     return (
       chrome.useOnboardingChrome ||
-      isHomeRoute ||
+      (isHomeRoute && !signedIn) ||
       path === ROUTES.GETTING_STARTED ||
       path === ROUTES.LOGIN ||
       path === ROUTES.PHONE_MANDATE ||
       path === ROUTES.ONE_SETUP ||
       path.startsWith(`${ROUTES.ONE_SETUP}/`)
     );
-  }, [path, isHomeRoute]);
+  }, [path, isHomeRoute, signedIn]);
 
   const [preVaultState, setPreVaultState] = useState<PreVaultUserState | null>(null);
   useEffect(() => {

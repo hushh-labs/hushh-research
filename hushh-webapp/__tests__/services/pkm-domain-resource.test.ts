@@ -159,6 +159,27 @@ describe("PkmDomainResourceService", () => {
     expect(loadDomainDataWithBlobMock).toHaveBeenCalledTimes(1);
   });
 
+  it("returns successful domains when another domain refresh fails", async () => {
+    loadDomainDataWithBlobMock.mockImplementation(async ({ domain }) => {
+      if (domain === "preferences") throw new Error("temporary unavailable");
+      return {
+        data: { profile: { risk_profile: "balanced" } },
+        blob: { dataVersion: 1, updatedAt: "2026-05-18T05:55:00.000Z" },
+      };
+    });
+
+    const result = await PkmDomainResourceService.getManyStaleFirst({
+      userId: "user-batch",
+      domains: ["financial", "preferences"],
+      vaultKey: "vault-key",
+      vaultOwnerToken: "vault-owner",
+      backgroundRefresh: false,
+    });
+
+    expect(result.snapshots.financial?.data).toEqual({ profile: { risk_profile: "balanced" } });
+    expect(result.failedDomains).toEqual(["preferences"]);
+  });
+
   it("prepares write context from the newer encrypted domain when memory is stale", async () => {
     const userId = "user-financial";
     const oldDomain = {

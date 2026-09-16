@@ -279,6 +279,7 @@ class PersonProfileService:
             state = {
                 "CONSENT_GRANTED": "granted",
                 "CONSENT_DENIED": "denied",
+                "CANCELLED": "cancelled",
                 "REVOKED": "revoked",
                 "TIMEOUT": "expired",
             }.get(action, "pending")
@@ -287,7 +288,7 @@ class PersonProfileService:
             if state == "granted" and expires_at and int(expires_at) <= now_ms:
                 state = "expired"
             if item.get("cancelled_at") and state == "pending":
-                state = "denied"
+                state = "cancelled"
             request_history.append(
                 {
                     "bundleId": str(item["bundle_id"]),

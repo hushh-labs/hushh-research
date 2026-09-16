@@ -1,13 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  GOOGLE_CONTACTS_AUTH_TIMEOUT_MS,
   isGoogleContactsConsentCancelled,
   preloadGoogleContactsAuth,
   requestGoogleContactsToken,
 } from "../google-contacts-token";
 
-const CONTACTS_SCOPE =
-  "https://www.googleapis.com/auth/contacts.readonly";
+const CONTACTS_SCOPE = "https://www.googleapis.com/auth/contacts.readonly";
 
 type TokenResponse = {
   access_token?: string;
@@ -51,6 +51,7 @@ describe("Google Contacts token client", () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     Reflect.deleteProperty(globalThis, "google");
     document
       .querySelectorAll('script[src="https://accounts.google.com/gsi/client"]')
@@ -154,6 +155,62 @@ describe("Google Contacts token client", () => {
     capturedConfig?.callback({ error: "access_denied" });
 
     await expect(pending).rejects.toThrow(/was not granted/i);
+  });
+
+  it("times out missing callbacks and ignores the expired attempt after retry", async () => {
+    vi.useFakeTimers();
+    const first = requestGoogleContactsToken();
+    const expired = capturedConfig;
+    const rejection = expect(first).rejects.toThrow(/sign-in did not finish/i);
+    await vi.advanceTimersByTimeAsync(GOOGLE_CONTACTS_AUTH_TIMEOUT_MS);
+    await rejection;
+    const retry = requestGoogleContactsToken();
+    expired?.callback({ access_token: "stale-token", scope: CONTACTS_SCOPE });
+    capturedConfig?.callback({
+      access_token: "fresh-token",
+      scope: CONTACTS_SCOPE,
+    });
+    await expect(retry).resolves.toBe("fresh-token");
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it.each([true, false])(
+    "aborts without consuming a late token (pre-aborted=%s)",
+    async (preAborted) => {
+      vi.useFakeTimers();
+      const abort = new AbortController();
+      if (preAborted) abort.abort();
+      const pending = requestGoogleContactsToken(abort.signal);
+      const rejection = expect(pending).rejects.toMatchObject({
+        name: "AbortError",
+      });
+      abort.abort();
+      capturedConfig?.callback({
+        access_token: "late-token",
+        scope: CONTACTS_SCOPE,
+      });
+      await rejection;
+      expect(requestAccessToken).toHaveBeenCalledTimes(preAborted ? 0 : 1);
+      expect(vi.getTimerCount()).toBe(0);
+    },
+  );
+
+  it("settles synchronous SDK failures and permits a new tap", async () => {
+    vi.useFakeTimers();
+    requestAccessToken.mockImplementationOnce(() => {
+      throw new Error("SDK failed");
+    });
+    await expect(requestGoogleContactsToken()).rejects.toThrow(
+      /Could not open Google sign-in/,
+    );
+    expect(vi.getTimerCount()).toBe(0);
+    const retry = requestGoogleContactsToken();
+    capturedConfig?.callback({
+      access_token: "fresh-token",
+      scope: CONTACTS_SCOPE,
+    });
+    await expect(retry).resolves.toBe("fresh-token");
+    expect(vi.getTimerCount()).toBe(0);
   });
 
   it("treats only a closed popup as cancellation", async () => {

@@ -43,6 +43,7 @@ type WarmPriority =
   | "dashboard"
   | "analysis"
   | "consents"
+  | "location"
   | "profile"
   | "ria"
   | "default";
@@ -108,6 +109,7 @@ function resolveWarmPriority(routePath?: string | null): WarmPriority {
   ) {
     return "consents";
   }
+  if (path.startsWith(ROUTES.ONE_LOCATION)) return "location";
   if (path.startsWith("/one/profile")) return "profile";
   if (path.startsWith("/ria")) return "ria";
   return "default";
@@ -413,6 +415,7 @@ export class UnlockWarmOrchestrator {
     // that happened to unlock the vault. Legacy consent resources below remain
     // route-prioritized because they are not used by the canonical screen.
     const shouldWarmConsentCenter = Boolean(params.firebaseIdToken);
+    const shouldWarmLocationState = warmPriority === "location";
     const shouldWarmVaultStatus =
       warmPriority === "consents" ||
       warmPriority === "profile" ||
@@ -615,14 +618,16 @@ export class UnlockWarmOrchestrator {
                     vaultOwnerToken: params.vaultOwnerToken,
                   })
               : Promise.resolve(null),
-          // Safe only in the active browser process: Location state may include
-          // encrypted envelopes and is intentionally never persisted to device
-          // storage. Warming it here gives the just-unlocked route an immediate
-          // cache-first render while it reconciles in the background.
+          // Location state is memory-only but expensive: its server response
+          // assembles several consent-sensitive projections.  Warm it only for
+          // the Location workspace; unrelated unlock routes (notably PKM) must
+          // not contend for the shared database connection budget.
           () =>
-            OneLocationStateResource.load(params.userId, () =>
-              OneLocationService.getState(params.vaultOwnerToken),
-            ),
+            shouldWarmLocationState
+              ? OneLocationStateResource.load(params.userId, () =>
+                  OneLocationService.getState(params.vaultOwnerToken),
+                )
+              : Promise.resolve(null),
         ] as const,
         4,
       );
@@ -630,7 +635,7 @@ export class UnlockWarmOrchestrator {
       result.metadataWarmed =
         shouldWarmMetadata && metadataResult.status === "fulfilled";
 
-      if (locationStateResult.status === "fulfilled") {
+      if (shouldWarmLocationState && locationStateResult.status === "fulfilled") {
         result.locationStateWarmed = true;
       }
 

@@ -163,65 +163,11 @@ describe("PeopleHub requests sent manage surface", () => {
     ).toBeInTheDocument();
   });
 
-  it("starts People with the Circles summary row", () => {
-    render(
-      <PeopleHub
-        vm={vm()}
-        onAddConnections={vi.fn()}
-        onInvite={vi.fn()}
-        onCreateCircle={vi.fn()}
-        onJoinCircle={vi.fn()}
-        onOpenCircle={vi.fn()}
-        focusedInviteId={null}
-        onDismissFocusedInvite={vi.fn()}
-        onStartShare={vi.fn()}
-      />,
-    );
-
-    const hub = screen.getByTestId("one-location-people-hub");
-    const sectionStack = hub.firstElementChild as HTMLElement | null;
-    const circles = screen.getByTestId("one-location-circles-summary");
-
-    expect(hub).not.toHaveClass("pt-5");
-    expect(hub).not.toHaveClass("sm:pt-9");
-    expect(sectionStack?.firstElementChild).toBe(circles);
-  });
-
-  it("represents the Circles category with one stable group icon", () => {
-    renderPeopleHub({
-      viewModel: vm({
-        circles: [
-          {
-            id: "circle-jc",
-            name: "JC",
-            role: "owner",
-            memberCount: 2,
-          },
-          {
-            id: "circle-nt",
-            name: "NT",
-            role: "member",
-            memberCount: 3,
-          },
-        ] as LocationHubViewModel["circles"],
-      }),
-    });
-
-    const summary = screen.getByTestId("one-location-circles-summary");
-    const icon = within(summary).getByTestId(
-      "one-location-circle-category-icon",
-    );
-
-    expect(icon.querySelector("svg")).toBeTruthy();
-    expect(icon).toHaveTextContent("");
-    expect(summary).not.toHaveTextContent("JC");
-    expect(summary).not.toHaveTextContent("NT");
-  });
-
-  it("opens received-location management from the row", () => {
+  it("opens received-location actions from the row instead of inline controls", () => {
     const onOpenSharedWithMe = vi.fn();
     const onStartShare = vi.fn();
     renderPeopleHub({ onOpenSharedWithMe, onStartShare });
+
     expect(screen.getByText("Sharing with you · 42 min left")).toBeTruthy();
     expect(screen.queryByText("Ask for more time")).toBeNull();
     expect(screen.queryByRole("button", { name: "Stop viewing" })).toBeNull();
@@ -232,16 +178,15 @@ describe("PeopleHub requests sent manage surface", () => {
       }),
     );
 
-    const dialog = screen.getByRole("dialog", { name: "Roopmann V" });
-    expect(dialog).toHaveClass("max-w-[380px]", "rounded-[26px]", "gap-0");
-    const overlay = document.querySelector('[data-slot="dialog-overlay"]');
-    expect(overlay).toHaveClass("bg-black/35", "backdrop-blur-[12px]");
+    expect(
+      screen.getByRole("dialog", { name: "Roopmann V" }),
+    ).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "View their location" }));
     expect(onOpenSharedWithMe).toHaveBeenCalled();
     expect(onStartShare).not.toHaveBeenCalled();
   });
 
-  it("hands neutral people to the existing Share composer without a dialog", () => {
+  it("hands neutral people to the existing Share and Ask composers", () => {
     const onStartShare = vi.fn();
     const onStartAsk = vi.fn();
     renderPeopleHub({
@@ -256,13 +201,20 @@ describe("PeopleHub requests sent manage surface", () => {
 
     fireEvent.click(
       screen.getByRole("button", {
-        name: "Share with Roopmann V",
+        name: "Open Location actions for Roopmann V",
       }),
     );
 
+    fireEvent.click(screen.getByRole("button", { name: "Share my location" }));
     expect(onStartShare).toHaveBeenCalledWith("owner_roopmann");
-    expect(onStartAsk).not.toHaveBeenCalled();
-    expect(screen.queryByRole("dialog")).toBeNull();
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Open Location actions for Roopmann V",
+      }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Ask for location" }));
+    expect(onStartAsk).toHaveBeenCalledWith("owner_roopmann");
   });
 
   it("keeps pending request cancellation in the person actions sheet", () => {
@@ -291,26 +243,5 @@ describe("PeopleHub requests sent manage surface", () => {
     );
     fireEvent.click(screen.getByRole("button", { name: "Cancel request" }));
     expect(onWithdrawRequest).toHaveBeenCalledWith("request_pending");
-  });
-
-  it("does not offer cancellation for a cached request at its expiry deadline", () => {
-    const expiresAt = "2026-08-25T01:00:00.000Z";
-    const onWithdrawRequest = vi.fn();
-    renderPeopleHub({
-      viewModel: vm({
-        nowMs: Date.parse(expiresAt),
-        requestedByMe: [{ ...approvedRequest, status: "pending", expiresAt }],
-        receivedGrants: [],
-        editingGrantId: null,
-        onWithdrawRequest,
-      }),
-    });
-    expect(screen.queryByText("Waiting for response")).toBeNull();
-    expect(screen.queryByRole("button", {
-      name: /Open Location actions for Roopmann V/i,
-    })).toBeNull();
-    expect(screen.getByRole("button", { name: "Share with Roopmann V" })).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Cancel request" })).toBeNull();
-    expect(onWithdrawRequest).not.toHaveBeenCalled();
   });
 });

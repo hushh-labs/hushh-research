@@ -73,8 +73,46 @@ def require_attenuated_authority(
     *,
     information: bool = False,
     action: bool = False,
+    required_invocation: str | None = None,
+    expected_tenant_id: str | None = None,
+    expected_task_id: str | None = None,
+    expected_caller_kind: Literal["first_party", "developer", "a2a"] = "first_party",
 ) -> A2AAuthorityContext:
+    """Validate a hop; migrated invocation gates require independent ingress bindings.
+
+    Expected tenant, task and caller values must come from trusted runtime
+    context, never be copied from the authority being checked. This contract
+    check does not replace token signature/scope/DB revocation checks or consume
+    an action confirmation receipt. Unmigrated callers retain the legacy gate.
+    """
     authority = task.authority
+    if required_invocation is not None:
+        # Validate before is_active_for: untyped callers must fail closed for
+        # malformed expiry rather than raising a comparison TypeError.
+        if (
+            not isinstance(authority, A2AAuthorityContext)
+            or not isinstance(task.user_id, str)
+            or not task.user_id.strip()
+            or not isinstance(required_invocation, str)
+            or not required_invocation.strip()
+            or not isinstance(expected_tenant_id, str)
+            or not expected_tenant_id.strip()
+            or not isinstance(expected_task_id, str)
+            or not expected_task_id.strip()
+            or not isinstance(expected_caller_kind, str)
+            or expected_caller_kind not in {"first_party", "developer", "a2a"}
+            or authority.subject_user_id != task.user_id
+            or authority.tenant_id != expected_tenant_id
+            or authority.task_id != expected_task_id
+            or authority.caller_kind != expected_caller_kind
+            or (expected_caller_kind == "first_party" and authority.developer_app_id is not None)
+            or not isinstance(authority.invocation_capabilities, tuple)
+            or not all(isinstance(value, str) for value in authority.invocation_capabilities)
+            or required_invocation not in authority.invocation_capabilities
+            or type(authority.expires_at_ms) is not int
+            or int(time.time() * 1000) >= authority.expires_at_ms
+        ):
+            raise A2AAuthorityRequired("EXACT_AUTHORITY_REQUIRED")
     if authority is None or not authority.is_active_for(task.user_id):
         raise A2AAuthorityRequired("EXACT_AUTHORITY_REQUIRED")
     if information and not (authority.information_grant_refs and authority.encrypted_export_refs):
@@ -96,6 +134,11 @@ class A2ATask:
     timezone: str | None = None
     planned_action: dict | None = None
     authority: A2AAuthorityContext | None = None
+    # Trusted ingress bindings, never inferred from the authority being checked
+    # or deserialized from model/client-supplied delegation arguments.
+    expected_tenant_id: str | None = None
+    expected_task_id: str | None = None
+    specialist_target: Literal["consent", "connections"] | None = None
 
 
 @dataclass(frozen=True)

@@ -17,6 +17,7 @@ declare global {
 describe("web observability transport", () => {
   beforeEach(() => {
     vi.unstubAllEnvs();
+    delete window.__HUSHH_NATIVE_TEST__;
     window.dataLayer = [];
     window.gtag = vi.fn();
   });
@@ -124,5 +125,24 @@ describe("web observability transport", () => {
         app_version: "2.1.0",
       }
     );
+  });
+
+  it("does not send analytics from an explicit automated reviewer session", async () => {
+    vi.stubEnv("NEXT_PUBLIC_APP_ENV", "uat");
+    vi.stubEnv("NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID", "G-H1KGXGZTCF");
+    window.__HUSHH_NATIVE_TEST__ = {
+      enabled: true,
+      autoReviewerLogin: true,
+    };
+
+    await webGtmAdapter.track("page_view", {
+      env: "uat",
+      platform: "web",
+      event_category: "system",
+      route_id: "one_kyc",
+    });
+
+    expect(window.dataLayer).toEqual([]);
+    expect(window.gtag).not.toHaveBeenCalled();
   });
 });

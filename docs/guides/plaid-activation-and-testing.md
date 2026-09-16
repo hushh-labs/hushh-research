@@ -10,7 +10,7 @@ Runbook for enabling Kai’s read-only Plaid brokerage connectivity on localhost
 ## What This Enables
 
 - brokerage Link connect
-- OAuth resume on web
+- OAuth resume on web and native builds
 - holdings sync
 - investment transaction sync
 - manual refresh
@@ -23,9 +23,9 @@ It does not enable live trading.
 
 Register the full callback path in Plaid Dashboard:
 
-- `http://localhost:3000/kai/plaid/oauth/return`
-- `https://uat.one.hushh.ai/kai/plaid/oauth/return`
-- `https://one.hushh.ai/kai/plaid/oauth/return`
+- `http://localhost:3000/one/kai/plaid/oauth/return`
+- `https://uat.one.hushh.ai/one/kai/plaid/oauth/return`
+- `https://one.hushh.ai/one/kai/plaid/oauth/return`
 
 Plaid requires the full absolute URI, not just the domain.
 
@@ -40,7 +40,7 @@ Set these in the backend runtime profile:
 - `PLAID_SECRET=...`
 - `PLAID_CLIENT_NAME=Hussh Kai`
 - `PLAID_COUNTRY_CODES=US`
-- `PLAID_REDIRECT_PATH=/kai/plaid/oauth/return`
+- `PLAID_REDIRECT_PATH=/one/kai/plaid/oauth/return`
 - `PLAID_WEBHOOK_URL=https://<public-domain-or-tunnel>/api/kai/plaid/webhook`
 - `PLAID_ACCESS_TOKEN_KEY=<recommended but optional>`
 - `PLAID_TX_HISTORY_DAYS=730`
@@ -93,14 +93,62 @@ Backend must use the matching `APP_FRONTEND_ORIGIN` for each profile so the call
 6. Open Kai import or dashboard.
 7. Click `Connect Plaid`.
 8. Complete Link.
-9. For OAuth institutions, confirm you return to `/kai/plaid/oauth/return` and then back into Kai.
+9. For OAuth institutions, confirm you return to `/one/kai/plaid/oauth/return` and then back into Kai.
 10. If you changed webhook targets after Items already existed, do a one-time operator update for existing Items using Plaid's `/item/webhook/update`.
+
+### Native OAuth return
+
+Native builds use the matching hosted HTTPS redirect URI when minting a Link
+token. The OS may then deliver that callback to the app through an iOS
+Universal Link or Android App Link. The app resumes the opaque browser session,
+reopens Plaid Link with the original HTTPS redirect URI, and exchanges the
+public token in the same authenticated Vault-owner session. It must not pass
+`app://localhost` back to Plaid.
+
+Before testing on a device, verify both hosted association documents:
+
+```bash
+python3 scripts/ops/verify_passkey_domain_associations.py \
+  --project <uat-project-id> \
+  --origin https://uat.one.hushh.ai
+python3 scripts/ops/verify_passkey_domain_associations.py \
+  --project <production-project-id> \
+  --origin https://one.hushh.ai
+```
+
+The verifier checks the app identity, certificate fingerprints, and the
+OAuth-return link paths. A 200 response alone is insufficient. After repairing
+an association document, reinstall the iOS app or allow Apple’s association
+cache to refresh; on Android, repeat the verified-link check on the device.
 
 BYOK note:
 
 - the callback flow re-issues a fresh `VAULT_OWNER` token
 - it does not persist the vault key
-- if your web session fully reloads during OAuth, Kai may still ask you to unlock the vault again before showing the full dashboard
+- the browser/native return keeps only the opaque resume session in session memory; it never stores the Vault key
+- if the web session fully reloads during OAuth, Kai may still ask you to unlock the vault again before showing the full dashboard
+
+### Statement upload and Save to Vault
+
+The supported statement path is:
+
+`sample PDF or user PDF/CSV → parse → review → unlock/create Vault → encrypted financial-domain write → structured statement snapshot → Kai`
+
+The raw PDF is not persisted to PKM. The save overlay is complete once the
+canonical encrypted financial write and local cache projection finish. The
+statement source preference and post-save setup callbacks are auxiliary and
+must not keep the save control spinning indefinitely; a slow auxiliary call is
+reported and can be retried independently.
+
+Validate both completion branches:
+
+- save a preloaded sample statement and confirm the loading state exits on success
+- save a user-uploaded PDF or CSV and confirm the loading state exits on parse,
+  Vault, backend, or timeout error
+- after a successful save, reload the Finance view and confirm the structured
+  statement snapshot and editable Statement source are present
+- on a native build, repeat the same flow after returning from Plaid and confirm
+  the app resumes instead of opening a stranded browser tab
 
 ## Expected Runtime Behavior
 
@@ -132,7 +180,7 @@ BYOK note:
 ### OAuth
 
 - use an OAuth institution
-- confirm redirect to the bank and back to `/kai/plaid/oauth/return`
+- confirm redirect to the bank and back to `/one/kai/plaid/oauth/return`
 - confirm the public token exchange completes
 
 ### Refresh

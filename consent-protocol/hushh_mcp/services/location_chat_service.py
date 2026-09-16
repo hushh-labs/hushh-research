@@ -33,6 +33,7 @@ from uuid import uuid4
 
 from hushh_mcp.agents.location.agent import get_location_chat_agent_v2
 from hushh_mcp.hushh_adk.context import HushhContext
+from hushh_mcp.hushh_adk.turn import SpecialistAdkTurnError, run_specialist_adk_turn
 from hushh_mcp.services.agent_chat_service import get_agent_chat_service
 
 logger = logging.getLogger(__name__)
@@ -103,6 +104,26 @@ _GAVE_UP_MESSAGE = (
 
 # model call seam: (contents, config) -> Gemini response. Injectable for tests.
 ModelCall = Callable[[Any, Any], Awaitable[Any]]
+
+
+class _PromptStoppingTool:
+    """Wrap a prompt-producing function so ADK stops before a second action."""
+
+    def __init__(self, function: Callable[..., Any]):
+        from google.adk.tools.function_tool import FunctionTool
+
+        class _Tool(FunctionTool):
+            async def run_async(inner, *, args, tool_context):
+                result = await super(_Tool, inner).run_async(args=args, tool_context=tool_context)
+                if isinstance(result, dict) and isinstance(result.get("prompt"), dict):
+                    tool_context.state["hussh:specialist_directive"] = {
+                        "kind": "prompt",
+                        "payload": result["prompt"],
+                    }
+                    tool_context.actions.skip_summarization = True
+                return result
+
+        self.tool = _Tool(function)
 
 
 def _function_declarations(types: Any) -> list:
@@ -298,6 +319,7 @@ class LocationChatService:
         *,
         chat_store: Any = None,
         model_call: ModelCall | None = None,
+        model: Any | None = None,
         genai_types: Any = None,
         ready: Callable[[], bool] | None = None,
         tools: list | None = None,
@@ -308,6 +330,10 @@ class LocationChatService:
         self._chat_store = chat_store if chat_store is not None else get_agent_chat_service()
         self._location_service = location_service
         self._scope_tokens = dict(scope_tokens or {})
+        # A supplied ADK model is authoritative for the migrated path. The
+        # legacy model_call remains injectable for compatibility and auth probes.
+        self._use_adk = model is not None
+        self._adk_model = model
 
         if model_call is not None:
             self._model_call = model_call
@@ -330,13 +356,29 @@ class LocationChatService:
 
         # System prompt + tool set come from the control-plane agent definition.
         # Default to the v2 agent when neither prompt nor tools are injected.
-        need_agent = system_prompt is None or tools is None
+        need_agent = system_prompt is None or tools is None or self._use_adk
         agent = get_location_chat_agent_v2() if need_agent else None
         self._system_prompt = (
             system_prompt if system_prompt is not None else agent.manifest.system_instruction
         )
         tool_list = tools if tools is not None else agent.hushh_tools
         self._dispatch = {getattr(t, "_name", getattr(t, "__name__", "")): t for t in tool_list}
+        self._adk_tools = self._build_adk_tools(tool_list) if self._use_adk else []
+        if self._use_adk and self._adk_model is None and agent is not None:
+            self._adk_model = agent.model
+
+    @staticmethod
+    def _build_adk_tools(tool_list: list[Any]) -> list[Any]:
+        from google.adk.tools.function_tool import FunctionTool
+
+        wrapped: list[Any] = []
+        for function in tool_list:
+            name = getattr(function, "_name", getattr(function, "__name__", ""))
+            if name in _PROMPT_TOOL_NAMES:
+                wrapped.append(_PromptStoppingTool(function).tool)
+            else:
+                wrapped.append(FunctionTool(function))
+        return wrapped
 
     async def handle_turn(
         self,
@@ -377,6 +419,49 @@ class LocationChatService:
             message=message,
             conversation_id=conversation_id,
         )
+
+        if self._use_adk:
+            if not self._ready():
+                return await self._finish(
+                    turn,
+                    _UNAVAILABLE_MESSAGE,
+                    user_id,
+                    errored=True,
+                    state_changed=False,
+                    availability=_RUNTIME_UNAVAILABLE,
+                )
+            try:
+                reply, errored, state_changed, directives, prompts = await self._run_adk_tool_loop(
+                    user_id=user_id,
+                    consent_token=consent_token,
+                    history=turn.history,
+                    message=message,
+                )
+            except Exception:
+                logger.exception("Location ADK turn failed")
+                return await self._finish(
+                    turn,
+                    _UNAVAILABLE_MESSAGE,
+                    user_id,
+                    errored=True,
+                    state_changed=False,
+                    availability=_RUNTIME_UNAVAILABLE,
+                )
+            client_prompt = self._build_client_prompt(prompts)
+            client_action = (
+                None if client_prompt is not None else self._build_client_action(directives)
+            )
+            if client_action is not None or client_prompt is not None:
+                state_changed = False
+            return await self._finish(
+                turn,
+                reply or "Done.",
+                user_id,
+                errored=errored,
+                state_changed=state_changed and not errored,
+                client_action=client_action,
+                client_prompt=client_prompt,
+            )
 
         if self._types is None or not self._ready():
             return await self._finish(
@@ -423,6 +508,63 @@ class LocationChatService:
             client_action=client_action,
             client_prompt=client_prompt,
         )
+
+    async def _run_adk_tool_loop(
+        self,
+        *,
+        user_id: str,
+        consent_token: str,
+        history: list[Any],
+        message: str,
+    ) -> tuple[str, bool, bool, list[dict], list[dict]]:
+        """Execute Location through the shared manifest-backed ADK turn."""
+        try:
+            turn = await run_specialist_adk_turn(
+                agent=self._build_adk_agent(),
+                app_name="hushh_location",
+                user_id=user_id,
+                consent_token=consent_token,
+                message=message,
+                history=history,
+                scope_tokens=self._scope_tokens,
+                service_ports={"location": self._location_service}
+                if self._location_service is not None
+                else {},
+                max_llm_calls=_MAX_TOOL_STEPS,
+            )
+            failed = False
+        except SpecialistAdkTurnError as exc:
+            turn = exc.partial_turn
+            failed = True
+
+        directives: list[dict] = []
+        prompts: list[dict] = []
+        state_changed = False
+        for response in turn.tool_results:
+            name = str(response.name or "")
+            result = response.response if isinstance(response.response, dict) else {}
+            if not result.get("error"):
+                state_changed = state_changed or name not in _QUERY_TOOL_NAMES
+                directive = self._directive_from_tool(name, result)
+                prompt = self._prompt_from_tool(name, result)
+                if directive is not None:
+                    directives.append(directive)
+                if prompt is not None:
+                    prompts.append(prompt)
+        if failed and not (state_changed or directives or prompts):
+            raise RuntimeError("Location ADK turn failed")
+        return (
+            turn.final_text,
+            failed and not (state_changed or directives or prompts),
+            state_changed,
+            directives,
+            prompts,
+        )
+
+    def _build_adk_agent(self):
+        from hushh_mcp.agents.location.agent import build_location_agent
+
+        return build_location_agent(tools=self._adk_tools, model=self._adk_model)
 
     async def _run_tool_loop(
         self, *, user_id: str, consent_token: str, contents: list

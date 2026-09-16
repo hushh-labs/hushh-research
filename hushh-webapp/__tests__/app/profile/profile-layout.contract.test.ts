@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 describe("Profile canonical page layout", () => {
   it("uses the shared signed-in shell without route-local header spacing", () => {
     const source = readFileSync(
-      join(process.cwd(), "app/profile/profile-workspace-page.tsx"),
+      join(process.cwd(), "components/profile/profile-workspace-page.tsx"),
       "utf8",
     );
 
@@ -34,9 +34,22 @@ describe("Profile canonical page layout", () => {
     );
     expect(source).not.toContain('<UserIcon className="h-12 w-12" />');
   });
+  it("uses the shared header rhythm after the pane divider", () => {
+    const workspace = readFileSync(
+      join(process.cwd(), "components/profile/profile-workspace-page.tsx"),
+      "utf8",
+    );
+    const css = readFileSync(join(process.cwd(), "app/globals.css"), "utf8");
+
+    expect(workspace).toContain('"profile-home-screen--pane"');
+    expect(css).toContain(".profile-home-screen--pane {");
+    expect(css).toContain(
+      "padding-top: var(--page-header-section-gap);",
+    );
+  });
   it("keeps account identity in a compact leading-aligned header row", () => {
     const source = readFileSync(
-      join(process.cwd(), "app/profile/profile-workspace-page.tsx"),
+      join(process.cwd(), "components/profile/profile-workspace-page.tsx"),
       "utf8",
     );
 
@@ -57,9 +70,9 @@ describe("Profile canonical page layout", () => {
     );
   });
 
-  it("uses the original Google mark and semantic icon tones", () => {
+  it("uses the Google mark only for personal Gmail and the work icon otherwise", () => {
     const source = readFileSync(
-      join(process.cwd(), "app/profile/profile-workspace-page.tsx"),
+      join(process.cwd(), "components/profile/profile-workspace-page.tsx"),
       "utf8",
     );
     const socialIcons = readFileSync(
@@ -71,8 +84,16 @@ describe("Profile canonical page layout", () => {
     expect(source).toContain(
       'import { AppleIcon, GoogleIcon } from "@/lib/morphy-ux/social-icons";',
     );
+    expect(source).toContain("BriefcaseBusiness,");
+    expect(source).toContain("shouldUseGoogleBrandMark(providerId, email)");
     expect(source).toContain(
       'return <GoogleIcon className="shrink-0" size={17} />;',
+    );
+    expect(source).toContain(
+      '<Icon icon={BriefcaseBusiness} size="xs" className="shrink-0" />',
+    );
+    expect(source).toContain(
+      '<ProviderIcon providerId={provider.id} email={user.email} />',
     );
     for (const brandColor of ["#4285F4", "#34A853", "#FBBC05", "#EA4335"]) {
       expect(socialIcons).toContain(brandColor);

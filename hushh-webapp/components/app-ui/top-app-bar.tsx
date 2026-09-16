@@ -688,10 +688,21 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
     // primary, `header` is legitimately null for the whole life of a flow
     // screen, so giving up on a retry budget would strand the hub with stale
     // header tracking on return.
+    // The shell itself is stable, but the route Suspense boundary can replace
+    // its scroll root when the fallback resolves. Watch the stable shell
+    // parent so the scroll listener follows that replacement without making
+    // the Profile/top chrome effect restart for every pathname change.
     const scheduleHeaderRefresh = () => {
       if (refreshFrame !== null) return;
       refreshFrame = window.requestAnimationFrame(() => {
         refreshFrame = null;
+        const nextScrollRoot = document.querySelector<HTMLElement>(
+          '[data-app-scroll-root="true"]',
+        );
+        if (nextScrollRoot !== scrollRoot) {
+          attach();
+          return;
+        }
         const previous = header;
         if (!header?.isConnected) {
           header = document.querySelector<HTMLElement>(
@@ -751,7 +762,11 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
 
       pageObserver?.disconnect();
       pageObserver = new MutationObserver(scheduleHeaderRefresh);
-      pageObserver.observe(scrollRoot ?? document.body, {
+      const observationRoot =
+        document.querySelector<HTMLElement>('[data-app-shell-root="true"]') ??
+        scrollRoot ??
+        document.body;
+      pageObserver.observe(observationRoot, {
         childList: true,
         subtree: true,
       });
@@ -772,7 +787,7 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
         "0px",
       );
     };
-  }, [model.mode, pathname]);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;

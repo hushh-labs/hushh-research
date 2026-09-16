@@ -1,5 +1,6 @@
 import type { DomainManifest } from "@/lib/personal-knowledge-model/manifest";
 import { CURRENT_PKM_CONTRACT_VERSION } from "@/lib/personal-knowledge-model/upgrade-contracts";
+import { v5 as uuidv5 } from "uuid";
 
 export type PkmMutationOperation = "create" | "update" | "move" | "merge" | "delete";
 
@@ -34,7 +35,43 @@ export type PkmOwnerAutoSaveAuthorization = {
   autoSavePolicyEnabledAt: string;
 };
 
-export type PkmWriteAuthorization = PkmUserConfirmation | PkmOwnerAutoSaveAuthorization;
+/**
+ * Product-default automatic capture for information a person intentionally
+ * enters into One. This is not an owner-confirmed preference: audit records
+ * must preserve that distinction until the owner actively changes the setting.
+ */
+export type PkmProductDefaultAutoSaveAuthorization = {
+  authorizationMode: "product_default_auto_save_policy";
+  confirmedByUser?: never;
+  surface: "chat" | "web";
+  source: "agent_chat_product_default_auto_save" | "kyc_identity_product_default_auto_save";
+  autoSavePolicyVersion: 1;
+  productDefaultEffectiveAt: string;
+};
+
+export type LocationRequestedWorkflowAuthority = {
+  command_id: string;
+  command_step: number;
+  operation_id: string;
+  workflow_id: "workflow.setup.location";
+  run_id: string;
+};
+
+/** A requested private setup write. The server verifies this locator atomically;
+ * it is neither a clicked review nor permission for general automatic saving. */
+export type PkmRequestedWorkflowAuthorization = {
+  authorizationMode: "owner_requested_workflow";
+  confirmedByUser?: never;
+  surface: "voice" | "chat";
+  source: "location_onboarding_command";
+  workflowAuthority: LocationRequestedWorkflowAuthority;
+};
+
+export type PkmWriteAuthorization =
+  | PkmUserConfirmation
+  | PkmOwnerAutoSaveAuthorization
+  | PkmProductDefaultAutoSaveAuthorization
+  | PkmRequestedWorkflowAuthorization;
 
 export function isOwnerAutoSaveAuthorization(
   authorization: PkmWriteAuthorization
@@ -43,6 +80,17 @@ export function isOwnerAutoSaveAuthorization(
     authorization &&
       "authorizationMode" in authorization &&
       authorization.authorizationMode === "owner_auto_save_policy"
+  );
+}
+
+export function isAutomaticPkmWriteAuthorization(
+  authorization: PkmWriteAuthorization,
+): authorization is PkmOwnerAutoSaveAuthorization | PkmProductDefaultAutoSaveAuthorization {
+  return Boolean(
+    authorization &&
+      "authorizationMode" in authorization &&
+      (authorization.authorizationMode === "owner_auto_save_policy" ||
+        authorization.authorizationMode === "product_default_auto_save_policy"),
   );
 }
 
@@ -80,9 +128,15 @@ export type PkmMutationPlanV2 = {
     displayed_domain: string;
     displayed_scope: string;
     sharing_impact_acknowledged: boolean;
-    authorization_mode: "owner_confirmed" | "owner_auto_save_policy";
+    authorization_mode:
+      | "owner_confirmed"
+      | "owner_auto_save_policy"
+      | "owner_requested_workflow"
+      | "product_default_auto_save_policy";
+    workflow_authority?: LocationRequestedWorkflowAuthority;
     auto_save_policy_version?: 1;
     auto_save_policy_enabled_at?: string;
+    product_default_effective_at?: string;
   };
 };
 
@@ -171,15 +225,18 @@ export async function buildConfirmedPkmMutationPlanV2(params: {
   explanation?: string;
   sourceRevision?: number;
   confirmation: PkmWriteAuthorization;
+  idempotencyScope?: string;
 }): Promise<PkmMutationPlanV2> {
-  const automatic = isOwnerAutoSaveAuthorization(params.confirmation);
-  const automaticAuthorization = automatic
-    ? params.confirmation as PkmOwnerAutoSaveAuthorization
+  const workflowAuthorization = params.confirmation.authorizationMode === "owner_requested_workflow"
+    ? params.confirmation : null;
+  const automaticAuthorization = isAutomaticPkmWriteAuthorization(params.confirmation)
+    ? params.confirmation
     : null;
-  const ownerConfirmation = automatic
+  const automatic = automaticAuthorization !== null;
+  const ownerConfirmation = automatic || workflowAuthorization
     ? null
     : params.confirmation as PkmUserConfirmation;
-  if (!automatic && params.confirmation.confirmedByUser !== true) {
+  if (!automatic && !workflowAuthorization && params.confirmation.confirmedByUser !== true) {
     throw new Error("PKM mutation requires explicit owner confirmation.");
   }
 
@@ -198,11 +255,30 @@ export async function buildConfirmedPkmMutationPlanV2(params: {
   if (automatic && operation === "delete") {
     throw new Error("Automatic PKM saving cannot delete saved information.");
   }
-  const planId = opaqueId("plan");
+  if (workflowAuthorization && (
+    domain !== "location" || scope !== "saved_places"
+    || !["create", "merge"].includes(operation) || !params.idempotencyScope
+  )) {
+    throw new Error("The requested workflow can only save its private Location draft.");
+  }
+  const planId = params.idempotencyScope
+    ? `pkm_plan_${uuidv5(params.idempotencyScope, "76f0e762-c176-5947-a680-7011af78b71f").replaceAll("-", "")}`
+    : opaqueId("plan");
   const sharingImpact = ownerConfirmation?.sharingImpact;
   const confirmedAt = automatic
     ? new Date().toISOString()
     : ownerConfirmation?.confirmedAt || new Date().toISOString();
+  const authorizationReceipt = automaticAuthorization
+    ? {
+        authorization_mode: automaticAuthorization.authorizationMode,
+        auto_save_policy_version: automaticAuthorization.autoSavePolicyVersion,
+        ...(automaticAuthorization.authorizationMode === "owner_auto_save_policy"
+          ? { auto_save_policy_enabled_at: automaticAuthorization.autoSavePolicyEnabledAt }
+          : { product_default_effective_at: automaticAuthorization.productDefaultEffectiveAt }),
+      }
+    : workflowAuthorization
+      ? { authorization_mode: "owner_requested_workflow" as const, workflow_authority: workflowAuthorization.workflowAuthority }
+      : { authorization_mode: "owner_confirmed" as const };
 
   return {
     version: 2,
@@ -217,8 +293,12 @@ export async function buildConfirmedPkmMutationPlanV2(params: {
     confidence: Math.max(0, Math.min(1, params.confidence ?? 1)),
     explanation:
       params.explanation ||
-      (automatic
-        ? `The owner enabled automatic saving for this eligible ${operation} operation in ${titleize(domain)} / ${titleize(scope)}.`
+      (workflowAuthorization
+        ? "The owner requested Location setup, including saving the current place privately."
+        : automatic
+        ? params.confirmation.authorizationMode === "product_default_auto_save_policy"
+          ? `An eligible detail intentionally entered into One was saved under the product-default automatic capture policy in ${titleize(domain)} / ${titleize(scope)}.`
+          : `The owner enabled automatic saving for this eligible ${operation} operation in ${titleize(domain)} / ${titleize(scope)}.`
         : `The owner reviewed this ${operation} operation for ${titleize(domain)} / ${titleize(scope)}.`),
     affected_grant_ids: sharingImpact?.affectedGrantIds || [],
     affected_export_ids: sharingImpact?.affectedExportIds || [],
@@ -243,13 +323,7 @@ export async function buildConfirmedPkmMutationPlanV2(params: {
       displayed_scope: scope,
       sharing_impact_acknowledged:
         ownerConfirmation?.sharingImpactAcknowledged === true,
-      authorization_mode: automatic ? "owner_auto_save_policy" : "owner_confirmed",
-      ...(automatic
-        ? {
-            auto_save_policy_version: automaticAuthorization!.autoSavePolicyVersion,
-            auto_save_policy_enabled_at: automaticAuthorization!.autoSavePolicyEnabledAt,
-          }
-        : {}),
+      ...authorizationReceipt,
     },
   };
 }

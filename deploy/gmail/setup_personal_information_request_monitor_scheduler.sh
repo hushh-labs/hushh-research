@@ -12,7 +12,7 @@ JOB_NAME="${JOB_NAME:-gmail-personal-information-request-monitor-uat}"
 CRON="${CRON:-*/5 * * * *}"
 TIMEZONE="${TIMEZONE:-America/Los_Angeles}"
 MAX_USERS="${MAX_USERS:-20}"
-SCHEDULER_SERVICE_ACCOUNT_NAME="${SCHEDULER_SERVICE_ACCOUNT_NAME:-gmail-personal-monitor-scheduler}"
+SCHEDULER_SERVICE_ACCOUNT_NAME="${SCHEDULER_SERVICE_ACCOUNT_NAME:-gmail-personal-monitor-sched}"
 SCHEDULER_SERVICE_ACCOUNT_EMAIL="${SCHEDULER_SERVICE_ACCOUNT_EMAIL:-}"
 
 if [[ -z "${BACKEND_URL}" ]]; then
@@ -25,13 +25,24 @@ if ! [[ "${MAX_USERS}" =~ ^[1-9][0-9]{0,2}$ ]] || (( MAX_USERS > 50 )); then
   exit 1
 fi
 
+if [[ -n "${SCHEDULER_SERVICE_ACCOUNT_EMAIL}" ]]; then
+  ACCOUNT_EMAIL_SUFFIX="@${PROJECT_ID}.iam.gserviceaccount.com"
+  if [[ "${SCHEDULER_SERVICE_ACCOUNT_EMAIL}" != *"${ACCOUNT_EMAIL_SUFFIX}" ]]; then
+    echo "SCHEDULER_SERVICE_ACCOUNT_EMAIL must belong to PROJECT_ID" >&2
+    exit 1
+  fi
+  SCHEDULER_SERVICE_ACCOUNT_NAME="${SCHEDULER_SERVICE_ACCOUNT_EMAIL%"${ACCOUNT_EMAIL_SUFFIX}"}"
+fi
+
+if ! [[ "${SCHEDULER_SERVICE_ACCOUNT_NAME}" =~ ^[a-z][a-z0-9-]{4,28}[a-z0-9]$ ]]; then
+  echo "SCHEDULER_SERVICE_ACCOUNT_NAME must be 6-30 lowercase letters, digits or hyphens, starting with a letter and ending with a letter or digit" >&2
+  exit 1
+fi
+SCHEDULER_SERVICE_ACCOUNT_EMAIL="${SCHEDULER_SERVICE_ACCOUNT_NAME}@${PROJECT_ID}.iam.gserviceaccount.com"
+
 if ! command -v gcloud >/dev/null 2>&1; then
   echo "gcloud is required" >&2
   exit 1
-fi
-
-if [[ -z "${SCHEDULER_SERVICE_ACCOUNT_EMAIL}" ]]; then
-  SCHEDULER_SERVICE_ACCOUNT_EMAIL="${SCHEDULER_SERVICE_ACCOUNT_NAME}@${PROJECT_ID}.iam.gserviceaccount.com"
 fi
 
 if ! gcloud iam service-accounts describe "${SCHEDULER_SERVICE_ACCOUNT_EMAIL}" \
@@ -41,12 +52,12 @@ if ! gcloud iam service-accounts describe "${SCHEDULER_SERVICE_ACCOUNT_EMAIL}" \
     --display-name="Personal Gmail monitor scheduler" >/dev/null
 fi
 
-PROJECT_NUMBER="$(gcloud projects describe "${PROJECT_ID}" --format='value(projectNumber)')"
-SCHEDULER_SERVICE_AGENT="service-${PROJECT_NUMBER}@gcp-sa-cloudscheduler.iam.gserviceaccount.com"
-gcloud iam service-accounts add-iam-policy-binding "${SCHEDULER_SERVICE_ACCOUNT_EMAIL}" \
-  --project="${PROJECT_ID}" \
-  --member="serviceAccount:${SCHEDULER_SERVICE_AGENT}" \
-  --role="roles/iam.serviceAccountTokenCreator" >/dev/null
+# Cloud Scheduler's Google-managed service agent receives the project-scoped
+# roles/cloudscheduler.serviceAgent grant when the API is enabled. That role is
+# what lets Scheduler mint an OIDC token for this client service account. The
+# deployer needs iam.serviceAccounts.actAs to attach the identity to the job,
+# but an application deploy must not mutate the client account's IAM policy or
+# require iam.serviceAccounts.setIamPolicy.
 
 URI="${BACKEND_URL%/}/api/one/email/information-requests/scan-enabled"
 BODY="{\"max_users\":${MAX_USERS}}"
@@ -57,7 +68,6 @@ COMMON_ARGS=(
   --time-zone="${TIMEZONE}"
   --uri="${URI}"
   --http-method=POST
-  --headers="Content-Type=application/json"
   --message-body="${BODY}"
   --oidc-service-account-email="${SCHEDULER_SERVICE_ACCOUNT_EMAIL}"
   --oidc-token-audience="${BACKEND_URL%/}"
@@ -67,9 +77,11 @@ COMMON_ARGS=(
 if gcloud scheduler jobs describe "${JOB_NAME}" \
   --project="${PROJECT_ID}" \
   --location="${SCHEDULER_LOCATION}" >/dev/null 2>&1; then
-  gcloud scheduler jobs update http "${JOB_NAME}" "${COMMON_ARGS[@]}" >/dev/null
+  gcloud scheduler jobs update http "${JOB_NAME}" "${COMMON_ARGS[@]}" \
+    --update-headers="Content-Type=application/json" >/dev/null
 else
-  gcloud scheduler jobs create http "${JOB_NAME}" "${COMMON_ARGS[@]}" >/dev/null
+  gcloud scheduler jobs create http "${JOB_NAME}" "${COMMON_ARGS[@]}" \
+    --headers="Content-Type=application/json" >/dev/null
 fi
 
 JOB_EVIDENCE="$(gcloud scheduler jobs describe "${JOB_NAME}" \

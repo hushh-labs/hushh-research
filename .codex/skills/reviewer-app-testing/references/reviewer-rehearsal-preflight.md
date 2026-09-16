@@ -36,7 +36,7 @@ node .codex/skills/reviewer-app-testing/scripts/reviewer-rehearsal-preflight.mjs
 
 REVIEWER_SECRET_PROJECT=hushh-pda-uat \
 REVIEWER_APP_ORIGIN=http://localhost:3000 \
-REVIEWER_APP_ROUTES=/agent,/one/consent \
+REVIEWER_APP_ROUTES=/,/one/consent \
 node .codex/skills/reviewer-app-testing/scripts/verify-reviewer-byok-navigation.mjs
 
 consent-protocol/.venv/bin/python \

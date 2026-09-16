@@ -515,7 +515,7 @@ function verifySaveMySoulSeparation(source) {
 
 function verifyEnvelopeSeparation(source) {
   const executor = source.match(
-    /private enum OneAppIntentActionExecutor \{([\s\S]*?)\n\}\n\n\/\/ MARK: - Conversational fallback/,
+    /private enum OneAppIntentActionExecutor \{([\s\S]*?)\n\}\n\n\/\/ MARK: - Command-surface handoff/,
   )?.[1];
   const conversation = source.match(
     /struct TalkToHusshOneIntent: AppIntent \{([\s\S]*?)\n\}\n\n\/\/ MARK: - Direct Location actions/,
@@ -657,5 +657,5 @@ if (/\[SIRI_ONE_ACTION\][^\n]*source=/.test(handoffSource)) {
 }
 
 console.info(
-  `Siri action contract verified (${direct.length} direct, ${review.length} review UI, ${conversation.length} conversation-only).`,
+  `Siri action contract verified (${direct.length} direct, ${review.length} review UI, ${conversation.length} command-surface entry (legacy mode identifier)).`,
 );

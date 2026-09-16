@@ -11,6 +11,10 @@ from api.routes import agents
 def _build_app() -> FastAPI:
     app = FastAPI()
     app.include_router(agents.router)
+    app.dependency_overrides[agents.require_vault_owner_token] = lambda: {
+        "user_id": "user_abc123",
+        "token": "owner-token-for-test",  # noqa: S106
+    }
     return app
 
 
@@ -95,3 +99,37 @@ def test_kai_chat_returns_200_on_success(monkeypatch):
     payload = response.json()
     assert payload["response"] == "AAPL looks strong."
     assert payload["isComplete"] is True
+
+
+def test_kai_chat_passes_owner_consent_token_to_agent():
+    """The legacy route must bind ADK execution to the authenticated token."""
+    mock_agent = MagicMock()
+    mock_agent.handle_message = AsyncMock(
+        return_value={"response": "AAPL looks strong.", "is_complete": True}
+    )
+
+    with patch("api.routes.agents.get_kai_agent", return_value=mock_agent):
+        response = TestClient(_build_app()).post("/api/agents/kai/chat", json=_VALID_CHAT_PAYLOAD)
+
+    assert response.status_code == 200
+    mock_agent.handle_message.assert_awaited_once_with(
+        message="Analyze AAPL for me",
+        user_id="user_abc123",
+        consent_token="owner-token-for-test",  # noqa: S106
+    )
+
+
+def test_kai_chat_rejects_user_mismatch_before_agent_call():
+    mock_agent = MagicMock()
+    mock_agent.handle_message = AsyncMock()
+    app = _build_app()
+    app.dependency_overrides[agents.require_vault_owner_token] = lambda: {
+        "user_id": "different-user",
+        "token": "owner-token-for-test",  # noqa: S106
+    }
+
+    with patch("api.routes.agents.get_kai_agent", return_value=mock_agent):
+        response = TestClient(app).post("/api/agents/kai/chat", json=_VALID_CHAT_PAYLOAD)
+
+    assert response.status_code == 403
+    mock_agent.handle_message.assert_not_awaited()

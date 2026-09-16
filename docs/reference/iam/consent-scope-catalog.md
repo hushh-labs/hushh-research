@@ -280,16 +280,41 @@ layer the REST routes use (`hushh_mcp/services/consent_lifecycle_service.py`,
 |---|---|---|
 | Discover | `discover_person_information` (connections, then the directory) | VAULT_OWNER re-validated; labels and opaque `psr_` refs only |
 | Propose | `propose_information_request(person, fields, purpose, duration_hours)` parks a proposal under an opaque id | fields matched by label or domain; 8 to 500 character purpose; 1 to 720 hours |
-| Request | `consent.request` (backend-direct, `confirmed: true` after a spoken yes) | proposal re-resolved through `resolve_scope_refs`; requires the requester's active client connector, else One points to the profile once |
+| Request | `consent.request` with the proposal id | the app's confirmation card authorizes it; the proposal is re-resolved server-side, and the idempotency key is minted from the proposal id so a redelivered directive resolves to the same bundle |
 | Pending | `list_pending_information_requests` | the browser renders each request as the existing pending-consent card |
 | Approve | the owner's tap on that card | never a tool: the export is encrypted under the vault key in the owner's browser |
-| Deny / revoke / cancel | `consent.deny`, `consent.revoke`, `consent.cancel_request` (backend-direct, spoken yes) | same ledger writes as `/api/consent/pending/deny`, `/api/consent/revoke`, `/api/one/information-requests/{bundle}/cancel` |
+| Deny | `consent.deny` with the `requestId` that listing returned | same ledger write as `/api/consent/pending/deny` |
+| What I am sharing | `list_active_grants` parks each live grant under an opaque `g<n>` handle | the raw scope and request id stay server-side; labels only |
+| Revoke | `consent.revoke` with that `g<n>` handle | `_resolved_directive_slots` expands the handle; same ledger write as `/api/consent/revoke` |
+| What I asked for | `list_my_outgoing_information_requests` parks each open sent request under an opaque `r<n>` handle, newest first | bundle ids never reach the model |
+| Cancel | `consent.cancel_request` with that `r<n>` handle, or none at all for the most recent | same write as `/api/one/information-requests/{bundle}/cancel` |
 
-The four `consent.*` actions are `BACKEND_DIRECT_VERBAL_CONFIRMATION_IDS`: the
-spoken `confirmed` slot is the gate, and the person's tap-confirmation
-preference does not park a browser directive for them (nothing on any page
-could run it). The model never sees a raw `attr.*` scope, and One is told to
-say nothing was sent, denied, or revoked until the action result says so.
+**The app's confirmation card is the authorization, and nothing else is.** All
+four `consent.*` actions are members of `_GOVERNED_LEDGER_CONFIRMATION_ACTION_IDS`,
+so each one parks a browser directive through the directive ledger and runs only
+after the person taps the confirmation the app renders. `run_app_action` deletes a
+model-supplied `confirmed` slot before dispatch: a model reporting that it heard a
+yes is not authority. Because of that, One is instructed to read back what it is
+about to do and then run the action, never to collect a spoken yes and then hand
+over to a card that asks the same question again.
+
+`BACKEND_DIRECT_VERBAL_CONFIRMATION_IDS` still exists but is a compatibility seam
+over the service layer, not a pattern to copy, and is no longer executable for
+these ids: `_run_backend_direct_action` returns `blocked` for a ledger-governed id
+and `_execute_backend_direct_mutation` raises rather than run one.
+
+Execution lives in `hushh-webapp/components/agent/global-consent-action-handlers.tsx`,
+mounted app-wide from `hushh-webapp/app/providers.tsx` inside `VaultProvider`
+(the vault key is needed to mint the connector a request is encrypted to). That
+global mount is why the lifecycle completes in the conversation from any screen
+rather than linking out to one. A ledger-governed consent action with no mounted
+handler is not a safe no-op but a dead end, so a test reads the frontend tree and
+fails if any of the four lacks one.
+
+The model never sees a raw `attr.*` scope, a token, or a bundle id: the ids these
+listings return are handles to repeat back to a tool, not identifiers for a person
+or the model to hold. One is told to say nothing was sent, denied, withdrawn, or
+revoked until the action result says so.
 
 ## Duration Policy
 

@@ -71,6 +71,11 @@ export type AgentUpdateStatus = {
   error: string | null;
   running: string | null;
   target: string | null;
+  releaseId: string | null;
+  summary: string | null;
+  presentationState: "ready" | "deferred" | "scheduled" | "updating" | null;
+  remindAt: string | null;
+  operationId: string | null;
 };
 
 export const NO_UPDATE: AgentUpdateStatus = {
@@ -80,6 +85,11 @@ export const NO_UPDATE: AgentUpdateStatus = {
   error: null,
   running: null,
   target: null,
+  releaseId: null,
+  summary: null,
+  presentationState: null,
+  remindAt: null,
+  operationId: null,
 };
 
 export function readUpdateStatus(
@@ -91,6 +101,13 @@ export function readUpdateStatus(
         updateInProgress?: boolean;
         updateFailed?: boolean;
         updateError?: string | null;
+        update?: {
+          releaseId?: string;
+          summary?: string;
+          presentationState?: "ready" | "deferred" | "scheduled" | "updating";
+          remindAt?: string;
+          operationId?: string;
+        };
       }
     | null
     | undefined,
@@ -102,6 +119,11 @@ export function readUpdateStatus(
     error: res?.updateError ? String(res.updateError) : null,
     running: res?.runningImage ? String(res.runningImage) : null,
     target: res?.targetImage ? String(res.targetImage) : null,
+    releaseId: res?.update?.releaseId ? String(res.update.releaseId) : null,
+    summary: res?.update?.summary ? String(res.update.summary) : null,
+    presentationState: res?.update?.presentationState ?? null,
+    remindAt: res?.update?.remindAt ? String(res.update.remindAt) : null,
+    operationId: res?.update?.operationId ? String(res.update.operationId) : null,
   };
 }
 

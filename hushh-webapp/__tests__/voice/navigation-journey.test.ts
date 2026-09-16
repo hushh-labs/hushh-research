@@ -28,11 +28,9 @@ describe("navigation journeys", () => {
     });
   });
 
-  it("stays in lockstep with the relay's own predicate", () => {
-    // Both halves read the same generated contract. If this set ever differs
-    // from the backend's, one side offers a journey the other refuses -- so
-    // this list must be changed together with the relay's
-    // `_navigation_journey_definition`, and the same set is asserted there.
+  it("covers the authored compatibility journeys", () => {
+    // Backend and browser consume the same generated contract. This inventory
+    // catches an authored destination accidentally losing its browser escort.
     //
     // The setup entries appeared once the route resolver stopped requiring a
     // `route.` name prefix. Nothing named `route.*` opens /one/setup/location;
@@ -65,9 +63,8 @@ describe("navigation journeys", () => {
       "connect.remove_connection",
       "connect.search_people",
       "connect.send_request",
-      // Circle invitations. Accepting starts sharing with the circle's
-      // members; declining closes the invitation without sharing anything.
-      // Both resolve one invitation off the person's own pending list.
+      // Circle invitations resolve one exact pending invitation. Joining the
+      // circle does not create a Location share.
       "location.accept_circle_invite",
       // Emergency contacts. Adding resolves against people ELIGIBLE to
       // receive an SOS -- someone who has not finished Location
@@ -77,10 +74,8 @@ describe("navigation journeys", () => {
       // would let "remove Sarah" report success about somebody who was never
       // on it.
       "location.add_emergency_contact",
-      // Circles. Escorted for the same reason as everything else here: the
-      // person asks from wherever they are, and the handler that does the work
-      // only exists on Location. Adding is an invitation the other person has
-      // to accept, which is why it settles rather than reporting done.
+      // The owning circle operation adds eligible connections directly and
+      // reports each membership result; opening its screen is not settlement.
       "location.add_to_circle",
       // Per-item share management (approve/decline a request, stop or
       // re-time a named share, pick who to ask). Escorted for the same
@@ -89,6 +84,7 @@ describe("navigation journeys", () => {
       "location.approve_request",
       "location.change_share_duration",
       "location.create_circle",
+      "location.create_public_link",
       "location.decline_circle_invite",
       "location.decline_request",
       // Deleting a circle is owner-only and takes it away from every member,
@@ -102,6 +98,10 @@ describe("navigation journeys", () => {
       // absent for the same reason share_selected is: arriving and checking
       // in unattended is the thing that must not happen.
       "location.nearby_check_in",
+      // The legacy capability escorts only to the run-bound Location setup
+      // card. The command runtime itself renders that card globally and
+      // never treats this navigation as a completed setup.
+      "location.onboarding.choose_place",
       "location.pause_updates",
       "location.remove_emergency_contact",
       "location.remove_from_circle",
@@ -125,6 +125,7 @@ describe("navigation journeys", () => {
       // and automatic sharing decides whether approved people keep receiving
       // updates without you doing anything.
       "location.set_auto_share",
+      "location.set_ghost_mode",
       // A bare emergency phrase ("save me", "sos") resolves per the
       // person's own stored default -- open the screen, or go straight to
       // trigger_sos's own confirm card below. Escorted for the same reason

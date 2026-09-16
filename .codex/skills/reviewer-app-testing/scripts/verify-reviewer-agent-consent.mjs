@@ -29,7 +29,7 @@ function clean(value) {
 }
 
 try {
-  session = await reviewer.openSession(browser, "/agent");
+  session = await reviewer.openSession(browser, "/");
   let { page } = session;
   ownerToken = await session.capture.ownerToken();
   const conversationIds = async () => {
@@ -70,8 +70,8 @@ try {
   const scopeLabel = clean(fixture.scope.label);
   const scopeDomain = clean(fixture.scope.domain);
   if (!skipAgentDiscovery) {
-    await page.goto(`${appOrigin}/agent`, { waitUntil: "domcontentloaded" });
-    await reviewer.assertVaultContinuity(page, "/agent");
+    await page.goto(`${appOrigin}/`, { waitUntil: "domcontentloaded" });
+    await reviewer.assertVaultContinuity(page, "/");
     const prompt = `Show the exact ${scopeDomain || "information"} fields I can request from ${fixture.displayName}, and explain the next consent step.`;
     const baselineTurns = await page.locator('[data-message-role="assistant"]').count();
     await page.getByTestId("agent-chat-composer-textarea").fill(prompt);

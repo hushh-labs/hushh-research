@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from importlib.metadata import PackageNotFoundError, version
 
-PINNED_GOOGLE_ADK_VERSION = "2.4.0"
+PINNED_GOOGLE_ADK_VERSION = "2.9.0"
 
 
 def google_adk_version() -> str | None:

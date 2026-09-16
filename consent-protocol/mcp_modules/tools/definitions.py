@@ -120,6 +120,123 @@ def _private_tool_definitions() -> list[Tool]:
             description="Cancel the active Kai analysis.",
             inputSchema=empty,
         ),
+        # ── Location voice + narrow read tools ─────────────────────────
+        Tool(name="location_open_now", description="Open the Location Now tab.", inputSchema=empty),
+        Tool(
+            name="location_open_people",
+            description="Open the Location People tab.",
+            inputSchema=empty,
+        ),
+        Tool(
+            name="location_open_links",
+            description="Open the Location Links tab.",
+            inputSchema=empty,
+        ),
+        Tool(
+            name="location_open_share",
+            description="Open the Location share composer.",
+            inputSchema=empty,
+        ),
+        Tool(
+            name="location_open_ask",
+            description="Open the Location request composer.",
+            inputSchema=empty,
+        ),
+        Tool(
+            name="location_open_map",
+            description="Open the full-screen Location map.",
+            inputSchema=empty,
+        ),
+        Tool(
+            name="location_open_settings",
+            description="Open Location privacy settings.",
+            inputSchema=empty,
+        ),
+        Tool(
+            name="location_open_sos",
+            description="Open the emergency SOS screen.",
+            inputSchema=empty,
+        ),
+        Tool(
+            name="location_get_state",
+            description=(
+                "Read the caller's own aggregate Location sharing status: active/pending "
+                "grant counts, circle count, verified-recipient count. Never returns "
+                "coordinates, other-person contact details, or key material."
+            ),
+            inputSchema=schema(
+                {
+                    "user_id": {"type": "string", "minLength": 1, "maxLength": 128},
+                    "consent_token": {"type": "string", "minLength": 16, "maxLength": 2048},
+                },
+                ["user_id", "consent_token"],
+            ),
+        ),
+        Tool(
+            name="location_list_circles",
+            description="List the caller's own named Location circles (name, kind, role, member count).",
+            inputSchema=schema(
+                {
+                    "user_id": {"type": "string", "minLength": 1, "maxLength": 128},
+                    "consent_token": {"type": "string", "minLength": 16, "maxLength": 2048},
+                },
+                ["user_id", "consent_token"],
+            ),
+        ),
+        # ── Gmail / Calendar read tools ─────────────────────────────────
+        Tool(
+            name="list_gmail_receipts",
+            description=(
+                "List the caller's own pre-synced Gmail purchase-receipt records. Reads a "
+                "structured Postgres table; never fetches raw email bodies."
+            ),
+            inputSchema=schema(
+                {
+                    "user_id": {"type": "string", "minLength": 1, "maxLength": 128},
+                    "consent_token": {"type": "string", "minLength": 16, "maxLength": 2048},
+                    "page": {"type": "integer", "minimum": 1, "maximum": 1000},
+                    "per_page": {"type": "integer", "minimum": 1, "maximum": 100},
+                },
+                ["user_id", "consent_token"],
+            ),
+        ),
+        Tool(
+            name="list_upcoming_calendar_events",
+            description=(
+                "List the caller's own upcoming Google Calendar events, redacted to "
+                "title/start/end/status only (no description, location, or attendee emails)."
+            ),
+            inputSchema=schema(
+                {
+                    "user_id": {"type": "string", "minLength": 1, "maxLength": 128},
+                    "consent_token": {"type": "string", "minLength": 16, "maxLength": 2048},
+                    "start_at": {"type": "string", "minLength": 1, "maxLength": 64},
+                    "end_at": {"type": "string", "minLength": 1, "maxLength": 64},
+                    "max_results": {"type": "integer", "minimum": 1, "maximum": 100},
+                },
+                ["user_id", "consent_token", "start_at", "end_at"],
+            ),
+        ),
+        # ── PKM convenience ──────────────────────────────────────────────
+        Tool(
+            name="read_own_pkm_attribute",
+            description=(
+                "Convenience wrapper: request consent for one narrow attr.<domain>.<leaf>.* "
+                "scope on the caller's own PKM data, wait briefly for approval, then return "
+                "the result. Internally calls request_consent -> check_consent_status -> "
+                "get_encrypted_scoped_export; never accepts a domain-wildcard or pkm.read scope."
+            ),
+            inputSchema=schema(
+                {
+                    "user_identifier": {"type": "string", "minLength": 1, "maxLength": 256},
+                    "domain": {"type": "string", "maxLength": 64},
+                    "leaf": {"type": "string", "maxLength": 64},
+                    "purpose": {"type": "string", "maxLength": 300},
+                    "max_wait_seconds": {"type": "integer", "minimum": 1, "maximum": 45},
+                },
+                ["user_identifier", "domain", "leaf"],
+            ),
+        ),
     ]
 
 

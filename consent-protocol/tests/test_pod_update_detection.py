@@ -45,16 +45,51 @@ def test_image_tag_reads_refs_digests_and_bare_tags() -> None:
 
 def test_a_pod_behind_the_target_has_an_update_available() -> None:
     out = describe_pod_update(_row(source_image=DEPLOYED_OLD), target_image=TARGET)
-    assert out == {
-        "runningImage": "dev-aaaaaaaaa",
-        "targetImage": "dev-bbbbbbbbb",
-        "updateAvailable": True,
-    }
+    assert (
+        out.items()
+        >= {
+            "runningImage": "dev-aaaaaaaaa",
+            "targetImage": "dev-bbbbbbbbb",
+            "updateAvailable": True,
+        }.items()
+    )
+    assert out["update"]["presentationState"] == "ready"
+    assert out["update"]["releaseId"].startswith("rel_")
 
 
 def test_a_pod_at_the_target_is_positively_current() -> None:
     out = describe_pod_update(_row(source_image=TARGET), target_image=TARGET)
     assert out["updateAvailable"] is False
+
+
+def test_deferred_offer_keeps_its_server_deadline() -> None:
+    reminder = (datetime.now(timezone.utc) + timedelta(days=3)).isoformat()
+    out = describe_pod_update(
+        _row(
+            source_image=DEPLOYED_OLD,
+            upgradeDeferral={
+                "releaseId": "rel_wrong",
+                "remindAt": reminder,
+            },
+        ),
+        target_image=TARGET,
+    )
+    assert out["update"]["presentationState"] == "ready"
+
+    release = out["update"]["releaseId"]
+    out = describe_pod_update(
+        _row(
+            source_image=DEPLOYED_OLD,
+            upgradeDeferral={"releaseId": release, "remindAt": reminder},
+        ),
+        target_image=TARGET,
+    )
+    assert out["update"] == {
+        "releaseId": release,
+        "summary": "Keeps your private agent current and preserves its information.",
+        "presentationState": "deferred",
+        "remindAt": reminder,
+    }
 
 
 def test_no_lane_target_means_the_field_is_absent_not_false() -> None:

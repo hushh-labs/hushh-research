@@ -38,6 +38,11 @@ describe("readUpdateStatus", () => {
       error: null,
       running: "dev-aaaaaaaaa",
       target: "dev-bbbbbbbbb",
+      releaseId: null,
+      summary: null,
+      presentationState: null,
+      remindAt: null,
+      operationId: null,
     });
   });
 

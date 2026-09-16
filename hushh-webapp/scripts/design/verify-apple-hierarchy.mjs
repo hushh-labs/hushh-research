@@ -66,6 +66,32 @@ for (const exportName of [
 
 const globals = read("app/globals.css");
 for (const [token, value] of [
+  ["--app-input-radius", "var(--app-radius-pill)"],
+  ["--app-form-field-gap", "6px"],
+  ["--app-form-related-gap", "4px"],
+  ["--app-form-section-gap", "16px"],
+]) {
+  if (!globals.includes(`${token}: ${value};`)) {
+    failures.push(`app/globals.css: ${token} must stay ${value}`);
+  }
+}
+
+for (const repoPath of [
+  "components/ui/input.tsx",
+  "components/ui/input-group.tsx",
+  "components/ui/textarea.tsx",
+  "components/ui/select.tsx",
+  "components/ui/combobox.tsx",
+  "components/ui/command.tsx",
+]) {
+  expectIncludes(
+    repoPath,
+    "rounded-[var(--app-input-radius)]",
+    "core field surfaces must use the shared capsule input radius",
+  );
+}
+
+for (const [token, value] of [
   ["--type-large-page-title-size", "28px"],
   ["--type-large-page-title-line", "34px"],
   ["--type-large-page-title-weight", "700"],
@@ -191,11 +217,15 @@ for (const repoPath of [
   }
 }
 
-expectIncludes(
-  "components/dashboard/one-agent-roster.tsx",
-  "Agents ({modes.length})",
-  "agents heading is the page title and must use title casing",
-);
+const rosterPath = "components/dashboard/one-agent-roster.tsx";
+const rosterSource = read(rosterPath);
+const hasDirectLabel = /<section\b[^>]*aria-label="One agents"/.test(rosterSource);
+const hasHeadingLabel =
+  /<section\b[^>]*aria-labelledby="one-agents-heading"/.test(rosterSource) &&
+  /<PageTitle\b[^>]*id="one-agents-heading"[^>]*>\s*Agents\b/.test(rosterSource);
+if (!hasDirectLabel && !hasHeadingLabel) {
+  failures.push(`${rosterPath}: root launcher must have an accessible agents label or linked heading`);
+}
 
 expectNotIncludes(
   "components/dashboard/one-agent-roster.tsx",

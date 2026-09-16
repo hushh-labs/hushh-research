@@ -5,7 +5,6 @@ import { CheckCircle2, Mail } from "lucide-react";
 import { useRouter } from "next/navigation";
 
 import { AskOneButton } from "@/components/agent/ask-one-button";
-import { useOptionalAgentPopover } from "@/components/agent/agent-popover-provider";
 import { useOneConversationSession } from "@/lib/agent/one-conversation-session";
 import {
   buildEmailAgentIntroPrompt,
@@ -23,7 +22,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/hooks/use-auth";
 import { useGmailConnectorStatus } from "@/lib/profile/gmail-connector-store";
 import { Button } from "@/lib/morphy-ux/button";
-import { agentRouteWithOrigin } from "@/lib/navigation/agent-origin";
+import { navigateToAgentChat } from "@/lib/navigation/agent-navigation";
 import { ROUTES } from "@/lib/navigation/routes";
 
 /**
@@ -33,7 +32,6 @@ import { ROUTES } from "@/lib/navigation/routes";
 export function EmailAgentPageClient() {
   const router = useRouter();
   const { user, loading: authLoading } = useAuth();
-  const agentPopover = useOptionalAgentPopover();
   const createHandoff = useOneConversationSession((state) => state.createHandoff);
   const idTokenProvider = useCallback(
     () => (user?.getIdToken ? user.getIdToken() : Promise.resolve("")),
@@ -76,19 +74,10 @@ export function EmailAgentPageClient() {
         createdAtMs,
       });
     }
-    if (agentPopover) {
-      agentPopover.openAgent();
-      return;
-    }
-    // Any queued handoff remains in the shared in-memory session for the
-    // legacy dedicated chat route too. Record this page as the origin so
-    // minimizing the full-page agent comes back here rather than One home.
-    router.push(agentRouteWithOrigin(ROUTES.EMAIL_AGENT));
+    navigateToAgentChat();
   }, [
-    agentPopover,
     createHandoff,
     emailAgentIntroRecipient,
-    router,
     user?.uid,
   ]);
 
@@ -96,7 +85,13 @@ export function EmailAgentPageClient() {
     <AppPageShell
       as="main"
       width="reading"
-      className="min-h-[calc(100dvh-var(--top-shell-reserved-height,4rem))] pb-[calc(var(--app-bottom-fixed-ui,96px)+1.25rem)] sm:pb-10"
+      // Subtract BOTH edges the scroll root spends, not just the top bar. The
+      // shell renders a top spacer of --app-top-content-offset AND pads the
+      // scroll root by --app-bottom-content-clearance; a floor that only
+      // subtracts the bar turns the rest into empty travel. No pb- either: the
+      // scroll root already owns the bottom bars.
+      // Canonical idiom: components/calendar/calendar-agent-page-layout.ts:48.
+      className="min-h-[calc(100dvh-var(--app-top-content-offset,6rem)-var(--app-bottom-content-clearance,7rem))]"
       nativeTest={{
         routeId: ROUTES.EMAIL_AGENT,
         marker: "native-route-email-agent",

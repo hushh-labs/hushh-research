@@ -27,21 +27,9 @@ from api.routes.kai._streaming import (
     CanonicalSSEStream,
     parse_json_with_single_repair,
 )
-from hushh_mcp.constants import (
-    GEMINI_MODEL,
-    KAI_LLM_MAX_OUTPUT_TOKENS_DEFAULT,
-    KAI_LLM_STREAM_INCLUDE_THOUGHTS,
-    KAI_LLM_TEMPERATURE,
-    KAI_LLM_THINKING_ENABLED,
-    KAI_LLM_THINKING_LEVEL,
-    KAI_OPTIMIZE_MAX_OUTPUT_TOKENS,
-    KAI_OPTIMIZE_STREAM_TIMEOUT_SECONDS,
-)
+from hushh_mcp.agents.kai.runtime import run_kai_portfolio_optimizer
+from hushh_mcp.constants import KAI_OPTIMIZE_STREAM_TIMEOUT_SECONDS
 from hushh_mcp.operons.kai.fetchers import RealtimeDataUnavailable, fetch_market_data
-from hushh_mcp.runtime_providers import (
-    build_generate_content_config,
-    build_managed_runtime_client,
-)
 from hushh_mcp.services.renaissance_service import get_renaissance_service
 
 logger = logging.getLogger(__name__)
@@ -391,12 +379,7 @@ async def analyze_portfolio_losers(
         consent_token=token_data["token"],
     )
 
-    # LLM synthesis (Optimize Portfolio: criteria-first, JSON-only output)
-    from google.genai import types as genai_types
-
-    client = build_managed_runtime_client("gemini")
-    model_to_use = GEMINI_MODEL
-    logger.info(f"Optimize Portfolio: Using Vertex AI with model {model_to_use}")
+    # LLM synthesis (Optimize Portfolio: manifest-owned, schema-constrained turn)
     cash_positions_excluded, cash_value_excluded = _summarize_excluded_cash_positions(
         request.holdings or []
     )
@@ -420,35 +403,11 @@ async def analyze_portfolio_losers(
     )
 
     try:
-        config_kwargs: dict[str, Any] = {
-            "temperature": KAI_LLM_TEMPERATURE,
-            "max_output_tokens": KAI_LLM_MAX_OUTPUT_TOKENS_DEFAULT,
-            "response_mime_type": "application/json",
-        }
-        if KAI_LLM_THINKING_ENABLED:
-            thinking_level = getattr(
-                genai_types.ThinkingLevel,
-                str(KAI_LLM_THINKING_LEVEL).upper(),
-                genai_types.ThinkingLevel.HIGH,
-            )
-            config_kwargs["thinking_config"] = genai_types.ThinkingConfig(
-                include_thoughts=False,
-                thinking_level=thinking_level,
-            )
-        config = build_generate_content_config(
-            genai_types,
-            model_to_use,
-            **config_kwargs,
-        )
-        resp = await client.aio.models.generate_content(
-            model=model_to_use,
-            contents=prompt,
-            config=config,
-        )
-        raw = (resp.text or "").strip()
-        payload, _ = parse_json_with_single_repair(
-            raw,
-            required_keys={"summary", "losers", "portfolio_level_takeaways"},
+        payload = await run_kai_portfolio_optimizer(
+            prompt=prompt,
+            user_id=request.user_id,
+            consent_token=token_data["token"],
+            timeout_seconds=120.0,
         )
     except RealtimeDataUnavailable as e:
         logger.warning(
@@ -869,81 +828,32 @@ async def analyze_portfolio_losers_stream(
                     {"stage": "thinking", "message": "AI reasoning about portfolio health..."},
                 )
 
-                from google.genai import types as genai_types
-
-                client = build_managed_runtime_client("gemini")
-                model_to_use = GEMINI_MODEL
-                logger.info(f"Optimize Portfolio Stream: Using Vertex AI with model {model_to_use}")
-
-                # Configure for deterministic JSON reliability.
-                config_kwargs: dict[str, Any] = {
-                    "temperature": KAI_LLM_TEMPERATURE,
-                    "max_output_tokens": KAI_OPTIMIZE_MAX_OUTPUT_TOKENS,
-                    "response_mime_type": "application/json",
-                    "response_schema": {
-                        "type": "OBJECT",
-                        "properties": {
-                            "summary": {"type": "OBJECT"},
-                            "losers": {"type": "ARRAY"},
-                            "portfolio_level_takeaways": {"type": "ARRAY"},
-                            "analytics": {"type": "OBJECT"},
-                        },
-                        "required": ["summary", "losers", "portfolio_level_takeaways"],
-                    },
-                }
-                if KAI_LLM_THINKING_ENABLED:
-                    thinking_level = getattr(
-                        genai_types.ThinkingLevel,
-                        str(KAI_LLM_THINKING_LEVEL).upper(),
-                        genai_types.ThinkingLevel.HIGH,
+                # Single-turn ADK returns a validated object. Poll the bounded
+                # task so slow local/provider inference still gets heartbeats
+                # without recreating the old direct streaming provider path.
+                model_task = asyncio.create_task(
+                    run_kai_portfolio_optimizer(
+                        prompt=prompt,
+                        user_id=request.user_id,
+                        consent_token=token_data["token"],
+                        timeout_seconds=120.0,
                     )
-                    config_kwargs["thinking_config"] = genai_types.ThinkingConfig(
-                        include_thoughts=bool(KAI_LLM_STREAM_INCLUDE_THOUGHTS),
-                        thinking_level=thinking_level,
-                    )
-                config = build_generate_content_config(
-                    genai_types,
-                    model_to_use,
-                    **config_kwargs,
                 )
-
-                # Stream the response
-                full_response = ""
-                thought_count = 0
-                chunk_count = 0
                 stream_started_at = asyncio.get_running_loop().time()
-
-                # Get the stream object first (must await the coroutine)
-                gen_stream = await client.aio.models.generate_content_stream(
-                    model=model_to_use,
-                    contents=prompt,
-                    config=config,
-                )
-
-                client_disconnected = False
-
-                # Then iterate over the stream with heartbeat-safe polling
-                stream_iter = gen_stream.__aiter__()
-                next_chunk_task: asyncio.Task | None = None
-                while True:
-                    # Check if client disconnected
+                while not model_task.done():
                     if await raw_request.is_disconnected():
-                        logger.info(
-                            "[Losers Analysis] Client disconnected, stopping streaming — saving compute"
-                        )
-                        client_disconnected = True
-                        if next_chunk_task and not next_chunk_task.done():
-                            next_chunk_task.cancel()
-                        break
-
+                        logger.info("[Losers Analysis] Client disconnected; cancelling optimizer")
+                        model_task.cancel()
+                        try:
+                            await model_task
+                        except asyncio.CancelledError:
+                            pass
+                        return
                     try:
-                        if next_chunk_task is None:
-                            next_chunk_task = asyncio.create_task(stream_iter.__anext__())
-                        chunk = await asyncio.wait_for(
-                            asyncio.shield(next_chunk_task),
+                        payload = await asyncio.wait_for(
+                            asyncio.shield(model_task),
                             timeout=HEARTBEAT_INTERVAL_SECONDS,
                         )
-                        next_chunk_task = None
                     except asyncio.TimeoutError:
                         elapsed = int(asyncio.get_running_loop().time() - stream_started_at)
                         yield stream.event(
@@ -953,69 +863,21 @@ async def analyze_portfolio_losers_stream(
                                 "message": "Still analyzing portfolio optimization options...",
                                 "heartbeat": True,
                                 "elapsed_seconds": elapsed,
-                                "chunk_count": chunk_count,
-                                "total_chars": len(full_response),
-                            },
-                        )
-                        continue
-                    except StopAsyncIteration:
-                        next_chunk_task = None
-                        break
-
-                    appended_response_text = False
-                    # Check for thought summaries (Gemini thinking mode)
-                    if hasattr(chunk, "candidates") and chunk.candidates:
-                        for candidate in chunk.candidates:
-                            if hasattr(candidate, "content") and candidate.content:
-                                for part in candidate.content.parts:
-                                    # Check for thought content
-                                    if hasattr(part, "thought") and part.thought:
-                                        thought_count += 1
-                                        yield stream.event(
-                                            "thinking",
-                                            {
-                                                "phase": "thinking",
-                                                "message": "Reasoning through optimization trade-offs...",
-                                                "thought": part.text,
-                                                "count": thought_count,
-                                                "token_source": "thought",
-                                            },
-                                        )
-                                    # Regular text content
-                                    elif hasattr(part, "text") and part.text:
-                                        chunk_count += 1
-                                        full_response += part.text
-                                        appended_response_text = True
-                                        yield stream.event(
-                                            "chunk",
-                                            {
-                                                "phase": "extracting",
-                                                "text": part.text,
-                                                "chunk_count": chunk_count,
-                                                "token_source": "response",
-                                            },
-                                        )
-
-                    # Some SDK responses include text on chunk.text even when candidates are present.
-                    if not appended_response_text and getattr(chunk, "text", None):
-                        chunk_count += 1
-                        full_response += str(chunk.text)
-                        yield stream.event(
-                            "chunk",
-                            {
-                                "phase": "extracting",
-                                "text": str(chunk.text),
-                                "chunk_count": chunk_count,
-                                "token_source": "response",
                             },
                         )
 
-                # Skip all post-processing if client disconnected — no point parsing for nobody
-                if client_disconnected:
-                    logger.info(
-                        "[Losers Analysis] Skipping post-processing, client gone — LLM compute saved"
-                    )
-                    return
+                payload = model_task.result()
+                full_response = json.dumps(payload, separators=(",", ":"))
+                chunk_count = 1
+                yield stream.event(
+                    "chunk",
+                    {
+                        "phase": "extracting",
+                        "text": full_response,
+                        "chunk_count": chunk_count,
+                        "token_source": "response",
+                    },
+                )
 
                 # Stage 3: Extracting results
                 yield stream.event(

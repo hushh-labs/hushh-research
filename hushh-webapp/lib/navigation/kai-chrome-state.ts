@@ -37,10 +37,11 @@ export function getKaiChromeState(
   // 2) import routes while onboarding flow is active.
   const useOnboardingChrome =
     isOnboardingRoute || (isImportRoute && onboardingFlowActive);
+  // `/` is the authenticated Chat workspace. It has no persistent idle
+  // command-bar chrome, but its Search nav action still needs the global
+  // command palette mounted so the open event has a receiver.
   const hideCommandBar =
     useOnboardingChrome ||
-    path === ROUTES.HOME ||
-    path === ROUTES.AGENT ||
     path.startsWith(ROUTES.LOGIN) ||
     path.startsWith(ROUTES.PHONE_MANDATE) ||
     path.startsWith(ROUTES.LOGOUT) ||

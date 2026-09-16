@@ -500,7 +500,19 @@ vault.owner (Master - satisfies ALL scopes)
 
 ### consent_audit (PRIMARY TABLE)
 
-The `consent_audit` table is the **single source of truth** for all consent token operations. It uses an event-sourcing pattern where each action (REQUESTED, CONSENT_GRANTED, CONSENT_DENIED, REVOKED) creates a new row, and the latest row per scope determines current state.
+The `consent_audit` table is the **single source of truth** for all consent token operations. It uses an event-sourcing pattern where each action creates a new row, and the latest **state-transition** row per request (or per scope, for scope-keyed reads) determines current state.
+
+Action catalogue:
+
+- `REQUESTED`: a request was opened; the row carries `request_id`, `scope_description` and `poll_timeout_at`.
+- `CONSENT_GRANTED`: the owner approved; the row carries the token and `expires_at`.
+- `CONSENT_DENIED`: the owner declined the request.
+- `CANCELLED`: the requester withdrew the request before the owner answered; it is terminal, and a withdrawn request never gains a later `TIMEOUT` row.
+- `REVOKED`: the owner (or the expiry worker) withdrew a grant that had been issued.
+- `TIMEOUT`: the timeout job closed a `REQUESTED` row that passed `poll_timeout_at` with no resolving action; a request already carrying `CANCELLED`, `CONSENT_DENIED`, `CONSENT_GRANTED`, `REVOKED` or `TIMEOUT` is skipped.
+- `EXPORT_READ`: the requester opened a live grant; it is an audit record, not a state transition.
+
+State rule: `EXPORT_READ` is a non-transition audit row. `get_request_status`, `get_recent_consent_events` and the background-action set (`_BACKGROUND_CONSENT_ACTIONS`) exclude it, so a read of a live grant never shadows the `CONSENT_GRANTED` row that is the request's current state.
 
 ```sql
 CREATE TABLE consent_audit (
@@ -509,7 +521,7 @@ CREATE TABLE consent_audit (
   user_id TEXT NOT NULL,
   agent_id TEXT NOT NULL,          -- 'self' for VAULT_OWNER, agent name otherwise
   scope TEXT NOT NULL,             -- 'vault.owner', 'agent.kai.analyze', etc.
-  action TEXT NOT NULL,            -- 'REQUESTED', 'CONSENT_GRANTED', 'CONSENT_DENIED', 'REVOKED'
+  action TEXT NOT NULL,            -- see the action catalogue above
   issued_at BIGINT NOT NULL,
   expires_at BIGINT,
   revoked_at BIGINT,

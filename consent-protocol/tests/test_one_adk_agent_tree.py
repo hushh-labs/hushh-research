@@ -89,20 +89,6 @@ from hushh_mcp.services.one_location_circle_service import OneLocationCircleServ
 
 
 class TestAgentTreeShape:
-    @pytest.fixture(autouse=True)
-    def _managed_live_key(self, monkeypatch: pytest.MonkeyPatch):
-        """The canonical live model rides the developer_api transport, so
-        building the voice head requires the Hussh-managed live key; tests
-        provide a dummy (no session is ever opened at build time)."""
-        monkeypatch.setenv("HUSHH_MANAGED_GEMINI_LIVE_API_KEY", "test-managed-live-key")
-
-    def test_voice_head_fails_closed_without_the_managed_live_key(
-        self, monkeypatch: pytest.MonkeyPatch
-    ):
-        monkeypatch.delenv("HUSHH_MANAGED_GEMINI_LIVE_API_KEY", raising=False)
-        with pytest.raises(RuntimeError, match="managed_live_key_missing"):
-            _tree._build_one_live_model()
-
     def test_root_agent_is_one_with_full_roster(self):
         agent = build_one_root_agent()
         assert agent.name == "one"
@@ -205,7 +191,10 @@ class TestAgentTreeShape:
         )
         # ADK executes bypassed Google Search in a nested text GenerateContent
         # turn. It must never inherit One's native-audio Live model.
-        assert search_tool.agent.model.model == _tree._SPECIALIST_MODEL
+        assert (
+            getattr(search_tool.agent.model, "model", search_tool.agent.model)
+            == _tree._SPECIALIST_MODEL
+        )
         assert search_tool.propagate_grounding_metadata is True
 
     def test_text_runtime_propagates_turn_model_to_finance_and_investor(self):
@@ -242,31 +231,6 @@ class TestAgentTreeShape:
         assert agent.model == _tree._SPECIALIST_MODEL
         assert intro_agent.model == _tree._SPECIALIST_MODEL
 
-    def test_byok_live_registry_rejects_models_outside_the_matrix(
-        self, monkeypatch: pytest.MonkeyPatch
-    ):
-        """Fail-closed contract: an unrehearsed model has no matrix entry."""
-        monkeypatch.setenv("HUSHH_GEMINI_BYOK_LIVE_ENABLED", "true")
-        monkeypatch.setattr(_tree, "_BYOK_LIVE_MODEL", "gemini-9.9-flash-live-preview")
-        with pytest.raises(ValueError, match="byok_live_unsupported"):
-            _tree.build_one_live_runner(
-                runtime_mode="byok",
-                runtime_credential="test-key",
-            )
-
-    def test_byok_live_registry_accepts_gemini_31_flash_live(self, monkeypatch: pytest.MonkeyPatch):
-        """gemini-3.1-flash-live-preview passed its 2026-08-21 ADK rehearsal:
-        mid-session injections reach the model (ADK transposes single-text-part
-        send_content to send_realtime_input on 3.x names), so the matrix now
-        declares it compatible and the BYOK gate must accept it."""
-        monkeypatch.setenv("HUSHH_GEMINI_BYOK_LIVE_ENABLED", "true")
-        monkeypatch.setattr(_tree, "_BYOK_LIVE_MODEL", "gemini-3.1-flash-live-preview")
-        runner = _tree.build_one_live_runner(
-            runtime_mode="byok",
-            runtime_credential="test-key",
-        )
-        assert runner is not None
-
     def test_identity_instruction_answers_name_question(self):
         assert "I'm One" in ONE_IDENTITY_INSTRUCTION
         assert "Never call yourself Kai" in ONE_IDENTITY_INSTRUCTION
@@ -293,7 +257,13 @@ class TestAgentTreeShape:
         assert "KYC app surface" in ONE_IDENTITY_INSTRUCTION
         assert "Gmail receipt sync and inbox search are paused" in ONE_IDENTITY_INSTRUCTION
         assert "named CRM" in ONE_IDENTITY_INSTRUCTION
-        assert "summon that specialist" in ONE_IDENTITY_INSTRUCTION
+        # One names that it summons specialists rather than doing their work
+        # itself (the roster line from build_specialist_capability_catalog).
+        assert (
+            "you summon these rather than acting in their domain yourself"
+            in ONE_IDENTITY_INSTRUCTION
+        )
+        assert "hand work to a specialist only where you do not" in ONE_IDENTITY_INSTRUCTION
         # Onboarding's own instance of the same rule (replaces "When the
         # exact generated id is uncertain, call list_app_actions").
         assert (
@@ -327,7 +297,7 @@ class TestAgentTreeShape:
         marker = "YOUR SPECIALISTS"
         assert marker in _one_runtime_instruction(SimpleNamespace(state={}))
         for builder in (build_one_root_agent, build_one_text_agent):
-            assert "instruction=_one_runtime_instruction" in inspect.getsource(builder)
+            assert builder().instruction is _one_runtime_instruction
 
     def test_runtime_instruction_injects_only_the_active_route_playbook(self):
         instruction = _one_runtime_instruction(
@@ -499,8 +469,11 @@ class TestAgentTreeShape:
             "confidence",
         } <= set(signature.parameters)
 
-    def test_runner_is_singleton(self):
-        assert get_one_runner() is get_one_runner()
+    def test_legacy_runner_is_explicitly_retired(self):
+        with pytest.raises(RuntimeError, match="ONE_LIVE_RETIRED"):
+            get_one_runner()
+        with pytest.raises(RuntimeError, match="ONE_LIVE_RETIRED"):
+            _tree.build_one_live_runner(runtime_mode="byok", runtime_credential="unused")
 
 
 def _tool_context(state: dict) -> SimpleNamespace:
@@ -639,7 +612,7 @@ class TestSpecialistTurn:
 
         assert result["status"] == "authority_required"
         assert specialist_turn.await_args.args[:2] == (
-            "agent_connections",
+            "agent_nav",
             "How does trust work here?",
         )
 
@@ -973,16 +946,24 @@ class TestRunAppAction:
 
     @pytest.mark.asyncio
     async def test_governed_mutation_ignores_model_confirmation_slot(self):
-        state: dict = {}
+        state = {
+            _STATE_SCREEN: "one_location",
+            STATE_VOICE_CONTEXT: {
+                "route_pattern": "/one/location",
+                "screen": "one_location",
+                "context_revision": "location-2",
+                "available_action_ids": ["location.share_selected"],
+            },
+        }
         result = await run_app_action(
-            "location.create_circle",
-            {"name": "Family", "confirmed": True},
+            "location.share_selected",
+            {"duration_hours": "1", "confirmed": True},
             _tool_context(state),
         )
 
         assert result["status"] == "confirm_pending"
         assert result["directive"]["needsConfirmation"] is True
-        assert result["directive"]["slots"] == {"name": "Family"}
+        assert result["directive"]["slots"] == {"duration_hours": "1"}
 
     @pytest.mark.asyncio
     async def test_unwired_specialist_action_is_not_advertised_as_executable(self):
@@ -5013,7 +4994,7 @@ class TestNamedShareChain:
         analysis.start has always spelled out {'symbol': <ticker>}; this asserts
         the same for every action the instruction tells One to start by name.
         """
-        for action_id in ("location.share_selected", "connect.send_request", "analysis.start"):
+        for action_id in ("connect.send_request", "analysis.start"):
             entry = get_action_gateway_action(action_id)
             assert action_id in ONE_IDENTITY_INSTRUCTION, action_id
             required = [
@@ -5024,6 +5005,14 @@ class TestNamedShareChain:
             assert required, action_id
             for slot in required:
                 assert f"'{slot}':" in ONE_IDENTITY_INSTRUCTION, f"{action_id} slot {slot}"
+
+    def test_location_share_defers_missing_inputs_to_reviewed_audience_preparation(self):
+        entry = get_action_gateway_action("location.share_selected")
+        assert "location.share_selected" in ONE_IDENTITY_INSTRUCTION
+        assert set(entry["goal"]["slot_schema"]) == {"person", "circle", "duration_hours"}
+        assert entry["command"]["resource_inputs"] == {"person": "person", "circle": "circle"}
+        assert entry["command"]["client_receipt"] == "location.audience.v1"
+        assert entry["execution_policy"] == "confirm_required"
 
     def test_a_wrong_or_ambiguous_name_is_relayed_not_guessed(self):
         instruction = ONE_IDENTITY_INSTRUCTION
@@ -5262,3 +5251,222 @@ def test_the_actions_people_ask_for_by_name_carry_their_own_journey():
         "These are asked for by name from any screen and would need One to "
         f"chain a navigation itself, which is where it breaks: {missing}"
     )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "target,capabilities",
+    [
+        ("consent", ("agent.nav.review",)),
+        ("connections", ("agent.nav.review", "agent.one.orchestrate")),
+    ],
+)
+async def test_nav_ingress_binds_verified_owner_to_adk_hop(target, capabilities):
+    context = SimpleNamespace(
+        state={STATE_USER_ID: "owner", STATE_CONSENT_TOKEN: "opaque"},
+        user_id="owner",
+        invocation_id="invocation",
+        function_call_id="call",
+    )
+    with patch.object(
+        _tree,
+        "validate_first_party_owner_token",
+        new=AsyncMock(return_value=SimpleNamespace(expires_at=9999999999999)),
+    ) as validate:
+        task = await _tree._task_from_context(
+            context, "review", agent_id="agent_nav", specialist_target=target
+        )
+    validate.assert_awaited_once_with("owner", "opaque")
+    assert task.authority.invocation_capabilities == capabilities
+    assert task.authority.expires_at_ms == 9999999999999
+    assert task.expected_tenant_id == task.authority.tenant_id == "owner"
+    assert task.expected_task_id == task.authority.task_id == '["invocation","call"]'
+    assert task.authority.caller_kind == "first_party"
+    assert task.authority.action_capabilities == task.authority.information_grant_refs == ()
+    assert task.authority.encrypted_export_refs == ()
+    assert task.authority.confirmation_receipt is None
+    assert task.specialist_target == target
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "field,value", [("user_id", "other"), ("invocation_id", ""), ("function_call_id", None)]
+)
+async def test_nav_ingress_rejects_untrusted_or_missing_adk_binding(field, value):
+    context = SimpleNamespace(
+        state={STATE_USER_ID: "owner", STATE_CONSENT_TOKEN: "opaque"},
+        user_id="owner",
+        invocation_id="invocation",
+        function_call_id="call",
+    )
+    setattr(context, field, value)
+    with patch.object(_tree, "validate_first_party_owner_token", new=AsyncMock()) as validate:
+        assert await _tree._task_from_context(context, "review", agent_id="agent_nav") is None
+    validate.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_nav_ingress_rejects_invalid_or_revoked_owner_validation():
+    context = SimpleNamespace(
+        state={STATE_USER_ID: "owner", STATE_CONSENT_TOKEN: "opaque"},
+        user_id="owner",
+        invocation_id="invocation",
+        function_call_id="call",
+    )
+    with patch.object(_tree, "validate_first_party_owner_token", new=AsyncMock(return_value=None)):
+        assert await _tree._task_from_context(context, "review", agent_id="agent_nav") is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "action,slots,valid",
+    [
+        ("connect.send_request", {"person": "Alex", "userId": "user-1"}, True),
+        ("connect.accept_request", {"person": "Alex", "requestId": "request-1"}, True),
+        ("connect.reject_request", {"person": "Alex", "requestId": "request-2"}, True),
+        ("connect.remove_connection", {"person": "Alex", "connectionId": "connection-1"}, True),
+        ("connect.send_request", {"person": "Alex"}, False),
+        ("connect.accept_request", {"person": "Alex", "userId": "user-1"}, False),
+        (
+            "connect.reject_request",
+            {"person": "Alex", "requestId": "r", "connectionId": "c"},
+            False,
+        ),
+        (
+            "connect.remove_connection",
+            {"person": "Alex", "connectionId": "c", "confirmed": True},
+            False,
+        ),
+        ("connect.reject_request", {"person": "", "requestId": "r"}, False),
+        ("connect.cancel_request", {"person": "Alex", "requestId": "r"}, False),
+        ("connect.send_request", {"person": "x" * 201, "userId": "u"}, False),
+        ("connect.send_request", {"person": "Alex", "userId": "u" * 257}, False),
+        ("connect.send_request", {"person": "Alex", "userId": ""}, False),
+        ("connect.send_request", {"person": "Alex", "userId": " u "}, False),
+        ("connect.send_request", {"person": "Alex", "userId": 123}, False),
+        ([], {"person": "Alex", "requestId": "r"}, False),
+    ],
+)
+async def test_connections_proposal_is_only_gateway_suggestion(action, slots, valid):
+    context = _tool_context({STATE_USER_ID: "owner", STATE_CONSENT_TOKEN: "opaque"})
+    result = SpecialistTurnResult(
+        conversation_id="conversation",
+        text="Proposed change",
+        directive=A2ADirective(
+            kind="action",
+            payload={"type": "connections_proposal", "actionId": action, "slots": slots},
+        ),
+        is_complete=True,
+        state_changed=False,
+        model="fixture",
+    )
+    with (
+        patch.object(_tree, "_task_from_context", new=AsyncMock(return_value=object())),
+        patch.object(_tree, "dispatch", new=AsyncMock(return_value=result)),
+        patch.object(_tree, "run_app_action", new=AsyncMock()) as execute,
+    ):
+        response = await _tree._specialist_turn(
+            "agent_nav", "review", context, specialist_target="connections"
+        )
+    execute.assert_not_awaited()
+    assert "directive" not in response
+    assert not any(key.startswith(STATE_PENDING_DIRECTIVE) for key in context.state)
+    if valid:
+        assert response["proposed_action"] == {"action_id": action, "slots": slots}
+    else:
+        assert response["status"] == "invalid_proposal"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "case",
+    [
+        "valid",
+        "too_many",
+        "empty",
+        "id_long",
+        "name_long",
+        "question_long",
+        "id_missing",
+        "extra_mutation_ref",
+        "wrong_kind",
+        "complete",
+        "duplicate",
+        "bad_candidate",
+    ],
+)
+async def test_connections_choice_preserves_context_without_client_selection(case):
+    context = _tool_context({STATE_USER_ID: "owner", STATE_CONSENT_TOKEN: "opaque"})
+    candidates = [
+        {"userId": "user-1", "displayName": "Alex Smith"},
+        {"userId": "user-2", "displayName": "Alex Jones"},
+    ]
+    question = "Which Alex do you mean?"
+    if case == "too_many":
+        candidates = [{"userId": str(i), "displayName": "Alex"} for i in range(26)]
+    elif case == "empty":
+        candidates = []
+    elif case == "id_long":
+        candidates[0]["userId"] = "x" * 257
+    elif case == "name_long":
+        candidates[0]["displayName"] = "x" * 201
+    elif case == "question_long":
+        question = "x" * 501
+    elif case == "id_missing":
+        del candidates[0]["userId"]
+    elif case == "extra_mutation_ref":
+        candidates[0]["requestId"] = "request-1"
+    elif case == "duplicate":
+        candidates[1]["userId"] = "user-1"
+    elif case == "bad_candidate":
+        candidates[0] = None
+    result = SpecialistTurnResult(
+        conversation_id="conversation",
+        text="Which person?",
+        directive=A2ADirective(
+            kind="action" if case == "wrong_kind" else "prompt",
+            payload={
+                "type": "connections_choice",
+                "question": question,
+                "candidates": candidates,
+            },
+        ),
+        is_complete=case == "complete",
+        state_changed=False,
+        model="fixture",
+    )
+    with (
+        patch.object(_tree, "_task_from_context", new=AsyncMock(return_value=object())),
+        patch.object(_tree, "dispatch", new=AsyncMock(return_value=result)),
+        patch.object(_tree, "run_app_action", new=AsyncMock()) as execute,
+    ):
+        response = await _tree._specialist_turn(
+            "agent_nav", "review", context, specialist_target="connections"
+        )
+    execute.assert_not_awaited()
+    assert "directive" not in response
+    assert not any(key.startswith(STATE_PENDING_DIRECTIVE) for key in context.state)
+    if case == "valid":
+        assert response["clarification"] == {"question": question, "candidates": candidates}
+        assert response["clarification"]["candidates"] is not candidates
+        assert "Never expose the internal IDs" in response["next_step"]
+        assert "claim a choice card" in response["next_step"]
+    else:
+        assert response["status"] == "invalid_clarification"
+
+
+@pytest.mark.asyncio
+async def test_connections_parent_hop_preserves_child_domain_disable():
+    context = SimpleNamespace(
+        state={
+            STATE_USER_ID: "owner",
+            STATE_CONSENT_TOKEN: "opaque",
+            STATE_VOICE_CONTEXT: {"voice_settings": {"disabled_domains": ["connections"]}},
+        }
+    )
+    with patch.object(_tree, "dispatch", new=AsyncMock()) as dispatch:
+        result = await _tree._specialist_turn(
+            "agent_nav", "review people", context, specialist_target="connections"
+        )
+    assert result["status"] == "domain_disabled"
+    dispatch.assert_not_awaited()

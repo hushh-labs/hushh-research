@@ -3,6 +3,9 @@ import path from "node:path";
 
 const CANONICAL_UID_KEY = "REVIEWER_UID";
 const CANONICAL_PASSPHRASE_KEY = "REVIEWER_VAULT_PASSPHRASE";
+// Second non-production fixture for two-person proofs. No deprecated aliases.
+const COUNTERPART_UID_KEY = "REVIEWER_COUNTERPART_UID";
+const COUNTERPART_PASSPHRASE_KEY = "REVIEWER_COUNTERPART_VAULT_PASSPHRASE";
 
 const DEPRECATED_UID_KEYS = [
   "NEXT_PUBLIC_REVIEWER_UID",
@@ -80,17 +83,21 @@ function lookupValue({ sources, keys }) {
   return null;
 }
 
-export function resolveReviewerTestIdentity({
-  envFiles = [],
-  required = true,
-} = {}) {
-  const sources = [
+function buildSources(envFiles) {
+  return [
     { label: "process.env", values: process.env },
     ...envFiles.map((filePath) => ({
       label: filePath,
       values: parseEnvFile(filePath),
     })),
   ];
+}
+
+export function resolveReviewerTestIdentity({
+  envFiles = [],
+  required = true,
+} = {}) {
+  const sources = buildSources(envFiles);
   const uidMatch = lookupValue({
     sources,
     keys: [CANONICAL_UID_KEY, ...DEPRECATED_UID_KEYS],
@@ -119,5 +126,46 @@ export function resolveReviewerTestIdentity({
     deprecatedAliasesUsed: [uidMatch, passphraseMatch]
       .filter((match) => match?.deprecated)
       .map((match) => match.key),
+  };
+}
+
+/**
+ * Resolve the second reviewer identity used for two-person proofs.
+ *
+ * Same lookup order as the primary (process.env first, then the env files),
+ * but only the canonical keys are honoured: there are no aliases. Returns
+ * null when either half is absent unless `required` is set, in which case a
+ * missing value throws. Values are never logged.
+ */
+export function resolveReviewerCounterpartIdentity({
+  envFiles = [],
+  required = false,
+} = {}) {
+  const sources = buildSources(envFiles);
+  const uidMatch = lookupValue({ sources, keys: [COUNTERPART_UID_KEY] });
+  const passphraseMatch = lookupValue({
+    sources,
+    keys: [COUNTERPART_PASSPHRASE_KEY],
+  });
+
+  const missing = [];
+  if (!uidMatch) missing.push(COUNTERPART_UID_KEY);
+  if (!passphraseMatch) missing.push(COUNTERPART_PASSPHRASE_KEY);
+  if (missing.length > 0) {
+    if (required) {
+      throw new Error(
+        `missing reviewer counterpart identity value(s): ${missing.join(
+          ", "
+        )}. Set ${COUNTERPART_UID_KEY} and ${COUNTERPART_PASSPHRASE_KEY} in a maintainer-only env or secret overlay.`
+      );
+    }
+    return null;
+  }
+
+  return {
+    reviewerUid: uidMatch.value,
+    reviewerVaultPassphrase: passphraseMatch.value,
+    uidSourceKey: uidMatch.key,
+    passphraseSourceKey: passphraseMatch.key,
   };
 }

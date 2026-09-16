@@ -50,22 +50,22 @@ describe("top shell breadcrumbs", () => {
     });
   });
 
-  it("returns every welcome workspace tab to One", () => {
+  it("returns every welcome workspace tab to the public root", () => {
     const research = new URLSearchParams("tab=research");
     const blog = new URLSearchParams("tab=blog");
     const developers = new URLSearchParams("tab=developers");
 
     expect(resolveTopShellBreadcrumb("/welcome", research)).toMatchObject({
       hideBack: false,
-      backHref: "/one",
+      backHref: "/",
     });
     expect(resolveTopShellBreadcrumb("/welcome", blog)).toMatchObject({
       hideBack: false,
-      backHref: "/one",
+      backHref: "/",
     });
     expect(resolveTopShellBreadcrumb("/welcome", developers)).toMatchObject({
       hideBack: false,
-      backHref: "/one",
+      backHref: "/",
     });
   });
 
@@ -107,37 +107,7 @@ describe("top shell breadcrumbs", () => {
       hideBack: false,
       items: [{ label: "Join a Circle" }],
     });
-
-    expect(
-      resolveTopShellBreadcrumb(
-        "/one/connect",
-        new URLSearchParams(
-          "tab=circles&action=circle-detail&circleId=trusted",
-        ),
-      ),
-    ).toEqual({
-      backHref: "/one/connect?tab=circles",
-      backLabel: "Back to Circles",
-      width: "profile",
-      align: "center",
-      hideBack: false,
-      items: [{ label: "Circle" }],
-    });
   });
-
-  it("keeps malformed Circle detail links on the normal Connect surface", () => {
-    expect(
-      resolveTopShellBreadcrumb(
-        "/one/connect",
-        new URLSearchParams("tab=circles&action=circle-detail"),
-      ),
-    ).toEqual({
-      backHref: "/one",
-      width: "profile",
-      align: "center",
-      hideBack: false,
-      items: [{ label: "One" }],
-    });  });
 
   it("uses the shared top-left back affordance for Calendar", () => {
     expect(resolveTopShellBreadcrumb("/one/calendar")).toEqual({
@@ -737,6 +707,12 @@ describe("top shell breadcrumbs", () => {
       // Legacy bookmarks are labelled correctly while the hub canonicalizes
       // `action=privacy` to `action=settings`.
       ["privacy", "Settings"],
+      // Voice-first Location area flows.
+      ["create-circle", "New circle"],
+      ["join-circle", "Join circle"],
+      ["circle-detail", "Circle"],
+      ["invite-circle", "Invite to circle"],
+      ["ratings", "Ratings"],
       ["active-shares", "Active shares"],
       ["shared-with-me", "Shared with me"],
       ["needs-review", "Needs review"],

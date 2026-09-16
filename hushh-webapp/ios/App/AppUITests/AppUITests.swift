@@ -35,9 +35,7 @@ final class AppUITests: XCTestCase {
             allowedDataStates: ["loaded"]
         )
         let app = launchApp(route)
-        // The CI host owns bounded cleanup and verifies app-process absence.
-        // XCTest can miss a successful SIGTERM acknowledgement and fail here
-        // after every recovery assertion passed; retain that independent proof.
+        defer { app.terminate() }
         // Login's component contract verifies notice emission and query cleanup.
         // Its 3.6-second toast can expire while XCTest waits for launch idleness;
         // this rehearsal proves the persistent recovery state and usable controls.
@@ -61,9 +59,14 @@ final class AppUITests: XCTestCase {
         }
         XCTAssertTrue(
             loginButton.exists && loginButton.isHittable,
-            "Login must become usable after bounded native resume validation"
+            "Login must become usable after the native privacy cover releases"
         )
-        XCTAssertFalse(app.staticTexts["Checking your session\u{2026}"].exists)
+        let privacyCover = app.staticTexts["Protecting private information\u{2026}"]
+        let coverDeadline = Date().addingTimeInterval(5)
+        while Date() < coverDeadline, privacyCover.exists {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.25))
+        }
+        XCTAssertFalse(privacyCover.exists, "Privacy cover must release after login becomes usable")
     }
 
     func testPublicAndAuthRoutes() throws {
@@ -161,11 +164,11 @@ final class AppUITests: XCTestCase {
         ]
         if let reviewerUid = environment["HUSHH_UI_TEST_REVIEWER_UID"] ?? environment["REVIEWER_UID"],
            !reviewerUid.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            app.launchEnvironment["HUSHH_UI_TEST_REVIEWER_UID"] = reviewerUid
+            app.launchArguments += ["-UITestExpectedUserId", reviewerUid]
         }
         if let vaultPassphrase = environment["HUSHH_UI_TEST_REVIEWER_VAULT_PASSPHRASE"] ?? environment["REVIEWER_VAULT_PASSPHRASE"],
            !vaultPassphrase.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            app.launchEnvironment["HUSHH_UI_TEST_REVIEWER_VAULT_PASSPHRASE"] = vaultPassphrase
+            app.launchArguments += ["-UITestVaultPassphrase", vaultPassphrase]
         }
         app.launch()
         defer { app.terminate() }
@@ -273,9 +276,9 @@ final class AppUITests: XCTestCase {
         try assertRoutes([
             reviewerRoute(name: "consents", redirect: "/one/consent", marker: "native-route-consents"),
             reviewerRoute(
-                name: "agent",
-                redirect: "/agent",
-                marker: "native-route-agent",
+                name: "chat",
+                redirect: "/",
+                marker: "native-route-home",
                 allowedDataStates: ["loaded", "empty-valid", "unavailable-valid"]
             ),
             reviewerRoute(name: "one-kyc", redirect: "/one/kyc", marker: "native-route-one-kyc"),
@@ -705,11 +708,11 @@ final class AppUITests: XCTestCase {
         ]
         if let reviewerUid = environment["HUSHH_UI_TEST_REVIEWER_UID"] ?? environment["REVIEWER_UID"],
            !reviewerUid.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            app.launchEnvironment["HUSHH_UI_TEST_REVIEWER_UID"] = reviewerUid
+            app.launchArguments += ["-UITestExpectedUserId", reviewerUid]
         }
         if let vaultPassphrase = environment["HUSHH_UI_TEST_REVIEWER_VAULT_PASSPHRASE"] ?? environment["REVIEWER_VAULT_PASSPHRASE"],
            !vaultPassphrase.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            app.launchEnvironment["HUSHH_UI_TEST_REVIEWER_VAULT_PASSPHRASE"] = vaultPassphrase
+            app.launchArguments += ["-UITestVaultPassphrase", vaultPassphrase]
         }
         app.launch()
         return app
@@ -985,11 +988,11 @@ final class AppUITests: XCTestCase {
         let environment = ProcessInfo.processInfo.environment
         if let reviewerUid = environment["HUSHH_UI_TEST_REVIEWER_UID"] ?? environment["REVIEWER_UID"],
            !reviewerUid.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            app.launchEnvironment["HUSHH_UI_TEST_REVIEWER_UID"] = reviewerUid
+            app.launchArguments += ["-UITestExpectedUserId", reviewerUid]
         }
         if let vaultPassphrase = environment["HUSHH_UI_TEST_REVIEWER_VAULT_PASSPHRASE"] ?? environment["REVIEWER_VAULT_PASSPHRASE"],
            !vaultPassphrase.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            app.launchEnvironment["HUSHH_UI_TEST_REVIEWER_VAULT_PASSPHRASE"] = vaultPassphrase
+            app.launchArguments += ["-UITestVaultPassphrase", vaultPassphrase]
         }
         app.launch()
         return app

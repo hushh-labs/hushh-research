@@ -45,7 +45,7 @@ let baselineConversationIds = new Set();
 const recap = fs.readFileSync(fixturePath, "utf8");
 
 try {
-  session = await reviewer.openSession(browser, "/agent");
+  session = await reviewer.openSession(browser, "/");
   const { page } = session;
   ownerToken = await session.capture.ownerToken();
   const conversationIds = async () => {

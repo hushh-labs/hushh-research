@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mockTransport = vi.hoisted(() => ({
   runAgent: vi.fn(),
   outcome: "success" as "success" | "interrupt",
+  emitEvents: null as null | ((subscriber: Record<string, (input: any) => void>) => void),
 }));
 
 vi.mock("@ag-ui/client", () => ({
@@ -12,6 +13,9 @@ vi.mock("@ag-ui/client", () => ({
     async runAgent(parameters: unknown, subscriber: Record<string, (input: any) => void>) {
       mockTransport.runAgent(parameters, this.config);
       subscriber.onRunStartedEvent?.({ event: { type: "RUN_STARTED" } });
+      if (mockTransport.emitEvents) {
+        mockTransport.emitEvents(subscriber);
+      }
       subscriber.onTextMessageContentEvent?.({
         event: { type: "TEXT_MESSAGE_CONTENT", messageId: "m1", delta: "Hello" },
       });
@@ -61,12 +65,14 @@ import {
   formatAgentChatErrorMessage,
   streamAgentChat,
   streamAgentIntro,
+  type SpecialistDirectiveEvent,
 } from "@/lib/services/agent-chat-client";
 
 describe("AG-UI Agent One client", () => {
   beforeEach(() => {
     mockTransport.runAgent.mockClear();
     mockTransport.outcome = "success";
+    mockTransport.emitEvents = null;
   });
 
   it("uses the canonical endpoint and official run fields", async () => {
@@ -135,6 +141,60 @@ describe("AG-UI Agent One client", () => {
 
     expect(onInterrupt).toHaveBeenCalledWith({ conversationId: "thread-hitl" });
     expect(onComplete).not.toHaveBeenCalled();
+  });
+
+  it("emits onSpecialistDirective when a pending directive arrives via state delta", async () => {
+    mockTransport.emitEvents = (subscriber) => {
+      subscriber.onStateDeltaEvent?.({
+        event: {
+          type: "STATE_DELTA",
+          delta: [
+            {
+              op: "add",
+              path: "/hussh:pending_directive:calendar",
+              value: {
+                kind: "action",
+                delegateAgentId: "agent_calendar",
+                payload: {
+                  type: "calendar.execute_proposal",
+                  proposalId: "gcal_test_123",
+                  summary: "Schedule 'Study Session'",
+                  confirmLabel: "Schedule",
+                },
+              },
+            },
+          ],
+        },
+      });
+    };
+
+    const directives: SpecialistDirectiveEvent[] = [];
+    await streamAgentChat({
+      userId: "user-1",
+      message: "Schedule a study session",
+      conversationId: "thread-directive",
+      vaultOwnerToken: "owner-token",
+      handlers: {
+        onSpecialistDirective: (directive) => directives.push(directive),
+      },
+    });
+
+    expect(directives).toEqual([
+      {
+        delegateAgentId: "agent_calendar",
+        directive: {
+          kind: "action",
+          payload: {
+            type: "calendar.execute_proposal",
+            proposalId: "gcal_test_123",
+            summary: "Schedule 'Study Session'",
+            confirmLabel: "Schedule",
+          },
+        },
+        message: "Schedule 'Study Session'",
+        stateChanged: true,
+      },
+    ]);
   });
 });
 

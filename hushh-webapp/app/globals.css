@@ -594,6 +594,12 @@ textarea {
   --app-radius-md: 14px;
   --app-radius-lg: 18px;
   --app-radius-pill: 9999px;
+  /* Direct-entry controls use a capsule silhouette. Compound controls keep
+     their inner input corners square and inherit this radius on the shell. */
+  --app-input-radius: var(--app-radius-pill);
+  --app-form-field-gap: 6px;
+  --app-form-section-gap: 16px;
+  --app-form-related-gap: 4px;
 
   /* Shadow elevation scale — Apple iCloud single-shadow model */
   --theme-color-fillSecondary: rgba(120, 120, 128, 0.36);
@@ -866,7 +872,22 @@ textarea {
   --data-table-cell-px: 12px;
   --data-table-cell-py: 10px;
 
-  /* Motion tokens (GSAP + CSS). Change once to retune the whole app. */
+  /* Motion tokens (GSAP + CSS). Change once to retune the whole app.
+   *
+   * NOT retuned, deliberately, though the app does read as slow. Dropping this
+   * scale ~30% made components/vault/vault-flow.tsx re-fire a cancelled web
+   * passkey prompt on remount: with these values the guard holds for at least
+   * 300ms, with the faster ones a second navigator.credentials.get went out
+   * inside 20ms. A 30% duration change cannot account for a 15x timing shift,
+   * so something here is coupled to these values in a way nobody has traced.
+   *
+   * The sluggishness had a larger and better-understood cause, now fixed: the
+   * page-enter reveal staggered 14ms PER ELEMENT across up to 140 of them,
+   * a ~2s tail. See lib/morphy-ux/hooks/use-page-enter.ts.
+   *
+   * Retune this only after the passkey coupling is understood. Shipping a
+   * duplicate passkey prompt to make screens feel quicker is not a trade worth
+   * making. */
   --motion-duration-xs: 120ms;
   --motion-duration-sm: 180ms;
   --motion-duration-md: 240ms;
@@ -901,8 +922,8 @@ textarea {
    * gentler than overlays so navigation feels graceful, not abrupt. The exit
    * eases out softly and the enter glides in with a long decelerate. Keep the
    * JS beats in use-route-transition.ts in sync with these values. */
-  --motion-route-exit-duration: 300ms;
-  --motion-route-enter-duration: 360ms;
+  --motion-route-exit-duration: 120ms;
+  --motion-route-enter-duration: 160ms;
   --motion-route-exit-ease: cubic-bezier(0.4, 0, 0.2, 1);
   --motion-route-enter-ease: cubic-bezier(0.16, 0.84, 0.28, 1);
 
@@ -1108,9 +1129,9 @@ textarea {
   --app-screen-background: #000000;
   --app-grouped-background: #000000;
   --one-launcher-background: var(--background);
-  --app-primary-surface: #1c1c1e;
-  --app-secondary-surface: #2c2c2e;
-  --app-elevated-surface: #2c2c2e;
+  --app-primary-surface: #0a0a0c;
+  --app-secondary-surface: #121215;
+  --app-elevated-surface: #141418;
   --app-label: #f5f5f7;
   --app-secondary-label: rgba(235, 235, 245, 0.72);
   --app-section-label: rgba(235, 235, 245, 0.72);
@@ -1118,8 +1139,8 @@ textarea {
   --app-quaternary-label: rgba(235, 235, 245, 0.18);
   --app-separator: rgba(84, 84, 88, 0.65);
   --app-opaque-separator: #38383a;
-  --app-neutral-fill: #2c2c2e;
-  --app-neutral-fill-strong: #3a3a3c;
+  --app-neutral-fill: rgba(255, 255, 255, 0.06);
+  --app-neutral-fill-strong: rgba(255, 255, 255, 0.10);
   --app-icon-tile-background: #636366;
   --app-icon-tile-foreground: #ffffff;
   --app-destructive: #ff453a;
@@ -1176,15 +1197,12 @@ textarea {
   --app-people-fg: #ffffff;
 
   --app-focus-ring: rgba(10, 132, 255, 0.3);
-  --app-glass-surface: rgba(28, 28, 30, 0.78);
+  --app-glass-surface: rgba(10, 10, 13, 0.88);
   --app-glass-border: rgba(84, 84, 88, 0.65);
   --app-glass-shadow: 0 12px 32px -24px rgba(0, 0, 0, 0.85);
-  /* Dark Profile aliases — same rule as the light block above. The literals
-   * here were the visible dark-mode divergence: a pure #000 canvas with
-   * #1c1c1e cards, where every One Location screen uses the shared
-   * --app-card-surface-default-solid (#2c2c2e) on the app canvas. */
+  /* Dark Profile aliases — same rule as the light block above. */
   --ios-account-screen-background: var(--background, #000000);
-  --ios-account-card-background: var(--app-card-surface-default-solid, #1c1c1e);
+  --ios-account-card-background: var(--app-card-surface-default-solid, #0a0a0c);
   --ios-account-label: var(--foreground, #ffffff);
   --ios-account-secondary-label: var(--muted-foreground, #98989d);
   --ios-account-tertiary-label: #636366;
@@ -1198,12 +1216,12 @@ textarea {
     #636366
   );
   --ios-account-utility-icon-glyph: var(--app-icon-tile-foreground, #ffffff);
-  --ios-account-service-icon-tile-background: #3a3a3c;
+  --ios-account-service-icon-tile-background: #1c1c20;
   --ios-account-service-icon-glyph: #ffffff;
   --ios-account-accent: var(--app-accent, #0a84ff);
   --ios-account-destructive: var(--app-destructive, #ff453a);
   --ios-account-on-accent: #ffffff;
-  --ios-account-nav-material-background: rgba(28, 28, 30, 0.82);
+  --ios-account-nav-material-background: rgba(10, 10, 13, 0.90);
   --ios-account-nav-material-border: rgba(84, 84, 88, 0.65);
 }
 
@@ -1689,6 +1707,13 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
   padding-bottom: 0;
 }
 
+/* The sheet header owns the outer divider. Give the embedded Profile root the
+ * same canonical header-to-content rhythm as a route-level page; pushed pane
+ * screens already receive this gap from ProfileStackNavigator. */
+.profile-home-screen--pane {
+  padding-top: var(--page-header-section-gap);
+}
+
 /* Measure is owned by AppPageShell (width="reading" → 720px) so the Profile
  * root, the pushed Profile screens, and the One Location screens all share one
  * column. These used to re-cap themselves at 520px, which made Profile a
@@ -2097,6 +2122,42 @@ body:has(.profile-account-content)
   );
 }
 
+/* The canonical root Chat surface owns the text composer, so it does not
+ * need the larger separation used by embedded agent surfaces above a voice
+ * launcher. Keep a small, safe-area-aware breathing space before the shared
+ * bottom navigation without changing the geometry of other routes. */
+.agent-chat-workspace[data-agent-chat-route="root"] {
+  /* The workspace owns its single, symmetrical top header below the fixed ambient mask.
+   * Safe top respects device notch/island without adding artificial offset on desktop. */
+  --agent-chat-header-safe-top: var(
+    --app-safe-area-top-effective,
+    0px
+  );
+  --agent-chat-composer-bottom: max(
+    calc(0.5rem + var(--app-safe-area-bottom-effective)),
+    calc(var(--agent-chat-keyboard-inset) + 0.5rem)
+  );
+  --agent-chat-composer-focused-bottom: max(
+    calc(0.75rem + var(--app-safe-area-bottom-effective)),
+    calc(var(--agent-chat-keyboard-inset) + 0.5rem)
+  );
+}
+
+/* Chat's text composer remains always visible in the viewport. It adapts
+ * position smoothly relative to the bottom chrome without ever translating
+ * out of the viewport (var(--bottom-nav-travel, 0px) travel is bounded). */
+.agent-chat-workspace[data-agent-chat-route="root"]
+  [data-agent-chat-composer-form="root"] {
+  transform: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agent-chat-workspace[data-agent-chat-route="root"]
+    [data-agent-chat-composer-form="root"] {
+    transform: none;
+  }
+}
+
 html.native-keyboard-inset .agent-chat-workspace {
   --agent-chat-keyboard-inset: var(--kb-height, 0px);
 }
@@ -2158,20 +2219,6 @@ html.kb-open .ambient-chrome-mask--bottom {
   opacity: 0;
   pointer-events: none;
   transition: opacity 150ms ease;
-}
-
-/* The 🤫 brand mark. Every surface that renders it — top bar, sidebar, intro
-   gate, onboarding — goes through this class so the glyph is chosen the same
-   way everywhere instead of per-component inline stacks (only the top bar had
-   one) or the ambient product font. Pinning it here also survives a component
-   that sets its own font-family on the mark's ancestor. Note the artwork is
-   still the platform's: Apple's shushing face on macOS/iOS, Segoe's on
-   Windows, Noto's elsewhere. Identical artwork on every OS would need a drawn
-   asset — Apple Color Emoji itself is not redistributable. */
-.hushh-brand-mark {
-  font-family: var(--font-app-emoji), emoji;
-  /* Emoji are presentational here; keep them from being read as text. */
-  font-variant-emoji: emoji;
 }
 
 .app-page-shell {
@@ -2351,6 +2398,13 @@ body:has([data-one-launcher-root="true"]) .foundation-public-ambient {
   height: var(--app-top-content-offset);
   flex-shrink: 0;
   pointer-events: none;
+}
+
+/* Location owns a compact module header rather than a large route hero. Keep
+ * the shared shell reservation, but give this route the 24px breathing room
+ * the actual utility row needs instead of an empty band below it. */
+body:has([data-location-hub]) [data-app-shell-top-spacer="true"] {
+  height: calc(var(--app-top-content-offset) - 24px);
 }
 
 /* Activity is a shell extension, not a separate black canvas. Its mobile sheet
@@ -3027,9 +3081,8 @@ body:has([data-testid="one-location-onboarding"])
   }
 }
 
-/* Agent bar edge glow: a STILL soft gold gradient rim (no idle spin). It only
-   comes alive (a gentle breathing brighten) while a live voice conversation is
-   active, so motion always MEANS something. */
+/* Agent bar edge glow: a still soft gold gradient rim. It brightens only while
+   Talk to One is capturing or processing a command. */
 .one-bar-aurora {
   position: absolute;
   inset: -6px;
@@ -3690,15 +3743,15 @@ body:has([data-testid="one-location-onboarding"])
 
   --background: #000000;
   --foreground: #f5f5f7;
-  --card: #1c1c1e;
+  --card: #0a0a0c;
   --card-foreground: #f5f5f7;
-  --popover: #1c1c1e;
+  --popover: #0a0a0c;
   --popover-foreground: #f5f5f7;
   --primary: #f5f5f7;
   --primary-foreground: #000000;
-  --secondary: #2c2c2e;
+  --secondary: #141418;
   --secondary-foreground: #f5f5f7;
-  --muted: #2c2c2e;
+  --muted: #141418;
   --muted-foreground: rgba(235, 235, 245, 0.72);
   --accent: var(--app-accent);
   --accent-foreground: var(--app-accent-fg);
@@ -3710,7 +3763,7 @@ body:has([data-testid="one-location-onboarding"])
   --critical-soft-border: oklch(0.6 0.15 24);
   --critical-soft-text: oklch(0.79 0.13 24);
   --border: rgba(84, 84, 88, 0.65);
-  --input: #2c2c2e;
+  --input: #141418;
   --ring: var(--app-accent-ring);
   /* iOS shifts systemGreen brighter in dark mode and darkens the off-track;
      the thumb stays white in both appearances. */
@@ -4846,22 +4899,39 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
   box-shadow: 0 11px 34px 0 var(--theme-color-boxShadow);
 }
 
-/* Flat bottom nav surface: outer material only. Selection is color, not a
-   separate filled pill or enlarged tab. */
+/* Persistent bottom chrome uses two distinct, shared-material pills: the
+   voice bar and the navigation bar. Keep their geometry separate so the
+   controls read as bars rather than one oversized card. */
 .bottom-chrome-surface,
 .kai-bottom-nav-pill {
   color: var(--foreground);
-  border: 0.5px solid rgba(60, 60, 67, 0.18) !important;
-  background: rgba(255, 255, 255, 0.78) !important;
-  box-shadow: none !important;
+  border: 0.5px solid rgba(0, 0, 0, 0.08) !important;
+  background: rgba(255, 255, 255, 0.96) !important;
+  box-shadow: 0 10px 30px -8px rgba(0, 0, 0, 0.08), 0 1px 3px rgba(0, 0, 0, 0.04) !important;
   -webkit-backdrop-filter: blur(24px) saturate(160%);
   backdrop-filter: blur(24px) saturate(160%);
 }
 
 .dark .bottom-chrome-surface,
 .dark .kai-bottom-nav-pill {
-  border-color: rgba(84, 84, 88, 0.58) !important;
-  background: rgba(28, 28, 30, 0.78) !important;
+  border-color: rgba(255, 255, 255, 0.12) !important;
+  background: rgba(10, 10, 13, 0.94) !important;
+  box-shadow: 0 12px 36px -4px rgba(0, 0, 0, 0.85), 0 2px 6px rgba(0, 0, 0, 0.5) !important;
+}
+
+/* Reduced motion keeps the shell present and keyboard-safe, but removes the
+   scroll-driven hide transform and all control transitions from this shared
+   surface. */
+@media (prefers-reduced-motion: reduce) {
+  [data-bottom-shell-motion-stack] {
+    transform: translate3d(0, calc(var(--kb-height, 0px) * -1), 0) !important;
+  }
+
+  [data-bottom-shell-motion-stack],
+  [data-bottom-shell-motion-stack] * {
+    animation: none !important;
+    transition: none !important;
+  }
 }
 
 .kai-bottom-nav-pill [data-segment-indicator] {
@@ -5847,19 +5917,16 @@ html[data-accent="gold"].dark {
  * link clicks, sets `data-route-transition` on <html>, fades the current page
  * out, then pushes the route. The incoming page fades in via the same tokens.
  *
- *   pending  → outgoing page fades + lifts away (exit, accelerate)
- *   entering → incoming page fades + settles in (enter, decelerate)
+ *   pending  → outgoing page fades away (exit)
+ *   entering → incoming page fades in (enter)
  *
  * The envelope is the existing app shell content node, so no extra wrapper is
- * introduced. Only opacity/transform animate → GPU-composited, 60fps.
+ * introduced. The route envelope animates opacity only.
  * ========================================================================== */
 :root[data-route-transition="pending"] [data-app-shell-content="true"] {
   opacity: 0;
-  transform: translateY(6px);
-  transition:
-    opacity var(--motion-route-exit-duration) var(--motion-route-exit-ease),
-    transform var(--motion-route-exit-duration) var(--motion-route-exit-ease);
-  will-change: opacity, transform;
+  transition: opacity var(--motion-route-exit-duration) var(--motion-route-exit-ease) 0ms;
+  will-change: opacity;
 }
 
 /* Enter is opacity-only here so it never fights the GSAP enter (which owns the
@@ -5940,7 +6007,7 @@ body[data-persona-surface="ria"] {
   --ria-cta-height: 3.5rem;
   --ria-cta-shadow: 0 8px 18px var(--morphy-cta-shadow);
   --ria-secondary-border: var(--app-accent-border);
-  --ria-input-radius: var(--app-radius-lg);
+  --ria-input-radius: var(--app-input-radius);
   --ria-input-height: 3.75rem;
   --ria-card-radius: var(--app-card-radius-standard);
   --ria-chip-radius: var(--app-radius-md);
@@ -6212,41 +6279,6 @@ body[data-persona-surface="ria"] {
   line-height: var(--type-section-label-line) !important;
   opacity: 1 !important;
   text-transform: none !important;
-}
-
-:is(.ui-text-section-label-compact) {
-  font-size: var(--type-section-label-compact-size) !important;
-  font-weight: var(--type-section-label-compact-weight) !important;
-  line-height: var(--type-section-label-compact-line) !important;
-}
-
-@layer base {
-  /* Compact app workspaces use a fixed hierarchy instead of the fluid document
- * heading ladder. The old `.app-page-shell [aria-level="2"]` rule had greater
- * specificity than the semantic compact classes, so a SettingsGroup asked for
- * a 14px list heading and still rendered at title-3 size (20-22px). Keep this
- * after the semantic role rules and scope it to compact app/list surfaces. */
-  .app-page-shell[data-app-density="compact"]
-    :is(
-      .ui-text-large-page-title,
-      .ui-text-page-title,
-      .ui-text-agent-title,
-      .ui-text-identity-name
-    ) {
-    font-size: var(--type-page-title-size) !important;
-    line-height: var(--type-page-title-line) !important;
-  }
-
-  .app-page-shell[data-app-density="compact"] .ui-text-section-label-compact,
-  .app-page-shell[data-app-density="compact"]
-    [data-settings-density="compact"]
-    [data-slot="settings-group-heading"] {
-    font-family: var(--font-app-body) !important;
-    font-size: var(--type-section-label-compact-size) !important;
-    font-weight: var(--type-section-label-compact-weight) !important;
-    letter-spacing: normal !important;
-    line-height: var(--type-section-label-compact-line) !important;
-  }
 }
 
 :is(
@@ -6596,4 +6628,54 @@ body[data-persona-surface="ria"] {
 [data-testid="settings-row"][data-tone="destructive"]
   [data-slot="settings-row-title"] {
   color: var(--app-destructive) !important;
+}
+
+/* One Live Voice dock: the conversation panel rises from the pill, the level
+   bars ease between frames, a partial transcript line breathes while the
+   words are still arriving. All of it is switched off under reduced motion;
+   the pill then shows a static level bar instead of the waveform. */
+@keyframes one-voice-panel-enter {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes one-voice-partial-breathe {
+  0%,
+  100% {
+    opacity: 0.72;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+.one-voice-panel-enter {
+  animation: one-voice-panel-enter var(--motion-duration-md, 240ms)
+    var(--motion-ease-decelerate, cubic-bezier(0, 0, 0.2, 1)) both;
+}
+
+.one-voice-level-fill {
+  transition: width var(--motion-duration-xs, 120ms)
+    var(--motion-ease-standard, cubic-bezier(0.2, 0, 0, 1));
+}
+
+.one-voice-transcript-partial {
+  animation: one-voice-partial-breathe 1.6s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .one-voice-panel-enter,
+  .one-voice-transcript-partial {
+    animation: none !important;
+  }
+
+  .one-voice-level-fill {
+    transition: none !important;
+  }
 }

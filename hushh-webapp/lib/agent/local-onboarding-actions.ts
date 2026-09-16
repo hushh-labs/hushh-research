@@ -18,6 +18,7 @@
  */
 
 import { useEffect, useRef, useSyncExternalStore } from "react";
+import type { PrivateCheckInDraft } from "@/lib/one-location/command-private-check-in";
 
 export type LocalOnboardingActionResult = {
   status: "started" | "succeeded" | "blocked" | "failed";
@@ -30,14 +31,75 @@ export type LocalOnboardingActionResult = {
 
 /**
  * Execution-only gateway context. This is deliberately separate from
- * model-resolved slots: it carries correlation metadata, never owner
- * information or provider credentials.
+ * model-resolved slots. Personal continuation stays client-owned and enters
+ * only the owner-vault-encrypted capsule, never model or server preparation.
  */
 export type LocalOnboardingActionContext = {
+  continuation?: LocalActionContinuation;
+  privateContinuation?: PrivateCheckInDraft;
+  /** Prevent starting an effect after cancellation; never implies rollback. */
+  signal?: AbortSignal;
+  /** Stable command operation identity, passed to idempotent owning services. */
+  operationId?: string;
+  chosenResourceId?: string;
+  preparedBinding?: Record<string, unknown>;
+  resolvedResources?: LocalActionResources;
+  confirmedAt?: string;
   directiveId?: string | null;
   /** One-use token minted by the visible in-app confirmation card. */
   humanConfirmationToken?: string | null;
 };
+
+/** Non-authorizing locators from correlated service outcomes, re-read by prepare. */
+export type LocalActionResources = Record<string, Array<{ kind: "circle" | "person" | "place"; id: string; sourceStep?: number; operationId?: string }>>;
+
+/** Receipt indices describe completed work; they confer no execution authority. */
+export type LocalActionContinuation = {
+  kind: "audience" | "membership";
+  operationId: string;
+  totalUnits: number;
+  completedUnitIndices: number[];
+  pendingUnitIndices: number[];
+  originalBinding: Record<string, unknown>;
+};
+
+export type LocalActionPreparation =
+  | { status: "ready"; binding: Record<string, unknown>; summary: string; privateContinuation?: PrivateCheckInDraft }
+  /** A real platform limitation opens the authored review once, without a retry gate. */
+  | { status: "simulate"; summary: string }
+  | {
+      status: "blocked";
+      summary: string;
+      gate: "input" | "permission" | "navigation";
+      route?: string;
+      /** Keep the authored review open; only a subsequent Continue rechecks it. */
+      waitForUser?: boolean;
+      /** Exact read-resolved choice, encrypted before leaving for a prerequisite. */
+      resolvedChoiceId?: string;
+      choices?: Array<{ id: string; label: string; detail?: string }>;
+    };
+export type LocalActionPreparer = (
+  slots: Record<string, unknown>,
+  chosenResourceId?: string,
+  resources?: LocalActionResources,
+  continuation?: LocalActionContinuation,
+  privateContinuation?: PrivateCheckInDraft,
+) => LocalActionPreparation | Promise<LocalActionPreparation>;
+
+/** Stable comparison of an owner-prepared resource, including nested selection. */
+export function canonicalActionBinding(value: unknown): string {
+  if (Array.isArray(value))
+    return `[${value.map(canonicalActionBinding).join(",")}]`;
+  if (value && typeof value === "object")
+    return `{${Object.entries(value)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(
+        ([key, item]) =>
+          `${JSON.stringify(key)}:${canonicalActionBinding(item)}`,
+      )
+      .join(",")}}`;
+  return JSON.stringify(value) ?? "null";
+}
 
 export type LocalOnboardingActionHandler = (
   slots: Record<string, unknown>,
@@ -48,6 +110,7 @@ type MountedLocalActionHandler = {
   ownerId: string;
   sequence: number;
   handler: LocalOnboardingActionHandler;
+  prepare?: LocalActionPreparer;
 };
 
 const handlers = new Map<string, Map<string, MountedLocalActionHandler>>();
@@ -74,11 +137,17 @@ export function registerMountedLocalActionHandler(
   actionId: string,
   ownerId: string,
   handler: LocalOnboardingActionHandler,
+  prepare?: LocalActionPreparer,
 ) {
   const owners =
     handlers.get(actionId) ?? new Map<string, MountedLocalActionHandler>();
   registrationSequence += 1;
-  owners.set(ownerId, { ownerId, sequence: registrationSequence, handler });
+  owners.set(ownerId, {
+    ownerId,
+    sequence: registrationSequence,
+    handler,
+    prepare,
+  });
   handlers.set(actionId, owners);
   emitHandlerChange();
 }
@@ -123,6 +192,21 @@ export function resolveLocalOnboardingHandler(
   );
 }
 
+export async function prepareLocalOnboardingAction(
+  actionId: string,
+  slots: Record<string, unknown>,
+  chosenResourceId?: string,
+  resources?: LocalActionResources,
+  continuation?: LocalActionContinuation,
+  privateContinuation?: PrivateCheckInDraft,
+): Promise<LocalActionPreparation | null> {
+  const owners = handlers.get(actionId);
+  const owner =
+    owners &&
+    Array.from(owners.values()).sort((a, b) => b.sequence - a.sequence)[0];
+  return owner?.prepare ? owner.prepare(slots, chosenResourceId, resources, continuation, privateContinuation) : null;
+}
+
 export function hasMountedLocalOnboardingHandler(actionId: string): boolean {
   return resolveLocalOnboardingHandler(actionId) !== null;
 }
@@ -140,7 +224,7 @@ export function useLocalOnboardingHandlerRevision(): number {
 }
 
 /**
- * A Live directive can arrive in the small window between route paint and a
+ * A directive can arrive in the small window between route paint and a
  * component's effect registration. Wait briefly for that route-local handler
  * instead of falsely reporting that a visible control is unavailable.
  */
@@ -167,28 +251,65 @@ export async function waitForLocalOnboardingHandler(
 export function useLocalOnboardingActionHandler(
   actionId: string,
   handler: LocalOnboardingActionHandler,
-  options: { enabled?: boolean } = {},
+  options: { enabled?: boolean; prepare?: LocalActionPreparer } = {},
 ) {
   const ownerIdRef = useRef(
     `local_action_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
   );
   const handlerRef = useRef(handler);
+  const prepareRef = useRef(options.prepare);
   // Refs must not be written during render (react-hooks/refs); keep the ref
   // fresh in an effect instead so the registered handler below never closes
   // over a stale `handler` without needing `handler` itself in the
   // registration effect's dependency array.
   useEffect(() => {
     handlerRef.current = handler;
+    prepareRef.current = options.prepare;
   });
 
+  const hasPreparation = Boolean(options.prepare);
   useEffect(() => {
     if (options.enabled === false) return;
-    const stableHandler: LocalOnboardingActionHandler = (slots, context) =>
-      handlerRef.current(slots, context);
+    const stableHandler: LocalOnboardingActionHandler = async (
+      slots,
+      context,
+    ) => {
+      if (context?.preparedBinding) {
+        const current = await prepareRef.current?.(
+          slots,
+          context.chosenResourceId,
+          context.resolvedResources,
+          context.continuation,
+          context.privateContinuation,
+        );
+        if (
+          current?.status !== "ready" ||
+          canonicalActionBinding(current.binding) !==
+            canonicalActionBinding(context.preparedBinding)
+        ) {
+          return {
+            status: "blocked",
+            summary:
+              "The selected information changed. Review the action again.",
+          };
+        }
+      }
+      if (context?.signal?.aborted) {
+        return { status: "failed", summary: "Action was interrupted." };
+      }
+      return handlerRef.current(slots, context);
+    };
     const ownerId = ownerIdRef.current;
-    registerMountedLocalActionHandler(actionId, ownerId, stableHandler);
+    registerMountedLocalActionHandler(
+      actionId,
+      ownerId,
+      stableHandler,
+      hasPreparation
+        ? (slots, choice, resources, continuation, privateContinuation) => prepareRef.current!(slots, choice, resources, continuation, privateContinuation)
+        : undefined,
+    );
     return () => {
       unregisterMountedLocalActionHandler(actionId, ownerId);
     };
-  }, [actionId, options.enabled]);
+  }, [actionId, options.enabled, hasPreparation]);
 }

@@ -19,6 +19,7 @@ const mocks = vi.hoisted(() => {
       value: "web",
     },
     routerPush: vi.fn(),
+    pathname: "/one/location",
     initializeFCM: vi.fn(),
     prepareFCMListeners: vi.fn(),
     getState: vi.fn(),
@@ -30,7 +31,7 @@ const mocks = vi.hoisted(() => {
 });
 
 vi.mock("next/navigation", () => ({
-  usePathname: () => "/settings",
+  usePathname: () => mocks.pathname,
   useRouter: () => ({ push: mocks.routerPush, replace: vi.fn() }),
   useSearchParams: () => new URLSearchParams(),
 }));
@@ -164,6 +165,7 @@ beforeEach(() => {
   CacheService.getInstance().clear();
   vi.clearAllMocks();
   mocks.auth.user = mocks.user;
+  mocks.pathname = "/one/location";
   mocks.platform.native = false;
   mocks.platform.value = "web";
   mocks.prepareFCMListeners.mockResolvedValue(undefined);
@@ -205,6 +207,15 @@ describe("global One Location Feed-first notification policy", () => {
       "firebase-token",
       { requestPermission: true },
     );
+  });
+
+  it("defers full Location reconciliation until the Location workspace opens", async () => {
+    mocks.pathname = "/one/pkm";
+    renderProvider();
+
+    await waitFor(() => expect(mocks.initializeFCM).toHaveBeenCalledTimes(1));
+    await act(async () => Promise.resolve());
+    expect(mocks.getState).not.toHaveBeenCalled();
   });
 
   it("records one Feed item without popup UI for duplicate routine pushes", async () => {

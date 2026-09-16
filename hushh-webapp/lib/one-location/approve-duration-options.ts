@@ -1,4 +1,16 @@
-import type { OneLocationAccessRequest } from "@/lib/one-location/types";
+import type { OneLocationAccessRequest, OneLocationShareDurationMode } from "@/lib/one-location/types";
+
+/** Shared by the approval effect and the command's exact confirmation binding. */
+export function resolveRequestApprovalDuration(
+  request: Pick<OneLocationAccessRequest, "requestedDurationHours" | "requestedDurationMode">,
+  fallbackHours: number,
+): { hours: number; mode: OneLocationShareDurationMode } {
+  const requested = Number(request.requestedDurationHours);
+  return {
+    hours: Number.isFinite(requested) && requested > 0 ? requested : fallbackHours,
+    mode: request.requestedDurationMode === "until_stopped" ? "until_stopped" : "timed",
+  };
+}
 
 /**
  * The shorter amounts an owner may approve an incoming request for.

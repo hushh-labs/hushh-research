@@ -82,6 +82,9 @@ export function SegmentedTabs({
         return (
           <button
             key={option.value}
+            ref={(node) => {
+              tabRefs.current[index] = node;
+            }}
             type="button"
             role="tab"
             aria-label={option.accessibleLabel}
@@ -92,16 +95,18 @@ export function SegmentedTabs({
             onClick={() => {
               if (!disabled && !isActive) onValueChange(option.value);
             }}
-            ref={(node) => {
-              tabRefs.current[index] = node;
-            }}
             onKeyDown={(event: KeyboardEvent<HTMLButtonElement>) => {
               if (disabled || options.length < 2) return;
               let nextIndex: number | null = null;
-              if (event.key === "ArrowRight") nextIndex = (index + 1) % options.length;
-              else if (event.key === "ArrowLeft") nextIndex = (index - 1 + options.length) % options.length;
-              else if (event.key === "Home") nextIndex = 0;
-              else if (event.key === "End") nextIndex = options.length - 1;
+              if (event.key === "ArrowRight") {
+                nextIndex = (index + 1) % options.length;
+              } else if (event.key === "ArrowLeft") {
+                nextIndex = (index - 1 + options.length) % options.length;
+              } else if (event.key === "Home") {
+                nextIndex = 0;
+              } else if (event.key === "End") {
+                nextIndex = options.length - 1;
+              }
               if (nextIndex === null) return;
               event.preventDefault();
               const next = options[nextIndex];

@@ -17,36 +17,59 @@ describe("app shell bottom-clearance contract", () => {
     expect(source).not.toContain(
       "const bottomChromeHidden = hidesPersistentChrome || focusedLocationSmsFlow;",
     );
-    expect(source).toContain("const focusedSosChromeFlow =");
+    expect(source).toContain("const focusedLocationBottomTask =");
     expect(source).toContain("const focusedConnectCircleChromeFlow =");
     expect(source).toContain("isFocusedConnectCircleTask(");
-    expect(source).toContain('"--app-scroll-bottom-pad": hidesPersistentChrome');
+    expect(source).toContain('"--app-scroll-bottom-pad": bottomChromeHidden');
     expect(source).toContain(
-      '"--bottom-chrome-stack-height": effectiveHideCommandBar',
+      '"--bottom-chrome-stack-height": bottomChromeHidden',
     );
     expect(source).toContain(
       '? "var(--app-bottom-shell-height, calc(var(--onboarding-agent-bar-clearance) + 1.5rem))"',
     );
     expect(source).toContain('? "0px"');
-    expect(source).toContain(': isRiaRoute(pathname)');
+    expect(source).toContain(": isRiaRoute(pathname)");
     expect(source).toContain(
       '"calc(var(--onboarding-agent-bar-clearance) + 1.5rem)"',
     );
-    expect(source.match(/pb-\[var\(--app-scroll-bottom-pad,var\(--onboarding-agent-bar-clearance\)\)\]/g)).toHaveLength(2);
+    expect(
+      source.match(
+        /pb-\[var\(--app-scroll-bottom-pad,var\(--onboarding-agent-bar-clearance\)\)\]/g,
+      ),
+    ).toHaveLength(2);
+  });
+
+  it("gives focused Location terminal actions the bottom edge without stale shell clearance", () => {
+    expect(source).toContain(
+      "const focusedLocationBottomTask = isFocusedLocationBottomTask(",
+    );
+    expect(source).toContain(
+      "hidesPersistentChrome ||\n    focusedLocationBottomTask ||",
+    );
+    expect(source).toContain(
+      '"--bottom-chrome-stack-height": bottomChromeHidden',
+    );
+    expect(source).toContain(
+      '"--bottom-chrome-full-height": bottomChromeHidden',
+    );
+    expect(source).toContain(
+      '"--bottom-chrome-search-height": bottomChromeHidden',
+    );
+    expect(source).toContain('"--app-scroll-bottom-pad": bottomChromeHidden');
   });
 
   it("keeps Agent Bar placement outside the scroll-root layout contract", () => {
     expect(source).not.toContain("<AgentBar bottom=");
     expect(source).toContain("<AppBottomShell model={bottomShellModel} />");
-    expect(source.indexOf("<AppBottomShell model={bottomShellModel} />")).toBeLessThan(
-      source.indexOf("<Suspense"),
-    );
+    expect(
+      source.indexOf("<AppBottomShell model={bottomShellModel} />"),
+    ).toBeLessThan(source.indexOf("<Suspense"));
   });
 
   it("keeps typed search available while focused Location navigation is hidden", () => {
     expect(commandBarSource).not.toContain("focusedLocationSmsFlow");
     expect(commandBarSource).toContain(
-      "if (chromeState.hideCommandBar || agentWindowOpen)",
+      "if (chromeState.hideCommandBar)",
     );
   });
 });

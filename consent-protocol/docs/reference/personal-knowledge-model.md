@@ -242,14 +242,17 @@ local saves fail solely because the cloud projection is temporarily unavailable.
 
 ## Private-agent automatic memory saving
 
-Automatic memory saving is an **opt-in, per-vault** preference stored only in the
-encrypted internal runtime-settings domain. It defaults to off. When enabled,
-One may save only backend-approved, medium/high-confidence create or extend
-memories with no active sharing recipients. Low-confidence, ambiguous,
-duplicate, new-domain, corrective, deletion, financial-normalization, and
-shared-memory changes remain review-first. Each automatic write carries an
-`owner_auto_save_policy` receipt that records the enabled policy version rather
-than claiming that the owner reviewed that individual memory.
+Automatic memory saving is a **per-vault** preference stored only in the
+encrypted internal runtime-settings domain. The product default is enabled, and
+an owner can disable it. When enabled, One may save only backend-approved
+create or extend memories with no active sharing recipients.
+Low-confidence, ambiguous, duplicate, new-domain, corrective, deletion,
+financial-normalization, secret, government-ID, and shared-memory candidates
+are not written automatically. They are skipped by the chat auto-save path;
+that path must not manufacture a review request or imply that they were saved.
+Each automatic write carries an `owner_auto_save_policy` receipt that records
+the enabled policy version rather than claiming that the owner reviewed that
+individual memory.
 
 KYC onboarding has a separate first-party owner-confirmed path. It requires an
 unlocked private vault before the identity form is shown; an account without a
@@ -262,6 +265,48 @@ recorded as an individual owner confirmation, not as the per-vault automatic
 memory policy above. The submitted KYC step remains complete even if background
 fact organization needs a retry; a transient PKM failure must never reopen KYC
 and make an owner repeat onboarding.
+
+## Information about the person, never application state
+
+The PKM's whole claim is that it holds what is true about someone. Whether that
+person finished a setup wizard is true about the app. The two had been drifting
+into the same store, because the onboarding flow wrote its own progress beside
+the answers it collected.
+
+Measured 2026-09-11 for one person's `financial` domain: twenty-four stored leaf
+values, of which eight were information about anybody. The other sixteen were six
+routing-telemetry rows, five timestamps recording when each answer was given, and
+five wizard checkpoints, one of which had been initialised and never set. All
+twenty-four were being offered to that person as things they could share with
+someone else.
+
+**The rule.** A stored key becomes a declared, requestable path only if it is a
+record about the person. Application state, routing telemetry, and the timestamp
+of an answer are not, and must not reach a catalogue.
+
+**Where it is enforced.** At the manifest walk, which is the moment a stored key
+first becomes a declared path. That is deliberately upstream of display: filtering
+the catalogue stops a person being OFFERED their own checkpoints, but a store that
+holds them is already wrong even if nothing renders them.
+
+**How the two sides agree.** `contracts/pkm/internal-path-keys.v1.json` is one
+hand-authored truth table read by both implementations,
+`hushh-webapp/lib/pkm/internal-path-keys.ts` and
+`hushh_mcp/consent/internal_path_keys.py`. Same precedent as
+`contracts/pkm/segment-humanization.v1.json`, and for the same reason: two
+implementations of one rule drift, a shared table cannot.
+
+**Two near-misses worth remembering**, because each looked correct alone:
+
+1. The catalogue filter already knew `domain_intent` was structural, but compared
+   only the first path segment, so `profile.domain_intent.primary` published
+   freely while `domain_intent` was blocked.
+2. A field initialised to `null` and never written was recorded as
+   exposure-eligible, because the walk returned early only on `undefined`.
+
+**Not yet done:** the cleanup of already-stored records. The rule stops new
+application state entering the model and stops the existing rows being offered;
+evicting what is already stored is an upgrade step that has not run.
 
 ## Storage rules
 

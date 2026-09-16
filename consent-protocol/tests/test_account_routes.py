@@ -87,6 +87,48 @@ def test_account_session_status_scopes_remote_revocation_check(monkeypatch):
     assert authenticated_uid == "firebase_uid_123"
 
 
+def test_account_session_status_uses_local_uat_liveness_budget(monkeypatch):
+    observed_timeout: float | None = None
+
+    async def _run(*_args, **_kwargs):
+        return "firebase_uid_123"
+
+    async def _wait_for(awaitable, *, timeout: float):
+        nonlocal observed_timeout
+        observed_timeout = timeout
+        return await awaitable
+
+    monkeypatch.setenv("ENVIRONMENT", "development")
+    monkeypatch.setattr(account, "run_in_threadpool", _run)
+    monkeypatch.setattr(account.asyncio, "wait_for", _wait_for)
+
+    authenticated_uid = asyncio.run(account._require_session_status_auth("Bearer firebase-token"))
+
+    assert authenticated_uid == "firebase_uid_123"
+    assert observed_timeout == account._LOCAL_FIREBASE_REVOCATION_CHECK_TIMEOUT_SECONDS
+
+
+def test_account_session_status_keeps_deployed_liveness_budget(monkeypatch):
+    observed_timeout: float | None = None
+
+    async def _run(*_args, **_kwargs):
+        return "firebase_uid_123"
+
+    async def _wait_for(awaitable, *, timeout: float):
+        nonlocal observed_timeout
+        observed_timeout = timeout
+        return await awaitable
+
+    monkeypatch.setenv("ENVIRONMENT", "uat")
+    monkeypatch.setattr(account, "run_in_threadpool", _run)
+    monkeypatch.setattr(account.asyncio, "wait_for", _wait_for)
+
+    authenticated_uid = asyncio.run(account._require_session_status_auth("Bearer firebase-token"))
+
+    assert authenticated_uid == "firebase_uid_123"
+    assert observed_timeout == account._FIREBASE_REVOCATION_CHECK_TIMEOUT_SECONDS
+
+
 def test_account_session_status_performs_one_lifecycle_query(monkeypatch):
     from api.utils import firebase_auth as firebase_auth_module
 

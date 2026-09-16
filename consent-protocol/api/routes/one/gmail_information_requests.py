@@ -29,7 +29,8 @@ class MonitoringPreferenceRequest(BaseModel):
 
 
 class ScanRequest(BaseModel):
-    max_results: int = Field(default=12, ge=1, le=25)
+    max_results: int = Field(default=30, ge=1, le=30)
+    include_recent_inbox: bool = False
 
 
 class EnabledScanRequest(BaseModel):
@@ -162,6 +163,7 @@ def _public_scan_result(result: dict[str, Any]) -> dict[str, Any]:
         "workflow_ids",
         "baseline_established",
         "baseline_reestablished",
+        "retry_pending",
     )
     return {key: result[key] for key in allowed if key in result}
 
@@ -182,12 +184,21 @@ async def get_monitoring_preference(
 async def set_monitoring_preference(
     payload: MonitoringPreferenceRequest,
     firebase_uid: str = Depends(require_firebase_auth),
+    token_data: dict[str, Any] = Depends(require_vault_owner_token),
 ) -> dict[str, Any]:
-    verify_user_id_match(firebase_uid, payload.user_id)
+    user_id = _owner_user_id(firebase_uid=firebase_uid, token_data=token_data)
+    if payload.user_id != user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "code": "PERSONAL_GMAIL_INFORMATION_REQUEST_OWNER_REQUIRED",
+                "message": "Personal Gmail monitoring requires the current vault owner.",
+            },
+        )
     try:
         return cast(
             dict[str, Any],
-            await _service().set_preference(user_id=payload.user_id, enabled=payload.enabled),
+            await _service().set_preference(user_id=user_id, enabled=payload.enabled),
         )
     except Exception as exc:  # noqa: BLE001 - HTTP boundary sanitizes provider/database details
         logger.exception(
@@ -231,9 +242,44 @@ async def scan_information_requests(
     try:
         result = cast(
             dict[str, Any],
-            await _service().scan_recent(user_id=user_id, max_results=payload.max_results),
+            await _service().scan_recent(
+                user_id=user_id,
+                max_results=payload.max_results,
+                include_recent_inbox=payload.include_recent_inbox,
+            ),
         )
         return _public_scan_result(result)
+    except Exception as exc:  # noqa: BLE001 - HTTP boundary sanitizes provider/database details
+        safe_code = (
+            exc.code
+            if isinstance(exc, (PersonalGmailInformationRequestError, GmailApiError))
+            else "PERSONAL_GMAIL_INFORMATION_REQUEST_UNAVAILABLE"
+        )
+        logger.warning(
+            "gmail.personal_information_request.scan_failed code=%s error=%s",
+            safe_code,
+            type(exc).__name__,
+        )
+        raise _as_http_error(exc) from exc
+
+
+@router.post("/{workflow_id}/refresh-candidates")
+async def refresh_information_request_candidates(
+    workflow_id: str,
+    firebase_uid: str = Depends(require_firebase_auth),
+    token_data: dict[str, Any] = Depends(require_vault_owner_token),
+) -> dict[str, Any]:
+    """Refresh metadata-only exact PKM candidates for a still-active request."""
+
+    user_id = _owner_user_id(firebase_uid=firebase_uid, token_data=token_data)
+    try:
+        return cast(
+            dict[str, Any],
+            await _service().refresh_candidate_scopes(
+                user_id=user_id,
+                workflow_id=workflow_id,
+            ),
+        )
     except Exception as exc:  # noqa: BLE001 - HTTP boundary sanitizes provider/database details
         raise _as_http_error(exc) from exc
 

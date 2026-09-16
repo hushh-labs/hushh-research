@@ -121,7 +121,6 @@ async function renderProvider() {
     </ConsentNotificationProvider>,
   );
   await waitFor(() => expect(mocks.initializeFCM).toHaveBeenCalledOnce());
-  await waitFor(() => expect(mocks.getState).toHaveBeenCalled());
   mocks.toast.mockClear();
   mocks.onConsentMutated.mockClear();
   mocks.dispatchConsentStateChanged.mockClear();

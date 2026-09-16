@@ -99,9 +99,12 @@ class MyViewController: CAPBridgeViewController, WKScriptMessageHandler {
         super.viewDidLoad()
 
         // A fresh process starts unshielded. After an inactive transition this
-        // host keeps the native cover above the WebView until the resumed auth
-        // generation explicitly acknowledges validation.
+        // host keeps the native cover above the WebView until the resumed
+        // document explicitly acknowledges that it is ready to be shown.
         HushhSessionPrivacyShield.shared.attach(to: view)
+        HushhSessionPrivacyShield.shared.reloadDocument = { [weak self] in
+            self?.webView?.reload()
+        }
         
         // Disable bounce effect for stable scrolling (fixes iOS layout bounce)
         if let webView = self.webView {
@@ -165,7 +168,7 @@ class MyViewController: CAPBridgeViewController, WKScriptMessageHandler {
         print("   - HushhLocation (Foreground Location)")
         print("   - HushhContacts (Contact Matching)")
         print("   - HushhVoiceInvocation (Siri voice + generated action handoff)")
-        print("   - HushhSessionPrivacy (resume validation privacy shield)")
+        print("   - HushhSessionPrivacy (resume privacy shield)")
         
         // Verify plugins are actually accessible by the bridge
         verifyPluginRegistration()

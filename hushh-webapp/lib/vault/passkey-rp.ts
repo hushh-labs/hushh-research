@@ -73,17 +73,20 @@ function isLikelyIpAddress(value: string | null | undefined): boolean {
 }
 export function resolvePasskeyRpId(options: ResolvePasskeyRpIdOptions): string {
   const explicitRp = normalizeRpHost(process.env.NEXT_PUBLIC_PASSKEY_RP_ID);
-  if (explicitRp) {
-    return explicitRp;
-  }
-
   if (options.isNative) {
-    return CANONICAL_NATIVE_PASSKEY_RP_ID;
+    return explicitRp || CANONICAL_NATIVE_PASSKEY_RP_ID;
   }
 
   const runtimeHost = normalizeRpHost(options.hostname);
   if (runtimeHost) {
+    // Web credentials are bound to the document that is asking for them.
+    // Prefer the exact runtime host over a stale parent-domain build value so
+    // dev/UAT/prod cannot silently share a browser RP after a deploy.
     return runtimeHost;
+  }
+
+  if (explicitRp) {
+    return explicitRp;
   }
 
   if (typeof window !== "undefined") {

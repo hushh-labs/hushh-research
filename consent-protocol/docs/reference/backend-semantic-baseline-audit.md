@@ -28,7 +28,7 @@ Status values:
 | Kai direct Gemini semantic flows | `operons/kai/llm.py` | Direct prompt strings + `generate_content` outside manifest-backed semantic agents | No | No | `drift_or_legacy` | Audit path-by-path; keep domain-specific analysis where needed, but move canonical semantic classification to manifest-backed agents | phase 2 review |
 | Portfolio import | `agents/portfolio_import/*` | Manifest-backed agent shell plus direct Gemini extraction calls inside the agent | Partially | Mixed | `mixed_transitional` | Preserve working extraction, but document it as transitional and move toward explicit structured contract ownership | phase 2 review |
 | PKM evaluation harness | `../../scripts/eval_pkm_structure_agent.py` | Live model matrix + synthetic/shadow replay | Yes | Benchmark logic only | `canonical` | Continue phase-based promotion and latency comparison | ongoing |
-| Global Gemini default | `constants.py` | `gemini-3.1-pro-preview` for general runtime defaults | No, for PKM | N/A | `mixed_transitional` | Keep global default for broad runtime surfaces, but never let PKM classifier inherit it implicitly | immediate doc guard |
+| Global Gemini default | `constants.py` | `GEMINI_MODEL` (the switched fleet Flash model, one of the last two Gemini releases in the catalog) for general runtime defaults | Yes, PKM manifests name `gemini-default` and resolve here | N/A | `canonical` | One switch moves every text agent; the catalog never carries more than two releases | ongoing |
 
 ## Immediate decisions
 

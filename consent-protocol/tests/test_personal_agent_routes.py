@@ -202,6 +202,80 @@ def test_status_fails_safe_to_none(monkeypatch):
     assert resp.json()["state"] == "none"
 
 
+def _update_client(monkeypatch):
+    monkeypatch.setenv("PERSONAL_AGENT_ENABLED", "1")
+    monkeypatch.setenv(
+        "HUSSH_ONE_POD_IMAGE",
+        "gcr.io/hushh-pda-dev/consent-protocol-pod:dev-new",
+    )
+    row = {
+        "user_id": "uid1",
+        "hushh_id": "ha1_owner",
+        "status": "provisioned",
+        "external_agent_id": "service-owner",
+        "backend_metadata": {
+            "source_image": "gcr.io/hushh-pda-dev/consent-protocol-pod:dev-old",
+            "serviceUid": "service-owner",
+        },
+    }
+    calls: dict[str, dict] = {}
+
+    class FakeRepo:
+        async def get(self, user_id):
+            assert user_id == "uid1"
+            return row
+
+        async def record_upgrade_approval(self, *, user_id, approval):
+            calls["approval"] = approval
+            row["backend_metadata"]["upgradeApproval"] = approval
+            return approval
+
+        async def record_upgrade_deferral(self, *, user_id, deferral):
+            calls["deferral"] = deferral
+            row["backend_metadata"]["upgradeDeferral"] = deferral
+            return deferral
+
+    monkeypatch.setattr(pa, "PersonalAgentRegistryRepo", FakeRepo)
+    app = FastAPI()
+    app.include_router(pa.router)
+    app.dependency_overrides[require_firebase_auth] = lambda: "uid1"
+    return TestClient(app), calls
+
+
+def test_update_approval_is_bound_and_idempotent(monkeypatch):
+    client, calls = _update_client(monkeypatch)
+    offer = client.get("/api/one/personal-agent/status").json()["update"]
+    payload = {"releaseId": offer["releaseId"], "idempotencyKey": "idem-1234"}
+
+    first = client.post("/api/one/personal-agent/update/approve", json=payload)
+    second = client.post("/api/one/personal-agent/update/approve", json=payload)
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert first.json() == second.json()
+    assert calls["approval"]["targetImage"].endswith(":dev-new")
+    assert calls["approval"]["hushhId"] == "ha1_owner"
+
+
+def test_update_deferral_is_server_scheduled_and_stale_release_rejected(monkeypatch):
+    client, calls = _update_client(monkeypatch)
+    offer = client.get("/api/one/personal-agent/status").json()["update"]
+
+    stale = client.post(
+        "/api/one/personal-agent/update/defer",
+        json={"releaseId": "rel_stale_release"},
+    )
+    assert stale.status_code == 409
+
+    deferred = client.post(
+        "/api/one/personal-agent/update/defer",
+        json={"releaseId": offer["releaseId"]},
+    )
+    assert deferred.status_code == 200
+    remind_at = deferred.json()["remindAt"]
+    assert calls["deferral"]["remindAt"] == remind_at
+
+
 # --- state vocabulary -------------------------------------------------------
 # Provisioning has real intermediate states, so collapsing everything that is not
 # "provisioned" into "reserved" told the customer something false while their agent

@@ -34,7 +34,7 @@ export function AuthProviderButton({
       onClick={onClick}
       data-voice-control-id={voiceControlId}
       className={cn(
-        "type-headline min-h-[52px] rounded-full border-0 bg-black/[0.05] text-[#1d1d1f] shadow-none [backdrop-filter:none] transition-[background] hover:bg-black/[0.08] dark:bg-white/[0.07] dark:text-[#f5f5f7] dark:hover:bg-white/[0.10]",
+        "type-headline min-h-[60px] rounded-[var(--app-radius-lg)] border border-black/[0.03] bg-white/[0.72] text-[#1d1d1f] shadow-none [backdrop-filter:blur(12px)] transition-[background] hover:bg-white dark:border-white/[0.04] dark:bg-[#1c1c1e] dark:text-[#f5f5f7] dark:hover:bg-[#26262a]",
         className
       )}
     >

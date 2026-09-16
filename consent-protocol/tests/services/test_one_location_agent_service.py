@@ -1804,6 +1804,24 @@ class FourUserMemoryService(OneLocationAgentService):
             )
         self.sms_contacts.add((owner_user_id, contact_user_id))
 
+    def _sms_circle_service(self):
+        return SimpleNamespace(set_sms_contact=self._set_sms_contact)
+
+    def _set_sms_contact(self, *, owner_user_id, contact_user_id, added, operation_id=None):
+        # Transaction adapter only; the real Circle writer has PostgreSQL coverage.
+        assert operation_id is None
+        pair = (owner_user_id, contact_user_id)
+        changed = added != (pair in self.sms_contacts or pair in self.sms_circle_members)
+        if added:
+            self._add_sms_contact_with_locked_eligibility(
+                owner_user_id=owner_user_id, contact_user_id=contact_user_id
+            )
+            self.sms_circle_members.add(pair)
+        else:
+            self.sms_contacts.discard(pair)
+            self.sms_circle_members.discard(pair)
+        return {"changed": changed}
+
     def _seed_sms_circle_member(self, owner_user_id: str, member_user_id: str) -> None:
         """Put someone in the owner's emergency Circle without touching the
         legacy table -- exactly what the Circle detail screen does."""
@@ -2452,6 +2470,12 @@ class FourUserMemoryService(OneLocationAgentService):
         params = params or {}
         if "pg_advisory_xact_lock" in sql:
             return {"locked": None}
+        if "FROM one_location_account_settings" in sql:
+            # Owner-level sharing posture (migration 221). Tests that model an
+            # explicit posture set ``self.account_settings[user_id]``; every
+            # other user is ``unset`` (no row), which changes nothing.
+            row = getattr(self, "account_settings", {}).get(str(params.get("user_id") or ""))
+            return dict(row) if row else None
         if "FROM one_location_auto_approve_preferences" in sql:
             row = self.auto_approve_preferences.get(str(params.get("user_id") or ""))
             return dict(row) if row else None
@@ -2972,7 +2996,10 @@ class FourUserMemoryService(OneLocationAgentService):
             }
             self.requests[request_id] = row
             return row
-        if "UPDATE one_location_access_requests" in sql and "SET message = COALESCE" in sql:
+        if (
+            "UPDATE one_location_access_requests" in sql
+            and "SET message = CASE WHEN :exact_message" in sql
+        ):
             request = self.requests.get(params["request_id"])
             if request and request["status"] == "pending":
                 # COALESCE(:message, message): a re-ask that carries no note
@@ -3127,7 +3154,7 @@ class FourUserMemoryService(OneLocationAgentService):
             return row
         if (
             "FROM one_location_public_invites" in sql
-            and "expires_at > NOW()" in sql
+            and ("expires_at > NOW()" in sql or "expires_at > clock_timestamp()" in sql)
             and "invite_id" in params
         ):
             # A still-live link, optionally owner-scoped for the heartbeat.
@@ -3214,7 +3241,7 @@ class FourUserMemoryService(OneLocationAgentService):
             return None
         if (
             "FROM one_location_public_invites" in sql
-            and "expires_at > NOW()" in sql
+            and ("expires_at > NOW()" in sql or "expires_at > clock_timestamp()" in sql)
             and "owner_user_id" in params
         ):
             # The reuse lookup: one live public link per person.
@@ -5399,7 +5426,7 @@ def test_public_invite_expiry_is_decided_by_the_database_clock() -> None:
     assert "expires_at <= NOW()" in expire_source
     assert "_utcnow()" not in expire_source
 
-    create_source = inspect.getsource(module.OneLocationAgentService.create_public_invite)
+    create_source = inspect.getsource(module.OneLocationAgentService._create_public_invite)
     # ...and so does the stamp, on both the mint and the reuse path.
     assert create_source.count("INTERVAL '1 hour'") == 2
     assert "_utcnow() + timedelta" not in create_source
@@ -8160,7 +8187,7 @@ def test_removing_an_sms_contact_announces_it_only_when_one_went() -> None:
     ]
     # Guarded on the DELETE actually removing a row: announcing a no-op would
     # tell somebody they had lost a duty they never held.
-    assert "if removed:" in remove_block
+    assert 'if result["changed"]:' in remove_block
     assert "added=False" in remove_block
 
 

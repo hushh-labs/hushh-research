@@ -109,11 +109,42 @@ describe("Top app bar responsive contract", () => {
       '"pointer-events-none relative flex h-full w-full flex-col justify-end"',
     );
     expect(providers).toContain("<AppTopShell model={topShellModel} />");
+    expect(providers).toContain(
+      "Keep persistent top chrome outside the route Suspense",
+    );
+    expect(
+      providers.match(/<AppTopShell model=\{topShellModel\} \/>/g),
+    ).toHaveLength(1);
+    const topShellMount = providers.indexOf(
+      "<AppTopShell model={topShellModel} />",
+    );
+    expect(topShellMount).toBeLessThan(
+      providers.indexOf("<Suspense", topShellMount),
+    );
+    expect(
+      providers.match(/<KaiCommandBarGlobal \/>/g),
+    ).toHaveLength(1);
     expect(providers).toContain("const topShellScrollResetKey =");
     expect(providers).toContain("topShellModel.tabs.activeValue");
     expect(providers).toContain("useScrollReset(topShellScrollResetKey");
     expect(providers).toContain("}, [topShellScrollResetKey]);");
     expect(providers).not.toContain("<TopAppBar />");
+  });
+
+  it("keeps the top-shell scroll lifecycle stable across route swaps", () => {
+    const source = read("components/app-ui/top-app-bar.tsx");
+    const effectStart = source.indexOf("const hasBackControlRef");
+    const effectEnd = source.indexOf(
+      "  useEffect(() => {",
+      source.indexOf("  }, []);", effectStart) + 1,
+    );
+    const scrollLifecycle = source.slice(effectStart, effectEnd);
+
+    expect(scrollLifecycle).toContain("[data-app-shell-root=\"true\"]");
+    expect(scrollLifecycle).toContain("nextScrollRoot");
+    expect(scrollLifecycle).toContain("attach();");
+    expect(scrollLifecycle).toContain("  }, []);");
+    expect(scrollLifecycle).not.toContain("}, [model.mode, pathname]);");
   });
 
   it("does not duplicate Location tabs inside the route body", () => {

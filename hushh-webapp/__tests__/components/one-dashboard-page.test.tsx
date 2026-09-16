@@ -121,13 +121,13 @@ describe("OneDashboardPage", () => {
     for (const id of expectedProfileFormatIcons) {
       const icon = screen.getAllByTestId(`one-agent-icon-${id}`)[0];
       expect(icon).toBeTruthy();
-      expect(icon).toHaveAttribute("data-agent-icon-kind", "lucide");
+      expect(icon).toHaveAttribute("data-agent-icon-kind", "custom");
       expect(icon.querySelector("svg")).toBeTruthy();
     }
     const financeIcon = screen.getAllByTestId("one-agent-icon-finance")[0];
     expect(financeIcon).toHaveStyle({
-      "--agent-icon-profile-bg": "rgba(88, 86, 214, 0.16)",
-      "--agent-icon-profile-fg": "#5856D6",
+      "--agent-icon-profile-bg": "#D1FAE5",
+      "--agent-icon-profile-fg": "#065F46",
     });
     // Palette slots are assigned by roster position, so this list must track
     // ONE_CAPABILITIES order: the palette exists to keep adjacent rows
@@ -171,13 +171,18 @@ describe("OneDashboardPage", () => {
           .style.getPropertyValue("--agent-icon-profile-bg"),
       ]),
     );
-    expect(iconBackgrounds.ria).toBe(iconBackgrounds.finance);
-    expect(iconBackgrounds.wallet).toBe(iconBackgrounds.location);
-    expect(iconBackgrounds.gmail).toBe(iconBackgrounds.location);
-    expect(iconBackgrounds.calendar).toBe(iconBackgrounds.location);
-    expect(iconBackgrounds.email).toBe(iconBackgrounds.location);
-    expect(iconBackgrounds.pkm).toBe(iconBackgrounds.consent);
-    expect(new Set(Object.values(iconBackgrounds)).size).toBe(3);
+    expect(iconBackgrounds.finance).toBe("#D1FAE5");
+    expect(iconBackgrounds.wallet).toBe("#FEF3C7");
+    expect(iconBackgrounds.location).toBe("#E0F2FE");
+    expect(iconBackgrounds.ria).toBe("#EDE9FE");
+    expect(iconBackgrounds.gmail).toBe("#FFE4E6");
+    expect(iconBackgrounds.calendar).toBe("#E0F7FA");
+    expect(iconBackgrounds.email).toBe("#FCE7F3");
+    expect(iconBackgrounds.pkm).toBe("#F1F5F9");
+    expect(iconBackgrounds.consent).toBe("#FFEDD5");
+    expect(new Set(Object.values(iconBackgrounds)).size).toBe(
+      rosterPaletteOrder.length,
+    );
     expect(financeIcon.className).toContain(
       "dark:bg-[var(--agent-icon-profile-bg-dark)]",
     );
@@ -200,7 +205,7 @@ describe("OneDashboardPage", () => {
       screen.getByRole("link", { name: "Open Wallet" }).getAttribute("href"),
     ).toBe(ROUTES.ONE_WALLET);
     expect(
-      screen.getByRole("link", { name: "Open Gmail" }).getAttribute("href"),
+      screen.getByRole("link", { name: /Open (Email|Gmail)/ }).getAttribute("href"),
     ).toBe(buildOneSetupCapabilityRoute("gmail"));
     expect(
       screen.getByRole("link", { name: "Open Calendar" }).getAttribute("href"),

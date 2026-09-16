@@ -27,6 +27,7 @@ import type {
 import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge-model-service";
 import { PkmUpgradeOrchestrator } from "@/lib/services/pkm-upgrade-orchestrator";
 import { PkmUpgradeService } from "@/lib/services/pkm-upgrade-service";
+import type { LocationPkmFinalizeAuthorizationV1 } from "@/lib/services/one-location-onboarding-run-client";
 
 const MAX_CONFLICT_RETRIES = 2;
 
@@ -72,6 +73,9 @@ export type PkmWriteCoordinatorResult = {
   updatedAt?: string;
   syncCheckpoint?: PkmSyncCheckpointMetadata;
   fullBlob: Record<string, unknown>;
+  commitId?: string;
+  locationRunRevision?: number;
+  locationPlaceReceiptId?: string;
 };
 
 function toNullableVersion(value: unknown): number | null {
@@ -269,7 +273,10 @@ export class PkmWriteCoordinator {
     domain: string;
     vaultKey?: string | null;
     vaultOwnerToken?: string | null;
-    confirmation: PkmUserConfirmation;
+    confirmation: PkmUserConfirmation | import("@/lib/personal-knowledge-model/mutation-plan").PkmRequestedWorkflowAuthorization;
+    idempotencyScope?: string;
+    locationFinalizeAuthorization?: LocationPkmFinalizeAuthorizationV1;
+    beforeEffect?: () => Promise<void>;
     build: (context: BaseContext) => Promise<MergedWritePlan> | MergedWritePlan;
   }): Promise<PkmWriteCoordinatorResult> {
     if (!params.vaultKey || !params.vaultOwnerToken) {
@@ -309,6 +316,7 @@ export class PkmWriteCoordinator {
           scopePath: plan.scopePath,
           sourceRevision: context.currentEncryptedDomain?.dataVersion,
           confirmation: params.confirmation,
+          idempotencyScope: params.idempotencyScope,
         });
         const syncCheckpoint = buildSyncCheckpoint({
           source: "merged_domain",
@@ -332,6 +340,8 @@ export class PkmWriteCoordinator {
           expectedDataVersion: context.currentEncryptedDomain?.dataVersion ?? context.expectedDataVersion,
           syncCheckpoint,
           mutationPlan,
+          locationFinalizeAuthorization: params.locationFinalizeAuthorization,
+          beforeEffect: params.beforeEffect,
           cacheFullBlob: false,
         });
         const resultCheckpoint = {
@@ -353,6 +363,9 @@ export class PkmWriteCoordinator {
             updatedAt: result.updatedAt,
             syncCheckpoint: resultCheckpoint,
             fullBlob: result.fullBlob,
+            commitId: result.commitId,
+            locationRunRevision: result.locationRunRevision,
+            locationPlaceReceiptId: result.locationPlaceReceiptId,
           };
         }
         if (!result.conflict || attempt >= MAX_CONFLICT_RETRIES) {

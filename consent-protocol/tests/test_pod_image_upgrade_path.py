@@ -590,6 +590,23 @@ async def test_upgrade_pod_refuses_a_backend_without_an_in_place_upgrade(service
 
 
 @pytest.mark.asyncio
+async def test_upgrade_requires_owner_approval_before_provider_side_effects(
+    service_env, monkeypatch
+):
+    pas, _ = service_env
+    monkeypatch.setenv("PERSONAL_AGENT_UPGRADE_APPROVAL_REQUIRED", "1")
+    registry = FakeRegistry({"uid-1": _row()})
+    backend = FakeUpgradingBackend()
+    service = pas.PersonalAgentProvisioningService(registry=registry, backend=backend)
+
+    with pytest.raises(pas.PersonalAgentUpgradeNotApprovedError):
+        await service.upgrade_pod(user_id="uid-1", current_image=SOURCE_NEW)
+
+    assert backend.specs == []
+    assert registry.upgrade_writes == []
+
+
+@pytest.mark.asyncio
 async def test_candidates_are_the_stale_whole_pods_minus_the_ones_that_keep_failing(service_env):
     pas, _ = service_env
     registry = FakeRegistry(

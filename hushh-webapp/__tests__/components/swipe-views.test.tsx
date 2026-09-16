@@ -444,4 +444,91 @@ describe("SwipeViews", () => {
       expect(disconnected).toBe(true);
     });
   });
+
+  describe("heightMode='active'", () => {
+    // Regression for the Analysis workspace (Debate / Summary / Detailed
+    // View) rendering two panes partially overlapped: the outgoing pane was
+    // immediately clamped to the incoming pane's (often shorter) height while
+    // still visibly sliding off-screen, because the Analysis page opted out
+    // of the default height hold with `holdHeightDuringTransition={false}`.
+    // `holdHeightDuringTransition` defaults to `true` precisely so an
+    // outgoing pane keeps its own height for the length of the transition;
+    // only an explicit opt-out should clip it early.
+    const originalRaf = globalThis.requestAnimationFrame;
+
+    beforeEach(() => {
+      globalThis.requestAnimationFrame = ((cb: FrameRequestCallback) => {
+        cb(0);
+        return 1;
+      }) as typeof globalThis.requestAnimationFrame;
+    });
+
+    afterEach(() => {
+      globalThis.requestAnimationFrame = originalRaf;
+    });
+
+    it("does not clip the outgoing pane's height mid-transition by default", () => {
+      const view = render(
+        <SwipeViews
+          tabSetId="height-default"
+          activeValue="first"
+          options={OPTIONS}
+          heightMode="active"
+        >
+          <div>first panel content</div>
+          <div>second panel content</div>
+        </SwipeViews>,
+      );
+
+      view.rerender(
+        <SwipeViews
+          tabSetId="height-default"
+          activeValue="second"
+          options={OPTIONS}
+          heightMode="active"
+        >
+          <div>first panel content</div>
+          <div>second panel content</div>
+        </SwipeViews>,
+      );
+
+      const outgoingPanel = view.container.querySelector(
+        "#top-shell-height-default-panel-first",
+      );
+      expect(outgoingPanel).not.toHaveStyle({ overflow: "hidden" });
+    });
+
+    it("clips the outgoing pane's height when holdHeightDuringTransition is explicitly disabled", () => {
+      const view = render(
+        <SwipeViews
+          tabSetId="height-nohold"
+          activeValue="first"
+          options={OPTIONS}
+          heightMode="active"
+          holdHeightDuringTransition={false}
+        >
+          <div>first panel content</div>
+          <div>second panel content</div>
+        </SwipeViews>,
+      );
+
+      view.rerender(
+        <SwipeViews
+          tabSetId="height-nohold"
+          activeValue="second"
+          options={OPTIONS}
+          heightMode="active"
+          holdHeightDuringTransition={false}
+        >
+          <div>first panel content</div>
+          <div>second panel content</div>
+        </SwipeViews>,
+      );
+
+      const outgoingPanel = view.container.querySelector(
+        "#top-shell-height-nohold-panel-first",
+      );
+      expect(outgoingPanel).toHaveStyle({ overflow: "hidden" });
+    });
+  });
 });

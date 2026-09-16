@@ -673,7 +673,8 @@ export function CreateCircleFlow({
           placeholder="Family, close friends, project team"
           className={cn(
             "h-[52px] w-full rounded-[14px] border border-transparent bg-[color:var(--app-card-surface-default-solid)] px-4 text-[17px] leading-[22px] shadow-[var(--app-card-shadow-standard)] outline-none transition focus:border-[color:var(--app-accent)] focus:ring-2 focus:ring-[color:var(--app-accent-ring)] dark:shadow-none",
-            showNameError && "ring-2 ring-[#FF3B30]/35 focus:ring-[#FF3B30]/35",
+            showNameError &&
+              "ring-2 ring-[#FF3B30]/35 focus:ring-[#FF3B30]/35",
           )}
         />
         {nameHelpText ? (
@@ -681,8 +682,7 @@ export function CreateCircleFlow({
             id={nameHelpId}
             className={cn(
               "block text-[13px] leading-[18px] text-[color:var(--app-secondary-label)]",
-              showNameError &&
-                "font-medium text-[color:var(--app-destructive)]",
+              showNameError && "font-medium text-[color:var(--app-destructive)]",
             )}
           >
             {nameHelpText}
@@ -937,7 +937,7 @@ export function JoinCircleFlow({
               <UsersRound className="h-5 w-5" />
             </span>
             <div className="min-w-0 flex-1">
-              <p className="whitespace-normal text-[17px] font-semibold leading-[22px] text-foreground [overflow-wrap:anywhere]">
+              <p className="truncate text-[17px] font-semibold leading-[22px] text-foreground">
                 {preview.name}
               </p>
               <p className="text-[14px] leading-5 text-[color:var(--app-secondary-label)]">

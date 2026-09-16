@@ -266,7 +266,6 @@ steps:
       - "_GOOGLE_OAUTH_TOKEN_KEY_SECRET=${_GOOGLE_OAUTH_TOKEN_KEY_SECRET}"
       - "_GOOGLE_MAPS_API_KEY_SECRET=${_GOOGLE_MAPS_API_KEY_SECRET}"
       - "_HUSHH_DEVELOPER_TOKEN_SECRET=${_HUSHH_DEVELOPER_TOKEN_SECRET}"
-      - "_HUSHH_MANAGED_GEMINI_LIVE_API_KEY_SECRET=${_HUSHH_MANAGED_GEMINI_LIVE_API_KEY_SECRET}"
       - "_HUSHH_TECH_LAUNCH_PEPPER_SECRET=${_HUSHH_TECH_LAUNCH_PEPPER_SECRET}"
       - "_HUSHH_PROD_PHONE_TEST_CHALLENGE_SECRET_SECRET=${_HUSHH_PROD_PHONE_TEST_CHALLENGE_SECRET_SECRET}"
       - "_HUSHH_PROD_PHONE_TEST_CODE_SECRET=${_HUSHH_PROD_PHONE_TEST_CODE_SECRET}"
@@ -289,7 +288,7 @@ steps:
       - "_ONE_EMAIL_KYC_DEFAULT_SCOPE=${_ONE_EMAIL_KYC_DEFAULT_SCOPE}"
       - "_ONE_EMAIL_KYC_STRICT_CLIENT_ZK_ENABLED=${_ONE_EMAIL_KYC_STRICT_CLIENT_ZK_ENABLED}"
       - "_ONE_EMAIL_PUBSUB_TOPIC=${_ONE_EMAIL_PUBSUB_TOPIC}"
-      - "_MODEL_SETTINGS=puppy_relay_url=${_PUPPY_INFERENCE_RELAY_URL},puppy_model=${_PUPPY_INFERENCE_MODEL},puppy_timeout=${_PUPPY_INFERENCE_TIMEOUT_SECONDS},agent_adk=${_AGENT_ONE_ADK_MODEL},gemini_text=${_HUSSH_GEMINI_TEXT_MODEL},voice_pack_secret=${_HUSHH_LOCAL_RUNTIME_PACK_REGISTRY_SECRET},voice_pack_project=${_HUSHH_LOCAL_RUNTIME_PACK_REGISTRY_PROJECT},voice_pack_signer=${_HUSHH_LOCAL_RUNTIME_PACK_SIGNER_SERVICE_ACCOUNT}"
+      - "_MODEL_SETTINGS=puppy_relay_url=${_PUPPY_INFERENCE_RELAY_URL},puppy_model=${_PUPPY_INFERENCE_MODEL},puppy_timeout=${_PUPPY_INFERENCE_TIMEOUT_SECONDS},gemini_text=${_HUSSH_GEMINI_TEXT_MODEL},voice_enabled=${_ONE_VOICE_LIVE_ENABLED},voice_model=${_VERTEX_LIVE_MODEL_ID},voice_location=${_VERTEX_LIVE_LOCATION}"
       - "_ONE_EMAIL_WATCH_RENEW_AUTH_ENABLED=${_ONE_EMAIL_WATCH_RENEW_AUTH_ENABLED}"
       - "_ONE_EMAIL_WATCH_RENEW_TOKEN_SECRET=${_ONE_EMAIL_WATCH_RENEW_TOKEN_SECRET}"
       - "_ONE_EMAIL_WEBHOOK_AUDIENCE=${_ONE_EMAIL_WEBHOOK_AUDIENCE}"
@@ -361,13 +360,6 @@ steps:
             genai_project_id="hushh-pda-uat"
           fi
         fi
-        # The probe needs the managed live key when the canonical live model
-        # rides the developer_api transport; mounted only when the secret
-        # exists so lanes without it still create the job.
-        live_key_secret_flag=""
-        if gcloud secrets describe "${_HUSHH_MANAGED_GEMINI_LIVE_API_KEY_SECRET}" --project="$PROJECT_ID" >/dev/null 2>&1; then
-          live_key_secret_flag="--set-secrets=HUSHH_MANAGED_GEMINI_LIVE_API_KEY=${_HUSHH_MANAGED_GEMINI_LIVE_API_KEY_SECRET}:latest"
-        fi
         image_reference="${_IMAGE_REFERENCE}"
         if [[ -z "${image_reference}" ]]; then
           image_reference="gcr.io/$PROJECT_ID/consent-protocol:${_IMAGE_TAG}"
@@ -378,10 +370,10 @@ steps:
           --region="${_REGION}" \
           --image="${image_reference}" \
           --service-account="${_RUNTIME_SERVICE_ACCOUNT}" \
+          --clear-secrets \
           --command="python3" \
           --args="scripts/verify_managed_vertex_runtime.py" \
-          --set-env-vars="^|^HUSHH_GENAI_AUTH_MODE=vertex_adc|GOOGLE_GENAI_USE_VERTEXAI=true|GOOGLE_CLOUD_PROJECT=${PROJECT_ID}|GENAI_GOOGLE_CLOUD_PROJECT=${genai_project_id}|GOOGLE_CLOUD_LOCATION=global|HUSHH_VERTEX_LOCATIONS=global,us,eu|AGENT_ONE_ADK_LOCATION=us-central1|AGENT_ONE_ADK_MODEL=${_AGENT_ONE_ADK_MODEL}|HUSSH_GEMINI_TEXT_MODEL=${_HUSSH_GEMINI_TEXT_MODEL}" \
-          ${live_key_secret_flag} \
+          --set-env-vars="^|^HUSHH_GENAI_AUTH_MODE=vertex_adc|GOOGLE_GENAI_USE_VERTEXAI=true|GOOGLE_CLOUD_PROJECT=${PROJECT_ID}|GENAI_GOOGLE_CLOUD_PROJECT=${genai_project_id}|GOOGLE_CLOUD_LOCATION=global|HUSHH_VERTEX_LOCATIONS=global,us,eu|HUSSH_GEMINI_TEXT_MODEL=${_HUSSH_GEMINI_TEXT_MODEL}|ONE_VOICE_LIVE_ENABLED=${_ONE_VOICE_LIVE_ENABLED}|VERTEX_LIVE_MODEL_ID=${_VERTEX_LIVE_MODEL_ID}|VERTEX_LIVE_LOCATION=${_VERTEX_LIVE_LOCATION}" \
           --max-retries=0 \
           --task-timeout=90s \
           --quiet
@@ -486,7 +478,6 @@ timeout: "1800s"
 substitutions:
   _CLOUD_RUN_CPU: "1"
   _CLOUD_RUN_CONCURRENCY: "80"
-  _AGENT_ONE_ADK_MODEL: ""
   _INTELLIGENCE_API_BASE_URL_SECRET: ""
   _INTELLIGENCE_API_KEY_SECRET: ""
   _SUPPORT_EMAIL_TEST_TO_SECRET: ""
@@ -515,6 +506,10 @@ substitutions:
   # _HUSSH_GEMINI_TEXT_MODEL=gemini-3.8-flash while this template had no such key, so
   # the workflow's skew guard silently dropped it and dev never got the switch.
   _HUSSH_GEMINI_TEXT_MODEL: ""
+  # One Voice native realtime is dark by default and uses only Vertex ADC.
+  _ONE_VOICE_LIVE_ENABLED: "false"
+  _VERTEX_LIVE_MODEL_ID: ""
+  _VERTEX_LIVE_LOCATION: ""
   _FINNHUB_API_KEY_SECRET: ""
   _PMP_API_KEY_SECRET: ""
   _NEWSAPI_KEY_SECRET: ""
@@ -601,9 +596,6 @@ substitutions:
   _DB_SQLALCHEMY_POOL_SIZE: "4"
   _DB_SQLALCHEMY_MAX_OVERFLOW: "0"
   _DB_POOL_ACQUIRE_TIMEOUT_SECONDS: "60"
-  # Secret NAME (defaulted to itself); the managed-Gemini Live API key is mounted
-  # only when the secret exists, both in the deploy body and the readiness probe.
-  _HUSHH_MANAGED_GEMINI_LIVE_API_KEY_SECRET: HUSHH_MANAGED_GEMINI_LIVE_API_KEY
   # Optional by default; the UAT workflow supplies the real secret names / connector.
   _HUSHH_TECH_LAUNCH_PEPPER_SECRET: ""
   _RATE_LIMIT_STORAGE_URI_SECRET: ""
@@ -627,11 +619,6 @@ substitutions:
   _BUILD_POD_IMAGE: "true"
   _RIA_INTELLIGENCE_CRD_SCRAPER_TIMEOUT_SECONDS: "65"
   _RIA_ONBOARDING_PROVIDER_TIMEOUT_SECONDS: "75"
-  # One Voice local runtime packs, ported from main during the 2026-09-11 branch
-  # sync. Empty defaults keep this inert until the registry secret is minted.
-  _HUSHH_LOCAL_RUNTIME_PACK_REGISTRY_SECRET: HUSHH_LOCAL_RUNTIME_PACK_REGISTRY
-  _HUSHH_LOCAL_RUNTIME_PACK_REGISTRY_PROJECT: ""
-  _HUSHH_LOCAL_RUNTIME_PACK_SIGNER_SERVICE_ACCOUNT: ""
 
 # Options
 options:

@@ -6,11 +6,11 @@ const mocks = vi.hoisted(() => ({
   startConnect: vi.fn(),
   disconnect: vi.fn(),
   getIdToken: vi.fn(),
-  openAgent: vi.fn(),
+  navigateToAgentChat: vi.fn(),
 }));
 
-vi.mock("@/components/agent/agent-popover-provider", () => ({
-  useOptionalAgentPopover: () => ({ openAgent: mocks.openAgent }),
+vi.mock("@/lib/navigation/agent-navigation", () => ({
+  navigateToAgentChat: mocks.navigateToAgentChat,
 }));
 
 vi.mock("@/hooks/use-auth", () => ({
@@ -49,7 +49,7 @@ describe("CalendarAgentPage", () => {
     );
   });
 
-  it("requests management access in the single initial Calendar authorization", async () => {
+  it("requests read-only access before an owner enables Calendar scheduling", async () => {
     mocks.status.mockResolvedValue({
       configured: true,
       connected: false,
@@ -69,10 +69,10 @@ describe("CalendarAgentPage", () => {
       expect(mocks.startConnect).toHaveBeenCalledWith({
         idToken: "firebase-token",
         userId: "calendar-user",
-        accessLevel: "manage",
+        accessLevel: "read",
       }),
     );
-    expect(screen.queryByRole("button", { name: "Connect with scheduling" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Enable scheduling" })).toBeNull();
   });
 
   it("keeps a healthy Calendar connection focused on chat and disconnect", async () => {
@@ -97,15 +97,10 @@ describe("CalendarAgentPage", () => {
     expect(screen.queryByRole("button", { name: "Enable scheduling" })).toBeNull();
 
     fireEvent.click(chat);
-    expect(mocks.openAgent).toHaveBeenCalledWith({
-      handoff: expect.objectContaining({
-        reason: "user_requested",
-        transcript: "Summarize my calendar events",
-      }),
-    });
+    expect(mocks.navigateToAgentChat).toHaveBeenCalledWith();
   });
 
-  it("does not offer reconnect for a connected read-only Calendar", async () => {
+  it("offers an explicit scheduling upgrade for a connected read-only Calendar", async () => {
     mocks.status.mockResolvedValue({
       configured: true,
       connected: true,
@@ -117,8 +112,9 @@ describe("CalendarAgentPage", () => {
 
     render(<CalendarAgentPage />);
 
-    await screen.findByText("View events and availability");
+    await screen.findByText(/View events and availability/);
     expect(screen.queryByRole("button", { name: /Reconnect/i })).toBeNull();
+    expect(screen.getByRole("button", { name: "Enable scheduling" })).toBeTruthy();
     expect(
       screen.getByRole("button", { name: "Try Calendar Agent with One" }),
     ).toBeTruthy();

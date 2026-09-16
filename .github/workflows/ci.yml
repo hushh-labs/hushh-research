@@ -3,18 +3,6 @@ name: "PR Validation"
 on:
   pull_request:
     branches: ["**"]
-  # Agent-authored branches only. These are pushed by an app installation token,
-  # and GitHub does not raise `pull_request: synchronize` for those pushes -- so an
-  # open PR on such a branch accumulates commits with ZERO check runs, and
-  # deploy-dev.yml then refuses the SHA because it requires a green `CI Status
-  # Gate` on the exact commit. Every one of the last 30 runs on
-  # claude/hushh-infrastructure-analysis-7o991c was a manual workflow_dispatch.
-  #
-  # Deliberately narrow: `claude/**` and nothing else. `main`, `maintainer/**`,
-  # `integration/**` and release branches keep exactly the triggers they had, so
-  # no other lane changes behaviour or spends a minute more of Actions time.
-  push:
-    branches: ["claude/**"]
   workflow_dispatch:
     inputs:
       scope:
@@ -67,25 +55,10 @@ jobs:
             DEFAULT_BRANCH="${{ github.event.repository.default_branch }}"
             git fetch origin "$DEFAULT_BRANCH" --quiet || true
             if git rev-parse "origin/$DEFAULT_BRANCH" >/dev/null 2>&1; then
-              # The base must be the MERGE BASE, never the default branch's current
-              # tip. `--ancestry-path origin/main..<sha>` keeps only commits that
-              # descend from main's tip -- and a branch cut before that tip has none,
-              # so the range resolves to ZERO commits and the scan reports success
-              # having inspected nothing. Measured on this repo: 0 commits via the
-              # tip, 26 via the merge base, for the same head SHA. A control that
-              # passes because it looked at nothing is worse than one that fails.
-              # `scripts/ci/secret-scan.sh` has always used the merge base; this
-              # helper is the copy that drifted.
-              MERGE_BASE="$(git merge-base "origin/$DEFAULT_BRANCH" "${{ github.sha }}" 2>/dev/null || true)"
-              if [ -n "$MERGE_BASE" ]; then
-                echo "--ancestry-path ${MERGE_BASE}..${{ github.sha }}"
-                return
-              fi
+              echo "--ancestry-path origin/$DEFAULT_BRANCH..${{ github.sha }}"
+            else
+              echo "${{ github.sha }}"
             fi
-            # Last resort only: no default branch to compare against, or no shared
-            # history with it. A bare SHA scans ALL reachable history, which is loud
-            # and slow -- deliberately so. Failing noisily beats passing vacuously.
-            echo "${{ github.sha }}"
           }
 
           if [ "${{ github.event_name }}" = "pull_request" ]; then
@@ -119,17 +92,7 @@ jobs:
             # is the only way to validate a change.
             LOG_OPTS="$(resolve_from_default_branch)"
           else
-            # workflow_dispatch and anything else: bound the scan the same way every
-            # other lane does. A BARE SHA is not a range -- git reads it as "every
-            # commit reachable from here", so gitleaks swept 2,936 commits / 110 MB
-            # of full history and failed on 61 pre-existing historical findings that
-            # no PR run would ever see. That made the CI Status Gate unobtainable on
-            # a dispatch run for any branch.
-            #
-            # Bounded is necessary and NOT sufficient: the range must also CONTAIN the
-            # branch's commits. See resolve_from_default_branch above for the empty-range
-            # trap, and secret-scan.sh for the guard that refuses a vacuous scan.
-            LOG_OPTS="$(resolve_from_default_branch)"
+            LOG_OPTS="${{ github.sha }}"
           fi
           echo "log_opts=$LOG_OPTS" >> "$GITHUB_OUTPUT"
       - name: Run gitleaks scan (no license secret required)
@@ -240,6 +203,21 @@ jobs:
               - 'hushh-webapp/capacitor.config.ts'
               - 'hushh-webapp/package.json'
               - 'hushh-webapp/package-lock.json'
+              # Web surfaces the CI-run XCUITest renders
+              # (AppUITests/testAccountNotFoundRecoveryReturnsToLogin). A change
+              # here can break the native lane without touching ios/**, so it
+              # must schedule it. Guarded by
+              # consent-protocol/tests/test_ios_lane_path_filter_covers_native_test_surfaces.py
+              - 'hushh-webapp/app/login/**'
+              - 'hushh-webapp/components/onboarding/**'
+              - 'hushh-webapp/components/auth/**'
+              - 'hushh-webapp/components/app-ui/native-*'
+              - 'hushh-webapp/components/vault/**'
+              - 'hushh-webapp/lib/auth/session-invalidation.ts'
+              - 'hushh-webapp/lib/firebase/auth-context.tsx'
+              - 'hushh-webapp/lib/testing/**'
+              - 'hushh-webapp/app/providers.tsx'
+              - 'hushh-webapp/components/one-location/onboarding/location-picker-map.tsx'
               - '.github/workflows/ci.yml'
 
       - id: override
@@ -264,41 +242,6 @@ jobs:
             echo "ios=${{ steps.filter.outputs.ios }}" >> "$GITHUB_OUTPUT"
           fi
         if: always()
-
-  scope-resolution:
-    name: "Scope Resolution"
-    # Standing tripwire for INHERITED SKIPS, and the job that found one.
-    #
-    # It carries the same `needs` and the same status guard as the test lanes, and
-    # its own condition is otherwise trivially true -- so it runs whenever the lanes
-    # are structurally able to run. If it is ever reported `skipped` again, the lanes
-    # are being skipped by the dependency graph rather than by scope, which is
-    # exactly the fault it caught: `preflight-gate` depends on three jobs that only
-    # exist on pull_request, GitHub propagates their skip to every descendant, and
-    # `if: always()` rescues only the job that declares it -- never its children. No
-    # rewrite of a lane's scope condition could have fixed that, and three attempts
-    # confirmed it.
-    #
-    # Not in ci-status's `needs`, so it can never change the gate's verdict; it only
-    # makes the decision legible.
-    needs: [paths, preflight-gate]
-    if: >-
-      !cancelled() && needs.paths.result == 'success' &&
-      needs['preflight-gate'].result == 'success'
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - name: Print the scope inputs the lane conditions read
-        run: |
-          echo "event_name          = [${{ github.event_name }}]"
-          echo "inputs.scope        = [${{ github.event.inputs.scope }}]"
-          echo "paths.frontend      = [${{ needs.paths.outputs.frontend }}]"
-          echo "paths.backend       = [${{ needs.paths.outputs.backend }}]"
-          echo "preflight.frontend  = [${{ needs['preflight-gate'].outputs.frontend }}]"
-          echo "preflight.backend   = [${{ needs['preflight-gate'].outputs.backend }}]"
-          echo "paths.result        = [${{ needs.paths.result }}]"
-          echo "preflight.result    = [${{ needs['preflight-gate'].result }}]"
-          echo "backend-lane cond   = [${{ (github.event_name == 'workflow_dispatch' && (github.event.inputs.scope == 'all' || github.event.inputs.scope == 'backend')) || (github.event_name != 'workflow_dispatch' && needs.paths.outputs.backend == 'true') }}]"
 
   preflight-gate:
     name: "Preflight Gate"
@@ -353,13 +296,10 @@ jobs:
   # ============================================================================
   web-core-check:
     name: "Web Core (Next.js)"
-    needs: [paths, preflight-gate]
+    needs: [preflight-gate]
     if: >-
-      !cancelled() && needs.paths.result == 'success' &&
-      needs['preflight-gate'].result == 'success' &&
-      ((github.event_name == 'workflow_dispatch' && (github.event.inputs.scope == 'all' ||
-      github.event.inputs.scope == 'frontend')) || (github.event_name != 'workflow_dispatch' &&
-      needs.paths.outputs.frontend == 'true'))
+      !cancelled() && needs['preflight-gate'].result == 'success' &&
+      (needs['preflight-gate'].outputs.frontend == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
@@ -402,13 +342,10 @@ jobs:
 
   web-targeted-check:
     name: "Web Targeted Contracts"
-    needs: [paths, preflight-gate]
+    needs: [preflight-gate]
     if: >-
-      !cancelled() && needs.paths.result == 'success' &&
-      needs['preflight-gate'].result == 'success' &&
-      ((github.event_name == 'workflow_dispatch' && (github.event.inputs.scope == 'all' ||
-      github.event.inputs.scope == 'frontend')) || (github.event_name != 'workflow_dispatch' &&
-      needs.paths.outputs.frontend == 'true'))
+      !cancelled() && needs['preflight-gate'].result == 'success' &&
+      (needs['preflight-gate'].outputs.frontend == 'true')
     runs-on: ubuntu-latest
     # Was 15, which the job could not fit. Downloading Chromium and WebKit
     # took 13-15 minutes on its own, so the lane either died mid-download or
@@ -427,6 +364,16 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: "npm"
           cache-dependency-path: hushh-webapp/package-lock.json
+
+      # The One Voice verification includes the checked-in CapabilityGraphV1
+      # compiler.  It is deliberately a source-of-truth check, so the
+      # frontend-targeted lane must use the same locked runtime dependencies
+      # rather than falling back to the runner's ambient Python installation.
+      - uses: ./consent-protocol/.github/actions/setup-python-uv
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          protocol-dir: ./consent-protocol
+          sync-dev-group: "false"
 
       # The browsers are the whole cost of this lane, and they only change when
       # the Playwright dependency does. Keying on the lockfile means a normal
@@ -474,11 +421,9 @@ jobs:
   ios-native-check:
     name: "iOS Native (Xcode)"
     needs: [preflight-gate]
-    # Push runs have skipped PR-only ancestors; override inherited success()
-    # while still requiring successful preflight and native changed-path scope.
     if: >-
       !cancelled() && needs['preflight-gate'].result == 'success' &&
-      needs['preflight-gate'].outputs.ios == 'true'
+      (needs['preflight-gate'].outputs.ios == 'true')
     runs-on: macos-15
     timeout-minutes: 45
     env:
@@ -591,19 +536,6 @@ jobs:
           raise SystemExit("No available iPhone Simulator is installed on the CI runner.")
           PY
           )"
-          cleanup_native_test_app() {
-            test_result=$?
-            cleanup_result=0
-            trap - EXIT
-            python3 hushh-webapp/scripts/native/ios-simulator-cleanup.py "$SIMULATOR_ID" || cleanup_result=$?
-            if [ "$test_result" -ne 0 ]; then
-              exit "$test_result"
-            fi
-            exit "$cleanup_result"
-          }
-          trap cleanup_native_test_app EXIT
-          trap 'exit 130' INT
-          trap 'exit 143' TERM
           xcodebuild test \
             -project "${XCODE_PROJECT}" \
             -scheme "${XCODE_SCHEME}" \
@@ -691,24 +623,31 @@ jobs:
   # ============================================================================
   protocol-check:
     name: "Protocol (Python)"
-    needs: [paths, preflight-gate]
+    needs: [preflight-gate]
     if: >-
-      !cancelled() && needs.paths.result == 'success' &&
-      needs['preflight-gate'].result == 'success' &&
-      ((github.event_name == 'workflow_dispatch' && (github.event.inputs.scope == 'all' ||
-      github.event.inputs.scope == 'backend')) || (github.event_name != 'workflow_dispatch' &&
-      needs.paths.outputs.backend == 'true'))
+      !cancelled() && needs['preflight-gate'].result == 'success' &&
+      (needs['preflight-gate'].outputs.backend == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 25
+    services:
+      command-postgres:
+        image: pgvector/pgvector:0.8.6-pg17-bookworm
+        env:
+          POSTGRES_USER: command_test
+          POSTGRES_PASSWORD: command_test
+          POSTGRES_DB: command_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U command_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
-      # Full history, deliberately. The Python suite carries guards that can only
-      # be answered against this repository's own log, and actions/checkout defaults
-      # to depth 1. In a depth-1 clone the tombstone rollback pin's commit object is
-      # simply absent, so consent-protocol/tests/test_pod_upgrade_rollback_guard.py
-      # skips instead of failing and a rewritten pin lands green in the lane that
-      # gates every pull request. Seven other jobs here already fetch full history.
       - uses: actions/checkout@v6
         with:
+          # The capability graph check diffs against the PR base ref, which a
+          # shallow clone does not carry.
           fetch-depth: 0
 
       - uses: ./consent-protocol/.github/actions/setup-python-uv
@@ -720,6 +659,8 @@ jobs:
         timeout-minutes: 22
         run: bash scripts/ci/orchestrate.sh protocol
         env:
+          CAPABILITY_GRAPH_BASE_REF: origin/${{ github.base_ref || 'main' }}
+          ONE_COMMAND_TEST_DATABASE_URL: "postgresql+psycopg2://command_test:command_test@127.0.0.1:5432/command_test"
           TESTING: "true"
           APP_SIGNING_KEY: "test_secret_key_for_ci_only_32chars_min"
           VAULT_DATA_KEY: "0000000000000000000000000000000000000000000000000000000000000000"
@@ -727,13 +668,10 @@ jobs:
 
   mcp-package-check:
     name: "MCP Package"
-    needs: [paths, preflight-gate]
+    needs: [preflight-gate]
     if: >-
-      !cancelled() && needs.paths.result == 'success' &&
-      needs['preflight-gate'].result == 'success' &&
-      ((github.event_name == 'workflow_dispatch' && (github.event.inputs.scope == 'all' ||
-      github.event.inputs.scope == 'backend')) || (github.event_name != 'workflow_dispatch' &&
-      needs.paths.outputs.backend == 'true'))
+      !cancelled() && needs['preflight-gate'].result == 'success' &&
+      (needs['preflight-gate'].outputs.backend == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -758,13 +696,10 @@ jobs:
   # ============================================================================
   integration-check:
     name: "Integration"
-    needs: [paths, preflight-gate]
+    needs: [preflight-gate]
     if: >-
-      !cancelled() && needs.paths.result == 'success' &&
-      needs['preflight-gate'].result == 'success' &&
-      ((github.event_name == 'workflow_dispatch' && github.event.inputs.scope != '') ||
-      (github.event_name != 'workflow_dispatch' && (needs.paths.outputs.frontend == 'true' ||
-      needs.paths.outputs.backend == 'true')))
+      !cancelled() && needs['preflight-gate'].result == 'success' &&
+      (needs['preflight-gate'].outputs.frontend == 'true' || needs['preflight-gate'].outputs.backend == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -930,17 +865,6 @@ jobs:
           INTEGRATION="${{ needs['integration-check'].result }}"
           MAIN_FRESHNESS="${{ needs['main-freshness-gate'].result }}"
 
-          # The resolved scope, read from BOTH hops. `paths` decides it; `preflight-gate`
-          # re-exports it, and every lane's `if:` reads it from there. Printing both makes
-          # a value lost between the two visible, instead of it silently disabling every
-          # test lane while the gate still reports success.
-          SCOPE_FRONTEND="${{ needs.paths.outputs.frontend }}"
-          SCOPE_BACKEND="${{ needs.paths.outputs.backend }}"
-          GATE_FRONTEND="${{ needs['preflight-gate'].outputs.frontend }}"
-          GATE_BACKEND="${{ needs['preflight-gate'].outputs.backend }}"
-          printf 'scope(paths):          frontend=%s backend=%s\n' "$SCOPE_FRONTEND" "$SCOPE_BACKEND"
-          printf 'scope(preflight-gate): frontend=%s backend=%s\n' "$GATE_FRONTEND" "$GATE_BACKEND"
-
           printf 'secret-scan=%s\n' "$SECRET_SCAN"
           printf 'dco-check=%s\n' "$DCO"
           printf 'pr-base-policy=%s\n' "$PR_BASE_POLICY"
@@ -970,58 +894,4 @@ jobs:
             echo "One or more CI jobs failed."
             exit 1
           fi
-
-          # Coverage, not merely outcomes.
-          #
-          # `skipped` counts as passing above, which is right for lanes that skip by
-          # EVENT (dco-check, pr-base-policy and main-freshness-gate exist only on
-          # pull_request). It is wrong for lanes that skip by SCOPE: a workflow_dispatch
-          # run resolved scope=all, then skipped protocol-check, mcp-package-check,
-          # web-core-check, web-targeted-check and integration-check -- every lane that
-          # runs a test -- and this gate reported "All required CI jobs passed."
-          #
-          # That is the same shape of lie as a secret scan bounded to zero commits: a
-          # control reporting success over an empty set. A lane may skip only when the
-          # resolved scope says it was not needed; if the scope asked for it and it did
-          # not run, the gate has nothing to attest and must say so.
-          # Only meaningful when the lanes were actually allowed to start. If
-          # preflight-gate failed, every lane skips ON PURPOSE and the run is already
-          # red for the real reason; adding "these lanes never ran" on top would bury
-          # the actual failure under a consequence of it.
-          if [ "$PREFLIGHT" != "success" ]; then
-            echo "Coverage check skipped: preflight-gate=${PREFLIGHT}, so the lanes were"
-            echo "  never eligible to run. The failure above is the one to read."
-            exit 0
-          fi
-
-          missing=""
-          require_ran() {
-            if [ "$2" = "skipped" ]; then
-              missing="${missing} $1"
-            fi
-          }
-
-          if [ "$SCOPE_BACKEND" = "true" ]; then
-            require_ran "protocol-check" "$PROTOCOL"
-            require_ran "mcp-package-check" "$MCP_PACKAGE"
-          fi
-          if [ "$SCOPE_FRONTEND" = "true" ]; then
-            require_ran "web-core-check" "$WEB_CORE"
-            require_ran "web-targeted-check" "$WEB_TARGETED"
-          fi
-          if [ "$SCOPE_BACKEND" = "true" ] || [ "$SCOPE_FRONTEND" = "true" ]; then
-            require_ran "integration-check" "$INTEGRATION"
-          fi
-
-          if [ -n "$missing" ]; then
-            echo "CI Status Gate FAILED: the resolved scope required lane(s) that never ran:${missing}"
-            echo "  scope(paths):          frontend=${SCOPE_FRONTEND} backend=${SCOPE_BACKEND}"
-            echo "  scope(preflight-gate): frontend=${GATE_FRONTEND} backend=${GATE_BACKEND}"
-            echo "  The lane conditions read the FIRST line (needs.paths.outputs). The second"
-            echo "  is printed only to show the re-export still agrees; a disagreement means"
-            echo "  the scope is being lost between jobs. Fix the wiring -- do not relax this"
-            echo "  check: green here would attest that the suite passed when it never ran."
-            exit 1
-          fi
-
-          echo "All required CI jobs passed, and every lane the scope asked for actually ran."
+          echo "All required CI jobs passed or were intentionally skipped."

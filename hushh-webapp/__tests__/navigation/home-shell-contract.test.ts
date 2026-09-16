@@ -6,6 +6,11 @@ import { resolveAppRouteLayout } from "@/lib/navigation/app-route-layout";
 import { ROUTES } from "@/lib/navigation/routes";
 
 describe("home shell contract", () => {
+  it("keeps the canonical root Chat command surface available", () => {
+    expect(getKaiChromeState(ROUTES.HOME).hideCommandBar).toBe(false);
+    expect(resolveAppRouteLayout(ROUTES.HOME).mode).toBe("standard");
+  });
+
   it("treats the signed-in One dashboard as a standard shell route", () => {
     expect(resolveAppRouteLayout(ROUTES.ONE_HOME).mode).toBe("standard");
     expect(resolveTopShellMetrics(ROUTES.ONE_HOME).shellVisible).toBe(true);

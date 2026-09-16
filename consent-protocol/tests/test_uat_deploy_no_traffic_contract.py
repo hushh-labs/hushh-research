@@ -23,7 +23,8 @@ def test_manual_rollback_jobs_bind_exact_deployment_environments() -> None:
 
 def test_uat_deploy_builds_candidates_without_serving_traffic() -> None:
     workflow = _read(".github/workflows/deploy-uat.yml")
-    backend_build = backend_deploy_surface()
+    backend_build = _read("deploy/backend.cloudbuild.yaml")
+    backend_deploy = backend_deploy_surface()
     frontend_build = _read("deploy/frontend.cloudbuild.yaml")
 
     assert "group: deploy-uat\n" in workflow
@@ -32,14 +33,8 @@ def test_uat_deploy_builds_candidates_without_serving_traffic() -> None:
     assert '--to-revisions="${{ steps.candidate-state.outputs.frontend_revision }}=100"' in workflow
 
     assert '_CLOUD_RUN_NO_TRAFFIC: "false"' in backend_build
-    # The backend's guard now lives in scripts/deploy/backend-deploy.sh rather than in a
-    # YAML block scalar, so it is dedented by the 8 spaces that indentation used to add.
-    # The frontend below is still inline and keeps the original indentation — that
-    # difference is exactly why the two assertions no longer read identically.
-    assert (
-        'if [[ "${_CLOUD_RUN_NO_TRAFFIC}" == "true" ]]; then\n  cmd+=("--no-traffic")'
-        in backend_build
-    )
+    assert 'if [[ "${_CLOUD_RUN_NO_TRAFFIC}" == "true" ]]; then' in backend_deploy
+    assert 'cmd+=("--no-traffic")' in backend_deploy
     assert '_CLOUD_RUN_NO_TRAFFIC: "false"' in frontend_build
     assert (
         'if [[ "${_CLOUD_RUN_NO_TRAFFIC}" == "true" ]]; then\n          cmd+=("--no-traffic")'
@@ -49,13 +44,11 @@ def test_uat_deploy_builds_candidates_without_serving_traffic() -> None:
 
 def test_uat_runtime_capacity_is_bounded_and_revision_safe() -> None:
     workflow = _read(".github/workflows/deploy-uat.yml")
-    # The backend deploy command lives in scripts/deploy/backend-deploy.sh on this
-    # branch, not inline in the cloudbuild YAML, so assert against the whole surface.
-    backend_build = backend_deploy_surface()
+    backend_deploy = backend_deploy_surface()
     frontend_build = _read("deploy/frontend.cloudbuild.yaml")
 
-    assert '"--cpu=${_CLOUD_RUN_CPU}"' in backend_build
-    assert '"--concurrency=${_CLOUD_RUN_CONCURRENCY}"' in backend_build
+    assert '"--cpu=${_CLOUD_RUN_CPU}"' in backend_deploy
+    assert '"--concurrency=${_CLOUD_RUN_CONCURRENCY}"' in backend_deploy
     assert "_CLOUD_RUN_CPU=2" in workflow
     assert "_CLOUD_RUN_CONCURRENCY=20" in workflow
 
@@ -112,18 +105,19 @@ def test_uat_deploy_pins_the_shared_firebase_authority() -> None:
 
 
 def test_backend_and_readiness_job_share_the_supported_text_model_regions() -> None:
-    backend_build = backend_deploy_surface()
+    backend_build = _read("deploy/backend.cloudbuild.yaml")
+    backend_deploy = backend_deploy_surface()
     uat_workflow = _read(".github/workflows/deploy-uat.yml")
 
     # Gemini 3.1 Flash-Lite is part of the approved text matrix and only shares
     # global/us/eu endpoints with Gemini 3.5 Flash. The deployed service and its
     # candidate-image readiness job must prove the same configuration.
-    assert backend_build.count("GOOGLE_CLOUD_LOCATION=global") == 2
-    assert '"HUSHH_VERTEX_LOCATIONS=global,us,eu"' in backend_build
-    assert '--set-env-vars="^|^HUSHH_GENAI_AUTH_MODE=vertex_adc|' in backend_build
-    assert "|HUSHH_VERTEX_LOCATIONS=global,us,eu|" in backend_build
-    assert "HUSHH_VERTEX_LOCATIONS=global\\,us\\,eu" not in backend_build
-    assert "GOOGLE_CLOUD_LOCATION=asia-southeast1" not in backend_build
+    assert backend_deploy.count("GOOGLE_CLOUD_LOCATION=global") == 2
+    assert '"HUSHH_VERTEX_LOCATIONS=global,us,eu"' in backend_deploy
+    assert '--set-env-vars="^|^HUSHH_GENAI_AUTH_MODE=vertex_adc|' in backend_deploy
+    assert "|HUSHH_VERTEX_LOCATIONS=global,us,eu|" in backend_deploy
+    assert "HUSHH_VERTEX_LOCATIONS=global\\,us\\,eu" not in backend_deploy
+    assert "GOOGLE_CLOUD_LOCATION=asia-southeast1" not in backend_deploy
     # The managed-Vertex candidate job stays conservative for direct builds,
     # while UAT must honor the same changed-SHA selector that governs the
     # candidate evaluator lane. An unrelated release must not fail because an
@@ -142,8 +136,20 @@ def test_backend_and_readiness_job_share_the_supported_text_model_regions() -> N
     assert "##_VERIFY_MANAGED_VERTEX_RUNTIME=${verify_managed_vertex_runtime}" in uat_workflow
 
 
+def test_managed_vertex_readiness_job_clears_retained_runtime_secrets() -> None:
+    backend_build = _read("deploy/backend.cloudbuild.yaml")
+    deploy_start = backend_build.index('gcloud run jobs deploy "${job_name}"')
+    execute_start = backend_build.index('gcloud run jobs execute "${job_name}"')
+    readiness_deploy = backend_build[deploy_start:execute_start]
+
+    # The job probes the managed model with synthetic inputs; it must not
+    # retain application secrets, including the retired Live credential.
+    assert "--clear-secrets" in readiness_deploy
+    assert "--set-secrets" not in readiness_deploy
+
+
 def test_backend_vertex_preflight_uses_supported_service_usage_command() -> None:
-    backend_build = backend_deploy_surface()
+    backend_build = _read("deploy/backend.cloudbuild.yaml")
 
     assert "gcloud services list --enabled" in backend_build
     assert "--filter='config.name=aiplatform.googleapis.com'" in backend_build
@@ -153,13 +159,8 @@ def test_backend_vertex_preflight_uses_supported_service_usage_command() -> None
 def test_backend_vertex_advisory_probe_parses_pretty_json_verdict() -> None:
     backend_build = _read("deploy/backend.cloudbuild.yaml")
 
-    # python3, not python: the cloud-sdk build-step image ships only python3, and
-    # the parser runs on the probe-FAILED branch, so a bare `python` there is a 127
-    # (command not found) that only surfaces when a probe actually fails -- exactly
-    # the dev billing-dunning path. Observed live 2026-08-25 (build 4e875955). The
-    # `--command="python3"` deploy-step assertion main added does not apply here: the
-    # branch's deploy body lives in scripts/deploy/backend-deploy.sh, not inline, so
-    # this contract checks the probe interpreter that IS in the cloudbuild.
+    assert '--command="python3"' in backend_build
+    assert '--command="python"' not in backend_build
     assert "PROBE_LINE=\"${probe_line}\" python3 - <<'PY'" in backend_build
     assert "PROBE_LINE=\"${probe_line}\" python - <<'PY'" not in backend_build
     assert 'marker = "managed_vertex_probe_result"' in backend_build
@@ -168,11 +169,9 @@ def test_backend_vertex_advisory_probe_parses_pretty_json_verdict() -> None:
     assert 'sed -n \'s/.*"classification":"' not in backend_build
 
 
-def test_cross_project_vertex_targets_are_explicitly_allowlisted() -> None:
-    # The IAM preflight (allowlist) lives in the cloudbuild's verify-runtime-iam
-    # step, while the deployed service's GOOGLE_CLOUD_PROJECT env is assembled in
-    # scripts/deploy/backend-deploy.sh. Read the whole deploy surface -- both files.
-    backend_build = backend_deploy_surface()
+def test_cross_project_vertex_fallback_is_dev_or_exact_uat_personal_project_only() -> None:
+    backend_build = _read("deploy/backend.cloudbuild.yaml")
+    backend_deploy = backend_deploy_surface()
     uat_workflow = _read(".github/workflows/deploy-uat.yml")
     production_workflow = _read(".github/workflows/deploy-production.yml")
 
@@ -185,27 +184,78 @@ def test_cross_project_vertex_targets_are_explicitly_allowlisted() -> None:
     )
     assert "Cross-project managed Vertex target is not allowlisted." in backend_build
     assert "##_GENAI_PROJECT_ID=hushh-vertex-personal54" in uat_workflow
-    assert ",_GENAI_PROJECT_ID=hushh-vertex-personal54," in production_workflow
+    assert "hushh-gemini-bridge" not in uat_workflow
+    assert "hushh-gemini-bridge" not in production_workflow
+    assert "_GENAI_PROJECT_ID=hushh-vertex-personal54" in production_workflow
     assert "roles/serviceusage.serviceUsageConsumer" in backend_build
-    assert '"GOOGLE_CLOUD_PROJECT=${PROJECT_ID}"' in backend_build
-    assert backend_build.count('"GOOGLE_CLOUD_PROJECT=${PROJECT_ID}"') == 1
-    assert "GENAI_GOOGLE_CLOUD_PROJECT=${genai_project_id}" in backend_build
+    assert '"GOOGLE_CLOUD_PROJECT=${PROJECT_ID}"' in backend_deploy
+    assert backend_deploy.count('"GOOGLE_CLOUD_PROJECT=${PROJECT_ID}"') == 1
+    assert "GENAI_GOOGLE_CLOUD_PROJECT=${genai_project_id}" in backend_deploy
     assert '_GENAI_PROJECT_ID: ""' in backend_build
 
 
-def test_uat_uses_the_rehearsed_vertex_live_fallback_when_developer_credits_are_depleted() -> None:
-    backend_build = backend_deploy_surface()
-    uat_workflow = _read(".github/workflows/deploy-uat.yml")
-    production_workflow = _read(".github/workflows/deploy-production.yml")
-    readiness_probe = _read("consent-protocol/scripts/verify_managed_vertex_runtime.py")
+def test_command_deploys_do_not_restore_live_or_model_pack_dependencies() -> None:
+    sources = [
+        backend_deploy_surface(),
+        _read(".github/workflows/deploy-uat.yml"),
+        _read(".github/workflows/deploy-production.yml"),
+        _read("consent-protocol/scripts/verify_managed_vertex_runtime.py"),
+    ]
+    for source in sources:
+        assert "AGENT_ONE_ADK_MODEL" not in source
+        assert "HUSHH_MANAGED_GEMINI_LIVE_API_KEY" not in source
+        assert "LOCATION_COMMAND_GEMINI_LIVE" not in source
+        assert "LOCATION_COMMAND_TRANSCRIBE_MODEL" not in source
+        assert "gemini-3.5-transcribe-live-preview" not in source
+        assert "gemini_live_capacity_pool" not in source
+        assert "HUSHH_LOCAL_RUNTIME_PACK" not in source
+        assert "ONE_VOICE_MODEL_URL_SIGNER" not in source
+        # The retired relay's fail-open flag and the ADK live region pin must
+        # not come back under their old names either.
+        assert "AGENT_GEMINI_LIVE_ENABLED" not in source
+        assert "AGENT_ONE_ADK_LOCATION" not in source
+    assert all("HUSSH_GEMINI_TEXT_MODEL" in source for source in sources[:3])
+    assert "resolve_fleet_model_name" in sources[3]
 
-    fallback = "gemini-live-2.5-flash-native-audio"
-    assert f"##_AGENT_ONE_ADK_MODEL={fallback}" in uat_workflow
-    assert "_AGENT_ONE_ADK_MODEL" not in production_workflow
-    assert 'append_optional_env "AGENT_ONE_ADK_MODEL" "${_AGENT_ONE_ADK_MODEL}"' in backend_build
-    assert "AGENT_ONE_ADK_MODEL=${_AGENT_ONE_ADK_MODEL}" in backend_build
-    assert '_AGENT_ONE_ADK_MODEL: ""' in backend_build
-    assert 'os.getenv("AGENT_ONE_ADK_MODEL") or live_model' in readiness_probe
+
+def test_one_voice_live_env_contract_is_explicit_and_dark_in_production() -> None:
+    """One Live Voice runs on Vertex ADC only, behind one flag, with an exact model pin.
+
+    Every lane carries the three names. Production ships with the flag off.
+    The pinned id must be the registry's native-realtime entry, so the deploy
+    substitution and the registry can never disagree.
+    """
+    from hushh_mcp.runtime_providers.registry import resolve_live_model_entry
+
+    backend_build = _read("deploy/backend.cloudbuild.yaml")
+    uat_workflow = _read(".github/workflows/deploy-uat.yml")
+    dev_workflow = _read(".github/workflows/deploy-dev.yml")
+    production_workflow = _read(".github/workflows/deploy-production.yml")
+
+    for name in ("ONE_VOICE_LIVE_ENABLED", "VERTEX_LIVE_MODEL_ID", "VERTEX_LIVE_LOCATION"):
+        assert name in backend_build
+        assert f"_{name}=" in uat_workflow
+        assert f"_{name}=" in dev_workflow
+        assert f"_{name}=" in production_workflow
+    assert '_ONE_VOICE_LIVE_ENABLED: "false"' in backend_build
+    assert '_VERTEX_LIVE_MODEL_ID: ""' in backend_build
+    assert '_VERTEX_LIVE_LOCATION: ""' in backend_build
+    assert "_ONE_VOICE_LIVE_ENABLED=false" in production_workflow
+    assert "_ONE_VOICE_LIVE_ENABLED=true" in uat_workflow
+
+    import re
+
+    for source in (uat_workflow, dev_workflow, production_workflow):
+        model = re.search(r"_VERTEX_LIVE_MODEL_ID=([A-Za-z0-9._-]+)", source)
+        location = re.search(r"_VERTEX_LIVE_LOCATION=([a-z0-9-]+)", source)
+        assert model and location
+        entry = resolve_live_model_entry(model.group(1))
+        assert entry.supports_native_realtime is True
+        assert location.group(1) in entry.supported_vertex_locations
+        assert location.group(1) not in {"global", "us", "eu"}
+    # Never an API key for Live in any lane.
+    for source in (backend_build, uat_workflow, dev_workflow, production_workflow):
+        assert "LIVE_API_KEY" not in source
 
 
 def test_production_deploy_builds_candidates_without_serving_traffic() -> None:
@@ -250,14 +300,10 @@ def test_hosted_backend_bounds_database_connection_fanout() -> None:
     # lowering the pools multiplies the ceiling silently, which is exactly how
     # this arithmetic drifted 2x out of date before 2026-08-23.
     dockerfile = _read("consent-protocol/Dockerfile")
-    worker_flag = re.search(
-        r"gunicorn\s+server:app\s+-w\s+\$\{WEB_CONCURRENCY:-([0-9]+)\}", dockerfile
-    )
-    assert worker_flag is not None, "could not read the gunicorn worker default from the Dockerfile"
+    worker_flag = re.search(r"gunicorn\s+server:app\s+-w\s+(\d+)", dockerfile)
+    assert worker_flag is not None, "could not read the gunicorn worker count from the Dockerfile"
     gunicorn_workers = int(worker_flag.group(1))
     assert gunicorn_workers == 2
-    assert 'env_vars+=("WEB_CONCURRENCY=${worker_count}")' in backend_build
-    assert 'worker_count="1"' in backend_build
 
     assert "_DB_POOL_MIN_SIZE=1" in uat_workflow
     assert "_DB_POOL_MAX_SIZE=4" in uat_workflow

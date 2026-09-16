@@ -6,57 +6,60 @@ changing the core Nav manifest or the working Location A2A path.
 
 from __future__ import annotations
 
-import logging
-import time
-from datetime import UTC, datetime
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from hushh_mcp.adk_bridge.contract import A2ADirective, A2ATask, SpecialistTurnResult
-from hushh_mcp.adk_bridge.delegation import validate_a2a_consent_token_with_db
-from hushh_mcp.consent.scope_helpers import get_scope_display_metadata
+from hushh_mcp.adk_bridge.contract import (
+    A2ADirective,
+    A2ATask,
+    SpecialistTurnResult,
+    require_attenuated_authority,
+)
+from hushh_mcp.adk_bridge.delegation import (
+    validate_a2a_consent_token_with_db,
+    validate_first_party_owner_token,
+)
+from hushh_mcp.agents.nav.agent import build_nav_agent
+from hushh_mcp.agents.nav.tools import DIRECTIVE_STATE_KEY, TIMEZONE_STATE_KEY
 from hushh_mcp.hushh_adk.manifest import ManifestLoader
-from hushh_mcp.services.consent_center_service import ConsentCenterService
+from hushh_mcp.hushh_adk.turn import run_specialist_adk_turn
 
 DELEGATED_MODEL = "one+nav"
 NAV_AGENT_ID = "agent_nav"
-logger = logging.getLogger(__name__)
 
 
 class NavAgent:
     agent_id = NAV_AGENT_ID
 
-    def __init__(self, manifest_path: str | Path | None = None, *, service: Any = None) -> None:
-        self._service = service
+    def __init__(
+        self,
+        manifest_path: str | Path | None = None,
+        *,
+        model: Any | None = None,
+        connections_service: Any | None = None,
+    ) -> None:
         self._manifest_path = Path(manifest_path) if manifest_path else _default_manifest_path()
         self._manifest = ManifestLoader.load(str(self._manifest_path))
-
-    def _consent_center(self) -> Any:
-        if self._service is not None:
-            return self._service
-        from hushh_mcp.runtime_settings import pod_mode
-
-        if pod_mode():
-            raise RuntimeError("Pod consent-center information adapter unavailable")
-        return ConsentCenterService()
+        self._model = model
+        self._connections_service = connections_service
 
     async def handle(self, task: A2ATask) -> SpecialistTurnResult:
         validation = await validate_a2a_consent_token_with_db(self.agent_id, task.consent_token)
-        if not validation.ok or validation.user_id != task.user_id:
+        owner_matches = validation.user_id == task.user_id
+        if not validation.ok or not owner_matches:
             return SpecialistTurnResult(
                 conversation_id=task.conversation_id or "",
-                text=(
-                    "Nav cannot review this request without an active "
-                    f"{validation.required_scope.value} consent grant."
-                ),
+                # Owner words only: the scope id stays in the directive payload
+                # below, where the app reads it, never in the sentence.
+                text="I can review your sharing once you allow the consent assistant to see it.",
                 directive=A2ADirective(
                     kind="prompt",
                     payload={
                         "kind": "consent_required",
                         "agentId": self.agent_id,
                         "requiredScope": validation.required_scope.value,
-                        "reason": validation.reason,
+                        "reason": validation.reason if not validation.ok else "owner_mismatch",
                     },
                 ),
                 is_complete=True,
@@ -64,142 +67,157 @@ class NavAgent:
                 state_changed=False,
             )
 
+        target = task.specialist_target or "consent"
+        if target not in {"consent", "connections"}:
+            raise PermissionError("Invalid specialist target")
+        connections_tools = None
+        if target == "connections":
+            if task.delegate_result is not None:
+                raise PermissionError("Connection actions require the governed action gateway")
+            connections_tools = await self._connections_tools(task)
+        elif task.authority is not None:
+            self._require_invocation(task, self._manifest)
+
         message = (task.message or "").strip()
-        timezone = _safe_timezone(task.timezone)
-        answer_text, directive = await self._answer(
-            message, user_id=task.user_id, timezone=timezone
+        if not message:
+            return SpecialistTurnResult(
+                conversation_id=task.conversation_id or "",
+                text="Nav is ready to review consent, scope release, vault access, deletion, and revocation questions.",
+                directive=None,
+                is_complete=True,
+                model=DELEGATED_MODEL,
+                state_changed=False,
+            )
+        turn = await run_specialist_adk_turn(
+            agent=build_nav_agent(
+                model=self._model, manifest=self._manifest, connections_tools=connections_tools
+            ),
+            app_name="hushh_nav",
+            user_id=task.user_id,
+            consent_token=task.consent_token,
+            message=message,
+            state={TIMEZONE_STATE_KEY: task.timezone or "UTC", "nav_target": target},
         )
+        raw = turn.state.get(DIRECTIVE_STATE_KEY)
+        directive = A2ADirective(kind=raw["kind"], payload=raw["payload"]) if raw else None
+        answer_text = turn.final_text
+        if target == "connections" and raw:
+            # Legacy select cards would bypass the generated action ledger.
+            # Only a typed proposal goes back to One; no selection executes here.
+            directive, answer_text = _connection_proposal(raw)
+        if not answer_text.strip() and directive is None:
+            raise RuntimeError("Nav returned no answer")
         return SpecialistTurnResult(
             conversation_id=task.conversation_id or "",
             text=answer_text,
             directive=directive,
-            is_complete=True,
+            is_complete=not (directive and directive.payload.get("type") == "connections_choice"),
             model=DELEGATED_MODEL,
             state_changed=False,
         )
 
-    async def _answer(
-        self, message: str, *, user_id: str, timezone: ZoneInfo
-    ) -> tuple[str, Any | None]:
-        if not message:
-            return (
-                "Nav is ready to review consent, scope release, vault access, "
-                "deletion, and revocation questions.",
-                None,
+    @staticmethod
+    def _require_invocation(task: A2ATask, manifest):
+        capabilities = tuple(manifest.authorities.invocation)
+        if not capabilities:
+            raise PermissionError("Specialist invocation is not declared")
+        for capability in capabilities:
+            require_attenuated_authority(
+                task,
+                required_invocation=capability,
+                expected_tenant_id=task.expected_tenant_id,
+                expected_task_id=task.expected_task_id,
             )
-        if _is_previous_consent_query(message):
-            return await self._previous_consent_answer(user_id, timezone=timezone)
-        if _is_active_consent_query(message):
-            return await self._active_consent_answer(user_id, timezone=timezone)
-        return (
-            f"For this request: {message}. I can help review consent requests, "
-            "explain what access was granted, "
-            "and help you approve, narrow, or revoke access. Ask me to show active, "
-            "pending, or revoked consent requests.",
-            None,
+
+    async def _connections_tools(self, task: A2ATask):
+        from hushh_mcp.services.connections_chat_service import ConnectionsChatService
+
+        self._require_invocation(task, self._manifest)
+        child_manifest = ManifestLoader.load(
+            str(Path(__file__).resolve().parents[1] / "agents" / "connections" / "agent.yaml")
+        )
+        self._require_invocation(task, child_manifest)
+        child_task = replace(
+            task,
+            authority=replace(
+                task.authority,
+                invocation_capabilities=tuple(child_manifest.authorities.invocation),
+                information_grant_refs=(),
+                encrypted_export_refs=(),
+                action_capabilities=(),
+                confirmation_receipt=None,
+            ),
         )
 
-    async def _active_consent_answer(
-        self, user_id: str, *, timezone: ZoneInfo
-    ) -> tuple[str, Any | None]:
-        started = time.perf_counter()
-        try:
-            payload = await self._consent_center().list_center(
-                user_id,
-                actor="investor",
-                surface="active",
-                top=10,
-            )
-        except Exception:
-            elapsed_ms = (time.perf_counter() - started) * 1000
-            logger.exception(
-                "nav_agent.consent_center_failed user_id=%s surface=active elapsed_ms=%.1f",
-                user_id,
-                elapsed_ms,
-            )
-            return "Nav could not load approved consent requests right now. Please try again.", None
-        elapsed_ms = (time.perf_counter() - started) * 1000
-        logger.info(
-            "nav_agent.consent_center_timing user_id=%s surface=active elapsed_ms=%.1f items=%s total=%s",
-            user_id,
-            elapsed_ms,
-            len(list(payload.get("items") or [])),
-            payload.get("total"),
-        )
+        async def before_read():
+            self._require_invocation(child_task, child_manifest)
+            if await validate_first_party_owner_token(task.user_id, task.consent_token) is None:
+                raise PermissionError("Connection owner authority is unavailable")
 
-        grants = list(payload.get("items") or [])
-        total = int(payload.get("total") or len(grants))
-        if not grants:
-            return "You do not have any approved consent requests right now.", None
+        await before_read()
+        service = self._connections_service or ConnectionsChatService()
+        return service.build_read_proposal_tools(task.user_id, before_read=before_read)
 
-        lines = [
-            f"You have {total} approved consent request"
-            f"{'' if total == 1 else 's'} active right now:"
-        ]
-        action_items: list[dict[str, Any]] = []
-        for index, grant in enumerate(grants[:10], start=1):
-            label = _entry_label(grant)
-            access = _friendly_scope(grant)
-            expires = _friendly_expiry(grant, timezone=timezone)
-            lines.append(f"{index}. {label} can {access}{expires}.")
-            action_item = _consent_action_item(grant, label=label, access=access)
-            if action_item is not None:
-                action_items.append(action_item)
-        if total > len(grants):
-            lines.append(f"There are {total - len(grants)} more approved requests.")
-        directive = (
-            A2ADirective(
-                kind="prompt",
-                payload={"kind": "consent_actions", "items": action_items},
-            )
-            if action_items
-            else None
-        )
-        return "\n".join(lines), directive
 
-    async def _previous_consent_answer(
-        self, user_id: str, *, timezone: ZoneInfo
-    ) -> tuple[str, Any | None]:
-        started = time.perf_counter()
-        try:
-            payload = await self._consent_center().list_center(
-                user_id,
-                actor="investor",
-                surface="previous",
-                top=10,
-            )
-        except Exception:
-            elapsed_ms = (time.perf_counter() - started) * 1000
-            logger.exception(
-                "nav_agent.consent_center_failed user_id=%s surface=previous elapsed_ms=%.1f",
-                user_id,
-                elapsed_ms,
-            )
-            return "Nav could not load revoked consent requests right now. Please try again.", None
-        elapsed_ms = (time.perf_counter() - started) * 1000
-        logger.info(
-            "nav_agent.consent_center_timing user_id=%s surface=previous elapsed_ms=%.1f items=%s total=%s",
-            user_id,
-            elapsed_ms,
-            len(list(payload.get("items") or [])),
-            payload.get("total"),
-        )
-
-        entries = list(payload.get("items") or [])
-        total = int(payload.get("total") or len(entries))
-        if not entries:
-            return "You do not have any revoked or previous consent requests right now.", None
-
-        lines = [f"You have {total} previous consent request{'' if total == 1 else 's'}:"]
-        for index, entry in enumerate(entries[:10], start=1):
-            label = _entry_label(entry)
-            access = _friendly_scope(entry)
-            ended = _friendly_terminal_time(entry, timezone=timezone)
-            status = str(entry.get("status") or "previous").strip().lower()
-            lines.append(f"{index}. {label} had access to {access}{ended} ({status}).")
-        if total > len(entries):
-            lines.append(f"There are {total - len(entries)} more previous requests.")
-        return "\n".join(lines), None
+def _connection_proposal(raw: dict) -> tuple[A2ADirective | None, str]:
+    payload = raw.get("payload") or {}
+    question = str(payload.get("question") or "Please choose the connection action in the app.")
+    options = payload.get("options") or []
+    if payload.get("purpose") == "send_trusted_connection":
+        candidates = []
+        for option in options[:25]:
+            ref = option.get("ref") or {}
+            identity, label = ref.get("addresseeUserId"), option.get("label")
+            if (
+                not isinstance(identity, str)
+                or not identity.strip()
+                or len(identity) > 256
+                or not isinstance(label, str)
+                or not label.strip()
+                or len(label) > 200
+            ):
+                raise PermissionError("Invalid connection choice")
+            candidates.append({"userId": identity, "displayName": label})
+        if len(candidates) < 2:
+            raise PermissionError("Connection choice is incomplete")
+        return A2ADirective(
+            kind="prompt",
+            payload={
+                "type": "connections_choice",
+                "question": question[:500],
+                "candidates": candidates,
+            },
+        ), question[:500]
+    if len(options) != 1 or not str(payload.get("purpose", "")).startswith("confirm_"):
+        return None, question
+    ref = options[0].get("ref") or {}
+    mapping = {
+        "send_request": ("connect.send_request", "addresseeUserId"),
+        "accept": ("connect.accept_request", "requestId"),
+        "reject": ("connect.reject_request", "requestId"),
+        "remove": ("connect.remove_connection", "connectionId"),
+    }
+    action = mapping.get(ref.get("op"))
+    if action is None:
+        raise PermissionError("Unsupported connection proposal")
+    action_id, identity_key = action
+    identity = ref.get(identity_key)
+    person = ref.get("label")
+    if not isinstance(identity, str) or not identity.strip() or len(identity) > 256:
+        raise PermissionError("Connection proposal requires an exact identity")
+    if not isinstance(person, str) or not person.strip() or len(person) > 200:
+        raise PermissionError("Connection proposal requires a person label")
+    return A2ADirective(
+        kind="action",
+        payload={
+            "type": "connections_proposal",
+            "actionId": action_id,
+            "slots": {
+                "person": person,
+                "userId" if identity_key == "addresseeUserId" else identity_key: identity,
+            },
+        },
+    ), question
 
 
 _singleton: NavAgent | None = None
@@ -214,185 +232,3 @@ def get_nav_a2a() -> NavAgent:
 
 def _default_manifest_path() -> Path:
     return Path(__file__).resolve().parents[1] / "agents" / "nav" / "agent.yaml"
-
-
-def _is_active_consent_query(message: str) -> bool:
-    text = message.lower()
-    consent_words = ("consent", "access", "grant", "permission", "scope")
-    active_words = (
-        "approved",
-        "active",
-        "granted",
-        "request",
-        "requests",
-        "who has access",
-    )
-    list_words = ("show", "list", "all", "what", "who")
-    return (
-        any(word in text for word in consent_words)
-        and any(word in text for word in active_words)
-        and any(word in text for word in list_words)
-    )
-
-
-def _is_previous_consent_query(message: str) -> bool:
-    text = message.lower()
-    consent_words = ("consent", "access", "grant", "permission", "scope", "request")
-    previous_words = ("revoked", "revoke", "expired", "previous", "past", "history", "ended")
-    list_words = ("show", "list", "all", "what", "who", "about")
-    return (
-        any(word in text for word in consent_words)
-        and any(word in text for word in previous_words)
-        and any(word in text for word in list_words)
-    )
-
-
-def _entry_label(entry: dict[str, Any]) -> str:
-    for key in ("counterpart_label", "counterpart_email", "counterpart_id"):
-        value = str(entry.get(key) or "").strip()
-        if value:
-            return value
-    return "An approved app or agent"
-
-
-def _friendly_scope(entry: dict[str, Any]) -> str:
-    scope = str(entry.get("scope") or "").strip()
-    if scope == "cap.location.live.view":
-        return "view your live location"
-    if scope == "cap.location.live.share":
-        return "share your live location"
-    if scope == "cap.location.live.request":
-        return "request your live location"
-    if scope == "cap.location.live.revoke":
-        return "revoke a live-location share"
-    if scope == "cap.location.live.refer_request":
-        return "refer a live-location access request"
-    description = str(entry.get("scope_description") or "").strip()
-    if description:
-        return f"access {description[0].lower()}{description[1:]}"
-    if scope:
-        try:
-            label = str(get_scope_display_metadata(scope).get("label") or "").strip()
-        except Exception:
-            label = ""
-        if label:
-            return f"access {label[0].lower()}{label[1:]}"
-        return f"access {scope}"
-    return "access an approved scope"
-
-
-def _consent_action_item(
-    entry: dict[str, Any],
-    *,
-    label: str,
-    access: str,
-) -> dict[str, Any] | None:
-    entry_id = str(entry.get("id") or "").strip()
-    scope = str(entry.get("scope") or "").strip()
-    metadata = dict(entry.get("metadata") or {})
-    request_source = str(metadata.get("request_source") or "").strip()
-    is_location_grant = (
-        entry_id.startswith("one_location_grant:")
-        or request_source == "one_location_share_grant"
-        or scope.startswith("cap.location.")
-    )
-    if not is_location_grant:
-        return None
-
-    grant_id = str(metadata.get("grant_id") or "").strip()
-    if not grant_id and entry_id.startswith("one_location_grant:"):
-        grant_id = entry_id.split(":", 1)[1].strip()
-    if not grant_id:
-        raw_id = str(entry.get("id") or "").strip()
-        if raw_id and not raw_id.startswith("one_location_"):
-            grant_id = raw_id
-    if not grant_id:
-        return None
-
-    item_id = f"one_location_grant:{grant_id}"
-    action_metadata = {
-        **metadata,
-        "request_source": "one_location_share_grant",
-        "grant_id": grant_id,
-    }
-    return {
-        "id": item_id,
-        "label": label,
-        "summary": f"{label} can {access}",
-        "scope": scope,
-        "expiresAt": entry.get("expires_at"),
-        "metadata": action_metadata,
-        "actions": ["revoke", "details"],
-    }
-
-
-def _friendly_expiry(entry: dict[str, Any], *, timezone: ZoneInfo) -> str:
-    expires = str(entry.get("expires_at") or "").strip()
-    if not expires:
-        return ""
-    parsed = _parse_datetime(expires)
-    if parsed is None:
-        return f" until {expires}"
-    local_expires = parsed.astimezone(timezone)
-    local_now = datetime.now(UTC).astimezone(timezone)
-    day_label = local_expires.strftime("%b %-d, %Y")
-    if local_expires.date() == local_now.date():
-        day_label = "today"
-    elif (local_expires.date() - local_now.date()).days == 1:
-        day_label = "tomorrow"
-    time_label = local_expires.strftime("%-I:%M %p %Z")
-    return f" until {day_label} at {time_label}"
-
-
-def _friendly_terminal_time(entry: dict[str, Any], *, timezone: ZoneInfo) -> str:
-    for key in ("revoked_at", "resolved_at", "expires_at", "updated_at", "issued_at"):
-        value = str(entry.get(key) or "").strip()
-        if not value:
-            continue
-        parsed = _parse_datetime(value)
-        if parsed is None:
-            return f" until {value}"
-        local_value = parsed.astimezone(timezone)
-        local_now = datetime.now(UTC).astimezone(timezone)
-        day_label = local_value.strftime("%b %-d, %Y")
-        if local_value.date() == local_now.date():
-            day_label = "today"
-        elif (local_value.date() - local_now.date()).days == -1:
-            day_label = "yesterday"
-        time_label = local_value.strftime("%-I:%M %p %Z")
-        return f" until {day_label} at {time_label}"
-    return ""
-
-
-def _parse_datetime(value: str) -> datetime | None:
-    normalized = value.strip()
-    if normalized.endswith("Z"):
-        normalized = f"{normalized[:-1]}+00:00"
-    try:
-        parsed = datetime.fromisoformat(normalized)
-    except ValueError:
-        # Some sources of expires_at/issued_at (consent_db.py's audit/token
-        # rows, compared against now_ms throughout that module) carry epoch
-        # milliseconds rather than an ISO string -- already str()'d by the
-        # caller before it ever reaches here. Without this, a value that
-        # failed ISO parsing fell through to being spoken aloud as a raw
-        # number: "until 1785283200000."
-        if normalized.isdigit():
-            try:
-                return datetime.fromtimestamp(int(normalized) / 1000, tz=UTC)
-            except (OverflowError, OSError, ValueError):
-                return None
-        return None
-    if parsed.tzinfo is None:
-        return parsed.replace(tzinfo=UTC)
-    return parsed.astimezone(UTC)
-
-
-def _safe_timezone(value: Any) -> ZoneInfo:
-    name = str(value or "").strip()
-    if not name:
-        return ZoneInfo("UTC")
-    try:
-        return ZoneInfo(name)
-    except (ValueError, ZoneInfoNotFoundError):
-        return ZoneInfo("UTC")

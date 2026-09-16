@@ -21,7 +21,7 @@ import { INPUT_CLASSNAME } from "../components/ui/input";
  * A native <select> defaults to `appearance: menulist`, and under that value
  * WebKit draws the control itself and IGNORES the author's border-radius and
  * padding. Measured here: with the input's classes but no `appearance-none`,
- * WebKit still computes ~5px against the input's 14px — the reported mismatch
+ * WebKit still computes ~5px against the input's capsule radius — the reported mismatch
  * survives, on the engine inside the iOS app, where most of our users are.
  * Chromium honours the author radius either way, so it reports the fix as
  * working. This spec pins the property that actually makes the two agree.
@@ -92,6 +92,8 @@ async function buildFixture(): Promise<string> {
 <style>
   /* The app shell's own tokens, which this fixture has no shell to inherit. */
   :root {
+    --app-radius-pill: 9999px;
+    --app-input-radius: var(--app-radius-pill);
     --app-radius-md: 14px;
     --app-separator: rgba(60,60,67,.12);
     --app-secondary-surface: #f9f9fb;

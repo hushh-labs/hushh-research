@@ -70,6 +70,56 @@ def test_access_request_carries_the_duration_the_requester_asked_for() -> None:
     assert notification["data"]["requested_duration_hours"] == 3
 
 
+def test_command_approval_rejects_a_request_changed_after_confirmation() -> None:
+    service = _service_with_keys("user_a", "user_b")
+    request = service.request_access(
+        requester_user_id="user_b", owner_user_id="user_a", requested_duration_hours=1
+    )
+    revised = service.request_access(
+        requester_user_id="user_b", owner_user_id="user_a", requested_duration_hours=4
+    )
+    assert revised["requestRevision"] > request["requestRevision"]
+    with pytest.raises(OneLocationAgentError, match="Review it again"):
+        service.approve_request(
+            owner_user_id="user_a",
+            request_id=request["id"],
+            approval_mode="manual",
+            duration_hours=1,
+            expected_request_revision=request["requestRevision"],
+        )
+    approved = service.approve_request(
+        owner_user_id="user_a",
+        request_id=request["id"],
+        approval_mode="manual",
+        duration_hours=4,
+        expected_request_revision=revised["requestRevision"],
+    )
+    assert approved["request"]["status"] == "approved"
+
+
+def test_command_extension_requires_review_even_after_the_share_is_revoked() -> None:
+    service = _service_with_keys("user_a", "user_b")
+    grant = service.create_grant(
+        owner_user_id="user_a",
+        recipient_user_id="user_b",
+        recipient_key_id="key-user_b",
+        duration_hours=1,
+    )
+    request = service.request_access(
+        requester_user_id="user_b", owner_user_id="user_a", requested_duration_hours=2
+    )
+    assert request["extendsGrantId"] == grant["id"]
+    service.revoke_grant(owner_user_id="user_a", grant_id=grant["id"])
+    with pytest.raises(OneLocationAgentError, match="Review this extension"):
+        service.approve_request(
+            owner_user_id="user_a",
+            request_id=request["id"],
+            approval_mode="manual",
+            duration_hours=2,
+            expected_request_revision=request["requestRevision"],
+        )
+
+
 def test_request_from_a_live_recipient_is_an_extension_ask() -> None:
     service = _service_with_keys("user_a", "user_b")
     grant = service.create_grant(

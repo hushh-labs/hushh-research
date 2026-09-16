@@ -1,0 +1,441 @@
+/* Figma 181:1661, 402 × 874. Keep fixed artwork/control metrics, flow the
+ * sections from the safe-area top, and let only the footer whitespace grow.
+ * Theme-scoped compositions preserve the shared authentication behavior.
+ */
+.existingBackdrop,
+.existingIllustration,
+.existingProviderIcon,
+.existingPrivacyIcon {
+  display: contents;
+}
+
+.illustration,
+.providerIcon,
+.privacyIcon,
+.backGlyph {
+  display: none;
+}
+
+:global(html:not(.dark)) .shell {
+  --auth-font: -apple-system, BlinkMacSystemFont, "SF Pro", system-ui, sans-serif;
+  display: flex;
+  flex-direction: column;
+  height: 100dvh !important;
+  min-height: 100svh !important;
+  padding-top: max(78px, calc(var(--app-safe-area-top-effective, 0px) + 16px));
+  padding-bottom: max(62px, calc(env(safe-area-inset-bottom, 0px) + 28px));
+  overflow-y: auto;
+  background: #f6f5fc;
+  color: #000;
+  isolation: isolate;
+}
+
+:global(html:not(.dark)) .existingBackdrop,
+:global(html:not(.dark)) .existingIllustration,
+:global(html:not(.dark)) .existingProviderIcon,
+:global(html:not(.dark)) .existingPrivacyIcon,
+:global(html:not(.dark)) .existingBackIcon {
+  display: none;
+}
+
+:global(html:not(.dark)) .content {
+  flex: none;
+  width: min(100%, 402px);
+  height: auto !important;
+  min-height: 0 !important;
+  padding: 0;
+  justify-content: flex-start;
+}
+
+:global(html:not(.dark)) .clusters {
+  gap: 36px;
+  padding: 0;
+}
+
+:global(html:not(.dark)) .hero {
+  gap: 4px;
+}
+
+:global(html:not(.dark)) .illustration {
+  display: block;
+  position: relative;
+  flex: none;
+  width: 218.789291px;
+  height: 275px;
+  transform: translateX(-0.723519px);
+}
+
+.imageCrop {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+
+.imageCrop img {
+  position: absolute;
+  width: 100%;
+  max-width: none;
+  height: auto;
+  top: -7.54719%;
+  left: 0;
+}
+
+.glow {
+  position: absolute;
+  left: 83.118164px;
+  top: 205px;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: #cdedff;
+  /* Figma radius 24.2 exports as Gaussian stdDeviation 12.1. */
+  filter: blur(12.1px);
+}
+
+.emoji {
+  position: absolute;
+  left: 87.118164px;
+  top: 207px;
+  width: 33px;
+  height: 39px;
+  font-family: var(--auth-font), "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji";
+  font-size: 32.888809px;
+  font-weight: 510;
+  line-height: 38.692715px;
+  letter-spacing: -0.831893px;
+}
+
+:global(html:not(.dark)) .title {
+  --foundation-title1-size: 27px;
+  --foundation-title1-line: 32px;
+  --foundation-title1-weight: 700;
+  --foundation-title1-tracking: 0;
+  width: 250px;
+  height: 32px;
+  margin: 0;
+  font-family: var(--auth-font);
+  font-size: 27px;
+  font-weight: 700;
+  line-height: 32px;
+  letter-spacing: 0;
+  color: #000;
+}
+
+:global(html:not(.dark)) .title > span { color: #0088ff; }
+
+:global(html:not(.dark)) .actions {
+  width: min(344px, calc(100% - 52px));
+  transform: translateX(-3px);
+}
+
+:global(html:not(.dark)) .providerButton {
+  position: relative;
+  height: 60px !important;
+  min-height: 60px;
+  padding: 0 8px 0 20px !important;
+  border: 0 !important;
+  border-radius: 16px !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+}
+
+/* Important declarations reverse cascade-layer priority. Keep these scoped
+ * paints in base so existing important provider utilities cannot replace them.
+ * Figma's two paint layers composite to #fafafc on the #f6f5fc canvas. */
+@layer base {
+  :global(html:not(.dark)) .providerButton {
+    background: #fafafc !important;
+    color: #000 !important;
+  }
+}
+
+:global(html:not(.dark)) .providerButton,
+:global(html:not(.dark)) .providerButton span {
+  font-family: var(--auth-font) !important;
+  font-size: 17px !important;
+  font-weight: 510 !important;
+  line-height: 22px !important;
+  letter-spacing: 0 !important;
+}
+
+:global(html:not(.dark)) .providerButton > span:first-child {
+  position: static;
+  width: 100%;
+}
+
+:global(html:not(.dark)) .providerButton > span:first-child > span {
+  gap: 0;
+  padding-left: 0;
+}
+
+/* The Figma text layers include four leading spaces. Preserve their actual
+ * font advance rather than approximating that advance with pixel padding.
+ *
+ * The empty alternative text after the slash matters. Generated content is
+ * part of an element's accessible name, so without it this button is named
+ * "    Continue with Apple" -- four non-breaking spaces first. VoiceOver read
+ * them, and the native UI test's exact-match query for the button stopped
+ * finding it, which is how the failure surfaced: `testAccountNotFoundRecovery
+ * ReturnsToLogin` timing out on a button that was on screen the whole time.
+ * WebKit honours the alt clause since iOS 17.4. */
+:global(html:not(.dark)) .providerButton > span:first-child > span::before {
+  content: "\00a0\00a0\00a0\00a0" / "";
+  white-space: pre;
+}
+
+:global(html:not(.dark)) .providerIcon {
+  display: block;
+  position: absolute;
+  top: 18px;
+  height: 23px;
+  object-fit: cover;
+}
+
+:global(html:not(.dark)) .appleIcon { left: calc(50% - 118px); width: 41px; }
+:global(html:not(.dark)) .googleIcon { left: calc(50% - 120px); width: 46px; }
+
+:global(html:not(.dark)) .footer {
+  position: static;
+  flex: none;
+  width: min(100%, 402px);
+  margin: auto auto 0;
+  padding-top: 40px;
+  justify-content: flex-start;
+  padding-left: 90px;
+}
+
+:global(html:not(.dark)) .legalRow {
+  width: 233px;
+  margin-left: 0;
+  gap: 12.029842px;
+  align-items: flex-start;
+}
+
+:global(html:not(.dark)) .privacyIcon {
+  display: block;
+  flex: none;
+  width: 32.245548px;
+  height: 25.76586px;
+}
+
+:global(html:not(.dark)) .legalRow p,
+:global(html:not(.dark)) .legalRow button {
+  font-family: var(--auth-font) !important;
+  font-size: 11px !important;
+  font-weight: 400 !important;
+  line-height: 13px !important;
+  letter-spacing: 0 !important;
+}
+
+:global(html:not(.dark)) .legalRow p {
+  width: 188.724258px;
+  flex: none;
+  margin: 0;
+  color: #76829d;
+}
+
+:global(html:not(.dark)) .legalRow button { color: #0088ff; }
+
+:global(html:not(.dark)) .back {
+  position: absolute;
+  left: max(23px, calc((100% - 402px) / 2 + 23px));
+  top: max(72px, calc(var(--app-safe-area-top-effective, 0px) + 10px));
+  width: 44px;
+  height: 44px;
+  border-radius: 100px;
+  background: #fcfbfe;
+  color: #8e8e93;
+  border: 0;
+  box-shadow: none;
+}
+
+:global(html:not(.dark)) .backGlyph {
+  display: block;
+  font-family: var(--auth-font);
+  font-size: 19px;
+  font-weight: 510;
+  line-height: 22px;
+  letter-spacing: -0.4px;
+}
+
+@media (max-width: 360px) {
+  :global(html:not(.dark)) .footer { padding-left: 48px; }
+}
+
+/* Dark Figma frame 194:2874: 402 × 874, including native safe areas. */
+.darkArtwork, .darkAppleIcon, .darkPrivacyIcon { display: none; }
+:global(html.dark) .shell {
+  --auth-font: -apple-system, BlinkMacSystemFont, "SF Pro", system-ui, sans-serif;
+  display: flex;
+  flex-direction: column;
+  height: 100dvh !important;
+  min-height: 100svh !important;
+  padding-top: max(107px, calc(var(--app-safe-area-top-effective, 0px) + 45px));
+  padding-bottom: max(62px, calc(env(safe-area-inset-bottom, 0px) + 28px));
+  overflow-y: auto;
+  background: #000;
+  isolation: isolate;
+}
+:global(html.dark) .existingBackdrop,
+:global(html.dark) .existingIllustration,
+:global(html.dark) .existingProviderIcon,
+:global(html.dark) .existingPrivacyIcon,
+:global(html.dark) .existingBackIcon,
+:global(html.dark) .glow,
+:global(html.dark) .emoji,
+:global(html.dark) .imageCrop img:not(.darkArtwork) { display: none; }
+:global(html.dark) .content {
+  flex: none;
+  width: min(100%, 402px);
+  height: auto !important;
+  min-height: 0 !important;
+  padding: 0;
+  justify-content: flex-start;
+}
+:global(html.dark) .clusters { gap: 38px; padding: 0; }
+:global(html.dark) .hero { gap: 12px; }
+:global(html.dark) .illustration {
+  display: block;
+  position: relative;
+  flex: none;
+  width: min(357px, calc(100% - 34px));
+  aspect-ratio: 3 / 2;
+  transform: translateX(-5.5px);
+}
+:global(html.dark) .imageCrop .darkArtwork {
+  display: block;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+:global(html.dark) .title {
+  --foundation-title1-size: 27px;
+  --foundation-title1-line: 32px;
+  --foundation-title1-weight: 700;
+  --foundation-title1-tracking: 0;
+  width: 250px;
+  height: 32px;
+  margin: 0;
+  font-family: var(--auth-font);
+  font-size: 27px;
+  font-weight: 700;
+  line-height: 32px;
+  letter-spacing: 0;
+  color: #f2f2f7;
+}
+:global(html.dark) .title > span { color: #0088ff; }
+:global(html.dark) .actions {
+  width: min(344px, calc(100% - 52px));
+  transform: translateX(-3px);
+}
+:global(html.dark) .providerButton {
+  position: relative;
+  height: 60px !important;
+  min-height: 60px;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 16px !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+}
+@layer base {
+  :global(html.dark) .providerButton {
+    background: #1c1c1e !important;
+    color: #fff !important;
+  }
+}
+:global(html.dark) .providerButton,
+:global(html.dark) .providerButton span {
+  font-family: var(--auth-font) !important;
+  font-size: 17px !important;
+  font-weight: 510 !important;
+  line-height: 22px !important;
+  letter-spacing: 0 !important;
+}
+:global(html.dark) .providerButton > span:first-child { position: static; width: 100%; }
+:global(html.dark) .providerButton > span:first-child > span { gap: 0; }
+/* Same leading-space fidelity as the light rule above, and the same empty
+ * alternative text for the same reason: these spaces are visual, not part of
+ * the button's name. */
+:global(html.dark) .providerButton > span:first-child > span::before {
+  content: "\00a0\00a0\00a0\00a0" / "";
+  white-space: pre;
+}
+:global(html.dark) .providerButton:has(.googleIcon) > span:first-child > span::before {
+  content: "\00a0\00a0\00a0\00a0\00a0\00a0" / "";
+}
+:global(html.dark) .darkAppleIcon {
+  display: block;
+  position: absolute;
+  left: calc(50% - 122px);
+  top: 12px;
+  width: 37px;
+  height: 37px;
+}
+:global(html.dark) .googleIcon {
+  display: block;
+  position: absolute;
+  left: calc(50% - 127px);
+  top: 19px;
+  width: 46px;
+  height: 23px;
+  object-fit: cover;
+}
+:global(html.dark) .footer {
+  position: static;
+  flex: none;
+  width: min(100%, 402px);
+  margin: auto auto 0;
+  padding-top: 40px;
+  padding-left: 90px;
+  justify-content: flex-start;
+}
+:global(html.dark) .legalRow {
+  width: 233px;
+  margin-left: 0;
+  gap: 12.029842px;
+  align-items: flex-start;
+}
+:global(html.dark) .darkPrivacyIcon {
+  display: block;
+  flex: none;
+  width: 32.245548px;
+  height: 25.76586px;
+}
+:global(html.dark) .legalRow p,
+:global(html.dark) .legalRow button {
+  font-family: var(--auth-font) !important;
+  font-size: 11px !important;
+  font-weight: 400 !important;
+  line-height: 13px !important;
+  letter-spacing: 0 !important;
+}
+:global(html.dark) .legalRow p { width: 188.724258px; flex: none; margin: 0; color: #d9d9d9; }
+:global(html.dark) .legalRow button { color: #0088ff; }
+:global(html.dark) .back {
+  position: absolute;
+  left: max(24px, calc((100% - 402px) / 2 + 24px));
+  top: max(73px, calc(var(--app-safe-area-top-effective, 0px) + 11px));
+  width: 43px;
+  height: 43px;
+  border: 0;
+  box-shadow: none;
+  background: url("/onboarding/figma/auth-back-dark.svg") center / 43px 43px no-repeat;
+}
+
+/* Browser web uses the same safe-area top offset as Verify Phone. AuthStep
+   applies this class only when Capacitor resolves to the web platform. */
+:global(html:not(.dark)) .webBack,
+:global(html.dark) .webBack {
+  top: calc(
+    max(
+      env(safe-area-inset-top, 0px),
+      var(--app-safe-area-top-effective, 0px)
+    ) + 10px
+  );
+}
+
+@media (max-width: 360px) {
+  :global(html.dark) .footer { padding-left: 48px; }
+}

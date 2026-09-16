@@ -141,8 +141,9 @@ async function buildFixture(): Promise<string> {
       <div class="space-y-2.5">
         <p>Duration</p>
         <div data-public-options class="${DURATION_EQUAL_BUTTONS_GROUP_CLASSNAME}">
-          <button data-public-option class="${EQUAL_OPTION_CLASSNAME}">30 min</button>
+          <button data-public-option class="${EQUAL_OPTION_CLASSNAME}">15 min</button>
           <button data-public-option class="${EQUAL_OPTION_CLASSNAME}">1 hour</button>
+          <button data-public-option class="${EQUAL_OPTION_CLASSNAME}">2 hours</button>
         </div>
       </div>
       <button data-public-cta class="${PUBLIC_LINK_PRIMARY_CTA_CLASSNAME} inline-flex items-center justify-center">Create link</button>
@@ -260,14 +261,15 @@ test.describe("One Location compact CTA layout", () => {
             (result.publicCard.left + result.publicCardPaddingLeft),
         ),
       ).toBeLessThanOrEqual(1);
-      expect(
-        Math.abs(result.publicOptions[0].width - result.publicOptions[1].width),
-      ).toBeLessThanOrEqual(1);
-      expect(result.publicOptions[0].height).toBeGreaterThanOrEqual(44);
-      expect(result.publicOptions[1].height).toBeGreaterThanOrEqual(44);
-      expect(
-        Math.abs(result.publicCta.width - result.publicControls.width),
-      ).toBeLessThanOrEqual(1);
+      expect(result.publicOptions).toHaveLength(3);
+      for (const option of result.publicOptions) {
+        expect(option.height).toBeGreaterThanOrEqual(44);
+        expect(
+          Math.abs(option.width - result.publicOptions[0].width),
+        ).toBeLessThanOrEqual(1);
+      }
+      expect(result.publicCta.width).toBeGreaterThanOrEqual(144);
+      expect(result.publicCta.width).toBeLessThan(result.publicControls.width);
 
       expect(result.shareOptions.width).toBeCloseTo(
         width < 640

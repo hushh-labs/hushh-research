@@ -24,6 +24,20 @@ type SetupCompletionFooterProps = {
   testId?: string;
   purpose: string;
   supportingText?: string;
+  /**
+   * Whether this footer reserves space for the bottom app chrome itself.
+   *
+   * True is right when the footer sits directly under the scroll root. It is
+   * WRONG when the footer is nested inside a host that already reserved the
+   * same token: on the Finance questionnaire the wizard's main already carries
+   * pb-[var(--app-scroll-bottom-pad)], so this added a second ~142px band and
+   * the three question screens each scrolled into empty space below the Skip
+   * control.
+   *
+   * The inset belongs to whichever box is outermost. Passing false lets a host
+   * that already owns it say so, rather than every nested footer guessing.
+   */
+  insetBottom?: boolean;
   /** Lets the hub make "Skip" intentionally quieter than a verified finish. */
   variant?: ColorVariant;
   /** Flat controls use the shared fade state layer in both themes. */
@@ -53,6 +67,7 @@ export function SetupCompletionFooter({
   testId,
   purpose,
   supportingText,
+  insetBottom = true,
   variant = "blue-gradient",
   effect = "fill",
 }: SetupCompletionFooterProps) {
@@ -84,7 +99,14 @@ export function SetupCompletionFooter({
     blocked && !disabled && !busy && !isQuietSetupAction;
 
   return (
-    <div className="mt-6 pb-[calc(var(--app-scroll-bottom-pad,var(--app-bottom-inset))+24px)] sm:mt-8 sm:pb-8">
+    <div
+      className={cn(
+        "mt-6 sm:mt-8",
+        insetBottom
+          ? "pb-[calc(var(--app-scroll-bottom-pad,var(--app-bottom-inset))+24px)] sm:pb-8"
+          : "pb-6",
+      )}
+    >
       <div className="relative z-20 space-y-2 bg-transparent py-2">
         {supportingText ? (
           <p className="text-center text-xs text-muted-foreground">

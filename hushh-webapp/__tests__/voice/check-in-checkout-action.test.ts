@@ -23,10 +23,11 @@ describe("location.checkout_nearby", () => {
     expect(Object.keys(action?.goal?.slot_schema ?? {})).toEqual([]);
   });
 
-  it("is low risk and allow_direct -- ending your own presence needs no confirmation", () => {
+  it("preserves the authored checkout confirmation and correlated receipt", () => {
     const action = getKaiActionById(CHECKOUT);
-    expect(action?.execution_policy).toBe("allow_direct");
+    expect(action?.execution_policy).toBe("confirm_required");
     expect(action?.risk_level).toBe("low");
+    expect(action?.command?.client_receipt).toBe("location.effect.v1");
   });
 
   it("is reachable from Location's hub, map, and check-in screens", () => {

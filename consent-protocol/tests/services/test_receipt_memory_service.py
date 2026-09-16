@@ -18,6 +18,8 @@ from hushh_mcp.services.receipt_memory_service import (
     _sha256_json,
 )
 
+_TEST_CONSENT_TOKEN = "owner-token"
+
 
 class _ProjectionDb:
     def __init__(self, rows):
@@ -407,3 +409,51 @@ async def test_enrichment_service_times_out_and_returns_none(monkeypatch: pytest
     enrichment = await service.enrich(projection)
 
     assert enrichment is None
+
+
+@pytest.mark.asyncio
+async def test_enrichment_service_uses_manifest_email_gene(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("KAI_RECEIPT_MEMORY_LLM_ENABLED", "true")
+    calls: dict[str, object] = {}
+
+    async def fake_run_email_gene(**kwargs):
+        calls.update(kwargs)
+        return {
+            "readable_summary": {
+                "text": "Recent purchases are concentrated at one merchant.",
+                "highlights": ["One recent purchase"],
+            },
+            "signal_language": [
+                {
+                    "signal_id": "merchant_affinity:acme",
+                    "human_label": "Acme affinity",
+                    "rationale": "Repeated purchases",
+                }
+            ],
+        }
+
+    import hushh_mcp.services.receipt_memory_service as module
+
+    monkeypatch.setattr(module, "run_email_gene", fake_run_email_gene)
+    service = ReceiptMemoryEnrichmentService()
+    projection = {
+        "observed_facts": {
+            "merchant_affinity": [],
+            "purchase_patterns": [],
+            "recent_highlights": [],
+        },
+        "inferred_preferences": [],
+        "budget_stats": {"eligible_receipt_count": 1},
+    }
+
+    enrichment = await service.enrich(
+        projection,
+        user_id="owner-1",
+        consent_token=_TEST_CONSENT_TOKEN,
+    )
+
+    assert enrichment is not None
+    assert enrichment["readable_summary"]["text"].startswith("Recent purchases")
+    assert calls["gene_id"] == "agent_email_receipt_memory_enrichment"
+    assert calls["user_id"] == "owner-1"
+    assert calls["consent_token"] == _TEST_CONSENT_TOKEN

@@ -21,6 +21,9 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useLocalOnboardingActionHandler, canonicalActionBinding, type LocalOnboardingActionContext, type LocalActionPreparation, type LocalActionContinuation } from "@/lib/agent/local-onboarding-actions";
+import { pendingAudienceBinding } from "@/lib/one-location/command-continuation";
+import { privateCheckInDigest, readPrivateCheckInDraft, type PrivateCheckInDraft } from "@/lib/one-location/command-private-check-in";
 import {
   Check,
   CheckCircle2,
@@ -220,6 +223,13 @@ export function CheckInFlow({
   const discardPrivateCheckInOperation =
     vm.onDiscardPrivateCheckInOperation;
   const [submitting, setSubmitting] = useState(false);
+  const privateDraftSalt = useRef<string | null>(null);
+  const privateDraft = useRef<PrivateCheckInDraft | null>(null);
+  const currentOwner = useRef<string | null | undefined>(vm.userId);
+  useEffect(() => {
+    currentOwner.current = vm.userId;
+    return () => { currentOwner.current = undefined; };
+  }, [vm.userId]);
   const busy = submitting || vm.busy === "share" || vm.busy === "selfLocation";
 
   // A standalone private Check-In preserves the legacy first-recipient shortcut.
@@ -426,18 +436,26 @@ export function CheckInFlow({
     [discardPrivateCheckInOperation],
   );
 
-  const submit = async () => {
-    if (!canSubmit || busy) return;
-    const reviewedPoint = confirmedPoint ?? point;
+  const submit = async (commandContext?: LocalOnboardingActionContext) => {
+    if (busy || (!commandContext && !canSubmit)) return;
+    const retained = commandContext?.privateContinuation
+      ? readPrivateCheckInDraft(commandContext.privateContinuation, vm.userId || "") : null;
+    if (commandContext?.privateContinuation && !retained) return;
+    const reviewedPoint = retained?.point ?? confirmedPoint ?? point;
     if (!reviewedPoint) return;
+    const recipientIds = commandContext?.preparedBinding
+      ? pendingAudienceBinding(commandContext.preparedBinding,commandContext.continuation).recipientIds as string[]
+      : checkedIds;
     const operationId =
-      operationIdRef.current ?? createPrivateCheckInOperationId();
-    const confirmationTime = confirmedAt ?? new Date().toISOString();
+      commandContext?.operationId ?? operationIdRef.current ?? createPrivateCheckInOperationId();
+    // The point's original review time is distinct from renewed execution
+    // authority. Never turn an old point into a newly captured point on Resume.
+    const confirmationTime = retained?.reviewedAt ?? confirmedAt ?? commandContext?.confirmedAt ?? new Date().toISOString();
     operationIdRef.current = operationId;
     if (!confirmedRecipientKeysRef.current) {
       confirmedRecipientKeysRef.current = Object.fromEntries(
         contacts
-          .filter((recipient) => checkedIds.includes(recipient.userId))
+          .filter((recipient) => recipientIds.includes(recipient.userId))
           .map((recipient) => [recipient.userId, recipient.keyId ?? null]),
       );
     }
@@ -446,13 +464,18 @@ export function CheckInFlow({
     setSubmitting(true);
     try {
       const result = await vm.onCheckIn({
-        recipientIds: checkedIds,
-        durationHours: effectiveDuration,
-        message: message.trim() || DEFAULT_CHECK_IN_MESSAGE,
+        recipientIds,
+        durationHours: retained?.duration ?? effectiveDuration,
+        message: retained?.note ?? (message.trim() || DEFAULT_CHECK_IN_MESSAGE),
         point: reviewedPoint,
         clientOperationId: operationId,
+        commandOperationId: commandContext?.operationId,
+        commandDirectiveId: commandContext?.directiveId ?? undefined,
+        commandSignal: commandContext?.signal,
+        commandOwner: commandContext ? vm.userId ?? undefined : undefined,
         confirmedAt: confirmationTime,
-        sourceCircleId: circleSelection?.circle.id ?? null,
+        sourceCircleId: retained ? retained.sourceCircleId : circleSelection?.circle.id ?? null,
+        recipientSnapshots: contacts.filter((recipient) => recipientIds.includes(recipient.userId)),
       });
       if (result.succeededRecipientIds.length > 0) {
         setCompletedRecipientIds((current) => [
@@ -462,30 +485,93 @@ export function CheckInFlow({
       if (result.failedRecipientIds.length > 0) {
         setCheckedIds(result.failedRecipientIds);
       }
+      return result;
     } finally {
       setSubmitting(false);
     }
   };
 
-  // Voice's `location.send_check_in` cannot reach this component's local
-  // selection state directly, so it bumps `vm.voiceCheckInSendRequestId` and
-  // this effect submits the draft that is ALREADY on screen -- same seeded
-  // recipient/duration/message the tap button would send. The ref baseline
-  // is read from the current prop rather than a fixed literal so a request
-  // that fired before this screen was even open is not replayed on mount.
-  const voiceSendRequestIdRef = useRef(vm.voiceCheckInSendRequestId);
-  useEffect(() => {
-    const requestId = vm.voiceCheckInSendRequestId;
-    if (requestId === undefined || requestId === voiceSendRequestIdRef.current) {
-      return;
+  const prepareCheckIn = async (_slots?: unknown, _choice?: string, _resources?: unknown,
+    continuation?: LocalActionContinuation, savedDraft?: PrivateCheckInDraft): Promise<LocalActionPreparation> => {
+    const review = (summary: string): LocalActionPreparation => ({status:"blocked",gate:"navigation",waitForUser:true,
+      route:"/one/location?action=check-in",summary});
+    if (!vm.userId) return {status:"blocked",gate:"input",summary:"Unlock One before sending this check-in."};
+    let selectedIds = checkedIds, currentContacts = contacts, currentCircle = circleSelection;
+    let reviewedPoint = confirmedPoint ?? point, draftNote = message.trim() || DEFAULT_CHECK_IN_MESSAGE;
+    let duration = effectiveDuration, reviewTime = confirmedAt;
+    if (savedDraft) {
+      const restored = readPrivateCheckInDraft(savedDraft, vm.userId);
+      if (!restored) return review("The original private check-in has expired or is unavailable. Review this screen; earlier deliveries will not be repeated.");
+      if (!privateDraftSalt.current) {
+        if (restored.sourceCircleId) {
+          currentCircle = await vm.onResolveNamedCircleRecipients(restored.sourceCircleId, "location");
+          if (currentOwner.current !== restored.owner) return review("Unlock the original account to resume this check-in.");
+          currentContacts = mergeRecipientsByUserId(vm.sosRecipients,currentCircle.ready.map((target)=>target.recipient));
+        }
+        selectedIds = continuation ? pendingAudienceBinding(continuation.originalBinding,continuation).recipientIds as string[] : restored.recipientIds;
+        reviewedPoint = restored.point; draftNote = restored.note; duration = restored.duration; reviewTime = restored.reviewedAt;
+        privateDraftSalt.current = restored.salt;
+        privateDraft.current = restored;
+        confirmedRecipientKeysRef.current = restored.recipientKeys;
+        setConfirmedPoint(restored.point); setConfirmedAt(restored.reviewedAt);
+        setCheckedIds(selectedIds); setMessage(restored.note); setDurationValue(restored.duration);
+        setUntilStop(restored.duration === UNTIL_STOP_VALUE); setSeeded(true); setCircleSelection(currentCircle);
+      } else if (privateDraftSalt.current !== restored.salt) {
+        return review("A different private check-in draft is open. Review it before continuing the unfinished task.");
+      }
     }
-    voiceSendRequestIdRef.current = requestId;
-    void submit();
-    // `submit` deliberately excluded: it closes over this render's state, and
-    // only a NEW request id -- not every re-render that recreates it -- should
-    // retrigger a send.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [vm.voiceCheckInSendRequestId]);
+    if (!selectedIds.length) return review("Choose who should receive this check-in, then Continue.");
+    if (busy || !reviewedPoint || (!reviewTime && !isFreshReviewedPoint(reviewedPoint, Date.now()))
+      || (!continuation && selectedIds.some((id)=>!currentContacts.some((person)=>person.userId===id && vm.isRecipientShareReady(person)))))
+      return review("Review a current location and ready recipients on this screen, then Continue.");
+    if (![...CHECK_IN_DURATIONS.map((option)=>option.value),UNTIL_STOP_VALUE].includes(duration))
+      return review("Choose a supported check-in duration on this screen, then Continue.");
+    privateDraftSalt.current ||= Array.from(crypto.getRandomValues(new Uint8Array(32)), (byte) => byte.toString(16).padStart(2,"0")).join("");
+    const privateDraftDigest = await privateCheckInDigest({salt:privateDraftSalt.current,point:reviewedPoint,note:draftNote});
+    const previous = privateDraft.current;
+    const sameDraft = previous && await privateCheckInDigest(previous) === privateDraftDigest;
+    const retained: PrivateCheckInDraft = {
+      kind:"private_check_in", owner:vm.userId, salt:privateDraftSalt.current, point:reviewedPoint, note:draftNote,
+      reviewedAt:reviewTime || (sameDraft ? previous.reviewedAt : new Date().toISOString()),
+      recipientIds:continuation ? previous?.recipientIds || selectedIds : [...selectedIds],
+      recipientKeys:Object.fromEntries(currentContacts.filter((person)=>selectedIds.includes(person.userId)).map((person)=>[person.userId,person.keyId ?? null])),
+      duration, sourceCircleId:currentCircle?.circle.id ?? null,
+    };
+    if (continuation && previous) retained.recipientKeys = previous.recipientKeys;
+    if (!readPrivateCheckInDraft(retained,vm.userId)) return review("Refresh and review your location before sending another check-in.");
+    privateDraft.current = retained;
+    if (continuation) {
+      const original=continuation.originalBinding;
+      const pending=pendingAudienceBinding(original,continuation);
+      const ids=pending.recipientIds as string[];
+      const replacements=vm.activeOwnerGrants.filter((grant)=>ids.includes(grant.recipientUserId) && grant.status==="active" && grant.shareKind!=="sos" && (!grant.expiresAt || Date.parse(grant.expiresAt)>Date.now()))
+        .map((grant)=>({id:grant.id,recipientUserId:grant.recipientUserId,expiresAt:grant.expiresAt,durationMode:grant.durationMode})).sort((a,b)=>a.id.localeCompare(b.id));
+      if (original.owner!==vm.userId || original.privateDraftDigest!==privateDraftDigest || original.duration!==duration ||
+          (pending.people as Array<{id:string;keyId:string}>).some((person)=>!currentContacts.some((current)=>current.userId===person.id && current.keyId===person.keyId && vm.isRecipientShareReady(current))) ||
+          Object.values(pending.sourceCircleByRecipient as Record<string,string|null>).some((circleId)=>circleId!==(currentCircle?.circle.id ?? null)) ||
+          canonicalActionBinding(pending.replacements)!==canonicalActionBinding(replacements))
+        return {status:"blocked",gate:"navigation",route:"/one/location?action=check-in",waitForUser:true,
+          summary:"The private check-in draft or remaining audience changed. Review this screen before starting another check-in; earlier deliveries will not be repeated."};
+      return {status:"ready",binding:original,privateContinuation:retained,summary:`Send the same private check-in to the ${ids.length} remaining people. ${continuation.completedUnitIndices.length} earlier deliveries are complete.`};
+    }
+    return { status: "ready", privateContinuation:retained, binding: {
+      owner: vm.userId,
+      recipientIds: [...selectedIds].sort(),
+      people: currentContacts.filter((recipient) => selectedIds.includes(recipient.userId)).map((recipient) => ({ id:recipient.userId, name:vm.recipientLabel(recipient), keyId:recipient.keyId, ready:vm.isRecipientShareReady(recipient) })).sort((a,b)=>a.id.localeCompare(b.id)),
+      duration,
+      message: "check_in",
+      privateDraftDigest,
+      sourceCircleByRecipient: Object.fromEntries(selectedIds.map((id)=>[id,currentCircle?.circle.id ?? null])),
+      replacements: vm.activeOwnerGrants.filter((grant)=>selectedIds.includes(grant.recipientUserId) && grant.status === "active" && grant.shareKind !== "sos" && (!grant.expiresAt || Date.parse(grant.expiresAt)>Date.now()))
+        .map((grant)=>({id:grant.id,recipientUserId:grant.recipientUserId,expiresAt:grant.expiresAt,durationMode:grant.durationMode})).sort((a,b)=>a.id.localeCompare(b.id)),
+    }, summary: `Send this check-in to ${currentContacts.filter((recipient) => selectedIds.includes(recipient.userId)).map((recipient) => vm.recipientLabel(recipient)).join(", ")} for ${duration} hours?` };
+  };
+  useLocalOnboardingActionHandler("location.send_check_in", async (_slots, context) => {
+    const expected = context?.preparedBinding ? pendingAudienceBinding(context.preparedBinding,context.continuation).recipientIds as string[] : [...checkedIds];
+    const result = await submit(context);
+    const complete = !!result && expected.length > 0 && expected.every((id) => result.succeededRecipientIds.includes(id));
+    return { status: complete ? "succeeded" : "failed", summary: complete ? "Check-in sent to everyone you selected." : "Some check-in deliveries need review. They will not be sent again automatically." };
+  }, { prepare: prepareCheckIn });
 
   const editAndReconfirm = () => {
     discardPrivateCheckInOperation(operationIdRef.current);
@@ -494,6 +580,8 @@ export function CheckInFlow({
     setNowMs(Date.now());
     operationIdRef.current = null;
     confirmedRecipientKeysRef.current = null;
+    privateDraft.current = null;
+    privateDraftSalt.current = null;
   };
 
   const close = () => {

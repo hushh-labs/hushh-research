@@ -185,6 +185,8 @@ cython_debug/
 
 # Generated benchmark/suite artifacts
 artifacts/*.json
+# Before/after regression runs (junit + logs) for the specialist migration.
+artifacts/regression/
 
 # External Repositories
 claude_desktop_config.generated.json

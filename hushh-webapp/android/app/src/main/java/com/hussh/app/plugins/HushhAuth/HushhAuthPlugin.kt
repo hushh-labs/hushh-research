@@ -59,8 +59,10 @@ class HushhAuthPlugin : Plugin() {
     private lateinit var googleSignInClient: GoogleSignInClient
     private var pendingCall: PluginCall? = null
     private var pendingGmailConnectCall: PluginCall? = null
+    private var pendingCalendarConnectCall: PluginCall? = null
     private lateinit var signInLauncher: ActivityResultLauncher<Intent>
     private lateinit var gmailConnectLauncher: ActivityResultLauncher<Intent>
+    private lateinit var calendarConnectLauncher: ActivityResultLauncher<Intent>
 
     // Current user data
     private var currentIdToken: String? = null
@@ -95,6 +97,11 @@ class HushhAuthPlugin : Plugin() {
             ActivityResultContracts.StartActivityForResult()
         ) { result ->
             handleGmailConnectResult(result.data)
+        }
+        calendarConnectLauncher = activity.registerForActivityResult(
+            ActivityResultContracts.StartActivityForResult()
+        ) { result ->
+            handleCalendarConnectResult(result.data)
         }
     }
 
@@ -245,6 +252,7 @@ class HushhAuthPlugin : Plugin() {
     @PluginMethod
     fun connectGmail(call: PluginCall) {
         val serverClientId = call.getString("serverClientId")?.trim()
+        val purpose = call.getString("purpose")?.trim() ?: "read"
         if (serverClientId.isNullOrEmpty()) {
             call.reject("Missing Google server client ID")
             return
@@ -255,13 +263,14 @@ class HushhAuthPlugin : Plugin() {
         }
 
         pendingGmailConnectCall = call
+        val gmailScopes = mutableListOf(Scope("https://www.googleapis.com/auth/gmail.readonly"))
+        if (purpose == "send") {
+            gmailScopes.add(Scope("https://www.googleapis.com/auth/gmail.send"))
+        }
         val gmailOptions = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
             .requestServerAuthCode(serverClientId, true)
             .requestEmail()
-            .requestScopes(
-                Scope("https://www.googleapis.com/auth/gmail.readonly"),
-                Scope("https://www.googleapis.com/auth/gmail.send")
-            )
+            .requestScopes(gmailScopes.first(), *gmailScopes.drop(1).toTypedArray())
             .build()
         val gmailSignInClient = GoogleSignIn.getClient(activity, gmailOptions)
 
@@ -294,6 +303,74 @@ class HushhAuthPlugin : Plugin() {
             }
         } finally {
             pendingGmailConnectCall = null
+        }
+    }
+
+    // ==================== Calendar Connect ====================
+
+    /** Requests the least-privileged Calendar scope set for the selected action. */
+    @PluginMethod
+    fun connectCalendar(call: PluginCall) {
+        val serverClientId = call.getString("serverClientId")?.trim()
+        val accessLevel = call.getString("accessLevel")?.trim() ?: "read"
+        if (serverClientId.isNullOrEmpty()) {
+            call.reject("Missing Google server client ID")
+            return
+        }
+        if (accessLevel != "read" && accessLevel != "manage") {
+            call.reject("Unsupported Calendar access level")
+            return
+        }
+        if (pendingCalendarConnectCall != null) {
+            call.reject("Calendar connection is already in progress")
+            return
+        }
+
+        pendingCalendarConnectCall = call
+        val calendarScopes = mutableListOf(
+            Scope(
+                if (accessLevel == "manage") {
+                    "https://www.googleapis.com/auth/calendar.events"
+                } else {
+                    "https://www.googleapis.com/auth/calendar.events.readonly"
+                }
+            ),
+            Scope("https://www.googleapis.com/auth/calendar.freebusy")
+        )
+        val calendarOptions = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
+            .requestServerAuthCode(serverClientId, true)
+            .requestEmail()
+            .requestScopes(calendarScopes.first(), *calendarScopes.drop(1).toTypedArray())
+            .build()
+        val calendarSignInClient = GoogleSignIn.getClient(activity, calendarOptions)
+        activity.runOnUiThread {
+            calendarConnectLauncher.launch(calendarSignInClient.signInIntent)
+        }
+    }
+
+    private fun handleCalendarConnectResult(data: Intent?) {
+        val call = pendingCalendarConnectCall ?: run {
+            Log.e(TAG, "❌ [HushhAuth] No pending Calendar connection call")
+            return
+        }
+        try {
+            val account = GoogleSignIn.getSignedInAccountFromIntent(data)
+                .getResult(ApiException::class.java)
+            val serverAuthCode = account.serverAuthCode
+            if (serverAuthCode.isNullOrBlank()) {
+                call.reject("Google did not return a Calendar authorization code")
+            } else {
+                call.resolve(JSObject().put("serverAuthCode", serverAuthCode))
+            }
+        } catch (error: ApiException) {
+            Log.e(TAG, "❌ [HushhAuth] Calendar connection failed: ${error.statusCode} - ${error.message}")
+            if (error.statusCode == 12501) {
+                call.reject("Calendar connection was cancelled", "USER_CANCELLED")
+            } else {
+                call.reject("Calendar sign-in failed: ${error.message}")
+            }
+        } finally {
+            pendingCalendarConnectCall = null
         }
     }
 

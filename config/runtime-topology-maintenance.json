@@ -136,6 +136,13 @@
       "owner": "public_knowledge_workspace",
       "reason": "Preserves editorial links while the unified public workspace is canonical.",
       "retirement_policy": "Keep until inbound-link telemetry and search migration support removal."
+    },
+    {
+      "pathname": "/agent",
+      "canonical_url": "/",
+      "owner": "frontend_navigation",
+      "reason": "Preserves inbound Agent links while the canonical authenticated Chat workspace is rooted at /.",
+      "retirement_policy": "Keep until inbound-link telemetry confirms legacy Agent links have migrated; then remove the redirect and route contract together."
     }
   ],
   "implementation_overrides": [

@@ -56,7 +56,11 @@ from datetime import datetime, timezone
 from hmac import compare_digest
 from typing import Any, Optional, Protocol
 
-from hushh_mcp.runtime_settings import personal_agent_enabled, personal_agent_max_pods
+from hushh_mcp.runtime_settings import (
+    personal_agent_enabled,
+    personal_agent_max_pods,
+    personal_agent_upgrade_approval_required,
+)
 from hushh_mcp.services.compute_backend import (
     BackendHandle,
     ComputeBackend,
@@ -121,6 +125,45 @@ FEED_EVENT_REAPED = "personal_agent_reaped"
 #: actually moved (`upgrade_noop` writes nothing): the feed is the software-update
 #: notice the founder asked for, and a notice about nothing is noise.
 FEED_EVENT_UPDATED = "personal_agent_updated"
+
+
+class PersonalAgentUpgradeNotApprovedError(PermissionError):
+    """The owner has not approved the exact release for this pod incarnation."""
+
+
+def upgrade_release_id(row: Optional[dict], target_image: str) -> str:
+    """Return an opaque release identifier bound to image and pod incarnation."""
+    metadata = (row or {}).get("backend_metadata") or {}
+    incarnation = str(
+        metadata.get("serviceUid")
+        or (row or {}).get("external_agent_id")
+        or metadata.get("service")
+        or "unknown"
+    ).strip()
+    hushh_id = str((row or {}).get("hushh_id") or "").strip()
+    payload = "|".join((hushh_id, incarnation, str(target_image or "").strip()))
+    return "rel_" + hashlib.sha256(payload.encode("utf-8")).hexdigest()[:32]
+
+
+def upgrade_approval_matches(row: Optional[dict], target_image: str) -> bool:
+    """Whether durable approval covers this exact image and pod incarnation."""
+    metadata = (row or {}).get("backend_metadata") or {}
+    approval = metadata.get("upgradeApproval")
+    if not isinstance(approval, dict):
+        return False
+    return (
+        approval.get("releaseId") == upgrade_release_id(row, target_image)
+        and approval.get("hushhId") == (row or {}).get("hushh_id")
+        and approval.get("podIncarnation")
+        == str(
+            metadata.get("serviceUid")
+            or (row or {}).get("external_agent_id")
+            or metadata.get("service")
+            or "unknown"
+        )
+        and approval.get("status") in {"approved", "scheduled", "updating"}
+    )
+
 
 _FEED_EVENT_TYPES = frozenset(
     {
@@ -1205,6 +1248,12 @@ class PersonalAgentProvisioningService:
         out: list[dict[str, Any]] = []
         for row in rows:
             metadata = (row or {}).get("backend_metadata") or {}
+            if personal_agent_upgrade_approval_required() and not upgrade_approval_matches(
+                row, target
+            ):
+                # An available image is not permission to replace an owner's pod.
+                # The owner-facing Feed action records the exact release approval.
+                continue
             if metadata.get("upgradeLease") is not None:
                 if isinstance(metadata.get("upgradeAcknowledgement"), dict):
                     out.append(row)  # Observation only; upgrade_pod refuses new admission.
@@ -1339,6 +1388,13 @@ class PersonalAgentProvisioningService:
         phone_hash = str(row.get("phone_e164_hash") or "").strip()
         if not hushh_id or not phone_hash:
             raise ValueError("registry row is missing its identity; refusing to upgrade")
+
+        if personal_agent_upgrade_approval_required() and not upgrade_approval_matches(
+            row, current_image
+        ):
+            raise PersonalAgentUpgradeNotApprovedError(
+                "owner approval for this release and pod incarnation is required"
+            )
 
         cloud = await resolve_user_cloud(user_id, repo=self._registry)
         if cloud is not None and cloud.blocks_provisioning:

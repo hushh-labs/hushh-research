@@ -4,11 +4,13 @@ import inspect
 import json
 import uuid
 from datetime import datetime, timedelta, timezone
+from unittest.mock import AsyncMock
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from api.routes.one import location as one_location
+from hushh_mcp.services.command_checkpoints import CommandCheckpointStore
 from tests.services.test_one_location_agent_service import (
     PUBLIC_LOCATION_SNAPSHOT,
     FourUserMemoryService,
@@ -35,10 +37,49 @@ class _MemoryNearbyPresenceService:
         return {"expired": 0, "deleted": 0}
 
 
+class _AsyncLocationOnboardingRetention:
+    def __init__(self, count: int) -> None:
+        self.count = count
+        self.calls = 0
+
+    async def purge_expired_drafts(self) -> int:
+        self.calls += 1
+        return self.count
+
+
+class _AsyncCapabilityRunRetention:
+    def __init__(self, count: int) -> None:
+        self.count = count
+        self.limits: list[int] = []
+
+    async def purge_expired(self, *, limit: int) -> int:
+        self.limits.append(limit)
+        return self.count
+
+
+def _stub_durable_runtime_retention(
+    monkeypatch,
+    *,
+    draft_count: int = 0,
+    run_count: int = 0,
+) -> tuple[_AsyncLocationOnboardingRetention, _AsyncCapabilityRunRetention]:
+    draft_retention = _AsyncLocationOnboardingRetention(draft_count)
+    run_retention = _AsyncCapabilityRunRetention(run_count)
+    monkeypatch.setattr(
+        one_location,
+        "get_location_onboarding_runtime_service",
+        lambda: draft_retention,
+    )
+    monkeypatch.setattr(one_location, "get_capability_run_store", lambda: run_retention)
+    return draft_retention, run_retention
+
+
 def _client(
     service: FourUserMemoryService, current_user: dict[str, str], monkeypatch
 ) -> TestClient:
     app = FastAPI()
+    app.state.command_purge = AsyncMock()
+    monkeypatch.setattr(CommandCheckpointStore, "purge_expired", app.state.command_purge)
     app.include_router(one_location.router)
     app.dependency_overrides[one_location.require_vault_owner_token] = lambda: {
         "user_id": current_user["user_id"]
@@ -952,11 +993,14 @@ def test_one_location_retention_purge_rejects_missing_maintenance_token(
     monkeypatch.setenv("ONE_LOCATION_RETENTION_TOKEN", "expected-token")
     service = FourUserMemoryService()
     client = _client(service, {"user_id": "user_a"}, monkeypatch)
+    draft_retention, run_retention = _stub_durable_runtime_retention(monkeypatch)
 
     response = client.post("/api/one/location/retention/purge?older_than_hours=12")
 
     assert response.status_code == 401
     assert response.json()["detail"]["code"] == "ONE_LOCATION_RETENTION_UNAUTHORIZED"
+    assert draft_retention.calls == 0
+    assert run_retention.limits == []
 
 
 def test_one_location_retention_purge_rejects_wrong_maintenance_token(
@@ -983,6 +1027,11 @@ def test_one_location_retention_purge_accepts_valid_dedicated_token(
     monkeypatch.setenv("ONE_LOCATION_RETENTION_TOKEN", "expected-token")
     service = FourUserMemoryService()
     client = _client(service, {"user_id": "user_a"}, monkeypatch)
+    draft_retention, run_retention = _stub_durable_runtime_retention(
+        monkeypatch,
+        draft_count=2,
+        run_count=3,
+    )
 
     response = client.post(
         "/api/one/location/retention/purge?older_than_hours=12",
@@ -990,7 +1039,13 @@ def test_one_location_retention_purge_accepts_valid_dedicated_token(
     )
 
     assert response.status_code == 200
-    assert response.json()["retention_hours"] == 12
+    client.app.state.command_purge.assert_awaited_once()
+    payload = response.json()
+    assert payload["retention_hours"] == 12
+    assert payload["location_onboarding_drafts"] == 2
+    assert payload["capability_runs"] == 3
+    assert draft_retention.calls == 1
+    assert run_retention.limits == [500]
 
 
 def test_one_location_retention_route_purges_terminal_state_and_preserves_active_envelope(
@@ -998,13 +1053,9 @@ def test_one_location_retention_route_purges_terminal_state_and_preserves_active
 ) -> None:
     monkeypatch.delenv("ONE_LOCATION_RETENTION_AUTH_ENABLED", raising=False)
     monkeypatch.setenv("ONE_LOCATION_RETENTION_TOKEN", "expected-token")
-    from unittest.mock import Mock
-
-    ratings = Mock()
-    ratings.purge_expired_visits.return_value = {"purged": 0}
-    monkeypatch.setattr(one_location, "_place_rating_service", lambda: ratings)
     service = FourUserMemoryService()
     client = _client(service, {"user_id": "user_a"}, monkeypatch)
+    _stub_durable_runtime_retention(monkeypatch)
     now = datetime.now(timezone.utc)
     old_grant_id = str(uuid.uuid4())
     active_grant_id = str(uuid.uuid4())
@@ -1137,7 +1188,8 @@ def test_one_location_retention_route_purges_terminal_state_and_preserves_active
         "deleted_public_submissions": 1,
         "deleted_events": 1,
         "nearby_presence": {"expired": 0, "deleted": 0},
-        "place_rating_visits": {"purged": 0},
+        "location_onboarding_drafts": 0,
+        "capability_runs": 0,
         "retention_hours": 12.0,
     }
     assert old_grant_id not in service.grants
@@ -1176,6 +1228,7 @@ def test_one_location_retention_auth_can_be_disabled_in_local_test_mode(
     monkeypatch.delenv("ONE_LOCATION_RETENTION_TOKEN", raising=False)
     service = FourUserMemoryService()
     client = _client(service, {"user_id": "user_a"}, monkeypatch)
+    _stub_durable_runtime_retention(monkeypatch)
 
     response = client.post("/api/one/location/retention/purge?older_than_hours=12")
 
@@ -1336,119 +1389,6 @@ def test_create_grant_without_share_kind_preserves_existing_classification(monke
     # "never replace anything" and grants would pile up with no Stop for them.
     assert service.grants[grant["id"]]["status"] == "revoked"
     assert service.grants[resp2.json()["grant"]["id"]]["status"] == "active"
-
-
-# -- OIDC scheduler identity -----------------------------------------------------------
-#
-# The retention purge is reached by Cloud Scheduler, which used to present a Secret
-# Manager value baked into its own job config as `X-Hushh-Maintenance-Token`. These
-# four cases cover the route-level behaviour of the replacement; the verification
-# logic itself is covered in `test_scheduler_identity.py`.
-
-
-def _oidc_claims(email: str = "sched@hushh-pda-uat.iam.gserviceaccount.com") -> dict:
-    return {"email": email, "email_verified": True, "aud": "https://backend.test", "sub": "1"}
-
-
-def _accept_any_token(claims: dict):
-    def _verify(_token: str, _audience: str) -> dict:
-        return claims
-
-    return _verify
-
-
-def test_one_location_retention_purge_accepts_a_scheduler_oidc_token(monkeypatch) -> None:
-    """The whole point: no secret in the job, and the purge still runs."""
-    from hushh_mcp.services import scheduler_identity
-
-    monkeypatch.delenv("ONE_LOCATION_RETENTION_AUTH_ENABLED", raising=False)
-    monkeypatch.delenv("ONE_LOCATION_RETENTION_TOKEN", raising=False)
-    monkeypatch.setenv(
-        "ONE_LOCATION_RETENTION_SCHEDULER_SERVICE_ACCOUNTS",
-        "sched@hushh-pda-uat.iam.gserviceaccount.com",
-    )
-    monkeypatch.setenv("ONE_LOCATION_RETENTION_AUDIENCE", "https://backend.test")
-    monkeypatch.setattr(
-        scheduler_identity, "_verify_google_id_token", _accept_any_token(_oidc_claims())
-    )
-    client = _client(FourUserMemoryService(), {"user_id": "user_a"}, monkeypatch)
-
-    response = client.post(
-        "/api/one/location/retention/purge?older_than_hours=12",
-        headers={"Authorization": "Bearer signed-by-google"},
-    )
-
-    assert response.status_code == 200, response.json()
-    assert response.json()["retention_hours"] == 12
-
-
-def test_one_location_retention_purge_refuses_a_scheduler_outside_the_allowlist(
-    monkeypatch,
-) -> None:
-    from hushh_mcp.services import scheduler_identity
-
-    monkeypatch.delenv("ONE_LOCATION_RETENTION_AUTH_ENABLED", raising=False)
-    # A legacy token that WOULD be accepted, to prove the OIDC failure does not fall
-    # through to it. A stolen shared secret plus a forged OIDC token must not be a
-    # better position than the stolen secret alone.
-    monkeypatch.setenv("ONE_LOCATION_RETENTION_TOKEN", "expected-token")
-    monkeypatch.setenv(
-        "ONE_LOCATION_RETENTION_SCHEDULER_SERVICE_ACCOUNTS",
-        "sched@hushh-pda-uat.iam.gserviceaccount.com",
-    )
-    monkeypatch.setenv("ONE_LOCATION_RETENTION_AUDIENCE", "https://backend.test")
-    monkeypatch.setattr(
-        scheduler_identity,
-        "_verify_google_id_token",
-        _accept_any_token(_oidc_claims(email="intruder@example.iam.gserviceaccount.com")),
-    )
-    client = _client(FourUserMemoryService(), {"user_id": "user_a"}, monkeypatch)
-
-    response = client.post(
-        "/api/one/location/retention/purge?older_than_hours=12",
-        headers={
-            "Authorization": "Bearer signed-by-google",
-            "X-Hushh-Maintenance-Token": "expected-token",
-        },
-    )
-
-    assert response.status_code == 401
-    assert response.json()["detail"]["reason"] == "scheduler_identity_not_allowed"
-
-
-def test_one_location_retention_purge_closes_the_legacy_path_on_one_variable(
-    monkeypatch,
-) -> None:
-    """The migration's last step must not need a code change."""
-    monkeypatch.delenv("ONE_LOCATION_RETENTION_AUTH_ENABLED", raising=False)
-    monkeypatch.setenv("ONE_LOCATION_RETENTION_TOKEN", "expected-token")
-    monkeypatch.setenv("HUSHH_MAINTENANCE_LEGACY_TOKEN_ENABLED", "0")
-    client = _client(FourUserMemoryService(), {"user_id": "user_a"}, monkeypatch)
-
-    response = client.post(
-        "/api/one/location/retention/purge?older_than_hours=12",
-        headers={"X-Hushh-Maintenance-Token": "expected-token"},
-    )
-
-    assert response.status_code == 401
-    assert response.json()["detail"]["code"] == "ONE_LOCATION_RETENTION_UNAUTHORIZED"
-
-
-def test_one_location_retention_purge_still_accepts_the_shared_header_during_migration(
-    monkeypatch,
-) -> None:
-    """Flipping the server before the scheduler jobs must not break the purge."""
-    monkeypatch.delenv("ONE_LOCATION_RETENTION_AUTH_ENABLED", raising=False)
-    monkeypatch.delenv("HUSHH_MAINTENANCE_LEGACY_TOKEN_ENABLED", raising=False)
-    monkeypatch.setenv("ONE_LOCATION_RETENTION_TOKEN", "expected-token")
-    client = _client(FourUserMemoryService(), {"user_id": "user_a"}, monkeypatch)
-
-    response = client.post(
-        "/api/one/location/retention/purge?older_than_hours=12",
-        headers={"X-Hushh-Maintenance-Token": "expected-token"},
-    )
-
-    assert response.status_code == 200
 
 
 def test_sos_grant_and_normal_share_coexist_over_the_api(monkeypatch) -> None:

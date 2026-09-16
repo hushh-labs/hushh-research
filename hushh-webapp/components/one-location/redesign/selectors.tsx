@@ -216,7 +216,7 @@ export function DurationSelector({
                   equalWidthButtons && DURATION_EQUAL_BUTTON_CLASSNAME,
                   active
                     ? "border-[color:var(--app-accent)] bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)]"
-                    : "border-[color:var(--app-separator)] bg-[color:var(--app-secondary-surface)] text-[color:var(--app-label)] hover:border-[color:var(--app-accent-ring)] hover:bg-[color:var(--app-neutral-fill-strong)]",
+                    : "border-[color:var(--app-separator)] bg-[color:var(--app-neutral-fill)] text-[color:var(--app-label)] hover:border-[color:var(--app-accent-ring)] hover:bg-[color:var(--app-neutral-fill-strong)]",
                 )}
               >
                 {option.label}

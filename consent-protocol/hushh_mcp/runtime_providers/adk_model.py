@@ -33,6 +33,9 @@ class ProviderAdkModel(BaseLlm):
     provider: str
     credential: str
     device_id: str | None = None
+    # Managed pod runtimes use workload ADC; BYOK and Puppy relay runtimes
+    # continue through the explicit credential transport.
+    runtime_mode: str | None = None
 
     @staticmethod
     def _parts(*, text: str = "", function_calls: Any = ()) -> list[types.Part]:
@@ -43,9 +46,9 @@ class ProviderAdkModel(BaseLlm):
             parts.append(
                 types.Part(
                     function_call=types.FunctionCall(
-                        id=call.id or None,
-                        name=call.name,
-                        args=call.args,
+                        id=getattr(call, "id", None) or None,
+                        name=getattr(call, "name", ""),
+                        args=getattr(call, "args", {}) or {},
                     )
                 )
             )
@@ -80,6 +83,10 @@ class ProviderAdkModel(BaseLlm):
         )
 
     def _client(self) -> Any:
+        if self.runtime_mode in {"user_adc", "hushh_managed_vertex"} and not self.credential:
+            from .factory import build_managed_runtime_client
+
+            return build_managed_runtime_client(self.provider)
         return build_runtime_client(
             self.provider,
             self.credential,

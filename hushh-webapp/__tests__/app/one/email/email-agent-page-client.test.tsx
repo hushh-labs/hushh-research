@@ -2,7 +2,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 const push = vi.fn();
-const openAgent = vi.fn();
+const navigateToAgentChat = vi.hoisted(() => vi.fn());
 const createHandoff = vi.fn();
 let connected = false;
 
@@ -17,8 +17,8 @@ vi.mock("@/hooks/use-auth", () => ({
   }),
 }));
 
-vi.mock("@/components/agent/agent-popover-provider", () => ({
-  useOptionalAgentPopover: () => ({ openAgent }),
+vi.mock("@/lib/navigation/agent-navigation", () => ({
+  navigateToAgentChat,
 }));
 
 vi.mock("@/lib/agent/one-conversation-session", () => ({
@@ -59,6 +59,6 @@ describe("EmailAgentPageClient", () => {
         transcript: expect.stringContaining("owner@example.com"),
       }),
     );
-    expect(openAgent).toHaveBeenCalledWith();
+    expect(navigateToAgentChat).toHaveBeenCalledWith();
   });
 });

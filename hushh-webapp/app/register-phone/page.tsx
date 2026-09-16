@@ -8,6 +8,7 @@ import { toast } from "sonner";
 import { HushhLoader } from "@/components/app-ui/hushh-loader";
 import { NativeRouteMarker } from "@/components/app-ui/native-route-marker";
 import { PhoneVerificationFlow } from "@/components/auth/phone-verification-flow";
+import { OneArcIllustration } from "@/components/onboarding/OneArcIllustration";
 import { OnboardingHeroBackground } from "@/components/onboarding/OnboardingHeroBackground";
 import { VaultLockGuard } from "@/components/vault/vault-lock-guard";
 import {
@@ -37,6 +38,8 @@ import {
 } from "@/lib/ria/ria-claim-entry";
 import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 import { resolvePostPhoneOnboardingPhase } from "@/lib/onboarding/onboarding-journey-phase";
+import { cn } from "@/lib/utils";
+import styles from "./page.module.css";
 
 function requiresVaultUnlockForRedirect(path?: string | null): boolean {
   const normalizedPath = String(path ?? "").trim();
@@ -213,7 +216,7 @@ export function PhoneMandatePageContent() {
                   {
                     id: "phone_mandate.submit_number",
                     actionId: "phone_mandate.submit_number",
-                    label: "Send verification code",
+                    label: "Send a verification code",
                     purpose: "Send a code after the phone form is completed.",
                   },
                 ]
@@ -272,24 +275,15 @@ export function PhoneMandatePageContent() {
   }
 
   const shell = (
-    // Inline styles (not Tailwind arbitrary-value classes) for every
-    // computed height/offset here: Tailwind's arbitrary calc() parser
-    // requires escaped whitespace around +/- operators ("18px_+_var(...)");
-    // without it the whole declaration is invalid CSS and silently dropped,
-    // which produced 0px paddings/heights and forced full-page scroll.
-    // The outer app scroll root reserves --app-scroll-bottom-pad below this
-    // element for the fixed onboarding Agent Bar, then re-adds it as its own
-    // padding-bottom, so this element is exactly one viewport minus that
-    // reservation.
     <main
-      className="relative w-full overflow-hidden"
+      className={cn("relative w-full overflow-hidden bg-white dark:bg-[#000000]", verificationStep === "phone" && styles.refinedScreen, verificationStep === "code" && styles.codeScreen)}
       style={{
         height: "calc(100dvh - var(--app-scroll-bottom-pad, 0px))",
         minHeight: "calc(100svh - var(--app-scroll-bottom-pad, 0px))",
       }}
+      data-testid="phone-mandate-screen"
     >
-      {/* Shared immersive gradient backdrop (welcome / login / phone). */}
-      <OnboardingHeroBackground />
+      <div className={styles.existingBackdrop}><OnboardingHeroBackground /></div>
       <NativeRouteMarker
         routeId={ROUTES.PHONE_MANDATE}
         marker="native-route-register-phone"
@@ -297,44 +291,53 @@ export function PhoneMandatePageContent() {
         dataState="loaded"
       />
 
+      {/* Top bar: back + account actions anchored consistently */}
+      <button
+        type="button"
+        aria-label="Go back"
+        onClick={() => router.back()}
+        className={cn("fixed left-4 top-[calc(max(var(--app-safe-area-top-effective),0.75rem))] z-50 grid h-9 w-9 place-items-center rounded-full bg-black/[0.05] text-[#1d1d1f]/70 transition-colors hover:bg-black/[0.08] dark:bg-white/10 dark:text-white/80 dark:hover:bg-white/15", styles.safeBack)}
+      >
+        <ChevronLeft className={cn("h-[18px] w-[18px]", styles.originalBackGlyph)} strokeWidth={2} />
+        <span aria-hidden="true" className={styles.figmaBackGlyph} />
+      </button>
+
+      <div className={cn("fixed right-4 top-[calc(max(var(--app-safe-area-top-effective),0.75rem))] z-50", styles.safeAccount)}>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button
+              type="button"
+              aria-label="Account actions"
+              className={cn("grid h-9 w-9 place-items-center rounded-full bg-black/[0.05] text-[#1d1d1f]/70 transition-colors hover:bg-black/[0.08] dark:bg-white/10 dark:text-white/80 dark:hover:bg-white/15", styles.accountControl)}
+            >
+              <MoreHorizontal className="h-[18px] w-[18px]" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem onClick={() => void handleSignOut()}>
+              <LogOut className="h-4 w-4 text-current" />
+              Sign out
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+
       <div
-        className="relative mx-auto flex w-full max-w-[440px] flex-col"
+        className={cn("relative mx-auto flex w-full max-w-[440px] flex-col justify-center px-4", styles.flowContent)}
         style={{
           height: "calc(100dvh - var(--app-scroll-bottom-pad, 0px))",
           minHeight: "calc(100svh - var(--app-scroll-bottom-pad, 0px))",
         }}
       >
-        {/* Top bar: back + account actions */}
-        <div
-          className="flex items-center justify-between px-5"
-          style={{ paddingTop: "calc(18px + var(--app-safe-area-top-effective, 0px))" }}
-        >
-          <button
-            type="button"
-            aria-label="Go back"
-            onClick={() => router.back()}
-            className="grid h-9 w-9 place-items-center rounded-full bg-black/[0.05] text-[#1d1d1f]/70 transition-colors hover:bg-black/[0.08] active:scale-95 dark:bg-white/10 dark:text-white/80 dark:hover:bg-white/15"
-          >
-            <ChevronLeft className="h-5 w-5" />
-          </button>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <button
-                type="button"
-                aria-label="Account actions"
-                className="grid h-9 w-9 place-items-center rounded-full bg-black/[0.05] text-[#1d1d1f]/70 transition-colors hover:bg-black/[0.08] active:scale-95 dark:bg-white/10 dark:text-white/80 dark:hover:bg-white/15"
-              >
-                <MoreHorizontal className="h-5 w-5" />
-              </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem onClick={() => void handleSignOut()}>
-                <LogOut className="h-4 w-4 text-current" />
-                Sign out
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
+        <div className={cn("flex w-full flex-none flex-col items-center gap-5 px-2 text-center", styles.flowStack)}>
+          <div className={cn("flex w-full flex-col items-center gap-3", styles.flowHeading)}>
+            {verificationStep === "code" ? (
+              <span role="img" aria-label="Hushh" className={styles.codeIcon}>🤫</span>
+            ) : (
+              <div className={styles.existingBurst}><OneArcIllustration /></div>
+            )}
+            <span className={styles.hushhVisual} aria-hidden="true">🤫</span>
+          </div>
 
         {/* Verification is a focused task, not a hero. Keep the heading tight
             so the active field row can clear the native keyboard. */}
@@ -376,6 +379,7 @@ export function PhoneMandatePageContent() {
             className="gap-5"
           />
           <div id="recaptcha-container" className="mt-3 min-h-0" />
+        </div>
         </div>
       </div>
     </main>

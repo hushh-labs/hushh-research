@@ -24,6 +24,54 @@ def _db_returning(rows):
     return lambda: db
 
 
+@pytest.mark.parametrize(
+    "connected,status,requester,relationship",
+    [
+        (False, "pending", "viewer", "pending_outgoing"),
+        (False, "pending", "counterpart", "pending_incoming"),
+        (False, "accepted", "viewer", "none"),
+        (True, "accepted", "viewer", "connected"),
+    ],
+)
+def test_person_context_is_pair_bound_and_uses_current_connection(
+    connected, status, requester, relationship
+):
+    svc = _svc()
+    svc._directory_lookup = lambda viewer: [{"userId": "counterpart"}]
+    queries = []
+
+    def read(sql, params):
+        queries.append((sql, params))
+        if "actor_identity_cache" in sql:
+            return {"display_name": "Synthetic Person", "photo_url": None, "connected": connected}
+        return {
+            "id": "request",
+            "requester_user_id": requester,
+            "addressee_user_id": "counterpart" if requester == "viewer" else "viewer",
+            "status": status,
+        }
+
+    svc._execute_one = read
+    result = svc.get_person_context("viewer", "counterpart")
+    assert result["person"]["relationship"] == relationship
+    assert result["person"]["email"] is None
+    assert all(
+        params == {"viewer": "viewer", "counterpart": "counterpart"} for _, params in queries
+    )
+    assert "requester_user_id=:viewer AND addressee_user_id=:counterpart" in queries[1][0]
+    assert "requester_user_id=:counterpart AND addressee_user_id=:viewer" in queries[1][0]
+    assert "LIMIT 1" in queries[1][0]
+
+
+def test_person_context_rejects_hidden_or_self_before_request_lookup():
+    svc = _svc()
+    svc._directory_lookup = lambda viewer: []
+    svc._execute_one = lambda *args: pytest.fail("Hidden identity must not be queried")
+    for target in ("hidden", "viewer", ""):
+        with pytest.raises(ConnectionsError):
+            svc.get_person_context("viewer", target)
+
+
 def test_feed_identity_label_uses_canonical_name_then_email_handle() -> None:
     svc = _svc()
     opaque_uid = "RPNmQAmVdlNz84GVfXxta50wnYx1"

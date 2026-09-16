@@ -18,10 +18,12 @@ const mocks = vi.hoisted(() => ({
   cancel: vi.fn(),
   removeConnection: vi.fn(),
   getScopeCatalog: vi.fn(),
+  getPersonContext: vi.fn(),
   searchInformationScopes: vi.fn(),
   onConnectionCapabilityMutated: vi.fn(),
   onConnectionGraphMutated: vi.fn(),
   routerPush: vi.fn(),
+  routerReplace: vi.fn(),
   searchParams: new URLSearchParams(),
   shareLink: vi.fn(),
   toastSuccess: vi.fn(),
@@ -97,7 +99,7 @@ vi.mock("@/lib/contacts/use-contact-discoverability-consent", () => ({
 vi.mock("next/navigation", () => ({
   useRouter: () => ({
     push: mocks.routerPush,
-    replace: vi.fn(),
+    replace: mocks.routerReplace,
     back: vi.fn(),
   }),
   usePathname: () => "/one/connect",
@@ -131,6 +133,7 @@ vi.mock("@/lib/services/connections-service", () => ({
     cancel: mocks.cancel,
     removeConnection: mocks.removeConnection,
     getScopeCatalog: mocks.getScopeCatalog,
+    getPersonContext: mocks.getPersonContext,
     searchInformationScopes: mocks.searchInformationScopes,
   },
 }));
@@ -216,7 +219,7 @@ vi.mock("@/lib/share/share-link", async () => {
 
 import ConnectPageClient from "@/app/connect/page-client";
 import { ShareUnavailableError } from "@/lib/share/share-link";
-import { resolveLocalOnboardingHandler } from "@/lib/agent/local-onboarding-actions";
+import { resolveLocalOnboardingHandler, prepareLocalOnboardingAction } from "@/lib/agent/local-onboarding-actions";
 import {
   parseVoiceCard,
   parseVoiceConfirm,
@@ -257,8 +260,90 @@ const EVERYONE = Array.from({ length: 100 }, (_, index) =>
   person(`u${index}`, `Person ${index}`),
 );
 
+describe("Location command connection prerequisite",()=>{
+  it("discards the previous person's review and pending catalog when the requested person changes",async()=>{
+    mocks.searchParams=new URLSearchParams("reviewPerson=u9");
+    mocks.getPersonContext.mockResolvedValueOnce({person:person("u9","First target"),request:null})
+      .mockResolvedValue({person:{...person("u10","Already connected"),relationship:"connected"},request:null});
+    const catalog=deferred<any>();
+    mocks.getScopeCatalog.mockReturnValueOnce(catalog.promise);
+    const view=render(<ConnectPageClient/>);
+    await screen.findByRole("dialog",{name:"Send connection requests"});
+    mocks.searchParams=new URLSearchParams("reviewPerson=u10");
+    view.rerender(<ConnectPageClient/>);
+    await waitFor(()=>expect(screen.queryByRole("dialog",{name:"Send connection requests"})).toBeNull());
+    await act(async()=>catalog.resolve({counterpartUserId:"u9",items:[],offerableItems:[]}));
+    expect(screen.queryByRole("dialog",{name:"Send connection requests"})).toBeNull();
+    expect(mocks.sendRequest).not.toHaveBeenCalled();
+    expect(mocks.routerReplace).not.toHaveBeenCalled();
+  });
+
+  it("correlates a freshly discovered incoming request redirect to its exact person review",async()=>{
+    mocks.searchParams=new URLSearchParams("reviewPerson=u9");
+    mocks.getPersonContext.mockResolvedValue({person:{...person("u9","Incoming"),relationship:"pending_incoming"},request:{id:"request-9",direction:"incoming",status:"pending"}});
+    render(<ConnectPageClient/>);
+    await waitFor(()=>expect(mocks.routerPush).toHaveBeenCalled());
+    const destination=new URL(mocks.routerPush.mock.calls[0]![0],"https://app.invalid");
+    expect(destination.searchParams.get("from")).toBe("/one/connect?reviewPerson=u9");
+    expect(destination.searchParams.get("requestId")).toBe("request-9");
+    expect(mocks.sendRequest).not.toHaveBeenCalled();
+  });
+  it("opens the actual scope review without sending and can reopen after cancellation",async()=>{
+    mocks.searchParams = new URLSearchParams("reviewPerson=u9");
+    mocks.getPersonContext.mockResolvedValue({person:person("u9","Command Person"),request:null});
+    const view = render(<ConnectPageClient/>);
+    const dialog = await screen.findByRole("dialog",{name:"Send connection requests"});
+    await within(dialog).findByRole("button",{name:"Send requests"});
+    expect(mocks.sendRequest).not.toHaveBeenCalled();
+    fireEvent.click(within(dialog).getByRole("button",{name:"Cancel"}));
+    view.rerender(<ConnectPageClient/>);
+    await waitFor(()=>expect(screen.queryByRole("dialog",{name:"Send connection requests"})).toBeNull());
+    expect(mocks.routerReplace).toHaveBeenCalledWith("/one/connect");
+    mocks.searchParams=new URLSearchParams("reviewPerson=u9");
+    view.rerender(<ConnectPageClient/>);
+    await screen.findByRole("dialog",{name:"Send connection requests"});
+    expect(mocks.sendRequest).not.toHaveBeenCalled();
+  });
+
+  it("discards the old owner's pending catalog even after A to B to A",async()=>{
+    mocks.searchParams=new URLSearchParams("reviewPerson=u9");
+    mocks.getPersonContext.mockResolvedValueOnce({person:person("u9","Owner A target"),request:null})
+      .mockResolvedValue({person:{...person("u9","Pending"),relationship:"pending_outgoing"},request:{id:"r",direction:"outgoing",status:"pending"}});
+    const catalog = deferred<any>();
+    mocks.getScopeCatalog.mockReturnValueOnce(catalog.promise);
+    const view=render(<ConnectPageClient/>);
+    await screen.findByRole("dialog",{name:"Send connection requests"});
+    const ownerA=mocks.user;
+    mocks.user={uid:"owner-b",getIdToken:async()=>"token-b"};
+    view.rerender(<ConnectPageClient/>);
+    await waitFor(()=>expect(screen.queryByRole("dialog",{name:"Send connection requests"})).toBeNull());
+    mocks.user=ownerA;
+    view.rerender(<ConnectPageClient/>);
+    await act(async()=>catalog.resolve({counterpartUserId:"u9",items:[],offerableItems:[]}));
+    expect(screen.queryByRole("dialog",{name:"Send connection requests"})).toBeNull();
+    expect(mocks.sendRequest).not.toHaveBeenCalled();
+  });
+
+  it("treats a raced reverse request as incoming review, never as a sent or accepted connection",async()=>{
+    mocks.searchParams=new URLSearchParams("reviewPerson=u9");
+    mocks.getPersonContext.mockResolvedValue({person:person("u9","Command Person"),request:null});
+    mocks.sendRequest.mockResolvedValue({id:"incoming-request",status:"pending",requesterUserId:"u9",addresseeUserId:"me"});
+    render(<ConnectPageClient/>);
+    const dialog=await screen.findByRole("dialog",{name:"Send connection requests"});
+    const send=await within(dialog).findByRole("button",{name:"Send requests"});
+    await waitFor(()=>expect(send).not.toBeDisabled());
+    fireEvent.click(send);
+    await waitFor(()=>expect(mocks.routerPush).toHaveBeenCalledWith(expect.stringContaining("incoming-request")));
+    expect(mocks.toastSuccess).toHaveBeenCalledWith("1 incoming request needs your review.");
+    expect(mocks.sendRequest).toHaveBeenCalledOnce();
+  });
+});
+
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.user = {uid:"me",getIdToken:async()=>"id-token"};
+  mocks.getPersonContext.mockReset();
+  mocks.routerReplace.mockImplementation((href:string)=>{mocks.searchParams=new URLSearchParams(href.split("?")[1] || "");});
   mocks.requestContactCheck.mockReturnValue(true);
   mocks.authPhoneNumber = "+919000000001";
   mocks.resolveVerifiedPhoneNumber.mockImplementation(
@@ -1383,11 +1468,11 @@ describe("Connect — People", () => {
 
     const search = resolveLocalOnboardingHandler("connect.search_people");
     expect(search).not.toBeNull();
-    act(() => {
-      expect(search!({ person: "Person 9" })).toMatchObject({
-        status: "succeeded",
-      });
+    let result: Awaited<ReturnType<NonNullable<typeof search>>> | undefined;
+    await act(async () => {
+      result = await search!({ person: "Person 9" });
     });
+    expect(result).toMatchObject({ status: "succeeded" });
 
     await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalledTimes(2));
     expect(mocks.searchDirectory.mock.calls[1][0]).toMatchObject({
@@ -1396,13 +1481,24 @@ describe("Connect — People", () => {
     });
   });
 
+  it.each(["missing-id", "u-other"])("does not downgrade selected user %s to the spoken name", async (userId) => {
+    mocks.searchDirectory.mockResolvedValue({ items: [person("u9", "Person 9"), person("u-other", "Different Person")], hasMore: false, page: 1 });
+    render(<ConnectPageClient />);
+    await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalled());
+    const handler = resolveLocalOnboardingHandler("connect.send_request")!;
+    let result;
+    await act(async () => { result = await handler({ person: "Person 9", userId }); });
+    expect(result).toMatchObject({ status: "blocked" });
+    expect(mocks.sendRequest).not.toHaveBeenCalled();
+  });
+
   it("sends a confirmed request only to one exact spoken name", async () => {
     mocks.searchDirectory.mockResolvedValue({
       items: [person("u9", "Person 9")],
       hasMore: false,
       page: 1,
     });
-    mocks.sendRequest.mockResolvedValue({ id: "request-9" });
+    mocks.sendRequest.mockResolvedValue({ id: "request-9", status: "pending", requesterUserId: "me" });
     render(<ConnectPageClient />);
     await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalledTimes(1));
 
@@ -1434,6 +1530,39 @@ describe("Connect — People", () => {
         offeredScopeHandles: [],
       }),
     );
+  });
+
+  it("prepares an exact send without effects and rejects stale preparation", async () => {
+    mocks.searchDirectory.mockResolvedValue({ items: [person("u9", "Person 9")], hasMore: false, page: 1 });
+    render(<ConnectPageClient />);
+    await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalled());
+    const slots = { person: "Person 9", userId: "u9" };
+    const prepared = await prepareLocalOnboardingAction("connect.send_request", slots);
+    expect(prepared?.status).toBe("ready");
+    if (prepared?.status !== "ready") throw new Error("Preparation failed");
+    expect(prepared.binding).toMatchObject({ person: "Person 9", userId: "u9" });
+    expect(mocks.sendRequest).not.toHaveBeenCalled();
+    mocks.searchDirectory.mockResolvedValue({ items: [person("other-owner-id", "Person 9")], hasMore: false, page: 1 });
+    const result = await resolveLocalOnboardingHandler("connect.send_request")!(slots, { directiveId: "confirmed", preparedBinding: prepared.binding });
+    expect(result.status).toBe("blocked");
+    expect(mocks.sendRequest).not.toHaveBeenCalled();
+  });
+
+  it("executes a send with the same owner-prepared binding", async () => {
+    mocks.searchDirectory.mockResolvedValue({ items: [person("u9", "Person 9")], hasMore: false, page: 1 });
+    mocks.sendRequest.mockResolvedValue({ id: "prepared-request", status: "pending", requesterUserId: "me" });
+    render(<ConnectPageClient />);
+    await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalled());
+    const slots = { person: "Person 9", userId: "u9" };
+    const prepared = await prepareLocalOnboardingAction("connect.send_request", slots);
+    if (prepared?.status !== "ready") throw new Error("Preparation failed");
+    expect(mocks.sendRequest).not.toHaveBeenCalled();
+    expect((await resolveLocalOnboardingHandler("connect.send_request")!(slots, { preparedBinding: prepared.binding })).status).toBe("blocked");
+    expect(mocks.sendRequest).not.toHaveBeenCalled();
+    let result;
+    await act(async () => { result = await resolveLocalOnboardingHandler("connect.send_request")!(slots, { directiveId: "confirmed", preparedBinding: prepared.binding }); });
+    expect(result).toMatchObject({ status: "succeeded" });
+    expect(mocks.sendRequest).toHaveBeenCalledWith(expect.objectContaining({ addresseeUserId: "u9" }));
   });
 
   it("refuses to guess between similar directory matches before sending", async () => {
@@ -1519,7 +1648,7 @@ describe("Connect — People", () => {
       hasMore: false,
       page: 1,
     });
-    mocks.sendRequest.mockResolvedValue({ id: "request-10" });
+    mocks.sendRequest.mockResolvedValue({ id: "request-10", status: "pending", requesterUserId: "me" });
     render(<ConnectPageClient />);
     await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalledTimes(1));
 
@@ -1556,7 +1685,7 @@ describe("Connect — People", () => {
       hasMore: false,
       page: 1,
     });
-    mocks.sendRequest.mockResolvedValue({ id: "request-9" });
+    mocks.sendRequest.mockResolvedValue({ id: "request-9", status: "pending", requesterUserId: "me" });
     render(<ConnectPageClient />);
     await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalledTimes(1));
 
@@ -1584,7 +1713,7 @@ describe("Connect — People", () => {
       hasMore: false,
       page: 1,
     });
-    mocks.sendRequest.mockResolvedValue({ id: "request-9" });
+    mocks.sendRequest.mockResolvedValue({ id: "request-9", status: "pending", requesterUserId: "me" });
     render(<ConnectPageClient />);
     await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalledTimes(1));
 
@@ -1842,6 +1971,31 @@ describe("Connect — removing a connection", () => {
     displayName: "Rashid",
     maskedEmail: "r***d@gmail.com",
   };
+
+  it("rejects a selected connection whose label changed", async () => {
+    mocks.listConnections.mockResolvedValue([RASHID]);
+    render(<ConnectPageClient />);
+    await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalled());
+    const handler = resolveLocalOnboardingHandler("connect.remove_connection")!;
+    const result = await handler({ person: "Someone Else", connectionId: "c-1" }, { directiveId: "confirmed" });
+    expect(result.status).toBe("blocked");
+    expect(mocks.removeConnection).not.toHaveBeenCalled();
+  });
+
+  it("prepares removal and revalidates the same binding before executing", async () => {
+    mocks.listConnections.mockResolvedValue([RASHID]);
+    render(<ConnectPageClient />);
+    await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalled());
+    const slots = { person: "Rashid", connectionId: "c-1" };
+    const prepared = await prepareLocalOnboardingAction("connect.remove_connection", slots);
+    expect(prepared?.status).toBe("ready");
+    if (prepared?.status !== "ready") throw new Error("Preparation failed");
+    expect(mocks.removeConnection).not.toHaveBeenCalled();
+    await act(async () => {
+      await resolveLocalOnboardingHandler("connect.remove_connection")!(slots, { directiveId: "confirmed", preparedBinding: prepared.binding });
+    });
+    expect(mocks.removeConnection).toHaveBeenCalledWith(expect.objectContaining({ connectionId: "c-1" }));
+  });
 
   it("asks before removing, and does not remove on the asking turn", async () => {
     // The one action here that cannot be walked back. A name misheard once is
@@ -2410,19 +2564,6 @@ describe("Connect — Circles", () => {
     expect(screen.queryByLabelText("Search people")).toBeNull();
   });
 
-  it("renders Circle detail as a focused task without duplicate tabs or bottom-chrome content", async () => {
-    mocks.searchParams = new URLSearchParams(
-      "tab=circles&action=circle-detail&circleId=mine",
-    );
-
-    render(<ConnectPageClient />);
-
-    expect(await screen.findByTestId("connect-circles-tab")).toBeTruthy();
-    expect(screen.queryByRole("heading", { name: "Connect" })).toBeNull();
-    expect(screen.queryByRole("tab", { name: "Connections" })).toBeNull();
-    expect(screen.queryByRole("tab", { name: "Circles" })).toBeNull();
-    expect(screen.queryByLabelText("Search people")).toBeNull();
-  });
   it("names the default surface explicitly, so back to People navigates", async () => {
     // The App Router refuses a navigation whose only change is that the whole
     // query string disappears -- measured on UAT, recorded in
@@ -2441,7 +2582,9 @@ describe("Connect — Circles", () => {
     render(<ConnectPageClient />);
     await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalled());
 
-    expect(screen.queryByRole("button", { name: "Select people" })).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "Select people" }),
+    ).toBeNull();
 
     fireEvent.click(screen.getByRole("tab", { name: "Circles" }));
 

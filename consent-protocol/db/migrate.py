@@ -717,6 +717,19 @@ async def create_consent_export_refresh_jobs(pool: asyncpg.Pool):
     """Create consent_export_refresh_jobs table (on-device refresh queue metadata)."""
     print("🔁 Creating consent_export_refresh_jobs table...")
 
+    # Fresh databases have not run the historical world-model migration that
+    # originally installed this shared trigger function. Bootstrap it before
+    # any dependent trigger, including standalone --table execution.
+    await pool.execute("""
+        CREATE OR REPLACE FUNCTION update_updated_at_column()
+        RETURNS TRIGGER AS $$
+        BEGIN
+            NEW.updated_at = NOW();
+            RETURN NEW;
+        END;
+        $$ language 'plpgsql';
+    """)
+
     await pool.execute("""
         CREATE TABLE IF NOT EXISTS consent_export_refresh_jobs (
             id BIGSERIAL PRIMARY KEY,

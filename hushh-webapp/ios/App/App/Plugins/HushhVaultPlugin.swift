@@ -28,6 +28,7 @@ public class HushhVaultPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "isPasskeyAvailable", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "registerPasskeyPrf", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "authenticatePasskeyPrf", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "cancelPasskeyAuthentication", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "getFoodPreferences", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "getProfessionalData", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "storePreferencesToCloud", returnType: CAPPluginReturnPromise),
@@ -114,8 +115,11 @@ public class HushhVaultPlugin: CAPPlugin, CAPBridgedPlugin {
     // Keep active passkey authorization flows alive until delegate completion.
     private var activePasskeyFlows: [String: NSObject] = [:]
     // AuthenticationServices presents one credential sheet at a time. Keep
-    // overlapping vault surfaces from starting a second authorization flow.
-    private var activePasskeyAuthenticationOperationId: String?
+    // every passkey ceremony (registration and authentication) latched until
+    // the original system callback settles.
+    private var activePasskeyOperationId: String?
+    private var activePasskeyRequestId: String?
+    private var activePasskeyCancellationRequested = false
     
     // MARK: - Key Derivation (PBKDF2)
     @objc func deriveKey(_ call: CAPPluginCall) {
@@ -703,13 +707,25 @@ public class HushhVaultPlugin: CAPPlugin, CAPBridgedPlugin {
         }
 
         let displayName = String(displayNameRaw.prefix(80))
+        let requestId = normalizedPasskeyRequestId(call)
+        guard activePasskeyOperationId == nil else {
+            call.reject("A passkey request is already in progress.", "PASSKEY_AUTH_IN_PROGRESS")
+            return
+        }
         let operationId = UUID().uuidString
+        activePasskeyOperationId = operationId
+        activePasskeyRequestId = requestId
+        activePasskeyCancellationRequested = false
         let coordinator = NativePasskeyFlowCoordinator(
             mode: .register(userId: userId, displayName: displayName, rpId: rpIdRaw),
             plugin: self
         ) { [weak self] result in
             guard let self else { return }
+            guard self.activePasskeyOperationId == operationId else { return }
             self.activePasskeyFlows.removeValue(forKey: operationId)
+            self.activePasskeyOperationId = nil
+            self.activePasskeyRequestId = nil
+            self.activePasskeyCancellationRequested = false
             switch result {
             case .success(let payload):
                 call.resolve(payload)
@@ -746,12 +762,15 @@ public class HushhVaultPlugin: CAPPlugin, CAPBridgedPlugin {
         }
 
         let credentialId = call.getString("credentialId")?.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard activePasskeyAuthenticationOperationId == nil else {
-            call.reject("A passkey authentication is already in progress.")
+        let requestId = normalizedPasskeyRequestId(call)
+        guard activePasskeyOperationId == nil else {
+            call.reject("A passkey request is already in progress.", "PASSKEY_AUTH_IN_PROGRESS")
             return
         }
         let operationId = UUID().uuidString
-        activePasskeyAuthenticationOperationId = operationId
+        activePasskeyOperationId = operationId
+        activePasskeyRequestId = requestId
+        activePasskeyCancellationRequested = false
         let coordinator = NativePasskeyFlowCoordinator(
             mode: .authenticate(
                 userId: userId,
@@ -762,8 +781,11 @@ public class HushhVaultPlugin: CAPPlugin, CAPBridgedPlugin {
             plugin: self
         ) { [weak self] result in
             guard let self else { return }
+            guard self.activePasskeyOperationId == operationId else { return }
             self.activePasskeyFlows.removeValue(forKey: operationId)
-            self.activePasskeyAuthenticationOperationId = nil
+            self.activePasskeyOperationId = nil
+            self.activePasskeyRequestId = nil
+            self.activePasskeyCancellationRequested = false
             switch result {
             case .success(let payload):
                 call.resolve(payload)
@@ -774,6 +796,33 @@ public class HushhVaultPlugin: CAPPlugin, CAPBridgedPlugin {
 
         activePasskeyFlows[operationId] = coordinator
         coordinator.start()
+    }
+
+    @objc func cancelPasskeyAuthentication(_ call: CAPPluginCall) {
+        guard #available(iOS 18.0, *) else {
+            call.resolve(["cancelled": false])
+            return
+        }
+
+        let requestId = normalizedPasskeyRequestId(call)
+        guard let operationId = activePasskeyOperationId,
+              !activePasskeyCancellationRequested,
+              requestId == nil || requestId == activePasskeyRequestId,
+              let coordinator = activePasskeyFlows[operationId] as? NativePasskeyFlowCoordinator else {
+            call.resolve(["cancelled": false])
+            return
+        }
+
+        // The coordinator retains the OS-owned controller until its delegate
+        // callback or bounded fallback settles. Do not remove it here.
+        activePasskeyCancellationRequested = true
+        coordinator.cancel()
+        call.resolve(["cancelled": true])
+    }
+
+    private func normalizedPasskeyRequestId(_ call: CAPPluginCall) -> String? {
+        let requestId = call.getString("requestId")?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return requestId?.isEmpty == false ? requestId : nil
     }
     
     // MARK: - Domain Data
@@ -1260,6 +1309,11 @@ private final class NativePasskeyFlowCoordinator: NSObject, ASAuthorizationContr
     private let mode: Mode
     private weak var plugin: CAPPlugin?
     private let completion: (Result<[String: Any], Error>) -> Void
+    private var authorizationController: ASAuthorizationController?
+    private var didComplete = false
+    private var cancellationRequested = false
+    private var cancellationFallback: DispatchWorkItem?
+    private let cancellationSettleTimeout: TimeInterval = 2
 
     init(
         mode: Mode,
@@ -1273,20 +1327,77 @@ private final class NativePasskeyFlowCoordinator: NSObject, ASAuthorizationContr
     }
 
     func start() {
-        DispatchQueue.main.async {
+        DispatchQueue.main.async { [weak self] in
+            guard let self, !self.didComplete else { return }
+            if self.cancellationRequested {
+                self.finish(.failure(NativePasskeyError.cancelled))
+                return
+            }
             let requests: [ASAuthorizationRequest]
             do {
                 requests = try self.buildRequests()
             } catch {
-                self.completion(.failure(error))
+                self.finish(.failure(error))
                 return
             }
 
             let controller = ASAuthorizationController(authorizationRequests: requests)
             controller.delegate = self
             controller.presentationContextProvider = self
+            self.authorizationController = controller
+            if self.cancellationRequested {
+                self.finish(.failure(NativePasskeyError.cancelled))
+                return
+            }
             controller.performRequests()
         }
+    }
+
+    func cancel() {
+        if Thread.isMainThread {
+            cancelOnMain()
+        } else {
+            DispatchQueue.main.async { [weak self] in
+                self?.cancelOnMain()
+            }
+        }
+    }
+
+    private func cancelOnMain() {
+        guard !didComplete, !cancellationRequested else { return }
+        cancellationRequested = true
+
+        // ASAuthorizationController owns the system passkey sheet. Retain it
+        // and wait for its delegate result rather than allowing a new request
+        // to start during dismissal.
+        let fallback = DispatchWorkItem { [weak self] in
+            self?.finish(.failure(NativePasskeyError.cancelled))
+        }
+        cancellationFallback = fallback
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + cancellationSettleTimeout,
+            execute: fallback
+        )
+        authorizationController?.cancel()
+    }
+
+    private func finish(_ result: Result<[String: Any], Error>) {
+        if !Thread.isMainThread {
+            DispatchQueue.main.async { [weak self] in
+                self?.finish(result)
+            }
+            return
+        }
+        guard !didComplete else { return }
+        didComplete = true
+        cancellationFallback?.cancel()
+        cancellationFallback = nil
+        authorizationController = nil
+        completion(
+            cancellationRequested
+                ? .failure(NativePasskeyError.cancelled)
+                : result
+        )
     }
 
     private func buildRequests() throws -> [ASAuthorizationRequest] {
@@ -1346,11 +1457,11 @@ private final class NativePasskeyFlowCoordinator: NSObject, ASAuthorizationContr
         switch mode {
         case .register:
             guard let credential = authorization.credential as? ASAuthorizationPlatformPublicKeyCredentialRegistration else {
-                completion(.failure(NativePasskeyError.missingCredential))
+                finish(.failure(NativePasskeyError.missingCredential))
                 return
             }
             guard let prfOutput = credential.prf?.first else {
-                completion(.failure(NativePasskeyError.missingPrfOutput))
+                finish(.failure(NativePasskeyError.missingPrfOutput))
                 return
             }
 
@@ -1360,7 +1471,7 @@ private final class NativePasskeyFlowCoordinator: NSObject, ASAuthorizationContr
                     prfOutput: prfOutput,
                     prfSalt: prfSalt
                 )
-                completion(
+                finish(
                     .success([
                         "credentialId": credential.credentialID.base64EncodedString(),
                         "prfSalt": prfSalt.base64EncodedString(),
@@ -1368,16 +1479,16 @@ private final class NativePasskeyFlowCoordinator: NSObject, ASAuthorizationContr
                     ])
                 )
             } catch {
-                completion(.failure(error))
+                finish(.failure(error))
             }
 
         case let .authenticate(_, _, _, prfSalt):
             guard let credential = authorization.credential as? ASAuthorizationPlatformPublicKeyCredentialAssertion else {
-                completion(.failure(NativePasskeyError.missingCredential))
+                finish(.failure(NativePasskeyError.missingCredential))
                 return
             }
             guard let prfOutput = credential.prf?.first else {
-                completion(.failure(NativePasskeyError.missingPrfOutput))
+                finish(.failure(NativePasskeyError.missingPrfOutput))
                 return
             }
 
@@ -1386,14 +1497,14 @@ private final class NativePasskeyFlowCoordinator: NSObject, ASAuthorizationContr
                     prfOutput: prfOutput,
                     prfSalt: prfSalt
                 )
-                completion(
+                finish(
                     .success([
                         "credentialId": credential.credentialID.base64EncodedString(),
                         "vaultKeyHex": vaultKeyHex,
                     ])
                 )
             } catch {
-                completion(.failure(error))
+                finish(.failure(error))
             }
         }
     }
@@ -1403,10 +1514,10 @@ private final class NativePasskeyFlowCoordinator: NSObject, ASAuthorizationContr
         didCompleteWithError error: Error
     ) {
         if let authError = error as? ASAuthorizationError, authError.code == .canceled {
-            completion(.failure(NativePasskeyError.cancelled))
+            finish(.failure(NativePasskeyError.cancelled))
             return
         }
-        completion(.failure(NativePasskeyError.internalFailure(error.localizedDescription)))
+        finish(.failure(NativePasskeyError.internalFailure(error.localizedDescription)))
     }
 
     func presentationAnchor(for controller: ASAuthorizationController) -> ASPresentationAnchor {

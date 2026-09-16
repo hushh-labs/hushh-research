@@ -63,7 +63,7 @@ describe("app bottom navigation", () => {
   });
 
   it("uses the active One agent app as the first tab on One subroutes", () => {
-    expect(resolveOneActiveNav("/")).toBe("dashboard");
+    expect(resolveOneActiveNav("/")).toBe("chat");
     expect(resolveOneActiveNav(ROUTES.ONE_HOME)).toBe("dashboard");
     expect(resolveOneActiveNav(ROUTES.GMAIL)).toBe("gmail");
     expect(resolveOneActiveNav(ROUTES.ONE_KYC)).toBe("email");
@@ -77,7 +77,7 @@ describe("app bottom navigation", () => {
     expect(resolveOneActiveNav(ROUTES.ONE_FEED)).toBe("feed");
     // Global destinations keep their own fixed tab; Profile belongs to One
     // because Profile is not a persistent bottom-bar option.
-    expect(resolveOneActiveNav(ROUTES.AGENT)).toBe("search");
+    expect(resolveOneActiveNav(ROUTES.HOME)).toBe("chat");
     expect(resolveOneActiveNav(ROUTES.PROFILE)).toBe("profile");
     expect(resolveOneActiveNav(ROUTES.PROFILE_RECEIPTS)).toBe("profile");
     expect(resolveOneActiveNav(ROUTES.MARKETPLACE)).toBe("connect");
@@ -112,6 +112,7 @@ describe("app bottom navigation", () => {
       [ROUTES.RIA_PICKS, "ria"],
     ] as const) {
       expect(resolveBottomNavOptionKeys(pathname, scope)).toEqual([
+        "chat",
         "dashboard",
         "connect",
         "feed",
@@ -158,7 +159,7 @@ describe("app bottom navigation", () => {
   });
 
   it("selects the active workspace destination", () => {
-    expect(resolveBottomNavActiveKey(ROUTES.AGENT, "one")).toBe("search");
+    expect(resolveBottomNavActiveKey(ROUTES.HOME, "one")).toBe("chat");
     expect(resolveBottomNavActiveKey(ROUTES.KAI_ANALYSIS, "investor")).toBe(
       "dashboard",
     );

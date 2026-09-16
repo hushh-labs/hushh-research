@@ -91,6 +91,27 @@ describe("EmailDeliveryService", () => {
     });
   });
 
+  it("maps a disabled Gmail delivery connection to a safe reconnect error", async () => {
+    vi.mocked(ApiService.apiFetch).mockResolvedValue(
+      new Response(JSON.stringify({ detail: { code: "GMAIL_SEND_DISABLED", message: "do not expose" } }), {
+        status: 409,
+      }),
+    );
+
+    await expect(
+      EmailDeliveryService.prepare({
+        firebaseIdToken: "firebase-token",
+        vaultOwnerToken: "vault-owner-token",
+        idempotencyKey: "idem-3",
+        draft: { to: "to@example.com", cc: "", bcc: "", subject: "Hello", body: "Body" },
+      }),
+    ).rejects.toMatchObject<Partial<EmailDeliveryError>>({
+      code: "GMAIL_SEND_DISABLED",
+      message: "Reconnect Gmail to finish enabling email sending.",
+      needsGmailReconnect: true,
+    });
+  });
+
   it("renders structured recipient lists from the drafting boundary into editable fields", async () => {
     vi.mocked(ApiService.apiFetch).mockResolvedValue(
       new Response(

@@ -1,0 +1,322 @@
+{
+  "eval_set_id": "one_consent",
+  "name": "One consent tool selection",
+  "description": "Which tool the private agent reaches for first on ordinary consent questions. Mirrors the consent family of scripts/eval_cases/one_first_tool.v1.json (scored by scripts/eval_one_first_tool.py); the expected trajectory is that fixture's primary (first-listed) tool.",
+  "eval_cases": [
+    {
+      "eval_id": "consent_01_pending_approvals",
+      "conversation": [
+        {
+          "invocation_id": "consent_01",
+          "user_content": {
+            "parts": [
+              {
+                "text": "is there anything waiting for me to approve"
+              }
+            ],
+            "role": "user"
+          },
+          "intermediate_data": {
+            "tool_uses": [
+              {
+                "args": {},
+                "name": "list_pending_information_requests"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "eval_id": "consent_02_who_can_see",
+      "conversation": [
+        {
+          "invocation_id": "consent_02",
+          "user_content": {
+            "parts": [
+              {
+                "text": "who can see my information right now"
+              }
+            ],
+            "role": "user"
+          },
+          "intermediate_data": {
+            "tool_uses": [
+              {
+                "args": {},
+                "name": "list_active_grants"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "eval_id": "consent_03_sharing_with_sarah",
+      "conversation": [
+        {
+          "invocation_id": "consent_03",
+          "user_content": {
+            "parts": [
+              {
+                "text": "what am I sharing with Sarah"
+              }
+            ],
+            "role": "user"
+          },
+          "intermediate_data": {
+            "tool_uses": [
+              {
+                "args": {},
+                "name": "list_active_grants"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "eval_id": "consent_04_still_has_address",
+      "conversation": [
+        {
+          "invocation_id": "consent_04",
+          "user_content": {
+            "parts": [
+              {
+                "text": "does anyone still have my address"
+              }
+            ],
+            "role": "user"
+          },
+          "intermediate_data": {
+            "tool_uses": [
+              {
+                "args": {},
+                "name": "list_active_grants"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "eval_id": "consent_05_asked_jhumma",
+      "conversation": [
+        {
+          "invocation_id": "consent_05",
+          "user_content": {
+            "parts": [
+              {
+                "text": "what did I ask Jhumma for"
+              }
+            ],
+            "role": "user"
+          },
+          "intermediate_data": {
+            "tool_uses": [
+              {
+                "args": {},
+                "name": "list_my_outgoing_information_requests"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "eval_id": "consent_06_could_ask_dev",
+      "conversation": [
+        {
+          "invocation_id": "consent_06",
+          "user_content": {
+            "parts": [
+              {
+                "text": "what could I ask Dev for"
+              }
+            ],
+            "role": "user"
+          },
+          "intermediate_data": {
+            "tool_uses": [
+              {
+                "args": {},
+                "name": "discover_person_information"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "eval_id": "consent_07_request_finance_sharu",
+      "conversation": [
+        {
+          "invocation_id": "consent_07",
+          "user_content": {
+            "parts": [
+              {
+                "text": "can we request finance information from Sharu Khan"
+              }
+            ],
+            "role": "user"
+          },
+          "intermediate_data": {
+            "tool_uses": [
+              {
+                "args": {},
+                "name": "discover_person_information"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "eval_id": "consent_08_stop_sharing_finances",
+      "conversation": [
+        {
+          "invocation_id": "consent_08",
+          "user_content": {
+            "parts": [
+              {
+                "text": "stop sharing my finances with my advisor"
+              }
+            ],
+            "role": "user"
+          },
+          "intermediate_data": {
+            "tool_uses": [
+              {
+                "args": {},
+                "name": "list_active_grants"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "eval_id": "consent_09_revoke_dev_last_week",
+      "conversation": [
+        {
+          "invocation_id": "consent_09",
+          "user_content": {
+            "parts": [
+              {
+                "text": "revoke what I gave Dev last week"
+              }
+            ],
+            "role": "user"
+          },
+          "intermediate_data": {
+            "tool_uses": [
+              {
+                "args": {},
+                "name": "list_active_grants"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "eval_id": "consent_10_cancel_morning_request",
+      "conversation": [
+        {
+          "invocation_id": "consent_10",
+          "user_content": {
+            "parts": [
+              {
+                "text": "cancel the request I sent this morning"
+              }
+            ],
+            "role": "user"
+          },
+          "intermediate_data": {
+            "tool_uses": [
+              {
+                "args": {},
+                "name": "list_my_outgoing_information_requests"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "eval_id": "consent_11_deny_sarah",
+      "conversation": [
+        {
+          "invocation_id": "consent_11",
+          "user_content": {
+            "parts": [
+              {
+                "text": "say no to Sarah's request"
+              }
+            ],
+            "role": "user"
+          },
+          "intermediate_data": {
+            "tool_uses": [
+              {
+                "args": {},
+                "name": "list_pending_information_requests"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "eval_id": "consent_12_how_sharing_works",
+      "conversation": [
+        {
+          "invocation_id": "consent_12",
+          "user_content": {
+            "parts": [
+              {
+                "text": "how does sharing my information actually work"
+              }
+            ],
+            "role": "user"
+          },
+          "final_response": {
+            "parts": [
+              {
+                "text": "Sharing works by consent: you decide who can see which records, for how long, and you can end it at any time. Nothing leaves your vault unless you approve it."
+              }
+            ],
+            "role": "model"
+          },
+          "intermediate_data": {
+            "tool_uses": []
+          }
+        }
+      ]
+    },
+    {
+      "eval_id": "consent_13_add_trusted_alice",
+      "conversation": [
+        {
+          "invocation_id": "consent_13",
+          "user_content": {
+            "parts": [
+              {
+                "text": "add Alice to my trusted people"
+              }
+            ],
+            "role": "user"
+          },
+          "intermediate_data": {
+            "tool_uses": [
+              {
+                "args": {},
+                "name": "ask_consent_agent"
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

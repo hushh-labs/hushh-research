@@ -21,6 +21,7 @@ import {
   ConsentExportNoDataError,
 } from "@/lib/consent/export-builder";
 import { ROUTES } from "@/lib/navigation/routes";
+import { oneLocationErrorMessage } from "@/lib/one-location/error-message";
 import { requestInternalAppNavigation } from "@/lib/utils/browser-navigation";
 
 // ============================================================================
@@ -92,9 +93,10 @@ function getScopeDataEndpoint(scope: string): string | null {
   return scopeMap[scope] || null;
 }
 
-function extractConsentActionError(errorText: string): string {
+/** The message field of one error envelope, or null when there is none. */
+function envelopeMessage(body: string): string | null {
   try {
-    const parsed = JSON.parse(errorText);
+    const parsed = JSON.parse(body);
     if (typeof parsed?.error === "string") {
       return parsed.error;
     }
@@ -105,10 +107,84 @@ function extractConsentActionError(errorText: string): string {
       return parsed.detail.message;
     }
   } catch {
-    // Fall through to the raw response body.
+    // Not JSON: the caller keeps the raw body.
   }
-  return errorText || "Failed to approve";
+  return null;
 }
+
+/**
+ * Lift the message out of an error body so a JSON envelope never becomes the
+ * thrown text.
+ *
+ * The Next.js routes wrap the backend body verbatim (`{ error: responseText }`)
+ * and the backend raises `HTTPException(detail=...)`, so the message often
+ * sits two envelopes deep: `{"error":"{\"detail\":\"...\"}"}`. Peel until a
+ * plain string remains. What comes out is the backend's or the route's own
+ * sentence, kept on the thrown error for the console and for callers; it is
+ * never what the owner reads (see `ownerFacingConsentError`).
+ */
+function extractConsentActionError(errorText: string, fallback: string): string {
+  let message = errorText;
+  // Two envelopes is the real shape today; the bound only stops a pathological
+  // body from looping.
+  for (let depth = 0; depth < 3; depth += 1) {
+    const inner = envelopeMessage(message);
+    if (inner === null) break;
+    message = inner;
+  }
+  return message || fallback;
+}
+
+/**
+ * A sentence this hook wrote for the owner. The only kind of error a consent
+ * toast shows verbatim.
+ *
+ * Every other error (a backend `detail`, a route's own generic string, a
+ * driver error, a stack trace) reads as the action's fallback. The backend
+ * writes for developers ("User ID does not match authenticated user", "Token
+ * validation failed.", bare status codes) and the revoke route answers its own
+ * catch with `Internal server error: ${error}`; all of those are short and
+ * marker-free, so a deny-list rule let them through. Allow-listing by type
+ * cannot be fooled by a new sentence.
+ */
+class OwnerFacingConsentError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "OwnerFacingConsentError";
+  }
+}
+
+/**
+ * The sentence a toast may show for a failed action.
+ *
+ * Only an `OwnerFacingConsentError` passes, and even then through
+ * `oneLocationErrorMessage`, the one rule in this repo for what may cross the
+ * vault boundary, so the hook's own sentences are held to the same bar as
+ * every other surface.
+ */
+function ownerFacingConsentError(error: unknown, fallback: string): string {
+  if (!(error instanceof OwnerFacingConsentError)) return fallback;
+  return oneLocationErrorMessage(error, fallback);
+}
+
+/**
+ * The error a quiet caller receives.
+ *
+ * A quiet caller owns the reporting and may put the message in front of the
+ * owner (the chat transcript does), so the thrown message is the same
+ * owner-facing sentence a toast would have shown: a sentence this hook wrote
+ * verbatim, anything else the action's fallback. The peeled backend or route
+ * sentence rides along as `cause` for the console and for callers that log
+ * it; it is never the message.
+ */
+function quietConsentError(error: unknown, fallback: string): Error {
+  return new Error(ownerFacingConsentError(error, fallback), { cause: error });
+}
+
+const APPROVE_FAILED = "Could not allow this. Nothing was shared.";
+const DENY_FAILED = "Could not decline this. Try again.";
+const REVOKE_FAILED = "Could not stop sharing. Try again.";
+const NOTHING_TO_SHARE = "There is nothing to share for this yet. Nothing was shared.";
 
 // ============================================================================
 // Hook
@@ -281,7 +357,7 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
       const promise = (async () => {
         const vaultOwnerToken = getVaultOwnerToken();
         if (!vaultOwnerToken) {
-          throw new Error("Vault owner token required");
+          throw new OwnerFacingConsentError("Unlock your vault first.");
         }
 
         let scopeData: Record<string, unknown> = {};
@@ -303,13 +379,20 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
           } catch (err) {
             if (err instanceof SyntaxError) {
               console.error("[Consent] Failed to parse PKM blob after decrypt");
-              throw new Error("Could not prepare export; check vault.");
+              throw new OwnerFacingConsentError(
+                "Could not prepare this. Unlock your vault and try again."
+              );
             }
             if (err instanceof ConsentExportNoDataError) {
-              throw err;
+              // The builder's sentences name what it could not build, in
+              // developer words; the owner only needs to know nothing left.
+              console.info("[Consent] Nothing to share for scope:", consent.scope, err.message);
+              throw new OwnerFacingConsentError(NOTHING_TO_SHARE);
             }
             console.error("[Consent] PKM export build failed:", err);
-            throw new Error("Could not load your saved details; try again.");
+            throw new OwnerFacingConsentError(
+              "Could not load your saved details. Try again."
+            );
           }
         }
 
@@ -449,8 +532,8 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
           requesterActorType === "developer" ||
           requestSource === "developer_api_v1";
         if (isDeveloperRequest && !connectorPublicKey) {
-          throw new Error(
-            "Missing connector public key. The developer needs to re-send this request with a public key. Contact them or try again later."
+          throw new OwnerFacingConsentError(
+            "This app needs to send the request again before you can allow it."
           );
         }
         const exportKey = await generateExportKey();
@@ -514,18 +597,18 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
 
         if (!response.ok) {
           const errorText = await response.text();
-          throw new Error(extractConsentActionError(errorText));
+          throw new Error(extractConsentActionError(errorText, APPROVE_FAILED));
         }
 
-        return "Consent approved!";
+        return "Allowed. They can open it now.";
       })();
 
       if (!options?.quiet) {
         toast.promise(promise, {
           id: toastId,
-          loading: "Approving consent...",
-          success: (data) => `✅ ${data}`,
-          error: (err) => `❌ ${err.message}`,
+          loading: "Allowing...",
+          success: (data) => data,
+          error: (err) => ownerFacingConsentError(err, APPROVE_FAILED),
           duration: 3000,
         });
       }
@@ -538,7 +621,7 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
         console.error("Error approving consent:", err);
         markAsPending(consent.id);
         if (options?.quiet) {
-          throw (err instanceof Error ? err : new Error("Failed to approve consent"));
+          throw quietConsentError(err, APPROVE_FAILED);
         }
       }
         }
@@ -575,7 +658,7 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
       const promise = (async () => {
         const vaultOwnerToken = getVaultOwnerToken();
         if (!vaultOwnerToken) {
-          throw new Error("Vault owner token required");
+          throw new OwnerFacingConsentError("Unlock your vault first.");
         }
 
         const response = await ApiService.denyPendingConsent({
@@ -585,18 +668,19 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
         });
 
         if (!response.ok) {
-          throw new Error("Failed to deny consent");
+          const errorText = await response.text();
+          throw new Error(extractConsentActionError(errorText, DENY_FAILED));
         }
 
-        return "Consent denied";
+        return "Declined. Nothing was shared.";
       })();
 
       if (!options?.quiet) {
         toast.promise(promise, {
           id: toastId,
-          loading: "Denying consent...",
-          success: (data) => `❌ ${data}`,
-          error: (err) => `❌ ${err.message}`,
+          loading: "Declining...",
+          success: (data) => data,
+          error: (err) => ownerFacingConsentError(err, DENY_FAILED),
           duration: 3000,
         });
       }
@@ -609,7 +693,7 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
         console.error("Error denying consent:", err);
         markAsPending(requestId);
         if (options?.quiet) {
-          throw (err instanceof Error ? err : new Error("Failed to deny consent"));
+          throw quietConsentError(err, DENY_FAILED);
         }
       }
         }
@@ -637,14 +721,14 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
         for (const consent of consents) {
           await handleApprove(consent, { quiet: true });
         }
-        return "Consent bundle approved";
+        return "Allowed. They can open it now.";
       })();
 
       toast.promise(promise, {
         id: toastId,
-        loading: `Approving ${options?.bundleLabel || "request bundle"}...`,
-        success: "✅ Request bundle approved",
-        error: (err) => `❌ ${err.message}`,
+        loading: "Allowing...",
+        success: (data) => data,
+        error: (err) => ownerFacingConsentError(err, APPROVE_FAILED),
         duration: 3000,
       });
 
@@ -664,14 +748,14 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
         for (const requestId of requestIds) {
           await handleDeny(requestId, { quiet: true });
         }
-        return "Consent bundle denied";
+        return "Declined. Nothing was shared.";
       })();
 
       toast.promise(promise, {
         id: toastId,
-        loading: `Denying ${options?.bundleLabel || "request bundle"}...`,
-        success: "❌ Request bundle denied",
-        error: (err) => `❌ ${err.message}`,
+        loading: "Declining...",
+        success: (data) => data,
+        error: (err) => ownerFacingConsentError(err, DENY_FAILED),
         duration: 3000,
       });
 
@@ -685,7 +769,11 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
    * For VAULT_OWNER scope, this will also lock the vault
    */
   const handleRevoke = useCallback(
-    (scope: string, requestId?: string | null): Promise<void> => {
+    (
+      scope: string,
+      requestId?: string | null,
+      options?: { quiet?: boolean },
+    ): Promise<void> => {
       const normalizedScope = scope.trim();
       const actionKey = `revoke:${normalizedScope}`;
       return runWithActionLock(
@@ -705,7 +793,8 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
         });
 
         if (!response.ok) {
-          throw new Error("Failed to revoke consent");
+          const errorText = await response.text();
+          throw new Error(extractConsentActionError(errorText, REVOKE_FAILED));
         }
 
         // Check if backend signals to lock vault (for VAULT_OWNER revocation)
@@ -713,13 +802,15 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
         return data;
       })();
 
-      toast.promise(promise, {
-        id: actionKey,
-        loading: "Revoking consent...",
-        success: () => `🔒 Consent revoked`,
-        error: (err) => `❌ ${err.message}`,
-        duration: 3000,
-      });
+      if (!options?.quiet) {
+        toast.promise(promise, {
+          id: actionKey,
+          loading: "Stopping...",
+          success: () => "Sharing stopped.",
+          error: (err) => ownerFacingConsentError(err, REVOKE_FAILED),
+          duration: 3000,
+        });
+      }
 
       try {
         const result = await promise;
@@ -740,6 +831,15 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
         emitSuccessfulMutation({ action: "revoke", scope: normalizedScope });
       } catch (err) {
         console.error("Error revoking consent:", err);
+        // Quiet callers own the reporting, so they have to be told. Without
+        // this the promise resolves identically whether the grant was revoked
+        // or the request 500'd, and a caller that speaks the outcome -- the
+        // agent handler does -- would tell someone their access was taken
+        // back when it was not. handleDeny already rethrows under `quiet`
+        // for the same reason.
+        if (options?.quiet) {
+          throw quietConsentError(err, REVOKE_FAILED);
+        }
       }
         }
       );

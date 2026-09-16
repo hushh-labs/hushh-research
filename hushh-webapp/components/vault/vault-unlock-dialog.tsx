@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import { type CSSProperties, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import type { User } from "firebase/auth";
 import { Dialog as DialogPrimitive } from "radix-ui";
 
@@ -179,13 +179,14 @@ export function VaultUnlockDialog({
           data-vault-layout="top-centered-flat"
           data-vault-dismissible={effectiveDismissible}
           style={{
+            "--vault-available-height": "min(640px, calc(100svh - max(calc(env(safe-area-inset-top, 0px) + 1.5rem), 6svh) - var(--kb-height, 0px) - 1rem))",
             position: "fixed",
             zIndex: 712,
             top: "max(calc(env(safe-area-inset-top, 0px) + 1.5rem), 6svh)",
             left: "50%",
             width: "calc(100% - 2rem)",
             maxWidth: "28rem",
-            maxHeight: "min(58svh, 640px)",
+            maxHeight: "var(--vault-available-height)",
             transform: "translateX(-50%)",
             overflow: "visible",
             background: "transparent",
@@ -193,7 +194,7 @@ export function VaultUnlockDialog({
             borderRadius: 0,
             boxShadow: "none",
             padding: 0,
-          }}
+          } as CSSProperties}
           className="outline-none focus:outline-none focus-visible:outline-none"
           onEscapeKeyDown={(event) => {
             if (!effectiveDismissible) event.preventDefault();

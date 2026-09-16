@@ -82,7 +82,7 @@ export function resolvePersonRefFromProfilePathname(
 export const ROUTES = {
   HOME: "/",
   PERSON_PROFILE: "/people/[personRef]",
-  /** Canonical public knowledge workspace; root remains anonymous onboarding. */
+  /** Canonical public knowledge workspace; root is dual-mode Chat/onboarding. */
   WELCOME: "/welcome",
   ONE_HOME: "/one",
   DEVELOPERS: "/developers",
@@ -109,7 +109,6 @@ export const ROUTES = {
   PROFILE_SECURITY: "/one/profile/security",
   PROFILE_SECURITY_VAULT: "/one/profile/security/vault",
   PROFILE_SECURITY_SESSION: "/one/profile/security/session",
-  PROFILE_SECURITY_DEVICES: "/one/profile/security/devices",
   PROFILE_SECURITY_DEVICE_AUTHORIZE: "/one/profile/security/devices/authorize",
   PROFILE_MY_DATA: "/one/profile/my-data",
   PROFILE_MY_DATA_DOMAIN: "/one/profile/my-data/domain",
@@ -161,7 +160,10 @@ export const ROUTES = {
   ONE_FEED: "/one/feed",
   /** Compatibility-only access manager route. Preserve inbound partner links. */
   LEGACY_CONSENTS: "/consents",
+  /** Compatibility alias retained for the owner-pod legacy surface. */
   AGENT: "/agent",
+  /** Compatibility-only inbound path; the active chat surface is `/`. */
+  LEGACY_AGENT: "/agent",
   CONNECT: "/one/connect",
   CONNECT_SETTINGS: "/one/connect/settings",
   MARKETPLACE: "/marketplace",
@@ -496,6 +498,9 @@ export function isOnboardingAdmissionExemptRoute(pathname: string): boolean {
     isFirebaseSessionOnlyRoute(normalizedPathname) ||
     normalizedPathname === ROUTES.GETTING_STARTED ||
     normalizedPathname === ROUTES.PHONE_MANDATE ||
+    // Local-only visual fixture; it must not be blocked by the signed-in
+    // setup admission gate when reviewing UI without mail authentication.
+    normalizedPathname === "/one-location-links-visual-preview" ||
     // Reached straight from the phone mandate when the number the adviser just
     // verified is on an SEC filing, before any capability is active.
     normalizedPathname === ROUTES.RIA_CLAIM ||

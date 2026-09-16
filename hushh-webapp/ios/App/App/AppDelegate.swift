@@ -94,11 +94,12 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     func applicationWillResignActive(_ application: UIApplication) {
         // Cover the WebView before iOS captures an app-switcher snapshot. The
         // cover remains after resume until JavaScript acknowledges this exact
-        // lifecycle generation after account/session validation.
+        // lifecycle generation after the resumed document is ready to be shown.
         HushhSessionPrivacyShield.shared.protectForAppInactive()
     }
 
     func applicationDidEnterBackground(_ application: UIApplication) {
+        HushhSessionPrivacyShield.shared.markAppBackgrounded()
         // Use this method to release shared resources, save user data, invalidate timers, and store enough application state information to restore your application to its current state in case it is terminated later.
         // If your application supports background execution, this method is called instead of applicationWillTerminate: when the user quits.
     }

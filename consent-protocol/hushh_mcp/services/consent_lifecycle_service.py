@@ -15,8 +15,12 @@ import time
 from typing import Any, Awaitable, Callable, MutableMapping
 
 from hushh_mcp.consent import token as consent_token
+from hushh_mcp.consent.segment_labels import humanize_path
 from hushh_mcp.services.actor_identity_service import ActorIdentityService
-from hushh_mcp.services.consent_center_service import ConsentCenterService
+from hushh_mcp.services.consent_center_service import (
+    ConsentCenterService,
+    requester_identity_metadata,
+)
 from hushh_mcp.services.consent_db import ConsentDBService
 
 logger = logging.getLogger(__name__)
@@ -114,6 +118,55 @@ class ConsentLifecycleService:
             "expiresAt": entry.get("poll_timeout_at") or entry.get("expires_at"),
         }
 
+    async def list_active_grants(self, user_id: str, *, limit: int = 20) -> list[dict[str, Any]]:
+        """Grants this owner has given that are still live, projected to labels.
+
+        The mirror of ``list_pending_incoming`` for the other end of the
+        lifecycle, and it exists because revoking was unreachable without it:
+        ``revoke_active_grant`` matches on a scope or a request id, and until
+        this method there was no tool that could tell anyone what either of
+        those were. An action whose target can never be named is not a
+        capability, it is a dead branch that reads like one.
+
+        Same projection discipline as ``_pending_projection``, for the same
+        reason: the model reads this and says it out loud, so it never carries
+        a raw ``attr.*`` scope, a token id, or a counterpart user id. The
+        caller pairs each row with an opaque handle and resolves that handle
+        server-side, exactly as ``propose_information_request`` does.
+        """
+        active = await self._db.get_active_tokens(user_id)
+        internal = await self._db.get_active_internal_tokens(user_id)
+        rows = [*internal, *active]
+        rows.sort(key=lambda row: row.get("issued_at") or 0, reverse=True)
+        return [self._grant_projection(row) for row in rows[: max(1, min(int(limit or 20), 100))]]
+
+    @staticmethod
+    def _grant_projection(row: dict[str, Any]) -> dict[str, Any]:
+        """One active grant as the model may repeat it: who, what, until when.
+
+        ``scope`` and ``requestId`` are returned because the CALLER needs them
+        to build its opaque handle; the caller is responsible for stripping
+        them before anything reaches the model. Keeping the projection honest
+        about what it holds is better than a second projection that silently
+        drops the two fields the revoke path cannot work without.
+        """
+        scope = _clean(row.get("scope"))
+        metadata = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+        # ``attr.`` is the storage prefix, not a word anybody says. Dropping it
+        # is the difference between "Attr Professional Employment" and
+        # "Professional Employment".
+        readable = humanize_path(scope[len("attr.") :] if scope.startswith("attr.") else scope)
+        return {
+            "scope": scope,
+            "requestId": _clean(row.get("request_id")) or None,
+            "label": readable or "some of your information",
+            "holderLabel": _clean(metadata.get("counterpart_label"))
+            or _clean(row.get("developer"))
+            or "someone",
+            "issuedAt": row.get("issued_at"),
+            "expiresAt": row.get("expires_at"),
+        }
+
     async def deny_pending_request(self, user_id: str, request_id: str) -> dict[str, Any]:
         """Write CONSENT_DENIED for one of this owner's pending requests."""
         request_id = _clean(request_id)
@@ -132,12 +185,22 @@ class ConsentLifecycleService:
         subject_user_id = _clean(pending.get("user_id")) or user_id
         metadata = pending.get("metadata") if isinstance(pending.get("metadata"), dict) else {}
         developer_label = metadata.get("developer_app_display_name") or pending["developer"]
+        # A denial written without the bundle id falls out of its group in the
+        # owner's history and reads as a stray decision on nothing in particular;
+        # one without the requester identity headlines that group with the raw
+        # principal id. Both come from the pending row, so both travel.
+        bundle_id = _clean(metadata.get("bundle_id"))
+        denied_metadata = {
+            **requester_identity_metadata(metadata),
+            **({"bundle_id": bundle_id} if bundle_id else {}),
+        }
         await self._db.insert_event(
             user_id=subject_user_id,
             agent_id=pending["developer"],
             scope=pending["scope"],
             action="CONSENT_DENIED",
             request_id=request_id,
+            metadata=denied_metadata or None,
         )
         logger.info("consent.denied_event_saved")
         return {"status": "denied", "message": f"Consent denied to {developer_label}"}
@@ -199,6 +262,13 @@ class ConsentLifecycleService:
         revoke_token_id = f"REVOKED_{int(time.time() * 1000)}_{resolved_scope}"
         agent_id = token_to_revoke.get("agent_id") or token_to_revoke.get("developer") or "Unknown"
         subject_user_id = _clean(token_to_revoke.get("user_id")) or user_id
+        metadata = token_to_revoke.get("metadata")
+        metadata = metadata if isinstance(metadata, dict) else {}
+        bundle_id = _clean(metadata.get("bundle_id"))
+        revoked_metadata = {
+            **requester_identity_metadata(metadata),
+            **({"bundle_id": bundle_id} if bundle_id else {}),
+        }
         await self._db.insert_event(
             user_id=subject_user_id,
             agent_id=agent_id,
@@ -207,6 +277,7 @@ class ConsentLifecycleService:
             token_id=revoke_token_id,
             request_id=token_to_revoke.get("request_id"),
             scope_description="Vault owner session" if agent_id == "self" else None,
+            metadata=revoked_metadata or None,
         )
         logger.info("consent.revoked_event_saved scope=%s", resolved_scope)
         is_vault_owner = resolved_scope in ("vault.owner", "VAULT_OWNER")

@@ -41,6 +41,7 @@ import hmac
 import json
 import logging
 import os
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Protocol
 
@@ -202,7 +203,20 @@ def _iso(value: Any) -> str | None:
 # ---------------------------------------------------------------------------
 
 
+@dataclass(frozen=True)
+class PreparedRatingVisit:
+    """Already protected visit information, carried into the presence transaction."""
+
+    owner_user_id: str
+    envelope: dict[str, str]
+    place_token_value: str
+    checked_in_at: datetime
+    expires_at: datetime
+
+
 class PlaceRatingStore(Protocol):
+    def get_exact_visit(self, *, user_id: str, visit_id: str) -> dict[str, Any] | None: ...
+
     def insert_visit(self, **kwargs: Any) -> dict[str, Any] | None: ...
 
     def end_open_visits(self, *, user_id: str, ended_at: datetime) -> dict[str, Any] | None: ...
@@ -245,6 +259,36 @@ class PostgresPlaceRatingStore:
         result = get_db().execute_raw(sql, params or {})
         return result.data or []
 
+    def _execute_bound(
+        self, connection: Any | None, sql: str, params: dict[str, Any]
+    ) -> dict[str, Any] | None:
+        if connection is None:
+            return self._execute_one(sql, params)
+        from sqlalchemy import text
+
+        row = connection.execute(text(sql), params).mappings().first()
+        return dict(row) if row else None
+
+    def end_exact_visit(
+        self, *, connection: Any, user_id: str, visit_id: str, ended_at: datetime
+    ) -> dict[str, Any] | None:
+        return self._execute_bound(
+            connection,
+            """UPDATE one_location_nearby_visits
+            SET ended_at=:ended,updated_at=clock_timestamp()
+            WHERE id=CAST(:visit AS UUID) AND owner_user_id=:owner AND ended_at IS NULL
+            RETURNING id""",
+            {"owner": user_id, "visit": visit_id, "ended": ended_at},
+        )
+
+    def get_exact_visit(self, *, user_id: str, visit_id: str) -> dict[str, Any] | None:
+        return self._execute_one(
+            """SELECT * FROM one_location_nearby_visits
+            WHERE id=CAST(:visit AS UUID) AND owner_user_id=:owner AND ended_at IS NOT NULL
+              AND expires_at>clock_timestamp() AND rated_at IS NULL""",
+            {"owner": user_id, "visit": visit_id},
+        )
+
     def insert_visit(
         self,
         *,
@@ -253,12 +297,14 @@ class PostgresPlaceRatingStore:
         place_token_value: str,
         checked_in_at: datetime,
         expires_at: datetime,
+        connection: Any | None = None,
     ) -> dict[str, Any] | None:
         # ON CONFLICT on the partial unique index: re-checking into the same
         # venue while the first visit is still open refreshes it rather than
         # opening a second reviewable row, or one afternoon at one cafe becomes
         # three prompts.
-        return self._execute_one(
+        return self._execute_bound(
+            connection,
             """
             INSERT INTO one_location_nearby_visits (
               owner_user_id, place_ciphertext, place_iv, place_tag,
@@ -561,7 +607,7 @@ class OneLocationPlaceRatingService:
 
     # -- visits ------------------------------------------------------------
 
-    def record_visit(
+    def prepare_visit(
         self,
         *,
         user_id: str,
@@ -571,13 +617,11 @@ class OneLocationPlaceRatingService:
         longitude: Any = None,
         place_category: Any = None,
         checked_in_at: datetime | None = None,
-    ) -> None:
-        """Log a check-in as a rateable visit.
+    ) -> PreparedRatingVisit:
+        """Protect visit information without writing it.
 
-        Callers treat this as best-effort. It is invoked from ``check_in()``,
-        and a failure to write a rating ledger must never fail somebody's
-        check-in -- the same fail-open discipline the continuity guard already
-        applies for the same reason.
+        Nearby carries this into its presence transaction. Optional rating
+        failures must never prevent the requested check-in or checkout.
         """
         normalized_place_id = normalize_place_id(place_id)
         normalized_label = normalize_place_label(place_label)
@@ -596,13 +640,32 @@ class OneLocationPlaceRatingService:
             payload["latitude"] = float(latitude)
             payload["longitude"] = float(longitude)
 
-        self._store.insert_visit(
-            user_id=user_id,
+        return PreparedRatingVisit(
+            owner_user_id=user_id,
             envelope=_encrypt_visit_place(payload, owner_user_id=user_id),
             place_token_value=place_token(normalized_place_id),
             checked_in_at=moment,
             expires_at=moment + timedelta(hours=PLACE_RATING_VISIT_TTL_HOURS),
         )
+
+    def record_visit(self, **kwargs: Any) -> dict[str, Any] | None:
+        visit = self.prepare_visit(**kwargs)
+        return self._store.insert_visit(
+            user_id=visit.owner_user_id,
+            envelope=visit.envelope,
+            place_token_value=visit.place_token_value,
+            checked_in_at=visit.checked_in_at,
+            expires_at=visit.expires_at,
+        )
+
+    def describe_exact_visit(self, *, user_id: str, visit_id: str) -> dict[str, Any] | None:
+        row = self._store.get_exact_visit(user_id=user_id, visit_id=visit_id)
+        if not row:
+            return None
+        try:
+            return self._visit_payload(row, _decrypt_visit_place(row))
+        except Exception:
+            return None
 
     def end_visit(self, *, user_id: str, ended_at: datetime | None = None) -> dict[str, Any] | None:
         """Close the open visit and describe what may now be rated."""

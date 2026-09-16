@@ -282,13 +282,6 @@ POD_SPECIALIST_EXECUTION: dict[str, dict[str, Any]] = {
         confirmation_owner="hub",
         why="Identity verification writes vault records through the hub; not in the pod.",
     ),
-    "agent_gmail": _declare(
-        executes_in_pod=False,
-        information_source="hub",
-        write_scope="none",
-        confirmation_owner="hub",
-        why="Connected-account OAuth tokens live on the hub; the pod holds no credential.",
-    ),
     "agent_wallet": _declare(
         executes_in_pod=False,
         information_source="hub",
@@ -344,13 +337,6 @@ POD_SPECIALIST_EXECUTION: dict[str, dict[str, Any]] = {
         write_scope="none",
         confirmation_owner="hub",
         why="Portfolio import writes holdings through the hub; not in the pod.",
-    ),
-    "agent_summary_reducer": _declare(
-        executes_in_pod=False,
-        information_source="hub",
-        write_scope="none",
-        confirmation_owner="hub",
-        why="PKM structuring sub-chain; hub-only and browser-gated today.",
     ),
 }
 
@@ -471,6 +457,26 @@ def build_pod_specialist_runtime(
     log: Any = None
     client: Any = None
 
+    # The shared hub keeps authority-sensitive specialists unwired at import
+    # time. A pod has already crossed its owner-bound admission boundary here,
+    # so opt those handlers into the in-process registry for this runtime.
+    from hushh_mcp.adk_bridge import register_pod_specialists
+
+    register_pod_specialists()
+
+    # The pod's provider is exposed through the same ADK BaseLlm adapter used
+    # by the shared runtime.  This keeps the pod on the migrated Task/Runner
+    # path while retaining its owner-local credential and Puppy relay.
+    from hushh_mcp.runtime_providers.adk_model import ProviderAdkModel
+
+    adk_model = ProviderAdkModel(
+        model=model,
+        provider=provider,
+        credential=credential or "",
+        device_id=puppy_device_id,
+        runtime_mode=runtime_mode,
+    )
+
     async def require_access() -> None:
         trace = _TRACE.get()
         if trace is not None:
@@ -529,9 +535,7 @@ def build_pod_specialist_runtime(
         if agent_id == "agent_nav":
             from hushh_mcp.adk_bridge.nav_agent import NavAgent
 
-            return NavAgent(
-                service=PodConsentCenterReadPort(user_id, data_door_grants.get("nav", ""))
-            )
+            return NavAgent(model=adk_model)
         if agent_id == "agent_connected_systems":
             from hushh_mcp.adk_bridge.connected_systems_agent import ConnectedSystemsAgentA2A
 
@@ -586,6 +590,8 @@ def build_pod_specialist_runtime(
                     ),
                     gmail_service=PodEmailReadPort(user_id, data_door_grants.get("email", "")),
                     model_call=email_model,
+                    model=adk_model,
+                    ready=lambda: True,
                     genai_types=types,
                 ),
             )
@@ -603,6 +609,8 @@ def build_pod_specialist_runtime(
                     model=model,
                 ),
                 model_call=model_call,
+                model=adk_model,
+                ready=lambda: True,
                 genai_types=types,
                 service_ports={
                     "marketplace_information": PodMarketplaceReadPort(
@@ -624,6 +632,8 @@ def build_pod_specialist_runtime(
                 model=model,
             ),
             model_call=model_call,
+            model=adk_model,
+            ready=lambda: True,
             genai_types=types,
             location_service=PodLocationReadPort(user_id, data_door_grants.get("location", "")),
             scope_tokens={

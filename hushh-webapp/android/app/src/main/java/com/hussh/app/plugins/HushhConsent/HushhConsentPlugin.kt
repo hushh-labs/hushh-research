@@ -421,6 +421,7 @@ class HushhConsentPlugin : Plugin() {
             try {
                 val jsonBody = JSONObject().apply {
                     put("userId", userId)
+                    call.getString("renewalOfToken")?.let { put("renewalOfToken", it) }
                 }
                 val requestBody = jsonBody.toString().toRequestBody("application/json".toMediaType())
                 
@@ -432,13 +433,14 @@ class HushhConsentPlugin : Plugin() {
 
                 val response = httpClient.newCall(requestBuilder.build()).execute()
                 val body = response.body?.string() ?: "{}"
-                val truncatedBody = if (body.length > 200) body.take(200) + "..." else body
-                
                 if (!response.isSuccessful) {
-                    val errorMsg = "Failed to issue VAULT_OWNER token: HTTP ${response.code} | backendUrl: $backendUrl | body: $truncatedBody"
+                    val payload = runCatching { JSONObject(body) }.getOrNull()
+                    val code = payload?.optJSONObject("detail")?.optString("code")
+                        ?.takeIf { it.isNotBlank() } ?: payload?.optString("code")?.takeIf { it.isNotBlank() }
+                    val errorMsg = "Failed to issue VAULT_OWNER token: HTTP ${response.code}"
                     Log.e(TAG, "❌ [issueVaultOwnerToken] $errorMsg")
                     activity.runOnUiThread {
-                        call.reject(errorMsg)
+                        call.reject(errorMsg, code)
                     }
                     return@Thread
                 }
@@ -455,6 +457,7 @@ class HushhConsentPlugin : Plugin() {
                         put("token", token)
                         put("expiresAt", expiresAt)
                         put("scope", scope)
+                        put("renewalValidated", json.optBoolean("renewalValidated", false))
                     })
                 }
             } catch (e: Exception) {

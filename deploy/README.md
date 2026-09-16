@@ -130,38 +130,21 @@ repair command into an alternative release path.
    a new governed workflow from an eligible SHA.
 5. Do not mask a failed workflow with a manual Cloud Run mutation.
 
-## One Voice model-pack publication
+## Location command runtime deployment
 
-Model weights are deployment artifacts, not repository files. The governed
-workflow [Publish One Voice Model Packs](../.github/workflows/publish-one-voice-model-packs.yml)
-builds the pinned sherpa-onnx browser ASR artifact and the generated-catalog
-MiniLM ranker, verifies their checksums, uploads them to the explicitly chosen
-Cloud Storage bucket, and atomically rotates the metadata-only
-`HUSHH_LOCAL_RUNTIME_PACK_REGISTRY` Secret Manager version. The registry holds
-immutable object identity, checksums, source/catalog provenance, and rollback
-metadata only. It never holds a signed URL. Cloud Run reads it through the
-bounded Secret Manager adapter and creates a fresh short-lived URL for each
-capability response.
+Talk to One now uses bounded recording, ordinary Gemini transcription and
+semantic Location planning. Deploy the matching generated contracts and the
+complete ordered release migration manifest with the backend. The Location
+repair requires migrations 213–219 in addition to the existing command schema;
+rebuild and sync native web assets before
+packaging the apps. The existing fleet model configuration supplies command
+reasoning. No Live API key, ASR pack, intent-ranker pack, or model-pack registry is
+required by the command path. One Live Voice (Gemini Live on Vertex ADC) is a separate,
+flag-gated adapter: `_ONE_VOICE_LIVE_ENABLED`, `_VERTEX_LIVE_MODEL_ID` and
+`_VERTEX_LIVE_LOCATION` are the only knobs and there is still no API key.
 
-Dispatch it from merged `main` after the required post-merge gate:
-
-```bash
-gh workflow run publish-one-voice-model-packs.yml --ref main \
-  -f environment=uat \
-  -f operation=publish
-```
-
-Use `environment=production` only for an explicitly approved production
-publication. The workflow refuses non-`main` refs and emits only redacted
-artifact sizes and SHA-256 values. It does not print signed URLs, model bytes,
-transcripts, or protected application information. The normal backend deploy
-workflow mounts the registry configuration into Cloud Run; local mode remains
-in explicit fallback until the capability endpoint advertises valid packs.
-
-The optional FluidAudio streaming model is not part of the default command.
-It can be included only with the workflow's explicit `include_fluid_audio`
-input, a normalized staged source ZIP in the selected environment bucket, and
-a reviewed version. The publisher packages the required upstream `160ms` Core
-ML layout into the native pack format and refuses it unless the committed exact
-NVIDIA model notice says `approved` and `release_enabled: true`. This is a
-release-control boundary, not an SDK install switch.
+The model-pack publication workflow is retired. Preserve historical release
+records without treating them as current prerequisites. Follow the
+[command runtime contract](../docs/reference/one/one-voice-runtime-architecture.md)
+for checkpoint, receipt and rollback requirements. Provider access and physical
+device acceptance remain release evidence, not conclusions from a static build.

@@ -23,6 +23,7 @@
 
 const GIS_SCRIPT_SRC = "https://accounts.google.com/gsi/client";
 const GIS_LOAD_TIMEOUT_MS = 15_000;
+export const GOOGLE_CONTACTS_AUTH_TIMEOUT_MS = 120_000;
 const CONTACTS_SCOPE = "https://www.googleapis.com/auth/contacts.readonly";
 
 type TokenResponse = {
@@ -128,9 +129,7 @@ function loadGis(): Promise<void> {
 }
 
 function googleContactsClientId(): string {
-  return String(
-    process.env.NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID || "",
-  ).trim();
+  return String(process.env.NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID || "").trim();
 }
 
 /**
@@ -190,7 +189,9 @@ export function isGoogleContactsConsentCancelled(error: unknown): boolean {
  * and a 401 mid-read means asking again, which is silent once consent is
  * already granted.
  */
-export function requestGoogleContactsToken(): Promise<string> {
+export function requestGoogleContactsToken(
+  signal?: AbortSignal,
+): Promise<string> {
   const clientId = googleContactsClientId();
   if (!clientId) {
     return Promise.reject(
@@ -210,54 +211,87 @@ export function requestGoogleContactsToken(): Promise<string> {
 
   return new Promise<string>((resolve, reject) => {
     let settled = false;
-    const client = oauth2.initTokenClient({
-      client_id: clientId,
-      scope: CONTACTS_SCOPE,
-      // Never fold grants from another Google capability into this token.
-      // The exact returned scope is validated again below before the token is
-      // allowed to reach the People API source.
-      include_granted_scopes: false,
-      callback: (response) => {
-        if (settled) return;
-        settled = true;
-        if (response?.error) {
-          reject(new Error("Google contact access was not granted."));
-          return;
-        }
-        const token = String(response?.access_token || "").trim();
-        if (token && hasOnlyContactsScope(response)) {
-          resolve(token);
-          return;
-        }
-        if (token) {
-          reject(
-            new Error(
-              "Google did not confirm the exact contacts-only scope. Nothing was read.",
-            ),
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const finish = (error?: Error, token?: string) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", abort);
+      if (error) reject(error);
+      else resolve(token!);
+    };
+    const abort = () =>
+      finish(
+        new DOMException("Google contact access was cancelled.", "AbortError"),
+      );
+    if (signal?.aborted) {
+      abort();
+      return;
+    }
+    signal?.addEventListener("abort", abort, { once: true });
+    timer = setTimeout(
+      () =>
+        finish(
+          new Error(
+            "Google sign-in did not finish. Close its window and try again.",
+          ),
+        ),
+      GOOGLE_CONTACTS_AUTH_TIMEOUT_MS,
+    );
+    try {
+      const client = oauth2.initTokenClient({
+        client_id: clientId,
+        scope: CONTACTS_SCOPE,
+        // Never fold grants from another Google capability into this token.
+        // The exact returned scope is validated again below before the token is
+        // allowed to reach the People API source.
+        include_granted_scopes: false,
+        callback: (response) => {
+          if (settled) return;
+          if (response?.error) {
+            finish(
+              new Error(
+                "Google contact access was not granted. Try again and allow contact access.",
+              ),
+            );
+            return;
+          }
+          const token = String(response?.access_token || "").trim();
+          if (token && hasOnlyContactsScope(response)) {
+            finish(undefined, token);
+            return;
+          }
+          if (token) {
+            finish(
+              new Error(
+                "Google did not confirm the exact contacts-only scope. Nothing was read.",
+              ),
+            );
+            return;
+          }
+          finish(new Error("Google contact access was not granted."));
+        },
+        error_callback: (error) => {
+          if (settled) return;
+          // Closing the consent sheet is a choice, not a failure. Reported with a
+          // recognisable name so the caller can stay silent about it, the same
+          // way an AbortError from the device picker is treated.
+          const closed = error?.type === "popup_closed";
+          const popupBlocked = error?.type === "popup_failed_to_open";
+          const failure = new Error(
+            closed
+              ? "Google contact access was cancelled."
+              : popupBlocked
+                ? "Google sign-in was blocked. Allow pop-ups and try again."
+                : "Could not open Google sign-in.",
           );
-          return;
-        }
-        reject(new Error("Google contact access was not granted."));
-      },
-      error_callback: (error) => {
-        if (settled) return;
-        settled = true;
-        // Closing the consent sheet is a choice, not a failure. Reported with a
-        // recognisable name so the caller can stay silent about it, the same
-        // way an AbortError from the device picker is treated.
-        const closed = error?.type === "popup_closed";
-        const popupBlocked = error?.type === "popup_failed_to_open";
-        const failure = new Error(
-          closed
-            ? "Google contact access was cancelled."
-            : popupBlocked
-              ? "Google sign-in was blocked. Allow pop-ups and try again."
-              : "Could not open Google sign-in.",
-        );
-        failure.name = closed ? "AbortError" : "Error";
-        reject(failure);
-      },
-    });
-    client.requestAccessToken();
+          failure.name = closed ? "AbortError" : "Error";
+          finish(failure);
+        },
+      });
+      client.requestAccessToken();
+    } catch {
+      finish(new Error("Could not open Google sign-in. Try again."));
+    }
   });
 }

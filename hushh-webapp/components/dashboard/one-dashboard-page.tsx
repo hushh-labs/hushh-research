@@ -2,22 +2,25 @@ import {
   AppPageContentRegion,
   AppPageShell,
 } from "@/components/app-ui/app-page-shell";
-import { OneAgentPresence } from "@/components/dashboard/one-agent-presence";
 import { OneAgentRoster } from "@/components/dashboard/one-agent-roster";
 import { type CapabilityStatus } from "@/lib/services/capability-setup-state-service";
 
 export function OneDashboardPage({
   capabilityStatusById = {},
+  displayName,
   userId,
 }: {
+  displayName?: string | null;
   capabilityStatusById?: Record<string, CapabilityStatus>;
   userId?: string | null;
 }) {
   return (
     <AppPageShell
       as="main"
-      width="standard"
-      className="relative isolate pb-[calc(var(--app-bottom-fixed-ui,96px)+1.25rem)]"
+      width="reading"
+      fitContent
+      className="relative isolate bg-[color:var(--one-launcher-background)]"
+      data-one-launcher-root="true"
       nativeTest={{
         routeId: "/one",
         marker: "native-route-one-home",
@@ -26,10 +29,11 @@ export function OneDashboardPage({
       }}
     >
       <AppPageContentRegion>
-        <div className="space-y-5">
-          <OneAgentPresence />
-          <OneAgentRoster capabilityStatusById={capabilityStatusById} userId={userId} />
-        </div>
+        <OneAgentRoster
+          capabilityStatusById={capabilityStatusById}
+          displayName={displayName}
+          userId={userId}
+        />
       </AppPageContentRegion>
     </AppPageShell>
   );

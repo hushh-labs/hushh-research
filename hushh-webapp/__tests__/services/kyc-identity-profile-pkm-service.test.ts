@@ -30,7 +30,7 @@ describe("KycIdentityProfilePkmService", () => {
     expect(isValidDateOfBirth("2099-01-01", new Date("2026-08-03"))).toBe(false);
   });
 
-  it("segments free-form KYC text through the canonical ingestion path", async () => {
+  it("saves reviewed KYC imports through the canonical ingestion path", async () => {
     (PkmWriteCoordinator.saveMergedDomain as Mock).mockResolvedValue({ success: true, saveState: "saved", fullBlob: {} });
     ingestionMocks.ingestNaturalLanguagePkm.mockResolvedValue({
       preview: { cards: [] },
@@ -45,7 +45,7 @@ describe("KycIdentityProfilePkmService", () => {
     })).resolves.toMatchObject({ success: true, message: "Saved 3 separate memory details." });
 
     expect(ingestionMocks.ingestNaturalLanguagePkm).toHaveBeenCalledWith(expect.objectContaining({
-      userId: "user_1", currentDomains: ["identity"], source: "kyc_identity_onboarding", writePolicy: "auto_save_only",
+      userId: "user_1", currentDomains: ["identity"], source: "kyc_identity_onboarding", writePolicy: "reviewable",
     }));
     expect(PkmWriteCoordinator.saveMergedDomain).toHaveBeenCalledTimes(1);
   });

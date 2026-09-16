@@ -33,7 +33,7 @@ def test_heartbeat_keeps_only_allow_listed_scalar_fields() -> None:
     safe = _safe_heartbeat(
         {
             "machine_id": "gw-studio",
-            "current_model": "gemini-3.6-flash",
+            "current_model": "gemini-3.7-flash",
             "busy": True,
             "active_sessions": 2,
             "next_cron_at": 1_700_000_000_000,
@@ -41,7 +41,7 @@ def test_heartbeat_keeps_only_allow_listed_scalar_fields() -> None:
     )
     assert safe == {
         "machine_id": "gw-studio",
-        "current_model": "gemini-3.6-flash",
+        "current_model": "gemini-3.7-flash",
         "busy": True,
         "active_sessions": 2,
         "next_cron_at": 1_700_000_000_000,
@@ -236,13 +236,13 @@ async def test_heartbeat_route_records_and_acknowledges(
     monkeypatch.setattr(account, "TrustedDeviceService", lambda: _Svc())
     monkeypatch.setattr(account, "run_in_threadpool", _run_in_threadpool)
 
-    payload = dict(machine_id="gw-studio", current_model="gemini-3.6-flash", busy=False)
+    payload = dict(machine_id="gw-studio", current_model="gemini-3.7-flash", busy=False)
     result = await account.trusted_device_heartbeat(
         device_id=DEVICE_ID, payload=payload, firebase_uid="u1"
     )
     assert result["recorded"] is True
     assert isinstance(result["server_time_ms"], int)
-    assert seen[0]["snapshot"]["current_model"] == "gemini-3.6-flash"
+    assert seen[0]["snapshot"]["current_model"] == "gemini-3.7-flash"
 
 
 @pytest.mark.asyncio
@@ -392,7 +392,7 @@ def test_heartbeat_snapshot_unwraps_a_nested_only_body() -> None:
         {
             "heartbeat": {
                 "machine_id": "gw-studio",
-                "current_model": "gemini-3.6-flash",
+                "current_model": "gemini-3.7-flash",
                 "busy": True,
                 "ram_used_pct": 41.7,
             }
@@ -400,7 +400,7 @@ def test_heartbeat_snapshot_unwraps_a_nested_only_body() -> None:
     )
     assert account._heartbeat_snapshot(payload) == {
         "machine_id": "gw-studio",
-        "current_model": "gemini-3.6-flash",
+        "current_model": "gemini-3.7-flash",
         "busy": True,
         "ram_used_pct": 41.7,
     }

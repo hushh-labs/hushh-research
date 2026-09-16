@@ -21,7 +21,7 @@
  * - Cached vault presence selects the gate UI; it never authorizes access.
  */
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Capacitor } from "@capacitor/core";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/hooks/use-auth";
@@ -35,6 +35,7 @@ import { HushhLoader } from "@/components/app-ui/hushh-loader";
 import { useStepProgress } from "@/lib/progress/step-progress-context";
 import { useSessionChromeSuppression } from "@/lib/auth/use-session-chrome-suppression";
 import { SessionVerificationRecovery } from "@/components/auth/session-verification-recovery";
+import { SessionPrivacyGate } from "@/components/auth/session-privacy-gate";
 import {
   hasIncompleteNativeUiFlowSession,
   isNativeTestVaultBootstrapManaged,
@@ -55,7 +56,7 @@ interface VaultLockGuardProps {
 // ============================================================================
 
 export function VaultLockGuard({ children }: VaultLockGuardProps) {
-  const { isVaultUnlocked, unlockVault } = useVault();
+  const { isVaultUnlocked, unlockVault, ownerTokenStatus, retryOwnerTokenRenewal } = useVault();
   const router = useRouter();
   const nativeTestConfig = useNativeTestConfig();
   const nativeTestBootstrapManaged =
@@ -78,6 +79,32 @@ export function VaultLockGuard({ children }: VaultLockGuardProps) {
   const { beginTask, completeTaskStep, endTask } = useStepProgress();
   const [hasVault, setHasVault] = useState<boolean | null>(null);
   const [vaultCheckFailed, setVaultCheckFailed] = useState(false);
+  const [revealedUserId, setRevealedUserId] = useState<string | null>(null);
+  const [canRetainMountedRoute, setCanRetainMountedRoute] = useState(true);
+  const disableRouteRetention = useCallback(() => setCanRetainMountedRoute(false), []);
+  const canRevealUnlockedPage = isVaultUnlocked && ownerTokenStatus === "valid" &&
+    !authLoading && !sessionVerificationRequired;
+  useEffect(() => {
+    if (canRevealUnlockedPage) setRevealedUserId(userId);
+    else if (!isVaultUnlocked) setRevealedUserId(null);
+  }, [canRevealUnlockedPage, isVaultUnlocked, userId]);
+
+  // Preserve route/component state behind a hidden, inert boundary while a
+  // previously admitted session revalidates or renews its authority.
+  const renderSessionGate = (gate: React.ReactNode) => (
+    <>
+      <div
+        style={{ display: canRevealUnlockedPage ? "contents" : "none" }}
+        inert={!canRevealUnlockedPage}
+        aria-hidden={!canRevealUnlockedPage}
+      >
+        {canRevealUnlockedPage || (canRetainMountedRoute && isVaultUnlocked && userId === revealedUserId) ? children : null}
+      </div>
+      {gate ? <SessionPrivacyGate onModalUnavailable={disableRouteRetention}>
+        {gate}
+      </SessionPrivacyGate> : null}
+    </>
+  );
   useSessionChromeSuppression(
     authLoading || sessionVerificationRequired || vaultCheckFailed,
   );
@@ -312,7 +339,7 @@ export function VaultLockGuard({ children }: VaultLockGuardProps) {
   // Auth validation is the outer security boundary. A cached in-memory vault
   // must never bypass it while a foreground/deletion check is in progress.
   if (authLoading) {
-    return <HushhLoader label="Checking session..." />;
+    return renderSessionGate(<HushhLoader label="Checking session..." />);
   }
 
   // An ordinary network/backend outage cannot prove that a remotely deleted
@@ -320,7 +347,7 @@ export function VaultLockGuard({ children }: VaultLockGuardProps) {
   // but retain the identity so the user can recover without a destructive
   // automatic logout when connectivity returns.
   if (sessionVerificationRequired) {
-    return (
+    return renderSessionGate(
       <SessionVerificationRecovery
         onRetry={() => void retrySessionVerification()}
         onSignOut={() => void signOut({ skipFcmCleanup: true })}
@@ -329,7 +356,16 @@ export function VaultLockGuard({ children }: VaultLockGuardProps) {
   }
 
   if (isVaultUnlocked) {
-    return <>{children}</>;
+    if (ownerTokenStatus === "renewing") {
+      return renderSessionGate(<HushhLoader label="Reconnecting securely..." />);
+    }
+    if (ownerTokenStatus !== "valid") {
+      return renderSessionGate(<SessionVerificationRecovery
+        onRetry={() => void retryOwnerTokenRenewal()}
+        onSignOut={() => void signOut({ skipFcmCleanup: true })}
+      />);
+    }
+    return renderSessionGate(null);
   }
 
   // ============================================================================
@@ -348,7 +384,7 @@ export function VaultLockGuard({ children }: VaultLockGuardProps) {
   }
 
   if (vaultCheckFailed) {
-    return (
+    return renderSessionGate(
       <SessionVerificationRecovery
         onRetry={() => {
           setVaultCheckFailed(false);

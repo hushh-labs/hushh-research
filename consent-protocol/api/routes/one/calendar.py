@@ -35,6 +35,15 @@ class CalendarConnectComplete(_UserRequest):
     redirect_uri: str | None = Field(default=None, max_length=2048)
 
 
+class CalendarNativeConnectStart(BaseModel):
+    access_level: Literal["read", "manage"] = "read"
+
+
+class CalendarNativeConnectComplete(_UserRequest):
+    access_level: Literal["read", "manage"] = "read"
+    server_auth_code: str = Field(min_length=1, max_length=2048)
+
+
 class CalendarDisconnect(_UserRequest):
     pass
 
@@ -111,11 +120,42 @@ async def complete_connect(
         raise _http(exc) from exc
 
 
+@router.post("/connect/native/start")
+async def start_native_connect(
+    payload: CalendarNativeConnectStart | None = None,
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    try:
+        return await get_google_connection_service().start_native(
+            service="calendar",
+            access_level=payload.access_level if payload else "read",
+        )
+    except Exception as exc:
+        raise _http(exc) from exc
+
+
+@router.post("/connect/native/complete")
+async def complete_native_connect(
+    payload: CalendarNativeConnectComplete,
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    verify_user_id_match(firebase_uid, payload.user_id)
+    try:
+        return await get_google_connection_service().complete_native(
+            user_id=payload.user_id,
+            service="calendar",
+            access_level=payload.access_level,
+            server_auth_code=payload.server_auth_code,
+        )
+    except Exception as exc:
+        raise _http(exc) from exc
+
+
 @router.get("/status/{user_id}")
 async def calendar_status(user_id: str, firebase_uid: str = Depends(require_firebase_auth)):
     verify_user_id_match(firebase_uid, user_id)
     try:
-        return get_google_connection_service().status(user_id=user_id, service="calendar")
+        return await get_google_connection_service().status(user_id=user_id, service="calendar")
     except Exception as exc:
         raise _http(exc) from exc
 
@@ -126,7 +166,7 @@ async def disconnect(
 ):
     verify_user_id_match(firebase_uid, payload.user_id)
     try:
-        return get_google_connection_service().disconnect_service(
+        return await get_google_connection_service().disconnect_service(
             user_id=payload.user_id, service="calendar"
         )
     except Exception as exc:

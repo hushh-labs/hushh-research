@@ -4,6 +4,7 @@
  * Supported TypeScript surface for the current PKM runtime contract.
  */
 
+import type { LocationFinalizeWire } from "@/lib/one-location/pkm-finalize-authorization";
 import { registerPlugin } from "@capacitor/core";
 
 export interface PkmSyncCheckpointPluginMetadata {
@@ -217,6 +218,7 @@ export interface HushhPersonalKnowledgeModelPlugin {
       complete: boolean;
     };
     mutationPlan?: Record<string, unknown>;
+    locationFinalizeAuthorization?: LocationFinalizeWire;
     syncCheckpoint?: PkmSyncCheckpointPluginMetadata;
     vaultOwnerToken?: string;
   }): Promise<{
@@ -227,6 +229,8 @@ export interface HushhPersonalKnowledgeModelPlugin {
     updatedAt?: string;
     manifestRevision?: number;
     commitId?: string;
+    locationRunRevision?: number;
+    locationPlaceReceiptId?: string;
     archivedRevisionId?: string;
     preservationReceipt?: {
       schemaVersion: "pkm_preservation_receipt.v1";

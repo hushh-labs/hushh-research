@@ -167,17 +167,6 @@ def apply_repository_settings(policy: dict, *, apply: bool) -> bool:
     return True
 
 
-def current_review_bypass(branch: str) -> list[str]:
-    data = gh_json(["api", f"repos/{REPO}/branches/{branch}/protection"])
-    users = (
-        (data or {})
-        .get("required_pull_request_reviews", {})
-        .get("bypass_pull_request_allowances", {})
-        .get("users", [])
-    )
-    return sorted(u["login"] for u in users if u.get("login"))
-
-
 _OWNERS_CACHE: set[str] | None = None
 
 
@@ -202,24 +191,25 @@ def current_team_members(slug: str = TEAM_SLUG) -> list[str]:
     return sorted(m["login"] for m in members if m.get("login"))
 
 
-def apply_review_bypass(branch: str, desired: list[str], *, apply: bool) -> bool:
-    """PUT the full required_pull_request_reviews object with the desired user
-    bypass list. We preserve every other review setting read from live state so
-    nothing else is reset. Returns True if a change was (or would be) made."""
-    cur = current_review_bypass(branch)
-    if cur == desired:
-        print(f"  ✓ {branch} review_bypass_users already in sync: {desired}")
+def apply_review_bypass(
+    branch: str, desired: list[str], *, team_slug: str | None, apply: bool
+) -> bool:
+    """Reconcile authored user/team allowances while preserving other settings."""
+    data = gh_json(["api", f"repos/{REPO}/branches/{branch}/protection"]) or {}
+    rpr = data.get("required_pull_request_reviews")
+    if not isinstance(rpr, dict):
+        raise SystemExit(f"Cannot reconcile {branch}: live review settings unavailable")
+    bp = rpr.get("bypass_pull_request_allowances", {})
+    cur = sorted(u["login"] for u in bp.get("users", []) if u.get("login"))
+    current_teams = sorted(t["slug"] for t in bp.get("teams", []) if t.get("slug"))
+    team_slugs = [team_slug] if team_slug else []
+    if cur == desired and current_teams == team_slugs:
+        print(f"  ✓ {branch} review bypass already in sync: users={desired}, teams={team_slugs}")
         return False
-    print(f"  Δ {branch} review_bypass_users: {cur}  ->  {desired}")
+    print(f"  Δ {branch} review bypass: users={cur} -> {desired}; teams={current_teams} -> {team_slugs}")
     if not apply:
         return True
-
-    # Read the live review object to preserve all sibling settings.
-    data = gh_json(["api", f"repos/{REPO}/branches/{branch}/protection"]) or {}
-    rpr = data.get("required_pull_request_reviews", {})
-    bp = rpr.get("bypass_pull_request_allowances", {})
-    team_slugs = [t["slug"] for t in bp.get("teams", []) if t.get("slug")]
-    app_slugs = [a.get("slug") for a in bp.get("apps", []) if a.get("slug")]
+    app_slugs = [a["slug"] for a in bp.get("apps", []) if a.get("slug")]
 
     payload = {
         "dismiss_stale_reviews": bool(rpr.get("dismiss_stale_reviews", False)),
@@ -359,10 +349,12 @@ def main() -> int:
     train_branch = policy["branch_flow"]["train_branch"]
     print("\n2. governed branch protection review_bypass_users")
     changed_main = apply_review_bypass(
-        "main", desired_review_bypass(policy, "main"), apply=args.apply
+        "main", desired_review_bypass(policy, "main"),
+        team_slug=policy["main"].get("review_bypass_team_slug"), apply=args.apply
     )
     changed_train = apply_review_bypass(
-        train_branch, desired_review_bypass(policy, "pr_train"), apply=args.apply
+        train_branch, desired_review_bypass(policy, "pr_train"),
+        team_slug=policy["pr_train"].get("review_bypass_team_slug"), apply=args.apply
     )
 
     print("\n3. org team membership, mirrored from config/ci-governance.json")

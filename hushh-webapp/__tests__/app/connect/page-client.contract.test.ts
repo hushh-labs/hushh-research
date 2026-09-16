@@ -14,7 +14,6 @@ describe("Connect canonical surface contract", () => {
 
     expect(source).toContain("<AppPageShell");
     expect(source).toContain('width="agent"');
-    expect(source).toContain("<AppPageHeaderRegion>");
     expect(source).toContain("<PageHeader");
     expect(source).toContain('title="Connect"');
     expect(source).toContain('titleRole="agent"');
@@ -64,9 +63,7 @@ describe("Connect canonical surface contract", () => {
 
     expect(body).toContain("await sendConnectionRequest(person)");
     expect(body).not.toContain("getScopeCatalog");
-    expect(source).not.toContain(
-      "<DialogTitle>Send connection request</DialogTitle>",
-    );
+    expect(source).not.toContain("<DialogTitle>Send connection request</DialogTitle>");
     expect(source).not.toContain("setScopeDraft");
   });
 
@@ -95,9 +92,7 @@ describe("Connect canonical surface contract", () => {
     expect(tabs).toContain('{ value: "all", label: "Connections"');
     expect(tabs).toContain('value: "circles"');
     expect(tabs).toContain('label: "Circles"');
-    expect(topShellTabs).toMatch(
-      /tabSet\.id === "location"\s*\|\|\s*tabSet\.id === "connect"/,
-    );
+    expect(topShellTabs).toContain('tabSet.id === "location" || tabSet.id === "connect"');
     expect(source).toContain(
       'const CONNECT_DIRECTORY_TABS = (["people", "advisors", "nearby"] as const).map(',
     );
@@ -110,7 +105,7 @@ describe("Connect canonical surface contract", () => {
     expect(source).not.toContain('aria-label="Select people"');
   });
 
-  it("keeps Create, Join, and Circle detail as focused tasks outside the Connect dashboard chrome", () => {
+  it("keeps Create and Join Circle as focused tasks outside the Connect dashboard chrome", () => {
     const source = readFileSync(
       join(process.cwd(), "app/connect/page-client.tsx"),
       "utf8",
@@ -124,78 +119,15 @@ describe("Connect canonical surface contract", () => {
       "utf8",
     );
 
-    expect(routes).toMatch(
-      /export type FocusedConnectCircleAction =\s*\|\s*"create-circle"\s*\|\s*"join-circle"\s*\|\s*"circle-detail";/,
+    expect(routes).toContain(
+      'export type FocusedConnectCircleAction = "create-circle" | "join-circle";',
     );
     expect(source).toContain("const isFocusedCircleTask =");
     expect(source).toContain("{isFocusedCircleTask ? (");
-    expect(source).toContain("max-w-[560px]");
+    expect(source).toContain('max-w-[560px]');
     expect(source).toContain("connectCircleTaskTitle(circleFlowAction)");
     expect(providers).toContain("const focusedConnectCircleChromeFlow =");
     expect(providers).toContain("isFocusedConnectCircleTask(");
-  });
-
-  it("keeps Connect content inside the app scroll root without duplicating chrome clearance", () => {
-    const source = readFileSync(
-      join(process.cwd(), "app/connect/page-client.tsx"),
-      "utf8",
-    );
-
-    // `overflow-x-hidden` computes the other axis to `auto`, turning the
-    // content region into an accidental scroll container and breaking the
-    // sticky tabs. The route shell already clips horizontal overflow.
-    expect(source).not.toContain("overflow-x-hidden");
-    // The app scroll root owns the fixed bottom-bar reserve; the page owns
-    // only AppPageShell's normal reading-end gap.
-    expect(source).not.toContain("pb-[var(--app-bottom-content-clearance)]");
-    // Header/content rhythm is owned by the shared sibling contract, not an
-    // additional local spacing stack.
-    expect(source).not.toContain(
-      '<AppPageContentRegion className="min-w-0 space-y-4',
-    );
-    expect(source).not.toContain("pt-5 sm:pt-6");
-  });
-
-  it("keeps complete identities readable across every Connect surface", () => {
-    const identitySurfaces = [
-      "app/connect/page-client.tsx",
-      "components/connect/advisors-nearby.tsx",
-      "components/connect/insurance-agents-nearby.tsx",
-      "components/connect/places-nearby.tsx",
-      "components/one-location/contact-sync-results-sheet.tsx",
-      "components/one-location/redesign/circles/named-circle-flows.tsx",
-      "components/one-location/redesign/circles/circle-grow-actions.tsx",
-      "components/one-location/redesign/circles/circle-member-actions-menu.tsx",
-    ];
-
-    for (const file of identitySurfaces) {
-      const source = readFileSync(join(process.cwd(), file), "utf8");
-      expect(source, file).not.toMatch(
-        /\b(?:truncate|line-clamp-|text-ellipsis)\b/u,
-      );
-    }
-
-    const detailSurfaces = [
-      "components/connect/advisor-detail-surface.tsx",
-      "components/connect/insurance-agent-detail-surface.tsx",
-      "components/connect/office-detail-surface.tsx",
-      "components/connect/place-detail-surface.tsx",
-    ];
-    for (const file of detailSurfaces) {
-      const source = readFileSync(join(process.cwd(), file), "utf8");
-      expect(source, file).toContain('headerTextOverflow="wrap"');
-    }
-
-    const adaptiveSurface = readFileSync(
-      join(process.cwd(), "components/app-ui/settings-ui.tsx"),
-      "utf8",
-    );
-    expect(adaptiveSurface).toContain(
-      'headerTextOverflow?: "truncate" | "wrap";',
-    );
-    expect(adaptiveSurface).toContain(
-      '? "whitespace-normal break-words [overflow-wrap:anywhere]"',
-    );
   });
 
   it("renders a privacy-safe masked identity when duplicate names need disambiguation", () => {

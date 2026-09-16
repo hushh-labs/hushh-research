@@ -5,6 +5,11 @@ import {
   type PersonalKnowledgeModelMetadata,
 } from "@/lib/services/personal-knowledge-model-service";
 import { shouldSkipPkmMemoryKey } from "@/lib/pkm/pkm-memory-cards";
+import { PkmDomainResourceService } from "@/lib/pkm/pkm-domain-resource";
+import {
+  canonicalKycFieldIds,
+  KYC_IDENTITY_FIELDS,
+} from "@/lib/pkm/kyc-identity-field-registry";
 import { PKM_QUARANTINE_SEGMENT_ID } from "@/lib/personal-knowledge-model/upgrade-registry";
 
 type PkmInventoryFact = {
@@ -74,6 +79,7 @@ const MAX_INVENTORY_FACTS = 10000;
 const MAX_INVENTORY_PATH_DEPTH = 16;
 
 const workingSets = new Map<string, AgentPkmWorkingSet>();
+const targetedWorkingSets = new Map<string, AgentPkmWorkingSet>();
 const workingSetLoads = new Map<string, Promise<AgentPkmWorkingSet | null>>();
 const workingSetGenerations = new Map<string, number>();
 let globalWorkingSetGeneration = 0;
@@ -90,19 +96,59 @@ const lastVoidReasons = new Map<string, "domain_changed" | "invalidated">();
 function invalidateWorkingSet(
   userId: string,
   reason: "domain_changed" | "invalidated" = "invalidated",
+  changedDomains?: readonly string[],
 ): void {
   workingSets.delete(userId);
+  const changed = new Set(
+    (changedDomains || []).map((domain) => domain.trim()).filter(Boolean),
+  );
+  for (const key of targetedWorkingSets.keys()) {
+    if (!key.startsWith(`${userId}:`)) continue;
+    if (
+      changed.size === 0 ||
+      [...changed].some((domain) => key.includes(`${domain}/`))
+    ) {
+      targetedWorkingSets.delete(key);
+    }
+  }
   const nextUserGeneration = (workingSetGenerations.get(userId) ?? 0) + 1;
   workingSetGenerations.set(userId, nextUserGeneration);
   lastVoidReasons.set(userId, reason);
 }
 
+function targetedKycPlan(message: string): Array<{ domain: string; segmentIds: string[] }> {
+  const requested = new Set(canonicalKycFieldIds(message));
+  const grouped = new Map<string, Set<string>>();
+  for (const field of KYC_IDENTITY_FIELDS) {
+    if (!requested.has(field.id)) continue;
+    const segmentId = field.path.split(".", 1)[0] || field.path;
+    const segments = grouped.get(field.domain) || new Set<string>();
+    segments.add(segmentId);
+    grouped.set(field.domain, segments);
+  }
+  return [...grouped.entries()].map(([domain, segmentIds]) => ({
+    domain,
+    segmentIds: [...segmentIds].sort(),
+  }));
+}
+
+function targetedKey(userId: string, plan: Array<{ domain: string; segmentIds: string[] }>): string {
+  return `${userId}:${plan.map(({ domain, segmentIds }) => `${domain}/${segmentIds.join(",")}`).sort().join("|")}`;
+}
+
 function ensurePkmChangeListener(): void {
   if (typeof window === "undefined" || pkmChangeListenerInstalled) return;
   window.addEventListener("pkm-domain-changed", (event: Event) => {
-    const detail = (event as CustomEvent<{ userId?: unknown }>).detail;
+    const detail = (event as CustomEvent<{ userId?: unknown; domain?: unknown }>).detail;
     const userId = typeof detail?.userId === "string" ? detail.userId.trim() : "";
-    if (userId) invalidateWorkingSet(userId, "domain_changed");
+    const domain = typeof detail?.domain === "string" ? detail.domain.trim() : "";
+    if (userId) {
+      invalidateWorkingSet(
+        userId,
+        "domain_changed",
+        domain ? [domain] : undefined,
+      );
+    }
   });
   pkmChangeListenerInstalled = true;
 }
@@ -217,6 +263,14 @@ function buildPkmInventory(fullBlob: Record<string, unknown>): PkmInventory {
     visit(domain, value, []);
   }
   return { facts, domainFactCounts, skippedFactCount, safetyOmittedNodeCount };
+}
+
+function snapshotsToBlob(
+  snapshots: Record<string, { data: Record<string, unknown> }>,
+): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(snapshots).map(([domain, snapshot]) => [domain, snapshot.data]),
+  );
 }
 
 function formatFactPath(fact: PkmInventoryFact): string {
@@ -363,12 +417,13 @@ export class AgentPkmContextStore {
       return;
     }
     workingSets.clear();
+    targetedWorkingSets.clear();
     workingSetLoads.clear();
     globalWorkingSetGeneration += 1;
   }
 
-  static invalidateUser(userId: string): void {
-    invalidateWorkingSet(userId);
+  static invalidateUser(userId: string, changedDomains?: readonly string[]): void {
+    invalidateWorkingSet(userId, "invalidated", changedDomains);
   }
 
   static peek(params: { userId: string; message?: string; maxChars?: number }): AgentPkmWorkingContext | null {
@@ -413,6 +468,55 @@ export class AgentPkmContextStore {
     maxChars?: number;
   }): Promise<AgentPkmWorkingContext | null> {
     ensurePkmChangeListener();
+    const plan = targetedKycPlan(params.message || "");
+    if (plan.length > 0) {
+      const key = targetedKey(params.userId, plan);
+      const cachedTargeted = targetedWorkingSets.get(key);
+      if (!params.forceRefresh && cachedTargeted && Date.now() - cachedTargeted.loadedAt < SESSION_TTL_MS) {
+        return buildContextText({
+          workingSet: cachedTargeted,
+          message: params.message || "",
+          maxChars: params.maxChars || DEFAULT_MAX_CONTEXT_CHARS,
+        });
+      }
+      const metadata = await PersonalKnowledgeModelService.getMetadata(
+        params.userId,
+        params.forceRefresh === true,
+        params.vaultOwnerToken,
+      );
+      const snapshots = await Promise.all(
+        plan.map(async ({ domain, segmentIds }) => ({
+          domain,
+          snapshot: await PkmDomainResourceService.getStaleFirst({
+            userId: params.userId,
+            domain,
+            segmentIds,
+            vaultKey: params.vaultKey,
+            vaultOwnerToken: params.vaultOwnerToken,
+            forceRefresh: params.forceRefresh === true,
+            backgroundRefresh: false,
+          }),
+        })),
+      );
+      const selected = Object.fromEntries(
+        snapshots
+          .filter(({ snapshot }) => Boolean(snapshot?.data))
+          .map(({ domain, snapshot }) => [domain, snapshot!.data]),
+      );
+      const workingSet: AgentPkmWorkingSet = {
+        userId: params.userId,
+        metadata,
+        inventory: buildPkmInventory(selected),
+        loadedAt: Date.now(),
+        metadataUpdatedAt: metadata.lastUpdated || null,
+      };
+      targetedWorkingSets.set(key, workingSet);
+      return buildContextText({
+        workingSet,
+        message: params.message || "",
+        maxChars: params.maxChars || DEFAULT_MAX_CONTEXT_CHARS,
+      });
+    }
     const cached = workingSets.get(params.userId);
     const cacheFresh = Boolean(cached && Date.now() - cached.loadedAt < SESSION_TTL_MS);
     if (!params.forceRefresh && cached && cacheFresh) {
@@ -448,16 +552,70 @@ export class AgentPkmContextStore {
         return { ...cached, metadata, loadedAt: Date.now() };
       }
 
-      const fullBlob = await PersonalKnowledgeModelService.loadFullBlob({
+      const domains = metadata.domains
+        .map((domain) => domain.key)
+        .filter((domain) => !shouldSkipPkmMemoryKey(domain));
+      const deviceSnapshots: Record<string, { data: Record<string, unknown> }> = {};
+      if (!params.forceRefresh) {
+        const cached = await Promise.allSettled(
+          domains.map(async (domain) => ({
+            domain,
+            snapshot: await PkmDomainResourceService.hydrateFromSecureCache({
+              userId: params.userId,
+              domain,
+              vaultKey: params.vaultKey,
+              vaultOwnerToken: params.vaultOwnerToken,
+            }),
+          })),
+        );
+        for (const result of cached) {
+          if (result.status !== "fulfilled" || !result.value.snapshot?.data) continue;
+          deviceSnapshots[result.value.domain] = result.value.snapshot;
+        }
+      }
+      if (generation !== currentGeneration(params.userId)) return null;
+      if (Object.keys(deviceSnapshots).length > 0) {
+        const cachedWorkingSet: AgentPkmWorkingSet = {
+          userId: params.userId,
+          metadata,
+          inventory: buildPkmInventory(snapshotsToBlob(deviceSnapshots)),
+          loadedAt: Date.now(),
+          metadataUpdatedAt,
+        };
+        // Revalidate encrypted snapshots after the current turn has an
+        // immediately usable local inventory. This is intentionally detached:
+        // a slow domain must not hold the chat composer hostage.
+        void PkmDomainResourceService.getManyStaleFirst({
+          userId: params.userId,
+          domains,
+          vaultKey: params.vaultKey,
+          vaultOwnerToken: params.vaultOwnerToken,
+          forceRefresh: true,
+          backgroundRefresh: false,
+        }).then(({ snapshots }) => {
+          if (generation !== currentGeneration(params.userId)) return;
+          workingSets.set(params.userId, {
+            ...cachedWorkingSet,
+            inventory: buildPkmInventory(snapshotsToBlob({ ...deviceSnapshots, ...snapshots })),
+            loadedAt: Date.now(),
+          });
+        });
+        return cachedWorkingSet;
+      }
+
+      const { snapshots } = await PkmDomainResourceService.getManyStaleFirst({
         userId: params.userId,
+        domains,
         vaultKey: params.vaultKey,
         vaultOwnerToken: params.vaultOwnerToken,
+        forceRefresh: params.forceRefresh === true,
+        backgroundRefresh: true,
       });
       if (generation !== currentGeneration(params.userId)) return null;
       return {
         userId: params.userId,
         metadata,
-        inventory: buildPkmInventory(fullBlob),
+        inventory: buildPkmInventory(snapshotsToBlob(snapshots)),
         loadedAt: Date.now(),
         metadataUpdatedAt,
       };

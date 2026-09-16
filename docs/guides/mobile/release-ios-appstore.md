@@ -109,7 +109,7 @@ export/upload, or version/build validation):
 6. **Materialize the UAT web contract + native Firebase config.** Reads each `NEXT_PUBLIC_*` value
    and the native `GoogleService-Info.plist` from `hushh-pda-uat` Secret Manager; sets
    `APP_RUNTIME_PROFILE=uat`, `NEXT_PUBLIC_APP_ENV=uat`, `NEXT_PUBLIC_BACKEND_URL=<UAT backend>`,
-   `NEXT_PUBLIC_APP_URL=https://uat.one.hushh.ai`, `NEXT_PUBLIC_PASSKEY_RP_ID=one.hushh.ai`.
+   `NEXT_PUBLIC_APP_URL=https://uat.one.hushh.ai`, `NEXT_PUBLIC_PASSKEY_RP_ID=uat.one.hushh.ai`.
    **Refuses to continue unless the backend host is the UAT host** (`*uat*` / the UAT Cloud Run id) —
    belt-and-braces on top of the guard inside `prepare-ios-uat-archive.mjs`, so a mis-scoped project
    or a prod/localhost URL can never sneak into a store build.

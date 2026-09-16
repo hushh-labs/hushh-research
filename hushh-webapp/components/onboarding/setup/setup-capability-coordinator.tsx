@@ -522,10 +522,12 @@ export function useSetupCapabilityCoordinator({
     [settle],
   );
   useLocalOnboardingActionHandler(finishActionId, finish, {
+    prepare: capabilityId === "location" ? () => operationallyReady ? { status: "ready", binding: { userId, capabilityId }, summary: "Finish Location setup." } : { status: "blocked", gate: "permission", summary: "Allow Location access to finish setup." } : undefined,
     enabled:
       enabled && routeReady && !settlementBlocked && !isAlreadyComplete,
   });
   useLocalOnboardingActionHandler(skipActionId, skip, {
+    prepare: capabilityId === "location" ? () => ({ status: "ready", binding: { userId, capabilityId }, summary: "Skip Location setup." }) : undefined,
     enabled:
       enabled && routeReady && !settlementBlocked && !isAlreadyComplete,
   });
@@ -629,6 +631,10 @@ export function SetupCapabilityTerminalFooter({
 
   return (
     <SetupCompletionFooter
+      // This footer is rendered into a wizard host that already reserves
+      // --app-scroll-bottom-pad on its own main. Reserving it again put a
+      // second ~142px band under the Skip control on every question screen.
+      insetBottom={false}
       label={label}
       onComplete={() => {
         if (pending) return;

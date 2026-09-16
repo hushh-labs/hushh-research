@@ -440,6 +440,53 @@ def test_deny_consent_records_event(monkeypatch):
     denied = [e for e in fake_db.events if e["action"] == "CONSENT_DENIED"]
     assert len(denied) == 1
     assert denied[0]["request_id"] == "req_deny"
+    # The advisor's identity travels with the denial so the owner's history
+    # keeps naming them rather than the raw principal id.
+    assert denied[0]["metadata"] == {
+        "requester_actor_type": "ria",
+        "requester_entity_id": "profile_deny",
+        "developer_app_display_name": "Advisor Y",
+    }
+
+
+def test_deny_carries_the_bundle_id_of_the_pending_request(monkeypatch):
+    """A denial of one item in a bundle stays grouped with that bundle in history."""
+    fake_db = _FakeConsentDBService()
+    monkeypatch.setattr(consent, "ConsentDBService", lambda: fake_db)
+    monkeypatch.setattr(consent, "RIAIAMService", _NoOpRIAIAMService)
+
+    fake_db._add_pending(
+        "req_bundle_deny",
+        {
+            "request_id": "req_bundle_deny",
+            "agent_id": "one_person:22222222-2222-4222-8222-222222222222",
+            "scope": "attr.identity.legal_name",
+            "metadata": {
+                "requester_actor_type": "person",
+                "requester_label": "Viewer",
+                "bundle_id": "bundle_deny",
+                "bundle_scope_count": 2,
+            },
+        },
+    )
+
+    app = _build_app()
+    client = TestClient(app)
+    resp = client.post(
+        "/api/consent/pending/deny",
+        params={"userId": "investor_1", "requestId": "req_bundle_deny"},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "denied"
+
+    denied = [e for e in fake_db.events if e["action"] == "CONSENT_DENIED"]
+    assert len(denied) == 1
+    assert denied[0]["request_id"] == "req_bundle_deny"
+    assert denied[0]["metadata"] == {
+        "requester_actor_type": "person",
+        "requester_label": "Viewer",
+        "bundle_id": "bundle_deny",
+    }
 
 
 def test_alias_keyed_pending_request_can_be_denied_by_account_owner(monkeypatch):

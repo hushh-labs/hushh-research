@@ -63,6 +63,52 @@ export type GrowthLocationInviteSource =
   | "contact_sync"
   | "direct";
 
+/**
+ * Low-cardinality One Location actions used to connect the Location, Connect,
+ * Circles and Profile surfaces without sending any record identifiers or
+ * user-authored text to analytics.
+ */
+export type OneLocationJourneyAction =
+  | "contact_sync_started"
+  | "contact_invitation_handoff"
+  | "circle_tab_opened"
+  | "circle_create_started"
+  | "circle_join_started"
+  | "circle_opened"
+  | "circle_joined"
+  | "circle_member_invited"
+  | "circle_member_removed"
+  | "circle_invite_cancelled"
+  | "circle_invite_declined"
+  | "circle_left"
+  | "circle_deleted"
+  | "circle_code_shared"
+  | "location_request_approved"
+  | "location_request_denied"
+  | "location_request_fulfilled"
+  | "location_share_viewed"
+  | "nearby_check_in_result"
+  | "public_link_opened"
+  | "public_link_shared"
+  | "public_link_revoked";
+
+export type OneLocationJourneyEntrySurface =
+  | "location_hub"
+  | "connect_people"
+  | "connect_circles"
+  | "profile"
+  | "consent_center"
+  | "public_link"
+  | "agent"
+  | "unknown";
+
+export type OneLocationJourneyTarget =
+  | "person"
+  | "circle"
+  | "contacts"
+  | "public"
+  | "none";
+
 export type ObservabilityEventName =
   | "page_view"
   | "auth_started"
@@ -135,7 +181,8 @@ export type ObservabilityEventName =
   | "one_location_visit_rated"
   | "one_location_review_handoff_opened"
   | "one_location_circle_created"
-  | "one_location_sos_triggered";
+  | "one_location_sos_triggered"
+  | "one_location_journey_action";
 
 export type StatusBucket =
   | "2xx"
@@ -297,6 +344,7 @@ const EVENT_CATEGORY_BY_NAME: Record<
   one_location_review_handoff_opened: "feature",
   one_location_circle_created: "feature",
   one_location_sos_triggered: "feature",
+  one_location_journey_action: "feature",
 };
 
 export function resolveObservabilityEventCategory(
@@ -696,6 +744,17 @@ export interface EventPayloadMap {
     result: EventResult;
     /** family | friends | other — the Circle kind, never its name. */
     circle_kind: string;
+  };
+  one_location_journey_action: {
+    route_id: RouteId;
+    action: OneLocationJourneyAction;
+    result: EventResult;
+    entry_surface: OneLocationJourneyEntrySurface;
+    target_type: OneLocationJourneyTarget;
+    /** family | friends | other | trusted | sms | unknown; never a Circle name. */
+    circle_kind?: string;
+    /** A low-cardinality volume band such as 1, 2_3, 4_10, 10_plus. */
+    count_bucket?: string;
   };
   /**
    * An emergency alert was sent.

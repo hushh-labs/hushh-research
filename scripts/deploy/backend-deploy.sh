@@ -82,23 +82,21 @@ fi
 # The optional Puppy transport settings travel with the model selectors so this
 # lane stays below Cloud Build's 100-entry step limit. Puppy eligibility is
 # owner/device consent, never a deployment-wide switch.
-IFS=',' read -r -a _model_pairs <<< "${_MODEL_SETTINGS:-puppy_relay_url=,puppy_model=local,puppy_timeout=120,agent_adk=,gemini_text=,voice_pack_secret=,voice_pack_project=,voice_pack_signer=}"
+IFS=',' read -r -a _model_pairs <<< "${_MODEL_SETTINGS:-puppy_relay_url=,puppy_model=local,puppy_timeout=120,gemini_text=,voice_enabled=,voice_model=,voice_location=}"
 for _pair in "${_model_pairs[@]}"; do
   _key="${_pair%%=*}"; _value="${_pair#*=}"
   case "${_key}" in
     puppy_relay_url) _PUPPY_INFERENCE_RELAY_URL="${_value}" ;;
     puppy_model) _PUPPY_INFERENCE_MODEL="${_value}" ;;
     puppy_timeout) _PUPPY_INFERENCE_TIMEOUT_SECONDS="${_value}" ;;
-    agent_adk) _AGENT_ONE_ADK_MODEL="${_value}" ;;
     gemini_text) _HUSSH_GEMINI_TEXT_MODEL="${_value}" ;;
-    voice_pack_secret) _HUSHH_LOCAL_RUNTIME_PACK_REGISTRY_SECRET="${_value}" ;;
-    voice_pack_project) _HUSHH_LOCAL_RUNTIME_PACK_REGISTRY_PROJECT="${_value}" ;;
-    voice_pack_signer) _HUSHH_LOCAL_RUNTIME_PACK_SIGNER_SERVICE_ACCOUNT="${_value}" ;;
+    voice_enabled) _ONE_VOICE_LIVE_ENABLED="${_value}" ;;
+    voice_model) _VERTEX_LIVE_MODEL_ID="${_value}" ;;
+    voice_location) _VERTEX_LIVE_LOCATION="${_value}" ;;
     *) echo "_MODEL_SETTINGS carries an unknown key: ${_key}" >&2; exit 1 ;;
   esac
 done
-export _PUPPY_INFERENCE_RELAY_URL _PUPPY_INFERENCE_MODEL _PUPPY_INFERENCE_TIMEOUT_SECONDS _AGENT_ONE_ADK_MODEL _HUSSH_GEMINI_TEXT_MODEL
-export _HUSHH_LOCAL_RUNTIME_PACK_REGISTRY_SECRET _HUSHH_LOCAL_RUNTIME_PACK_REGISTRY_PROJECT _HUSHH_LOCAL_RUNTIME_PACK_SIGNER_SERVICE_ACCOUNT
+export _PUPPY_INFERENCE_RELAY_URL _PUPPY_INFERENCE_MODEL _PUPPY_INFERENCE_TIMEOUT_SECONDS _HUSSH_GEMINI_TEXT_MODEL
 # The runtime-IAM preflight -- runtime service-account validity, the cross-project
 # managed Vertex allowlist, and the aiplatform.user / serviceUsageConsumer role
 # checks -- runs in the dedicated `verify-runtime-iam` build step BEFORE this one,
@@ -135,7 +133,6 @@ fi
 if [[ -n "${_PLAID_ACCESS_TOKEN_KEY_SECRET}" ]]; then
   secrets="${secrets},PLAID_ACCESS_TOKEN_KEY=${_PLAID_ACCESS_TOKEN_KEY_SECRET}:latest"
 fi
-append_optional_secret "${_HUSHH_MANAGED_GEMINI_LIVE_API_KEY_SECRET}" "HUSHH_MANAGED_GEMINI_LIVE_API_KEY"
 append_optional_secret "${_FINNHUB_API_KEY_SECRET}" "FINNHUB_API_KEY"
 append_optional_secret "${_PMP_API_KEY_SECRET}" "PMP_API_KEY"
 append_optional_secret "${_NEWSAPI_KEY_SECRET}" "NEWSAPI_KEY"
@@ -274,9 +271,6 @@ env_vars=(
   "DB_POOL_ACQUIRE_TIMEOUT_SECONDS=${_DB_POOL_ACQUIRE_TIMEOUT_SECONDS}"
   "RIA_INTELLIGENCE_CRD_SCRAPER_TIMEOUT_SECONDS=${_RIA_INTELLIGENCE_CRD_SCRAPER_TIMEOUT_SECONDS}"
   "RIA_ONBOARDING_PROVIDER_TIMEOUT_SECONDS=${_RIA_ONBOARDING_PROVIDER_TIMEOUT_SECONDS}"
-  "HUSHH_LOCAL_RUNTIME_PACK_REGISTRY_SECRET=${_HUSHH_LOCAL_RUNTIME_PACK_REGISTRY_SECRET}"
-  "HUSHH_LOCAL_RUNTIME_PACK_REGISTRY_PROJECT=${_HUSHH_LOCAL_RUNTIME_PACK_REGISTRY_PROJECT}"
-  "HUSHH_LOCAL_RUNTIME_PACK_SIGNER_SERVICE_ACCOUNT=${_HUSHH_LOCAL_RUNTIME_PACK_SIGNER_SERVICE_ACCOUNT}"
 )
 worker_count="2"
 if [[ "${_DEPLOY_ENV}" == "dev" ]]; then
@@ -312,10 +306,12 @@ append_optional_env "ONE_EMAIL_KYC_STRICT_CLIENT_ZK_ENABLED" "${_ONE_EMAIL_KYC_S
 append_optional_env "ONE_WALLET_CARD_ENABLED" "${_ONE_WALLET_CARD_ENABLED}"
 append_optional_env "WALLET_PASS_PROVIDER" "${_WALLET_PASS_PROVIDER}"
 append_optional_env "APP_REVIEW_MODE" "${_APP_REVIEW_MODE}"
-append_optional_env "AGENT_ONE_ADK_MODEL" "${_AGENT_ONE_ADK_MODEL}"
 # One switch for every text agent (constants.GEMINI_MODEL). Empty keeps the proven
 # default. Ported from main 2026-09-02: the workflow passes it, this lane dropped it.
 append_optional_env "HUSSH_GEMINI_TEXT_MODEL" "${_HUSSH_GEMINI_TEXT_MODEL}"
+append_optional_env "ONE_VOICE_LIVE_ENABLED" "${_ONE_VOICE_LIVE_ENABLED:-}"
+append_optional_env "VERTEX_LIVE_MODEL_ID" "${_VERTEX_LIVE_MODEL_ID:-}"
+append_optional_env "VERTEX_LIVE_LOCATION" "${_VERTEX_LIVE_LOCATION:-}"
 append_optional_env "PUPPY_INFERENCE_RELAY_URL" "${_PUPPY_INFERENCE_RELAY_URL}"
 append_optional_env "PUPPY_INFERENCE_MODEL" "${_PUPPY_INFERENCE_MODEL}"
 append_optional_env "PUPPY_INFERENCE_TIMEOUT_SECONDS" "${_PUPPY_INFERENCE_TIMEOUT_SECONDS}"
@@ -422,6 +418,7 @@ pod_ingress=""
 pod_lifecycle_log=""
 personal_agent_reconcile=""
 personal_agent_upgrade_sweep=""
+personal_agent_upgrade_approval_required=""
 personal_agent_reachability=""
 dev_phone_test_numbers=""
 dev_pod_state_bucket=""
@@ -583,6 +580,9 @@ if [[ "${_DEPLOY_ENV}" == "dev" ]]; then
   # reaches a person's pod (seen 2026-09-02: a BYOC pod five commits behind its
   # hub). Bounded per pass by PERSONAL_AGENT_UPGRADE_BATCH (default 3).
   personal_agent_upgrade_sweep="true"
+  # Every automated replacement is owner-approved through Feed. The reconciler
+  # remains enabled for approved operations only; unapproved pods are skipped.
+  personal_agent_upgrade_approval_required="true"
   # Let the wake path DISTINGUISH a gone pod (service deleted) from a cold one.
   # Off, a deleted host reports "waking" forever and the returning user hangs; on,
   # a confirmed-gone verdict flips the row to needs_reinit and the app offers the
@@ -699,6 +699,7 @@ append_optional_env "HUSSH_POD_INGRESS" "${pod_ingress}"
 append_optional_env "POD_LIFECYCLE_LOG_ENABLED" "${pod_lifecycle_log}"
 append_optional_env "PERSONAL_AGENT_RECONCILE_ENABLED" "${personal_agent_reconcile}"
 append_optional_env "PERSONAL_AGENT_UPGRADE_SWEEP_ENABLED" "${personal_agent_upgrade_sweep}"
+append_optional_env "PERSONAL_AGENT_UPGRADE_APPROVAL_REQUIRED" "${personal_agent_upgrade_approval_required}"
 append_optional_env "PERSONAL_AGENT_REACHABILITY_GATE" "${personal_agent_reachability}"
 append_optional_env "HUSSH_HOSTED_POD_TIER_ENABLED" "${hosted_pod_tier}"
 append_optional_env "HUSSH_POD_PROJECT" "${hosted_pod_project}"

@@ -18,15 +18,12 @@ const RESUME = "location.resume_updates";
 const SHARE = "location.share_selected";
 
 describe("what a spoken Location action is allowed to do", () => {
-  it("lets pausing run directly and makes resuming ask first", () => {
-    // The asymmetry is the entire safety argument for pausing being direct.
-    // Turning visibility OFF can only ever reduce what others can see, and
-    // someone saying "hide my location" is in no position to be asked twice.
-    // Turning it back ON makes them visible again to every active grant, so
-    // it has to be looked at. If these two ever end up with the same policy,
-    // one of them is wrong.
+  it("matches the direct toggle policy without creating new sharing access", () => {
+    // Resume refreshes only unexpired grants. Permission is observed by the
+    // device preparation; new disclosure still uses the confirmed share action.
     expect(getKaiActionById(PAUSE)?.execution_policy).toBe("allow_direct");
-    expect(getKaiActionById(RESUME)?.execution_policy).toBe("confirm_required");
+    expect(getKaiActionById(RESUME)?.execution_policy).toBe("allow_direct");
+    expect(getKaiActionById(RESUME)?.command?.permission).toBe("location");
   });
 
   it("never lets a share run without the person seeing it", () => {
@@ -36,7 +33,7 @@ describe("what a spoken Location action is allowed to do", () => {
     expect(getKaiActionById(SHARE)?.risk_level).toBe("high");
   });
 
-  it("lets a spoken name resolve a recipient, but duration is still always asked", () => {
+  it("accepts people or circles and defers missing inputs to current preparation", () => {
     const action = getKaiActionById(SHARE);
     const slots = Object.keys(action?.goal?.slot_schema || {});
     const personInput = action?.goal?.required_inputs?.find((spec) => spec.slot === "person");
@@ -44,23 +41,15 @@ describe("what a spoken Location action is allowed to do", () => {
       (spec) => spec.slot === "duration_hours",
     );
 
-    // A named person now resolves through the same tiered matcher already
-    // trusted for location.send_request and connect.send_request: exact,
-    // then word-boundary, then word-alignment, refusing rather than guessing
-    // on an ambiguous name. That -- not the absence of a person slot -- is
-    // what keeps a misheard sentence from reaching a grant unseen. It stays
-    // optional, so with nobody named this still falls through to whoever the
-    // person selected with their own hands in the composer. What still makes
-    // either path safe is execution_policy staying confirm_required (see
-    // above): the resolved name is shown back before a grant is created.
-    // Duration stays required regardless -- "share with them" alone still
-    // gets asked how long, every time.
-    expect(slots).toEqual(["person", "duration_hours"]);
+    // Runtime preparation resolves the complete audience and actual duration
+    // before confirmation. The model does not have to supply both a person
+    // and a circle, nor repeat a value already chosen in this task.
+    expect(slots).toEqual(["person", "duration_hours", "circle"]);
     expect(personInput?.required).toBe(false);
-    expect(durationInput?.required).toBe(true);
+    expect(durationInput?.required).toBe(false);
   });
 
-  it("offers exactly the durations SHARE_VOICE_DURATION_VALUES accepts, and always asks", () => {
+  it("keeps bounded duration choices for runtime preparation", () => {
     // Bounded so a spoken number cannot become an arbitrary grant length.
     // The composer's own one-tap buttons are narrower than this (15 min, 1
     // hour, Custom, Until I stop -- see SHARE_DURATION_LADDER in
@@ -71,11 +60,9 @@ describe("what a spoken Location action is allowed to do", () => {
       (spec) => spec.slot === "duration_hours",
     );
     expect(input?.options).toEqual(["0.25", "0.5", "1", "2", "4", "8", "24"]);
-    // Required: how long a live location stays visible is a real decision,
-    // not something to assume from whatever the composer happened to be
-    // showing. "Share with them" alone gets asked how long, every time,
-    // the same way an unresolved name gets asked which one.
-    expect(input?.required).toBe(true);
+    // The preparer asks when missing; the semantic slot can remain absent
+    // until that card settles. It cannot bypass the duration-bound review.
+    expect(input?.required).toBe(false);
   });
 });
 
@@ -92,7 +79,7 @@ describe("saying a person's name", () => {
     expect(getKaiActionById(SHARE)?.execution_policy).toBe("confirm_required");
   });
 
-  it("takes the spoken name and nothing that identifies an account", () => {
+  it("takes person and circle names without exposing account identifiers", () => {
     // The slot carries what the person said out loud, which the model already
     // heard. It must never carry a user id: that would mean the model had been
     // given a contact list to resolve names against, and the live-context
@@ -102,7 +89,7 @@ describe("saying a person's name", () => {
     const slots = Object.keys(
       getKaiActionById(SELECT)?.goal?.slot_schema || {},
     );
-    expect(slots).toEqual(["person"]);
+    expect(slots).toEqual(["person", "circle"]);
     expect(slots.join(" ")).not.toMatch(/user_?id|account|email|phone|key/i);
   });
 });
@@ -251,18 +238,11 @@ describe("asking for someone's location asks how long, like sharing does", () =>
   const ASK = "location.send_request";
   const SHARE = "location.share_selected";
 
-  it("requires a duration, with the same bounded options a share uses", () => {
-    // Reported live: "ask location doesn't ask for duration like share does."
-    // It declared the slot but left it optional and unbounded, so One never
-    // asked and the request went out carrying whatever `durationHours`
-    // happened to hold -- shared state written by the share composer and the
-    // link controls, never by the Ask screen, which has no duration control
-    // at all. The number is what the OTHER person is shown and approves, so
-    // guessing it asks a question on their behalf.
+  it("defers duration selection to preparation with the same bounded options", () => {
     const input = getKaiActionById(ASK)?.goal?.required_inputs?.find(
       (spec) => spec.slot === "duration_hours",
     );
-    expect(input?.required).toBe(true);
+    expect(input?.required).toBe(false);
     expect(input?.options).toEqual(["0.25", "0.5", "1", "2", "4", "8", "24"]);
   });
 

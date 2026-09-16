@@ -78,6 +78,7 @@ vi.mock("@/lib/morphy-ux/button", () => ({
 
 vi.mock("@/lib/navigation/routes", () => ({
   ROUTES: {
+    HOME: "/",
     ONE_SETUP: "/one/setup",
     ONE_SETUP_FINANCE: "/one/setup/finance",
     ONE_SETUP_CLOUD: "/one/setup/cloud",
@@ -183,6 +184,20 @@ describe("OnboardingJourneyGuard", () => {
     expect(replace).not.toHaveBeenCalled();
   });
 
+  it("labels authentication validation as a secure-session check, not setup", () => {
+    authState.loading = true;
+    getCachedBootstrapStateMock.mockReturnValue(incompleteSetupState());
+
+    render(
+      <OnboardingJourneyGuard>
+        <div>setup hub</div>
+      </OnboardingJourneyGuard>,
+    );
+
+    expect(screen.getByText("Checking secure session...")).toBeTruthy();
+    expect(screen.queryByText("Checking setup...")).toBeNull();
+  });
+
   it("admits a returning user synchronously from the positive setup latch", async () => {
     pathnameValue = "/one";
     getCachedBootstrapStateMock.mockReturnValue(null);
@@ -230,7 +245,7 @@ describe("OnboardingJourneyGuard", () => {
     );
 
     await waitFor(() => {
-      expect(replace).toHaveBeenCalledWith("/one");
+      expect(replace).toHaveBeenCalledWith("/");
     });
     expect(screen.queryByText("hub")).toBeNull();
   });
@@ -247,7 +262,7 @@ describe("OnboardingJourneyGuard", () => {
     );
 
     await waitFor(() => {
-      expect(replace).toHaveBeenCalledWith("/one");
+      expect(replace).toHaveBeenCalledWith("/");
     });
     expect(screen.queryByText("hub")).toBeNull();
   });

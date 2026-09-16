@@ -41,12 +41,10 @@ from hushh_mcp.services.domain_contracts import (
 )
 from hushh_mcp.services.pkm_mutation_contracts import (
     PKM_MAX_AFFECTED_SHARING_IDS,
+    LocationPkmFinalizeAuthorizationV1,
     PkmMutationPlanV2,
+    validate_location_finalize_authorization_for_write,
     validate_mutation_plan_for_write,
-)
-from hushh_mcp.services.pkm_write_engine import (
-    PkmWriteEngine,
-    resolve_pkm_write_engine,
 )
 
 logger = logging.getLogger(__name__)
@@ -209,25 +207,11 @@ class PersonalKnowledgeModelService:
         with the user's vault key before storage.
     """
 
-    def __init__(
-        self, write_engine: Optional["PkmWriteEngine"] = None, *, strict_reads: bool = False
-    ):
-        self._strict_reads = strict_reads
+    def __init__(self):
         self._db = None
         self._domain_registry = None
         self._scope_generator = None
         self._blob_upsert_rpc_supported: Optional[bool] = None
-        # The write-engine seam (pkm_write_engine.py): WHAT the data plane does,
-        # apart from WHERE it runs. Resolved lazily so environment selection and
-        # the injected fake both work; defaults to the Postgres stored procedures
-        # through this service's own _run_rpc, which is byte-identical behaviour.
-        self._write_engine: Optional["PkmWriteEngine"] = write_engine
-
-    @property
-    def write_engine(self) -> "PkmWriteEngine":
-        if self._write_engine is None:
-            self._write_engine = resolve_pkm_write_engine(self._run_rpc)
-        return self._write_engine
 
     _SUMMARY_BLOCKLIST = {"holdings", "total_value", "vault_key", "password"}
     # Manifest/structure projections are plaintext discovery metadata. Keep
@@ -1791,9 +1775,7 @@ class PersonalKnowledgeModelService:
                 last_upgraded_at=last_upgraded_at,
             )
         except Exception as e:
-            logger.error("pkm.get_index.error: %s", type(e).__name__)
-            if self._strict_reads:
-                raise RuntimeError("PKM discovery unavailable") from None
+            logger.error("pkm.get_index.error: %s", e)
             return None
 
     async def upsert_index_v2(self, index: PersonalKnowledgeModelIndex) -> bool:
@@ -1886,7 +1868,8 @@ class PersonalKnowledgeModelService:
         )
 
         try:
-            await self.write_engine.merge_domain_summary(
+            await self._run_rpc(
+                "merge_pkm_domain_summary",
                 {
                     "p_user_id": user_id,
                     "p_domain": domain,
@@ -2052,9 +2035,12 @@ class PersonalKnowledgeModelService:
             )
             return manifest_row
         except Exception as e:
-            logger.error("pkm.domain_manifest.error: %s", type(e).__name__)
-            if self._strict_reads:
-                raise RuntimeError("PKM manifest unavailable") from None
+            logger.error(
+                "Error getting domain manifest for user=%s domain=%s: %s",
+                user_id,
+                domain,
+                e,
+            )
             return None
 
     async def record_mutation_event(
@@ -2432,8 +2418,25 @@ class PersonalKnowledgeModelService:
         current_version: int,
         prior_manifest: dict | None,
         legacy_blob_present: bool,
+        location_finalize_authorization: LocationPkmFinalizeAuthorizationV1 | None = None,
     ) -> dict[str, Any]:
         """Commit ciphertext, metadata, events, and refresh jobs in one DB transaction."""
+        if (
+            normalized_mutation_plan
+            and normalized_mutation_plan.confirmation_receipt.authorization_mode
+            == "owner_requested_workflow"
+            and location_finalize_authorization is None
+        ):
+            raise ValueError("requested_workflow_requires_location_finalize")
+        if location_finalize_authorization is not None:
+            if upgrade_claim is not None or normalized_mutation_plan is None:
+                raise ValueError("location_finalize_requires_mutation")
+            validate_location_finalize_authorization_for_write(
+                authorization=location_finalize_authorization,
+                plan=normalized_mutation_plan,
+                authenticated_user_id=user_id,
+                domain=domain,
+            )
         next_version = current_version + 1
         manifest_row = self._serialize_manifest(normalized_manifest)
         manifest_row["structure_decision"] = self._json_object(
@@ -2554,6 +2557,19 @@ class PersonalKnowledgeModelService:
                 },
             },
         ]
+        if (
+            normalized_mutation_plan
+            and normalized_mutation_plan.confirmation_receipt.workflow_authority
+        ):
+            # This non-secret locator participates in v4's fingerprint. The v5
+            # transaction verifies live command authority before any PKM effect.
+            event_rows[1]["metadata"]["provenance"] = {
+                **mutation_metadata,
+                "authorization_mode": "owner_requested_workflow",
+                "workflow_authority": normalized_mutation_plan.confirmation_receipt.workflow_authority.model_dump(
+                    mode="json"
+                ),
+            }
         projection_supplied = isinstance(write_projections, list) and any(
             isinstance(projection, dict)
             and str(projection.get("projection_type") or "").strip().lower()
@@ -2632,7 +2648,13 @@ class PersonalKnowledgeModelService:
                 sort_keys=True,
             ).encode("utf-8")
         ).hexdigest()
-        rpc_result = await self.write_engine.commit_domain_mutation(
+        rpc_name = (
+            "commit_pkm_domain_mutation_v5"
+            if location_finalize_authorization
+            else "commit_pkm_domain_mutation_v4"
+        )
+        rpc_result = await self._run_rpc(
+            rpc_name,
             {
                 "p_user_id": user_id,
                 "p_domain": domain,
@@ -2662,9 +2684,18 @@ class PersonalKnowledgeModelService:
                 "p_upgrade_claim": JsonParam(upgrade_claim) if upgrade_claim else None,
                 "p_preservation_receipt": JsonParam(preservation_receipt or {}),
                 "p_request_fingerprint": request_fingerprint,
+                **(
+                    {
+                        "p_location_finalize_authorization": JsonParam(
+                            location_finalize_authorization.model_dump(mode="json")
+                        )
+                    }
+                    if location_finalize_authorization
+                    else {}
+                ),
             },
         )
-        payload = self._unwrap_rpc_payload(rpc_result, "commit_pkm_domain_mutation_v4")
+        payload = self._unwrap_rpc_payload(rpc_result, rpc_name)
         return payload if isinstance(payload, dict) else {"success": False, "conflict": False}
 
     async def get_mutation_sharing_impact(
@@ -3377,9 +3408,7 @@ class PersonalKnowledgeModelService:
                 .order("updated_at", desc=True)
             )
         except Exception as exc:
-            logger.warning("Public-profile projection status lookup failed: %s", type(exc).__name__)
-            if self._strict_reads:
-                raise RuntimeError("PKM publication status unavailable") from None
+            logger.warning("Public-profile projection status lookup failed: %s", exc)
             return []
         return [dict(row) for row in (result.data or []) if isinstance(row, dict)]
 
@@ -3736,6 +3765,7 @@ class PersonalKnowledgeModelService:
         write_projections: Optional[list[dict]] = None,
         mutation_plan: Optional[dict] = None,
         return_result: bool = False,
+        location_finalize_authorization: Optional[dict] = None,
     ) -> bool | dict[str, Any]:
         """
         Store encrypted domain data and update index.
@@ -3793,6 +3823,34 @@ class PersonalKnowledgeModelService:
         elif not upgrade_claim:
             result["code"] = "PKM_CONFIRMATION_REQUIRED"
             return result if return_result else False
+
+        normalized_location_authorization = None
+        if (
+            normalized_mutation_plan
+            and normalized_mutation_plan.confirmation_receipt.authorization_mode
+            == "owner_requested_workflow"
+            and location_finalize_authorization is None
+        ):
+            result["code"] = "LOCATION_FINALIZE_AUTHORITY_REQUIRED"
+            return result if return_result else False
+        if location_finalize_authorization is not None:
+            try:
+                if upgrade_claim is not None or normalized_mutation_plan is None:
+                    raise ValueError("location_finalize_requires_mutation")
+                normalized_location_authorization = (
+                    LocationPkmFinalizeAuthorizationV1.model_validate(
+                        location_finalize_authorization
+                    )
+                )
+                validate_location_finalize_authorization_for_write(
+                    authorization=normalized_location_authorization,
+                    plan=normalized_mutation_plan,
+                    authenticated_user_id=user_id,
+                    domain=domain,
+                )
+            except (ValueError, TypeError):
+                result["code"] = "LOCATION_FINALIZE_AUTHORITY_INVALID"
+                return result if return_result else False
 
         try:
             if not is_allowed_top_level_domain(domain):
@@ -3914,6 +3972,7 @@ class PersonalKnowledgeModelService:
                     current_version=current_version,
                     prior_manifest=prior_manifest,
                     legacy_blob_present=legacy_blob is not None,
+                    location_finalize_authorization=normalized_location_authorization,
                 )
                 if atomic_result.get("conflict"):
                     result["conflict"] = True
@@ -3942,6 +4001,8 @@ class PersonalKnowledgeModelService:
                 result["updated_at"] = atomic_result.get("updated_at", resolved_updated_at)
                 result["manifest_revision"] = atomic_result.get("manifest_revision")
                 result["commit_id"] = atomic_result.get("commit_id")
+                result["location_run_revision"] = atomic_result.get("location_run_revision")
+                result["location_place_receipt_id"] = atomic_result.get("location_place_receipt_id")
                 result["archived_revision_id"] = atomic_result.get("archived_revision_id")
                 result["preservation_receipt"] = atomic_result.get("preservation_receipt")
                 return result if return_result else True
@@ -4330,7 +4391,8 @@ class PersonalKnowledgeModelService:
                 if str(segment_id or "").strip()
             }
         )
-        rpc_result = await self.write_engine.get_domain_snapshot(
+        rpc_result = await self._run_rpc(
+            "get_pkm_domain_snapshot_v1",
             {
                 "p_user_id": user_id,
                 "p_domain": canonical_domain,
@@ -4504,7 +4566,8 @@ class PersonalKnowledgeModelService:
                 logger.warning("Empty domain requested for delete_domain_data user=%s", user_id)
                 return True
             if expected_data_version is None or mutation_plan is None:
-                rpc_result = await self.write_engine.delete_domain_legacy(
+                rpc_result = await self._run_rpc(
+                    "delete_pkm_domain_v2",
                     {"p_user_id": user_id, "p_domain": domain},
                 )
                 payload = self._unwrap_rpc_payload(rpc_result, "delete_pkm_domain_v2")
@@ -4543,7 +4606,8 @@ class PersonalKnowledgeModelService:
             trigger_paths = sorted(
                 set(manifest.top_level_scope_paths + manifest.externalizable_paths)
             )
-            rpc_result = await self.write_engine.delete_domain(
+            rpc_result = await self._run_rpc(
+                "delete_pkm_domain_v3",
                 {
                     "p_user_id": user_id,
                     "p_domain": domain,

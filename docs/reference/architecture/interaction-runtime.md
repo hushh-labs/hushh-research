@@ -6,7 +6,7 @@
 flowchart LR
   control["Tap / voice / native event"] --> runtime["InteractionIntentCoordinator"]
   runtime --> react["React route and surface state"]
-  runtime --> one["One Live transport lease"]
+  runtime --> one["One command-capture lease"]
   react --> web["Next.js proxy on web"]
   react --> native["Capacitor plugin on iOS / Android"]
   web --> backend["Backend contract"]
@@ -21,11 +21,12 @@ settlement.
 ## Contract
 
 - `InteractionIntentCoordinator` serializes pathname-changing navigation,
-  voice-session ownership, and generated action directive identity.
+  command-capture ownership, and generated action directive identity.
 - New navigation supersedes an uncommitted older destination; same-target
   requests are idempotent. Query-only history writes remain immediate.
-- One Live and Agent Chat controls acquire the same voice lease. A stale lease
-  cannot update React state, play audio, navigate, or settle an action.
+- Agent Bar, Chat microphone, and Siri command entrypoints acquire the same
+  command-capture lease. A stale lease cannot update React state, submit audio,
+  navigate, or settle an action.
 - Agent Bar is the one shared launcher on onboarding and signed-in routes. The
   signed-in chat popover has one close owner: it blurs an in-surface editable
   before exit motion and stops hidden chat capture/playback while preserving
@@ -35,7 +36,7 @@ settlement.
   not execute twice and conflicting payloads fail closed. Ledgers never retain
   raw slots, credentials, OTPs, or vault material.
 - Capacitor lifecycle is published once at the app shell. The VaultProvider is
-  still the sole vault authority: backgrounding ends voice but preserves a
+  still the sole vault authority: backgrounding cancels capture but preserves a
   valid in-memory vault; expiry, logout, rekey, revocation, or cold start locks.
 
 ## Transport parity
@@ -50,7 +51,7 @@ semantics.
 
 The destructive UAT route audits prove cold-start parity. `npm run
 ios:continuity:local` and `npm run android:continuity:local` are separate,
-non-destructive interactive sessions for same-process route, vault, and voice
+non-destructive interactive sessions for same-process route, vault, and command
 continuity. The iOS command selects an available iPhone simulator (or the requested
 `IOS_TEST_DEVICE_UDID` / `IOS_TEST_DEVICE_NAME`) and stays headless by default.
 Use `-- --visible` only when a desktop window is requested. It never installs,

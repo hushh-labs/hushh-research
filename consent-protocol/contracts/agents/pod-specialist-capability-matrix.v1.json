@@ -57,7 +57,9 @@
       "id": "agent_connected_systems",
       "manifest_path": "consent-protocol/hushh_mcp/agents/connected_systems/agent.yaml",
       "parent": "agent_one",
-      "required_scopes": [],
+      "required_scopes": [
+        "cap.one.invoke"
+      ],
       "status": "experimental"
     },
     {
@@ -111,7 +113,9 @@
       "id": "agent_email",
       "manifest_path": "consent-protocol/hushh_mcp/agents/email/agent.yaml",
       "parent": "agent_one",
-      "required_scopes": [],
+      "required_scopes": [
+        "cap.one.invoke"
+      ],
       "status": "experimental"
     },
     {
@@ -139,30 +143,6 @@
         "attr.financial.*"
       ],
       "status": "experimental"
-    },
-    {
-      "a2a_surface": false,
-      "declared": {
-        "confirmation_owner": "hub",
-        "executes_in_pod": false,
-        "information_source": "hub",
-        "why": "Connected-account OAuth tokens live on the hub; the pod holds no credential.",
-        "write_scope": "none"
-      },
-      "derived": {
-        "a2a_scope": null,
-        "door": null,
-        "door_required_scope": null,
-        "hub_doors": [],
-        "one_tool_names": [],
-        "pod_dispatchable": false,
-        "registered_specialist": false
-      },
-      "id": "agent_gmail",
-      "manifest_path": "consent-protocol/hushh_mcp/agents/gmail/agent.yaml",
-      "parent": "agent_one",
-      "required_scopes": [],
-      "status": "active"
     },
     {
       "a2a_surface": false,
@@ -418,7 +398,9 @@
         "hub_doors": [
           "marketplace"
         ],
-        "one_tool_names": [],
+        "one_tool_names": [
+          "ask_memory_agent"
+        ],
         "pod_dispatchable": true,
         "registered_specialist": true
       },
@@ -427,6 +409,7 @@
       "parent": "agent_one",
       "required_scopes": [
         "cap.pkm.marketplace.view",
+        "pkm.read",
         "cap.pkm.marketplace.manage"
       ],
       "status": "experimental"
@@ -480,30 +463,6 @@
         "portfolio.import",
         "attr.financial.*"
       ],
-      "status": "experimental"
-    },
-    {
-      "a2a_surface": false,
-      "declared": {
-        "confirmation_owner": "hub",
-        "executes_in_pod": false,
-        "information_source": "hub",
-        "why": "PKM structuring sub-chain; hub-only and browser-gated today.",
-        "write_scope": "none"
-      },
-      "derived": {
-        "a2a_scope": null,
-        "door": null,
-        "door_required_scope": null,
-        "hub_doors": [],
-        "one_tool_names": [],
-        "pod_dispatchable": false,
-        "registered_specialist": false
-      },
-      "id": "agent_summary_reducer",
-      "manifest_path": "consent-protocol/hushh_mcp/agents/summary_reducer/agent.yaml",
-      "parent": "agent_one",
-      "required_scopes": [],
       "status": "experimental"
     },
     {

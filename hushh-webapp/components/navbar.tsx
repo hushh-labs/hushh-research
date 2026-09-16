@@ -8,28 +8,26 @@ import { usePathname } from "next/navigation";
 import {
   Compass as PhosphorCompass,
   MagnifyingGlass,
+  ChatCircle,
   SquaresFour,
-  type IconProps as PhosphorIconProps,
-} from "@phosphor-icons/react";
-import {
-  BriefcaseBusiness,
-  ChartSpline,
-  ChartCandlestick,
-  CircleUserRound,
+  Briefcase,
+  ChartBar,
+  ChartLineUp,
   Database,
-  FileSpreadsheet,
-  FolderSearch,
-  Mail,
+  EnvelopeSimple,
+  FolderSimple,
   MapPin,
   Newspaper,
   ShieldCheck,
-  Store,
-  Users,
-  WalletCards,
-} from "lucide-react";
+  Storefront,
+  Table,
+  UserCircle,
+  UsersThree,
+  Wallet,
+  type IconProps as PhosphorIconProps,
+} from "@phosphor-icons/react";
 
 import { useAuth } from "@/hooks/use-auth";
-import { useOptionalAgentPopover } from "@/components/agent/agent-popover-provider";
 import { requestInternalAppNavigation } from "@/lib/utils/browser-navigation";
 import { useConsentPendingSummaryCount } from "@/lib/consent/use-consent-pending-summary-count";
 import { useFeedUnreadCount } from "@/lib/feed/use-feed-unread-count";
@@ -39,7 +37,6 @@ import { SegmentedPill, type SegmentedPillOption } from "@/lib/morphy-ux/ui";
 import { KAI_MARKET_PATH, ROUTES } from "@/lib/navigation/routes";
 import { cn } from "@/lib/utils";
 import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
-import { useSessionChromeSuppressed } from "@/lib/auth/use-session-chrome-suppression";
 import { useVault } from "@/lib/vault/vault-context";
 import {
   normalizeBottomNavPathname,
@@ -66,6 +63,12 @@ function FilledMagnifyingGlassIcon(props: PhosphorIconProps) {
   return <MagnifyingGlass {...props} weight="fill" />;
 }
 
+function FilledChatCircleIcon(props: PhosphorIconProps) {
+  return <ChatCircle {...props} weight="fill" />;
+}
+
+const BOTTOM_GAP_PX = 4;
+
 const BOTTOM_NAV_OPTION_META: Record<
   AppBottomNavKey,
   Omit<SegmentedPillOption, "badge">
@@ -77,22 +80,29 @@ const BOTTOM_NAV_OPTION_META: Record<
     activeIcon: FilledSquaresFourIcon,
     dataTourId: "nav-one-dashboard",
   },
+  chat: {
+    value: "chat",
+    label: "Chat",
+    icon: ChatCircle,
+    activeIcon: FilledChatCircleIcon,
+    dataTourId: "nav-chat",
+  },
   finance: {
     value: "finance",
     label: "Market",
-    icon: ChartCandlestick,
+    icon: ChartBar,
     dataTourId: "nav-market",
   },
   portfolio: {
     value: "portfolio",
     label: "Portfolio",
-    icon: WalletCards,
+    icon: Wallet,
     dataTourId: "nav-portfolio",
   },
   analysis: {
     value: "analysis",
     label: "Analysis",
-    icon: ChartSpline,
+    icon: ChartLineUp,
     dataTourId: "nav-analysis",
   },
   connect: {
@@ -105,25 +115,25 @@ const BOTTOM_NAV_OPTION_META: Record<
   "ria-home": {
     value: "ria-home",
     label: "RIA",
-    icon: BriefcaseBusiness,
+    icon: Briefcase,
     dataTourId: "nav-ria-home",
   },
   clients: {
     value: "clients",
     label: "Clients",
-    icon: Users,
+    icon: UsersThree,
     dataTourId: "nav-ria-clients",
   },
   picks: {
     value: "picks",
     label: "Picks",
-    icon: FileSpreadsheet,
+    icon: Table,
     dataTourId: "nav-ria-picks",
   },
   gmail: {
     value: "gmail",
     label: "Gmail",
-    icon: Mail,
+    icon: EnvelopeSimple,
     dataTourId: "nav-one-gmail",
   },
   email: {
@@ -153,13 +163,13 @@ const BOTTOM_NAV_OPTION_META: Record<
   pkm: {
     value: "pkm",
     label: "Memory",
-    icon: FolderSearch,
+    icon: FolderSimple,
     dataTourId: "nav-one-pkm",
   },
   marketplace: {
     value: "marketplace",
     label: "Market",
-    icon: Store,
+    icon: Storefront,
     dataTourId: "nav-one-marketplace",
   },
   connected: {
@@ -178,7 +188,7 @@ const BOTTOM_NAV_OPTION_META: Record<
   profile: {
     value: "profile",
     label: "Profile",
-    icon: CircleUserRound,
+    icon: UserCircle,
     dataTourId: "nav-profile",
   },
 };
@@ -215,33 +225,15 @@ export const Navbar = ({
   const interactionIntents = useInteractionIntents();
   const { isAuthenticated } = useAuth();
   const { isVaultUnlocked } = useVault();
-  const agentPopover = useOptionalAgentPopover();
-  // Hoisted above the two badge hooks so it can gate them. It depends only on
-  // `pathname`, so this is a pure reorder.
-  const chromeState = useMemo(() => getKaiChromeState(pathname), [pathname]);
-  const useOnboardingChrome = chromeState.useOnboardingChrome;
-  // THE NAV IS HIDDEN ON EVERY SETUP SURFACE, SO ITS BADGES MUST NOT FETCH.
-  //
-  // `useSessionChromeSuppression` hides the chrome by setting a DOM attribute;
-  // every component under it stays mounted and every request still goes out. On a
-  // brand-new person's first paint that put `/api/consent/center/summary` and
-  // `/api/one/feed/unread-count` into a pool of four connections alongside the
-  // calls the setup gate actually needs -- and the summary was measured at
-  // 125,614 ms. Two badges nobody could see were a material share of why the
-  // front door did not open.
-  // Two conditions, and the second is the one that actually fires during the
-  // post-login window: the route says "setup surface", and the shell says "I am
-  // still deciding". The URL lags the rendered surface across the redirect, so
-  // the route check alone measured NO effect on the fan-out it was written for.
-  const chromeSuppressed = useSessionChromeSuppressed();
-  const badgesAreVisible = !useOnboardingChrome && !chromeSuppressed;
-  const pendingConsents = useConsentPendingSummaryCount({ enabled: badgesAreVisible });
-  const feedUnreadCount = useFeedUnreadCount({ enabled: badgesAreVisible });
+  const pendingConsents = useConsentPendingSummaryCount();
+  const feedUnreadCount = useFeedUnreadCount();
   const pillRef = React.useRef<HTMLDivElement | null>(null);
   const bottomChromeVarsRef = React.useRef({
     fixedUi: "",
     routeGroupWidth: "",
   });
+  const chromeState = useMemo(() => getKaiChromeState(pathname), [pathname]);
+  const useOnboardingChrome = chromeState.useOnboardingChrome;
 
   const busyOperations = useKaiSession((s) => s.busyOperations);
   const setAgentNavigationContext = useKaiSession(
@@ -276,13 +268,10 @@ export const Navbar = ({
       }
     }
   }, [pathname, setAgentNavigationContext]);
-  const agentWindowOpen =
-    agentPopover?.expanded || agentPopover?.motionState === "opening";
   const portfolioImportSurfaceActive = Boolean(
     busyOperations["portfolio_import_surface"],
   );
   const hideNavbar =
-    agentWindowOpen ||
     portfolioImportSurfaceActive ||
     pathname?.startsWith(ROUTES.PHONE_MANDATE) ||
     pathname === ROUTES.DEVELOPERS ||
@@ -336,16 +325,14 @@ export const Navbar = ({
 
     const el = pillRef.current;
     if (!el) {
-      // The navbar is temporarily unmounted (e.g. the agent window is open, which
-      // also hides the agent bar that consumes --app-bottom-fixed-ui). Do NOT
-      // zero the reserved height here: when the agent window closes the navbar
-      // remounts but this effect's other deps are unchanged, so it would not
+      // The navbar can be temporarily unmounted while the shell changes context,
+      // which also hides the agent bar that consumes --app-bottom-fixed-ui. Do NOT
+      // zero the reserved height here: when the navbar remounts this effect's
+      // other deps may be unchanged, so it would not
       // re-measure and the stale 0px would collapse the agent bar onto the nav.
       // Preserve the last measured value until a real measurement runs.
       return;
     }
-
-    const BOTTOM_GAP_PX = 4;
 
     const update = () => {
       const rect = el.getBoundingClientRect();
@@ -366,11 +353,7 @@ export const Navbar = ({
       ro?.disconnect();
       window.removeEventListener("resize", update);
     };
-    // `agentWindowOpen` is included so the pill is re-measured when the navbar
-    // remounts after the agent window closes (otherwise --app-bottom-fixed-ui
-    // stays stale and the agent bar overlaps the nav).
   }, [
-    agentWindowOpen,
     isAuthenticated,
     navOptions.length,
     useOnboardingChrome,
@@ -506,7 +489,9 @@ export const Navbar = ({
         className="pointer-events-none mx-auto flex w-full justify-center"
         style={{
           maxWidth:
-            "min(calc(100vw - 1.5rem), var(--app-bottom-shell-max-width))",
+            pathname?.startsWith("/one/location")
+              ? "min(calc(100vw - 1.5rem), 45rem)"
+              : "min(calc(100vw - 1.5rem), var(--app-bottom-shell-max-width))",
         }}
       >
         <div
@@ -531,7 +516,9 @@ export const Navbar = ({
               ariaLabel="Route navigation"
               className={cn(
                 "kai-bottom-nav-pill relative z-10 w-full chrome-bottom-foreground",
+                "[&_[role=radio]]:min-h-11",
                 "[&_[aria-checked=true]]:text-[color:var(--app-accent)] [&_[aria-checked=true]]:font-medium",
+                "[&_[role=radio]>span:last-of-type]:!text-[10px] [&_[role=radio]>span:last-of-type]:!leading-[13px]",
                 "[&_[data-segment-indicator]]:bg-transparent [&_[data-segment-indicator]]:shadow-none [&_[data-segment-indicator]]:backdrop-blur-none",
               )}
             />

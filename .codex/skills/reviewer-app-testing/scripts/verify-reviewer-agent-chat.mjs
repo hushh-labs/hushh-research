@@ -48,7 +48,7 @@ async function conversationIds(token) {
 }
 
 try {
-  session = await reviewer.openSession(browser, "/agent");
+  session = await reviewer.openSession(browser, "/");
   const { page } = session;
   ownerToken = await session.capture.ownerToken();
   baselineConversationIds = await conversationIds(ownerToken);

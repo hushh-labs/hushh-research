@@ -245,8 +245,7 @@ Disallowed prompt evolution:
 
 Current PKM classifier candidates:
 
-- `gemini-3.1-pro-preview` for Memory Segmentation and Memory Intent, where durable-salience decisions are made
-- `gemini-3.7-flash` for Financial Guard, Memory Merge, and PKM Structure
+- `gemini-default` (the switched fleet text model, `constants.GEMINI_MODEL`) for every stage, Memory Segmentation and Memory Intent included; the catalog holds only the last two Gemini Flash releases (`gemini-3.8-flash`, `gemini-3.7-flash`) and no stage pins a model of its own
 
 Live prompt-hardening posture:
 
