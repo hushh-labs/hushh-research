@@ -518,6 +518,10 @@ function AgentGridItem({
   mode: OneAgentMode;
   className?: string;
 }) {
+  const metricNum = Number(mode.primaryMetric.value);
+  const badgeCount =
+    Number.isFinite(metricNum) && metricNum > 0 ? metricNum : null;
+
   return (
     <Link
       href={mode.href}
@@ -531,18 +535,28 @@ function AgentGridItem({
         className,
       )}
     >
-      <AgentSectionIcon
-        id={mode.id}
-        icon={mode.icon}
-        tone={mode.tone}
-        paletteIndex={mode.paletteIndex}
-        isActive={mode.statusTone !== "muted"}
-        size="roster-dashboard"
-        treatment="profile"
-        glyphContrast="default"
-        className="relative z-10"
-        profileStyle={dashboardAgentIconStyle(mode)}
-      />
+      <div className="relative z-10 flex shrink-0 items-center justify-center">
+        <AgentSectionIcon
+          id={mode.id}
+          icon={mode.icon}
+          tone={mode.tone}
+          paletteIndex={mode.paletteIndex}
+          isActive={mode.statusTone !== "muted"}
+          size="roster-dashboard"
+          treatment="profile"
+          glyphContrast="default"
+          className="relative z-10"
+          profileStyle={dashboardAgentIconStyle(mode)}
+        />
+        {badgeCount !== null && (
+          <span
+            className="pointer-events-none absolute -top-1 -right-1 z-20 flex h-[20px] min-w-[20px] items-center justify-center rounded-full bg-[#FF3B30] px-1 text-[11px] font-bold leading-none text-white shadow-[0_2px_4px_rgba(0,0,0,0.25)] ring-2 ring-white dark:ring-[#1C1C1E]"
+            data-testid={`one-agent-badge-${mode.id}`}
+          >
+            {badgeCount}
+          </span>
+        )}
+      </div>
       <span className="relative z-10 flex w-full min-w-0 flex-col items-center gap-[2px] text-center">
         <span
           className="block w-full truncate text-center text-[14px] font-semibold leading-[18px] tracking-normal text-[#1D1D1F] dark:text-[#F5F5F7]"
@@ -550,7 +564,6 @@ function AgentGridItem({
         >
           {mode.title}
         </span>
-        <AgentMetric mode={mode} align="grid" />
       </span>
       <MaterialRipple variant="blue" effect="fade" className="z-0" />
     </Link>

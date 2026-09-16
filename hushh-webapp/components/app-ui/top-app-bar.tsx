@@ -291,7 +291,7 @@ function getScrolledRouteTitle(pathname: string): {
     };
   }
   if (pathname === ROUTES.GMAIL) {
-    return { label: "Gmail", icon: Mail, capabilityId: "gmail", interactive: false as const };
+    return { label: "Mail", icon: Mail, capabilityId: "gmail", interactive: false as const };
   }
   if (pathname === ROUTES.PKM) {
     return {

@@ -76,7 +76,7 @@ export function RiaPrimaryWorkspaceShell({
       <AppPageShell as="main" fitContent width="agent">
         <AppPageHeaderRegion className="pt-2 sm:pt-3">
           <PageHeader
-            title="RIA"
+            title="Advisor"
             icon={BriefcaseBusiness}
             leading={<AgentIdentityIcon id="ria" />}
             accent="ria"

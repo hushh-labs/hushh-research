@@ -165,7 +165,7 @@ describe("OneDashboardPage", () => {
     expect(financeIcon.className).not.toContain("bg-");
     expect(financeIcon.querySelector("img")).toHaveAttribute("src", "/agents/finance.png");
     expect(financeIcon.querySelector(".backdrop-blur-\\[8px\\]")).toBeNull();
-    const riaLink = screen.getByRole("link", { name: "Open RIA" });
+    const riaLink = screen.getByRole("link", { name: "Open Advisor" });
     expect(riaLink.getAttribute("href")).toBe(
       buildOneSetupCapabilityRoute("ria"),
     );
@@ -177,7 +177,7 @@ describe("OneDashboardPage", () => {
       screen.getByRole("link", { name: "Open Wallet" }).getAttribute("href"),
     ).toBe(ROUTES.ONE_WALLET);
     expect(
-      screen.getByRole("link", { name: "Open Gmail" }).getAttribute("href"),
+      screen.getByRole("link", { name: "Open Mail" }).getAttribute("href"),
     ).toBe(buildOneSetupCapabilityRoute("gmail"));
     expect(
       screen.getByRole("link", { name: "Open Calendar" }).getAttribute("href"),

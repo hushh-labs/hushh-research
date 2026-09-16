@@ -129,7 +129,7 @@ export const ONE_CAPABILITIES: readonly OneCapability[] = [
     description: "Share where you are with people you trust.",
     previewLabel: "Live location & Alerts",
     href: ROUTES.ONE_LOCATION,
-    icon: imageCapabilityIcon("/agents/location.png", "Location", [138, 147, 978, 963, 1254]),
+    icon: imageCapabilityIcon("/agents/location.png", "Location", [108, 115, 809, 802, 1024]),
     tone: "location",
     group: "workflow",
     requiresVault: true,
@@ -141,11 +141,11 @@ export const ONE_CAPABILITIES: readonly OneCapability[] = [
     // Gmail remains a setup/product surface; its conversational reads now
     // belong to the unified Email specialist.
     agentId: "agent_email",
-    title: "Gmail",
+    title: "Mail",
     description: "Receipt sync and purchase-memory review.",
     previewLabel: "Receipt & purchase memory",
     href: ROUTES.GMAIL,
-    icon: imageCapabilityIcon("/agents/gmail.png", "Gmail", [138, 157, 977, 940, 1254]),
+    icon: imageCapabilityIcon("/agents/gmail.png", "Mail", [138, 157, 977, 940, 1254]),
     tone: "gmail",
     group: "memory",
     requiresVault: true,
@@ -201,11 +201,11 @@ export const ONE_CAPABILITIES: readonly OneCapability[] = [
     // RIA setup is an account/persona workflow owned by the existing RIA
     // onboarding route. It is not a separate product-agent delegation lane.
     agentId: null,
-    title: "RIA",
+    title: "Advisor",
     description: "Advisor verification, profile, clients, and requests.",
     previewLabel: "Advisor profile & verification",
     href: ROUTES.RIA_ONBOARDING,
-    icon: imageCapabilityIcon("/agents/ria.png", "RIA", [160, 177, 932, 903, 1254]),
+    icon: imageCapabilityIcon("/agents/ria.png", "Advisor", [160, 177, 932, 903, 1254]),
     tone: "ria",
     group: "workflow",
     requiresVault: true,
