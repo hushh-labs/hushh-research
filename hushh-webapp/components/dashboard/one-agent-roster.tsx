@@ -43,6 +43,7 @@ type OneAgentMode = {
     value: string;
     label: string;
   };
+  badgeCount?: number | null;
   paletteIndex: number;
   tone: OneCapabilityTone;
   isExploreOnly: boolean;
@@ -332,6 +333,21 @@ function buildModes(
         status,
       });
 
+    const isCompleted =
+      status?.state === "completed" || status?.state === "skipped";
+    let badgeCount: number | null = null;
+    if (capability.id === "consent") {
+      badgeCount =
+        status && status.pendingCount > 0 ? status.pendingCount : null;
+    } else if (capability.id === "location" || capability.id === "pkm") {
+      badgeCount = null;
+    } else if (capability.id === "email") {
+      badgeCount =
+        status && status.pendingCount > 0 ? status.pendingCount : null;
+    } else {
+      badgeCount = isCompleted ? null : 1;
+    }
+
     return {
       id: capability.id,
       title: capability.title,
@@ -345,6 +361,7 @@ function buildModes(
       icon: capability.icon,
       statusTone: display.tone,
       primaryMetric,
+      badgeCount,
       paletteIndex,
       tone: capability.tone,
       isExploreOnly: capability.isExploreOnly === true,
@@ -375,11 +392,7 @@ function resolvePrimaryMetric({
     };
   }
 
-  if (!status || status.state === "unknown") {
-    return { value: "—", label: "status not loaded" };
-  }
-
-  if (status.pendingCount > 0) {
+  if (status && status.pendingCount > 0) {
     return {
       value: String(status.pendingCount),
       label: status.pendingCount === 1 ? "review" : "reviews",
@@ -387,7 +400,7 @@ function resolvePrimaryMetric({
   }
 
   const actionsDue =
-    status.state === "completed" || status.state === "skipped" ? 0 : 1;
+    status?.state === "completed" || status?.state === "skipped" ? 0 : 1;
   return {
     value: String(actionsDue),
     label: actionsDue === 1 ? "action" : "actions",
@@ -518,9 +531,7 @@ function AgentGridItem({
   mode: OneAgentMode;
   className?: string;
 }) {
-  const metricNum = Number(mode.primaryMetric.value);
-  const badgeCount =
-    Number.isFinite(metricNum) && metricNum > 0 ? metricNum : null;
+  const badgeCount = mode.badgeCount;
 
   return (
     <Link
@@ -529,13 +540,13 @@ function AgentGridItem({
       data-testid={`one-agent-tile-${mode.id}`}
       title={mode.description}
       className={cn(
-        "group relative flex min-h-[96px] min-w-0 w-full flex-col items-center justify-start gap-[7px] overflow-hidden rounded-[14px] px-1.5 py-2 text-center",
+        "group relative flex min-h-[96px] min-w-0 w-full flex-col items-center justify-start gap-[7px] overflow-visible rounded-[14px] px-1.5 py-2 text-center",
         "transition-[background-color,transform] duration-[var(--motion-duration-sm)] ease-[var(--motion-ease-standard)]",
         "hover:bg-[rgba(120,120,128,.08)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)]/60 focus-visible:ring-inset active:scale-[0.98] motion-reduce:transition-none motion-reduce:active:scale-100",
         className,
       )}
     >
-      <div className="relative z-10 flex shrink-0 items-center justify-center">
+      <div className="relative z-10 flex size-14 shrink-0 items-center justify-center">
         <AgentSectionIcon
           id={mode.id}
           icon={mode.icon}
@@ -548,12 +559,14 @@ function AgentGridItem({
           className="relative z-10"
           profileStyle={dashboardAgentIconStyle(mode)}
         />
-        {badgeCount !== null && (
+        {badgeCount !== null && badgeCount !== undefined && badgeCount > 0 && (
           <span
-            className="pointer-events-none absolute -top-1.5 -right-1.5 z-20 flex size-[22px] shrink-0 aspect-square items-center justify-center rounded-full bg-[#EA544E] text-[12px] font-bold leading-none text-white shadow-[0_2px_4px_rgba(0,0,0,0.18)]"
+            className="pointer-events-none absolute -top-1 -right-1 z-20 flex h-5 w-5 min-h-5 min-w-5 max-h-5 max-w-5 shrink-0 aspect-square items-center justify-center rounded-full bg-[#EA544E] p-0 text-center font-bold leading-none text-white shadow-[0_2px_4px_rgba(0,0,0,0.22)]"
             data-testid={`one-agent-badge-${mode.id}`}
           >
-            {badgeCount}
+            <span className="select-none text-[11px] font-bold leading-none text-white">
+              {badgeCount}
+            </span>
           </span>
         )}
       </div>
