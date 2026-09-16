@@ -201,7 +201,7 @@ export function GmailVerificationOnboarding({
         value={details}
         onChange={(event) => onDetailsChange(event.target.value)}
         placeholder="Paste the KYC details you want to save privately. You can edit this before saving."
-        className="min-h-36 resize-y"
+        className="min-h-36 resize-y rounded-2xl p-4 text-sm leading-relaxed"
         aria-label="KYC details"
         disabled={saving}
       />
