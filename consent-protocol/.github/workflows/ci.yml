@@ -123,6 +123,10 @@ jobs:
           --health-retries 10
     steps:
       - uses: actions/checkout@v6
+        with:
+          # The capability graph check diffs against the PR base ref, which a
+          # shallow clone does not carry.
+          fetch-depth: 0
 
       - uses: ./.github/actions/setup-python-uv
         with:
@@ -132,6 +136,7 @@ jobs:
       - name: Run backend check script
         run: bash scripts/ci/backend-check.sh
         env:
+          CAPABILITY_GRAPH_BASE_REF: origin/${{ github.base_ref || 'main' }}
           ONE_COMMAND_TEST_DATABASE_URL: "postgresql+psycopg2://command_test:command_test@127.0.0.1:5432/command_test"
           TESTING: "true"
           APP_SIGNING_KEY: "test_secret_key_for_ci_only_32chars_min"

@@ -54,7 +54,7 @@ describe("passkey RP resolution", () => {
     expect(rpId).toBe("localhost");
   });
 
-  it("uses the explicit shared RP on UAT web when configured", () => {
+  it("prefers the exact UAT host over a stale shared parent RP on web", () => {
     process.env.NEXT_PUBLIC_PASSKEY_RP_ID = "one.hushh.ai";
 
     const rpId = resolvePasskeyRpId({
@@ -62,7 +62,7 @@ describe("passkey RP resolution", () => {
       hostname: "uat.one.hushh.ai",
     });
 
-    expect(rpId).toBe("one.hushh.ai");
+    expect(rpId).toBe("uat.one.hushh.ai");
   });
 
   it("accepts the shared parent RP for a hosted UAT origin", () => {

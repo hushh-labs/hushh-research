@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ConsentCenterPage } from "@/components/consent/consent-center-page";
@@ -335,6 +335,13 @@ describe("ConsentCenterPage One Location action routing", () => {
     )) as HTMLButtonElement;
     fireEvent.click(revokeButton);
 
+    expect(mocks.handleLocationRevoke).not.toHaveBeenCalled();
+    expect(mocks.handleRevoke).not.toHaveBeenCalled();
+    const confirmation = await screen.findByRole("alertdialog", {
+      name: "Stop sharing with hushh Social?",
+    });
+    fireEvent.click(within(confirmation).getByRole("button", { name: "Stop sharing" }));
+
     await waitFor(() => {
       expect(mocks.handleLocationRevoke).toHaveBeenCalledTimes(1);
     });
@@ -406,6 +413,9 @@ describe("ConsentCenterPage One Location action routing", () => {
       name: "Don't allow",
     })) as HTMLButtonElement;
     fireEvent.click(denyButton);
+    expect(mocks.handleLocationDeny).not.toHaveBeenCalled();
+    expect(mocks.handleDeny).not.toHaveBeenCalled();
+    fireEvent.click(await screen.findByRole("button", { name: "Confirm Don't allow" }));
     await waitFor(() => {
       expect(mocks.handleLocationDeny).toHaveBeenCalledTimes(1);
     });
@@ -459,6 +469,13 @@ describe("ConsentCenterPage One Location action routing", () => {
       name: "Stop sharing",
     })) as HTMLButtonElement;
     fireEvent.click(revokeButton);
+
+    expect(mocks.handleRevoke).not.toHaveBeenCalled();
+    expect(mocks.handleLocationRevoke).not.toHaveBeenCalled();
+    const confirmation = await screen.findByRole("alertdialog", {
+      name: "Stop sharing with Macy's CRM?",
+    });
+    fireEvent.click(within(confirmation).getByRole("button", { name: "Stop sharing" }));
 
     await waitFor(() => {
       expect(mocks.handleRevoke).toHaveBeenCalledWith("attr.shopping.receipts.*");

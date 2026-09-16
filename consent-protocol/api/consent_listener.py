@@ -284,6 +284,12 @@ async def _handle_notify(payload_str: str):
         _notify_received_count += 1
         _last_notify_user_id = user_id
         _last_notify_action = action
+        if str(action).strip().upper() == "EXPORT_READ":
+            # An audit record of a grant being read, not a state change. The
+            # owner's history shows it; a push or stream frame would read as a
+            # resolution and the app would count a pending request down.
+            logger.info("Consent NOTIFY skipped user_id=%s action=%s", user_id, action)
+            return
         data = await _enrich_notify_payload(data)
         logger.info("Consent NOTIFY received user_id=%s action=%s", user_id, action)
         await _push_to_developer_consent_queues(data)

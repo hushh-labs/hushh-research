@@ -24,6 +24,7 @@ except ImportError:
     types = None  # type: ignore
     logging.warning("⚠️ google-genai SDK not found. Kai LLM operons are unavailable.")
 
+from hushh_mcp.agents.kai.runtime import run_kai_analyst_turn, run_kai_synthesis_turn
 from hushh_mcp.consent.token import validate_token
 from hushh_mcp.constants import (
     GEMINI_MODEL,
@@ -318,9 +319,6 @@ async def analyze_stock_with_gemini(
         logger.error(f"[Gemini Operon] Permission denied: {reason}")
         raise PermissionError(f"Gemini analysis denied: {reason}")
 
-    if not _require_gemini_ready():
-        return _gemini_unavailable_payload("Gemini unavailable")
-
     logger.info(f"[Gemini Operon] Starting deep analyst session for {ticker}")
 
     # 2. Build Rich Context (Trends + Fundamentals)
@@ -455,16 +453,13 @@ Your mission is to perform a high-conviction, data-driven "Earnings Quality & Mo
 
     # 3. Call Gemini
     try:
-        response_text = await _generate_content_text(
+        analysis = await run_kai_analyst_turn(
+            gene_id="agent_kai_fundamental",
             prompt=f"{system_instruction}\n\nCONTEXT DATA:\n{context}",
-            timeout_seconds=40.0,
-            max_output_tokens=KAI_LLM_MAX_OUTPUT_TOKENS_DEFAULT,
-            response_mime_type="application/json",
+            user_id=str(user_id),
+            consent_token=consent_token,
+            timeout_seconds=60.0,
         )
-
-        analysis = _extract_json(response_text)
-        if not analysis:
-            raise ValueError("Failed to parse JSON from Gemini response")
 
         # Fallback to defaults if keys missing to prevent "N/A"
         analysis.setdefault("bull_case", "Growth potential through market expansion.")
@@ -502,9 +497,6 @@ async def analyze_sentiment_with_gemini(
     if not valid:
         logger.error(f"[Gemini Sentiment] Permission denied: {reason}")
         raise PermissionError(f"Sentiment analysis denied: {reason}")
-
-    if not _require_gemini_ready():
-        return _gemini_unavailable_payload("Gemini unavailable")
 
     logger.info(f"[Gemini Sentiment] Analyzing sentiment for {ticker}")
 
@@ -562,18 +554,13 @@ Analyze the provided news articles and assess market sentiment for this stock.
 
     # 3. Call Gemini
     try:
-        text = await _generate_content_text(
+        analysis = await run_kai_analyst_turn(
+            gene_id="agent_kai_sentiment",
             prompt=f"{system_instruction}\n\nCONTEXT:\n{context}",
-            timeout_seconds=30.0,
-            max_output_tokens=KAI_LLM_MAX_OUTPUT_TOKENS_DEFAULT,
-            response_mime_type="application/json",
+            user_id=str(user_id),
+            consent_token=consent_token,
+            timeout_seconds=45.0,
         )
-        if text.startswith("```json"):
-            text = text[7:-3].strip()
-        elif text.startswith("```"):
-            text = text[3:-3].strip()
-
-        analysis = json.loads(text)
         logger.info(f"[Gemini Sentiment] Analysis complete for {ticker}")
         return analysis
 
@@ -604,9 +591,6 @@ async def analyze_valuation_with_gemini(
     if not valid:
         logger.error(f"[Gemini Valuation] Permission denied: {reason}")
         raise PermissionError(f"Valuation analysis denied: {reason}")
-
-    if not _require_gemini_ready():
-        return _gemini_unavailable_payload("Gemini unavailable")
 
     logger.info(f"[Gemini Valuation] Analyzing valuation for {ticker}")
 
@@ -670,18 +654,13 @@ Perform a comprehensive valuation analysis with focus on relative and intrinsic 
 
     # 3. Call Gemini
     try:
-        text = await _generate_content_text(
+        analysis = await run_kai_analyst_turn(
+            gene_id="agent_kai_valuation",
             prompt=f"{system_instruction}\n\nCONTEXT:\n{context}",
-            timeout_seconds=30.0,
-            max_output_tokens=KAI_LLM_MAX_OUTPUT_TOKENS_DEFAULT,
-            response_mime_type="application/json",
+            user_id=str(user_id),
+            consent_token=consent_token,
+            timeout_seconds=45.0,
         )
-        if text.startswith("```json"):
-            text = text[7:-3].strip()
-        elif text.startswith("```"):
-            text = text[3:-3].strip()
-
-        analysis = json.loads(text)
         logger.info(f"[Gemini Valuation] Analysis complete for {ticker}")
         return analysis
 
@@ -704,15 +683,14 @@ async def synthesize_debate_recommendation_card(
     valuation_payload: Dict[str, Any],
     debate_payload: Dict[str, Any],
     highlights: List[Dict[str, Any]],
+    user_id: Optional[str] = None,
+    consent_token: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Build a rich post-debate synthesis card using Gemini.
 
     Returns strict JSON fields for frontend decision-card rendering.
     """
-    if not _require_gemini_ready():
-        return _gemini_unavailable_payload("Gemini synthesis unavailable")
-
     synthesis_prompt = f"""
 You are Kai Chief Investment Strategist.
 You are given finalized multi-agent debate artifacts for {ticker}.
@@ -752,13 +730,27 @@ highlights={json.dumps(highlights[:24], default=str)[:4000]}
 """
 
     try:
-        text = await _generate_content_text(
-            prompt=synthesis_prompt,
-            timeout_seconds=25.0,
-            max_output_tokens=KAI_SYNTHESIS_MAX_OUTPUT_TOKENS,
-            response_mime_type="application/json",
-        )
-        parsed = _extract_json(text)
+        has_user_id = bool(str(user_id or "").strip())
+        has_consent_token = bool(str(consent_token or "").strip())
+        if has_user_id != has_consent_token:
+            raise ValueError("Kai synthesis authority requires both user_id and consent_token")
+        if has_user_id and has_consent_token:
+            parsed = await run_kai_synthesis_turn(
+                prompt=synthesis_prompt,
+                user_id=str(user_id),
+                consent_token=str(consent_token),
+                timeout_seconds=90.0,
+            )
+        else:
+            if not _require_gemini_ready():
+                return _gemini_unavailable_payload("Gemini synthesis unavailable")
+            text = await _generate_content_text(
+                prompt=synthesis_prompt,
+                timeout_seconds=25.0,
+                max_output_tokens=KAI_SYNTHESIS_MAX_OUTPUT_TOKENS,
+                response_mime_type="application/json",
+            )
+            parsed = _extract_json(text)
         if not parsed:
             raise ValueError("Empty synthesis JSON")
         return parsed

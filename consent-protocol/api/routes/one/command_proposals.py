@@ -312,7 +312,12 @@ async def transcribe(
     payload: TranscriptionRequest, token: dict = Depends(require_vault_owner_token)
 ):
     try:
-        return {"transcript": await LocationCommandBrain().transcribe(payload.audio_base64)}
+        return {
+            "transcript": await LocationCommandBrain(
+                user_id=str(token["user_id"]),
+                consent_token=str(token["token"]),
+            ).transcribe(payload.audio_base64)
+        }
     except (ValueError, TimeoutError):
         raise HTTPException(
             422, "The recording could not be transcribed. Please try again."

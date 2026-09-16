@@ -15,6 +15,7 @@ from typing import Any
 from hushh_mcp.constants import ConsentScope
 from hushh_mcp.hushh_adk.context import HushhContext
 from hushh_mcp.hushh_adk.tools import hushh_tool
+from hushh_mcp.one_adk.action_tools import read_my_pkm_domain_summary
 from hushh_mcp.services.marketplace_information_service import (
     MarketplaceInformationService,
 )
@@ -138,6 +139,7 @@ async def propose_publish(topic: str | None = None) -> dict[str, Any]:
 
 # Read-only query tools available to the marketplace chatbot (slice 1).
 PERSONAL_INFORMATION_QUERY_TOOLS = [
+    read_my_pkm_domain_summary,
     list_published_slices,
     get_earnings_summary,
     propose_publish,

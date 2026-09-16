@@ -69,8 +69,9 @@ export async function subscribeNativeSessionPrivacy(
 }
 
 /**
- * Capture this generation before starting foreground auth validation. A native
- * cover exists only after this process has crossed an inactive boundary.
+ * Read the generation that must be acknowledged to release the native privacy
+ * cover. A cover exists only after this process has crossed an inactive
+ * boundary; reading it does not perform an auth or account check.
  */
 export async function getNativeSessionPrivacyState(): Promise<NativeSessionPrivacyState> {
   if (!Capacitor.isNativePlatform()) return WEB_STATE;
@@ -78,8 +79,8 @@ export async function getNativeSessionPrivacyState(): Promise<NativeSessionPriva
 }
 
 /**
- * Release only the exact lifecycle generation that the caller has finished
- * validating. Native code rejects stale acknowledgements and acknowledgements
+ * Release only the exact lifecycle generation that the resumed document has
+ * rendered. Native code rejects stale acknowledgements and acknowledgements
  * delivered while the app has backgrounded again.
  */
 export async function completeNativeSessionPrivacyValidation(

@@ -149,7 +149,7 @@ def test_run_stream_pass_v2_emits_thinking_without_polluting_json_response() -> 
             stream=FakeStream(),
             client=fake_client,
             types_module=fake_types,
-            model_name="gemini-3.5-flash",
+            model_name="gemini-3.7-flash",
             prompt="extract",
             context_excerpt="",
             context_confidence=0.0,

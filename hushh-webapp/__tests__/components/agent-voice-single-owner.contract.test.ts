@@ -26,6 +26,37 @@ describe("One interactive audio ownership", () => {
     expect(provider).toContain("new LocationCommandRuntime(");
     expect(provider).not.toContain("createRealtimeVoiceTransport");
     expect(provider).not.toContain("GeminiLiveClient");
+    // The bounded owner yields conversation ownership when Live is on.
+    expect(provider).toContain("function useCommandController(enabled = true)");
+    expect(provider).toContain("if (!enabled) return;");
+    expect(provider).not.toContain("OneLiveClient");
+    expect(provider).not.toContain("one-voice/live-client");
+  });
+
+  it("mounts exactly one microphone owner at a time, switched by the server-owned readiness flag", () => {
+    const gate = read("components/agent/agent-owner-gate.tsx");
+    const providers = read("app/providers.tsx");
+    const bar = read("components/agent/agent-bar.tsx");
+    const live = read("components/one-voice/voice-session-provider.tsx");
+
+    expect(gate).toContain("<LocationCommandProvider enabled={!live}>");
+    expect(gate).toContain("<VoiceSessionProvider enabled={live}>");
+    expect(gate).toContain("useOneVoiceLiveEnabled()");
+    expect(providers).toContain("<AgentOwnerGate>");
+    expect(providers).not.toContain("<LocationCommandProvider>");
+    expect(providers).toContain("<OneVoiceReadinessProvider>");
+
+    // One stable launcher, two owners; never a NEXT_PUBLIC build flag.
+    expect(bar).toContain("export function AgentBar");
+    expect(bar).not.toContain("export { CommandAgentBar as AgentBar }");
+    expect(bar).toContain("useOneVoiceLiveEnabled()");
+    expect(bar).not.toContain("NEXT_PUBLIC_");
+
+    // The Live owner never reaches for the bounded recorder or browser TTS.
+    expect(live).not.toContain("new CommandCapture(");
+    expect(live).not.toContain("LocationCommandRuntime");
+    expect(live).not.toContain("speechSynthesis");
+    expect(live).not.toContain("GeminiLiveClient");
   });
 
   it("keeps the explicit stop inside the same single-owner broker", () => {

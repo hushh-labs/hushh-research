@@ -680,6 +680,7 @@ export const LOCATION_FLOW_LABELS: Readonly<Record<string, string>> = {
   "active-shares": "Active shares",
   "shared-with-me": "Shared with me",
   "needs-review": "Needs review",
+  ratings: "Place ratings",
 };
 
 /**
@@ -15587,7 +15588,8 @@ export function OneLocationAgentPageContent({
   );
 }
 
-export default function OneLocationAgentPage({
+/** Legacy Location hub (bounded command runtime). Retired once Live is on everywhere. */
+export function OneLocationAgentPage({
   mode = "workspace",
   surface = "hub",
   onSetupReadinessChange,
@@ -15603,4 +15605,9 @@ export default function OneLocationAgentPage({
       onSetupSkip={onSetupSkip}
     />
   );
+}
+
+/** Keep the established Location hub as the customer-facing route. */
+export default function OneLocationPage(props: OneLocationAgentPageProps = {}) {
+  return <OneLocationAgentPage {...props} />;
 }

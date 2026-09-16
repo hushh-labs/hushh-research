@@ -12,7 +12,6 @@ import {
 import { useRouter } from "next/navigation";
 import { App } from "@capacitor/app";
 import { Capacitor } from "@capacitor/core";
-import { useOptionalAgentPopover } from "@/components/agent/agent-popover-provider";
 import { useAuth } from "@/hooks/use-auth";
 import { useVault } from "@/lib/vault/vault-context";
 import { useAgentRuntimeStateOptional } from "@/lib/agent/agent-runtime-context";
@@ -70,8 +69,14 @@ export function useOptionalLocationCommand() {
   return useContext(LocationCommandContext);
 }
 
-/** Sole command and microphone owner; presentation may mount and collapse independently. */
-function useCommandController() {
+/** Sole command and microphone owner; presentation may mount and collapse independently.
+ *
+ * `enabled=false` keeps the context mounted (consumers stay stable) but hands
+ * conversation ownership to the One Live Voice owner: this hook then neither
+ * subscribes to conversation requests nor announces itself owner-ready. Typed
+ * Siri actions keep their validated executor in both modes.
+ */
+function useCommandController(enabled = true) {
   const router = useRouter();
   const runtime = useAgentRuntimeStateOptional();
   const { user } = useAuth();
@@ -79,7 +84,6 @@ function useCommandController() {
   const { switchPersona } = usePersonaState();
   const busyOperations = useKaiSession((state) => state.busyOperations);
   const setAnalysisParams = useKaiSession((state) => state.setAnalysisParams);
-  const popover = useOptionalAgentPopover();
   const locationSurface = useOptionalOneLocationInteractionSurface();
   const locationSurfaceRef = useRef(locationSurface);
   locationSurfaceRef.current = locationSurface;
@@ -336,7 +340,6 @@ function useCommandController() {
     setView({ phase: "idle", message: "" });
     recordingRef.current = "starting";
     setRecording("starting");
-    popover?.minimizeAgent();
     lease.current = appInteractionCoordinator.acquireVoiceLease({
       owner: "agent-bar-command",
       onRevoked: cancelCapture,
@@ -374,14 +377,14 @@ function useCommandController() {
             : "The microphone could not start. Try recording again.",
       });
     }
-  }, [cancelCapture, capture, command, popover, run]);
+  }, [cancelCapture, capture, command, run]);
   const startRef = useRef(startCapture);
   startRef.current = startCapture;
   useEffect(() => {
+    if (!enabled) return;
     const request = (event: Event) => {
       const value =
         (event as CustomEvent<AgentConversationRequest>).detail || {};
-      popover?.minimizeAgent();
       const accepted = () => {
         if (value.requestId && pendingExternalRequest.current !== value) return;
         pendingExternalRequest.current = null;
@@ -458,7 +461,7 @@ function useCommandController() {
         cancelPendingRequest,
       );
     };
-  }, [cancelCapture, command, popover, report]);
+  }, [cancelCapture, command, enabled, report]);
   useEffect(() => {
     command.clearReferences();
     return () => command.clearReferences();
@@ -619,8 +622,14 @@ function useCommandController() {
   };
 }
 
-export function LocationCommandProvider({ children }: { children: ReactNode }) {
-  const controller = useCommandController();
+export function LocationCommandProvider({
+  children,
+  enabled = true,
+}: {
+  children: ReactNode;
+  enabled?: boolean;
+}) {
+  const controller = useCommandController(enabled);
   return (
     <LocationCommandContext.Provider value={controller}>
       {children}

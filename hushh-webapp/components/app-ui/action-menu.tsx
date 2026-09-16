@@ -131,7 +131,6 @@ export function ActionMenu({
                     disabled={item.disabled}
                     aria-busy={item.busy || undefined}
                     data-voice-control-id={item.voiceControlId}
-                    data-voice-action-id={item.voiceActionId}
                     data-testid={
                       testId ? `${testId}-item-${item.id}` : undefined
                     }

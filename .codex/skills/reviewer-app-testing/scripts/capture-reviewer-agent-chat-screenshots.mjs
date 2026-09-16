@@ -42,7 +42,7 @@ async function conversationIds(token) {
 }
 
 try {
-  session = await reviewer.openSession(browser, "/agent");
+  session = await reviewer.openSession(browser, "/");
   let { page } = session;
   ownerToken = await session.capture.ownerToken();
   baselineConversationIds = await conversationIds(ownerToken);
@@ -69,7 +69,7 @@ try {
   });
 
   await session.context.close();
-  session = await reviewer.openSession(browser, "/agent");
+  session = await reviewer.openSession(browser, "/");
   page = session.page;
   await page.setViewportSize({ width: 1440, height: 900 });
   const chatComposer = page.getByTestId("agent-chat-composer-textarea");

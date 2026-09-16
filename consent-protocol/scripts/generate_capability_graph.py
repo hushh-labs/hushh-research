@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import subprocess
 import sys
 from copy import deepcopy
@@ -38,6 +39,8 @@ from hushh_mcp.services.app_intelligence_runtime import (  # noqa: E402
 EVOLUTION_CONTRACT_PATH = ROOT / "hushh_mcp" / "agents" / "capability_graph_evolution.v1.json"
 WORKFLOW_REVISION_COMPATIBILITY_SCHEMA_VERSION = "one.workflow_revision_compatibility.v1"
 CAPABILITY_GRAPH_EVOLUTION_SCHEMA_VERSION = "one.capability_graph_evolution.v1"
+CAPABILITY_GRAPH_BASE_REF_ENV = "CAPABILITY_GRAPH_BASE_REF"
+DEFAULT_CAPABILITY_GRAPH_BASE_REF = "origin/main"
 
 OUTPUTS = (
     REPO_ROOT / "contracts" / "kai" / "one-capability-graph.v1.json",
@@ -84,37 +87,138 @@ def _semantic_index(graph: dict[str, Any]) -> dict[str, str]:
     }
 
 
-def _read_previous() -> dict[str, Any] | None:
-    """Read the committed predecessor, never an intermediate generated file."""
+def _remote_branch_ref(value: str) -> str:
+    """Name a base branch as the fetched remote-tracking ref.
 
-    relative = OUTPUTS[0].relative_to(REPO_ROOT).as_posix()
+    `GITHUB_BASE_REF` is a bare branch name on GitHub and the checkout only
+    carries it as `origin/<name>`. `WEB_TARGETED_BASE_REF` may already carry
+    the prefix; a full ref or a commit id is passed through untouched.
+    """
+
+    ref = value.strip()
+    if not ref or ref.startswith(("origin/", "refs/")):
+        return ref
+    return f"origin/{ref}"
+
+
+def _resolve_base_ref(explicit: str | None = None) -> str:
+    """Pick the ref the breaking-change gate compares against.
+
+    Precedence: `--base-ref`, then `CAPABILITY_GRAPH_BASE_REF` (verbatim, so
+    a local run may name `main` or a commit), then GitHub's `GITHUB_BASE_REF`
+    and the web-targeted lane's `WEB_TARGETED_BASE_REF`, else `origin/main`.
+    """
+
+    for candidate in (explicit, os.environ.get(CAPABILITY_GRAPH_BASE_REF_ENV)):
+        if candidate and candidate.strip():
+            return candidate.strip()
+    for name in ("GITHUB_BASE_REF", "WEB_TARGETED_BASE_REF"):
+        ref = _remote_branch_ref(os.environ.get(name) or "")
+        if ref:
+            return ref
+    return DEFAULT_CAPABILITY_GRAPH_BASE_REF
+
+
+def _resolve_base_commit(base_ref: str) -> str | None:
+    """Return the merge-base of HEAD and the base ref, or None when unresolvable.
+
+    On a pull request merge ref that is the base branch tip; on a local branch
+    it is the fork point. Either way it is a committed ancestor of HEAD.
+    """
+
     try:
-        completed = subprocess.run(  # noqa: S603 - fixed git executable/arguments
-            ["git", "show", f"HEAD:{relative}"],  # noqa: S607
+        resolved = subprocess.run(  # noqa: S603 - fixed git executable/arguments
+            [
+                "git",
+                "rev-parse",
+                "--verify",
+                "--quiet",
+                "--end-of-options",
+                f"{base_ref}^{{commit}}",
+            ],  # noqa: S607
+            cwd=REPO_ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        if resolved.returncode != 0 or not resolved.stdout.strip():
+            return None
+        merge_base = subprocess.run(  # noqa: S603 - fixed git executable/arguments
+            ["git", "merge-base", "HEAD", resolved.stdout.strip()],  # noqa: S607
             cwd=REPO_ROOT,
             check=False,
             capture_output=True,
             text=True,
         )
     except OSError:
-        completed = None
-    if completed is not None and completed.returncode == 0:
-        try:
-            payload = json.loads(completed.stdout)
-        except ValueError:
-            return None
-        return payload if isinstance(payload, dict) else None
-    # In an exported source archive there may be no Git object database. Keep
-    # `--check` useful there by comparing the checked-in file to itself. In a
-    # Git checkout, a missing HEAD path means this is the graph's first release
-    # and an untracked intermediate artifact is not a compatibility ancestor.
-    if (REPO_ROOT / ".git").exists():
+        return None
+    if merge_base.returncode != 0:
+        return None
+    return merge_base.stdout.strip() or None
+
+
+def _read_committed_graph(revision: str) -> dict[str, Any] | None:
+    """Read the graph as committed at `revision`; None when absent or unparsable."""
+
+    relative = OUTPUTS[0].relative_to(REPO_ROOT).as_posix()
+    try:
+        completed = subprocess.run(  # noqa: S603 - fixed git executable/arguments
+            ["git", "show", f"{revision}:{relative}"],  # noqa: S607
+            cwd=REPO_ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+    except OSError:
+        return None
+    if completed.returncode != 0:
         return None
     try:
-        payload = json.loads(OUTPUTS[0].read_text(encoding="utf-8"))
-    except (OSError, ValueError):
+        payload = json.loads(completed.stdout)
+    except ValueError:
         return None
     return payload if isinstance(payload, dict) else None
+
+
+def _read_previous(*, base_ref: str | None = None) -> dict[str, Any] | None:
+    """Read the committed predecessor at the pull request base, never HEAD.
+
+    On a pull request the checkout is the merge ref, so `HEAD:` holds the
+    author's own committed graph and its recorded diff. Comparing against it
+    let a repurposed action land with `breaking: []`. The predecessor is the
+    graph at the merge-base with the base branch instead, and only a
+    verified-missing path there (the graph's first release) reads as None.
+    """
+
+    # In an exported source archive there may be no Git object database. Keep
+    # `--check` useful there by comparing the checked-in file to itself. In a
+    # Git checkout, a missing base path means this is the graph's first release
+    # and an untracked intermediate artifact is not a compatibility ancestor.
+    if not (REPO_ROOT / ".git").exists():
+        try:
+            payload = json.loads(OUTPUTS[0].read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return None
+        return payload if isinstance(payload, dict) else None
+
+    ref = _resolve_base_ref(base_ref)
+    base_commit = _resolve_base_commit(ref)
+    if base_commit is not None:
+        print(
+            f"capability graph base: {ref} (merge-base {base_commit[:12]})",
+            file=sys.stderr,
+        )
+        return _read_committed_graph(base_commit)
+    if os.environ.get("GITHUB_ACTIONS") or os.environ.get("CI"):
+        raise RuntimeError(
+            f"capability graph base ref unavailable ({ref}); checkout needs fetch-depth 0"
+        )
+    print(
+        f"capability graph base: HEAD (warning: {ref} is unresolvable locally, "
+        "comparing against the committed graph at HEAD)",
+        file=sys.stderr,
+    )
+    return _read_committed_graph("HEAD")
 
 
 def _workflow_by_id(graph: dict[str, Any]) -> dict[str, dict[str, Any]]:
@@ -627,8 +731,12 @@ def _merge_workflow_predecessor(graph: dict[str, Any], predecessor: dict[str, An
     graph["workflow_revision_compatibility"] = compatibility
 
 
-def build_payload(*, workflow_predecessor_refs: tuple[str, ...] = ()) -> dict[str, Any]:
-    previous = _read_previous()
+def build_payload(
+    *,
+    workflow_predecessor_refs: tuple[str, ...] = (),
+    base_ref: str | None = None,
+) -> dict[str, Any]:
+    previous = _read_previous(base_ref=base_ref)
     deprecations = _load_evolution_deprecations()
     graph = compile_capability_graph_from_sources()
     if graph.get("schema_version") != CAPABILITY_GRAPH_SCHEMA_VERSION:
@@ -682,8 +790,19 @@ def main() -> int:
         default=[],
         help="preserve a merged ancestor's workflow history after semantic compatibility proof",
     )
+    parser.add_argument(
+        "--base-ref",
+        default=None,
+        help=(
+            "ref the breaking-change gate compares against; overrides "
+            f"{CAPABILITY_GRAPH_BASE_REF_ENV}, GITHUB_BASE_REF and WEB_TARGETED_BASE_REF"
+        ),
+    )
     args = parser.parse_args()
-    payload = build_payload(workflow_predecessor_refs=tuple(args.workflow_predecessor_ref))
+    payload = build_payload(
+        workflow_predecessor_refs=tuple(args.workflow_predecessor_ref),
+        base_ref=args.base_ref,
+    )
     text = json.dumps(payload, indent=2, sort_keys=True) + "\n"
     stale = []
     for output in OUTPUTS:

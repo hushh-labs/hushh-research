@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const profilePageSource = readFileSync(
-  join(process.cwd(), "app/profile/profile-workspace-page.tsx"),
+  join(process.cwd(), "components/profile/profile-workspace-page.tsx"),
   "utf8",
 );
 const topAppBarSource = readFileSync(
@@ -57,7 +57,7 @@ describe("profile security deletion contract", () => {
     expect(deleteFlowSource).toContain("UserLocalStateService.clearForUser");
     expect(deleteFlowSource).toContain("DELETE_ACCOUNT_DIALOG_TITLE");
     expect(deleteFlowSource).toContain(
-      "Required security or legal records may be retained under our policy.",
+      "Deletes account, Vault, data, and access. Required records may remain. Can’t undo.",
     );
     expect(profilePageSource).toContain("DELETE_ACCOUNT_DIALOG_TITLE");
     expect(topAppBarSource).toContain("DELETE_ACCOUNT_DIALOG_TITLE");
@@ -74,6 +74,9 @@ describe("profile security deletion contract", () => {
 
   it("offers a reset-account path that keeps the account and re-runs setup", () => {
     expect(profilePageSource).toContain("Reset account?");
+    expect(profilePageSource).toContain(
+      "Clears saved details and setup progress. Your sign-in and vault stay.",
+    );
     expect(profilePageSource).toContain('"Reset account"');
     expect(profilePageSource).toContain(
       "AccountService.resetAccount(resolution.token)",

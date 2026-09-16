@@ -615,7 +615,7 @@ async function fetchStatusFromNetwork(params: {
     return entry.status;
   }
 
-  // A foreground auth check can briefly remount this hook. Do not turn one
+  // An explicit auth recovery can briefly remount this hook. Do not turn one
   // failed backend request into a retry loop; an explicit Refresh still
   // bypasses this memory-only cooldown.
   if (isStatusRetryCoolingDown(entry, Boolean(params.force))) {

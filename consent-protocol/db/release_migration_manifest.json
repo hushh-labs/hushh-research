@@ -192,7 +192,10 @@
     "217_location_command_effect_receipts.sql",
     "218_location_command_audience_receipts.sql",
     "219_location_presence_rating_visit.sql",
-    "220_gmail_personal_information_request_initial_inbox_scan.sql"
+    "220_gmail_personal_information_request_initial_inbox_scan.sql",
+    "221_one_location_account_settings.sql",
+    "222_one_voice_runtime.sql",
+    "223_one_location_setup_progress.sql"
   ],
   "environment_overlays": {
     "uat": [
@@ -334,7 +337,10 @@
       "217_location_command_effect_receipts.sql",
       "218_location_command_audience_receipts.sql",
       "219_location_presence_rating_visit.sql",
-      "220_gmail_personal_information_request_initial_inbox_scan.sql"
+      "220_gmail_personal_information_request_initial_inbox_scan.sql",
+      "221_one_location_account_settings.sql",
+      "222_one_voice_runtime.sql",
+      "223_one_location_setup_progress.sql"
     ],
     "pkm": [
       "030_pkm_cutover.sql",
@@ -384,6 +390,9 @@
     "207_pkm_manifest_display_segment.sql": "rollback/207_pkm_manifest_display_segment.rollback.sql",
     "210_one_location_onboarding_runtime.sql": "rollback/210_one_location_onboarding_runtime.rollback.sql",
     "211_one_capability_runs_rls_lockdown.sql": "rollback/211_one_capability_runs_rls_lockdown.rollback.sql",
-    "212_location_command_runtime.sql": "rollback/212_location_command_runtime.rollback.sql"
+    "212_location_command_runtime.sql": "rollback/212_location_command_runtime.rollback.sql",
+    "221_one_location_account_settings.sql": "rollback/221_one_location_account_settings.rollback.sql",
+    "222_one_voice_runtime.sql": "rollback/222_one_voice_runtime.rollback.sql",
+    "223_one_location_setup_progress.sql": "rollback/223_one_location_setup_progress.rollback.sql"
   }
 }

@@ -7,7 +7,7 @@ import fs from "node:fs";
  * Step types:
  * - ensure_persona: { persona: "ria" | "investor" }
  * - ensure_ria_workspace: {}
- * - click_bottom_nav: { label: "One" | "Connect" | "Search" }
+ * - click_bottom_nav: { label: "Chat" | "One" | "Connect" | "Feed" | "Search" }
  * - click_top_tab: { label: string }
  * - click_shell_action: { ariaLabel: string }
  * - click_button: { name: string, regex?: boolean }  // case-insensitive exact match unless regex=true
@@ -199,16 +199,17 @@ export const UI_FLOWS = [
   },
   {
     id: "shell-profile",
-    route: "/one/profile/account",
-    description: "Profile pane from shell, then dedicated Account route",
+    route: "/one",
+    description: "Profile pane from the One shell, then recursive Account panel",
     steps: [
       { type: "ensure_persona", persona: "investor" },
       { type: "click_shell_action", ariaLabel: "Open Profile" },
       { type: "assert_visible_testid", testId: "profile-pane" },
       { type: "assert_text", value: "Your account" },
       { type: "click_button", name: "Your account" },
-      { type: "wait_beacon", routeIds: ["/one/profile/account"] },
-      { type: "assert_url_includes", value: "/one/profile/account" },
+      { type: "assert_text", value: "Email, phone, and sign-in." },
+      { type: "assert_url_includes", value: "profile_pane=1" },
+      { type: "assert_url_includes", value: "profile_panel=account" },
     ],
   },
   {

@@ -1,6 +1,7 @@
 import { ApiService } from "@/lib/services/api-service";
 import { HttpAgent, type AgentSubscriber, type Tool } from "@ag-ui/client";
 import { getKaiActionById } from "@/lib/voice/kai-action-gateway";
+import { describeDirectiveForOwner } from "@/lib/agent/action-directive-summary";
 import {
   parseAgentActivityExperience,
   parseAgentToolResultExperience,
@@ -294,22 +295,32 @@ export async function streamAgentChat(input: {
     const actionId = tools.find((tool) => tool.name === name)?.metadata?.actionId;
     const action = getKaiActionById(typeof actionId === "string" ? actionId : null);
     const serverPresentation = SERVER_TOOL_PRESENTATION[name];
+    const resolvedActionId = typeof actionId === "string" ? actionId : null;
+    const label = action?.label || serverPresentation?.label || "One task";
+    const requiresConfirmation = action?.execution_policy === "confirm_required";
+    const trustedActivationRequired =
+      action?.activation_policy === "trusted_activation_required";
     return {
       callId,
       directiveId: null,
       conversationId: threadId,
       contextRevision: null,
       expiresAt: null,
-      actionId: typeof actionId === "string" ? actionId : null,
-      label: action?.label || serverPresentation?.label || "One task",
+      actionId: resolvedActionId,
+      label,
       execution: "frontend",
       slots: args,
-      message:
-        action?.meaning ||
-        serverPresentation?.message ||
-        "One is working on your request.",
-      requiresConfirmation: action?.execution_policy === "confirm_required",
-      trustedActivationRequired: action?.activation_policy === "trusted_activation_required",
+      // The gateway's `meaning` is written for the model and names a category
+      // of action, never this one. The owner confirms a sentence built from the
+      // resolved slots instead. Only a directive that waits on the owner may
+      // say so; most actions run directly and this sentence shows while they do.
+      message: action
+        ? describeDirectiveForOwner(resolvedActionId, label, args, {
+            requiresConfirmation: requiresConfirmation || trustedActivationRequired,
+          })
+        : serverPresentation?.message || "One is working on your request.",
+      requiresConfirmation,
+      trustedActivationRequired,
       raw: {
         protocol: "ag-ui",
         toolName: name,
@@ -367,6 +378,12 @@ export async function streamAgentChat(input: {
       const parked = parseParkedAppActionDirective(event.content);
       if (parked) {
         const action = getKaiActionById(parked.actionId);
+        const parkedLabel = action?.label || parked.actionId;
+        const parkedRequiresConfirmation =
+          parked.needsConfirmation || action?.execution_policy === "confirm_required";
+        const parkedTrustedActivationRequired =
+          parked.trustedActivationRequired ||
+          action?.activation_policy === "trusted_activation_required";
         handlers.onToolWaiting?.({
           callId: `${event.toolCallId}:directive`,
           directiveId: event.toolCallId,
@@ -374,15 +391,19 @@ export async function streamAgentChat(input: {
           contextRevision: null,
           expiresAt: null,
           actionId: parked.actionId,
-          label: action?.label || parked.actionId,
+          label: parkedLabel,
           execution: "frontend",
           slots: parked.slots,
-          message: action?.meaning || parked.message || "One is ready to continue.",
-          requiresConfirmation:
-            parked.needsConfirmation || action?.execution_policy === "confirm_required",
-          trustedActivationRequired:
-            parked.trustedActivationRequired ||
-            action?.activation_policy === "trusted_activation_required",
+          // A parked directive that owes no confirmation runs at once in the
+          // workspace, so the sentence may only promise a pause when one is owed.
+          message: action
+            ? describeDirectiveForOwner(parked.actionId, parkedLabel, parked.slots, {
+                requiresConfirmation:
+                  parkedRequiresConfirmation || parkedTrustedActivationRequired,
+              })
+            : parked.message || "One is ready to continue.",
+          requiresConfirmation: parkedRequiresConfirmation,
+          trustedActivationRequired: parkedTrustedActivationRequired,
           raw: {
             protocol: "ag-ui",
             toolName,

@@ -14,6 +14,7 @@ from hushh_mcp.consent.export_envelope import (
     connector_key_fingerprint,
     scope_handle_for_machine_scope,
 )
+from hushh_mcp.services.consent_center_service import requester_identity_metadata
 from hushh_mcp.services.consent_db import ConsentDBService
 from hushh_mcp.services.consent_request_links import build_consent_request_url
 from hushh_mcp.services.person_profile_service import PersonProfileService, requester_principal
@@ -26,6 +27,9 @@ class InformationRequestError(ValueError):
 
 
 _ONE_INFORMATION_REQUEST_APP_ID = "agent_one"
+# The owner sees one "opened" record per approved item per hour, not one per
+# poll: the requesting device refreshes the encrypted package on every open of
+# its own screen, and a ledger that repeats itself that often stops being read.
 
 
 class InformationRequestService:
@@ -290,6 +294,7 @@ class InformationRequestService:
                     "status": {
                         "CONSENT_GRANTED": "granted",
                         "CONSENT_DENIED": "denied",
+                        "CANCELLED": "cancelled",
                         "REVOKED": "revoked",
                         "TIMEOUT": "expired",
                     }.get(action, "expired" if is_expired else "pending"),
@@ -354,15 +359,60 @@ class InformationRequestService:
                 user_id=str(bundle["subject_user_id"]),
                 agent_id=str(bundle["requester_principal"]),
                 scope=str((status or {}).get("scope") or item.get("scope") or ""),
-                action="CONSENT_DENIED",
+                # The requester withdrew; the owner never decided. A denial
+                # here would tell the owner they refused something they did
+                # not see, so the ledger says what happened.
+                action="CANCELLED",
                 request_id=str(item["request_id"]),
-                metadata={"cancelled_by_requester": True, "bundle_id": bundle_id},
+                metadata={
+                    # The requester's name and picture travel with the row so
+                    # the owner's history never headlines a withdrawal with
+                    # the raw principal id.
+                    **requester_identity_metadata((status or {}).get("metadata")),
+                    "cancelled_by_requester": True,
+                    "bundle_id": bundle_id,
+                },
             )
         await self._rows(
             "UPDATE one_information_request_bundles SET cancelled_at = COALESCE(cancelled_at, NOW()) WHERE bundle_id = CAST(:bundle AS UUID) RETURNING bundle_id",
             {"bundle": bundle_id},
         )
         return await self.get(requester_user_id=requester_user_id, bundle_id=bundle_id)
+
+    async def _record_export_read(
+        self,
+        *,
+        subject_user_id: str,
+        requester_principal: str,
+        scope: str,
+        request_id: str,
+        bundle_id: str,
+        export_revision: Any,
+        grant_metadata: Any,
+    ) -> None:
+        """Leave the owner an EXPORT_READ record, at most once per request per hour.
+
+        The requester reading the encrypted package is the moment the owner's
+        records actually leave; approval alone is not. The ledger is the only
+        place the owner can see that, so it is written here rather than in a
+        side table nobody surfaces. The ledger serializes the hour-window check
+        and insert across workers so concurrent reads leave only one record.
+
+        ``grant_metadata`` is the GRANTED row's metadata (a copy of the request
+        metadata); the requester identity keys are carried onto this row so the
+        owner's history keeps showing the person, not the principal id.
+        """
+        await self._consent.record_export_read_once(
+            user_id=subject_user_id,
+            agent_id=requester_principal,
+            scope=scope,
+            request_id=request_id,
+            metadata={
+                **requester_identity_metadata(grant_metadata),
+                "bundle_id": bundle_id,
+                "export_revision": export_revision,
+            },
+        )
 
     async def exports(self, *, requester_user_id: str, bundle_id: str) -> dict[str, Any]:
         bundle, items = await self._bundle(requester_user_id, bundle_id)
@@ -405,6 +455,15 @@ class InformationRequestService:
                         "ciphertext_bytes": encrypted.get("ciphertext_bytes"),
                     },
                 }
+                await self._record_export_read(
+                    subject_user_id=str(bundle["subject_user_id"]),
+                    requester_principal=str(bundle["requester_principal"]),
+                    scope=str(status.get("scope") or item.get("scope") or ""),
+                    request_id=str(item["request_id"]),
+                    bundle_id=bundle_id,
+                    export_revision=encrypted.get("export_revision"),
+                    grant_metadata=status.get("metadata"),
+                )
                 exports.append(
                     {
                         "requestId": item["request_id"],

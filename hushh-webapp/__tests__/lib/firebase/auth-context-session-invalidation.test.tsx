@@ -141,6 +141,11 @@ import {
   publishAccountDeletionToSiblingTabs,
   type AuthSessionInvalidationDetail,
 } from "@/lib/auth/session-invalidation";
+import {
+  AUTH_SESSION_VERIFICATION_REQUIRED_EVENT,
+  snapshotValidatedAuthSessionOwner,
+} from "@/lib/auth/session-owner";
+import { ACCOUNT_SESSION_VALIDATION_BUDGET_MS } from "@/lib/auth/account-session-policy";
 
 function deferred<T>() {
   let resolve!: (value: T | PromiseLike<T>) => void;
@@ -170,6 +175,16 @@ function activeSessionResponse(): Response {
 function emitLifecycle(state: "active" | "background") {
   mocks.lifecycleState = state;
   for (const listener of mocks.lifecycleListeners) listener();
+}
+
+function requestExplicitSessionVerification() {
+  const owner = snapshotValidatedAuthSessionOwner();
+  if (!owner) throw new Error("Expected a published auth session owner.");
+  window.dispatchEvent(
+    new CustomEvent(AUTH_SESSION_VERIFICATION_REQUIRED_EVENT, {
+      detail: { ...owner, reason: "test_explicit_verification" },
+    }),
+  );
 }
 
 function dispatchAccountNotFoundInvalidation() {
@@ -314,45 +329,29 @@ describe("AuthProvider terminal session invalidation", () => {
     expect(mocks.routerReplace).toHaveBeenCalledWith("/");
   });
 
-  it("force-refreshes an existing session on web foreground without unmounting the current screen", async () => {
-    const refresh = deferred<string | null>();
+  it("does not revalidate an already-published session on web foreground", async () => {
     renderProvider();
 
     await screen.findByText("Vault content for account-owner");
     const currentUser = mocks.firebaseUser as User;
-    vi.mocked(currentUser.getIdToken).mockImplementation((forceRefresh) =>
-      forceRefresh ? refresh.promise : Promise.resolve("persisted-token"),
-    );
-    mocks.apiGetAccountSessionStatus.mockResolvedValueOnce(
-      new Response(JSON.stringify({ detail: "Invalid Firebase ID token" }), {
-        status: 401,
-      }),
-    );
+    vi.mocked(currentUser.getIdToken).mockClear();
+    mocks.apiGetAccountSessionStatus.mockClear();
 
     act(() => {
       emitLifecycle("background");
       emitLifecycle("active");
     });
 
-    await waitFor(() => {
-      expect(currentUser.getIdToken).toHaveBeenCalledWith(true);
-    });
+    await act(async () => Promise.resolve());
+    expect(currentUser.getIdToken).not.toHaveBeenCalled();
+    expect(mocks.apiGetAccountSessionStatus).not.toHaveBeenCalled();
     expect(screen.queryByText("Checking session")).not.toBeInTheDocument();
     expect(
       screen.getByText("Vault content for account-owner"),
     ).toBeInTheDocument();
-
-    await act(async () => {
-      refresh.resolve("fresh-token");
-      await refresh.promise;
-    });
-
-    expect(
-      await screen.findByText("Vault content for account-owner"),
-    ).toBeInTheDocument();
   });
 
-  it("does not remount protected UI for duplicate fresh web lifecycle checks", async () => {
+  it("does not remount protected UI for duplicate focus events", async () => {
     renderProvider();
 
     await screen.findByText("Vault content for account-owner");
@@ -362,9 +361,8 @@ describe("AuthProvider terminal session invalidation", () => {
       window.dispatchEvent(new Event("focus"));
     });
 
-    await waitFor(() => {
-      expect(mocks.apiGetAccountSessionStatus).toHaveBeenCalledTimes(1);
-    });
+    await act(async () => Promise.resolve());
+    expect(mocks.apiGetAccountSessionStatus).not.toHaveBeenCalled();
     expect(screen.queryByText("Checking session")).not.toBeInTheDocument();
 
     act(() => {
@@ -372,7 +370,7 @@ describe("AuthProvider terminal session invalidation", () => {
     });
     await act(async () => Promise.resolve());
 
-    expect(mocks.apiGetAccountSessionStatus).toHaveBeenCalledTimes(1);
+    expect(mocks.apiGetAccountSessionStatus).not.toHaveBeenCalled();
     expect(screen.queryByText("Checking session")).not.toBeInTheDocument();
     expect(screen.getByText("Vault content for account-owner")).toBeInTheDocument();
   });
@@ -395,10 +393,7 @@ describe("AuthProvider terminal session invalidation", () => {
     );
     mocks.authServiceSignOut.mockReturnValueOnce(signOut.promise);
 
-    act(() => {
-      emitLifecycle("background");
-      emitLifecycle("active");
-    });
+    act(() => requestExplicitSessionVerification());
 
     await waitFor(() => {
       expect(mocks.authServiceSignOut).toHaveBeenCalledTimes(1);
@@ -443,13 +438,10 @@ describe("AuthProvider terminal session invalidation", () => {
         ),
       );
 
-    act(() => {
-      emitLifecycle("background");
-      emitLifecycle("active");
-    });
+    act(() => requestExplicitSessionVerification());
 
-    expect(screen.queryByText("Checking session")).not.toBeInTheDocument();
-    expect(screen.getByText("Vault content for account-owner")).toBeInTheDocument();
+    expect(screen.getByText("Checking session")).toBeInTheDocument();
+    expect(screen.queryByText("Vault content for account-owner")).not.toBeInTheDocument();
     await waitFor(() => {
       expect(mocks.authServiceSignOut).toHaveBeenCalledTimes(1);
     });
@@ -474,12 +466,9 @@ describe("AuthProvider terminal session invalidation", () => {
         activeSessionResponse(),
       );
 
-    act(() => {
-      emitLifecycle("background");
-      emitLifecycle("active");
-    });
+    act(() => requestExplicitSessionVerification());
 
-    expect(screen.queryByText("Checking session")).not.toBeInTheDocument();
+    expect(screen.getByText("Checking session")).toBeInTheDocument();
     expect(
       await screen.findByText("Vault content for account-owner"),
     ).toBeInTheDocument();
@@ -501,12 +490,9 @@ describe("AuthProvider terminal session invalidation", () => {
       .mockResolvedValueOnce(deletionInProgress())
       .mockResolvedValueOnce(deletionInProgress());
 
-    act(() => {
-      emitLifecycle("background");
-      emitLifecycle("active");
-    });
+    act(() => requestExplicitSessionVerification());
 
-    expect(screen.queryByText("Checking session")).not.toBeInTheDocument();
+    expect(screen.getByText("Checking session")).toBeInTheDocument();
     await waitFor(() => {
       expect(mocks.authServiceSignOut).toHaveBeenCalledTimes(1);
     });
@@ -654,14 +640,11 @@ describe("AuthProvider terminal session invalidation", () => {
       }),
     );
 
-    act(() => {
-      emitLifecycle("background");
-      emitLifecycle("active");
-    });
-    expect(screen.queryByText("Checking session")).not.toBeInTheDocument();
+    act(() => requestExplicitSessionVerification());
+    expect(screen.getByText("Checking session")).toBeInTheDocument();
 
     act(() => vi.advanceTimersByTime(10_001));
-    expect(screen.queryByText("Checking session")).not.toBeInTheDocument();
+    expect(screen.getByText("Checking session")).toBeInTheDocument();
 
     await act(async () => {
       refresh.resolve("fresh-token");
@@ -689,10 +672,7 @@ describe("AuthProvider terminal session invalidation", () => {
         : Promise.resolve("persisted-token"),
     );
 
-    act(() => {
-      emitLifecycle("background");
-      emitLifecycle("active");
-    });
+    act(() => requestExplicitSessionVerification());
 
     expect(
       await screen.findByText("Verification required"),
@@ -718,10 +698,7 @@ describe("AuthProvider terminal session invalidation", () => {
       new TypeError("Failed to fetch"),
     );
 
-    act(() => {
-      emitLifecycle("background");
-      emitLifecycle("active");
-    });
+    act(() => requestExplicitSessionVerification());
     await act(async () => Promise.resolve());
 
     expect(screen.getByText("Verification required")).toBeInTheDocument();
@@ -782,10 +759,7 @@ describe("AuthProvider terminal session invalidation", () => {
     await screen.findByText("Vault content for account-owner");
     mocks.apiGetAccountSessionStatus.mockResolvedValueOnce(response());
 
-    act(() => {
-      emitLifecycle("background");
-      emitLifecycle("active");
-    });
+    act(() => requestExplicitSessionVerification());
 
     expect(
       await screen.findByText("Verification required"),
@@ -807,10 +781,7 @@ describe("AuthProvider terminal session invalidation", () => {
       .mockResolvedValueOnce(
         activeSessionResponse(),
       );
-    act(() => {
-      emitLifecycle("background");
-      emitLifecycle("active");
-    });
+    act(() => requestExplicitSessionVerification());
     await waitFor(() => {
       expect(mocks.apiGetAccountSessionStatus).toHaveBeenCalledTimes(2);
     });
@@ -848,10 +819,7 @@ describe("AuthProvider terminal session invalidation", () => {
     mocks.apiGetAccountSessionStatus
       .mockReturnValueOnce(accountAStatus.promise)
       .mockReturnValueOnce(accountBStatus.promise);
-    act(() => {
-      emitLifecycle("background");
-      emitLifecycle("active");
-    });
+    act(() => requestExplicitSessionVerification());
     await waitFor(() => {
       expect(mocks.apiGetAccountSessionStatus).toHaveBeenCalledTimes(2);
     });
@@ -961,10 +929,7 @@ describe("AuthProvider terminal session invalidation", () => {
         : Promise.resolve("persisted-token"),
     );
 
-    act(() => {
-      emitLifecycle("background");
-      emitLifecycle("active");
-    });
+    act(() => requestExplicitSessionVerification());
 
     expect(
       await screen.findByText("Verification required"),
@@ -1074,10 +1039,11 @@ describe("AuthProvider terminal session invalidation", () => {
     }
   });
 
-  it("enters locked recovery after a bounded hung foreground status check", async () => {
+  it("does not enter recovery for a hung status request that lifecycle cannot start", async () => {
     renderProvider();
     await screen.findByText("Vault content for account-owner");
     vi.useFakeTimers();
+    mocks.apiGetAccountSessionStatus.mockClear();
     mocks.apiGetAccountSessionStatus.mockReturnValueOnce(
       new Promise<Response>(() => undefined),
     );
@@ -1086,72 +1052,12 @@ describe("AuthProvider terminal session invalidation", () => {
       emitLifecycle("background");
       emitLifecycle("active");
     });
-    expect(screen.getByText("Vault content for account-owner")).toBeInTheDocument();
 
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(60_001);
+      await vi.advanceTimersByTimeAsync(ACCOUNT_SESSION_VALIDATION_BUDGET_MS + 1);
     });
-    expect(screen.getByText("Verification required")).toBeInTheDocument();
-    expect(
-      screen.queryByText("Vault content for account-owner"),
-    ).not.toBeInTheDocument();
-    expect(mocks.authServiceSignOut).not.toHaveBeenCalled();
-  });
-});
-
-describe("AuthProvider foreground revalidation gate", () => {
-  it("keeps the screen rendered on an ordinary window focus", async () => {
-    // Revalidating an already-published identity is a background check, not a
-    // sign-in. Raising the loading gate on every focus unmounted the tree
-    // behind a spinner and re-rendered the whole screen, which the owner
-    // experienced as the app checking their session over and over. The check
-    // still has to run; only the spinner waits for it.
-    renderProvider();
-    await screen.findByText("Vault content for account-owner");
-    mocks.apiGetAccountSessionStatus.mockResolvedValueOnce(activeSessionResponse());
-
-    act(() => {
-      window.dispatchEvent(new Event("focus"));
-    });
-
-    expect(screen.queryByText("Checking session")).not.toBeInTheDocument();
-    expect(
-      screen.getByText("Vault content for account-owner"),
-    ).toBeInTheDocument();
-
-    // The validation itself must still have happened. A "fix" that simply
-    // stopped checking would pass the assertion above and be a security bug.
-    await waitFor(() => {
-      expect(mocks.apiGetAccountSessionStatus).toHaveBeenCalled();
-    });
-    expect(mocks.authServiceSignOut).not.toHaveBeenCalled();
-  });
-
-  it("keeps the screen mounted for a slow web app foreground validation", async () => {
-    // Browser visibility enters through InteractionRuntime's lifecycle
-    // coordinator, not only window focus. A slow result must not unmount an
-    // active WebAuthn ceremony and turn a successful Touch ID prompt into a
-    // passphrase fallback.
-    renderProvider();
-    await screen.findByText("Vault content for account-owner");
-    const status = deferred<Response>();
-    mocks.apiGetAccountSessionStatus.mockReturnValueOnce(status.promise);
-    act(() => {
-      emitLifecycle("background");
-      emitLifecycle("active");
-    });
-
-    await act(async () => Promise.resolve());
-    expect(mocks.apiGetAccountSessionStatus).toHaveBeenCalled();
-    expect(screen.queryByText("Checking session")).not.toBeInTheDocument();
-    expect(
-      screen.getByText("Vault content for account-owner"),
-    ).toBeInTheDocument();
-
-    await act(async () => {
-      status.resolve(activeSessionResponse());
-      await status.promise;
-    });
+    expect(mocks.apiGetAccountSessionStatus).not.toHaveBeenCalled();
     expect(screen.getByText("Vault content for account-owner")).toBeInTheDocument();
+    expect(mocks.authServiceSignOut).not.toHaveBeenCalled();
   });
 });

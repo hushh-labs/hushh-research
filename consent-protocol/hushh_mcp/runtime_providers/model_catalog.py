@@ -4,8 +4,10 @@ The deployment environment names a *default*, never the only possibility. Anythi
 needs to know which models exist asks here, so adding a generation is one registry row
 plus one line in ``FLEET_TEXT_MODEL_CHOICES`` -- not a redeploy of every lane.
 
-Founder directive 2026-09-02: the text fleet runs Flash. Newest first, so the head of
-this tuple is what a fresh chooser sees at the top.
+Founder directive 2026-09-02: the text fleet runs Flash. Founder rule 2026-09-14: the
+catalog lists only the last two Gemini releases at all times. A roll-forward replaces the
+oldest entry, it never adds a third. Newest first, so the head of this tuple is what a
+fresh chooser sees at the top.
 """
 
 from __future__ import annotations
@@ -14,21 +16,18 @@ from dataclasses import dataclass
 
 from hushh_mcp.runtime_providers.registry import resolve_model_entry
 
-# Newest first. A model belongs here only once the registry knows it AND at least one
-# lane's Vertex allowed-models policy admits it; the catalog reports availability per
-# entry rather than hiding a model the lane cannot serve.
+# Newest first, and exactly two entries: the current release and the one before it. A
+# model belongs here only once the registry knows it AND at least one lane's Vertex
+# allowed-models policy admits it; the catalog reports availability per entry rather
+# than hiding a model the lane cannot serve.
 FLEET_TEXT_MODEL_CHOICES: tuple[str, ...] = (
     "gemini-3.8-flash",
     "gemini-3.7-flash",
-    "gemini-3.6-flash",
-    "gemini-3.5-flash",
 )
 
 _LABELS: dict[str, str] = {
     "gemini-3.8-flash": "Gemini 3.8 Flash",
     "gemini-3.7-flash": "Gemini 3.7 Flash",
-    "gemini-3.6-flash": "Gemini 3.6 Flash",
-    "gemini-3.5-flash": "Gemini 3.5 Flash",
 }
 
 

@@ -1,134 +1,79 @@
 #!/usr/bin/env python3
-"""Measure which tool One reaches for first on ordinary consent questions.
+"""A/B the consent family of the first-tool harness across two instructions.
 
 Usage:
-    GENAI_GOOGLE_CLOUD_PROJECT=<project> GOOGLE_GENAI_USE_VERTEXAI=true \
+    GENAI_GOOGLE_CLOUD_PROJECT=<project> GOOGLE_GENAI_USE_VERTEXAI=true \\
       PYTHONPATH=. python scripts/eval_one_consent_tool_selection.py <instruction_a.txt> <instruction_b.txt>
-    AB_MODEL=gemini-3.7-flash ... to run against the model production pins.
+    AB_MODEL=gemini-3.7-flash ... to run against another model pin.
 
-Why this exists
----------------
-The founder's own sentence, "can we request finance information from Sharu
-Khan", was routed by One's previous instruction to `list_my_connections`, a
-dead end, because that instruction never named `discover_person_information`
-at all. Nothing in the test suite could have said so: tool selection is the
-model's judgement and only a live call measures it.
+This is a thin wrapper over scripts/eval_one_first_tool.py, which now owns
+the roster, the case fixture (scripts/eval_cases/one_first_tool.v1.json,
+family "consent" carries the original 13 questions verbatim), scoring, and
+the report. Both instruction files run back to back against the consent
+family and each writes its own report under artifacts/.
 
-Measured 2026-09-13 over 13 questions, four runs each, two models:
-previous instruction 47/52 correct first tool, revised 52/52. Every miss on the
-previous instruction was a discovery-shaped question or the trusted-people
-case, the two things it never mapped to a tool. Expect run-to-run variance
-even at temperature 0, and expect 429s from Vertex on back-to-back runs.
+Why the consent family exists: the founder's own sentence, "can we request
+finance information from Sharu Khan", was routed by the private agent's
+previous instruction to `list_my_connections`, a dead end, because that
+instruction never named `discover_person_information`. Only a live call
+measures tool selection. Expect run-to-run variance even at temperature 0,
+and expect 429s from Vertex on back-to-back runs (the harness retries them).
 
-A/B: does the instruction change which tool One reaches for on consent questions?
-
-Faithful to the runtime: tool declarations are built by ADK's own FunctionTool from
-One's real tool functions, so the model sees exactly the docstrings it sees in
-production. Temperature 0. One turn. The KPI is the FIRST tool the model calls.
+Measured 2026-09-13 with the previous script over the 13 questions, four runs
+each on two models: previous instruction 47/52, revised 52/52. Those runs sent
+every declaration without parameters (the old script forwarded a field ADK
+leaves empty under postponed annotations), so re-measure through this wrapper
+before quoting the figure again.
 """
 
+from __future__ import annotations
+
+import argparse
 import os
 import sys
-import warnings
+from collections.abc import Sequence
 from pathlib import Path
 
-warnings.filterwarnings("ignore")
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+CONSENT_PROTOCOL_ROOT = Path(__file__).resolve().parents[1]
+if str(CONSENT_PROTOCOL_ROOT) not in sys.path:
+    sys.path.insert(0, str(CONSENT_PROTOCOL_ROOT))
 
-from google import genai  # noqa: E402
-from google.adk.tools import FunctionTool  # noqa: E402
-from google.genai import types  # noqa: E402
+from scripts import eval_one_first_tool as harness  # noqa: E402
 
-from hushh_mcp.one_adk import action_tools as at  # noqa: E402
-from hushh_mcp.one_adk import agent_tree as tree  # noqa: E402
+FAMILIES = ("consent",)
 
-TOOLS = [
-    tree.ask_consent_agent,
-    tree.ask_location_agent,
-    at.discover_person_information,
-    at.list_pending_information_requests,
-    at.list_active_grants,
-    at.list_my_outgoing_information_requests,
-    at.propose_information_request,
-    at.run_app_action,
-    at.list_app_actions,
-    at.list_my_connections,
-    at.read_my_profile_status,
-    at.get_current_time,
-]
-decls = []
-for fn in TOOLS:
-    d = FunctionTool(fn)._get_declaration()
-    decls.append(
-        types.FunctionDeclaration(name=d.name, description=d.description, parameters=d.parameters)
+
+def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
-tool = types.Tool(function_declarations=decls)
-
-# question -> acceptable first tool(s). run_app_action counts when its action_id matches.
-CASES = [
-    ("is there anything waiting for me to approve", {"list_pending_information_requests"}),
-    ("who can see my information right now", {"list_active_grants"}),
-    ("what am I sharing with Sarah", {"list_active_grants"}),
-    ("does anyone still have my address", {"list_active_grants"}),
-    ("what did I ask Jhumma for", {"list_my_outgoing_information_requests"}),
-    ("what could I ask Dev for", {"discover_person_information"}),
-    (
-        "can we request finance information from Sharu Khan",
-        {"discover_person_information", "propose_information_request"},
-    ),
-    (
-        "stop sharing my finances with my advisor",
-        {"list_active_grants", "run_app_action:consent.revoke"},
-    ),
-    ("revoke what I gave Dev last week", {"list_active_grants", "run_app_action:consent.revoke"}),
-    (
-        "cancel the request I sent this morning",
-        {"list_my_outgoing_information_requests", "run_app_action:consent.cancel_request"},
-    ),
-    (
-        "say no to Sarah's request",
-        {"list_pending_information_requests", "run_app_action:consent.deny"},
-    ),
-    ("how does sharing my information actually work", {None}),  # answer directly, no tool
-    ("add Alice to my trusted people", {"ask_consent_agent"}),  # the ONE legit use of that tool
-]
-
-client = genai.Client(
-    vertexai=True, project=os.environ["GENAI_GOOGLE_CLOUD_PROJECT"], location="global"
-)
-MODEL = os.environ.get("AB_MODEL", "gemini-3.8-flash")
-
-
-def first_tool(instruction, q):
-    r = client.models.generate_content(
-        model=MODEL,
-        contents=q,
-        config=types.GenerateContentConfig(
-            system_instruction=instruction, tools=[tool], temperature=0
-        ),
+    parser.add_argument("instruction_a", help="Instruction text file for arm A (CURRENT).")
+    parser.add_argument("instruction_b", help="Instruction text file for arm B (REVISED).")
+    parser.add_argument(
+        "--reps",
+        type=int,
+        default=harness.DEFAULT_REPS,
+        help="Repetitions per case; a case counts only when every rep hits.",
     )
-    for part in r.candidates[0].content.parts or []:
-        fc = getattr(part, "function_call", None)
-        if fc:
-            if fc.name == "run_app_action":
-                return f"run_app_action:{(fc.args or {}).get('action_id', '?')}"
-            return fc.name
-    return None
+    parser.add_argument(
+        "--model",
+        default=os.environ.get("AB_MODEL", "").strip() or harness.DEFAULT_MODEL,
+        help="Model pin; AB_MODEL in the environment is honoured for the old contract.",
+    )
+    parser.add_argument("--thinking-level", choices=harness.THINKING_LEVELS, default=None)
+    return parser.parse_args(argv)
 
 
-def score(label, instruction):
-    hits = 0
-    rows = []
-    for q, ok in CASES:
-        got = first_tool(instruction, q)
-        good = (got in ok) or (got is None and None in ok)
-        hits += good
-        rows.append((good, q, got))
-    return hits, rows
+def main(argv: Sequence[str] | None = None) -> int:
+    args = parse_args(argv)
+    return harness.run_eval(
+        families=list(FAMILIES),
+        instruction_files=[args.instruction_a, args.instruction_b],
+        model=args.model,
+        reps=args.reps,
+        thinking_level=args.thinking_level,
+    )
 
 
-for label, path in (("CURRENT", sys.argv[1]), ("REVISED", sys.argv[2])):
-    hits, rows = score(label, open(path).read())
-    print(f"\n===== {label}: {hits}/{len(CASES)} correct first tool =====")
-    for good, q, got in rows:
-        print(f"  {'ok ' if good else 'BAD'}  {q:52} -> {got}")
+if __name__ == "__main__":
+    sys.exit(main())

@@ -10,11 +10,26 @@ one_exposure:
   supported_entrypoints:
     - typed
 model: gemini-default
+runtime:
+  kind: adk
+  adk_mode: task
+  transport:
+    - in_process
+    - chat
 system_instruction: |
-  Coordinate email workflows from explicit per-turn authority. For personal
-  Gmail information requests, monitoring is an explicit owner opt-in, scoped
-  disclosure is separately confirmed, and drafting and sending are distinct
-  actions. Never send without the required confirmation.
+  You are the owner's Email Agent under One, the private agent. Coordinate
+  read-only inbox triage and synced purchase-receipt review from explicit
+  per-turn authority. Use list_needs_reply for inbound threads waiting on a
+  response, search_inbox for a bounded Gmail query, list_receipts for synced
+  purchases, and sync_status for the receipt connection health. Reference only
+  senders, subjects, merchants, amounts, dates, and statuses returned by tools.
+
+  For personal Gmail information requests, monitoring is an explicit owner
+  opt-in, scoped disclosure is separately confirmed, and drafting and sending
+  are distinct actions. Never send email, connect an account, trigger a sync,
+  or mutate memory from this specialist. Drafting and all other mutations stay
+  on the existing confirmation-bound app surfaces. Never invent messages,
+  receipts, merchants, or connection state.
 required_scopes: []
 failure_states:
   - auth_required
@@ -28,3 +43,20 @@ surfaces:
   web: true
   not_applicable_reason: Voice, remote A2A, MCP, and native exposure are not currently shipped.
 telemetry_namespace: agent.email
+tools:
+  - name: list_needs_reply
+    description: List bounded inbound Gmail threads that appear to need the owner's reply.
+    py_func: hushh_mcp.agents.email.tools.list_needs_reply
+    required_scope: cap.one.invoke
+  - name: search_inbox
+    description: Search the owner's Gmail and return bounded message summaries.
+    py_func: hushh_mcp.agents.email.tools.search_inbox
+    required_scope: cap.one.invoke
+  - name: list_receipts
+    description: List synced purchase receipts, newest first, without changing sync state.
+    py_func: hushh_mcp.agents.email.tools.list_receipts
+    required_scope: cap.one.invoke
+  - name: sync_status
+    description: Report whether the owner's Gmail receipt sync is connected and healthy.
+    py_func: hushh_mcp.agents.email.tools.sync_status
+    required_scope: cap.one.invoke

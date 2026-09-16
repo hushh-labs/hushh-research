@@ -204,8 +204,52 @@ def test_command_deploys_do_not_restore_live_or_model_pack_dependencies() -> Non
         assert "gemini_live_capacity_pool" not in source
         assert "HUSHH_LOCAL_RUNTIME_PACK" not in source
         assert "ONE_VOICE_MODEL_URL_SIGNER" not in source
+        # The retired relay's fail-open flag and the ADK live region pin must
+        # not come back under their old names either.
+        assert "AGENT_GEMINI_LIVE_ENABLED" not in source
+        assert "AGENT_ONE_ADK_LOCATION" not in source
     assert all("HUSSH_GEMINI_TEXT_MODEL" in source for source in sources[:3])
     assert "resolve_fleet_model_name" in sources[3]
+
+
+def test_one_voice_live_env_contract_is_explicit_and_dark_in_production() -> None:
+    """One Live Voice runs on Vertex ADC only, behind one flag, with an exact model pin.
+
+    Every lane carries the three names. Production ships with the flag off.
+    The pinned id must be the registry's native-realtime entry, so the deploy
+    substitution and the registry can never disagree.
+    """
+    from hushh_mcp.runtime_providers.registry import resolve_live_model_entry
+
+    backend_build = _read("deploy/backend.cloudbuild.yaml")
+    uat_workflow = _read(".github/workflows/deploy-uat.yml")
+    dev_workflow = _read(".github/workflows/deploy-dev.yml")
+    production_workflow = _read(".github/workflows/deploy-production.yml")
+
+    for name in ("ONE_VOICE_LIVE_ENABLED", "VERTEX_LIVE_MODEL_ID", "VERTEX_LIVE_LOCATION"):
+        assert name in backend_build
+        assert f"_{name}=" in uat_workflow
+        assert f"_{name}=" in dev_workflow
+        assert f"_{name}=" in production_workflow
+    assert '_ONE_VOICE_LIVE_ENABLED: "false"' in backend_build
+    assert '_VERTEX_LIVE_MODEL_ID: ""' in backend_build
+    assert '_VERTEX_LIVE_LOCATION: ""' in backend_build
+    assert "_ONE_VOICE_LIVE_ENABLED=false" in production_workflow
+    assert "_ONE_VOICE_LIVE_ENABLED=true" in uat_workflow
+
+    import re
+
+    for source in (uat_workflow, dev_workflow, production_workflow):
+        model = re.search(r"_VERTEX_LIVE_MODEL_ID=([A-Za-z0-9._-]+)", source)
+        location = re.search(r"_VERTEX_LIVE_LOCATION=([a-z0-9-]+)", source)
+        assert model and location
+        entry = resolve_live_model_entry(model.group(1))
+        assert entry.supports_native_realtime is True
+        assert location.group(1) in entry.supported_vertex_locations
+        assert location.group(1) not in {"global", "us", "eu"}
+    # Never an API key for Live in any lane.
+    for source in (backend_build, uat_workflow, dev_workflow, production_workflow):
+        assert "LIVE_API_KEY" not in source
 
 
 def test_production_deploy_builds_candidates_without_serving_traffic() -> None:

@@ -737,7 +737,7 @@ export function useFeedActionables(): UseFeedActionablesResult {
           label !== "Someone"
             ? {
                 displayName: label,
-                photoUrl: invite.inviterPhotoUrl ?? null,
+                photoUrl: null,
               }
             : null,
         title: label,
@@ -804,7 +804,7 @@ export function useFeedActionables(): UseFeedActionablesResult {
           label !== "Someone"
             ? {
                 displayName: label,
-                photoUrl: request.counterpartPhotoUrl ?? null,
+                photoUrl: null,
               }
             : null,
         title: label,

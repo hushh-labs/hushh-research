@@ -76,7 +76,7 @@ describe("Profile, Location People, and Location Links consistency contract", ()
     expect(source).toContain("PUBLIC_LINK_CONTROLS_CLASSNAME");
     expect(source).toContain("equalWidthButtons");
     expect(ctaLayout).toContain("w-full space-y-3 sm:max-w-[280px]");
-    expect(ctaLayout).toContain("h-11 min-h-11 w-full rounded-[13px]");
+    expect(ctaLayout).toContain("h-11 min-h-11 w-fit min-w-[9rem]");
   });
 
   it("keeps Location Links concise without duplicate active-card title or live pill copy", () => {
@@ -96,7 +96,9 @@ describe("Profile, Location People, and Location Links consistency contract", ()
   });
 
   it("uses semantic Profile icon tones while preserving destructive treatment", () => {
-    const source = readSource("app/profile/profile-workspace-page.tsx");
+    const source = readSource(
+      "components/profile/profile-workspace-page.tsx",
+    );
 
     expect(source).toContain("title={PROFILE_LABELS.referrals}");
     expect(source).toContain("title={PROFILE_LABELS.developerTools}");

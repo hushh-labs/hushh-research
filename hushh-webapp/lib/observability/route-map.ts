@@ -6,6 +6,7 @@ import {
 } from "@/lib/navigation/routes";
 
 export const ROUTE_ID_VALUES = [
+  "chat",
   "one_dashboard",
   "getting_started",
   "one_setup",
@@ -60,7 +61,6 @@ export const ROUTE_ID_VALUES = [
   "oauth_authorize",
   "consents",
   "feed",
-  "agent",
   "puppy_one",
   "person_profile",
   "connect",
@@ -140,11 +140,8 @@ function normalizeRoutePathname(pathname: string): string {
 
 export function resolveRouteId(rawPathname: string): RouteId {
   const pathname = normalizeRoutePathname(rawPathname);
-  if (
-    pathname === ROUTES.HOME ||
-    pathname === ROUTES.ONE_HOME ||
-    pathname === ROUTES.WELCOME
-  ) {
+  if (pathname === ROUTES.HOME) return "chat";
+  if (pathname === ROUTES.ONE_HOME || pathname === ROUTES.WELCOME) {
     return "one_dashboard";
   }
   if (pathname === ROUTES.GETTING_STARTED) return "getting_started";
@@ -249,7 +246,7 @@ export function resolveRouteId(rawPathname: string): RouteId {
     return "consents";
   }
   if (pathname === ROUTES.ONE_FEED) return "feed";
-  if (pathname === ROUTES.AGENT) return "agent";
+  if (pathname === ROUTES.LEGACY_AGENT) return "chat";
   if (pathname === ROUTES.ONE_PUPPY) return "puppy_one";
   // `public_person_ref` is intentionally opaque.  Never let the dynamic
   // segment fall through to `unknown`, where callers may retain raw paths.

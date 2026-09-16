@@ -338,23 +338,25 @@
       "page_file": "app/page.tsx",
       "physical_page_exists": true,
       "route_contract": {
-        "mode": "hidden",
-        "exemption_reason": "Anonymous auth-split entry route redirects signed-in users to /one and intentionally does not own the signed-in dashboard shell.",
-        "shell_verification_file": null,
-        "shell_verification_includes": [],
+        "mode": "standard",
+        "exemption_reason": null,
+        "shell_verification_file": "app/page.tsx",
+        "shell_verification_includes": [
+          "IntroStep",
+          "VaultLockGuard",
+          "AgentChatWorkspace"
+        ],
         "interaction_layer_policy": {
           "allowed_families": []
         },
         "voice_playbook": {
-          "playbook_id": "route.one.intro",
-          "purpose": "Welcome a new person and help them claim their private agent.",
-          "screen": "one_intro",
-          "entry_cue": "Say ‘Claim your One’ whenever you are ready.",
-          "proactivity": "on_entry",
-          "primary_action_id": "onboarding.claim_one",
-          "happy_path_action_ids": [
-            "onboarding.claim_one"
-          ],
+          "playbook_id": "route.chat.root",
+          "purpose": "Welcome anonymous visitors and provide the authenticated private-agent chat workspace.",
+          "screen": "chat",
+          "entry_cue": "Ask One anything whenever you are ready.",
+          "proactivity": "ambient",
+          "primary_action_id": null,
+          "happy_path_action_ids": [],
           "required_inputs": [],
           "recoveries": {
             "blocked": "Explain the current guard and retain the goal.",
@@ -364,9 +366,9 @@
             "callback_error": "Return to the verified callback recovery path without claiming success.",
             "route_mismatch": "Use the verified current route and its generated actions only."
           },
-          "completion_boundary": "The welcome step completes only after the browser settles navigation to Login.",
-          "next_route": "/login",
-          "return_policy": "navigate",
+          "completion_boundary": "Chat actions complete only after the correlated browser or capability settlement succeeds.",
+          "next_route": "/",
+          "return_policy": "resolve_root",
           "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
         }
       },
@@ -378,6 +380,10 @@
         "expectedRoute": "/",
         "autoReviewerLogin": false,
         "expectedAuth": "anonymous",
+        "allowedAuthStates": [
+          "anonymous",
+          "authenticated"
+        ],
         "allowedDataStates": [
           "loaded"
         ]
@@ -399,63 +405,46 @@
     },
     {
       "route": "/agent",
-      "page_file": "app/agent/page.tsx",
-      "physical_page_exists": true,
+      "page_file": null,
+      "physical_page_exists": false,
       "route_contract": {
-        "mode": "standard",
-        "exemption_reason": null,
-        "shell_verification_file": "components/agent/agent-screen.tsx",
-        "shell_verification_includes": [
-          "AppPageShell",
-          "AppPageContentRegion",
-          "AgentChatWorkspace"
-        ],
+        "mode": "redirect",
+        "exemption_reason": "Compatibility-only redirect to the canonical root Chat workspace.",
+        "shell_verification_file": null,
+        "shell_verification_includes": [],
         "interaction_layer_policy": {
           "allowed_families": []
         },
         "voice_playbook": {
-          "playbook_id": "route.agent",
-          "purpose": "Help the person understand and use the agent screen through its generated controls.",
-          "screen": "app",
+          "playbook_id": "route.agent.compatibility",
+          "purpose": "Redirect legacy agent links to the canonical Chat workspace.",
+          "screen": "compatibility_redirect",
           "entry_cue": "",
           "proactivity": "ambient",
           "primary_action_id": null,
           "happy_path_action_ids": [],
           "required_inputs": [],
           "recoveries": {
-            "blocked": "Explain the current guard and retain the goal.",
+            "blocked": "Explain that the legacy link is no longer an active workspace and retain the goal.",
             "cancelled": "Respect the cancellation and retain a safe next step.",
-            "failed": "Acknowledge the failure without claiming completion.",
+            "failed": "Acknowledge the redirect failure without claiming completion.",
             "timeout": "Retain the goal and offer one safe retry.",
-            "callback_error": "Return to the verified callback recovery path without claiming success.",
+            "callback_error": "Return to the verified root Chat route without claiming success.",
             "route_mismatch": "Use the verified current route and its generated actions only."
           },
-          "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
-          "next_route": null,
-          "return_policy": "stay",
-          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+          "completion_boundary": "The redirect completes only after the browser settles at the root Chat route.",
+          "next_route": "/",
+          "return_policy": "resolve_root",
+          "out_of_scope_behavior": "Do not render the removed legacy agent surface."
         }
       },
-      "native": {
-        "route": "/agent",
-        "classification": "native-required-functional",
-        "initialRoute": "/login?redirect=%2Fagent",
-        "expectedMarker": "native-route-agent",
-        "expectedRoute": "/agent",
-        "autoReviewerLogin": true,
-        "expectedAuth": "authenticated",
-        "allowedDataStates": [
-          "loaded",
-          "empty-valid",
-          "unavailable-valid"
-        ]
-      },
+      "native": null,
       "shell": {
         "app_page_shell": false,
         "page_header": false,
         "settings_ui": false,
         "shared_loader": false,
-        "back_button_pattern": "shared-shell"
+        "back_button_pattern": "unknown"
       },
       "voice_action_contract_file": null,
       "voice_action_contract_ids": [],
@@ -4136,6 +4125,7 @@
         "location.open_active_shares",
         "location.open_ask",
         "location.open_check_in",
+        "location.open_circles",
         "location.open_create_circle",
         "location.open_invite",
         "location.open_join_circle",
@@ -4144,6 +4134,7 @@
         "location.open_needs_review",
         "location.open_now",
         "location.open_people",
+        "location.open_ratings",
         "location.open_settings",
         "location.open_share",
         "location.open_shared_with_me",
@@ -4164,6 +4155,12 @@
         "location.send_request",
         "location.set_auto_share",
         "location.set_ghost_mode",
+        "location.set_precision",
+        "location.set_sharing_enabled",
+        "location.setup.accept_consent",
+        "location.setup.advance",
+        "location.setup.start",
+        "location.setup.status",
         "location.share_public_link",
         "location.share_selected",
         "location.sos_default",
@@ -4878,12 +4875,15 @@
         "help.open_examples",
         "profile.delete_account",
         "profile.marketplace_visibility.toggle",
+        "profile.set_contact_discoverable",
         "profile.sign_out",
         "profile.support.submit_message",
+        "profile.update_display_name",
         "route.profile",
         "route.profile_access_panel",
         "route.profile_connected_systems",
         "route.profile_pkm_agent_lab",
+        "route.profile_privacy",
         "route.profile_referrals_panel",
         "route.profile_security_panel",
         "route.profile_support_panel"
@@ -6553,7 +6553,7 @@
       "route_contract": {
         "mode": "standard",
         "exemption_reason": null,
-        "shell_verification_file": "app/one/profile/security/devices/page.tsx",
+        "shell_verification_file": "components/profile/trusted-devices-page.tsx",
         "shell_verification_includes": [
           "AppPageShell",
           "AppPageHeaderRegion",
@@ -6599,9 +6599,9 @@
         ]
       },
       "shell": {
-        "app_page_shell": true,
-        "page_header": true,
-        "settings_ui": true,
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
         "shared_loader": false,
         "back_button_pattern": "shared-shell"
       },
@@ -9473,5 +9473,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "626892861bdc2c98235bb60ea8eeb2820d468d94c8fedf34f5b09c5844eeddfb"
+  "content_sha256": "1bab638cdbd131a6fe529f749992107593add02f1c7a45d539bb09929a63a052"
 }

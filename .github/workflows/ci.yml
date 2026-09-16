@@ -203,6 +203,21 @@ jobs:
               - 'hushh-webapp/capacitor.config.ts'
               - 'hushh-webapp/package.json'
               - 'hushh-webapp/package-lock.json'
+              # Web surfaces the CI-run XCUITest renders
+              # (AppUITests/testAccountNotFoundRecoveryReturnsToLogin). A change
+              # here can break the native lane without touching ios/**, so it
+              # must schedule it. Guarded by
+              # consent-protocol/tests/test_ios_lane_path_filter_covers_native_test_surfaces.py
+              - 'hushh-webapp/app/login/**'
+              - 'hushh-webapp/components/onboarding/**'
+              - 'hushh-webapp/components/auth/**'
+              - 'hushh-webapp/components/app-ui/native-*'
+              - 'hushh-webapp/components/vault/**'
+              - 'hushh-webapp/lib/auth/session-invalidation.ts'
+              - 'hushh-webapp/lib/firebase/auth-context.tsx'
+              - 'hushh-webapp/lib/testing/**'
+              - 'hushh-webapp/app/providers.tsx'
+              - 'hushh-webapp/components/one-location/onboarding/location-picker-map.tsx'
               - '.github/workflows/ci.yml'
 
       - id: override
@@ -630,6 +645,10 @@ jobs:
           --health-retries 10
     steps:
       - uses: actions/checkout@v6
+        with:
+          # The capability graph check diffs against the PR base ref, which a
+          # shallow clone does not carry.
+          fetch-depth: 0
 
       - uses: ./consent-protocol/.github/actions/setup-python-uv
         with:
@@ -640,6 +659,7 @@ jobs:
         timeout-minutes: 22
         run: bash scripts/ci/orchestrate.sh protocol
         env:
+          CAPABILITY_GRAPH_BASE_REF: origin/${{ github.base_ref || 'main' }}
           ONE_COMMAND_TEST_DATABASE_URL: "postgresql+psycopg2://command_test:command_test@127.0.0.1:5432/command_test"
           TESTING: "true"
           APP_SIGNING_KEY: "test_secret_key_for_ci_only_32chars_min"

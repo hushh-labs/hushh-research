@@ -36,6 +36,17 @@ export interface PkmDomainResourceSnapshot<T = Record<string, unknown>> {
   };
 }
 
+export interface PkmDomainResourceBatchResult {
+  snapshots: Record<string, PkmDomainResourceSnapshot>;
+  failedDomains: string[];
+}
+
+export type PkmDomainResourceBatchProgress = {
+  domain: string;
+  snapshot: PkmDomainResourceSnapshot | null;
+  failed: boolean;
+};
+
 interface PkmDomainResourceParams {
   userId: string;
   domain: string;
@@ -291,6 +302,54 @@ export class PkmDomainResourceService {
       segmentSignature: segmentSignature(params.segmentIds),
     });
     return await this.refresh(params);
+  }
+
+  /**
+   * Loads independent PKM domains without allowing one unavailable domain to
+   * make an owner-facing Memory view or private-agent inventory look empty.
+   * Each domain still follows the usual memory -> encrypted device -> network
+   * resolution path; no decrypted result is persisted by this helper.
+   */
+  static async getManyStaleFirst(
+    params: Omit<PkmDomainResourceParams, "domain" | "segmentIds"> & {
+      domains: readonly string[];
+      forceRefresh?: boolean;
+      backgroundRefresh?: boolean;
+      concurrency?: number;
+      onProgress?: (progress: PkmDomainResourceBatchProgress) => void;
+    }
+  ): Promise<PkmDomainResourceBatchResult> {
+    const domains = [...new Set(params.domains.map((domain) => domain.trim()).filter(Boolean))];
+    const snapshots: Record<string, PkmDomainResourceSnapshot> = {};
+    const failedDomains: string[] = [];
+    const concurrency = Math.min(Math.max(1, params.concurrency ?? 4), domains.length || 1);
+    let nextIndex = 0;
+
+    const worker = async () => {
+      while (nextIndex < domains.length) {
+        const domain = domains[nextIndex];
+        nextIndex += 1;
+        if (!domain) return;
+        try {
+          const snapshot = await this.getStaleFirst({
+            userId: params.userId,
+            domain,
+            vaultKey: params.vaultKey,
+            vaultOwnerToken: params.vaultOwnerToken,
+            forceRefresh: params.forceRefresh,
+            backgroundRefresh: params.backgroundRefresh,
+          });
+          if (snapshot?.data) snapshots[domain] = snapshot;
+          params.onProgress?.({ domain, snapshot, failed: false });
+        } catch {
+          failedDomains.push(domain);
+          params.onProgress?.({ domain, snapshot: null, failed: true });
+        }
+      }
+    };
+
+    await Promise.all(Array.from({ length: concurrency }, worker));
+    return { snapshots, failedDomains: failedDomains.sort() };
   }
 
   static async prepareDomainWriteContext(

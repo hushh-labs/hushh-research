@@ -87,7 +87,9 @@ def quotes_cache_key(symbols: list[str]) -> str:
 
 @router.get("/quotes")
 async def public_market_quotes(
-    symbols: str = Query(..., min_length=1, max_length=1_024, description="Comma-separated tickers"),
+    symbols: str = Query(
+        ..., min_length=1, max_length=1_024, description="Comma-separated tickers"
+    ),
 ) -> dict[str, Any]:
     requested = normalize_symbols(symbols)
     if not requested:
@@ -98,7 +100,13 @@ async def public_market_quotes(
         return {"quotes": quotes if isinstance(quotes, dict) else {}}
 
     try:
-        payload, _refreshed, age_seconds, cache_tier, cache_hit = await _get_or_refresh_public_module(
+        (
+            payload,
+            _refreshed,
+            age_seconds,
+            cache_tier,
+            cache_hit,
+        ) = await _get_or_refresh_public_module(
             key=quotes_cache_key(requested),
             fresh_ttl_seconds=FRESH_TTL_SECONDS,
             stale_ttl_seconds=STALE_TTL_SECONDS,

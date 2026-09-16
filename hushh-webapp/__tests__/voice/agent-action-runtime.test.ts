@@ -28,8 +28,8 @@ function runtimeState(
       token_valid: true,
     },
     route: {
-      pathname: "/agent",
-      screen: "app",
+      pathname: ROUTES.HOME,
+      screen: "chat",
       subview: null,
     },
     runtime: {

@@ -179,6 +179,31 @@ async def main() -> dict[str, object]:
     labelled.append(("location_command:audio", probe_command_audio()))
     labelled.append(("location_command:semantics", probe_command_semantics()))
 
+    # One Live Voice: when the lane has the flag on, prove the pinned Live model
+    # opens a session on ADC in its region. Reads the same env contract the
+    # relay reads (VERTEX_LIVE_MODEL_ID / VERTEX_LIVE_LOCATION); nothing here
+    # is a fallback and no audio is sent. A provider denial classifies as
+    # advisory like every other probe; the flag stays the kill switch.
+    from hushh_mcp.one_voice.config import OneVoiceLiveConfig
+    from hushh_mcp.runtime_providers.factory import build_managed_live_client
+
+    live_config = OneVoiceLiveConfig.from_environment()
+    live_probe_target = {"live_model": live_config.model_id, "live_location": live_config.location}
+
+    async def probe_live_connect() -> None:
+        client = build_managed_live_client(
+            model=live_config.model_id, location=live_config.location
+        )
+        # Native-audio Live models refuse TEXT-only sessions; AUDIO proves availability.
+        connect_config = types.LiveConnectConfig(response_modalities=[types.Modality.AUDIO])
+        async with client.aio.live.connect(model=live_config.model_id, config=connect_config):
+            return
+
+    if live_config.enabled:
+        labelled.append(
+            (f"one_voice_live:{live_config.model_id}@{live_config.location}", probe_live_connect())
+        )
+
     outcomes = await asyncio.gather(*(coro for _, coro in labelled), return_exceptions=True)
 
     probes: list[dict[str, object]] = []
@@ -205,6 +230,7 @@ async def main() -> dict[str, object]:
         "advisory": is_advisory(classification),
         "models": list(models),
         "probes": probes,
+        **live_probe_target,
         # A provider-side denial is returned before any model-specific
         # validation, so an outage verdict does NOT clear the candidate. Say so,
         # rather than letting a green-ish release imply the models were checked.

@@ -408,7 +408,7 @@ function shouldPrioritizeConsentRealtime(pathname: string): boolean {
     .toLowerCase();
   if (!normalized) return false;
   return (
-    normalized.startsWith("/agent") ||
+    normalized === ROUTES.HOME ||
     normalized.startsWith(ROUTES.CONSENTS) ||
     normalized.startsWith(ROUTES.LEGACY_CONSENTS) ||
     normalized.startsWith("/one") ||

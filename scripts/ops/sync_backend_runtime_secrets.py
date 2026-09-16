@@ -14,6 +14,7 @@ from urllib.parse import urlsplit, urlunsplit
 REPO_ROOT = Path(__file__).resolve().parents[2]
 UPSERT_SECRET_SCRIPT = REPO_ROOT / "scripts" / "ops" / "upsert_gcp_secret.py"
 GMAIL_OAUTH_RETURN_PATH = "/one/profile/gmail/oauth/return"
+LOCAL_PASSKEY_RP_IDS = ("localhost", "127.0.0.1")
 
 LEGACY_SECRET_FALLBACKS: dict[str, tuple[str, ...]] = {
     "APP_SIGNING_KEY": ("APP_SIGNING_KEY", "SECRET_KEY"),
@@ -128,6 +129,38 @@ def _gmail_oauth_redirect_uri(app_frontend_origin: str) -> str:
         raise ValueError("--app-frontend-origin must be a canonical HTTP(S) origin")
     origin = urlunsplit((parsed.scheme, parsed.netloc, "", "", ""))
     return f"{origin}{GMAIL_OAUTH_RETURN_PATH}"
+
+
+def _frontend_origin_host(app_frontend_origin: str) -> str:
+    parsed = urlsplit(app_frontend_origin.strip())
+    if (
+        parsed.scheme not in {"http", "https"}
+        or not parsed.netloc
+        or parsed.username
+        or parsed.password
+        or parsed.query
+        or parsed.fragment
+        or parsed.path not in {"", "/"}
+        or not parsed.hostname
+    ):
+        raise ValueError("--app-frontend-origin must be a canonical HTTP(S) origin")
+    return parsed.hostname.rstrip(".").lower()
+
+
+def _canonical_passkey_allowed_rp_ids(app_frontend_origin: str) -> str:
+    """Build the exact RP allowlist for the current frontend origin.
+
+    Hosted lanes are isolated by their own browser origin. Localhost remains
+    available for contributor tooling, but a hosted lane must not inherit
+    another lane's parent-domain RP as a silent compatibility fallback.
+    """
+
+    host = _frontend_origin_host(app_frontend_origin)
+    return ",".join(dict.fromkeys((*LOCAL_PASSKEY_RP_IDS, host)))
+
+
+def _normalize_passkey_rp_ids(value: str) -> tuple[str, ...]:
+    return tuple(sorted({item.strip().lower() for item in value.split(",") if item.strip()}))
 
 
 def _build_backend_runtime_config(args: argparse.Namespace) -> dict[str, Any]:
@@ -282,7 +315,14 @@ def main() -> int:
     parser.add_argument("--remote-mcp-enabled", required=True)
     parser.add_argument("--cors-allowed-origins", required=True)
     parser.add_argument("--obs-data-stale-ratio-threshold", required=True)
-    parser.add_argument("--passkey-allowed-rp-ids", default="")
+    parser.add_argument(
+        "--passkey-allowed-rp-ids",
+        default="",
+        help=(
+            "Deprecated compatibility input; when supplied it must equal the "
+            "localhost plus APP_FRONTEND_ORIGIN host contract."
+        ),
+    )
     parser.add_argument("--plaid-env", default="")
     parser.add_argument("--plaid-client-name", default="")
     parser.add_argument("--plaid-country-codes", default="")
@@ -375,6 +415,18 @@ def main() -> int:
     # credential, and the upstream would refuse it as a project mismatch.
     parser.add_argument("--nws-nearby-v4-api-key-source-secret", default="")
     args = parser.parse_args()
+
+    canonical_passkey_rp_ids = _canonical_passkey_allowed_rp_ids(
+        args.app_frontend_origin
+    )
+    if args.passkey_allowed_rp_ids and _normalize_passkey_rp_ids(
+        args.passkey_allowed_rp_ids
+    ) != _normalize_passkey_rp_ids(canonical_passkey_rp_ids):
+        parser.error(
+            "--passkey-allowed-rp-ids must contain only localhost, 127.0.0.1, "
+            "and the APP_FRONTEND_ORIGIN host"
+        )
+    args.passkey_allowed_rp_ids = canonical_passkey_rp_ids
 
     if not str(args.nws_nearby_v4_api_key_source_secret or "").strip():
         args.nws_nearby_v4_api_key_source_secret = _NWS_V4_KEY_SOURCE_BY_PROJECT.get(

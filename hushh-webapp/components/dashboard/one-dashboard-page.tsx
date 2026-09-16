@@ -7,6 +7,7 @@ import { type CapabilityStatus } from "@/lib/services/capability-setup-state-ser
 
 export function OneDashboardPage({
   capabilityStatusById = {},
+  displayName,
   userId,
 }: {
   displayName?: string | null;
@@ -16,8 +17,10 @@ export function OneDashboardPage({
   return (
     <AppPageShell
       as="main"
-      width="standard"
-      className="relative isolate"
+      width="reading"
+      fitContent
+      className="relative isolate bg-[color:var(--one-launcher-background)]"
+      data-one-launcher-root="true"
       nativeTest={{
         routeId: "/one",
         marker: "native-route-one-home",
@@ -26,7 +29,11 @@ export function OneDashboardPage({
       }}
     >
       <AppPageContentRegion>
-        <OneAgentRoster capabilityStatusById={capabilityStatusById} userId={userId} />
+        <OneAgentRoster
+          capabilityStatusById={capabilityStatusById}
+          displayName={displayName}
+          userId={userId}
+        />
       </AppPageContentRegion>
     </AppPageShell>
   );

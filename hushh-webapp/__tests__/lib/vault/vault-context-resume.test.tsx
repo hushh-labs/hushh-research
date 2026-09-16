@@ -398,21 +398,21 @@ describe("VaultProvider app-resume expiry recovery", () => {
     resolveIdToken?.("firebase-token");
   });
 
-  it("retains the local unlock but withdraws an expired token on web resume", async () => {
+  it("retains the local unlock but withdraws authority when the token expires", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(Date, "now").mockRestore();
+    vi.setSystemTime(NOW);
     renderVault();
     fireEvent.click(screen.getByRole("button", { name: "Unlock short-lived" }));
     expect(screen.getByTestId("vault-status").textContent).toBe("unlocked");
 
-    vi.spyOn(Date, "now").mockReturnValue(NOW + 2_000);
-    act(() => {
-      appInteractionCoordinator.handleLifecycle("background");
-      appInteractionCoordinator.handleLifecycle("active");
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2_000);
     });
 
-    await waitFor(() => {
-      expect(screen.getByTestId("vault-status").textContent).toBe("unlocked");
-    });
+    expect(screen.getByTestId("vault-status").textContent).toBe("unlocked");
     expect(screen.getByTestId("vault-token").textContent).toBe("none");
+    expect(currentVault.getVaultOwnerToken()).toBeNull();
     expect(screen.getByTestId("vault-key").textContent).toBe("vault-key");
     expect(mocks.clearAgentPkmContext).not.toHaveBeenCalled();
   });

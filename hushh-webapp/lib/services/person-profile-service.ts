@@ -52,7 +52,13 @@ export type PersonInformationRequestHistory = {
   durationSeconds: number;
   createdAt: string | null;
   expiresAt: number | null;
-  status: "pending" | "granted" | "denied" | "expired" | "revoked";
+  status:
+    | "pending"
+    | "granted"
+    | "denied"
+    | "expired"
+    | "revoked"
+    | "cancelled";
 };
 
 export type InformationRequestBundle = {
@@ -66,7 +72,13 @@ export type InformationRequestBundle = {
     scopeRef: string;
     label: string;
     sensitivity: string | null;
-    status: "pending" | "granted" | "denied" | "revoked";
+    status:
+      | "pending"
+      | "granted"
+      | "denied"
+      | "expired"
+      | "revoked"
+      | "cancelled";
   }>;
 };
 

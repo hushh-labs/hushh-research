@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Capacitor } from "@capacitor/core";
 import type { ColumnDef } from "@tanstack/react-table";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import {
   Loader2,
   Lock,
@@ -30,7 +30,6 @@ import {
   type GmailWorkspace,
 } from "@/components/gmail/gmail-workspace-navigation";
 import { AskOneButton } from "@/components/agent/ask-one-button";
-import { useOptionalAgentPopover } from "@/components/agent/agent-popover-provider";
 import { SetupCompletionFooter } from "@/components/onboarding/setup/setup-completion-footer";
 import { SurfaceInset, SurfaceStack } from "@/components/app-ui/surfaces";
 import { Progress } from "@/components/ui/progress";
@@ -50,7 +49,7 @@ import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
 import { Button } from "@/lib/morphy-ux/button";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
 import { useAuth } from "@/hooks/use-auth";
-import { agentRouteWithOrigin } from "@/lib/navigation/agent-origin";
+import { navigateToAgentChat } from "@/lib/navigation/agent-navigation";
 import { ROUTES } from "@/lib/navigation/routes";
 import {
   describeGmailReceiptScanProgress,
@@ -402,13 +401,11 @@ export default function GmailReceiptsPage({
   voicePublisherRole = "route",
   initialWorkspace = "overview",
 }: GmailReceiptsPageProps) {
-  const router = useRouter();
   // This component is hosted on both /one/gmail and /one/setup/gmail, so the
   // origin handed to the agent has to be the live path, not a route constant.
   const pathname = usePathname();
   const { user, loading } = useAuth();
   const { vaultKey, vaultOwnerToken, isVaultUnlocked } = useVault();
-  const agentPopover = useOptionalAgentPopover();
   const [receipts, setReceipts] = useState<ReceiptListItem[]>([]);
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(false);
@@ -1046,12 +1043,8 @@ export default function GmailReceiptsPage({
    * so neither the promise nor the draft is made any more.
    */
   const handleOpenOneChat = useCallback(() => {
-    if (agentPopover) {
-      agentPopover.openAgent();
-      return;
-    }
-    router.push(agentRouteWithOrigin(pathname));
-  }, [agentPopover, pathname, router]);
+    navigateToAgentChat();
+  }, []);
 
   useLocalOnboardingActionHandler("setup.connect_gmail", () => {
     if (journeyVariant !== "onboarding") {

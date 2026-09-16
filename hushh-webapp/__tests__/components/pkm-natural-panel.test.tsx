@@ -6,6 +6,7 @@ import * as AgentPkmAutoSavePolicy from "@/lib/agent/agent-pkm-auto-save-policy"
 import { ConsentCenterService } from "@/lib/services/consent-center-service";
 import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge-model-service";
 import { PkmWriteCoordinator } from "@/lib/services/pkm-write-coordinator";
+import { PkmDomainResourceService } from "@/lib/pkm/pkm-domain-resource";
 
 const { addToPKM, clearAgentPkmContext, previewAgentPkmMemory } = vi.hoisted(() => ({
   addToPKM: vi.fn(),
@@ -152,9 +153,17 @@ describe("PkmNaturalPanel — Memory redesign", () => {
     vi.spyOn(PersonalKnowledgeModelService, "loadDomainData").mockResolvedValue(
       FULL_BLOB.financial as never,
     );
-    vi.spyOn(PersonalKnowledgeModelService, "loadFullBlob").mockResolvedValue(
-      FULL_BLOB as never,
-    );
+    vi.spyOn(PkmDomainResourceService, "getManyStaleFirst").mockImplementation(async (params) => {
+      const snapshots = Object.fromEntries(
+        params.domains
+          .filter((domain) => domain in FULL_BLOB)
+          .map((domain) => [domain, { data: FULL_BLOB[domain as keyof typeof FULL_BLOB] }]),
+      );
+      for (const [domain, snapshot] of Object.entries(snapshots)) {
+        params.onProgress?.({ domain, snapshot: snapshot as never, failed: false });
+      }
+      return { snapshots: snapshots as never, failedDomains: [] };
+    });
     vi.spyOn(PersonalKnowledgeModelService, "getMutationSharingImpact").mockImplementation(
       async ({ domain, scopePath }) => ({
         activeRecipientCount: domain === "financial" && scopePath === "profile" ? 1 : 0,
@@ -243,6 +252,23 @@ describe("PkmNaturalPanel — Memory redesign", () => {
     expect(screen.queryByTestId("memory-category-work")).toBeNull();
     expect(screen.queryByTestId("memory-category-runtime_secrets")).toBeNull();
     expect(screen.queryByText(/sk-must-not-render/)).toBeNull();
+  });
+
+  it("keeps available memories visible when another domain cannot be opened", async () => {
+    vi.spyOn(PkmDomainResourceService, "getManyStaleFirst").mockImplementation(async (params) => {
+      const snapshot = { data: FULL_BLOB.financial };
+      params.onProgress?.({ domain: "financial", snapshot: snapshot as never, failed: false });
+      return {
+        snapshots: { financial: snapshot } as never,
+        failedDomains: ["preferences"],
+      };
+    });
+
+    await openMainScreen();
+
+    expect(screen.getByTestId("memory-recently-learned-row")).toHaveTextContent("2 memories");
+    expect(screen.getByText("Some saved details couldn’t be refreshed. Your available details are still here.")).toBeTruthy();
+    expect(screen.queryByText("One hasn’t saved anything yet.")).toBeNull();
   });
 
   it("opens a category into nested levels and Back walks up one level", async () => {

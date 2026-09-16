@@ -119,6 +119,42 @@ async def test_agent_turn_accepts_fractional_and_bounded_impact_scores(
         if event["event"] == "insight_extracted" and event["data"]["type"] == "impact"
     )
     assert impact["data"]["score"] == expected_score
+
+
+@pytest.mark.asyncio
+async def test_authenticated_agent_turn_uses_manifest_adk_debate_gene(monkeypatch):
+    async def fail_if_legacy_stream(*args, **kwargs):
+        raise AssertionError("authenticated debate must not use the legacy stream")
+
+    async def adk_statement(**kwargs):
+        assert kwargs["user_id"] == "user-1"
+        assert kwargs["consent_token"] == "owner-token"
+        return '<analysis><claim id="c1" type="fact" confidence="0.8">Grounded</claim></analysis>'
+
+    monkeypatch.setattr(
+        "hushh_mcp.agents.kai.debate_engine.stream_gemini_response",
+        fail_if_legacy_stream,
+    )
+    monkeypatch.setattr(
+        "hushh_mcp.agents.kai.debate_engine.run_kai_debate_turn",
+        adk_statement,
+    )
+
+    engine = DebateEngine(user_id="user-1", consent_token="owner-token")  # noqa: S106 - test fixture token
+    engine.insights = {"fundamental": _fundamental()}
+    events = [
+        event
+        async for event in engine._stream_agent_turn(
+            2,
+            "fundamental",
+            "challenge_positions",
+            {},
+        )
+    ]
+
+    token_events = [event for event in events if event["event"] == "agent_token"]
+    assert token_events
+    assert "Grounded" in token_events[0]["data"]["text"]
     assert events[-1]["event"] == "agent_complete"
 
 

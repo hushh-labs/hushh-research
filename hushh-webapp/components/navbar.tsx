@@ -8,6 +8,7 @@ import { usePathname } from "next/navigation";
 import {
   Compass as PhosphorCompass,
   MagnifyingGlass,
+  ChatCircle,
   SquaresFour,
   type IconProps as PhosphorIconProps,
 } from "@phosphor-icons/react";
@@ -29,7 +30,6 @@ import {
 } from "lucide-react";
 
 import { useAuth } from "@/hooks/use-auth";
-import { useOptionalAgentPopover } from "@/components/agent/agent-popover-provider";
 import { requestInternalAppNavigation } from "@/lib/utils/browser-navigation";
 import { useConsentPendingSummaryCount } from "@/lib/consent/use-consent-pending-summary-count";
 import { useFeedUnreadCount } from "@/lib/feed/use-feed-unread-count";
@@ -65,6 +65,12 @@ function FilledMagnifyingGlassIcon(props: PhosphorIconProps) {
   return <MagnifyingGlass {...props} weight="fill" />;
 }
 
+function FilledChatCircleIcon(props: PhosphorIconProps) {
+  return <ChatCircle {...props} weight="fill" />;
+}
+
+const BOTTOM_GAP_PX = 4;
+
 const BOTTOM_NAV_OPTION_META: Record<
   AppBottomNavKey,
   Omit<SegmentedPillOption, "badge">
@@ -75,6 +81,13 @@ const BOTTOM_NAV_OPTION_META: Record<
     icon: SquaresFour,
     activeIcon: FilledSquaresFourIcon,
     dataTourId: "nav-one-dashboard",
+  },
+  chat: {
+    value: "chat",
+    label: "Chat",
+    icon: ChatCircle,
+    activeIcon: FilledChatCircleIcon,
+    dataTourId: "nav-chat",
   },
   finance: {
     value: "finance",
@@ -214,7 +227,6 @@ export const Navbar = ({
   const interactionIntents = useInteractionIntents();
   const { isAuthenticated } = useAuth();
   const { isVaultUnlocked } = useVault();
-  const agentPopover = useOptionalAgentPopover();
   const pendingConsents = useConsentPendingSummaryCount();
   const feedUnreadCount = useFeedUnreadCount();
   const pillRef = React.useRef<HTMLDivElement | null>(null);
@@ -258,13 +270,10 @@ export const Navbar = ({
       }
     }
   }, [pathname, setAgentNavigationContext]);
-  const agentWindowOpen =
-    agentPopover?.expanded || agentPopover?.motionState === "opening";
   const portfolioImportSurfaceActive = Boolean(
     busyOperations["portfolio_import_surface"],
   );
   const hideNavbar =
-    agentWindowOpen ||
     portfolioImportSurfaceActive ||
     pathname?.startsWith(ROUTES.PHONE_MANDATE) ||
     pathname === ROUTES.DEVELOPERS ||
@@ -318,16 +327,14 @@ export const Navbar = ({
 
     const el = pillRef.current;
     if (!el) {
-      // The navbar is temporarily unmounted (e.g. the agent window is open, which
-      // also hides the agent bar that consumes --app-bottom-fixed-ui). Do NOT
-      // zero the reserved height here: when the agent window closes the navbar
-      // remounts but this effect's other deps are unchanged, so it would not
+      // The navbar can be temporarily unmounted while the shell changes context,
+      // which also hides the agent bar that consumes --app-bottom-fixed-ui. Do NOT
+      // zero the reserved height here: when the navbar remounts this effect's
+      // other deps may be unchanged, so it would not
       // re-measure and the stale 0px would collapse the agent bar onto the nav.
       // Preserve the last measured value until a real measurement runs.
       return;
     }
-
-    const BOTTOM_GAP_PX = 4;
 
     const update = () => {
       const rect = el.getBoundingClientRect();
@@ -348,11 +355,7 @@ export const Navbar = ({
       ro?.disconnect();
       window.removeEventListener("resize", update);
     };
-    // `agentWindowOpen` is included so the pill is re-measured when the navbar
-    // remounts after the agent window closes (otherwise --app-bottom-fixed-ui
-    // stays stale and the agent bar overlaps the nav).
   }, [
-    agentWindowOpen,
     isAuthenticated,
     navOptions.length,
     useOnboardingChrome,
@@ -488,7 +491,9 @@ export const Navbar = ({
         className="pointer-events-none mx-auto flex w-full justify-center"
         style={{
           maxWidth:
-            "min(calc(100vw - 1.5rem), var(--app-bottom-shell-max-width))",
+            pathname?.startsWith("/one/location")
+              ? "min(calc(100vw - 1.5rem), 45rem)"
+              : "min(calc(100vw - 1.5rem), var(--app-bottom-shell-max-width))",
         }}
       >
         <div
@@ -513,7 +518,9 @@ export const Navbar = ({
               ariaLabel="Route navigation"
               className={cn(
                 "kai-bottom-nav-pill relative z-10 w-full chrome-bottom-foreground",
+                "[&_[role=radio]]:min-h-11",
                 "[&_[aria-checked=true]]:text-[color:var(--app-accent)] [&_[aria-checked=true]]:font-medium",
+                "[&_[role=radio]>span:last-of-type]:!text-[10px] [&_[role=radio]>span:last-of-type]:!leading-[13px]",
                 "[&_[data-segment-indicator]]:bg-transparent [&_[data-segment-indicator]]:shadow-none [&_[data-segment-indicator]]:backdrop-blur-none",
               )}
             />

@@ -267,9 +267,12 @@ if [[ "$TARGET_ENV" == "production" ]]; then
   BACKEND_SECRET_ARGS+=(--consent-sse-enabled "false"
     --passkey-allowed-rp-ids "localhost,127.0.0.1,one.hushh.ai"
     --hushh-trusted-device-enabled "false")
+elif [[ "$TARGET_ENV" == "uat" ]]; then
+  BACKEND_SECRET_ARGS+=(--consent-sse-enabled "true"
+    --passkey-allowed-rp-ids "localhost,127.0.0.1,uat.one.hushh.ai")
 else
   BACKEND_SECRET_ARGS+=(--consent-sse-enabled "true"
-    --passkey-allowed-rp-ids "localhost,127.0.0.1,one.hushh.ai,uat.one.hushh.ai")
+    --passkey-allowed-rp-ids "localhost,127.0.0.1,dev.one.hushh.ai")
 fi
 
 run "$PROTOCOL_PYTHON" scripts/ops/sync_backend_runtime_secrets.py "${BACKEND_SECRET_ARGS[@]}" \

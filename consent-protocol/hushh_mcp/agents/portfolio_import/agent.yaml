@@ -1,7 +1,7 @@
 manifest_version: 2
 id: agent_portfolio_import
 name: Portfolio Import Agent
-version: 1.0.0
+version: 1.2.0
 description: |
   Intelligent portfolio document parser that extracts financial data from 
   CSV files, PDF statements, and images. Supports Fidelity, JPMorgan, 
@@ -83,3 +83,151 @@ outputs:
 
 ui_type: upload
 icon: chart-line
+
+subagents:
+  - id: agent_portfolio_import_extract
+    name: Portfolio Statement Extractor
+    description: Extracts a brokerage statement into the bounded portfolio-import contract.
+    model:
+      provider: gemini
+      name: gemini-default
+      mode: hushh_managed_vertex
+      thinking_level: low
+    runtime:
+      kind: adk
+      adk_mode: single_turn
+      transport:
+        - in_process
+    system_instruction: |
+      You are the Portfolio Statement Extractor, an internal child of the
+      Portfolio Import Agent. Extract only facts present in the supplied
+      brokerage statement and return the requested JSON contract.
+
+      Preserve the statement's numbers, signs, dates, account metadata,
+      holdings, transactions, income, cash, and disclosures. Never invent a
+      value. Use null for a missing scalar and an empty array or object when a
+      section is absent. Keep every holding as a separate row unless the
+      statement itself has already consolidated it. Return JSON only and never
+      include markdown or commentary.
+
+      The caller supplies a deterministic page excerpt when available and may
+      also supply the original PDF or CSV as a private model input. Do not
+      expose document contents in telemetry or claim that a write occurred.
+    inputs:
+      - name: statement
+        type: object
+        description: Private PDF or CSV content plus a deterministic text excerpt.
+    outputs:
+      - name: extraction
+        type: object
+        description: Bounded financial statement extraction contract.
+    privacy:
+      context_allowlist:
+        - portfolio.statement.content
+        - portfolio.statement.filename
+        - portfolio.statement.excerpt
+      plaintext_telemetry: false
+    telemetry_namespace: agent.portfolio_import.extract
+    performance:
+      latency_p95_ms: 120000
+      max_output_tokens: 32768
+    rollout:
+      strategy: general
+      rollback: Disable the ADK extractor and retain the previous bounded import parser until the contract is repaired.
+    availability:
+      environments:
+        - development
+        - uat
+        - production
+  - id: agent_portfolio_import_relevance
+    name: Portfolio Document Relevance Classifier
+    description: Classifies whether a document is a brokerage statement from bounded text.
+    model:
+      provider: gemini
+      name: gemini-default
+      mode: hushh_managed_vertex
+      thinking_level: low
+    runtime:
+      kind: adk
+      adk_mode: single_turn
+      transport:
+        - in_process
+    system_instruction: |
+      You are the Portfolio Document Relevance Classifier, an internal child
+      of Portfolio Import. Decide only whether the supplied filename and text
+      sample describe a brokerage or investment account statement. Return the
+      requested JSON fields, use a confidence between 0 and 1, and explain the
+      evidence briefly. Never extract account values, infer a user identity,
+      or claim that an import occurred. Return JSON only.
+    inputs:
+      - name: document_metadata
+        type: object
+        description: Filename and bounded text sample only.
+    outputs:
+      - name: relevance
+        type: object
+        description: Relevance decision with confidence and reason.
+    privacy:
+      context_allowlist:
+        - portfolio.statement.filename
+        - portfolio.statement.text_sample
+      plaintext_telemetry: false
+    telemetry_namespace: agent.portfolio_import.relevance
+    performance:
+      latency_p95_ms: 10000
+      max_output_tokens: 256
+    rollout:
+      strategy: general
+      rollback: Disable model relevance classification and fall back to the deterministic relevance heuristic.
+    availability:
+      environments:
+        - development
+        - uat
+        - production
+  - id: agent_portfolio_import_comprehensive
+    name: Comprehensive Portfolio Document Extractor
+    description: Extracts full brokerage statement details from a private PDF document.
+    model:
+      provider: gemini
+      name: gemini-default
+      mode: hushh_managed_vertex
+      thinking_level: low
+    runtime:
+      kind: adk
+      adk_mode: single_turn
+      transport:
+        - in_process
+    system_instruction: |
+      You are the Comprehensive Portfolio Document Extractor, an internal
+      child of Portfolio Import. Read the supplied private brokerage PDF and
+      return the complete extraction JSON contract requested by the caller.
+      Preserve every supported account, holding, transaction, income, cash,
+      historical, and disclosure field that is present. Do not summarize,
+      hallucinate, or expose document contents in telemetry. Use null for a
+      missing scalar and empty collections for absent sections. Return JSON
+      only, without markdown or commentary.
+    inputs:
+      - name: statement
+        type: object
+        description: Private PDF document and extraction instructions.
+    outputs:
+      - name: extraction
+        type: object
+        description: Full comprehensive portfolio extraction object.
+    privacy:
+      context_allowlist:
+        - portfolio.statement.content
+        - portfolio.statement.filename
+      plaintext_telemetry: false
+    telemetry_namespace: agent.portfolio_import.comprehensive
+    performance:
+      latency_p95_ms: 120000
+      max_output_tokens: 32768
+    rollout:
+      strategy: general
+      rollback: Disable comprehensive ADK extraction and retain the deterministic parser result for inspection.
+    availability:
+      environments:
+        - development
+        - uat
+        - production

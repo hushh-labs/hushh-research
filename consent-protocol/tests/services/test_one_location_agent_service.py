@@ -2470,6 +2470,12 @@ class FourUserMemoryService(OneLocationAgentService):
         params = params or {}
         if "pg_advisory_xact_lock" in sql:
             return {"locked": None}
+        if "FROM one_location_account_settings" in sql:
+            # Owner-level sharing posture (migration 221). Tests that model an
+            # explicit posture set ``self.account_settings[user_id]``; every
+            # other user is ``unset`` (no row), which changes nothing.
+            row = getattr(self, "account_settings", {}).get(str(params.get("user_id") or ""))
+            return dict(row) if row else None
         if "FROM one_location_auto_approve_preferences" in sql:
             row = self.auto_approve_preferences.get(str(params.get("user_id") or ""))
             return dict(row) if row else None

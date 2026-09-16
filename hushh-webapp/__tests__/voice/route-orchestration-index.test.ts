@@ -66,18 +66,23 @@ describe("One route orchestration index", () => {
     expect(mismatches).toEqual([]);
   });
 
-  it("indexes the root welcome as a published, generated action surface", () => {
+  it("indexes the root as the dual-mode canonical Chat surface", () => {
     const root = index.routes.find((entry) => entry.route_pattern === "/");
     expect(root).toMatchObject({
-      instruction_id: "route.one.intro",
-      context_policy: "publish",
-      action_ids: ["onboarding.claim_one"],
+      instruction_id: "route.chat.root",
+      context_policy: "minimal",
+      action_ids: [
+        "onboarding.claim_one",
+        "wallet.add",
+        "wallet.list",
+        "wallet.reveal",
+      ],
       delegation_policy: { mode: "no_delegation" },
     });
     expect(root?.voice_playbook).toMatchObject({
-      screen: "one_intro",
-      primary_action_id: "onboarding.claim_one",
-      proactivity: "on_entry",
+      screen: "chat",
+      primary_action_id: null,
+      proactivity: "ambient",
     });
   });
 

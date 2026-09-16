@@ -6,11 +6,11 @@ const mocks = vi.hoisted(() => ({
   startConnect: vi.fn(),
   disconnect: vi.fn(),
   getIdToken: vi.fn(),
-  openAgent: vi.fn(),
+  navigateToAgentChat: vi.fn(),
 }));
 
-vi.mock("@/components/agent/agent-popover-provider", () => ({
-  useOptionalAgentPopover: () => ({ openAgent: mocks.openAgent }),
+vi.mock("@/lib/navigation/agent-navigation", () => ({
+  navigateToAgentChat: mocks.navigateToAgentChat,
 }));
 
 vi.mock("@/hooks/use-auth", () => ({
@@ -97,12 +97,7 @@ describe("CalendarAgentPage", () => {
     expect(screen.queryByRole("button", { name: "Enable scheduling" })).toBeNull();
 
     fireEvent.click(chat);
-    expect(mocks.openAgent).toHaveBeenCalledWith({
-      handoff: expect.objectContaining({
-        reason: "user_requested",
-        transcript: "Summarize my calendar events",
-      }),
-    });
+    expect(mocks.navigateToAgentChat).toHaveBeenCalledWith();
   });
 
   it("offers an explicit scheduling upgrade for a connected read-only Calendar", async () => {

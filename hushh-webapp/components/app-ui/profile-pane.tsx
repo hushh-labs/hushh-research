@@ -1,8 +1,14 @@
 "use client";
 
-import { X } from "lucide-react";
+import { ArrowLeft, X } from "lucide-react";
+import { usePathname, useSearchParams } from "next/navigation";
 
-import { ProfilePage } from "@/app/profile/profile-workspace-page";
+import { ProfilePage } from "@/components/profile/profile-workspace-page";
+import {
+  canGoBackProfilePane,
+  popProfilePaneLocation,
+  resolveProfilePaneUrlState,
+} from "@/lib/navigation/profile-pane";
 import {
   Sheet,
   SheetClose,
@@ -23,35 +29,78 @@ type ProfilePaneProps = {
  * right-side presentation used by the shell and native edge gesture.
  */
 export function ProfilePane({ open, onOpenChange }: ProfilePaneProps) {
+  const pathname = usePathname() || "/";
+  const searchParams = useSearchParams();
+  const paneState = resolveProfilePaneUrlState(searchParams);
+  const canGoBack = canGoBackProfilePane(paneState.location);
+  const title = paneState.location.detail
+    ? "Profile detail"
+    : paneState.location.panel
+      ? paneState.location.panel === "my-data"
+        ? "Memory"
+        : paneState.location.panel === "connected-systems"
+          ? "Connected Systems"
+          : paneState.location.panel === "gmail"
+            ? "Gmail receipts"
+            : paneState.location.panel === "account"
+              ? "Your account"
+              : paneState.location.panel === "preferences"
+                ? "Appearance & preferences"
+                : paneState.location.panel === "security"
+                  ? "Security & privacy"
+                  : paneState.location.panel === "referrals"
+                    ? "Invite friends"
+                    : "Help & feedback"
+      : "Profile";
+
   return (
     <Sheet open={open} onOpenChange={onOpenChange} modal>
       <SheetContent
         side="right"
         showCloseButton={false}
         contentDragDismiss={false}
-        className="w-[min(92vw,480px)] max-w-none gap-0 overflow-hidden p-0"
+        className="w-full max-w-none gap-0 overflow-hidden p-0 sm:w-[min(92vw,560px)] sm:max-w-[560px]"
         aria-label="Profile"
         data-testid="profile-pane"
       >
-        <SheetHeader className="shrink-0 border-b border-border/60 px-5 pb-4 pt-[calc(1rem+env(safe-area-inset-top))] pr-16 text-left">
-          <SheetTitle>Profile</SheetTitle>
+        <SheetHeader className="shrink-0 border-b border-border/60 pb-4 pl-[max(var(--page-inline-gutter-standard),calc(1rem+env(safe-area-inset-left)))] pr-[max(5rem,calc(var(--page-inline-gutter-standard)+4rem))] pt-[calc(1rem+env(safe-area-inset-top))] text-left">
+          <div className="flex min-w-0 items-center gap-2">
+            {canGoBack ? (
+              <button
+                type="button"
+                aria-label="Back in Profile"
+                onClick={() =>
+                  popProfilePaneLocation(pathname, searchParams)
+                }
+                className="-ml-2 inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
+              >
+                <ArrowLeft className="h-5 w-5" />
+              </button>
+            ) : null}
+            <SheetTitle className="truncate">{title}</SheetTitle>
+          </div>
           <SheetDescription>
-            Your account, preferences, and privacy controls.
+            {canGoBack
+              ? "Profile settings"
+              : "Your account, preferences, and privacy controls."}
           </SheetDescription>
         </SheetHeader>
         <SheetClose
           asChild
-          className="absolute right-4 top-[calc(1rem+env(safe-area-inset-top))] z-10"
+          className="absolute right-[max(1rem,env(safe-area-inset-right))] top-[calc(1rem+env(safe-area-inset-top))] z-10"
         >
           <button
             type="button"
             aria-label="Close Profile"
-            className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-border/60 bg-background/80 text-muted-foreground shadow-sm transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-border/60 bg-background/80 text-muted-foreground shadow-sm transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
           >
             <X className="h-4 w-4" />
           </button>
         </SheetClose>
-        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain [-webkit-overflow-scrolling:touch]">
+        <div
+          className="min-h-0 flex-1 overflow-y-auto overscroll-contain pb-[max(1.5rem,env(safe-area-inset-bottom))] [-webkit-overflow-scrolling:touch]"
+          data-profile-pane-scroll-root="true"
+        >
           <ProfilePage presentation="pane" />
         </div>
       </SheetContent>

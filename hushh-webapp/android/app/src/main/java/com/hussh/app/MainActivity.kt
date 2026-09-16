@@ -237,7 +237,7 @@ class MainActivity : BridgeActivity() {
     /**
      * Mark the Activity resumed before BridgeActivity emits Capacitor's active
      * event. JS can then query HushhSessionPrivacy and safely acknowledge the
-     * exact generation it just validated.
+     * exact generation it just rendered.
      */
     override fun onResume() {
         sessionPrivacyActivityResumed = true
@@ -342,16 +342,16 @@ class MainActivity : BridgeActivity() {
     private fun scheduleSessionPrivacyRecovery() {
         sessionPrivacyRecoveryRunnable?.let { nativeTestHandler.removeCallbacks(it) }
         sessionPrivacyProgress?.visibility = View.VISIBLE
-        sessionPrivacyTitle?.text = "Checking your session\u2026"
-        sessionPrivacyDetail?.text = "Your private information stays hidden while we verify access."
-        sessionPrivacyOverlay?.contentDescription = "Checking your session. Your private information stays hidden while we verify access."
+        sessionPrivacyTitle?.text = "Protecting private information\u2026"
+        sessionPrivacyDetail?.text = "Your private information stays hidden while the app resumes."
+        sessionPrivacyOverlay?.contentDescription = "Protecting private information. Your private information stays hidden while the app resumes."
         val generation = sessionPrivacyGeneration
         val work = Runnable {
             if (sessionPrivacyShielded && generation == sessionPrivacyGeneration) {
                 sessionPrivacyProgress?.visibility = View.GONE
-                sessionPrivacyTitle?.text = "Unable to verify your session"
+                sessionPrivacyTitle?.text = "Unable to restore the private view"
                 sessionPrivacyDetail?.text = "Your private information is still hidden. Try again, or restart this session."
-                sessionPrivacyOverlay?.contentDescription = "Unable to verify your session. Your private information is still hidden."
+                sessionPrivacyOverlay?.contentDescription = "Unable to restore the private view. Your private information is still hidden."
                 sessionPrivacyRecoveryActions?.visibility = View.VISIBLE
             }
         }
@@ -399,7 +399,7 @@ class MainActivity : BridgeActivity() {
             addView(
                 TextView(context).apply {
                     sessionPrivacyTitle = this
-                    text = "Checking your session\u2026"
+                    text = "Protecting private information\u2026"
                     setTextColor(Color.rgb(56, 53, 64))
                     textSize = 17f
                     gravity = Gravity.CENTER
@@ -414,7 +414,7 @@ class MainActivity : BridgeActivity() {
             addView(
                 TextView(context).apply {
                     sessionPrivacyDetail = this
-                    text = "Your private information stays hidden while we verify access."
+                    text = "Your private information stays hidden while the app resumes."
                     setTextColor(Color.rgb(105, 101, 113))
                     textSize = 14f
                     gravity = Gravity.CENTER
@@ -437,7 +437,7 @@ class MainActivity : BridgeActivity() {
             isClickable = true
             isFocusable = true
             contentDescription =
-                "Checking your session. Your private information stays hidden while we verify access."
+                "Protecting private information. Your private information stays hidden while the app resumes."
             importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
             visibility = View.GONE
             elevation = 10_000f * density

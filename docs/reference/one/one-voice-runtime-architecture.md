@@ -23,7 +23,7 @@ flowchart TD
   screen --> handoff[Screen opened / operation requires review]
 ```
 
-The Agent Bar owns capture. Tap-to-start/finish is the accessible alternative to hold/release. Cancellation, backgrounding and stale session callbacks discard recording; finishing drains the whole bounded recording. No command starts another listening session. Gemini Live startup, relay execution, prewarming, reconnects, generated speech and conversational fallbacks are retired. The normal text-model path remains available to typed Agent Chat.
+The Agent Bar owns capture. Tap-to-start/finish is the accessible alternative to hold/release. Cancellation, backgrounding and stale session callbacks discard recording; finishing drains the whole bounded recording. No command starts another listening session. Gemini Live runs only as the flag-gated One Live Voice adapter described in [one-live-voice-decision-2026-09.md](./one-live-voice-decision-2026-09.md) and [one-voice-live-tool-contract.md](./one-voice-live-tool-contract.md); prewarming, reconnect-with-replay and conversational fallbacks remain retired. The normal text-model path remains available to typed Agent Chat.
 
 The mounted command provider survives route and chrome changes. Press starts microphone preparation immediately; 250 ms distinguishes hold/release from tap-to-start/finish. Sliding left 64 px arms cancellation. Actual microphone level, elapsed time and readiness/cancel haptics use the shared segmented bar and waveform. Releasing before readiness discards the pending capture. Granting first-time microphone permission requires a fresh gesture. Progress remains compact; choices and genuine prerequisites expand a nonmodal card. Collapse, cancel and result dismissal have separate behavior and never restart listening.
 
@@ -88,7 +88,7 @@ Rollback requires stopping command traffic, restoring the prior application revi
 
 `command-agent-bar.tsx`, `command-capture.ts`, `location-command-runtime.ts`, `command_proposals.py`, `command_brain.py` and the existing service/handler registries own the implementation. The generated gateway retains stable `kai` compatibility identifiers. Legacy text backend bindings are authored on action contracts and generated into compatibility projections.
 
-Obsolete Live clients receive an explicit retirement response; no Live model is constructed. The old local phrase router, ONNX/ASR model-pack downloads, FluidAudio packages and model-pack publication workflow are removed. Historical database records are preserved. Voice-persona controls no longer appear in settings.
+Obsolete Live clients on `/api/one/adk/*` receive an explicit retirement response; no Live model is constructed there. The maintained Live surface is `/api/one/voice/*` (`api/routes/one/voice.py`), which constructs its model only through `runtime_providers/factory.py` on Vertex ADC and only while `ONE_VOICE_LIVE_ENABLED` is on. The old local phrase router, ONNX/ASR model-pack downloads, FluidAudio packages and model-pack publication workflow are removed. Historical database records are preserved. Voice-persona controls no longer appear in settings.
 
 ## Verification and release boundary
 

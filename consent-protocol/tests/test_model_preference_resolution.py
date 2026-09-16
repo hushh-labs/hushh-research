@@ -19,11 +19,10 @@ def test_catalog_comes_from_the_registry_not_the_environment(
 ) -> None:
     monkeypatch.delenv("HUSSH_GEMINI_TEXT_MODEL", raising=False)
     choices = model_catalog.selectable_text_models()
-    assert [choice.model_id for choice in choices][:3] == [
+    assert [choice.model_id for choice in choices] == [
         "gemini-3.8-flash",
         "gemini-3.7-flash",
-        "gemini-3.6-flash",
-    ], "the catalog is the registry-backed Flash family, newest first"
+    ], "the catalog is the last two registry-backed Flash releases, newest first"
     assert all(choice.label.startswith("Gemini ") for choice in choices)
     assert model_catalog.is_selectable_text_model("gemini-3.8-flash")
     assert not model_catalog.is_selectable_text_model("gemini-3.1-pro-preview")
@@ -33,8 +32,8 @@ def test_catalog_comes_from_the_registry_not_the_environment(
 
 def test_lane_default_is_read_at_call_time(monkeypatch: pytest.MonkeyPatch) -> None:
     """No copy is frozen into the catalog module when it is first imported."""
-    monkeypatch.setattr(constants, "GEMINI_MODEL", "gemini-3.6-flash")
-    assert model_catalog.deployment_default_text_model() == "gemini-3.6-flash"
+    monkeypatch.setattr(constants, "GEMINI_MODEL", "gemini-3.7-flash")
+    assert model_catalog.deployment_default_text_model() == "gemini-3.7-flash"
     monkeypatch.setattr(constants, "GEMINI_MODEL", "gemini-3.8-flash")
     assert model_catalog.deployment_default_text_model() == "gemini-3.8-flash"
     assert any(

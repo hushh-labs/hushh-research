@@ -23,7 +23,9 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from email.message import EmailMessage
+from functools import lru_cache
 from html.parser import HTMLParser
+from pathlib import Path
 from typing import Any, Iterable
 
 from google.auth.transport.requests import AuthorizedSession
@@ -55,6 +57,8 @@ try:
 except Exception:  # pragma: no cover - optional dependency
     _genai_types = None  # type: ignore
 
+from hushh_mcp.hushh_adk.manifest import AgentSubagentConfig, ManifestLoader
+from hushh_mcp.hushh_adk.single_turn import build_single_turn_agent, run_single_turn
 from hushh_mcp.runtime_providers import build_generate_content_config
 from hushh_mcp.runtime_settings import get_firebase_credential_settings
 from hushh_mcp.services.consent_db import ConsentDBService
@@ -293,6 +297,58 @@ _KYC_EXTRACT_DRAFT_SCHEMA: dict[str, Any] = {
     },
     "required": ["extracted", "missing", "draft"],
 }
+
+_KYC_REWRITE_TEMPLATE_SCHEMA: dict[str, Any] = {
+    "type": "OBJECT",
+    "properties": {"rewritten_template": {"type": "STRING"}},
+    "required": ["rewritten_template"],
+}
+_KYC_REWRITE_BODY_SCHEMA: dict[str, Any] = {
+    "type": "OBJECT",
+    "properties": {"rewritten_body": {"type": "STRING"}},
+    "required": ["rewritten_body"],
+}
+_KYC_MANIFEST_PATH = Path(__file__).resolve().parents[1] / "agents" / "kyc" / "agent.yaml"
+_KYC_GENE_IDS = frozenset({"route", "redraft", "redraft_full", "extract_and_draft"})
+
+
+@lru_cache(maxsize=4)
+def _load_kyc_gene(gene_id: str) -> AgentSubagentConfig:
+    """Load one authored KYC gene without constructing a provider at import time."""
+    if gene_id not in _KYC_GENE_IDS:
+        raise ValueError(f"Unknown KYC gene: {gene_id}")
+    manifest = ManifestLoader.load(str(_KYC_MANIFEST_PATH))
+    try:
+        return next(child for child in manifest.subagents if child.id == f"agent_kyc_{gene_id}")
+    except StopIteration as exc:
+        raise ValueError(f"KYC manifest is missing gene: {gene_id}") from exc
+
+
+def _kyc_testing_mode() -> bool:
+    """Keep existing unit fakes at the client seam; production uses the ADK gene."""
+    return (os.getenv("TESTING") or "").strip().lower() in {"1", "true", "yes"}
+
+
+async def _run_kyc_gene(
+    *,
+    gene_id: str,
+    prompt: str,
+    output_schema: dict[str, Any],
+    user_id: str,
+    consent_token: str,
+    timeout_seconds: float = 90.0,
+) -> dict[str, Any] | None:
+    """Run one manifest-owned KYC gene through the shared ADK single-turn path."""
+    gene = _load_kyc_gene(gene_id)
+    agent = build_single_turn_agent(gene, output_schema=output_schema)
+    result = await run_single_turn(
+        agent,
+        prompt_parts=prompt,
+        user_id=user_id or f"kyc-{gene_id}",
+        consent_token=consent_token or f"kyc-{gene_id}",
+        timeout_seconds=timeout_seconds,
+    )
+    return result if isinstance(result, dict) else None
 
 
 def _runtime_environment() -> str:
@@ -2272,6 +2328,7 @@ class OneEmailKycService:
             body=body_text,
             pkm_index=pkm_index,
             available_scope_paths=available_scope_paths,
+            user_id=user_match["user_id"],
         )
 
         # Canonicalize LLM-proposed scopes to the attr.<domain>[.path] grammar the
@@ -2472,6 +2529,9 @@ class OneEmailKycService:
         prompt: str,
         response_schema: dict[str, Any],
         timeout_seconds: float = 30.0,
+        gene_id: str | None = None,
+        user_id: str = "",
+        consent_token: str = "",
     ) -> dict[str, Any] | None:
         """Run a structured (JSON-schema) Gemini call on the shared kai client.
 
@@ -2480,6 +2540,19 @@ class OneEmailKycService:
         """
         if not _require_gemini_ready():
             return None
+        if gene_id and not _kyc_testing_mode():
+            try:
+                return await _run_kyc_gene(
+                    gene_id=gene_id,
+                    prompt=prompt,
+                    output_schema=response_schema,
+                    user_id=user_id,
+                    consent_token=consent_token,
+                    timeout_seconds=timeout_seconds,
+                )
+            except Exception:
+                logger.exception("one.kyc.adk_gene_failed gene_id=%s", gene_id)
+                return None
         client = _gemini_client if _gemini_client is not None else _kai_llm._gemini_client
         model_name = _gemini_model_name or _kai_llm._gemini_model_name
         types_mod = _genai_types if _genai_types is not None else _kai_llm.types
@@ -2520,6 +2593,8 @@ class OneEmailKycService:
         body: str,
         pkm_index: dict[str, Any],
         available_scope_paths: dict[str, list[str]] | None = None,
+        user_id: str = "",
+        consent_token: str = "",
     ) -> dict[str, Any]:
         """Pass 1 — route the request to the correct PKM domain + fields.
 
@@ -2566,7 +2641,13 @@ class OneEmailKycService:
         # cannot invent paths (tax_id, bank_accounts) even if it ignores the
         # prompt. Falls back to the free-text schema when no paths are known.
         response_schema = self._kyc_routing_schema_for_paths(scope_paths)
-        result = await self._llm_generate_structured(prompt=prompt, response_schema=response_schema)
+        result = await self._llm_generate_structured(
+            prompt=prompt,
+            response_schema=response_schema,
+            gene_id="route",
+            user_id=user_id,
+            consent_token=consent_token,
+        )
         if result is None:
             return _gemini_unavailable_payload("KYC routing produced no parseable result")
         return result
@@ -4652,40 +4733,55 @@ class OneEmailKycService:
             f"Email to rewrite:\n{tokenized_template}"
         )
 
-        # Step 6 — Call Gemini via the shared client (no new client instantiated).
-        # Prefer the (possibly test-patched) module-level globals; fall back to the
-        # live values in the kai.llm module after lazy init.
-        client = _gemini_client if _gemini_client is not None else _kai_llm._gemini_client
-        model_name = _gemini_model_name or _kai_llm._gemini_model_name
-        types_mod = _genai_types if _genai_types is not None else _kai_llm.types
-        if client is None or types_mod is None:
-            return _gemini_unavailable_payload("Gemini unavailable for KYC LLM redraft")
-
-        config = build_generate_content_config(
-            types_mod,
-            model_name,
-            system_instruction=system_instruction,
-            temperature=KAI_LLM_TEMPERATURE,
-            max_output_tokens=KAI_LLM_MAX_OUTPUT_TOKENS_DEFAULT,
-        )
-
-        def _invoke() -> Any:
-            return client.models.generate_content(
-                model=model_name,
-                contents=user_message,
-                config=config,
+        # Step 6 — Production calls use the manifest-owned ADK gene. Keep the
+        # direct client seam only for deterministic unit fakes under TESTING.
+        if _kyc_testing_mode():
+            client = _gemini_client if _gemini_client is not None else _kai_llm._gemini_client
+            model_name = _gemini_model_name or _kai_llm._gemini_model_name
+            types_mod = _genai_types if _genai_types is not None else _kai_llm.types
+            if client is None or types_mod is None:
+                return _gemini_unavailable_payload("Gemini unavailable for KYC LLM redraft")
+            config = build_generate_content_config(
+                types_mod,
+                model_name,
+                system_instruction=system_instruction,
+                temperature=KAI_LLM_TEMPERATURE,
+                max_output_tokens=KAI_LLM_MAX_OUTPUT_TOKENS_DEFAULT,
             )
 
-        loop = asyncio.get_running_loop()
-        response = await loop.run_in_executor(None, _invoke)
-        rewritten_template = getattr(response, "text", None)
-        if not rewritten_template:
-            candidates = getattr(response, "candidates", None) or []
-            if candidates:
-                parts = getattr(getattr(candidates[0], "content", None), "parts", None) or []
-                if parts:
-                    rewritten_template = getattr(parts[0], "text", None)
-        rewritten_template = (rewritten_template or "").strip()
+            def _invoke() -> Any:
+                return client.models.generate_content(
+                    model=model_name,
+                    contents=user_message,
+                    config=config,
+                )
+
+            loop = asyncio.get_running_loop()
+            response = await loop.run_in_executor(None, _invoke)
+            rewritten_template = getattr(response, "text", None)
+            if not rewritten_template:
+                candidates = getattr(response, "candidates", None) or []
+                if candidates:
+                    parts = getattr(getattr(candidates[0], "content", None), "parts", None) or []
+                    if parts:
+                        rewritten_template = getattr(parts[0], "text", None)
+            rewritten_template = (rewritten_template or "").strip()
+        else:
+            try:
+                gene_result = await _run_kyc_gene(
+                    gene_id="redraft",
+                    prompt=f"{system_instruction}\n\n{user_message}",
+                    output_schema=_KYC_REWRITE_TEMPLATE_SCHEMA,
+                    user_id=user_id,
+                    consent_token=consent_token,
+                )
+            except Exception as exc:
+                raise OneEmailKycError(
+                    "KYC drafting intelligence is temporarily unavailable.",
+                    status_code=503,
+                    code="ONE_KYC_LLM_UNAVAILABLE",
+                ) from exc
+            rewritten_template = str((gene_result or {}).get("rewritten_template") or "").strip()
 
         # Step 7 — Log the instruction hash only. NEVER log the template body.
         instruction_hash = hashlib.sha256(instruction.encode("utf-8")).hexdigest()
@@ -4855,49 +4951,66 @@ class OneEmailKycService:
             f"Current email draft:\n{draft_body}"
         )
 
-        # Step 7 — Call Gemini via the shared client (no new client instantiated).
-        client = _gemini_client if _gemini_client is not None else _kai_llm._gemini_client
-        model_name = _gemini_model_name or _kai_llm._gemini_model_name
-        types_mod = _genai_types if _genai_types is not None else _kai_llm.types
-        if client is None or types_mod is None:
-            raise OneEmailKycError(
-                "KYC drafting intelligence is temporarily unavailable.",
-                status_code=503,
-                code="ONE_KYC_LLM_UNAVAILABLE",
+        # Step 7 — Production calls use the manifest-owned ADK gene. Keep the
+        # direct client seam only for deterministic unit fakes under TESTING.
+        if _kyc_testing_mode():
+            client = _gemini_client if _gemini_client is not None else _kai_llm._gemini_client
+            model_name = _gemini_model_name or _kai_llm._gemini_model_name
+            types_mod = _genai_types if _genai_types is not None else _kai_llm.types
+            if client is None or types_mod is None:
+                raise OneEmailKycError(
+                    "KYC drafting intelligence is temporarily unavailable.",
+                    status_code=503,
+                    code="ONE_KYC_LLM_UNAVAILABLE",
+                )
+            config = build_generate_content_config(
+                types_mod,
+                model_name,
+                system_instruction=system_instruction,
+                temperature=KAI_LLM_TEMPERATURE,
+                max_output_tokens=KAI_LLM_MAX_OUTPUT_TOKENS_DEFAULT,
             )
 
-        config = build_generate_content_config(
-            types_mod,
-            model_name,
-            system_instruction=system_instruction,
-            temperature=KAI_LLM_TEMPERATURE,
-            max_output_tokens=KAI_LLM_MAX_OUTPUT_TOKENS_DEFAULT,
-        )
+            def _invoke() -> Any:
+                return client.models.generate_content(
+                    model=model_name,
+                    contents=user_message,
+                    config=config,
+                )
 
-        def _invoke() -> Any:
-            return client.models.generate_content(
-                model=model_name,
-                contents=user_message,
-                config=config,
-            )
-
-        loop = asyncio.get_running_loop()
-        try:
-            response = await loop.run_in_executor(None, _invoke)
-        except Exception as exc:
-            raise OneEmailKycError(
-                "KYC drafting intelligence is temporarily unavailable.",
-                status_code=503,
-                code="ONE_KYC_LLM_UNAVAILABLE",
-            ) from exc
-        rewritten = getattr(response, "text", None)
-        if not rewritten:
-            candidates = getattr(response, "candidates", None) or []
-            if candidates:
-                parts = getattr(getattr(candidates[0], "content", None), "parts", None) or []
-                if parts:
-                    rewritten = getattr(parts[0], "text", None)
-        rewritten = (rewritten or "").strip()
+            loop = asyncio.get_running_loop()
+            try:
+                response = await loop.run_in_executor(None, _invoke)
+            except Exception as exc:
+                raise OneEmailKycError(
+                    "KYC drafting intelligence is temporarily unavailable.",
+                    status_code=503,
+                    code="ONE_KYC_LLM_UNAVAILABLE",
+                ) from exc
+            rewritten = getattr(response, "text", None)
+            if not rewritten:
+                candidates = getattr(response, "candidates", None) or []
+                if candidates:
+                    parts = getattr(getattr(candidates[0], "content", None), "parts", None) or []
+                    if parts:
+                        rewritten = getattr(parts[0], "text", None)
+            rewritten = (rewritten or "").strip()
+        else:
+            try:
+                gene_result = await _run_kyc_gene(
+                    gene_id="redraft_full",
+                    prompt=f"{system_instruction}\n\n{user_message}",
+                    output_schema=_KYC_REWRITE_BODY_SCHEMA,
+                    user_id=user_id,
+                    consent_token=consent_token,
+                )
+            except Exception as exc:
+                raise OneEmailKycError(
+                    "KYC drafting intelligence is temporarily unavailable.",
+                    status_code=503,
+                    code="ONE_KYC_LLM_UNAVAILABLE",
+                ) from exc
+            rewritten = str((gene_result or {}).get("rewritten_body") or "").strip()
         if not rewritten:
             raise OneEmailKycError(
                 "KYC drafting intelligence returned no usable response.",
@@ -5067,7 +5180,11 @@ class OneEmailKycService:
             "Return the JSON."
         )
         result = await self._llm_generate_structured(
-            prompt=prompt, response_schema=_KYC_EXTRACT_DRAFT_SCHEMA
+            prompt=prompt,
+            response_schema=_KYC_EXTRACT_DRAFT_SCHEMA,
+            gene_id="extract_and_draft",
+            user_id=user_id,
+            consent_token=consent_token,
         )
         if result is None:
             return _gemini_unavailable_payload("KYC extract/draft produced no parseable result")

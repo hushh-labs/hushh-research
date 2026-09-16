@@ -90,8 +90,13 @@ describe("native resumed-session privacy shield contract", () => {
     expect(bridge).toContain("if (!Capacitor.isNativePlatform())");
   });
 
-  it("keeps the cover until the shared auth owner settles the same generation", () => {
+  it("releases the cover only after the resumed document is ready", () => {
     const authContext = source("lib/firebase/auth-context.tsx");
+    const nativePrivacySettlement = between(
+      authContext,
+      "const settleNativePrivacyProtectedSession",
+      "const connectNativePrivacyListener",
+    );
 
     expect(authContext).toContain("getNativeSessionPrivacyState()");
     expect(authContext).toContain(
@@ -102,7 +107,8 @@ describe("native resumed-session privacy shield contract", () => {
     expect(authContext).toContain("!terminalInvalidationLatchRef.current");
     expect(authContext).toContain("!signOutPromiseRef.current");
     expect(authContext).toContain("subscribeNativeSessionPrivacy");
-    expect(authContext).toContain('privacyState.cause !== "inactive"');
+    expect(nativePrivacySettlement).not.toContain("validateActiveSession");
+    expect(nativePrivacySettlement).not.toContain("setLoading(true)");
     expect(authContext).toContain("requestAnimationFrame");
     expect(authContext).toContain("nativePrivacyReconcileRef.current()");
   });
@@ -163,7 +169,7 @@ describe("native resumed-session privacy shield contract", () => {
     expect(controller).toContain('restart.setTitle("Restart session"');
     expect(controller).toContain(".now() + 8");
     expect(controller).toContain("self.recoveryProgress?.stopAnimating()");
-    expect(controller).toContain('self.recoveryTitle?.text = "Unable to verify your session"');
+    expect(controller).toContain('self.recoveryTitle?.text = "Unable to restore the private view"');
     expect(controller).toContain("retry.heightAnchor.constraint(greaterThanOrEqualToConstant: 44)");
     expect(controller).toContain("title.numberOfLines = 0");
     expect(controller.indexOf("state.restartSession()")).toBeLessThan(controller.indexOf("reloadDocument?()"));
@@ -248,7 +254,7 @@ describe("native resumed-session privacy shield contract", () => {
     expect(activity).toContain('sessionPrivacyCause = "restart"');
     expect(activity).toContain("nativeTestHandler.postDelayed(work, 8_000)");
     expect(activity).toContain("sessionPrivacyProgress?.visibility = View.GONE");
-    expect(activity).toContain('sessionPrivacyTitle?.text = "Unable to verify your session"');
+    expect(activity).toContain('sessionPrivacyTitle?.text = "Unable to restore the private view"');
     expect(activity).toContain("bridge?.webView?.reload()");
   });
 });

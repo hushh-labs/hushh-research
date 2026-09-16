@@ -16,6 +16,7 @@ from typing import Any
 from hushh_mcp.consent.segment_labels import humanize_path
 from hushh_mcp.constants import GEMINI_MODEL
 from hushh_mcp.hushh_adk.manifest import ManifestLoader
+from hushh_mcp.hushh_adk.single_turn import build_single_turn_agent, run_single_turn
 from hushh_mcp.runtime_providers import (
     build_generate_content_config,
     build_managed_runtime_client,
@@ -445,10 +446,6 @@ _AGENT_CONTRACT_TIMEOUT_SECONDS = max(
 # One retry absorbs transient provider tail latency without introducing another
 # runtime configuration surface or extending the shared preview deadline.
 _AGENT_CONTRACT_MAX_ATTEMPTS = 2
-_PKM_SALIENCE_AGENT_TIMEOUT_SECONDS = max(
-    _AGENT_CONTRACT_TIMEOUT_SECONDS,
-    float(os.getenv("PKM_SALIENCE_AGENT_TIMEOUT_SECONDS", "15") or "15"),
-)
 _PREVIEW_TOTAL_BUDGET_SECONDS = max(
     4.0,
     # The graph is bounded but sequential after segmentation. The headroom over
@@ -1563,6 +1560,17 @@ class PKMAgentLabService:
                 )
         return list(merged.values())
 
+    def _should_use_adk_single_turn(self, manifest: Any) -> bool:
+        """Use ADK only for full manifest objects and the managed client type."""
+        if not callable(getattr(manifest, "model_config_for_runtime", None)):
+            return False
+        try:
+            from google.genai import Client
+
+            return isinstance(self.client, Client)
+        except Exception:
+            return False
+
     async def _run_agent_contract(
         self,
         *,
@@ -1592,33 +1600,64 @@ class PKMAgentLabService:
         if self.client is None:
             record("client_unavailable", attempts=0)
             return None
+        # Real managed Gemini clients use the shared ADK single-turn operon.
+        # Test doubles and legacy manifest stand-ins retain the direct-client
+        # seam so deterministic tests never acquire credentials or network I/O.
+        if self._should_use_adk_single_turn(manifest):
+            try:
+                from google.adk.models import Gemini
+
+                adk_model = Gemini(
+                    model=model_override or _manifest_model_name(manifest) or GEMINI_MODEL,
+                    client=self.client,
+                )
+                agent = build_single_turn_agent(
+                    manifest,
+                    output_schema=response_schema,
+                    model=adk_model,
+                )
+                parsed = await run_single_turn(
+                    agent,
+                    prompt_parts=prompt,
+                    user_id="pkm-agent-lab",
+                    consent_token="managed-runtime",  # noqa: S106 - turn-local sentinel
+                    timeout_seconds=timeout_seconds,
+                )
+                value = parsed.model_dump(mode="json") if hasattr(parsed, "model_dump") else parsed
+                if isinstance(value, dict):
+                    record("success", attempts=1)
+                    return value
+                record("invalid_response", attempts=1)
+                return None
+            except Exception as error:
+                record("adk_failure", attempts=1, error_type=type(error).__name__)
+                logger.warning(
+                    "pkm.agent_contract_adk_failed agent=%s error=%s",
+                    agent_id,
+                    type(error).__name__,
+                )
+                return None
         deadline = time.perf_counter() + timeout_seconds if timeout_seconds is not None else None
         from google.genai import types as genai_types
 
         active_model = model_override or _manifest_model_name(manifest) or GEMINI_MODEL
-        is_salience_model = active_model == "gemini-3.1-pro-preview"
-        thinking_level = (
-            genai_types.ThinkingLevel.LOW
-            if is_salience_model
-            else genai_types.ThinkingLevel.MINIMAL
-        )
         config = build_generate_content_config(
             genai_types,
             active_model,
             temperature=0.0,
             # These calls are deterministic schema workers inside a bounded,
             # sequential PKM graph. Gemini's default thinking can consume the
-            # shared preview deadline before the final structure contract runs.
-            # Flash stays bounded for the fast structural stages; the two
-            # salience stages use the higher-capability model deliberately.
+            # shared preview deadline before the final structure contract runs,
+            # so every stage asks for the lowest thinking level and lets the
+            # model adapter drop or map it per the provider contract.
             thinking_config=genai_types.ThinkingConfig(
-                thinking_level=thinking_level,
+                thinking_level=genai_types.ThinkingLevel.MINIMAL,
             ),
             response_mime_type="application/json",
             automatic_function_calling=genai_types.AutomaticFunctionCallingConfig(disable=True),
             response_schema=response_schema,
         )
-        max_attempts = 1 if is_salience_model else _AGENT_CONTRACT_MAX_ATTEMPTS
+        max_attempts = _AGENT_CONTRACT_MAX_ATTEMPTS
         for attempt in range(1, max_attempts + 1):
             remaining_seconds = (
                 max(0.0, deadline - time.perf_counter()) if deadline is not None else None
@@ -1633,11 +1672,7 @@ class PKMAgentLabService:
                 )
                 record("budget_exhausted", attempts=attempt - 1)
                 return None
-            effective_timeout = (
-                _PKM_SALIENCE_AGENT_TIMEOUT_SECONDS
-                if is_salience_model
-                else _AGENT_CONTRACT_TIMEOUT_SECONDS
-            )
+            effective_timeout = _AGENT_CONTRACT_TIMEOUT_SECONDS
             if remaining_seconds is not None:
                 effective_timeout = max(
                     0.25,

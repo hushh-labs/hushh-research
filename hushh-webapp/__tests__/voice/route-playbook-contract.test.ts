@@ -7,17 +7,26 @@ import { describe, expect, it } from "vitest";
 describe("One route voice playbooks", () => {
   it("authors exactly one bounded playbook for every physical route", () => {
     const physicalRoutes = surfaceMap.routes
-      .filter((entry) => entry.physical_page_exists)
+      .filter(
+        (entry) =>
+          entry.physical_page_exists || entry.route_contract?.mode === "redirect",
+      )
       .map((entry) => entry.route)
       .sort();
-    const authoredRoutes = APP_ROUTE_LAYOUT_CONTRACT.map((entry) => entry.route).sort();
+    const authoredRoutes = APP_ROUTE_LAYOUT_CONTRACT.map(
+      (entry) => entry.route,
+    ).sort();
 
     expect(authoredRoutes).toEqual(physicalRoutes);
     expect(new Set(authoredRoutes).size).toBe(authoredRoutes.length);
     for (const entry of APP_ROUTE_LAYOUT_CONTRACT) {
       expect(entry.voicePlaybook.playbookId).toMatch(/^route\./);
       expect(entry.voicePlaybook.purpose.length).toBeGreaterThan(0);
-      expect(entry.voicePlaybook.screen).toBe(deriveVoiceRouteScreen(entry.route).screen);
+      expect(entry.voicePlaybook.screen).toBe(
+        deriveVoiceRouteScreen(entry.route, undefined, {
+          authenticated: true,
+        }).screen,
+      );
       expect(entry.voicePlaybook.completionBoundary.length).toBeGreaterThan(0);
       expect(Array.isArray(entry.interactionLayerPolicy.allowedFamilies)).toBe(true);
       if (entry.voicePlaybook.proactivity === "on_entry") {

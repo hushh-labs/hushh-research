@@ -4,7 +4,6 @@ import { Suspense, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
 import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
-import { NativeRouteMarker } from "@/components/app-ui/native-route-marker";
 import { HushhLoader } from "@/components/app-ui/hushh-loader";
 import { SessionVerificationRecovery } from "@/components/auth/session-verification-recovery";
 import { JsonLd } from "@/components/seo/json-ld";
@@ -17,6 +16,9 @@ import { ROUTES } from "@/lib/navigation/routes";
 import { resolveAppEnvironment } from "@/lib/app-env";
 import { PostAuthRouteService } from "@/lib/services/post-auth-route-service";
 import { AuthService } from "@/lib/services/auth-service";
+import { VaultLockGuard } from "@/components/vault/vault-lock-guard";
+import { PhoneMandateGuard } from "@/components/auth/phone-mandate-guard";
+import { AgentChatWorkspace } from "@/components/agent/agent-chat-workspace";
 
 type HomeStep = "intro";
 
@@ -39,6 +41,7 @@ function HomeContent() {
   const [step, setStep] = useState<HomeStep | null>(null);
   const [routingError, setRoutingError] = useState(false);
   const [routingAttempt, setRoutingAttempt] = useState(0);
+  const [authenticatedRootReady, setAuthenticatedRootReady] = useState(false);
   const activeResolutionRef = useRef<string | null>(null);
 
   const forceOnboardingInDev = resolveAppEnvironment() === "development";
@@ -81,6 +84,7 @@ function HomeContent() {
     if (activeResolutionRef.current === resolutionKey) return;
     activeResolutionRef.current = resolutionKey;
     setStep(null);
+    setAuthenticatedRootReady(false);
     setRoutingError(false);
     let cancelled = false;
 
@@ -101,6 +105,10 @@ function HomeContent() {
         enableFirstRunSetupGate: true,
       });
       if (cancelled || activeResolutionRef.current !== resolutionKey) return;
+      if (nextPath === ROUTES.HOME) {
+        setAuthenticatedRootReady(true);
+        return;
+      }
       router.replace(nextPath);
     })().catch((error) => {
       if (cancelled || activeResolutionRef.current !== resolutionKey) return;
@@ -146,7 +154,28 @@ function HomeContent() {
         />
       );
     }
-    return <HushhLoader variant="fullscreen" label="Opening One…" />;
+    if (!authenticatedRootReady) {
+      return <HushhLoader variant="fullscreen" label="Opening chat…" />;
+    }
+    return (
+      <>
+        <NativeTestBeacon
+          routeId="/"
+          marker="native-route-home"
+          authState="authenticated"
+          dataState="loaded"
+        />
+        <VaultLockGuard>
+          <PhoneMandateGuard>
+            <Suspense
+              fallback={<HushhLoader variant="fullscreen" label="Loading chat…" />}
+            >
+              <AgentChatWorkspace />
+            </Suspense>
+          </PhoneMandateGuard>
+        </VaultLockGuard>
+      </>
+    );
   }
 
   if (step === "intro") {
@@ -170,12 +199,6 @@ export default function Home() {
   return (
     <>
       <JsonLd data={buildFaqGraph(HOME_FAQ)} />
-      <NativeRouteMarker
-        routeId="/"
-        marker="native-route-home"
-        authState="anonymous"
-        dataState="loaded"
-      />
       <Suspense fallback={null}>
         <HomeContent />
       </Suspense>

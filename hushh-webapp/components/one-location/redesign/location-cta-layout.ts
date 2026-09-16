@@ -9,10 +9,10 @@
 export const PUBLIC_LINK_CONTROLS_CLASSNAME = "w-full space-y-3 sm:max-w-[280px]";
 
 export const PUBLIC_LINK_PRIMARY_CTA_CLASSNAME =
-  "h-11 min-h-11 w-full rounded-[13px] bg-[color:var(--app-accent)] text-[16px] font-semibold leading-[21px] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90";
+  "h-11 min-h-11 w-fit min-w-[9rem] rounded-[14px] px-5 text-[15px] font-semibold leading-5 bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90";
 
 export const DURATION_EQUAL_BUTTONS_GROUP_CLASSNAME =
-  "grid w-full grid-cols-2 gap-2";
+  "grid w-full grid-cols-3 gap-2";
 export const DURATION_EQUAL_BUTTON_CLASSNAME = "min-h-11 min-w-0 px-3";
 
 /** The final share action stays prominent without becoming a full-card slab. */

@@ -54,6 +54,19 @@ vi.mock("@/components/app-ui/native-test-beacon", () => ({
 vi.mock("@/components/app-ui/native-route-marker", () => ({
   NativeRouteMarker: () => null,
 }));
+vi.mock("@/components/vault/vault-lock-guard", () => ({
+  VaultLockGuard: ({ children }: { children: React.ReactNode }) => (
+    <>{children}</>
+  ),
+}));
+vi.mock("@/components/auth/phone-mandate-guard", () => ({
+  PhoneMandateGuard: ({ children }: { children: React.ReactNode }) => (
+    <>{children}</>
+  ),
+}));
+vi.mock("@/components/agent/agent-chat-workspace", () => ({
+  AgentChatWorkspace: () => <div>Chat workspace</div>,
+}));
 vi.mock("@/components/app-ui/hushh-loader", () => ({
   HushhLoader: ({ label }: { label: string }) => <div>{label}</div>,
 }));
@@ -80,13 +93,13 @@ describe("authenticated root entry", () => {
     mocks.signOut.mockReset();
     mocks.getIdToken.mockResolvedValue("redacted-id-token");
     mocks.getIdTokenWithRetry.mockResolvedValue("redacted-id-token");
-    mocks.resolveAfterLogin.mockResolvedValue("/one");
+    mocks.resolveAfterLogin.mockResolvedValue("/");
   });
 
-  it("resolves the authoritative post-auth destination once before entering a protected route", async () => {
+  it("enters the authenticated Chat workspace at the canonical root", async () => {
     const view = render(<Home />);
 
-    await waitFor(() => expect(mocks.replace).toHaveBeenCalledWith("/one"));
+    await waitFor(() => expect(screen.getByText("Chat workspace")).toBeTruthy());
     expect(mocks.resolveAfterLogin).toHaveBeenCalledTimes(1);
     expect(mocks.resolveAfterLogin).toHaveBeenCalledWith({
       userId: "returning_user",
@@ -96,10 +109,11 @@ describe("authenticated root entry", () => {
       enableFirstRunSetupGate: true,
     });
 
+    expect(mocks.replace).not.toHaveBeenCalled();
     view.rerender(<Home />);
     await Promise.resolve();
     expect(mocks.resolveAfterLogin).toHaveBeenCalledTimes(1);
-    expect(mocks.replace).toHaveBeenCalledTimes(1);
+    expect(mocks.replace).not.toHaveBeenCalled();
   });
 
   it("uses the bounded-retry token fetch, not a single-shot read, for a deep link (e.g. a referral redirect)", async () => {

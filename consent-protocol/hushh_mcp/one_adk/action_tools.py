@@ -135,6 +135,7 @@ _STATE_TIMEZONE = "hussh:timezone"
 _DELEGATE_TOOL_BY_AGENT_ID: dict[str, str] = {
     "agent_email": "ask_email_agent",
     "agent_location": "ask_location_agent",
+    "agent_personal_information": "ask_memory_agent",
     "agent_connections": "ask_consent_agent",
     "agent_connected_systems": "ask_connected_systems_agent",
     "agent_nav": "ask_consent_agent",

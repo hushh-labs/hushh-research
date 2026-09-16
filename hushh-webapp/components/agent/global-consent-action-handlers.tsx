@@ -43,6 +43,7 @@ import { toast } from "sonner";
 
 import { useAuth } from "@/hooks/use-auth";
 import { useVault } from "@/lib/vault/vault-context";
+import { names } from "@/lib/agent/action-directive-summary";
 import { useLocalOnboardingActionHandler } from "@/lib/agent/local-onboarding-actions";
 import { useConsentActions } from "@/lib/consent/use-consent-actions";
 import { OneKycClientZkService } from "@/lib/services/one-kyc-client-zk-service";
@@ -53,16 +54,6 @@ function durationSeconds(hours: unknown): number {
   const value = Number(hours);
   if (!Number.isFinite(value) || value <= 0) return 168 * 3600;
   return Math.round(value) * 3600;
-}
-
-function names(labels: unknown): string {
-  const list = Array.isArray(labels)
-    ? labels.map((entry) => String(entry || "").trim()).filter(Boolean)
-    : [];
-  if (!list.length) return "what you asked for";
-  if (list.length === 1) return list[0]!;
-  if (list.length === 2) return `${list[0]} and ${list[1]}`;
-  return `${list.slice(0, -1).join(", ")} and ${list[list.length - 1]}`;
 }
 
 export function GlobalConsentActionHandlers() {

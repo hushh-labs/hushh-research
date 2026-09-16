@@ -15,7 +15,7 @@ const gmailServiceMocks = vi.hoisted(() => ({
 }));
 const handoffMocks = vi.hoisted(() => ({
   createHandoff: vi.fn(),
-  openAgent: vi.fn(),
+  navigateToAgentChat: vi.fn(),
   push: vi.fn(),
 }));
 
@@ -25,8 +25,8 @@ vi.mock("@/lib/services/gmail-information-requests-service", () => ({
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: handoffMocks.push }),
 }));
-vi.mock("@/components/agent/agent-popover-provider", () => ({
-  useOptionalAgentPopover: () => ({ openAgent: handoffMocks.openAgent }),
+vi.mock("@/lib/navigation/agent-navigation", () => ({
+  navigateToAgentChat: handoffMocks.navigateToAgentChat,
 }));
 vi.mock("@/lib/agent/one-conversation-session", () => ({
   useOneConversationSession: (selector: (state: { createHandoff: typeof handoffMocks.createHandoff }) => unknown) =>
@@ -55,7 +55,7 @@ describe("personal Gmail information-request scope boundary", () => {
     gmailServiceMocks.list.mockReset();
     gmailServiceMocks.scan.mockReset();
     handoffMocks.createHandoff.mockReset();
-    handoffMocks.openAgent.mockReset();
+    handoffMocks.navigateToAgentChat.mockReset();
     handoffMocks.push.mockReset();
     gmailServiceMocks.getPreference.mockResolvedValue({
       user_id: "owner",
@@ -517,6 +517,6 @@ describe("personal Gmail information-request scope boundary", () => {
     const handoff = handoffMocks.createHandoff.mock.calls[0]?.[0] as Record<string, unknown>;
     expect(handoff.transcript).toBeUndefined();
     expect(JSON.stringify(handoff)).not.toContain("private-value");
-    expect(handoffMocks.openAgent).toHaveBeenCalledOnce();
+    expect(handoffMocks.navigateToAgentChat).toHaveBeenCalledOnce();
   });
 });

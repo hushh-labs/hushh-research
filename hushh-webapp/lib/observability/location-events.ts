@@ -34,7 +34,7 @@ function entrySurfaceForRoute(routeId: RouteId): OneLocationJourneyEntrySurface 
   if (routeId === "connect") return "connect_people";
   if (routeId === "one_location_public_request") return "public_link";
   if (routeId === "consents") return "consent_center";
-  if (routeId === "agent") return "agent";
+  if (routeId === "chat") return "agent";
   if (routeId === "profile" || routeId.startsWith("profile_")) return "profile";
   return "unknown";
 }

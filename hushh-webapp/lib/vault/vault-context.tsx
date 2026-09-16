@@ -53,7 +53,6 @@ import { apiErrorCode } from "@/lib/services/api-client";
 import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import { dispatchAuthSessionVerificationRequired, snapshotValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import { CacheService, CACHE_KEYS } from "@/lib/services/cache-service";
-import { appInteractionCoordinator } from "@/lib/interaction/interaction-intent-coordinator";
 import {
   AUTH_SESSION_INVALIDATED_EVENT,
   authSessionInvalidationCodeFromFirebaseError,
@@ -149,7 +148,6 @@ export function VaultProvider({ children }: VaultProviderProps) {
   const renewalRef = useRef<{ epoch: number; promise: Promise<void> } | null>(null);
   const [renewalState, setRenewalState] = useState<"idle" | "renewing" | "unavailable">("idle");
   const [, updateTokenClock] = useState(0);
-  const [renewalAttempt, setRenewalAttempt] = useState(0);
   const nativeGenerationRef = useRef<Promise<number | null>>(Promise.resolve(null));
 
   // SECURITY: Vault key stored in React state = memory only
@@ -373,15 +371,6 @@ export function VaultProvider({ children }: VaultProviderProps) {
   // A local unlock lasts for this document/runtime. Expiry withdraws server
   // authority immediately, then renews without asking for the key again.
   useEffect(() => {
-    return appInteractionCoordinator.subscribeLifecycle(() => {
-      if (appInteractionCoordinator.getLifecycleSnapshot().state === "active") {
-        updateTokenClock((value) => value + 1);
-        setRenewalAttempt((value) => value + 1);
-      }
-    });
-  }, []);
-
-  useEffect(() => {
     if (!vaultKey || !storedTokenExpiresAt) return;
     const timer = setTimeout(() => updateTokenClock((value) => value + 1), Math.max(0, storedTokenExpiresAt - Date.now()));
     return () => clearTimeout(timer);
@@ -393,7 +382,7 @@ export function VaultProvider({ children }: VaultProviderProps) {
       Math.max(0, storedTokenExpiresAt - Date.now() - OWNER_TOKEN_RENEWAL_LEAD_MS);
     const timer = setTimeout(() => void retryOwnerTokenRenewal(), delay);
     return () => clearTimeout(timer);
-  }, [authReady, vaultKey, storedTokenExpiresAt, renewalState, renewalAttempt, retryOwnerTokenRenewal]);
+  }, [authReady, vaultKey, storedTokenExpiresAt, renewalState, retryOwnerTokenRenewal]);
 
   // Native bridges can collapse expiry and revocation into the same invalid
   // owner code. Expiry withdraws authority, not local key custody; authenticated

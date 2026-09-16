@@ -28,9 +28,9 @@ from google.genai import types as genai_types
 
 from db.connection import get_pool
 from hushh_mcp.runtime_providers import (
-    GEMINI_37_FLASH,
     build_generate_content_config,
     build_managed_runtime_client,
+    default_model_for_provider,
 )
 from hushh_mcp.runtime_settings import get_core_security_settings
 from hushh_mcp.services.gmail_owner_html import sanitize_gmail_owner_html
@@ -305,9 +305,10 @@ class GmailDeliveryService:
         )
         try:
             client = build_managed_runtime_client("gemini")
+            model = os.getenv("GMAIL_EMAIL_DRAFT_MODEL") or default_model_for_provider("gemini")
             config = build_generate_content_config(
                 genai_types,
-                os.getenv("GMAIL_EMAIL_DRAFT_MODEL", GEMINI_37_FLASH),
+                model,
                 temperature=0.2,
                 max_output_tokens=1200,
                 response_mime_type="application/json",
@@ -315,7 +316,7 @@ class GmailDeliveryService:
                 automatic_function_calling=genai_types.AutomaticFunctionCallingConfig(disable=True),
             )
             response = await client.aio.models.generate_content(
-                model=os.getenv("GMAIL_EMAIL_DRAFT_MODEL", GEMINI_37_FLASH),
+                model=model,
                 contents=prompt,
                 config=config,
             )

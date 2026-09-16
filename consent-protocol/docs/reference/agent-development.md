@@ -36,7 +36,18 @@ In this shared-runtime branch, omitted individual ports retain shared defaults;
 these hooks alone do not establish private isolation. No ingress binding is added
 by the generic dependency seam.
 
-This branch retains Location, Nav and Personal Information registrations.
+This branch retains Location, Nav and Personal Information registrations. Nav
+uses a manifest-owned Consent AgentTool child with scoped read tools. A selected
+Connections turn additionally requires exact manifest invocation capabilities,
+trusted task/owner bindings, and a database-confirmed owner token before and
+throughout its read/proposal tools. Connection proposals return to One with exact
+record IDs for the existing generated action/confirmation path; the legacy
+selection executor is not exposed by the child. Live migration acceptance remains
+open in the migration baseline report. Shared specialist
+turn execution lives in `hushh_mcp/hushh_adk/turn.py`; event deadlines and
+cancellation live in `hushh_mcp/hushh_adk/events.py`. Each turn receives fresh
+in-memory session state and explicit HushhContext authority. No whole-turn retry
+replays completed tool effects.
 Dependency hooks do not register additional agents, grant information access,
 or establish deployment readiness. Preserve shared defaults when transferring
 portable changes from a private deployment branch; keep deployment adapters and
@@ -652,15 +663,26 @@ The verifier checks:
 - Required agent -> operon data-source calls for fundamental/sentiment/valuation paths.
 
 The current pinned runtime is intentionally **not** an A2A v1 release
-candidate. An isolated dependency spike resolves `google-adk==2.4.0` with
-`a2a-sdk==1.1.0`, but importing ADK's `RemoteA2aAgent` fails because ADK
-imports `a2a.client.ClientEvent`, which A2A SDK 1.1.0 does not export. Keep
-One's endpoint marked `officialA2A: false` until a pinned ADK/A2A pair passes
-the complete Agent Card, Task, streaming, cancellation, and resume matrix.
+candidate. Measured on 2026-09-14 when the pin moved from `google-adk==2.4.0`
+to `google-adk==2.9.0`:
 
-The same spike confirms that `google-adk==2.4.0` can import
-`RemoteA2aAgent` with `a2a-sdk==0.3.26`. That establishes only legacy SDK
-compatibility; it must never be treated as A2A v1 compatibility.
+- `google-adk==2.9.0` declares `a2a-sdk[http-server]>=0.3.4,<2` (2.4.0
+  declared `<0.4`). The committed `uv.lock` still resolves `a2a-sdk==0.3.26`.
+- With that locked pair, `from google.adk.agents.remote_a2a_agent import
+  RemoteA2aAgent` imports. `tests/test_adk_pin_contract.py` pins this.
+- An isolated temporary environment with `google-adk==2.9.0` and
+  `a2a-sdk==1.1.2` now proves that `RemoteA2aAgent` and the v1 Agent Card types
+  import. It does **not** prove transport compatibility: constructing
+  `create_kai_official_a2a_app()` fails before serving with `AgentCard has no
+  "url" field`, because the current adapter still uses the pre-1.1 `AgentCard`
+  shape. ADK 2.9.0 ships `google/adk/a2a/_compat.py`, which rebuilds the
+  `ClientEvent` tuple that 1.x removed and that broke the 2.4.0 import; that
+  import fix is not a substitute for the complete transport matrix.
+
+Keep One's endpoint marked `officialA2A: false` until a pinned ADK/A2A pair
+passes the complete Agent Card, Task, streaming, cancellation, and resume
+matrix. Importing against 0.3.26 establishes only legacy SDK compatibility; it
+must never be treated as A2A v1 compatibility.
 
 ### Local ADK A2A transport rehearsal
 

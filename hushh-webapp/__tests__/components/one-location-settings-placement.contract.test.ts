@@ -11,7 +11,10 @@ const HUB_SOURCE = fs.readFileSync(
   "utf8",
 );
 const PROFILE_SOURCE = fs.readFileSync(
-  path.resolve(__dirname, "../../app/profile/profile-workspace-page.tsx"),
+  path.resolve(
+    __dirname,
+    "../../components/profile/profile-workspace-page.tsx",
+  ),
   "utf8",
 );
 

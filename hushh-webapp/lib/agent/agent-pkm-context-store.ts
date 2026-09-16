@@ -265,6 +265,14 @@ function buildPkmInventory(fullBlob: Record<string, unknown>): PkmInventory {
   return { facts, domainFactCounts, skippedFactCount, safetyOmittedNodeCount };
 }
 
+function snapshotsToBlob(
+  snapshots: Record<string, { data: Record<string, unknown> }>,
+): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(snapshots).map(([domain, snapshot]) => [domain, snapshot.data]),
+  );
+}
+
 function formatFactPath(fact: PkmInventoryFact): string {
   const displayPath = fact.path
     .filter((segment) => !/^\d+$/.test(segment))
@@ -544,16 +552,70 @@ export class AgentPkmContextStore {
         return { ...cached, metadata, loadedAt: Date.now() };
       }
 
-      const fullBlob = await PersonalKnowledgeModelService.loadFullBlob({
+      const domains = metadata.domains
+        .map((domain) => domain.key)
+        .filter((domain) => !shouldSkipPkmMemoryKey(domain));
+      const deviceSnapshots: Record<string, { data: Record<string, unknown> }> = {};
+      if (!params.forceRefresh) {
+        const cached = await Promise.allSettled(
+          domains.map(async (domain) => ({
+            domain,
+            snapshot: await PkmDomainResourceService.hydrateFromSecureCache({
+              userId: params.userId,
+              domain,
+              vaultKey: params.vaultKey,
+              vaultOwnerToken: params.vaultOwnerToken,
+            }),
+          })),
+        );
+        for (const result of cached) {
+          if (result.status !== "fulfilled" || !result.value.snapshot?.data) continue;
+          deviceSnapshots[result.value.domain] = result.value.snapshot;
+        }
+      }
+      if (generation !== currentGeneration(params.userId)) return null;
+      if (Object.keys(deviceSnapshots).length > 0) {
+        const cachedWorkingSet: AgentPkmWorkingSet = {
+          userId: params.userId,
+          metadata,
+          inventory: buildPkmInventory(snapshotsToBlob(deviceSnapshots)),
+          loadedAt: Date.now(),
+          metadataUpdatedAt,
+        };
+        // Revalidate encrypted snapshots after the current turn has an
+        // immediately usable local inventory. This is intentionally detached:
+        // a slow domain must not hold the chat composer hostage.
+        void PkmDomainResourceService.getManyStaleFirst({
+          userId: params.userId,
+          domains,
+          vaultKey: params.vaultKey,
+          vaultOwnerToken: params.vaultOwnerToken,
+          forceRefresh: true,
+          backgroundRefresh: false,
+        }).then(({ snapshots }) => {
+          if (generation !== currentGeneration(params.userId)) return;
+          workingSets.set(params.userId, {
+            ...cachedWorkingSet,
+            inventory: buildPkmInventory(snapshotsToBlob({ ...deviceSnapshots, ...snapshots })),
+            loadedAt: Date.now(),
+          });
+        });
+        return cachedWorkingSet;
+      }
+
+      const { snapshots } = await PkmDomainResourceService.getManyStaleFirst({
         userId: params.userId,
+        domains,
         vaultKey: params.vaultKey,
         vaultOwnerToken: params.vaultOwnerToken,
+        forceRefresh: params.forceRefresh === true,
+        backgroundRefresh: true,
       });
       if (generation !== currentGeneration(params.userId)) return null;
       return {
         userId: params.userId,
         metadata,
-        inventory: buildPkmInventory(fullBlob),
+        inventory: buildPkmInventory(snapshotsToBlob(snapshots)),
         loadedAt: Date.now(),
         metadataUpdatedAt,
       };

@@ -2,6 +2,7 @@
 
 import type { User } from "firebase/auth";
 
+import { ApiError, apiJson } from "@/lib/services/api-client";
 import {
   ApiService,
   type AccountIdentity,
@@ -245,6 +246,53 @@ export class AccountIdentityService {
     } else {
       this.invalidateCachedIdentity(user.uid);
     }
+    return identity;
+  }
+
+  /**
+   * Change the person's own Hussh display name.
+   *
+   * PATCH /api/account/identity/display-name with the Firebase bearer. The
+   * server validates (2-60 chars, no links or handles), writes the name at
+   * Firebase Auth, re-syncs the identity shadow, and returns the refreshed
+   * identity. The cache is written through from that RETURNED identity (never
+   * the input) and the Firebase user is reloaded so `user.displayName` agrees.
+   *
+   * Errors propagate as `ApiError` so callers can show the server's message:
+   * 422 `DISPLAY_NAME_INVALID` (inline), 503 `IDENTITY_PROVIDER_UNAVAILABLE`.
+   */
+  static async updateDisplayName(
+    user: User | null | undefined,
+    displayName: string
+  ): Promise<AccountIdentity | null> {
+    if (!user?.uid) {
+      return null;
+    }
+    const idToken = await user.getIdToken(true).catch(() => undefined);
+    if (!idToken) {
+      throw new ApiError("Sign in again to change your name.", 401);
+    }
+    const payload = await apiJson<{
+      success?: boolean;
+      user_id?: string;
+      identity?: AccountIdentity | null;
+    }>("/api/account/identity/display-name", {
+      method: "PATCH",
+      headers: { Authorization: `Bearer ${idToken}` },
+      body: JSON.stringify({ display_name: displayName }),
+    });
+    let identity = payload?.identity ?? null;
+    if (identity) {
+      this.cacheIdentity(user.uid, identity);
+    } else {
+      // The provider accepted the change but the response carried no shadow;
+      // fetch the fresh identity rather than leaving a stale name cached.
+      this.invalidateCachedIdentity(user.uid);
+      identity = await this.refreshCurrentUserIdentity(user, { force: true });
+    }
+    // Reload the Firebase user so `user.displayName` reflects the new name on
+    // every surface that reads it directly from the auth object.
+    await user.reload().catch(() => undefined);
     return identity;
   }
 

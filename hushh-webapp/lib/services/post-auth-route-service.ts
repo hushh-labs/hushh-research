@@ -17,15 +17,17 @@ import type { PreVaultOnboardingAnswers } from "@/lib/services/pre-vault-onboard
 // Unresolved-onboarding users land on the canonical `/one/setup` capability hub
 // (the investor-preferences wizard opens from the hub's finance tile).
 const PRE_VAULT_ROUTE = ROUTES.ONE_SETUP;
-const DEFAULT_HOME_ROUTE = ROUTES.ONE_HOME;
-const NO_VAULT_DEFAULT_ROUTE = ROUTES.ONE_HOME;
+// The canonical post-auth landing is the root Chat workspace. `/one` remains
+// an explicit dashboard destination; it must not win over an organic login.
+const DEFAULT_HOME_ROUTE = ROUTES.HOME;
+const NO_VAULT_DEFAULT_ROUTE = ROUTES.HOME;
 
 function normalizeRedirectPath(path: string | null | undefined): string {
   if (!path || !path.trim()) return DEFAULT_HOME_ROUTE;
-  // `/` is the public welcome route, not an authenticated destination. Login
-  // historically supplied it as a placeholder and the legacy persona router
-  // then promoted some users to `/ria`. Organic authentication always enters
-  // the private-agent home; explicit internal deep links remain untouched.
+  // `/` is the dual-mode entry route: anonymous visitors see the welcome
+  // surface, while authenticated users enter the private-agent Chat workspace.
+  // Organic authentication always enters that canonical home; explicit
+  // internal deep links remain untouched.
   if (path === ROUTES.HOME) return DEFAULT_HOME_ROUTE;
   if (
     path === ROUTES.PHONE_MANDATE ||
@@ -76,9 +78,22 @@ export class PostAuthRouteService {
    * Apply the soft first-run One Setup gate to a home-bound destination.
    *
    * Returns `ROUTES.ONE_SETUP` only when the caller opted in, the login is
-   * organic (no explicit redirect target), and the user has not yet seen the
-   * one-time setup nudge. Otherwise returns the original home route unchanged,
-   * so existing post-auth behavior is preserved for every other path.
+   * organic (no explicit redirect target), the destination isn't the chat
+   * workspace, and the user has not yet seen the one-time setup nudge.
+   * Otherwise returns the original home route unchanged.
+   *
+   * The chat-workspace exclusion is load-bearing, not cosmetic:
+   * `OnboardingJourneyGuard` unconditionally ejects an already
+   * `setupResolved` account from ANY setup surface back to `ROUTES.ONE_HOME`
+   * ("the one place that catches every arrival path after the one-time gate
+   * resolves" — see that guard's own comment). `applyFirstRunSetupGate` is
+   * only ever invoked for a `setupResolved` user, so once `DEFAULT_HOME_ROUTE`
+   * became `ROUTES.HOME` (chat), nudging here sent a resolved user straight
+   * into that guard's eject path: chat -> ONE_SETUP -> immediately bounced to
+   * ONE_HOME, so the person landed on the dashboard instead of chat, or the
+   * nudge, either one. That guard's rule is intentionally absolute (it exists
+   * to stop a dismissed user ever re-entering setup by any path), so the fix
+   * belongs here: stop attempting a redirect the guard can never let land.
    */
   private static applyFirstRunSetupGate(params: {
     userId: string;
@@ -88,6 +103,7 @@ export class PostAuthRouteService {
   }): string {
     if (!params.enableFirstRunSetupGate) return params.homeRoute;
     if (params.hasExplicitRedirect) return params.homeRoute;
+    if (params.homeRoute === ROUTES.HOME) return params.homeRoute;
     if (OneSetupGateService.hasSeen(params.userId)) return params.homeRoute;
     return ROUTES.ONE_SETUP;
   }

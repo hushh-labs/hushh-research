@@ -42,7 +42,7 @@ function collectAppPageRoutes(dir: string, root: string = dir): string[] {
 
 describe("observability route map", () => {
   it("maps canonical app routes to stable route IDs", () => {
-    expect(resolveRouteId("/")).toBe("one_dashboard");
+    expect(resolveRouteId("/")).toBe("chat");
     expect(resolveRouteId("/one")).toBe("one_dashboard");
     expect(resolveRouteId("/welcome")).toBe("one_dashboard");
     expect(resolveRouteId("/one/gmail")).toBe("gmail");
@@ -113,7 +113,7 @@ describe("observability route map", () => {
     expect(resolveRouteId("/c/tok_abc123")).toBe("wallet_card_public");
     // Must not swallow an unrelated sibling.
     expect(resolveRouteId("/consents")).toBe("consents");
-    expect(resolveRouteId("/agent")).toBe("agent");
+    expect(resolveRouteId("/agent")).toBe("chat");
     expect(resolveRouteId("/people/opaque-person-ref")).toBe("person_profile");
     expect(resolveRouteId("/one/connect/settings")).toBe("connect_settings");
     expect(resolveRouteId("/one/profile/preferences/gemini")).toBe(

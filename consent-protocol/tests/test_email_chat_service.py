@@ -72,6 +72,14 @@ class _FakeGmail:
             }
         ]
 
+    async def list_receipts(self, *, user_id, page, per_page):
+        self.calls.append(("list_receipts", user_id, page, per_page))
+        return {"items": [], "page": page, "total": 0}
+
+    async def get_status(self, *, user_id):
+        self.calls.append(("get_status", user_id))
+        return {"connected": True, "latest_run": "ok"}
+
 
 def _fc_response(name: str, args: dict):
     return SimpleNamespace(
@@ -144,6 +152,36 @@ async def test_search_inbox_tool_flow():
     )
     assert result["response"] == "Found 1 match: Invoice from Acme Billing."
     assert gmail.calls == [("search_inbox", "u1", "from:ravi newer_than:7d", 3)]
+
+
+async def test_receipt_tools_are_part_of_the_unified_email_specialist():
+    store, gmail = _FakeStore(), _FakeGmail()
+    svc = _service(
+        store=store,
+        gmail=gmail,
+        responses=[
+            _fc_response("list_receipts", {"page": 2, "per_page": 4}),
+            _text_response("No receipts are synced yet."),
+        ],
+    )
+    result = await svc.handle_turn(user_id="u1", message="show receipts", consent_token=_TOKEN)
+    assert result["response"] == "No receipts are synced yet."
+    assert gmail.calls == [("list_receipts", "u1", 2, 4)]
+
+    store, gmail = _FakeStore(), _FakeGmail()
+    svc = _service(
+        store=store,
+        gmail=gmail,
+        responses=[
+            _fc_response("sync_status", {}),
+            _text_response("Receipt sync is healthy."),
+        ],
+    )
+    result = await svc.handle_turn(
+        user_id="u1", message="is receipt sync healthy", consent_token=_TOKEN
+    )
+    assert result["response"] == "Receipt sync is healthy."
+    assert gmail.calls == [("get_status", "u1")]
 
 
 async def test_empty_message_returns_prompt_without_tools():

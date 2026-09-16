@@ -41,9 +41,18 @@ than the compact skill kernel.
 2. Use one radius scale within a compact production flow.
 3. Prefer canonical form primitives over route-local primitive restyling.
 4. Mixed inputs and selects must share one row-shell geometry contract.
-5. Consumer auth, onboarding, and verification copy should avoid provider names,
+5. Direct-entry controls use `--app-input-radius` and the shared form rhythm
+   tokens. A capsule is a Hussh product choice, not an Apple requirement;
+   preserve square inner controls when an outer compound shell owns the shape.
+6. Keep related secondary actions visually grouped with their label and
+   separated from the preceding primary action. A text-link treatment may
+   have a 44px hit area while its visible text remains compact. In credential
+   flows, place Recovery key beside Sign out in the same quiet escape group
+   when the hard gate exposes both; do not leave the recovery label visually
+   attached to the primary unlock control.
+7. Consumer auth, onboarding, and verification copy should avoid provider names,
    backend systems, token formats, and protocol terms.
-6. Keep supporting copy to one short line that directly helps the next action.
+8. Keep supporting copy to one short line that directly helps the next action.
 
 ## One/Kai/Nav Copy
 

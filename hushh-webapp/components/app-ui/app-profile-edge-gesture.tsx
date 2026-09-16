@@ -2,12 +2,14 @@
 
 import { useEffect } from "react";
 import { ChevronLeft } from "lucide-react";
-import { Capacitor } from "@capacitor/core";
+import { usePathname } from "next/navigation";
 
 import { requestProfilePaneOpen } from "@/lib/navigation/profile-pane";
+import { ROUTES } from "@/lib/navigation/routes";
 
-const EDGE_WIDTH_PX = 28;
+const BACK_GESTURE_RESERVED_WIDTH_PX = 28;
 const AXIS_LOCK_PX = 8;
+const DIRECTION_RATIO = 1.12;
 const COMMIT_DISTANCE_PX = 72;
 const COMMIT_VELOCITY_PX_PER_MS = 0.48;
 const INDICATOR_REVEAL_DISTANCE_PX = 44;
@@ -16,7 +18,7 @@ const INDICATOR_MAX_OFFSET_PX = 34;
 type GestureInput = "pointer" | "touch";
 type GestureAxis = "undecided" | "horizontal" | "vertical";
 
-type ProfileEdgeGesture = {
+type ProfileBodyGesture = {
   input: GestureInput;
   identifier: number;
   startX: number;
@@ -25,8 +27,46 @@ type ProfileEdgeGesture = {
   axis: GestureAxis;
 };
 
-function isNativeIOS(): boolean {
-  return Capacitor.isNativePlatform() && Capacitor.getPlatform() === "ios";
+function isOneSurfaceRoute(pathname: string): boolean {
+  if (
+    pathname === ROUTES.PROFILE ||
+    pathname.startsWith(`${ROUTES.PROFILE}/`)
+  ) {
+    return false;
+  }
+  return (
+    pathname === ROUTES.ONE_HOME ||
+    pathname.startsWith(`${ROUTES.ONE_HOME}/`)
+  );
+}
+
+function hasHorizontalScrollParent(target: HTMLElement | null): boolean {
+  if (!target || typeof window === "undefined") return false;
+  let node: HTMLElement | null = target;
+  while (node && node !== document.body) {
+    const style = window.getComputedStyle(node);
+    if (
+      (style.overflowX === "auto" || style.overflowX === "scroll") &&
+      node.scrollWidth > node.clientWidth + 4
+    ) {
+      return true;
+    }
+    node = node.parentElement;
+  }
+  return false;
+}
+
+function shouldIgnoreSwipeTarget(target: EventTarget | null): boolean {
+  const element = target instanceof HTMLElement ? target : null;
+  if (!element) return false;
+  if (
+    element.closest(
+      'button, a, input, textarea, select, [contenteditable="true"], [data-no-route-swipe], [data-no-profile-swipe], [data-swipe-views-horizontal-scroll], [data-slot="dialog-content"], [data-slot="sheet-content"], [data-slot="alert-dialog-content"], [data-slot="command"], [cmdk-root], [data-slot="carousel"], [data-slot="carousel-content"], [data-slot="carousel-item"]',
+    )
+  ) {
+    return true;
+  }
+  return hasHorizontalScrollParent(element);
 }
 
 function hasBlockingOverlay(): boolean {
@@ -58,24 +98,31 @@ function consume(event: Event) {
 }
 
 /**
- * iOS-only right-edge gesture for opening the signed-in Profile pane. It is
- * deliberately separate from route navigation: opening Profile is a
- * reversible surface action, while every setting selected inside it still
- * navigates to its canonical dedicated route.
+ * Touch-body left-swipe for the signed-in Profile pane. The gesture is broad
+ * by design, but yields to controls and horizontal surfaces so it cannot steal
+ * a carousel, pager, input, or the app-owned extreme-left back gesture.
  */
 export function AppProfileEdgeGesture({ enabled }: { enabled: boolean }) {
+  const pathname = usePathname() || "/";
+
   useEffect(() => {
-    if (!enabled || !isNativeIOS() || typeof window === "undefined") return;
+    if (
+      !enabled ||
+      !isOneSurfaceRoute(pathname) ||
+      typeof window === "undefined"
+    ) {
+      return;
+    }
 
     const root = document.documentElement;
-    let gesture: ProfileEdgeGesture | null = null;
+    let gesture: ProfileBodyGesture | null = null;
 
     const reset = () => {
       gesture = null;
       setIndicator(root, { active: false });
     };
 
-    const begin = (params: Omit<ProfileEdgeGesture, "axis">) => {
+    const begin = (params: Omit<ProfileBodyGesture, "axis">) => {
       gesture = { ...params, axis: "undecided" };
       setIndicator(root, {
         active: true,
@@ -85,7 +132,6 @@ export function AppProfileEdgeGesture({ enabled }: { enabled: boolean }) {
 
     const move = (x: number, y: number, event: Event) => {
       if (!gesture) return;
-      consume(event);
       const deltaX = x - gesture.startX;
       const deltaY = y - gesture.startY;
       const horizontal = Math.abs(deltaX);
@@ -95,7 +141,8 @@ export function AppProfileEdgeGesture({ enabled }: { enabled: boolean }) {
         gesture.axis === "undecided" &&
         (horizontal >= AXIS_LOCK_PX || vertical >= AXIS_LOCK_PX)
       ) {
-        gesture.axis = horizontal > vertical * 1.12 ? "horizontal" : "vertical";
+        gesture.axis =
+          horizontal > vertical * DIRECTION_RATIO ? "horizontal" : "vertical";
       }
       if (gesture.axis === "vertical" || deltaX >= 0) {
         reset();
@@ -103,6 +150,7 @@ export function AppProfileEdgeGesture({ enabled }: { enabled: boolean }) {
       }
       if (gesture.axis !== "horizontal") return;
 
+      consume(event);
       event.preventDefault();
       const progress = Math.min(
         1,
@@ -117,7 +165,6 @@ export function AppProfileEdgeGesture({ enabled }: { enabled: boolean }) {
 
     const finish = (x: number, y: number, timestamp: number, event: Event) => {
       if (!gesture) return;
-      consume(event);
       const current = gesture;
       const deltaX = x - current.startX;
       const deltaY = y - current.startY;
@@ -128,10 +175,11 @@ export function AppProfileEdgeGesture({ enabled }: { enabled: boolean }) {
       const shouldOpen =
         current.axis === "horizontal" &&
         deltaX < 0 &&
-        horizontal > vertical * 1.12 &&
+        horizontal > vertical * DIRECTION_RATIO &&
         (horizontal >= COMMIT_DISTANCE_PX ||
           velocity >= COMMIT_VELOCITY_PX_PER_MS);
 
+      if (current.axis === "horizontal") consume(event);
       reset();
       if (shouldOpen) requestProfilePaneOpen("native_swipe");
     };
@@ -139,10 +187,12 @@ export function AppProfileEdgeGesture({ enabled }: { enabled: boolean }) {
     const pointerStart = (event: PointerEvent) => {
       if (
         event.pointerType !== "touch" ||
-        event.clientX < window.innerWidth - EDGE_WIDTH_PX ||
-        hasBlockingOverlay()
-      )
+        event.clientX <= BACK_GESTURE_RESERVED_WIDTH_PX ||
+        hasBlockingOverlay() ||
+        shouldIgnoreSwipeTarget(event.target)
+      ) {
         return;
+      }
       begin({
         input: "pointer",
         identifier: event.pointerId,
@@ -150,22 +200,23 @@ export function AppProfileEdgeGesture({ enabled }: { enabled: boolean }) {
         startY: event.clientY,
         startedAt: event.timeStamp || performance.now(),
       });
-      consume(event);
     };
     const pointerMove = (event: PointerEvent) => {
       if (
         gesture?.input !== "pointer" ||
         gesture.identifier !== event.pointerId
-      )
+      ) {
         return;
+      }
       move(event.clientX, event.clientY, event);
     };
     const pointerEnd = (event: PointerEvent) => {
       if (
         gesture?.input !== "pointer" ||
         gesture.identifier !== event.pointerId
-      )
+      ) {
         return;
+      }
       finish(
         event.clientX,
         event.clientY,
@@ -176,17 +227,16 @@ export function AppProfileEdgeGesture({ enabled }: { enabled: boolean }) {
 
     const touchStart = (event: TouchEvent) => {
       const touch = event.touches[0];
-      if (gesture?.input === "pointer") {
-        consume(event);
-        return;
-      }
+      if (gesture?.input === "pointer") return;
       if (
         !touch ||
         event.touches.length !== 1 ||
-        touch.clientX < window.innerWidth - EDGE_WIDTH_PX ||
-        hasBlockingOverlay()
-      )
+        touch.clientX <= BACK_GESTURE_RESERVED_WIDTH_PX ||
+        hasBlockingOverlay() ||
+        shouldIgnoreSwipeTarget(event.target)
+      ) {
         return;
+      }
       begin({
         input: "touch",
         identifier: touch.identifier,
@@ -194,7 +244,6 @@ export function AppProfileEdgeGesture({ enabled }: { enabled: boolean }) {
         startY: touch.clientY,
         startedAt: event.timeStamp || performance.now(),
       });
-      consume(event);
     };
     const touchForGesture = (touches: TouchList) => {
       if (!gesture) return null;
@@ -264,13 +313,13 @@ export function AppProfileEdgeGesture({ enabled }: { enabled: boolean }) {
       root.style.removeProperty("--app-profile-edge-y");
       root.style.removeProperty("--app-profile-edge-opacity");
     };
-  }, [enabled]);
+  }, [enabled, pathname]);
 
   return (
     <div
       aria-hidden
       data-testid="app-profile-edge-indicator"
-      className="pointer-events-none fixed right-0 top-0 z-[130] flex h-12 w-12 items-center justify-center rounded-l-2xl border border-border/60 bg-background/86 text-foreground shadow-lg backdrop-blur-xl transition-[opacity,transform] duration-150 ease-out"
+      className="pointer-events-none fixed right-0 top-0 z-[130] flex h-12 w-12 items-center justify-center rounded-l-2xl border border-border/60 bg-background/86 text-foreground shadow-lg backdrop-blur-xl transition-[opacity,transform] duration-150 ease-out motion-reduce:transition-none"
       style={{
         opacity: "var(--app-profile-edge-opacity, 0)",
         transform:

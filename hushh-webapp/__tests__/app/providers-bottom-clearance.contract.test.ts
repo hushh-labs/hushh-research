@@ -11,13 +11,19 @@ describe("app shell bottom-clearance contract", () => {
   );
 
   it("reserves the existing Agent Bar footprint for hidden-shell scroll roots", () => {
-    expect(source).toContain("focusedConnectCircleChromeFlow;");
+    expect(source).toContain(
+      "focusedConnectCircleChromeFlow;",
+    );
     expect(source).not.toContain(
       "const bottomChromeHidden = hidesPersistentChrome || focusedLocationSmsFlow;",
     );
-    expect(source).toContain("isFocusedLocationBottomTask(");
+    expect(source).toContain("const focusedSosChromeFlow =");
     expect(source).toContain("const focusedConnectCircleChromeFlow =");
     expect(source).toContain("isFocusedConnectCircleTask(");
+    expect(source).toContain('"--app-scroll-bottom-pad": hidesPersistentChrome');
+    expect(source).toContain(
+      '"--bottom-chrome-stack-height": effectiveHideCommandBar',
+    );
     expect(source).toContain(
       '? "var(--app-bottom-shell-height, calc(var(--onboarding-agent-bar-clearance) + 1.5rem))"',
     );
@@ -63,7 +69,7 @@ describe("app shell bottom-clearance contract", () => {
   it("keeps typed search available while focused Location navigation is hidden", () => {
     expect(commandBarSource).not.toContain("focusedLocationSmsFlow");
     expect(commandBarSource).toContain(
-      "if (chromeState.hideCommandBar || agentWindowOpen)",
+      "if (chromeState.hideCommandBar)",
     );
   });
 });

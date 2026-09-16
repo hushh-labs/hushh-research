@@ -133,12 +133,12 @@ function verifyOneVoiceReleaseAssets({
     `${label} OneVoicePrivacyContract.v1.json`,
   );
 
-  if (privacyContract?.protocol_version !== "one.voice.privacy-contract.v1") {
+  if (privacyContract?.protocol_version !== "one.voice.privacy-contract.v2") {
     fail(`${label} One Voice privacy contract has an unsupported protocol version.`);
   }
   if (
     privacyContract?.app_store_declaration_contract_version !==
-    "one-voice-privacy-v1"
+    "one-voice-privacy-v2"
   ) {
     fail(`${label} One Voice privacy contract must declare the current App Store contract version.`);
   }
@@ -146,7 +146,8 @@ function verifyOneVoiceReleaseAssets({
     fail(`${label} One Voice privacy contract must forbid base-bundle model weights.`);
   }
 
-  if (privacyContract?.voice_capture?.generated_audio !== "forbidden") fail(`${label} must retire generated audio.`);
+  if (privacyContract?.voice_capture?.generated_audio !== "streamed_playback_memory_only") fail(`${label} must stream generated audio for playback only, never store it.`);
+  if (privacyContract?.voice_capture?.provider_fallback !== "forbidden") fail(`${label} must forbid provider fallback.`);
 
 }
 

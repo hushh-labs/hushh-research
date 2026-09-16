@@ -19,6 +19,9 @@ router = APIRouter(tags=["Health"])
 NO_STORE_HEADERS = {"Cache-Control": "no-store"}
 REVIEWER_UID_KEY = "REVIEWER_UID"
 REVIEWER_VAULT_PASSPHRASE_KEY = "REVIEWER_VAULT_PASSPHRASE"  # noqa: S105
+# Second non-production fixture for two-person proofs. No deprecated aliases.
+REVIEWER_COUNTERPART_UID_KEY = "REVIEWER_COUNTERPART_UID"
+REVIEWER_COUNTERPART_VAULT_PASSPHRASE_KEY = "REVIEWER_COUNTERPART_VAULT_PASSPHRASE"  # noqa: S105
 AGENT_MODEL = {
     "primary": "one",
     "specialists": ["kai", "nav", "kyc"],
@@ -64,17 +67,73 @@ def _resolve_reviewer_vault_passphrase() -> str:
     return _first_env(REVIEWER_VAULT_PASSPHRASE_KEY, *DEPRECATED_REVIEWER_PASSPHRASE_KEYS)
 
 
+def _resolve_reviewer_counterpart_uid() -> str:
+    return _first_env(REVIEWER_COUNTERPART_UID_KEY)
+
+
+def _resolve_reviewer_counterpart_vault_passphrase() -> str:
+    return _first_env(REVIEWER_COUNTERPART_VAULT_PASSPHRASE_KEY)
+
+
+def _configured_reviewer_identities() -> tuple[tuple[str, str, str], ...]:
+    """Every fully configured (uid, passphrase, subject) pair, primary first.
+
+    A pair missing either half is skipped, so an unset counterpart leaves the
+    primary-only behaviour unchanged. Values are never logged.
+    """
+    candidates = (
+        (_resolve_reviewer_uid(), _resolve_reviewer_vault_passphrase(), "reviewer_smoke"),
+        (
+            _resolve_reviewer_counterpart_uid(),
+            _resolve_reviewer_counterpart_vault_passphrase(),
+            "reviewer_counterpart_smoke",
+        ),
+    )
+    return tuple(pair for pair in candidates if pair[0] and pair[1])
+
+
+def _match_reviewer_identity(
+    provided_passphrase: str,
+    identities: tuple[tuple[str, str, str], ...],
+) -> tuple[str, str] | None:
+    """Return ``(uid, subject)`` for the first pair whose passphrase matches.
+
+    Compared as UTF-8 bytes: ``hmac.compare_digest`` raises on non-ASCII
+    ``str`` input, which would turn a wrong passphrase into a 500.
+    """
+    provided = provided_passphrase.encode("utf-8")
+    for configured_uid, configured_passphrase, subject in identities:
+        if hmac.compare_digest(provided, configured_passphrase.encode("utf-8")):
+            return configured_uid, subject
+    return None
+
+
 def _resolve_smoke_overlay_identity(smoke_passphrase: str | None) -> tuple[str, str] | None:
-    configured_uid = _resolve_reviewer_uid()
-    configured_passphrase = _resolve_reviewer_vault_passphrase()
     provided_passphrase = str(smoke_passphrase or "").strip()
     if _is_production_runtime():
         return None
-    if not configured_uid or not configured_passphrase or not provided_passphrase:
+    if not provided_passphrase:
         return None
-    if not hmac.compare_digest(provided_passphrase, configured_passphrase):
-        return None
-    return configured_uid, "reviewer_smoke"
+    return _match_reviewer_identity(provided_passphrase, _configured_reviewer_identities())
+
+
+def _select_review_mode_identity(smoke_passphrase: str | None) -> tuple[str, str]:
+    """Pick the identity a review-mode session mints.
+
+    Returns ``(uid, subject)``. The primary reviewer is minted exactly as
+    before this pair existed: for no passphrase (the App Store reviewer
+    button), for production (where the bypass is ignored, as documented), for
+    a backend holding no configured pair (the localhost overlay carries only
+    APP_REVIEW_MODE and REVIEWER_UID), and for a passphrase that matches no
+    pair. The counterpart pair only adds a second match: a passphrase equal to
+    a configured pair's mints that pair's uid. Values are never logged.
+    """
+    primary = (_resolve_reviewer_uid(), "reviewer")
+    provided_passphrase = str(smoke_passphrase or "").strip()
+    if not provided_passphrase or _is_production_runtime():
+        return primary
+    matched = _match_reviewer_identity(provided_passphrase, _configured_reviewer_identities())
+    return matched or primary
 
 
 def _one_runtime_dependency_evidence() -> dict[str, str | bool | None]:
@@ -146,9 +205,13 @@ async def issue_app_review_mode_session(request: Request):
     Mint a Firebase custom token for app-review login.
 
     Security:
-    - Enabled only when APP_REVIEW_MODE is true
-    - Uses fixed REVIEWER_UID from server env
-    - Never returns reviewer password to clients
+    - Enabled when APP_REVIEW_MODE is true, or (outside production) when the
+      request carries a passphrase matching a configured reviewer pair
+    - Mints only server-configured identities: REVIEWER_UID by default, or the
+      pair (primary or REVIEWER_COUNTERPART_UID) whose passphrase matches
+    - With review mode on, a passphrase matching no pair mints the primary,
+      unchanged from before the counterpart pair existed
+    - Never returns any reviewer passphrase to clients, and never logs one
     """
     try:
         payload = await request.json()
@@ -162,7 +225,9 @@ async def issue_app_review_mode_session(request: Request):
     failure_reason = "missing_reviewer_uid"
 
     if _is_app_review_mode_enabled():
-        reviewer_uid = _resolve_reviewer_uid()
+        reviewer_uid, session_subject = _select_review_mode_identity(
+            payload.get("smoke_passphrase")
+        )
     else:
         smoke_overlay = _resolve_smoke_overlay_identity(payload.get("smoke_passphrase"))
         if smoke_overlay:

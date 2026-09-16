@@ -680,7 +680,6 @@ export function ConnectCirclesTab({
         }
         description={circleRowDescription(circle)}
         density="compact"
-        textOverflow="truncate"
         chevron
         onClick={() => openCircle(circle.id)}
         testId={testId}

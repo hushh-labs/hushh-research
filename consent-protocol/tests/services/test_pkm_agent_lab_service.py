@@ -302,45 +302,38 @@ async def test_agent_contract_retries_one_timeout_within_preview_budget(monkeypa
 
 
 @pytest.mark.asyncio
-async def test_agent_contract_uses_minimal_thinking_for_schema_workers():
+@pytest.mark.parametrize("model_id", ["gemini-3.8-flash", "gemini-3.7-flash"])
+async def test_agent_contract_asks_every_catalog_model_for_minimal_thinking(monkeypatch, model_id):
+    """Every schema worker requests the lowest thinking level, whichever catalog model the
+    manifest resolves to; the model adapter, not this service, decides how the provider
+    contract carries that request. Asserted at the adapter boundary so the service intent
+    stays visible even when the adapter drops the knob for a Flash generation."""
     service = PKMAgentLabService()
     generate_content = AsyncMock(return_value=SimpleNamespace(parsed={"status": "ok"}, text=""))
     service._client = SimpleNamespace(
         aio=SimpleNamespace(models=SimpleNamespace(generate_content=generate_content))
     )
+    requested: list[tuple[str, dict]] = []
+
+    def _capture(types_module, model, **kwargs):
+        requested.append((model, kwargs))
+        return SimpleNamespace(**kwargs)
+
+    monkeypatch.setattr(pkm_agent_lab_module, "build_generate_content_config", _capture)
 
     result = await service._run_agent_contract(
-        manifest=SimpleNamespace(id="agent_test", model="gemini-3.5-flash"),
+        manifest=SimpleNamespace(id="agent_memory_segmentation", model=model_id),
         prompt="Return a valid structured response.",
         response_schema={"type": "OBJECT"},
         timeout_seconds=3.0,
     )
 
     assert result == {"status": "ok"}
-    config = generate_content.await_args.kwargs["config"]
-    assert config.thinking_config is not None
-    assert config.thinking_config.thinking_level == "MINIMAL"
-
-
-@pytest.mark.asyncio
-async def test_agent_contract_uses_low_thinking_for_pkm_salience_model():
-    service = PKMAgentLabService()
-    generate_content = AsyncMock(return_value=SimpleNamespace(parsed={"status": "ok"}, text=""))
-    service._client = SimpleNamespace(
-        aio=SimpleNamespace(models=SimpleNamespace(generate_content=generate_content))
-    )
-
-    result = await service._run_agent_contract(
-        manifest=SimpleNamespace(id="agent_memory_segmentation", model="gemini-3.1-pro-preview"),
-        prompt="Return a valid structured response.",
-        response_schema={"type": "OBJECT"},
-        timeout_seconds=3.0,
-    )
-
-    assert result == {"status": "ok"}
-    config = generate_content.await_args.kwargs["config"]
-    assert config.thinking_config is not None
-    assert config.thinking_config.thinking_level == "LOW"
+    assert generate_content.await_args.kwargs["model"] == model_id
+    assert [model for model, _ in requested] == [model_id]
+    kwargs = requested[0][1]
+    assert kwargs["temperature"] == 0.0
+    assert kwargs["thinking_config"].thinking_level == "MINIMAL"
 
 
 def test_segmentation_fails_closed_and_keeps_only_exact_owner_quotes():

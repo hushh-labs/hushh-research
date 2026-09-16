@@ -16,7 +16,7 @@ import {
 import {
   CONNECT_CIRCLES_LIST_HREF,
   connectCircleTaskTitle,
-  isFocusedConnectCircleTask,  readConnectCircleAction,
+  readConnectCircleAction,
 } from "@/lib/navigation/connect-routes";
 import {
   buildNearbyCheckInResumeHref,
@@ -101,6 +101,13 @@ function oneLocationActionLabel(action: string): string {
     "sms-contacts": "Emergency contacts",
     settings: "Settings",
     privacy: "Settings",
+    // Voice-first Location area flows. Each label must equal the flow's own
+    // TaskFlowHeader title.
+    "create-circle": "New circle",
+    "join-circle": "Join circle",
+    "circle-detail": "Circle",
+    "invite-circle": "Invite to circle",
+    ratings: "Ratings",
   };
   return labels[action] ?? titleizeSegment(action);
 }
@@ -1035,21 +1042,26 @@ function resolveTopShellBreadcrumbInner(
       searchParams?.get("action") ?? null,
     );
     const label = connectCircleTaskTitle(action);
-    const isFocusedTask = isFocusedConnectCircleTask(
-      "circles",
-      action,
-      searchParams?.get("circleId") ?? null,
-    );
-    if (label && isFocusedTask) {      return {
+    if (label) {
+      const isFocusedTask =
+        action === "create-circle" || action === "join-circle";
+      return {
         // Back closes the flow and returns to the list, naming the tab
         // explicitly -- the App Router refuses a navigation whose only change
         // is the whole query string disappearing.
         backHref: CONNECT_CIRCLES_LIST_HREF,
-        backLabel: "Back to Circles",
+        backLabel: isFocusedTask ? "Back to Circles" : undefined,
         width: "profile",
         align: "center",
         hideBack: false,
-        items: [{ label }],      };
+        items: isFocusedTask
+          ? [{ label }]
+          : [
+              { label: "One", href: ROUTES.ONE_HOME },
+              { label: "Connect", href: CONNECT_CIRCLES_LIST_HREF },
+              { label },
+            ],
+      };
     }
   }
 

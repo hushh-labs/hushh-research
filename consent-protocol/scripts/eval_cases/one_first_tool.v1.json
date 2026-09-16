@@ -1,0 +1,450 @@
+{
+  "schema_version": "one.first_tool_evals.v1",
+  "description": "Which tool the private agent reaches for FIRST on a single-turn prompt, per family. Expected lists accepted first tools; run_app_action is scored as run_app_action:<action_id>; no_tool means the private agent answers directly.",
+  "cases": [
+    {
+      "id": "consent.pending_approval",
+      "family": "consent",
+      "prompt": "is there anything waiting for me to approve",
+      "expected": [
+        "list_pending_information_requests"
+      ]
+    },
+    {
+      "id": "consent.who_can_see",
+      "family": "consent",
+      "prompt": "who can see my information right now",
+      "expected": [
+        "list_active_grants"
+      ]
+    },
+    {
+      "id": "consent.sharing_with_named",
+      "family": "consent",
+      "prompt": "what am I sharing with Sarah",
+      "expected": [
+        "list_active_grants"
+      ]
+    },
+    {
+      "id": "consent.still_has_address",
+      "family": "consent",
+      "prompt": "does anyone still have my address",
+      "expected": [
+        "list_active_grants"
+      ]
+    },
+    {
+      "id": "consent.what_did_i_ask",
+      "family": "consent",
+      "prompt": "what did I ask Jhumma for",
+      "expected": [
+        "list_my_outgoing_information_requests"
+      ]
+    },
+    {
+      "id": "consent.what_could_i_ask",
+      "family": "consent",
+      "prompt": "what could I ask Dev for",
+      "expected": [
+        "discover_person_information"
+      ]
+    },
+    {
+      "id": "consent.request_finance_from_named",
+      "family": "consent",
+      "prompt": "can we request finance information from Sharu Khan",
+      "expected": [
+        "discover_person_information",
+        "propose_information_request"
+      ]
+    },
+    {
+      "id": "consent.stop_sharing_finances",
+      "family": "consent",
+      "prompt": "stop sharing my finances with my advisor",
+      "expected": [
+        "list_active_grants",
+        "run_app_action:consent.revoke"
+      ]
+    },
+    {
+      "id": "consent.revoke_last_week",
+      "family": "consent",
+      "prompt": "revoke what I gave Dev last week",
+      "expected": [
+        "list_active_grants",
+        "run_app_action:consent.revoke"
+      ]
+    },
+    {
+      "id": "consent.cancel_sent_request",
+      "family": "consent",
+      "prompt": "cancel the request I sent this morning",
+      "expected": [
+        "list_my_outgoing_information_requests",
+        "run_app_action:consent.cancel_request"
+      ]
+    },
+    {
+      "id": "consent.deny_named_request",
+      "family": "consent",
+      "prompt": "say no to Sarah's request",
+      "expected": [
+        "list_pending_information_requests",
+        "run_app_action:consent.deny"
+      ]
+    },
+    {
+      "id": "consent.how_sharing_works",
+      "family": "consent",
+      "prompt": "how does sharing my information actually work",
+      "expected": [
+        "no_tool"
+      ]
+    },
+    {
+      "id": "consent.add_trusted_person",
+      "family": "consent",
+      "prompt": "add Alice to my trusted people",
+      "expected": [
+        "ask_consent_agent"
+      ]
+    },
+    {
+      "id": "location.my_shares",
+      "family": "location",
+      "prompt": "who am I sharing my location with",
+      "expected": [
+        "list_my_location_shares"
+      ]
+    },
+    {
+      "id": "location.shared_with_me",
+      "family": "location",
+      "prompt": "who is sharing their location with me",
+      "expected": [
+        "list_location_shared_with_me"
+      ]
+    },
+    {
+      "id": "location.my_circles",
+      "family": "location",
+      "prompt": "what circles do I have",
+      "expected": [
+        "list_my_location_circles"
+      ]
+    },
+    {
+      "id": "location.circle_members",
+      "family": "location",
+      "prompt": "who is in my Family circle",
+      "expected": [
+        "get_location_circle_members"
+      ]
+    },
+    {
+      "id": "location.pending_requests",
+      "family": "location",
+      "prompt": "is anyone waiting on me to approve a location request",
+      "expected": [
+        "list_pending_location_requests"
+      ]
+    },
+    {
+      "id": "location.outgoing_requests",
+      "family": "location",
+      "prompt": "whom have I asked for their location",
+      "expected": [
+        "list_my_outgoing_location_requests"
+      ]
+    },
+    {
+      "id": "location.navigate",
+      "family": "location",
+      "prompt": "take me to location",
+      "expected": [
+        "run_app_action:route.one_location"
+      ]
+    },
+    {
+      "id": "location.share_with_named",
+      "family": "location",
+      "prompt": "share my location with Sarah for one hour",
+      "expected": [
+        "no_tool",
+        "run_app_action:location.share_selected"
+      ]
+    },
+    {
+      "id": "email.draft_landlord",
+      "family": "email",
+      "prompt": "write an email to my landlord about the leaking kitchen tap",
+      "expected": [
+        "open_gmail_email_draft"
+      ]
+    },
+    {
+      "id": "email.draft_running_late",
+      "family": "email",
+      "prompt": "draft a quick email to Priya saying I will be ten minutes late",
+      "expected": [
+        "open_gmail_email_draft"
+      ]
+    },
+    {
+      "id": "email.draft_thank_you",
+      "family": "email",
+      "prompt": "send a thank-you email to Dev for dinner last night",
+      "expected": [
+        "open_gmail_email_draft"
+      ]
+    },
+    {
+      "id": "email.inbox_search_paused",
+      "family": "email",
+      "prompt": "search my inbox for the flight receipt from last month",
+      "expected": [
+        "no_tool"
+      ]
+    },
+    {
+      "id": "email.approval_drafts",
+      "family": "email",
+      "prompt": "which approval drafts are waiting on me",
+      "expected": [
+        "ask_email_agent"
+      ]
+    },
+    {
+      "id": "finance.analyze_ticker",
+      "family": "finance",
+      "prompt": "analyze Nvidia",
+      "expected": [
+        "start_app_goal"
+      ]
+    },
+    {
+      "id": "finance.debate_ticker",
+      "family": "finance",
+      "prompt": "run a debate on Tesla stock",
+      "expected": [
+        "start_app_goal"
+      ]
+    },
+    {
+      "id": "finance.pkm_portfolio",
+      "family": "finance",
+      "prompt": "what do you know about my portfolio",
+      "expected": [
+        "read_my_pkm_domain_summary"
+      ]
+    },
+    {
+      "id": "finance.portfolio_performance",
+      "family": "finance",
+      "prompt": "how is my portfolio performing this quarter",
+      "expected": [
+        "finance",
+        "read_my_pkm_domain_summary"
+      ]
+    },
+    {
+      "id": "finance.wallet_cards",
+      "family": "finance",
+      "prompt": "what cards do I have saved",
+      "expected": [
+        "run_app_action:wallet.list",
+        "wallet",
+        "list_app_actions"
+      ],
+      "note": "the screen-aware self-index is a legitimate discovery step before run_app_action (baseline 2026-09-14)"
+    },
+    {
+      "id": "finance.market_today",
+      "family": "finance",
+      "prompt": "is the market up today",
+      "expected": [
+        "finance",
+        "google_search"
+      ]
+    },
+    {
+      "id": "finance.navigate_holdings",
+      "family": "finance",
+      "prompt": "take me to my holdings",
+      "expected": [
+        "run_app_action:route.kai_portfolio_holdings",
+        "list_app_actions"
+      ],
+      "note": "navigation resolves through the self-index before run_app_action (baseline 2026-09-14)"
+    },
+    {
+      "id": "memory.remember_birthday",
+      "family": "memory",
+      "prompt": "remember that my sister's birthday is on March 3rd",
+      "expected": [
+        "add_to_pkm"
+      ]
+    },
+    {
+      "id": "memory.save_preference",
+      "family": "memory",
+      "prompt": "save this: I prefer aisle seats on long flights",
+      "expected": [
+        "add_to_pkm"
+      ]
+    },
+    {
+      "id": "memory.read_health",
+      "family": "memory",
+      "prompt": "what do you know about my health",
+      "expected": [
+        "read_my_pkm_domain_summary"
+      ]
+    },
+    {
+      "id": "memory.read_travel",
+      "family": "memory",
+      "prompt": "tell me about my travel",
+      "expected": [
+        "read_my_pkm_domain_summary"
+      ]
+    },
+    {
+      "id": "general.your_name",
+      "family": "general",
+      "prompt": "what's your name",
+      "expected": [
+        "no_tool"
+      ]
+    },
+    {
+      "id": "general.what_is_this_app",
+      "family": "general",
+      "prompt": "what is this app",
+      "expected": [
+        "no_tool"
+      ]
+    },
+    {
+      "id": "general.explain_byok",
+      "family": "general",
+      "prompt": "explain what BYOK means in one sentence",
+      "expected": [
+        "no_tool"
+      ]
+    },
+    {
+      "id": "general.so_what",
+      "family": "general",
+      "prompt": "so what?",
+      "expected": [
+        "no_tool"
+      ]
+    },
+    {
+      "id": "general.public_fact_time_sensitive",
+      "family": "general",
+      "prompt": "who won the Champions League this year",
+      "expected": [
+        "no_tool",
+        "google_search",
+        "get_current_time"
+      ],
+      "note": "'this year' resolves through the clock before search (baseline 2026-09-14)"
+    },
+    {
+      "id": "general.public_weather",
+      "family": "general",
+      "prompt": "what's the weather in Mumbai right now",
+      "expected": [
+        "no_tool",
+        "google_search"
+      ]
+    },
+    {
+      "id": "delegation.location_public_link",
+      "family": "delegation",
+      "prompt": "make a public link to my location that I can text to the plumber",
+      "expected": [
+        "ask_location_agent",
+        "run_app_action:location.open_temporary_link"
+      ]
+    },
+    {
+      "id": "delegation.location_device_permission",
+      "family": "delegation",
+      "prompt": "the app is not getting my phone's location permission, help me fix it",
+      "expected": [
+        "ask_location_agent"
+      ]
+    },
+    {
+      "id": "delegation.remove_trusted_person",
+      "family": "delegation",
+      "prompt": "remove Bob from my trusted people",
+      "expected": [
+        "ask_consent_agent"
+      ]
+    },
+    {
+      "id": "delegation.change_relationship",
+      "family": "delegation",
+      "prompt": "change Alice from friend to family",
+      "expected": [
+        "ask_consent_agent"
+      ]
+    },
+    {
+      "id": "delegation.email_client_request_workflow",
+      "family": "delegation",
+      "prompt": "what client request workflows does the email specialist have open for me",
+      "expected": [
+        "ask_email_agent"
+      ]
+    },
+    {
+      "id": "calendar.week_summary",
+      "family": "calendar",
+      "prompt": "what's on my calendar this week",
+      "expected": [
+        "calendar_summary",
+        "calendar_events"
+      ]
+    },
+    {
+      "id": "calendar.free_slot",
+      "family": "calendar",
+      "prompt": "find me a free 30-minute slot tomorrow afternoon",
+      "expected": [
+        "calendar_free_slots",
+        "get_current_time"
+      ],
+      "note": "relative date: resolving 'tomorrow' through the clock first is the correct first step (baseline 2026-09-14)"
+    },
+    {
+      "id": "calendar.busy_window",
+      "family": "calendar",
+      "prompt": "am I busy on Thursday between 2 and 4pm",
+      "expected": [
+        "calendar_availability",
+        "calendar_events",
+        "get_current_time"
+      ],
+      "note": "relative weekday: clock first is correct (baseline 2026-09-14)"
+    },
+    {
+      "id": "calendar.schedule_exact",
+      "family": "calendar",
+      "prompt": "schedule a 30 minute call titled Roadmap sync with Dev tomorrow at 3pm Pacific",
+      "expected": [
+        "propose_calendar_event",
+        "calendar_availability",
+        "calendar_events",
+        "get_current_time"
+      ],
+      "note": "relative date in the request: clock first is correct (baseline 2026-09-14)"
+    }
+  ]
+}

@@ -1,8 +1,8 @@
 {
-  "generated_at": "2026-09-02",
-  "total_routes": 122,
-  "native_required_routes": 105,
-  "excluded_routes": 17,
+  "generated_at": "2026-08-27",
+  "total_routes": 119,
+  "native_required_routes": 103,
+  "excluded_routes": 11,
   "routes": [
     {
       "route": "/",
@@ -12,22 +12,12 @@
       "expectedRoute": "/",
       "autoReviewerLogin": false,
       "expectedAuth": "anonymous",
+      "allowedAuthStates": [
+        "anonymous",
+        "authenticated"
+      ],
       "allowedDataStates": [
         "loaded"
-      ]
-    },
-    {
-      "route": "/agent",
-      "classification": "native-required-functional",
-      "initialRoute": "/login?redirect=%2Fagent",
-      "expectedMarker": "native-route-agent",
-      "expectedRoute": "/agent",
-      "autoReviewerLogin": true,
-      "expectedAuth": "authenticated",
-      "allowedDataStates": [
-        "loaded",
-        "empty-valid",
-        "unavailable-valid"
       ]
     },
     {

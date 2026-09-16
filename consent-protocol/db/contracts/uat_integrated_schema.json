@@ -1,6 +1,6 @@
 {
   "contract_name": "uat_integrated_schema",
-  "expected_migration_version": 220,
+  "expected_migration_version": 223,
   "migration_version_policy": "exact",
   "required_functions": [
     "resolve_feed_counterpart_user_id",
@@ -1127,6 +1127,19 @@
       "created_at",
       "updated_at"
     ],
+    "one_location_account_settings": [
+      "user_id",
+      "sharing_state",
+      "precision",
+      "sharing_consent_version",
+      "sharing_consent_accepted_at",
+      "sharing_enabled_at",
+      "sharing_disabled_at",
+      "os_permission_reported",
+      "os_permission_reported_at",
+      "created_at",
+      "updated_at"
+    ],
     "one_location_auto_approve_preferences": [
       "user_id",
       "enabled",
@@ -1384,6 +1397,18 @@
       "created_at",
       "updated_at"
     ],
+    "one_location_setup_progress": [
+      "user_id",
+      "step",
+      "consent_version",
+      "consent_accepted_at",
+      "os_permission_state",
+      "precision",
+      "recipient_key_registered_at",
+      "started_at",
+      "completed_at",
+      "updated_at"
+    ],
     "one_location_share_grants": [
       "id",
       "owner_user_id",
@@ -1420,6 +1445,48 @@
       "text_model",
       "created_at",
       "updated_at"
+    ],
+    "one_voice_conversations": [
+      "id",
+      "user_id",
+      "status",
+      "entity_context",
+      "screen_context",
+      "live_resumption_handle",
+      "model_id",
+      "model_location",
+      "session_count",
+      "audio_in_seconds",
+      "audio_out_seconds",
+      "tool_calls",
+      "tool_results_ok",
+      "tool_results_rejected",
+      "narration_without_receipt",
+      "unknown_tool_calls",
+      "last_close_code",
+      "last_close_reason_class",
+      "created_at",
+      "last_seen_at",
+      "expires_at"
+    ],
+    "one_voice_pending_actions": [
+      "id",
+      "user_id",
+      "conversation_id",
+      "tool_name",
+      "gateway_action_id",
+      "tier",
+      "args",
+      "summary",
+      "receipt_token_hash",
+      "status",
+      "shown_at",
+      "confirmed_at",
+      "resolved_at",
+      "confirmation_source",
+      "result",
+      "created_at",
+      "expires_at"
     ],
     "one_wallet_cards": [
       "user_id",

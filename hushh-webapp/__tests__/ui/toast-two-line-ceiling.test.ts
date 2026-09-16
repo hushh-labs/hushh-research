@@ -38,6 +38,74 @@ const TWO_LINE_BUDGET = 86;
 const TOAST_CALL =
   /toast\.(?:success|error|info|warning|message)\(\s*("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|`(?:[^`\\]|\\.)*`)/g;
 
+/**
+ * `toast.promise(work, { loading: "...", success: "...", error: "..." })`.
+ *
+ * The loading and success strings are titles too, rendered by the same clamp,
+ * but TOAST_CALL never saw them: it matches a string in the first argument
+ * and the first argument here is a promise. The Approve and Deny paths in the
+ * consent hooks are toast.promise calls, so the one place a person waits on a
+ * decision they made was the one place the ceiling did not reach. Callbacks
+ * (`error: (err) => ...`) are still not scanned; they carry server text, and
+ * the clamp in the component is what holds those.
+ */
+const TOAST_PROMISE_CALL = /toast\.promise\s*\(/g;
+const PROMISE_OPTION_LITERAL =
+  /\b(loading|success|error)\s*:\s*("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|`(?:[^`\\]|\\.)*`)/g;
+
+/**
+ * The options object of a toast.promise call: from the `{` after the first
+ * top-level comma to its matching `}`, quote- and brace-aware so a `}` inside
+ * a template hole or a nested object does not end it early. Returns "" when
+ * the call has no object literal in that position.
+ */
+function promiseOptions(src: string, callEnd: number): string {
+  let depth = 0;
+  let quote: string | null = null;
+  let objectStart = -1;
+  for (let i = callEnd; i < src.length; i++) {
+    const c = src[i]!;
+    if (quote) {
+      if (c === "\\") i += 1;
+      else if (c === quote) quote = null;
+      continue;
+    }
+    if (c === '"' || c === "'" || c === "`") {
+      quote = c;
+      continue;
+    }
+    if (objectStart === -1) {
+      if (c === "(" || c === "[") depth += 1;
+      else if (c === ")" || c === "]") {
+        if (depth === 0) return "";
+        depth -= 1;
+      } else if (c === "{" && depth === 0) objectStart = i;
+      else if (c === "{") depth += 1;
+      else if (c === "}") depth -= 1;
+      continue;
+    }
+    if (c === "{") depth += 1;
+    else if (c === "}") {
+      if (depth === 0) return src.slice(objectStart, i + 1);
+      depth -= 1;
+    }
+  }
+  return "";
+}
+
+/** What a literal toast string renders as, for measuring against the budget. */
+function renderedLength(literal: string): { rendered: string; length: number } {
+  const rendered = literal
+    .slice(1, -1)
+    // A ${name} renders to something; assume a modest display name
+    // rather than pretending an interpolation costs nothing.
+    .replace(/\$\{[^}]*\}/g, "Xxxxxxxx")
+    .replace(/\\n/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return { rendered, length: rendered.length };
+}
+
 function sourceFiles(dir: string, out: string[] = []): string[] {
   for (const entry of readdirSync(dir)) {
     if (
@@ -78,19 +146,22 @@ describe("toast two-line ceiling", () => {
     for (const dir of ["app", "components", "lib"]) {
       for (const file of sourceFiles(join(WEBAPP, dir))) {
         const src = readFileSync(file, "utf8");
+        const relative = file.slice(WEBAPP.length + 1);
         for (const match of src.matchAll(TOAST_CALL)) {
-          const rendered = match[1]
-            .slice(1, -1)
-            // A ${name} renders to something; assume a modest display name
-            // rather than pretending an interpolation costs nothing.
-            .replace(/\$\{[^}]*\}/g, "Xxxxxxxx")
-            .replace(/\\n/g, " ")
-            .replace(/\s+/g, " ")
-            .trim();
-          if (rendered.length > TWO_LINE_BUDGET) {
-            offenders.push(
-              `${file.slice(WEBAPP.length + 1)} (${rendered.length}): ${rendered.slice(0, 80)}…`,
-            );
+          const { rendered, length } = renderedLength(match[1]!);
+          if (length > TWO_LINE_BUDGET) {
+            offenders.push(`${relative} (${length}): ${rendered.slice(0, 80)}…`);
+          }
+        }
+        for (const call of src.matchAll(TOAST_PROMISE_CALL)) {
+          const options = promiseOptions(src, call.index! + call[0].length);
+          for (const option of options.matchAll(PROMISE_OPTION_LITERAL)) {
+            const { rendered, length } = renderedLength(option[2]!);
+            if (length > TWO_LINE_BUDGET) {
+              offenders.push(
+                `${relative} toast.promise ${option[1]} (${length}): ${rendered.slice(0, 80)}…`,
+              );
+            }
           }
         }
       }

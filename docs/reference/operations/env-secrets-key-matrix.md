@@ -65,6 +65,7 @@ Profile bootstrap rule:
 | `SUPPORT_EMAIL_TEST_TO` | `consent-protocol/hushh_mcp/services/support_email_service.py` | Y | N | N | env | N | env | N | optional |
 | `SUPPORT_EMAIL_MODE` | `consent-protocol/hushh_mcp/services/support_email_service.py` | Y | N | N | env | N | env | N | optional |
 | `APP_FRONTEND_ORIGIN` | `consent-protocol/server.py` | Y | N | Y | secret | N | secret | N | required |
+| `PASSKEY_ALLOWED_RP_IDS` | `consent-protocol/hushh_mcp/services/vault_keys_service.py` | Y | N | N | generated runtime config | N | generated runtime config | N | required; `localhost,127.0.0.1,<APP_FRONTEND_ORIGIN host>` only |
 | `BACKEND_RUNTIME_CONFIG_JSON` | `consent-protocol/hushh_mcp/runtime_settings.py`, `consent-protocol/server.py` | Y | N | Y | secret | N | secret | N | required |
 | `DB_USER` | `consent-protocol/db/connection.py` | Y | N | Y | secret | N | secret | N | required |
 | `DB_PASSWORD` | `consent-protocol/db/connection.py` | Y | N | Y | secret | N | secret | N | required |

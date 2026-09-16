@@ -803,6 +803,15 @@ export type PlainLocationPoint = {
    * Present only for Check-In shares. Encrypted together with the point.
    */
   checkIn?: CheckInSharePayload | null;
+  /**
+   * How much the coordinate was coarsened on this device before encryption.
+   * "approximate" means the point was snapped to a ~1 km grid by
+   * `lib/location/coarsen.ts`; absent or "precise" means the raw fix. The same
+   * tag is mirrored in plaintext as `envelope.metadata.precision` so the
+   * server can refuse an envelope that disagrees with the owner's stored
+   * preference (it can never see the coordinate itself).
+   */
+  precision?: "precise" | "approximate";
 };
 
 export type OneLocationEncryptedEnvelope = {

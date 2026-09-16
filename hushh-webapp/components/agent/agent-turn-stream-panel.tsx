@@ -41,6 +41,7 @@ const SOURCE_SUMMARIES: Record<string, { badge: string; message: string }> = {
   agent_connected_systems: { badge: "Specialist", message: "Connections assistant consulted." },
   agent_connections: { badge: "Specialist", message: "Connections assistant consulted." },
   agent_nav: { badge: "Specialist", message: "Consent assistant consulted." },
+  agent_personal_information: { badge: "Specialist", message: "Memory assistant consulted." },
   agent_kai: { badge: "Specialist", message: "Finance specialist consulted." },
   web: { badge: "Web", message: "Public web research consulted." },
 };

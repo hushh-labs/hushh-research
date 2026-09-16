@@ -234,7 +234,7 @@
     {
       "schema_version": "kai.local_action_contract.v1",
       "surface_id": "one_agents",
-      "surface_title": "Agents",
+      "surface_title": "One",
       "docs_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
         "docs/reference/one/one-voice-runtime-architecture.md"
@@ -869,7 +869,7 @@
         "delegate_agent_id": "agent_wallet",
         "reachability": {
           "routes": [
-            "/agent",
+            "/",
             "/one",
             "/one/wallet"
           ],
@@ -2753,7 +2753,8 @@
         ],
         "input_resolvers": [],
         "slot_schema": {
-          "person": "spoken_person_name_list"
+          "person": "spoken_person_name_list",
+          "userId": "opaque_id_optional"
         },
         "workflow_steps": [
           {
@@ -2999,7 +3000,8 @@
         ],
         "input_resolvers": [],
         "slot_schema": {
-          "person": "spoken_person_name_list"
+          "person": "spoken_person_name_list",
+          "requestId": "opaque_id_optional"
         },
         "workflow_steps": [
           {
@@ -3123,7 +3125,8 @@
         ],
         "input_resolvers": [],
         "slot_schema": {
-          "person": "spoken_person_name_list"
+          "person": "spoken_person_name_list",
+          "requestId": "opaque_id_optional"
         },
         "workflow_steps": [
           {
@@ -3246,7 +3249,8 @@
         ],
         "input_resolvers": [],
         "slot_schema": {
-          "person": "spoken_person_name_list"
+          "person": "spoken_person_name_list",
+          "connectionId": "opaque_id_optional"
         },
         "workflow_steps": [
           {
@@ -11834,9 +11838,861 @@
       }
     },
     {
+      "command": {
+        "domain": "location",
+        "review_route": "/one/location?view=circles"
+      },
+      "action_id": "location.open_circles",
+      "surface_id": "one_location",
+      "label": "Open Location circles",
+      "aliases": [
+        "show my circles",
+        "circles tab",
+        "open circles"
+      ],
+      "search_keywords": [
+        "circles",
+        "location"
+      ],
+      "meaning": "Opens the Circles tab of Location, which lists the circles you own or belong to.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/location"
+        ],
+        "screens": [
+          "one_location"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/location?view=circles"
+      },
+      "control_ids": [],
+      "state_exposure": [
+        "active location tab"
+      ],
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/location?view=circles"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.location.open_circles",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "location.open_circles",
+            "label": "Open Location circles",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/location?view=circles",
+              "screen": "one_location"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "command": {
+        "domain": "location",
+        "review_route": "/one/location?action=ratings"
+      },
+      "action_id": "location.open_ratings",
+      "surface_id": "one_location",
+      "label": "Open place ratings",
+      "aliases": [
+        "my ratings",
+        "show my ratings"
+      ],
+      "search_keywords": [
+        "ratings",
+        "places"
+      ],
+      "meaning": "Opens the anonymous place ratings you have left. Only available to accounts admitted to Nearby Check-In; ratings for people do not exist.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/location"
+        ],
+        "screens": [
+          "one_location"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/location?action=ratings"
+      },
+      "control_ids": [],
+      "state_exposure": [
+        "active location flow"
+      ],
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/location?action=ratings"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.location.open_ratings",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "location.open_ratings",
+            "label": "Open place ratings",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/location?action=ratings",
+              "screen": "one_location"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "command": {
+        "domain": "location",
+        "review_route": "/one/location?action=settings"
+      },
+      "action_id": "location.set_sharing_enabled",
+      "surface_id": "one_location",
+      "label": "Turn location sharing on or off",
+      "aliases": [
+        "turn my location on",
+        "turn my location off",
+        "turn location sharing off"
+      ],
+      "search_keywords": [
+        "location",
+        "sharing",
+        "on",
+        "off"
+      ],
+      "meaning": "Sets the owner-level sharing posture. Off stops every active share and link immediately (Save My Soul needs an explicit stop). On requires the recorded sharing consent.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/location"
+        ],
+        "screens": [
+          "one_location"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "confirm_required",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "wired",
+        "path": "voice_tool",
+        "target": "location.set_sharing_enabled"
+      },
+      "control_ids": [],
+      "state_exposure": [
+        "location sharing state"
+      ],
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/location"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.location.set_sharing_enabled",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "location.set_sharing_enabled",
+            "label": "Turn location sharing on or off",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "command": {
+        "domain": "location",
+        "review_route": "/one/location?action=settings"
+      },
+      "action_id": "location.set_precision",
+      "surface_id": "one_location",
+      "label": "Set sharing precision",
+      "aliases": [
+        "use approximate location",
+        "share my exact location"
+      ],
+      "search_keywords": [
+        "precision",
+        "approximate",
+        "precise"
+      ],
+      "meaning": "Chooses precise or approximate sharing. The preference is stored on the server; the device coarsens the point before it is encrypted.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/location"
+        ],
+        "screens": [
+          "one_location"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "confirm_required",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "wired",
+        "path": "voice_tool",
+        "target": "location.set_precision"
+      },
+      "control_ids": [],
+      "state_exposure": [
+        "location precision"
+      ],
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/location"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.location.set_precision",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "location.set_precision",
+            "label": "Set sharing precision",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "command": {
+        "domain": "location",
+        "review_route": "/one/setup/location"
+      },
+      "action_id": "location.setup.status",
+      "surface_id": "one_location",
+      "label": "Read Location setup progress",
+      "aliases": [],
+      "search_keywords": [
+        "setup",
+        "onboarding"
+      ],
+      "meaning": "Reads the server-side Location setup step so a conversation resumes exactly where the person left off.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/location",
+          "/one/setup/location"
+        ],
+        "screens": [
+          "one_location",
+          "one_setup_location"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "wired",
+        "path": "voice_tool",
+        "target": "location.setup.status"
+      },
+      "control_ids": [],
+      "state_exposure": [
+        "location setup step"
+      ],
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/location"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.location.setup.status",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "location.setup.status",
+            "label": "Read Location setup progress",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "command": {
+        "domain": "location",
+        "review_route": "/one/setup/location"
+      },
+      "action_id": "location.setup.start",
+      "surface_id": "one_location",
+      "label": "Start Location setup",
+      "aliases": [
+        "start location setup",
+        "set up location"
+      ],
+      "search_keywords": [
+        "setup",
+        "location"
+      ],
+      "meaning": "Starts or resumes the voice-first Location setup flow.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/location",
+          "/one/setup/location"
+        ],
+        "screens": [
+          "one_location",
+          "one_setup_location"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/setup/location"
+      },
+      "control_ids": [],
+      "state_exposure": [
+        "location setup step"
+      ],
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/setup/location"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.location.setup.start",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "location.setup.start",
+            "label": "Start Location setup",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/setup/location",
+              "screen": "one_location"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "command": {
+        "domain": "location",
+        "review_route": "/one/setup/location"
+      },
+      "action_id": "location.setup.accept_consent",
+      "surface_id": "one_location",
+      "label": "Accept Location sharing consent",
+      "aliases": [],
+      "search_keywords": [
+        "consent",
+        "setup"
+      ],
+      "meaning": "Records the person's consent to Location sharing. This must happen before the device permission prompt.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/setup/location"
+        ],
+        "screens": [
+          "one_setup_location"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "confirm_required",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "wired",
+        "path": "voice_tool",
+        "target": "location.setup.accept_consent"
+      },
+      "control_ids": [],
+      "state_exposure": [
+        "location setup step"
+      ],
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/setup/location"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.location.setup.accept_consent",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "location.setup.accept_consent",
+            "label": "Accept Location sharing consent",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "command": {
+        "domain": "location",
+        "review_route": "/one/setup/location"
+      },
+      "action_id": "location.setup.advance",
+      "surface_id": "one_location",
+      "label": "Advance Location setup",
+      "aliases": [],
+      "search_keywords": [
+        "setup",
+        "permission"
+      ],
+      "meaning": "Records a completed setup step: the device permission outcome, the precision choice, the device key, or completion (which turns sharing on).",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/setup/location"
+        ],
+        "screens": [
+          "one_setup_location"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "wired",
+        "path": "voice_tool",
+        "target": "location.setup.advance"
+      },
+      "control_ids": [],
+      "state_exposure": [
+        "location setup step"
+      ],
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/setup/location"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.location.setup.advance",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "location.setup.advance",
+            "label": "Advance Location setup",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
       "action_id": "route.one_agents",
       "surface_id": "one_agents",
-      "label": "Open Agents",
+      "label": "Open One",
       "aliases": [
         "open agents",
         "open one agents",
@@ -11851,7 +12707,7 @@
         "dashboard",
         "apps"
       ],
-      "meaning": "Navigates to the One Agents dashboard.",
+      "meaning": "Navigates to the One agent launcher.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
@@ -11915,7 +12771,7 @@
           {
             "type": "action",
             "action_id": "route.one_agents",
-            "label": "Open Agents",
+            "label": "Open One",
             "failure_behavior": "stop",
             "settlement_target": {
               "route": "/one",
@@ -13621,6 +14477,305 @@
             "type": "action",
             "action_id": "profile.delete_account",
             "label": "Delete Account",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "route.profile_privacy",
+      "surface_id": "profile_account",
+      "label": "Open privacy settings",
+      "aliases": [
+        "privacy settings",
+        "show my privacy settings"
+      ],
+      "search_keywords": [
+        "privacy",
+        "access"
+      ],
+      "meaning": "Opens the Access & sharing panel of Profile, which holds discoverability and sharing controls.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/profile"
+        ],
+        "screens": [
+          "profile_account",
+          "profile_privacy"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/profile/access"
+      },
+      "control_ids": [],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/profile/access"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.route.profile_privacy",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "route.profile_privacy",
+            "label": "Open privacy settings",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/profile/access",
+              "screen": "profile_account"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "profile.update_display_name",
+      "surface_id": "profile_account",
+      "label": "Change display name",
+      "aliases": [
+        "change my name to"
+      ],
+      "search_keywords": [
+        "name",
+        "display name"
+      ],
+      "meaning": "Changes the person's Hussh display name at the identity provider after confirmation.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/profile"
+        ],
+        "screens": [
+          "profile_account"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "confirm_required",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "wired",
+        "path": "voice_tool",
+        "target": "profile.update_display_name"
+      },
+      "control_ids": [],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/profile"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.profile.update_display_name",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "profile.update_display_name",
+            "label": "Change display name",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "profile.set_contact_discoverable",
+      "surface_id": "profile_account",
+      "label": "Set contact discoverability",
+      "aliases": [],
+      "search_keywords": [
+        "discoverable",
+        "privacy"
+      ],
+      "meaning": "Turns contact discoverability on or off. Turning it on records the consent version the person accepted.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/profile"
+        ],
+        "screens": [
+          "profile_account",
+          "profile_privacy"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "confirm_required",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "wired",
+        "path": "voice_tool",
+        "target": "profile.set_contact_discoverable"
+      },
+      "control_ids": [],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/profile"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.profile.set_contact_discoverable",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "profile.set_contact_discoverable",
+            "label": "Set contact discoverability",
             "failure_behavior": "stop"
           }
         ],
@@ -21494,7 +22649,7 @@
       "delegate_agent_id": "agent_wallet",
       "reachability": {
         "routes": [
-          "/agent",
+          "/",
           "/one",
           "/one/wallet"
         ],
@@ -21604,7 +22759,7 @@
       "delegate_agent_id": "agent_wallet",
       "reachability": {
         "routes": [
-          "/agent",
+          "/",
           "/one",
           "/one/wallet"
         ],
@@ -21720,7 +22875,7 @@
       "delegate_agent_id": "agent_wallet",
       "reachability": {
         "routes": [
-          "/agent",
+          "/",
           "/one",
           "/one/wallet"
         ],
@@ -21948,7 +23103,7 @@
       "delegate_agent_id": null,
       "reachability": {
         "routes": [
-          "/agent",
+          "/",
           "/one",
           "/one/consent",
           "/people/[personRef]",
@@ -22081,7 +23236,7 @@
       "delegate_agent_id": null,
       "reachability": {
         "routes": [
-          "/agent",
+          "/",
           "/one",
           "/one/consent",
           "/people/[personRef]",
@@ -22214,7 +23369,7 @@
       "delegate_agent_id": null,
       "reachability": {
         "routes": [
-          "/agent",
+          "/",
           "/one",
           "/one/consent",
           "/people/[personRef]",
@@ -22347,7 +23502,7 @@
       "delegate_agent_id": null,
       "reachability": {
         "routes": [
-          "/agent",
+          "/",
           "/one",
           "/one/consent",
           "/people/[personRef]",

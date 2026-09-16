@@ -16,6 +16,11 @@ import {
   loadPlaidOAuthResumeSession,
 } from "@/lib/kai/brokerage/plaid-oauth-session";
 import { loadPlaidLink } from "@/lib/kai/brokerage/plaid-link-loader";
+import { mergePlaidCallbackQuery } from "@/lib/kai/brokerage/plaid-redirect-uri";
+import {
+  KAI_AUXILIARY_STEP_TIMEOUT_MS,
+  runKaiStepWithTimeout,
+} from "@/lib/kai/brokerage/kai-operation-timeout";
 import { PlaidPortfolioService } from "@/lib/kai/brokerage/plaid-portfolio-service";
 import { VaultService } from "@/lib/services/vault-service";
 import { PreVaultUserStateService } from "@/lib/services/pre-vault-user-state-service";
@@ -36,9 +41,13 @@ async function settleOnboardingPlaidAttempt(params: {
   outcome: "succeeded" | "cancelled" | "failed";
 }): Promise<boolean> {
   if (!params.attemptId) return false;
-  const journey = await PreVaultUserStateService.bootstrapState(params.userId, {
-    force: true,
-  }).catch(() => null);
+  const journey = await runKaiStepWithTimeout(
+    "Checking Plaid setup state",
+    PreVaultUserStateService.bootstrapState(params.userId, {
+      force: true,
+    }),
+    KAI_AUXILIARY_STEP_TIMEOUT_MS,
+  ).catch(() => null);
   const matches = Boolean(
     journey &&
       !PreVaultUserStateService.isSetupResolved(journey) &&
@@ -48,14 +57,19 @@ async function settleOnboardingPlaidAttempt(params: {
       journey.onboardingCallbackAttemptId === params.attemptId,
   );
   if (!matches || !journey) return false;
-  await PreVaultUserStateService.syncOnboardingJourney({
-    userId: params.userId,
-    phase: params.outcome === "succeeded" ? "capability_setup" : "external_connector",
-    activeCapability: "finance",
-    callbackState: params.outcome,
-    expectedJourneyUpdatedAt: journey.onboardingJourneyUpdatedAt,
-    expectedCallbackAttemptId: params.attemptId,
-  });
+  await runKaiStepWithTimeout(
+    "Updating Plaid setup state",
+    PreVaultUserStateService.syncOnboardingJourney({
+      userId: params.userId,
+      phase:
+        params.outcome === "succeeded" ? "capability_setup" : "external_connector",
+      activeCapability: "finance",
+      callbackState: params.outcome,
+      expectedJourneyUpdatedAt: journey.onboardingJourneyUpdatedAt,
+      expectedCallbackAttemptId: params.attemptId,
+    }),
+    KAI_AUXILIARY_STEP_TIMEOUT_MS,
+  );
   return true;
 }
 
@@ -127,7 +141,7 @@ export default function KaiPlaidOauthReturnPage() {
         // OAuth parameters the provider appended. On web the two are identical,
         // which is why this went unnoticed.
         const receivedRedirectUri = resume.redirect_uri
-          ? `${resume.redirect_uri}${window.location.search}`
+          ? mergePlaidCallbackQuery(resume.redirect_uri, window.location.href)
           : window.location.href;
 
         await new Promise<void>((resolve, reject) => {

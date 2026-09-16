@@ -80,9 +80,7 @@ async def handle_read_own_pkm_attribute(args: dict[str, Any]) -> list[TextConten
         grant_ref = request_payload["grant_ref"]
     else:
         request_ref = request_payload["request_ref"]
-        max_wait_seconds = min(
-            int(args.get("max_wait_seconds") or 20), _MAX_WAIT_SECONDS_CAP
-        )
+        max_wait_seconds = min(int(args.get("max_wait_seconds") or 20), _MAX_WAIT_SECONDS_CAP)
         deadline = time.monotonic() + max_wait_seconds
         poll_after = request_payload.get("poll_after_seconds") or _DEFAULT_POLL_AFTER_SECONDS
         grant_ref = None

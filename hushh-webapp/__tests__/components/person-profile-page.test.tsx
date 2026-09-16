@@ -439,14 +439,135 @@ describe("PersonProfilePage request catalog tools", () => {
     const duration = screen.getByTestId("person-profile-duration-select") as HTMLSelectElement;
     expect(duration.value).toBe("168");
     fireEvent.change(duration, { target: { value: "24" } });
-    expect(screen.getByText(/the 24 hours access duration/)).toBeTruthy();
-    fireEvent.change(screen.getByPlaceholderText(/Explain why/), { target: { value: "Checking references for a role" } });
+    // The sheet no longer recites the duration; it says what the other person
+    // will see, in the owner's words, and the select carries the number.
+    expect(screen.getByText("They will see exactly what you asked for, why, and for how long.")).toBeTruthy();
+    expect(duration.value).toBe("24");
+    fireEvent.change(screen.getByTestId("person-profile-purpose"), { target: { value: "Checking references for a role" } });
     fireEvent.click(screen.getByRole("button", { name: "Send request" }));
     await waitFor(() =>
       expect(PersonProfileService.createInformationRequest).toHaveBeenCalledWith(
         expect.objectContaining({ durationSeconds: 24 * 3600, scopeRefs: ["scope-0"] }),
       ),
     );
+  });
+
+  it("reveals a grant behind stable test ids and confirms a copy in one word", async () => {
+    const { PersonProfileService } = await import("@/lib/services/person-profile-service");
+    const { OneKycClientZkService } = await import("@/lib/services/one-kyc-client-zk-service");
+    const { toast } = await import("sonner");
+    (OneKycClientZkService.ensureConnector as ReturnType<typeof vi.fn>).mockResolvedValue({ connector_key_id: "ck_1" });
+    (PersonProfileService.getInformationRequestExports as ReturnType<typeof vi.fn>).mockResolvedValue([
+      { requestId: "req-grant", encryptedExport: { sealed: true } },
+    ]);
+    (OneKycClientZkService.decryptScopedExport as ReturnType<typeof vi.fn>).mockResolvedValue({ city: "Pune" });
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    const clipboardBefore = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+    try {
+      mocks.getViewer.mockResolvedValue(
+        viewerProfile({
+          requestableScopes: manyScopes(2),
+          grants: [
+            {
+              scopeRef: "scope-0",
+              label: "City",
+              domain: null,
+              requestId: "req-grant",
+              issuedAt: null,
+              expiresAt: null,
+              status: "granted",
+              encryptedExportAvailable: true,
+            },
+          ],
+          requestHistory: [
+            {
+              bundleId: "bundle-grant",
+              requestId: "req-grant",
+              scopeRef: "scope-0",
+              label: "City",
+              sensitivity: "standard",
+              purpose: "Delivery",
+              durationSeconds: 24 * 3600,
+              createdAt: null,
+              expiresAt: null,
+              status: "approved",
+            },
+          ],
+        }),
+      );
+
+      render(<PersonProfilePage personRef="actual-public-ref" initialProfile={null} />);
+
+      const reveal = await screen.findByTestId("person-profile-grant-reveal");
+      expect(screen.queryByTestId("person-profile-grant-value")).toBeNull();
+      fireEvent.click(reveal);
+
+      const value = await screen.findByTestId("person-profile-grant-value");
+      expect(value).toHaveTextContent("Pune");
+
+      fireEvent.click(screen.getByRole("button", { name: "Copy" }));
+      expect(writeText).toHaveBeenCalledWith(JSON.stringify({ city: "Pune" }));
+      expect(toast.success).toHaveBeenCalledWith("Copied.");
+    } finally {
+      // Put the stub back so it cannot leak into a later test in this file.
+      if (clipboardBefore) {
+        Object.defineProperty(navigator, "clipboard", clipboardBefore);
+      } else {
+        delete (navigator as { clipboard?: unknown }).clipboard;
+      }
+    }
+  });
+
+  it("keeps a backend detail out of the toast when a grant cannot be opened", async () => {
+    const { PersonProfileService } = await import("@/lib/services/person-profile-service");
+    const { OneKycClientZkService } = await import("@/lib/services/one-kyc-client-zk-service");
+    const { toast } = await import("sonner");
+    (OneKycClientZkService.ensureConnector as ReturnType<typeof vi.fn>).mockResolvedValue({ connector_key_id: "ck_1" });
+    (PersonProfileService.getInformationRequestExports as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new Error("psycopg2.errors.UndefinedColumn: column consent_exports.sealed does not exist"),
+    );
+    mocks.getViewer.mockResolvedValue(
+      viewerProfile({
+        requestableScopes: manyScopes(2),
+        grants: [
+          {
+            scopeRef: "scope-0",
+            label: "City",
+            domain: null,
+            requestId: "req-grant-fail",
+            issuedAt: null,
+            expiresAt: null,
+            status: "granted",
+            encryptedExportAvailable: true,
+          },
+        ],
+        requestHistory: [
+          {
+            bundleId: "bundle-grant",
+            requestId: "req-grant-fail",
+            scopeRef: "scope-0",
+            label: "City",
+            sensitivity: "standard",
+            purpose: "Delivery",
+            durationSeconds: 24 * 3600,
+            createdAt: null,
+            expiresAt: null,
+            status: "approved",
+          },
+        ],
+      }),
+    );
+
+    render(<PersonProfilePage personRef="actual-public-ref" initialProfile={null} />);
+
+    fireEvent.click(await screen.findByTestId("person-profile-grant-reveal"));
+
+    await waitFor(() => expect(toast.error).toHaveBeenCalled());
+    const shown = String((toast.error as ReturnType<typeof vi.fn>).mock.calls.at(-1)?.[0]);
+    expect(shown).toBe("This shared information could not be opened.");
+    expect(shown).not.toMatch(/psycopg2|column|export/i);
+    expect(screen.queryByTestId("person-profile-grant-value")).toBeNull();
   });
 
   it("brings the requestable catalog into view when opened with ?request=1", async () => {
@@ -488,6 +609,6 @@ describe("PersonProfilePage request catalog tools", () => {
     });
     render(<PersonProfilePage personRef="actual-public-ref" initialProfile={null} />);
     fireEvent.click(await screen.findByRole("button", { name: "Details for Employment status" }));
-    expect(await screen.findByTestId("person-profile-bundle-details")).toHaveTextContent("Employment status · 7 days");
+    expect(await screen.findByTestId("person-profile-bundle-details")).toHaveTextContent("Employment status · 1 week");
   });
 });

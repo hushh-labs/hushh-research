@@ -101,22 +101,26 @@ Before upload, the workflow fails closed unless Secret Manager contains:
 | `APPSTORE_CONNECT_EXTERNAL_TESTFLIGHT_GROUP_ID` | External beta group |
 | `APPSTORE_CONNECT_BETA_REVIEW_CONTACT_JSON` | Required external beta-review contact |
 | `APPSTORE_CONNECT_BETA_REVIEW_NOTES` | Required external beta-review notes and What's New text |
-| `APPSTORE_CONNECT_PRIVACY_DECLARATION_CONTRACT_VERSION` | Must equal `one-voice-privacy-v1` |
+| `APPSTORE_CONNECT_PRIVACY_DECLARATION_CONTRACT_VERSION` | Must equal `one-voice-privacy-v2` (rotated for One Live Voice: audio is relayed to Gemini Live on Vertex; re-answer the App Store privacy questions) |
 | `APPSTORE_CONNECT_EXPORT_COMPLIANCE_APPROVED` | Must be exactly `true` |
 | `APPSTORE_CONNECT_VOICE_PROVIDER_PRIVACY_APPROVED` | Must be exactly `true` |
 
 The `OneVoicePrivacyContract.v1.json`, `OneVoiceModelNotices.json`,
 `Info.plist`, `PrivacyInfo.xcprivacy`, and built archive are reconciled before
 upload. Location commands use bounded recording and ordinary Gemini transcription
-and semantic planning. The app ships no local ASR/intent model packs, Live
-transport, or generated speech. The model-pack publisher and its registry
-release gate are retired. Historical artifacts remain historical evidence.
+and semantic planning. One Live Voice, when the server flag is on, relays live
+audio to Gemini Live on Vertex ADC through the app's own backend and plays the
+generated audio back without storing it; there is no provider fallback and no
+background audio. The app ships no local ASR/intent model packs. The model-pack
+publisher and its registry release gate are retired. Historical artifacts remain
+historical evidence.
 
 Build a fresh static export and sync it into both native apps before packaging.
-Verify that the packaged assets contain the command capture worklet and no
-Gemini Live worklet or executable Live client. Device acceptance must separately
-prove final-word capture, cancellation, real permission continuation, explicit
-resume, and zero Live/generated-audio requests.
+Verify that the packaged assets contain the command capture worklet and the
+One Live Voice capture worklet, and that every Live request goes to the app's
+backend origin (never `googleapis.com`). Device acceptance must separately prove
+final-word capture, cancellation, real permission continuation, explicit resume,
+and that a Live session ends when the app is backgrounded.
 
 ## Run the normal build
 

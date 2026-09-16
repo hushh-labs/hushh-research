@@ -32,9 +32,9 @@ from db.connection import get_pool
 from hushh_mcp.consent.pkm_scope_policy import is_private_pkm_export_scope
 from hushh_mcp.consent.scope_generator import get_scope_generator
 from hushh_mcp.runtime_providers import (
-    GEMINI_37_FLASH,
     build_generate_content_config,
     build_managed_runtime_client,
+    default_model_for_provider,
 )
 from hushh_mcp.runtime_settings import get_core_security_settings
 from hushh_mcp.services.gmail_delivery_service import (
@@ -1553,7 +1553,9 @@ class PersonalGmailInformationRequestService:
         )
         try:
             client = build_managed_runtime_client("gemini")
-            model = os.getenv("GMAIL_INFORMATION_REQUEST_CLASSIFIER_MODEL", GEMINI_37_FLASH)
+            model = os.getenv(
+                "GMAIL_INFORMATION_REQUEST_CLASSIFIER_MODEL"
+            ) or default_model_for_provider("gemini")
             config = build_generate_content_config(
                 genai_types,
                 model,

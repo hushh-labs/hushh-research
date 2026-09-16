@@ -14056,6 +14056,1177 @@
     },
     {
       "aliases": [
+        "Open Location circles",
+        "show my circles",
+        "circles tab",
+        "open circles"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "location.open_circles",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "Opens the Circles tab of Location, which lists the circles you own or belong to.",
+      "execution": {
+        "binding_ref": "route:/one/location?view=circles",
+        "executor": {
+          "kind": "existing_route",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "NAVIGATE",
+        "target": {
+          "path": "route",
+          "status": "wired",
+          "target": "/one/location?view=circles"
+        }
+      },
+      "goal_id": "goal.location.open_circles",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Open Location circles",
+      "navigation": {
+        "fallback": "/one/location?view=circles",
+        "routes": [
+          "/one/location"
+        ],
+        "screens": [
+          "one_location"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "mounted_surface_required": false,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": null,
+      "required_entities": [],
+      "search_keywords": [
+        "circles",
+        "location"
+      ],
+      "settlement_proof": "validated_route_settlement",
+      "side_effect": {
+        "classification": "navigation"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
+        "Open place ratings",
+        "my ratings",
+        "show my ratings"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "location.open_ratings",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "Opens the anonymous place ratings you have left. Only available to accounts admitted to Nearby Check-In; ratings for people do not exist.",
+      "execution": {
+        "binding_ref": "route:/one/location?action=ratings",
+        "executor": {
+          "kind": "existing_route",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "NAVIGATE",
+        "target": {
+          "path": "route",
+          "status": "wired",
+          "target": "/one/location?action=ratings"
+        }
+      },
+      "goal_id": "goal.location.open_ratings",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Open place ratings",
+      "navigation": {
+        "fallback": "/one/location?action=ratings",
+        "routes": [
+          "/one/location"
+        ],
+        "screens": [
+          "one_location"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "mounted_surface_required": false,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": null,
+      "required_entities": [],
+      "search_keywords": [
+        "ratings",
+        "places"
+      ],
+      "settlement_proof": "validated_route_settlement",
+      "side_effect": {
+        "classification": "navigation"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
+        "Turn location sharing on or off",
+        "turn my location on",
+        "turn my location off",
+        "turn location sharing off"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "location.set_sharing_enabled",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "Sets the owner-level sharing posture. Off stops every active share and link immediately (Save My Soul needs an explicit stop). On requires the recorded sharing consent.",
+      "execution": {
+        "binding_ref": "render:location.set_sharing_enabled",
+        "executor": {
+          "kind": "typed_render",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "EXECUTE",
+        "target": {
+          "path": "voice_tool",
+          "status": "wired",
+          "target": "location.set_sharing_enabled"
+        }
+      },
+      "goal_id": "goal.location.set_sharing_enabled",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Turn location sharing on or off",
+      "navigation": {
+        "fallback": "location.set_sharing_enabled",
+        "routes": [
+          "/one/location"
+        ],
+        "screens": [
+          "one_location"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "mounted_surface_required": true,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": null,
+      "required_entities": [],
+      "search_keywords": [
+        "location",
+        "sharing",
+        "on",
+        "off"
+      ],
+      "settlement_proof": "approved_render_acknowledgement",
+      "side_effect": {
+        "classification": "render_or_guidance"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
+        "Set sharing precision",
+        "use approximate location",
+        "share my exact location"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "location.set_precision",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "Chooses precise or approximate sharing. The preference is stored on the server; the device coarsens the point before it is encrypted.",
+      "execution": {
+        "binding_ref": "render:location.set_precision",
+        "executor": {
+          "kind": "typed_render",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "EXECUTE",
+        "target": {
+          "path": "voice_tool",
+          "status": "wired",
+          "target": "location.set_precision"
+        }
+      },
+      "goal_id": "goal.location.set_precision",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Set sharing precision",
+      "navigation": {
+        "fallback": "location.set_precision",
+        "routes": [
+          "/one/location"
+        ],
+        "screens": [
+          "one_location"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "mounted_surface_required": true,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": null,
+      "required_entities": [],
+      "search_keywords": [
+        "precision",
+        "approximate",
+        "precise"
+      ],
+      "settlement_proof": "approved_render_acknowledgement",
+      "side_effect": {
+        "classification": "render_or_guidance"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
+        "Read Location setup progress"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "location.setup.status",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "Reads the server-side Location setup step so a conversation resumes exactly where the person left off.",
+      "execution": {
+        "binding_ref": "render:location.setup.status",
+        "executor": {
+          "kind": "typed_render",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "EXECUTE",
+        "target": {
+          "path": "voice_tool",
+          "status": "wired",
+          "target": "location.setup.status"
+        }
+      },
+      "goal_id": "goal.location.setup.status",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Read Location setup progress",
+      "navigation": {
+        "fallback": "location.setup.status",
+        "routes": [
+          "/one/location",
+          "/one/setup/location"
+        ],
+        "screens": [
+          "one_location",
+          "one_setup_location"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "mounted_surface_required": true,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": null,
+      "required_entities": [],
+      "search_keywords": [
+        "setup",
+        "onboarding"
+      ],
+      "settlement_proof": "approved_render_acknowledgement",
+      "side_effect": {
+        "classification": "render_or_guidance"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
+        "Start Location setup",
+        "start location setup",
+        "set up location"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "location.setup.start",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "Starts or resumes the voice-first Location setup flow.",
+      "execution": {
+        "binding_ref": "route:/one/setup/location",
+        "executor": {
+          "kind": "existing_route",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "NAVIGATE",
+        "target": {
+          "path": "route",
+          "status": "wired",
+          "target": "/one/setup/location"
+        }
+      },
+      "goal_id": "goal.location.setup.start",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Start Location setup",
+      "navigation": {
+        "fallback": "/one/setup/location",
+        "routes": [
+          "/one/location",
+          "/one/setup/location"
+        ],
+        "screens": [
+          "one_location",
+          "one_setup_location"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "mounted_surface_required": false,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": null,
+      "required_entities": [],
+      "search_keywords": [
+        "setup",
+        "location"
+      ],
+      "settlement_proof": "validated_route_settlement",
+      "side_effect": {
+        "classification": "navigation"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
+        "Accept Location sharing consent"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "location.setup.accept_consent",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "Records the person's consent to Location sharing. This must happen before the device permission prompt.",
+      "execution": {
+        "binding_ref": "render:location.setup.accept_consent",
+        "executor": {
+          "kind": "typed_render",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "EXECUTE",
+        "target": {
+          "path": "voice_tool",
+          "status": "wired",
+          "target": "location.setup.accept_consent"
+        }
+      },
+      "goal_id": "goal.location.setup.accept_consent",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Accept Location sharing consent",
+      "navigation": {
+        "fallback": "location.setup.accept_consent",
+        "routes": [
+          "/one/setup/location"
+        ],
+        "screens": [
+          "one_setup_location"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "mounted_surface_required": true,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": null,
+      "required_entities": [],
+      "search_keywords": [
+        "consent",
+        "setup"
+      ],
+      "settlement_proof": "approved_render_acknowledgement",
+      "side_effect": {
+        "classification": "render_or_guidance"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
+        "Advance Location setup"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "location.setup.advance",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "Records a completed setup step: the device permission outcome, the precision choice, the device key, or completion (which turns sharing on).",
+      "execution": {
+        "binding_ref": "render:location.setup.advance",
+        "executor": {
+          "kind": "typed_render",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "EXECUTE",
+        "target": {
+          "path": "voice_tool",
+          "status": "wired",
+          "target": "location.setup.advance"
+        }
+      },
+      "goal_id": "goal.location.setup.advance",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Advance Location setup",
+      "navigation": {
+        "fallback": "location.setup.advance",
+        "routes": [
+          "/one/setup/location"
+        ],
+        "screens": [
+          "one_setup_location"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "mounted_surface_required": true,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": null,
+      "required_entities": [],
+      "search_keywords": [
+        "setup",
+        "permission"
+      ],
+      "settlement_proof": "approved_render_acknowledgement",
+      "side_effect": {
+        "classification": "render_or_guidance"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
         "Open Agents",
         "open agents",
         "open one agents",
@@ -16309,6 +17480,443 @@
       "settlement_proof": "directive_ledger_settlement",
       "side_effect": {
         "classification": "client_semantic_action"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
+        "Open privacy settings",
+        "privacy settings",
+        "show my privacy settings"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "route.profile_privacy",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "Opens the Access & sharing panel of Profile, which holds discoverability and sharing controls.",
+      "execution": {
+        "binding_ref": "route:/one/profile/access",
+        "executor": {
+          "kind": "existing_route",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "NAVIGATE",
+        "target": {
+          "path": "route",
+          "status": "wired",
+          "target": "/one/profile/access"
+        }
+      },
+      "goal_id": "goal.route.profile_privacy",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Open privacy settings",
+      "navigation": {
+        "fallback": "/one/profile/access",
+        "routes": [
+          "/one/profile"
+        ],
+        "screens": [
+          "profile_account",
+          "profile_privacy"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "mounted_surface_required": false,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": null,
+      "required_entities": [],
+      "search_keywords": [
+        "privacy",
+        "access"
+      ],
+      "settlement_proof": "validated_route_settlement",
+      "side_effect": {
+        "classification": "navigation"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
+        "Change display name",
+        "change my name to"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "profile.update_display_name",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "Changes the person's Hussh display name at the identity provider after confirmation.",
+      "execution": {
+        "binding_ref": "render:profile.update_display_name",
+        "executor": {
+          "kind": "typed_render",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "EXECUTE",
+        "target": {
+          "path": "voice_tool",
+          "status": "wired",
+          "target": "profile.update_display_name"
+        }
+      },
+      "goal_id": "goal.profile.update_display_name",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Change display name",
+      "navigation": {
+        "fallback": "profile.update_display_name",
+        "routes": [
+          "/one/profile"
+        ],
+        "screens": [
+          "profile_account"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "mounted_surface_required": true,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": null,
+      "required_entities": [],
+      "search_keywords": [
+        "name",
+        "display name"
+      ],
+      "settlement_proof": "approved_render_acknowledgement",
+      "side_effect": {
+        "classification": "render_or_guidance"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
+        "Set contact discoverability"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "profile.set_contact_discoverable",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "Turns contact discoverability on or off. Turning it on records the consent version the person accepted.",
+      "execution": {
+        "binding_ref": "render:profile.set_contact_discoverable",
+        "executor": {
+          "kind": "typed_render",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "EXECUTE",
+        "target": {
+          "path": "voice_tool",
+          "status": "wired",
+          "target": "profile.set_contact_discoverable"
+        }
+      },
+      "goal_id": "goal.profile.set_contact_discoverable",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Set contact discoverability",
+      "navigation": {
+        "fallback": "profile.set_contact_discoverable",
+        "routes": [
+          "/one/profile"
+        ],
+        "screens": [
+          "profile_account",
+          "profile_privacy"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "mounted_surface_required": true,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": null,
+      "required_entities": [],
+      "search_keywords": [
+        "discoverable",
+        "privacy"
+      ],
+      "settlement_proof": "approved_render_acknowledgement",
+      "side_effect": {
+        "classification": "render_or_guidance"
       },
       "supported_entrypoints": [
         "voice",
@@ -26536,7 +28144,7 @@
       "navigation": {
         "fallback": "agent_chat_wallet_list",
         "routes": [
-          "/agent",
+          "/",
           "/one",
           "/one/wallet"
         ],
@@ -26696,7 +28304,7 @@
       "navigation": {
         "fallback": "agent_chat_wallet_add",
         "routes": [
-          "/agent",
+          "/",
           "/one",
           "/one/wallet"
         ],
@@ -26869,7 +28477,7 @@
       "navigation": {
         "fallback": "agent_chat_wallet_reveal",
         "routes": [
-          "/agent",
+          "/",
           "/one",
           "/one/wallet"
         ],
@@ -27181,7 +28789,7 @@
       "navigation": {
         "fallback": "consent.request",
         "routes": [
-          "/agent",
+          "/",
           "/one",
           "/one/consent",
           "/people/[personRef]",
@@ -27362,7 +28970,7 @@
       "navigation": {
         "fallback": "consent.deny",
         "routes": [
-          "/agent",
+          "/",
           "/one",
           "/one/consent",
           "/people/[personRef]",
@@ -27545,7 +29153,7 @@
       "navigation": {
         "fallback": "consent.revoke",
         "routes": [
-          "/agent",
+          "/",
           "/one",
           "/one/consent",
           "/people/[personRef]",
@@ -27712,7 +29320,7 @@
       "navigation": {
         "fallback": "consent.cancel_request",
         "routes": [
-          "/agent",
+          "/",
           "/one",
           "/one/consent",
           "/people/[personRef]",
@@ -33304,7 +34912,7 @@
   "mcp_compatible": true,
   "model_projections": {
     "location": {
-      "brain_revision": "8577c433ad495a7becf61c43",
+      "brain_revision": "702fe353a1b7b63e7371aa7f",
       "capabilities": [
         {
           "candidate_id": "location.accept_circle_invite",
@@ -33801,6 +35409,21 @@
           "verified_success_boundary": "navigation_settlement_not_product_success"
         },
         {
+          "candidate_id": "location.open_circles",
+          "capability_id": "location.open_circles",
+          "confirmation_class": "none",
+          "disposition": "NAVIGATE",
+          "entity_types": [],
+          "feature_group_id": "circles",
+          "intent": "Open Location circles",
+          "interaction_class": "navigation",
+          "kind": "action",
+          "outcome": "NAVIGATE",
+          "public_slot_types": [],
+          "semantic_boundary": "Opens the Circles tab of Location, which lists the circles you own or belong to.",
+          "verified_success_boundary": "navigation_settlement_not_product_success"
+        },
+        {
           "candidate_id": "location.open_create_circle",
           "capability_id": "location.open_create_circle",
           "confirmation_class": "none",
@@ -33918,6 +35541,21 @@
           "outcome": "NAVIGATE",
           "public_slot_types": [],
           "semantic_boundary": "Opens the People tab of Location, which lists the people and circles you share with.",
+          "verified_success_boundary": "navigation_settlement_not_product_success"
+        },
+        {
+          "candidate_id": "location.open_ratings",
+          "capability_id": "location.open_ratings",
+          "confirmation_class": "none",
+          "disposition": "NAVIGATE",
+          "entity_types": [],
+          "feature_group_id": "places",
+          "intent": "Open place ratings",
+          "interaction_class": "navigation",
+          "kind": "action",
+          "outcome": "NAVIGATE",
+          "public_slot_types": [],
+          "semantic_boundary": "Opens the anonymous place ratings you have left. Only available to accounts admitted to Nearby Check-In; ratings for people do not exist.",
           "verified_success_boundary": "navigation_settlement_not_product_success"
         },
         {
@@ -34330,6 +35968,96 @@
             }
           ],
           "semantic_boundary": "Turns Ghost Mode on or off for the map. Ghost hides your map presence while retaining existing private location shares. It is separate from pausing device location updates.",
+          "verified_success_boundary": "navigation_settlement_not_product_success"
+        },
+        {
+          "candidate_id": "location.set_precision",
+          "capability_id": "location.set_precision",
+          "confirmation_class": "none",
+          "disposition": "NAVIGATE",
+          "entity_types": [],
+          "feature_group_id": "sharing",
+          "intent": "Set sharing precision",
+          "interaction_class": "navigation",
+          "kind": "action",
+          "outcome": "NAVIGATE",
+          "public_slot_types": [],
+          "semantic_boundary": "Chooses precise or approximate sharing. The preference is stored on the server; the device coarsens the point before it is encrypted.",
+          "verified_success_boundary": "navigation_settlement_not_product_success"
+        },
+        {
+          "candidate_id": "location.set_sharing_enabled",
+          "capability_id": "location.set_sharing_enabled",
+          "confirmation_class": "none",
+          "disposition": "NAVIGATE",
+          "entity_types": [],
+          "feature_group_id": "sharing",
+          "intent": "Turn location sharing on or off",
+          "interaction_class": "navigation",
+          "kind": "action",
+          "outcome": "NAVIGATE",
+          "public_slot_types": [],
+          "semantic_boundary": "Sets the owner-level sharing posture. Off stops every active share and link immediately (Save My Soul needs an explicit stop). On requires the recorded sharing consent.",
+          "verified_success_boundary": "navigation_settlement_not_product_success"
+        },
+        {
+          "candidate_id": "location.setup.accept_consent",
+          "capability_id": "location.setup.accept_consent",
+          "confirmation_class": "none",
+          "disposition": "NAVIGATE",
+          "entity_types": [],
+          "feature_group_id": "onboarding",
+          "intent": "Accept Location sharing consent",
+          "interaction_class": "navigation",
+          "kind": "action",
+          "outcome": "NAVIGATE",
+          "public_slot_types": [],
+          "semantic_boundary": "Records the person's consent to Location sharing. This must happen before the device permission prompt.",
+          "verified_success_boundary": "navigation_settlement_not_product_success"
+        },
+        {
+          "candidate_id": "location.setup.advance",
+          "capability_id": "location.setup.advance",
+          "confirmation_class": "none",
+          "disposition": "NAVIGATE",
+          "entity_types": [],
+          "feature_group_id": "onboarding",
+          "intent": "Advance Location setup",
+          "interaction_class": "navigation",
+          "kind": "action",
+          "outcome": "NAVIGATE",
+          "public_slot_types": [],
+          "semantic_boundary": "Records a completed setup step: the device permission outcome, the precision choice, the device key, or completion (which turns sharing on).",
+          "verified_success_boundary": "navigation_settlement_not_product_success"
+        },
+        {
+          "candidate_id": "location.setup.start",
+          "capability_id": "location.setup.start",
+          "confirmation_class": "none",
+          "disposition": "NAVIGATE",
+          "entity_types": [],
+          "feature_group_id": "onboarding",
+          "intent": "Start Location setup",
+          "interaction_class": "navigation",
+          "kind": "action",
+          "outcome": "NAVIGATE",
+          "public_slot_types": [],
+          "semantic_boundary": "Starts or resumes the voice-first Location setup flow.",
+          "verified_success_boundary": "navigation_settlement_not_product_success"
+        },
+        {
+          "candidate_id": "location.setup.status",
+          "capability_id": "location.setup.status",
+          "confirmation_class": "none",
+          "disposition": "NAVIGATE",
+          "entity_types": [],
+          "feature_group_id": "onboarding",
+          "intent": "Read Location setup progress",
+          "interaction_class": "navigation",
+          "kind": "action",
+          "outcome": "NAVIGATE",
+          "public_slot_types": [],
+          "semantic_boundary": "Reads the server-side Location setup step so a conversation resumes exactly where the person left off.",
           "verified_success_boundary": "navigation_settlement_not_product_success"
         },
         {
@@ -35027,6 +36755,21 @@
           "verified_success_boundary": "navigation_settlement_not_product_success"
         },
         {
+          "candidate_id": "location.open_circles",
+          "capability_id": "location.open_circles",
+          "confirmation_class": "none",
+          "disposition": "NAVIGATE",
+          "entity_types": [],
+          "feature_group_id": "circles",
+          "intent": "Open Location circles",
+          "interaction_class": "navigation",
+          "kind": "action",
+          "outcome": "NAVIGATE",
+          "public_slot_types": [],
+          "semantic_boundary": "Opens the Circles tab of Location, which lists the circles you own or belong to.",
+          "verified_success_boundary": "navigation_settlement_not_product_success"
+        },
+        {
           "candidate_id": "location.open_create_circle",
           "capability_id": "location.open_create_circle",
           "confirmation_class": "none",
@@ -35144,6 +36887,21 @@
           "outcome": "NAVIGATE",
           "public_slot_types": [],
           "semantic_boundary": "Opens the People tab of Location, which lists the people and circles you share with.",
+          "verified_success_boundary": "navigation_settlement_not_product_success"
+        },
+        {
+          "candidate_id": "location.open_ratings",
+          "capability_id": "location.open_ratings",
+          "confirmation_class": "none",
+          "disposition": "NAVIGATE",
+          "entity_types": [],
+          "feature_group_id": "places",
+          "intent": "Open place ratings",
+          "interaction_class": "navigation",
+          "kind": "action",
+          "outcome": "NAVIGATE",
+          "public_slot_types": [],
+          "semantic_boundary": "Opens the anonymous place ratings you have left. Only available to accounts admitted to Nearby Check-In; ratings for people do not exist.",
           "verified_success_boundary": "navigation_settlement_not_product_success"
         },
         {
@@ -35559,6 +37317,96 @@
           "verified_success_boundary": "navigation_settlement_not_product_success"
         },
         {
+          "candidate_id": "location.set_precision",
+          "capability_id": "location.set_precision",
+          "confirmation_class": "none",
+          "disposition": "NAVIGATE",
+          "entity_types": [],
+          "feature_group_id": "sharing",
+          "intent": "Set sharing precision",
+          "interaction_class": "navigation",
+          "kind": "action",
+          "outcome": "NAVIGATE",
+          "public_slot_types": [],
+          "semantic_boundary": "Chooses precise or approximate sharing. The preference is stored on the server; the device coarsens the point before it is encrypted.",
+          "verified_success_boundary": "navigation_settlement_not_product_success"
+        },
+        {
+          "candidate_id": "location.set_sharing_enabled",
+          "capability_id": "location.set_sharing_enabled",
+          "confirmation_class": "none",
+          "disposition": "NAVIGATE",
+          "entity_types": [],
+          "feature_group_id": "sharing",
+          "intent": "Turn location sharing on or off",
+          "interaction_class": "navigation",
+          "kind": "action",
+          "outcome": "NAVIGATE",
+          "public_slot_types": [],
+          "semantic_boundary": "Sets the owner-level sharing posture. Off stops every active share and link immediately (Save My Soul needs an explicit stop). On requires the recorded sharing consent.",
+          "verified_success_boundary": "navigation_settlement_not_product_success"
+        },
+        {
+          "candidate_id": "location.setup.accept_consent",
+          "capability_id": "location.setup.accept_consent",
+          "confirmation_class": "none",
+          "disposition": "NAVIGATE",
+          "entity_types": [],
+          "feature_group_id": "onboarding",
+          "intent": "Accept Location sharing consent",
+          "interaction_class": "navigation",
+          "kind": "action",
+          "outcome": "NAVIGATE",
+          "public_slot_types": [],
+          "semantic_boundary": "Records the person's consent to Location sharing. This must happen before the device permission prompt.",
+          "verified_success_boundary": "navigation_settlement_not_product_success"
+        },
+        {
+          "candidate_id": "location.setup.advance",
+          "capability_id": "location.setup.advance",
+          "confirmation_class": "none",
+          "disposition": "NAVIGATE",
+          "entity_types": [],
+          "feature_group_id": "onboarding",
+          "intent": "Advance Location setup",
+          "interaction_class": "navigation",
+          "kind": "action",
+          "outcome": "NAVIGATE",
+          "public_slot_types": [],
+          "semantic_boundary": "Records a completed setup step: the device permission outcome, the precision choice, the device key, or completion (which turns sharing on).",
+          "verified_success_boundary": "navigation_settlement_not_product_success"
+        },
+        {
+          "candidate_id": "location.setup.start",
+          "capability_id": "location.setup.start",
+          "confirmation_class": "none",
+          "disposition": "NAVIGATE",
+          "entity_types": [],
+          "feature_group_id": "onboarding",
+          "intent": "Start Location setup",
+          "interaction_class": "navigation",
+          "kind": "action",
+          "outcome": "NAVIGATE",
+          "public_slot_types": [],
+          "semantic_boundary": "Starts or resumes the voice-first Location setup flow.",
+          "verified_success_boundary": "navigation_settlement_not_product_success"
+        },
+        {
+          "candidate_id": "location.setup.status",
+          "capability_id": "location.setup.status",
+          "confirmation_class": "none",
+          "disposition": "NAVIGATE",
+          "entity_types": [],
+          "feature_group_id": "onboarding",
+          "intent": "Read Location setup progress",
+          "interaction_class": "navigation",
+          "kind": "action",
+          "outcome": "NAVIGATE",
+          "public_slot_types": [],
+          "semantic_boundary": "Reads the server-side Location setup step so a conversation resumes exactly where the person left off.",
+          "verified_success_boundary": "navigation_settlement_not_product_success"
+        },
+        {
           "candidate_id": "location.share_public_link",
           "capability_id": "location.share_public_link",
           "confirmation_class": "none",
@@ -35815,7 +37663,7 @@
         }
       ],
       "known_unbound_implementation_count": 76,
-      "package_digest": "01d88a395f6d2d3b582e1abfccb69526a9e067e1792d73b58e2342ad03d9db32",
+      "package_digest": "ffae41f4c4dcea4a5cadfd3529878b50e59436c7a2b5c069a23c4ea11b16c0de",
       "package_id": "location.brain",
       "package_version": 2,
       "schema_version": "one.location_brain_catalog.v1",
@@ -35880,7 +37728,7 @@
         }
       ],
       "platform": "ios",
-      "projection_digest": "15ced775876d2543d5a7d440ccc88f041e09ff27c9f898d33d82bf88e0bdf6d2",
+      "projection_digest": "9a1c8c65734ed189c85b4923181b85114e3f11193f7edbddef5c1c8072d44a45",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -35890,16 +37738,16 @@
       ],
       "schema_version": "one.capability_platform_projection.v1",
       "source_digests": {
-        "capability_graph_evolution": "07441cbd02b76326a2d899f88e7c2b92feddb8dd3bc5d19b043bc00ec2b765cc",
+        "capability_graph_evolution": "9345cefc642be327364b77382ca9019dd68eba4a71d626afd6546d3d8c5a39f8",
         "capability_runtime_compiler": "9a0b0b573b4e3ae42d2a49ce15f93a7cce70e5dc4046dea14922d7cd6ace9078",
         "capability_runtime_policy": "d3f4ec0d27231ef298372a48696f8ac238f7560d03d8e72c50c7bcb5b0ffd7a9",
-        "location_agent_manifest": "14bf46ea9f5fb5bb341b37535df5f86fc178f158b799b72d05eb125b306b289a",
-        "location_knowledge_package": "01d88a395f6d2d3b582e1abfccb69526a9e067e1792d73b58e2342ad03d9db32",
+        "location_agent_manifest": "25952f13232f1d1adb7664da7c037b59cef093a1389caeb46af3d2771a12ff07",
+        "location_knowledge_package": "ffae41f4c4dcea4a5cadfd3529878b50e59436c7a2b5c069a23c4ea11b16c0de",
         "location_onboarding_runtime": "cd911f5e2e0f09352aeb89a74180a66fab79553423b126583f181d858459ae62",
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
-        "service_knowledge_packages": "10d35a5e3775065746ec19fc885299e0551c4350efa112c031b97f9b2963b725"
+        "service_knowledge_packages": "f361804817c649a57c89f25e983445883e767a9c0750a5e07eebc1055315ef60"
       },
-      "source_revision": "8e37ce83397a3ac7",
+      "source_revision": "37cb394043f0f125",
       "supported_entrypoints": [
         "typed",
         "voice",
@@ -37417,7 +39265,7 @@
       ]
     },
     "schema_version": "one.capability_platform_projection.v1",
-    "source_revision": "8e37ce83397a3ac7",
+    "source_revision": "37cb394043f0f125",
     "web": {
       "actions": [
         {
@@ -37460,7 +39308,7 @@
         }
       ],
       "platform": "web",
-      "projection_digest": "5f06d5ebcdd62527ecce41ad2eacae598096bb2dfb3df52c3908208db7995614",
+      "projection_digest": "7001c6376ebe1df268f18e9c9ed73da91edb7c42f26b723387e2838e1d1b0929",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -37470,16 +39318,16 @@
       ],
       "schema_version": "one.capability_platform_projection.v1",
       "source_digests": {
-        "capability_graph_evolution": "07441cbd02b76326a2d899f88e7c2b92feddb8dd3bc5d19b043bc00ec2b765cc",
+        "capability_graph_evolution": "9345cefc642be327364b77382ca9019dd68eba4a71d626afd6546d3d8c5a39f8",
         "capability_runtime_compiler": "9a0b0b573b4e3ae42d2a49ce15f93a7cce70e5dc4046dea14922d7cd6ace9078",
         "capability_runtime_policy": "d3f4ec0d27231ef298372a48696f8ac238f7560d03d8e72c50c7bcb5b0ffd7a9",
-        "location_agent_manifest": "14bf46ea9f5fb5bb341b37535df5f86fc178f158b799b72d05eb125b306b289a",
-        "location_knowledge_package": "01d88a395f6d2d3b582e1abfccb69526a9e067e1792d73b58e2342ad03d9db32",
+        "location_agent_manifest": "25952f13232f1d1adb7664da7c037b59cef093a1389caeb46af3d2771a12ff07",
+        "location_knowledge_package": "ffae41f4c4dcea4a5cadfd3529878b50e59436c7a2b5c069a23c4ea11b16c0de",
         "location_onboarding_runtime": "cd911f5e2e0f09352aeb89a74180a66fab79553423b126583f181d858459ae62",
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
-        "service_knowledge_packages": "10d35a5e3775065746ec19fc885299e0551c4350efa112c031b97f9b2963b725"
+        "service_knowledge_packages": "f361804817c649a57c89f25e983445883e767a9c0750a5e07eebc1055315ef60"
       },
-      "source_revision": "8e37ce83397a3ac7",
+      "source_revision": "37cb394043f0f125",
       "supported_entrypoints": [
         "typed",
         "voice"
@@ -39036,29 +40884,28 @@
       "renderer_key": "one_location_workflow_card"
     }
   ],
-  "revision": "8e37ce83397a3ac7",
+  "revision": "37cb394043f0f125",
   "schema_version": "one.capability_graph.v1",
   "screens": [
     {
       "action_ids": [
-        "onboarding.claim_one"
+        "onboarding.claim_one",
+        "wallet.add",
+        "wallet.list",
+        "wallet.reveal"
       ],
       "capability_id": "screen:/",
       "kind": "screen",
-      "label": "one_intro",
+      "label": "chat",
       "route_pattern": "/",
       "telemetry_event": "app_intelligence.navigation",
       "version": 1
     },
     {
-      "action_ids": [
-        "wallet.add",
-        "wallet.list",
-        "wallet.reveal"
-      ],
+      "action_ids": [],
       "capability_id": "screen:/agent",
       "kind": "screen",
-      "label": "app",
+      "label": "compatibility_redirect",
       "route_pattern": "/agent",
       "telemetry_event": "app_intelligence.navigation",
       "version": 1
@@ -39073,11 +40920,7 @@
       "version": 1
     },
     {
-      "action_ids": [
-        "wallet.add",
-        "wallet.list",
-        "wallet.reveal"
-      ],
+      "action_ids": [],
       "capability_id": "screen:/blog/[slug]",
       "kind": "screen",
       "label": "app",
@@ -39410,11 +41253,7 @@
       "version": 1
     },
     {
-      "action_ids": [
-        "wallet.add",
-        "wallet.list",
-        "wallet.reveal"
-      ],
+      "action_ids": [],
       "capability_id": "screen:/one/connected-systems/[systemId]",
       "kind": "screen",
       "label": "app",
@@ -39436,11 +41275,7 @@
       "version": 1
     },
     {
-      "action_ids": [
-        "wallet.add",
-        "wallet.list",
-        "wallet.reveal"
-      ],
+      "action_ids": [],
       "capability_id": "screen:/one/email",
       "kind": "screen",
       "label": "app",
@@ -39760,6 +41595,7 @@
         "location.open_active_shares",
         "location.open_ask",
         "location.open_check_in",
+        "location.open_circles",
         "location.open_create_circle",
         "location.open_invite",
         "location.open_join_circle",
@@ -39768,6 +41604,7 @@
         "location.open_needs_review",
         "location.open_now",
         "location.open_people",
+        "location.open_ratings",
         "location.open_settings",
         "location.open_share",
         "location.open_shared_with_me",
@@ -39788,6 +41625,12 @@
         "location.send_request",
         "location.set_auto_share",
         "location.set_ghost_mode",
+        "location.set_precision",
+        "location.set_sharing_enabled",
+        "location.setup.accept_consent",
+        "location.setup.advance",
+        "location.setup.start",
+        "location.setup.status",
         "location.share_public_link",
         "location.share_selected",
         "location.sos_default",
@@ -39902,13 +41745,16 @@
         "help.open_examples",
         "profile.delete_account",
         "profile.marketplace_visibility.toggle",
+        "profile.set_contact_discoverable",
         "profile.sign_out",
         "profile.support.submit_message",
+        "profile.update_display_name",
         "route.back",
         "route.profile",
         "route.profile_access_panel",
         "route.profile_connected_systems",
         "route.profile_pkm_agent_lab",
+        "route.profile_privacy",
         "route.profile_referrals_panel",
         "route.profile_security_panel",
         "route.profile_support_panel",
@@ -39944,13 +41790,16 @@
         "help.open_examples",
         "profile.delete_account",
         "profile.marketplace_visibility.toggle",
+        "profile.set_contact_discoverable",
         "profile.sign_out",
         "profile.support.submit_message",
+        "profile.update_display_name",
         "route.back",
         "route.profile",
         "route.profile_access_panel",
         "route.profile_connected_systems",
         "route.profile_pkm_agent_lab",
+        "route.profile_privacy",
         "route.profile_referrals_panel",
         "route.profile_security_panel",
         "route.profile_support_panel",
@@ -39968,13 +41817,16 @@
         "help.open_examples",
         "profile.delete_account",
         "profile.marketplace_visibility.toggle",
+        "profile.set_contact_discoverable",
         "profile.sign_out",
         "profile.support.submit_message",
+        "profile.update_display_name",
         "route.back",
         "route.profile",
         "route.profile_access_panel",
         "route.profile_connected_systems",
         "route.profile_pkm_agent_lab",
+        "route.profile_privacy",
         "route.profile_referrals_panel",
         "route.profile_security_panel",
         "route.profile_support_panel",
@@ -40286,11 +42138,7 @@
       "version": 1
     },
     {
-      "action_ids": [
-        "wallet.add",
-        "wallet.list",
-        "wallet.reveal"
-      ],
+      "action_ids": [],
       "capability_id": "screen:/one/puppy",
       "kind": "screen",
       "label": "app",
@@ -40463,11 +42311,7 @@
       "version": 1
     },
     {
-      "action_ids": [
-        "wallet.add",
-        "wallet.list",
-        "wallet.reveal"
-      ],
+      "action_ids": [],
       "capability_id": "screen:/one/wallet-card",
       "kind": "screen",
       "label": "app",
@@ -40559,11 +42403,7 @@
       "version": 1
     },
     {
-      "action_ids": [
-        "wallet.add",
-        "wallet.list",
-        "wallet.reveal"
-      ],
+      "action_ids": [],
       "capability_id": "screen:/research/protocol",
       "kind": "screen",
       "label": "app",
@@ -40711,11 +42551,7 @@
       "version": 1
     },
     {
-      "action_ids": [
-        "wallet.add",
-        "wallet.list",
-        "wallet.reveal"
-      ],
+      "action_ids": [],
       "capability_id": "screen:/welcome",
       "kind": "screen",
       "label": "app",
@@ -40725,12 +42561,40 @@
     }
   ],
   "semantic_diff": {
-    "added": [],
+    "added": [
+      "services:service.personal_information"
+    ],
     "breaking": [],
-    "changed": [],
+    "changed": [
+      "actions:consent.cancel_request",
+      "actions:consent.deny",
+      "actions:consent.request",
+      "actions:consent.revoke",
+      "actions:wallet.add",
+      "actions:wallet.list",
+      "actions:wallet.reveal",
+      "screens:screen:/",
+      "screens:screen:/agent",
+      "screens:screen:/blog/[slug]",
+      "screens:screen:/one/connected-systems/[systemId]",
+      "screens:screen:/one/email",
+      "screens:screen:/one/puppy",
+      "screens:screen:/one/wallet-card",
+      "screens:screen:/research/protocol",
+      "screens:screen:/welcome",
+      "services:service.gmail"
+    ],
     "compatible": [],
-    "deprecated": [],
-    "from_revision": "1016f2f0efc0cbd7",
+    "deprecated": [
+      "actions:consent.cancel_request",
+      "actions:consent.deny",
+      "actions:consent.request",
+      "actions:consent.revoke",
+      "actions:wallet.add",
+      "actions:wallet.list",
+      "actions:wallet.reveal"
+    ],
+    "from_revision": "aaec9bce8ec29c93",
     "migrated": [],
     "removed": []
   },
@@ -41600,21 +43464,13 @@
       "label": "Gmail",
       "native_semantic_actions": [],
       "onboarding_workflow_id": "workflow.setup.gmail",
-      "one_exposure": {
-        "discovery_status": "withheld",
-        "exposure_status": "disabled",
-        "knowledge_package_ref": null,
-        "service_id": "gmail",
-        "supported_entrypoints": [
-          "typed"
-        ]
-      },
+      "one_exposure": null,
       "route_patterns": [
         "/one/setup/gmail"
       ],
       "schema_version": "one.dynamic_service_knowledge.v1",
       "service_id": "gmail",
-      "specialist_agent_id": "agent_gmail",
+      "specialist_agent_id": null,
       "telemetry_event": "app_intelligence.service_discovery",
       "version": 1
     },
@@ -41681,6 +43537,7 @@
         "location.open_active_shares",
         "location.open_ask",
         "location.open_check_in",
+        "location.open_circles",
         "location.open_create_circle",
         "location.open_invite",
         "location.open_join_circle",
@@ -41689,6 +43546,7 @@
         "location.open_needs_review",
         "location.open_now",
         "location.open_people",
+        "location.open_ratings",
         "location.open_settings",
         "location.open_share",
         "location.open_shared_with_me",
@@ -41709,6 +43567,12 @@
         "location.send_request",
         "location.set_auto_share",
         "location.set_ghost_mode",
+        "location.set_precision",
+        "location.set_sharing_enabled",
+        "location.setup.accept_consent",
+        "location.setup.advance",
+        "location.setup.start",
+        "location.setup.status",
         "location.share_public_link",
         "location.share_selected",
         "location.sos_default",
@@ -42571,6 +44435,10 @@
           "disposition": "NAVIGATE"
         },
         {
+          "capability_id": "location.open_circles",
+          "disposition": "NAVIGATE"
+        },
+        {
           "capability_id": "location.open_create_circle",
           "disposition": "NAVIGATE"
         },
@@ -42600,6 +44468,10 @@
         },
         {
           "capability_id": "location.open_people",
+          "disposition": "NAVIGATE"
+        },
+        {
+          "capability_id": "location.open_ratings",
           "disposition": "NAVIGATE"
         },
         {
@@ -42683,6 +44555,30 @@
           "disposition": "NAVIGATE"
         },
         {
+          "capability_id": "location.set_precision",
+          "disposition": "NAVIGATE"
+        },
+        {
+          "capability_id": "location.set_sharing_enabled",
+          "disposition": "NAVIGATE"
+        },
+        {
+          "capability_id": "location.setup.accept_consent",
+          "disposition": "NAVIGATE"
+        },
+        {
+          "capability_id": "location.setup.advance",
+          "disposition": "NAVIGATE"
+        },
+        {
+          "capability_id": "location.setup.start",
+          "disposition": "NAVIGATE"
+        },
+        {
+          "capability_id": "location.setup.status",
+          "disposition": "NAVIGATE"
+        },
+        {
           "capability_id": "location.share_public_link",
           "disposition": "NAVIGATE"
         },
@@ -42731,7 +44627,7 @@
       "catalog_coverage": {
         "all_discovered_capabilities_classified": true,
         "blocked_endpoint_count": 76,
-        "declared_capability_count": 61
+        "declared_capability_count": 69
       },
       "completion": {
         "claim_policy": "verified_persisted_state_only",
@@ -42841,9 +44737,9 @@
       ],
       "kind": "service",
       "knowledge_package": {
-        "brain_revision": "8577c433ad495a7becf61c43",
+        "brain_revision": "702fe353a1b7b63e7371aa7f",
         "catalog_status": "complete_and_compiled",
-        "package_digest": "01d88a395f6d2d3b582e1abfccb69526a9e067e1792d73b58e2342ad03d9db32",
+        "package_digest": "ffae41f4c4dcea4a5cadfd3529878b50e59436c7a2b5c069a23c4ea11b16c0de",
         "package_id": "location.brain",
         "package_version": 2,
         "schema_version": "one.service_knowledge_package.v2"
@@ -43006,6 +44902,38 @@
       "version": 1
     },
     {
+      "action_ids": [],
+      "api_endpoints": [],
+      "capability_id": "service.personal_information",
+      "completion": {},
+      "executor_hierarchy": [
+        {
+          "kind": "specialist",
+          "reason": "A manifest exposure is discovery metadata, not an execution binding.",
+          "status": "registered_discoverable_only"
+        }
+      ],
+      "kind": "service",
+      "label": "Memory Agent",
+      "native_semantic_actions": [],
+      "onboarding_workflow_id": null,
+      "one_exposure": {
+        "discovery_status": "discoverable",
+        "exposure_status": "active",
+        "knowledge_package_ref": null,
+        "service_id": "personal_information",
+        "supported_entrypoints": [
+          "typed"
+        ]
+      },
+      "route_patterns": [],
+      "schema_version": "one.dynamic_service_knowledge.v1",
+      "service_id": "personal_information",
+      "specialist_agent_id": "agent_personal_information",
+      "telemetry_event": "app_intelligence.service_discovery",
+      "version": 1
+    },
+    {
       "action_ids": [
         "ria.client_account.open_workspace_fallback",
         "ria.client_request.open_access_fallback",
@@ -43098,21 +45026,21 @@
     }
   ],
   "source_digests": {
-    "capability_graph_evolution": "07441cbd02b76326a2d899f88e7c2b92feddb8dd3bc5d19b043bc00ec2b765cc",
+    "capability_graph_evolution": "9345cefc642be327364b77382ca9019dd68eba4a71d626afd6546d3d8c5a39f8",
     "capability_runtime_compiler": "9a0b0b573b4e3ae42d2a49ce15f93a7cce70e5dc4046dea14922d7cd6ace9078",
     "capability_runtime_policy": "d3f4ec0d27231ef298372a48696f8ac238f7560d03d8e72c50c7bcb5b0ffd7a9",
-    "kai_action_gateway": "0c042c3f1072136c590901702084049c804f05fc488689e6702c27dbfeb7572b",
-    "location_agent_manifest": "14bf46ea9f5fb5bb341b37535df5f86fc178f158b799b72d05eb125b306b289a",
-    "location_knowledge_package": "01d88a395f6d2d3b582e1abfccb69526a9e067e1792d73b58e2342ad03d9db32",
+    "kai_action_gateway": "253acaf9b155512386fc8ab2070ef5030ab0895583b3589f2038b133a110101f",
+    "location_agent_manifest": "25952f13232f1d1adb7664da7c037b59cef093a1389caeb46af3d2771a12ff07",
+    "location_knowledge_package": "ffae41f4c4dcea4a5cadfd3529878b50e59436c7a2b5c069a23c4ea11b16c0de",
     "location_onboarding_runtime": "cd911f5e2e0f09352aeb89a74180a66fab79553423b126583f181d858459ae62",
     "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
-    "product_agent_registry": "60d548c78070d4880175aff8d0c0b9956fa91a9c670196bd3c2ad8c59c638bba",
-    "route_orchestration_index": "43959ca5acf753a3149b1ce1f45b8589df0c4431749d689d57757f7b96666949",
-    "service_knowledge_packages": "10d35a5e3775065746ec19fc885299e0551c4350efa112c031b97f9b2963b725"
+    "product_agent_registry": "1f15e99ef2e4d6b79c1a149f2ec6baba9ad2f10a94c8f41d5cf68678dd5c01a6",
+    "route_orchestration_index": "fd4b475bece0df420901d00247ef2e33fa6d274a8742816326cc516ee39ba11c",
+    "service_knowledge_packages": "f361804817c649a57c89f25e983445883e767a9c0750a5e07eebc1055315ef60"
   },
-  "source_revision": "8e37ce83397a3ac7",
+  "source_revision": "37cb394043f0f125",
   "workflow_revision_compatibility": {
-    "current_graph_revision": "8e37ce83397a3ac7",
+    "current_graph_revision": "37cb394043f0f125",
     "schema_version": "one.workflow_revision_compatibility.v1",
     "workflows": [
       {
@@ -43121,6 +45049,9 @@
           "511758965444c3bb",
           "55a233b9b6e923ea",
           "6448b901792d40a4",
+          "8e37ce83397a3ac7",
+          "a4e4c3976f85ab29",
+          "aaec9bce8ec29c93",
           "af42538767aa6642",
           "af57e85f060b7a4e",
           "cf08fb61503832fb",
@@ -43139,6 +45070,9 @@
           "511758965444c3bb",
           "55a233b9b6e923ea",
           "6448b901792d40a4",
+          "8e37ce83397a3ac7",
+          "a4e4c3976f85ab29",
+          "aaec9bce8ec29c93",
           "af42538767aa6642",
           "af57e85f060b7a4e",
           "cf08fb61503832fb",
@@ -43157,6 +45091,9 @@
           "511758965444c3bb",
           "55a233b9b6e923ea",
           "6448b901792d40a4",
+          "8e37ce83397a3ac7",
+          "a4e4c3976f85ab29",
+          "aaec9bce8ec29c93",
           "af42538767aa6642",
           "af57e85f060b7a4e",
           "cf08fb61503832fb",
@@ -43175,6 +45112,9 @@
           "511758965444c3bb",
           "55a233b9b6e923ea",
           "6448b901792d40a4",
+          "8e37ce83397a3ac7",
+          "a4e4c3976f85ab29",
+          "aaec9bce8ec29c93",
           "af42538767aa6642",
           "af57e85f060b7a4e",
           "cf08fb61503832fb",
@@ -43193,6 +45133,9 @@
           "511758965444c3bb",
           "55a233b9b6e923ea",
           "6448b901792d40a4",
+          "8e37ce83397a3ac7",
+          "a4e4c3976f85ab29",
+          "aaec9bce8ec29c93",
           "af42538767aa6642",
           "af57e85f060b7a4e",
           "cf08fb61503832fb",
@@ -43211,6 +45154,9 @@
           "511758965444c3bb",
           "55a233b9b6e923ea",
           "6448b901792d40a4",
+          "8e37ce83397a3ac7",
+          "a4e4c3976f85ab29",
+          "aaec9bce8ec29c93",
           "af42538767aa6642",
           "af57e85f060b7a4e",
           "cf08fb61503832fb",
@@ -43219,7 +45165,7 @@
         ],
         "migration_required_graph_revisions": [],
         "rejected_graph_revisions": [],
-        "workflow_digest": "f365a59af88a2715a0bd9b41623f10236be29336950d6c44d49e039d519a1f05",
+        "workflow_digest": "ec408764d11fe341fd8b58adf5ec8c176ce1bcb1e202c10acaf53335ffba84f7",
         "workflow_id": "workflow.setup.location",
         "workflow_version": 2
       },
@@ -43229,6 +45175,9 @@
           "511758965444c3bb",
           "55a233b9b6e923ea",
           "6448b901792d40a4",
+          "8e37ce83397a3ac7",
+          "a4e4c3976f85ab29",
+          "aaec9bce8ec29c93",
           "af42538767aa6642",
           "af57e85f060b7a4e",
           "cf08fb61503832fb",
@@ -46762,6 +48711,7 @@
           "location.open_active_shares",
           "location.open_ask",
           "location.open_check_in",
+          "location.open_circles",
           "location.open_create_circle",
           "location.open_invite",
           "location.open_join_circle",
@@ -46770,6 +48720,7 @@
           "location.open_needs_review",
           "location.open_now",
           "location.open_people",
+          "location.open_ratings",
           "location.open_settings",
           "location.open_share",
           "location.open_shared_with_me",
@@ -46790,6 +48741,12 @@
           "location.send_request",
           "location.set_auto_share",
           "location.set_ghost_mode",
+          "location.set_precision",
+          "location.set_sharing_enabled",
+          "location.setup.accept_consent",
+          "location.setup.advance",
+          "location.setup.start",
+          "location.setup.status",
           "location.share_public_link",
           "location.share_selected",
           "location.sos_default",
@@ -46805,7 +48762,7 @@
         "package_id": "location.brain",
         "package_version": 2,
         "schema_version": "one.service_knowledge_package.v2",
-        "source_digest": "01d88a395f6d2d3b582e1abfccb69526a9e067e1792d73b58e2342ad03d9db32"
+        "source_digest": "ffae41f4c4dcea4a5cadfd3529878b50e59436c7a2b5c069a23c4ea11b16c0de"
       },
       "knowledge_projection": {
         "allowed_fact_keys": [
@@ -47028,7 +48985,7 @@
           }
         ],
         "initial_step_id": "location.onboarding.preflight",
-        "knowledge_package_digest": "01d88a395f6d2d3b582e1abfccb69526a9e067e1792d73b58e2342ad03d9db32",
+        "knowledge_package_digest": "ffae41f4c4dcea4a5cadfd3529878b50e59436c7a2b5c069a23c4ea11b16c0de",
         "knowledge_package_id": "location.brain",
         "knowledge_package_version": 2,
         "migrations": [

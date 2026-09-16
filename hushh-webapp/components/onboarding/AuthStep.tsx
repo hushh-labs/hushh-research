@@ -1045,6 +1045,10 @@ export function AuthStep({
         }}
         data-auth-content-block
       >
+        {/* Center the complete sign-in group as one visual block while the
+            fixed Back control remains independently anchored above it. Legal
+            copy is anchored separately at the bottom like a standard auth
+            footer, so it does not read as primary sign-in content. */}
         <div
           className={cn("flex w-full flex-none flex-col items-center gap-5 px-2 text-center", lightStyles.clusters)}
           data-auth-signin-clusters
@@ -1113,26 +1117,22 @@ export function AuthStep({
                 />
               ) : null}
             </div>
+
           </div>
         </div>
       </div>
-
-      <div className={cn("absolute inset-x-4 bottom-5 z-10 flex justify-center", lightStyles.footer)}>
+      <div className="absolute inset-x-6 bottom-5 z-10 flex justify-center">
         <div
-          className={cn("flex items-center gap-3.5 text-left max-w-[24rem]", lightStyles.legalRow)}
+          className="flex flex-col items-center gap-3"
           data-auth-supporting-content
         >
-          <span className={lightStyles.existingPrivacyIcon}><HandshakePrivacyIcon className="h-[26px] w-[32px] shrink-0" /></span>
-          <Image src="/onboarding/figma/privacy-light-auth.svg" alt="" width={32.245548} height={25.76586} unoptimized className={lightStyles.privacyIcon} />
-          <Image src="/onboarding/figma/privacy-dark.svg" alt="" width={32.245548} height={25.76586} unoptimized className={lightStyles.darkPrivacyIcon} />
-          <p className="text-xs sm:text-[13px] leading-[1.35] text-[#8E8E93] dark:text-white/90">
+          <p className="type-footnote mx-auto max-w-[24rem] text-center leading-5 text-[#86868b] dark:text-white/45">
             By continuing you agree to our{" "}
-            <br />
             <button
               type="button"
               onClick={() => void openLegalDoc("terms")}
               data-voice-control-id="auth_terms"
-              className="font-semibold text-[#387BF5] transition-opacity hover:opacity-75"
+              className="font-semibold text-[color:var(--app-accent-deep)] transition-opacity hover:opacity-70 dark:text-[color:var(--app-accent-deep)]"
             >
               Terms
             </button>
@@ -1141,11 +1141,10 @@ export function AuthStep({
               type="button"
               onClick={() => void openLegalDoc("privacy")}
               data-voice-control-id="auth_privacy"
-              className="font-semibold text-[#387BF5] transition-opacity hover:opacity-75"
+              className="font-semibold text-[color:var(--app-accent-deep)] transition-opacity hover:opacity-70 dark:text-[color:var(--app-accent-deep)]"
             >
               Privacy Policy
             </button>
-            .
           </p>
         </div>
       </div>

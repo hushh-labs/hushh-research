@@ -775,6 +775,43 @@ async def refresh_account_identity(
     }
 
 
+class DisplayNameUpdateRequest(BaseModel):
+    display_name: str = Field(min_length=1, max_length=120)
+
+
+@router.patch("/identity/display-name")
+async def update_account_display_name(
+    request: DisplayNameUpdateRequest,
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    """Change the person's display name at Firebase Auth and re-sync the shadow.
+
+    Validated (2-60 chars, no control characters, no links or handles); the
+    response carries the refreshed identity like ``/identity/refresh``.
+    """
+    service = ActorIdentityService()
+    try:
+        identity = await service.update_display_name(firebase_uid, request.display_name)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=422, detail={"code": "DISPLAY_NAME_INVALID", "message": str(exc)}
+        ) from None
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=503, detail={"code": "IDENTITY_PROVIDER_UNAVAILABLE", "message": str(exc)}
+        ) from None
+    except Exception as exc:  # noqa: BLE001 - provider SDK errors are opaque
+        logger.warning("account.display_name.update_failed error=%s", type(exc).__name__)
+        raise HTTPException(
+            status_code=502,
+            detail={
+                "code": "DISPLAY_NAME_UPDATE_FAILED",
+                "message": "Could not update the display name.",
+            },
+        ) from None
+    return {"success": True, "user_id": firebase_uid, "identity": identity}
+
+
 class AvatarUploadRequest(BaseModel):
     image_data_url: str = Field(min_length=32, max_length=600_000)
 

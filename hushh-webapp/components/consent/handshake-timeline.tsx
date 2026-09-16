@@ -75,6 +75,9 @@ function actionLabel(action: string): string {
     TIMEOUT: "Request timed out",
     REQUESTED: "Consent requested",
     INVITE_SENT: "Invite sent",
+    // The requester opened a live grant. An audit row, not a transition; the
+    // fallback would have printed it as "export read".
+    EXPORT_READ: "Opened",
   };
   return labels[action] || action.replace(/_/g, " ").toLowerCase();
 }

@@ -39,24 +39,17 @@ import {
   resolvePersonRefFromProfilePathname,
   ROUTES,
 } from "@/lib/navigation/routes";
+import {
+  DEFAULT_REQUEST_DURATION_HOURS,
+  REQUEST_DURATION_OPTIONS,
+  requestDurationLabel,
+} from "@/lib/agent/action-directive-summary";
 import { useLocalOnboardingActionHandler } from "@/lib/agent/local-onboarding-actions";
+import { oneLocationErrorMessage } from "@/lib/one-location/error-message";
 import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 import { VOICE_CONFIRM_DATA_KEY } from "@/lib/voice/voice-action-card";
 
 type Props = { personRef: string; initialProfile: PublicPersonProfile | null };
-
-/** Bound to the backend's real range (1 hour to 30 days, whole hours). */
-const REQUEST_DURATION_OPTIONS = [
-  { hours: 24, label: "24 hours" },
-  { hours: 72, label: "3 days" },
-  { hours: 168, label: "7 days" },
-  { hours: 720, label: "30 days" },
-] as const;
-const DEFAULT_REQUEST_DURATION_HOURS = 168;
-
-function requestDurationLabel(hours: number): string {
-  return REQUEST_DURATION_OPTIONS.find((option) => option.hours === hours)?.label ?? `${hours} hours`;
-}
 
 export function PersonProfilePage({ personRef, initialProfile }: Props) {
   const router = useRouter();
@@ -213,7 +206,7 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
       });
       toast.success("Request sent for review");
     } catch (reason) {
-      toast.error(reason instanceof Error ? reason.message : "Request could not be sent.");
+      toast.error(oneLocationErrorMessage(reason, "Request could not be sent. Try again."));
     } finally {
       setRequesting(false);
     }
@@ -226,7 +219,7 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
       const bundle = await PersonProfileService.getInformationRequest({ bundleId, vaultOwnerToken });
       setBundleDetails((current) => ({ ...current, [bundleId]: bundle }));
     } catch (reason) {
-      toast.error(reason instanceof Error ? reason.message : "Request details are unavailable.");
+      toast.error(oneLocationErrorMessage(reason, "Request details are unavailable right now."));
     } finally {
       setLoadingBundleId(null);
     }
@@ -266,7 +259,7 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
       );
       return true;
     } catch (reason) {
-      toast.error(reason instanceof Error ? reason.message : "Relationship could not be updated.");
+      toast.error(oneLocationErrorMessage(reason, "Connection could not be updated. Try again."));
       return false;
     } finally {
       setRelationshipBusy(false);
@@ -289,7 +282,7 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
     }
     const history = viewerProfile.requestHistory.find((item) => item.requestId === requestId);
     if (!history) {
-      toast.error("The encrypted export is not available for this grant.");
+      toast.error("This shared information is not available right now.");
       return;
     }
     setDecryptingRequestId(requestId);
@@ -304,7 +297,7 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
         vaultOwnerToken,
       });
       const exact = exports.find((item) => item.requestId === requestId);
-      if (!exact) throw new Error("The active grant has no current encrypted export.");
+      if (!exact) throw new Error("This shared information is not available right now.");
       const payload = await OneKycClientZkService.decryptScopedExport({
         exportPackage: exact.encryptedExport,
         connector,
@@ -312,7 +305,7 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
       setDecryptedByRequest((current) => ({ ...current, [requestId]: payload }));
       setRevealedRequests((current) => new Set(current).add(requestId));
     } catch (reason) {
-      toast.error(reason instanceof Error ? reason.message : "The encrypted export could not be opened.");
+      toast.error(oneLocationErrorMessage(reason, "This shared information could not be opened."));
     } finally {
       setDecryptingRequestId(null);
     }
@@ -333,7 +326,7 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
       });
       toast.success("Information request cancelled");
     } catch (reason) {
-      toast.error(reason instanceof Error ? reason.message : "The information request could not be cancelled.");
+      toast.error(oneLocationErrorMessage(reason, "The request could not be cancelled. Try again."));
     } finally {
       setCancellingBundleId(null);
     }
@@ -605,7 +598,10 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
                         <LockKeyhole className="h-4 w-4 text-muted-foreground" />
                       </div>
                       {grant.requestId && revealedRequests.has(grant.requestId) && decryptedByRequest[grant.requestId] ? (
-                        <pre className="mt-3 max-h-56 overflow-auto whitespace-pre-wrap break-words rounded-xl bg-muted/40 p-3 text-xs">
+                        <pre
+                          className="mt-3 max-h-56 overflow-auto whitespace-pre-wrap break-words rounded-xl bg-muted/40 p-3 text-xs"
+                          data-testid="person-profile-grant-value"
+                        >
                           {JSON.stringify(decryptedByRequest[grant.requestId], null, 2)}
                         </pre>
                       ) : (
@@ -619,6 +615,7 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
                           variant="none"
                           effect="fade"
                           disabled={decryptingRequestId === grant.requestId}
+                          data-testid="person-profile-grant-reveal"
                           onClick={() => void revealGrant(grant.requestId)}
                         >
                           {grant.requestId && revealedRequests.has(grant.requestId) ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
@@ -635,7 +632,7 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
                             effect="fade"
                             onClick={() => {
                               void navigator.clipboard.writeText(JSON.stringify(decryptedByRequest[grant.requestId!]));
-                              toast.success("Consented information copied");
+                              toast.success("Copied.");
                             }}
                           >
                             <Copy className="h-4 w-4" />
@@ -796,7 +793,7 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
           <DialogHeader>
             <DialogTitle>Request information from {profile.displayName}</DialogTitle>
             <DialogDescription>
-              They will see the exact fields, purpose, sensitivity, and the {requestDurationLabel(durationHours)} access duration before deciding.
+              They will see exactly what you asked for, why, and for how long.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
@@ -832,6 +829,7 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
                 onChange={(event) => setPurpose(event.target.value)}
                 maxLength={500}
                 placeholder="Explain why you need these and how you will use them."
+                data-testid="person-profile-purpose"
               />
             </label>
           </div>

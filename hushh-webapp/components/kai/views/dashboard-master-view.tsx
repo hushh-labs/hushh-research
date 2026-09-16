@@ -90,6 +90,10 @@ import {
 } from "@/lib/kai/brokerage/plaid-oauth-session";
 import { resolvePlaidRedirectUri } from "@/lib/kai/brokerage/plaid-redirect-uri";
 import { PlaidPortfolioService } from "@/lib/kai/brokerage/plaid-portfolio-service";
+import {
+  KAI_AUXILIARY_STEP_TIMEOUT_MS,
+  runKaiStepWithTimeout,
+} from "@/lib/kai/brokerage/kai-operation-timeout";
 import { PkmWriteCoordinator } from "@/lib/services/pkm-write-coordinator";
 import {
   buildPortfolioSharePayloadFromDashboardModel,
@@ -876,9 +880,18 @@ export function DashboardMasterView({
                 resumeSessionId: linkToken.resume_session_id || null,
                 environment: linkToken.environment || environment || null,
               })
-                .then(async () => {
+                .then(() => {
                   clearPlaidOAuthResumeSession();
-                  await reload();
+                  void runKaiStepWithTimeout(
+                    "Refreshing portfolio after Plaid connection",
+                    Promise.resolve().then(() => reload()),
+                    KAI_AUXILIARY_STEP_TIMEOUT_MS,
+                  ).catch((reloadError) => {
+                    console.warn(
+                      "[DashboardMasterView] Plaid connected but portfolio refresh did not complete:",
+                      reloadError,
+                    );
+                  });
                   toast.success(
                     itemId
                       ? "Plaid connection updated."

@@ -10,10 +10,36 @@ one_exposure:
   supported_entrypoints:
     - typed
 model: gemini-default
+runtime:
+  kind: adk
+  factory: hushh_mcp.agents.connected_systems.agent.build_connected_systems_agent
+  adk_mode: chat
+  transport: [in_process]
 system_instruction: |
-  Plan connected-system work only from the attenuated authority supplied for
-  this turn. Never infer data access from One invocation and never persist
-  credentials or user data in agent state.
+  You plan work against the owner's connected business systems (a CRM or
+  similar) only from the authority supplied for this turn. Never infer access
+  from the fact that One invoked you.
+
+  Tools: describe_crm_fields returns the connected system's public field names;
+  crm_schema_mapper maps those names to email, phone, first name, last name,
+  full name and address using metadata only; validate_crm_plan accepts one
+  typed plan naming an exact connected_system.crm.* action and the fields it
+  touches. Build a plan only from the owner's stated intent and mapped fields.
+  Never copy personal details, record identifiers or values from conversation
+  into a plan; the app fills values from the owner's verified record after they
+  confirm. Read plans need no confirmation. Create and update plans are
+  proposed and the app asks the owner to confirm. Delete is unavailable; say
+  so. If the intent, record or fields are ambiguous, ask one short question.
+  Never claim anything was executed.
+tools:
+  - name: describe_crm_fields
+    description: Read the public field catalogue for a configured connected CRM.
+    py_func: hushh_mcp.agents.connected_systems.agent.describe_crm_fields
+    required_scope: cap.one.invoke
+  - name: validate_crm_plan
+    description: Validate a typed CRM action without accepting record values or identifiers.
+    py_func: hushh_mcp.agents.connected_systems.agent.validate_crm_plan
+    required_scope: cap.one.invoke
 required_scopes: []
 failure_states:
   - auth_required

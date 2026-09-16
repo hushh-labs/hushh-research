@@ -21,6 +21,8 @@ import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
 import { SectionLabel as AppSectionLabel } from "@/components/app-ui/typography";
 import { Button } from "@/lib/morphy-ux/button";
 import { useAuth } from "@/hooks/use-auth";
+import { useLocalOnboardingActionHandler, type LocalOnboardingActionHandler, type LocalActionPreparer } from "@/lib/agent/local-onboarding-actions";
+import { ConnectionsService } from "@/lib/services/connections-service";
 import { useStaleResource } from "@/lib/cache/use-stale-resource";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { CACHE_KEYS } from "@/lib/services/cache-service";
@@ -111,6 +113,64 @@ const FEED_VOICE_ACTIONS = listKaiActionsForSurface({ screen: "one_feed" })
 
 export function FeedPage() {
   const { user, loading: authLoading } = useAuth();
+
+  const prepareConnectionRequest = (accept: boolean): LocalActionPreparer => async (slots, chosenResourceId) => {
+    if (!user || authLoading) return { status: "blocked", gate: "permission", summary: "Sign in to review requests." };
+    const person = typeof slots.person === "string" ? slots.person.trim() : "";
+    const selected = Object.prototype.hasOwnProperty.call(slots, "requestId") ? slots.requestId : chosenResourceId;
+    if (!person || (selected !== undefined && (typeof selected !== "string" || !selected.trim() || selected.length > 256))) {
+      return { status: "blocked", gate: "input", summary: "Choose one request again." };
+    }
+    try {
+      const idToken = await user.getIdToken();
+      const incoming = await ConnectionsService.listRequests({ idToken, direction: "incoming" });
+      const matches = incoming.filter((request) =>
+        (selected === undefined || request.id === selected) &&
+        request.counterpartDisplayName?.trim().toLocaleLowerCase() === person.toLocaleLowerCase());
+      if (matches.length !== 1) return { status: "blocked", gate: "input", summary: "Choose one current request in your Feed." };
+      const request = matches[0]!;
+      if (accept && request.scopes?.length) return { status: "blocked", gate: "navigation", route: "/one/feed", waitForUser: true, summary: "Review the requested information in your Feed before accepting." };
+      return { status: "ready", binding: { owner: user.uid, requestId: request.id, person: request.counterpartDisplayName, decision: accept ? "accept" : "reject", scopes: request.scopes ?? [] }, summary: `${accept ? "Accept" : "Decline"} ${request.counterpartDisplayName}'s connection request?` };
+    } catch {
+      return { status: "blocked", gate: "permission", summary: "Requests could not be checked. Try again." };
+    }
+  };
+
+  const decideConnectionRequest = (accept: boolean): LocalOnboardingActionHandler => async (slots, context) => {
+    if (context?.preparedBinding) slots = { ...slots, ...context.preparedBinding };
+    if (!user || authLoading) return { status: "blocked", summary: "Sign in to review requests." };
+    if (!context?.directiveId && !context?.humanConfirmationToken) {
+      return { status: "blocked", summary: "Confirm this action in the app first." };
+    }
+    const person = typeof slots.person === "string" ? slots.person.trim() : "";
+    const hasRequestId = Object.prototype.hasOwnProperty.call(slots, "requestId");
+    const requestId = typeof slots.requestId === "string" ? slots.requestId.trim() : "";
+    if (!person || (hasRequestId && (!requestId || requestId.length > 256))) {
+      return { status: "blocked", summary: "Choose the request again." };
+    }
+    try {
+      const idToken = await user.getIdToken();
+      const incoming = await ConnectionsService.listRequests({ idToken, direction: "incoming" });
+      // IDs select only from this owner's current incoming requests. A stale ID
+      // or mismatched label never falls back to a same-name request.
+      const matches = incoming.filter((request) =>
+        (!hasRequestId || request.id === requestId) &&
+        request.counterpartDisplayName?.trim().toLocaleLowerCase() === person.toLocaleLowerCase());
+      if (matches.length !== 1) return { status: "blocked", summary: "Choose one current request in your Feed." };
+      if (context.signal?.aborted) return { status: "blocked", summary: "The action was cancelled." };
+      const request = matches[0]!;
+      // Scope-bearing accepts still require the existing scope-review UI; the
+      // API rejects an accept without those selections rather than guessing.
+      if (accept) await ConnectionsService.accept({ idToken, requestId: request.id });
+      else await ConnectionsService.reject({ idToken, requestId: request.id });
+      CacheSyncService.onConnectionCapabilityMutated(user.uid);
+      return { status: "succeeded", summary: `${accept ? "Accepted" : "Declined"} ${request.counterpartDisplayName}'s connection request.` };
+    } catch {
+      return { status: "failed", summary: "The request could not be updated. Review it in your Feed." };
+    }
+  };
+  useLocalOnboardingActionHandler("connect.accept_request", decideConnectionRequest(true), { prepare: prepareConnectionRequest(true) });
+  useLocalOnboardingActionHandler("connect.reject_request", decideConnectionRequest(false), { prepare: prepareConnectionRequest(false) });
 
   // Every account owns an independent Feed session. Remounting on uid changes
   // scopes pagination, clear/read watermarks, actionables, and pending requests
@@ -545,16 +605,16 @@ function FeedPageSession({
               </section>
             ) : null}
 
-            {hasRegularActionables ? (
-              <section aria-label="Needs you">
-                <SectionLabel>Needs you</SectionLabel>
-                <SettingsGroup separatorInset>
-                  {regularActionables.map((item) => (
-                    <FeedActionableRow key={item.id} item={item} />
-                  ))}
-                </SettingsGroup>
-              </section>
-            ) : null}
+          {hasRegularActionables ? (
+            <section aria-label="Needs you">
+              <SectionLabel>Needs you</SectionLabel>
+              <div className="divide-y divide-[color:var(--foundation-hairline)]">
+                {regularActionables.map((item) => (
+                  <FeedActionableRow key={item.id} item={item} />
+                ))}
+              </div>
+            </section>
+          ) : null}
 
             {contentLoading && !hasHistory && !hasActionables ? (
               <FeedRowsSkeleton />

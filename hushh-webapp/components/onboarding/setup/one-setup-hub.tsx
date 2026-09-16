@@ -52,6 +52,7 @@ import { PreVaultSensitiveDraftService } from "@/lib/services/pre-vault-sensitiv
 import { FinanceSetupDraftService } from "@/lib/services/finance-setup-draft-service";
 import { PostUnlockSyncService } from "@/lib/services/post-unlock-sync-service";
 import { notifyGeminiRuntimeConfigurationChanged } from "@/lib/connections/gemini-runtime-configuration";
+import { useOneConversationSession } from "@/lib/agent/one-conversation-session";
 
 /**
  * OneSetupHub: the `/one/setup` hub screen.
@@ -73,6 +74,9 @@ export function OneSetupHub() {
   const searchParams = useSearchParams();
   const { user } = useAuth();
   const { vaultKey, vaultOwnerToken, isVaultUnlocked } = useVault();
+  const queueEntryWelcome = useOneConversationSession(
+    (state) => state.queueEntryWelcome,
+  );
   const { byId, isLoading, isEnriching } = useCapabilitySetupStates({
     enrichVault: true,
     enrichOauth: true,
@@ -101,7 +105,7 @@ export function OneSetupHub() {
     const path = raw.split(/[?#]/)[0] ?? raw;
     return isOneSetupSurfaceRoute(path) ? null : raw;
   }, [searchParams]);
-  const completionTarget = returnTo || ROUTES.ONE_HOME;
+  const completionTarget = returnTo || ROUTES.HOME;
 
   useEffect(() => {
     if (!user?.uid) {
@@ -247,6 +251,11 @@ export function OneSetupHub() {
         vaultKey,
         vaultOwnerToken,
       });
+      // Queue only a typed, owner-scoped marker after the encrypted setup
+      // boundary. The Chat surface derives its summary from the unlocked
+      // in-memory context and consumes this marker once; no private values
+      // enter the route or conversation history.
+      queueEntryWelcome(user.uid);
       setVaultDialogOpen(false);
       setVaultInvitationOpen(false);
       // Finance source intents intentionally remain process-memory-only until
@@ -273,7 +282,14 @@ export function OneSetupHub() {
         finalizationInFlightRef.current = null;
       }
     }
-  }, [completionTarget, router, user?.uid, vaultKey, vaultOwnerToken]);
+  }, [
+    completionTarget,
+    queueEntryWelcome,
+    router,
+    user?.uid,
+    vaultKey,
+    vaultOwnerToken,
+  ]);
 
   useEffect(() => {
     if (
@@ -409,7 +425,7 @@ export function OneSetupHub() {
       as="main"
       width="reading"
       fitContent
-      className="relative isolate max-w-[600px] pb-[calc(20px+env(safe-area-inset-bottom))]"
+      className="relative isolate max-w-[600px]"
       nativeTest={{
         routeId: "/one/setup",
         marker: "native-route-one-setup",
@@ -538,6 +554,10 @@ export function OneSetupHub() {
             </div>
             <div>
               <SetupCompletionFooter
+                // The signed-in app scroll root already reserves the iOS safe
+                // area and persistent Talk to One bar. Reserving it again here
+                // creates an oversized empty tail beneath Finish setup.
+                insetBottom={false}
                 label={masterActionLabel}
                 onComplete={() => void handleMasterAck()}
                 busy={dismissing}

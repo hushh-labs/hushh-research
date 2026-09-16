@@ -53,6 +53,10 @@ feature_groups:
     description: Track discovered Location API endpoints as known but unbound implementation inventory.
 capabilities:
   - { capability_id: workflow.setup.location, kind: workflow, feature_group_id: onboarding }
+  - { capability_id: location.setup.status, kind: action, feature_group_id: onboarding }
+  - { capability_id: location.setup.start, kind: action, feature_group_id: onboarding }
+  - { capability_id: location.setup.accept_consent, kind: action, feature_group_id: onboarding }
+  - { capability_id: location.setup.advance, kind: action, feature_group_id: onboarding }
   - { capability_id: setup.open_location, kind: action, feature_group_id: onboarding }
   - { capability_id: setup.finish_location, kind: action, feature_group_id: onboarding }
   - { capability_id: setup.skip_location, kind: action, feature_group_id: onboarding }
@@ -84,12 +88,15 @@ capabilities:
   - { capability_id: location.approve_request, kind: action, feature_group_id: requests }
   - { capability_id: location.decline_request, kind: action, feature_group_id: requests }
   - { capability_id: location.set_auto_share, kind: action, feature_group_id: requests }
+  - { capability_id: location.set_sharing_enabled, kind: action, feature_group_id: sharing }
+  - { capability_id: location.set_precision, kind: action, feature_group_id: sharing }
   - { capability_id: location.open_shared_with_me, kind: action, feature_group_id: requests }
   - { capability_id: location.find_contacts, kind: action, feature_group_id: requests }
   - { capability_id: location.add_connections, kind: action, feature_group_id: requests }
   - { capability_id: location.open_invite, kind: action, feature_group_id: circles }
   - { capability_id: location.open_create_circle, kind: action, feature_group_id: circles }
   - { capability_id: location.open_join_circle, kind: action, feature_group_id: circles }
+  - { capability_id: location.open_circles, kind: action, feature_group_id: circles }
   - { capability_id: location.create_circle, kind: action, feature_group_id: circles }
   - { capability_id: location.add_to_circle, kind: action, feature_group_id: circles }
   - { capability_id: location.remove_from_circle, kind: action, feature_group_id: circles }
@@ -103,6 +110,7 @@ capabilities:
   - { capability_id: location.share_public_link, kind: action, feature_group_id: links }
   - { capability_id: location.revoke_public_link, kind: action, feature_group_id: links }
   - { capability_id: location.save_current_location, kind: action, feature_group_id: places }
+  - { capability_id: location.open_ratings, kind: action, feature_group_id: places }
   - { capability_id: location.delete_saved_location, kind: action, feature_group_id: places }
   - { capability_id: location.open_check_in, kind: action, feature_group_id: checkins }
   - { capability_id: location.send_check_in, kind: action, feature_group_id: checkins }

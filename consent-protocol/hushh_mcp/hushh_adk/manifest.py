@@ -48,6 +48,14 @@ class AgentModelConfig(StrictManifestModel):
     name: str = Field(default_factory=lambda: GEMINI_MODEL)
     mode: str = "hushh_managed_vertex"
     credential_ref: str | None = None
+    # Authored thinking preference. The manifest accepts exactly these three
+    # lowercase words; None means the manifest expresses no preference. Shared by
+    # top-level and subagent model blocks (AgentSubagentConfig.model reuses this
+    # class). The ADK factories read it through
+    # hushh_mcp/runtime_providers/gemini_config.py (thinking_config_for), which
+    # passes low/medium/high through to the two supported Gemini releases as
+    # measured live on 2026-09-14; "minimal" is rejected by the provider.
+    thinking_level: Literal["low", "medium", "high"] | None = None
 
 
 class CredentialPolicy(StrictManifestModel):
@@ -1230,6 +1238,7 @@ class AgentManifestV2(StrictManifestModel):
                 name=name,
                 mode=self.model.mode,
                 credential_ref=self.model.credential_ref,
+                thinking_level=self.model.thinking_level,
             )
         name = str(self.model or "").strip()
         if not name or name in {

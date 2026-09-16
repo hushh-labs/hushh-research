@@ -1,8 +1,8 @@
-"""In-process A2A handler for the Email (Gmail inbox) specialist.
+"""In-process A2A handler for the unified Email specialist.
 
-Wraps the EXISTING EmailChatService.handle_turn loop unchanged and adapts its
-dict output into the generic SpecialistTurnResult. The email agent is read-only
-(tools: list_needs_reply, search_inbox), so it emits no client directive.
+Wraps EmailChatService.handle_turn and adapts its dict output into the generic
+SpecialistTurnResult. The specialist owns read-only inbox triage and synced
+receipt review; it emits no client directive.
 
 Consent: EmailChatService reads Gmail via the user's connected gmail.readonly
 OAuth connection; the delegation boundary in the One route additionally validates

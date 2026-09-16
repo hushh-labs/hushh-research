@@ -25,12 +25,6 @@ const h = vi.hoisted(() => ({
     vaultKey: "12".repeat(32),
     vaultOwnerToken: "synthetic-owner-token",
   },
-  popover: {
-    expanded: false,
-    motionState: "closed",
-    minimizeAgent: vi.fn(),
-    openAgent: vi.fn(),
-  },
   router: { push: vi.fn(), replace: vi.fn() },
   pageAction: vi.fn(),
 }));
@@ -47,9 +41,6 @@ vi.mock("@/lib/persona/persona-context", () => ({
 }));
 vi.mock("@/lib/stores/kai-session-store", () => ({
   useKaiSession: (select: (x: unknown) => unknown) => select(h.session),
-}));
-vi.mock("@/components/agent/agent-popover-provider", () => ({
-  useOptionalAgentPopover: () => h.popover,
 }));
 vi.mock("@/lib/agent/agent-runtime-context", () => ({
   useAgentRuntimeStateOptional: () => ({

@@ -2,13 +2,15 @@
 
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { usePathname } from "next/navigation";
-import { AudioLines, MessageCircle, X, ChevronUp } from "lucide-react";
-import { useOptionalAgentPopover } from "@/components/agent/agent-popover-provider";
+import { AudioLines, X, ChevronUp } from "lucide-react";
 import { AgentVoiceWaveform } from "@/components/agent/agent-voice-waveform";
 import { LocationCommandCard } from "./location-command-card";
 import { useLocationCommand } from "./location-command-provider";
 import { getKaiChromeState } from "@/lib/navigation/kai-chrome-state";
-import { isFoundationPublicRoute } from "@/lib/navigation/routes";
+import {
+  isFoundationPublicRoute,
+  ROUTES,
+} from "@/lib/navigation/routes";
 import { cn } from "@/lib/utils";
 
 /** Presentation only. The provider above route and chrome changes owns the task. */
@@ -34,7 +36,6 @@ export function CommandAgentBar({
     active,
   } = useLocationCommand();
   const pathname = usePathname();
-  const popover = useOptionalAgentPopover();
   const [held, setHeld] = useState(false);
   const [cancelArmed, setCancelArmed] = useState(false);
   const press = useRef<{
@@ -60,18 +61,12 @@ export function CommandAgentBar({
   useEffect(() => {
     if (!recording) clearPress();
   }, [recording]);
-  const hidden =
-    !active &&
-    Boolean(
-      popover?.expanded ||
-      popover?.motionState === "opening" ||
-      popover?.motionState === "closing",
-    );
+  const foundationRouteWithoutNavigation =
+    isFoundationPublicRoute(pathname) && pathname !== ROUTES.HOME;
   const noNavbar =
     !user ||
     getKaiChromeState(pathname).useOnboardingChrome ||
-    pathname === "/" ||
-    isFoundationPublicRoute(pathname);
+    foundationRouteWithoutNavigation;
   const elapsed = `${Math.floor(elapsedMs / 60_000)}:${String(Math.floor(elapsedMs / 1000) % 60).padStart(2, "0")}`;
   const working = view.phase === "working";
   const status =
@@ -108,8 +103,8 @@ export function CommandAgentBar({
       }
     >
       <div className="pointer-events-none w-full max-w-[min(calc(100vw-1.5rem),var(--app-agent-bar-max-width))]">
-        {!hidden ? <LocationCommandCard /> : null}
-        {!hidden && working && view.transcript && !collapsed ? (
+        <LocationCommandCard />
+        {working && view.transcript && !collapsed ? (
           <p
             className="pointer-events-auto mb-1 line-clamp-2 px-3 text-xs text-muted-foreground"
             aria-label="Your request"
@@ -130,10 +125,8 @@ export function CommandAgentBar({
           layout === "slot"
             ? "max-w-[min(calc(100vw-1.5rem),var(--app-agent-bar-max-width))]"
             : "max-w-[min(calc(100vw-2rem),34rem)]",
-          hidden && "pointer-events-none opacity-0",
           cancelArmed && "text-destructive",
         )}
-        aria-hidden={hidden}
       >
         <button
           type="button"
@@ -257,17 +250,6 @@ export function CommandAgentBar({
             <ChevronUp className="h-4 w-4" />
           </button>
         ) : null}
-        <button
-          type="button"
-          data-testid="one-agent-chat-open"
-          data-agent-action="chat"
-          onClick={() => popover?.openAgent()}
-          aria-label="Chat with One"
-          className="flex h-11 min-w-[88px] shrink-0 items-center justify-center gap-1.5 rounded-r-full border-l border-current/15 px-3 text-sm focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary sm:min-w-[96px]"
-        >
-          <MessageCircle className="h-4 w-4" />
-          <span data-testid="one-agent-chat-label">Chat</span>
-        </button>
       </div>
     </div>
   );

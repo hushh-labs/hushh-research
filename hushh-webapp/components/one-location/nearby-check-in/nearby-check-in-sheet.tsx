@@ -444,16 +444,10 @@ function peopleNearbyLabel(count: number): string | null {
   return `${count} ${count === 1 ? "person" : "people"} nearby`;
 }
 
-function completionCopy(
-  reason: NearbyCheckInCompletionReason | undefined,
-  placeLabel: string | null | undefined,
-) {
-  const place = placeLabel?.trim();
-  const visibilityLine = place
-    ? `You're no longer visible at ${place}.`
-    : "You're no longer visible nearby.";
-  if (reason === "expired") return `Time ran out. ${visibilityLine}`;
-  return visibilityLine;
+function completionCopy(reason: NearbyCheckInCompletionReason | undefined) {
+  if (reason === "expired") return "Your time ran out.";
+  if (reason === "ended") return "This check-in has ended.";
+  return "You're no longer visible nearby.";
 }
 
 function initials(label: string): string {
@@ -503,6 +497,9 @@ function NearbyPersonRow({
       <span className="min-w-0 flex-1">
         <span className="block truncate text-sm font-semibold">
           {attendee.displayName}
+        </span>
+        <span className="block text-xs text-muted-foreground">
+          At this place
         </span>
       </span>
       <Button
@@ -2058,6 +2055,7 @@ export function NearbyCheckInSheet({
       setAllowConnectionRequests(false);
       setAddTimeOpen(false);
       setAddTimeBusy(null);
+      toast.success("Check-in ended.");
       void offerSavePlace(savedPlaceOffer);
       return { status: "succeeded", summary: "Your Nearby check-in has ended." };
     } catch (error) {
@@ -2303,11 +2301,13 @@ export function NearbyCheckInSheet({
                     </span>
                     <div className="min-w-0 flex-1">
                       <p className="font-semibold">Check-in ended</p>
+                      {completedCheckIn?.placeLabel ? (
+                        <p className="mt-0.5 truncate text-sm font-medium">
+                          {completedCheckIn.placeLabel}
+                        </p>
+                      ) : null}
                       <p className="mt-0.5 text-sm text-muted-foreground">
-                        {completionCopy(
-                          completedCheckIn?.reason,
-                          completedCheckIn?.placeLabel,
-                        )}
+                        {completionCopy(completedCheckIn?.reason)}
                       </p>
                       {completedCheckIn?.saved ? (
                         <p className="mt-2 text-xs font-medium text-muted-foreground">
@@ -2611,14 +2611,16 @@ export function NearbyCheckInSheet({
                       ))}
                     </ul>
                   ) : (
-                    <>
+                    <div className="mt-3 rounded-2xl bg-muted/70 px-4 py-5 text-center">
+                      <UsersRound className="mx-auto h-5 w-5 text-muted-foreground" />
                       {/* The auto-refresh line is gone. The list refreshes on a
-                        timer whether or not it is advertised, and the empty
-                        roster is only a quiet fact. */}
-                      <p className="mt-3 text-sm text-muted-foreground">
+                        timer whether or not it is advertised, and telling
+                        someone their empty list will keep checking itself is
+                        an implementation detail dressed as reassurance. */}
+                      <p className="mt-2 text-sm font-medium">
                         Nobody nearby yet
                       </p>
-                    </>
+                    </div>
                   )}
                 </section>
               </div>

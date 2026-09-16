@@ -121,13 +121,28 @@ if ! grep -q -- '--set-env-vars=NEXT_PUBLIC_APP_ENV=' "$frontend_cloudbuild"; th
   exit 1
 fi
 
-if ! grep -q -- '--build-arg NEXT_PUBLIC_PASSKEY_RP_ID=${_PASSKEY_RP_ID}' "$frontend_cloudbuild"; then
-  echo "frontend Cloud Build must pin the shared passkey RP ID into the web image."
+if ! grep -q -- '--build-arg NEXT_PUBLIC_PASSKEY_RP_ID=$$PASSKEY_RP_ID' "$frontend_cloudbuild"; then
+  echo "frontend Cloud Build must derive the passkey RP ID from the active frontend origin."
   exit 1
 fi
 
-if ! grep -q '^  _PASSKEY_RP_ID: one.hushh.ai$' "$frontend_cloudbuild"; then
-  echo "frontend Cloud Build must default the hosted passkey RP ID to one.hushh.ai."
+if grep -q '^  _PASSKEY_RP_ID:' "$frontend_cloudbuild"; then
+  echo "frontend Cloud Build must not use a shared passkey RP substitution."
+  exit 1
+fi
+
+for hosted_rp_id in \
+  'dev.one.hushh.ai' \
+  'uat.one.hushh.ai' \
+  'one.hushh.ai'; do
+  if ! grep -q "expected_passkey_rp_id=\"${hosted_rp_id}\"" "$frontend_cloudbuild"; then
+    echo "frontend Cloud Build must validate the hosted passkey RP ID ${hosted_rp_id}."
+    exit 1
+  fi
+done
+
+if ! grep -q 'APP_FRONTEND_ORIGIN_VAL' "$frontend_cloudbuild"; then
+  echo "frontend Cloud Build must source the frontend origin from Secret Manager."
   exit 1
 fi
 

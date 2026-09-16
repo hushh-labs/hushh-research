@@ -257,7 +257,13 @@ class TestAgentTreeShape:
         assert "KYC app surface" in ONE_IDENTITY_INSTRUCTION
         assert "Gmail receipt sync and inbox search are paused" in ONE_IDENTITY_INSTRUCTION
         assert "named CRM" in ONE_IDENTITY_INSTRUCTION
-        assert "summon that specialist" in ONE_IDENTITY_INSTRUCTION
+        # One names that it summons specialists rather than doing their work
+        # itself (the roster line from build_specialist_capability_catalog).
+        assert (
+            "you summon these rather than acting in their domain yourself"
+            in ONE_IDENTITY_INSTRUCTION
+        )
+        assert "hand work to a specialist only where you do not" in ONE_IDENTITY_INSTRUCTION
         # Onboarding's own instance of the same rule (replaces "When the
         # exact generated id is uncertain, call list_app_actions").
         assert (
@@ -606,7 +612,7 @@ class TestSpecialistTurn:
 
         assert result["status"] == "authority_required"
         assert specialist_turn.await_args.args[:2] == (
-            "agent_connections",
+            "agent_nav",
             "How does trust work here?",
         )
 
@@ -5245,3 +5251,222 @@ def test_the_actions_people_ask_for_by_name_carry_their_own_journey():
         "These are asked for by name from any screen and would need One to "
         f"chain a navigation itself, which is where it breaks: {missing}"
     )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "target,capabilities",
+    [
+        ("consent", ("agent.nav.review",)),
+        ("connections", ("agent.nav.review", "agent.one.orchestrate")),
+    ],
+)
+async def test_nav_ingress_binds_verified_owner_to_adk_hop(target, capabilities):
+    context = SimpleNamespace(
+        state={STATE_USER_ID: "owner", STATE_CONSENT_TOKEN: "opaque"},
+        user_id="owner",
+        invocation_id="invocation",
+        function_call_id="call",
+    )
+    with patch.object(
+        _tree,
+        "validate_first_party_owner_token",
+        new=AsyncMock(return_value=SimpleNamespace(expires_at=9999999999999)),
+    ) as validate:
+        task = await _tree._task_from_context(
+            context, "review", agent_id="agent_nav", specialist_target=target
+        )
+    validate.assert_awaited_once_with("owner", "opaque")
+    assert task.authority.invocation_capabilities == capabilities
+    assert task.authority.expires_at_ms == 9999999999999
+    assert task.expected_tenant_id == task.authority.tenant_id == "owner"
+    assert task.expected_task_id == task.authority.task_id == '["invocation","call"]'
+    assert task.authority.caller_kind == "first_party"
+    assert task.authority.action_capabilities == task.authority.information_grant_refs == ()
+    assert task.authority.encrypted_export_refs == ()
+    assert task.authority.confirmation_receipt is None
+    assert task.specialist_target == target
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "field,value", [("user_id", "other"), ("invocation_id", ""), ("function_call_id", None)]
+)
+async def test_nav_ingress_rejects_untrusted_or_missing_adk_binding(field, value):
+    context = SimpleNamespace(
+        state={STATE_USER_ID: "owner", STATE_CONSENT_TOKEN: "opaque"},
+        user_id="owner",
+        invocation_id="invocation",
+        function_call_id="call",
+    )
+    setattr(context, field, value)
+    with patch.object(_tree, "validate_first_party_owner_token", new=AsyncMock()) as validate:
+        assert await _tree._task_from_context(context, "review", agent_id="agent_nav") is None
+    validate.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_nav_ingress_rejects_invalid_or_revoked_owner_validation():
+    context = SimpleNamespace(
+        state={STATE_USER_ID: "owner", STATE_CONSENT_TOKEN: "opaque"},
+        user_id="owner",
+        invocation_id="invocation",
+        function_call_id="call",
+    )
+    with patch.object(_tree, "validate_first_party_owner_token", new=AsyncMock(return_value=None)):
+        assert await _tree._task_from_context(context, "review", agent_id="agent_nav") is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "action,slots,valid",
+    [
+        ("connect.send_request", {"person": "Alex", "userId": "user-1"}, True),
+        ("connect.accept_request", {"person": "Alex", "requestId": "request-1"}, True),
+        ("connect.reject_request", {"person": "Alex", "requestId": "request-2"}, True),
+        ("connect.remove_connection", {"person": "Alex", "connectionId": "connection-1"}, True),
+        ("connect.send_request", {"person": "Alex"}, False),
+        ("connect.accept_request", {"person": "Alex", "userId": "user-1"}, False),
+        (
+            "connect.reject_request",
+            {"person": "Alex", "requestId": "r", "connectionId": "c"},
+            False,
+        ),
+        (
+            "connect.remove_connection",
+            {"person": "Alex", "connectionId": "c", "confirmed": True},
+            False,
+        ),
+        ("connect.reject_request", {"person": "", "requestId": "r"}, False),
+        ("connect.cancel_request", {"person": "Alex", "requestId": "r"}, False),
+        ("connect.send_request", {"person": "x" * 201, "userId": "u"}, False),
+        ("connect.send_request", {"person": "Alex", "userId": "u" * 257}, False),
+        ("connect.send_request", {"person": "Alex", "userId": ""}, False),
+        ("connect.send_request", {"person": "Alex", "userId": " u "}, False),
+        ("connect.send_request", {"person": "Alex", "userId": 123}, False),
+        ([], {"person": "Alex", "requestId": "r"}, False),
+    ],
+)
+async def test_connections_proposal_is_only_gateway_suggestion(action, slots, valid):
+    context = _tool_context({STATE_USER_ID: "owner", STATE_CONSENT_TOKEN: "opaque"})
+    result = SpecialistTurnResult(
+        conversation_id="conversation",
+        text="Proposed change",
+        directive=A2ADirective(
+            kind="action",
+            payload={"type": "connections_proposal", "actionId": action, "slots": slots},
+        ),
+        is_complete=True,
+        state_changed=False,
+        model="fixture",
+    )
+    with (
+        patch.object(_tree, "_task_from_context", new=AsyncMock(return_value=object())),
+        patch.object(_tree, "dispatch", new=AsyncMock(return_value=result)),
+        patch.object(_tree, "run_app_action", new=AsyncMock()) as execute,
+    ):
+        response = await _tree._specialist_turn(
+            "agent_nav", "review", context, specialist_target="connections"
+        )
+    execute.assert_not_awaited()
+    assert "directive" not in response
+    assert not any(key.startswith(STATE_PENDING_DIRECTIVE) for key in context.state)
+    if valid:
+        assert response["proposed_action"] == {"action_id": action, "slots": slots}
+    else:
+        assert response["status"] == "invalid_proposal"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "case",
+    [
+        "valid",
+        "too_many",
+        "empty",
+        "id_long",
+        "name_long",
+        "question_long",
+        "id_missing",
+        "extra_mutation_ref",
+        "wrong_kind",
+        "complete",
+        "duplicate",
+        "bad_candidate",
+    ],
+)
+async def test_connections_choice_preserves_context_without_client_selection(case):
+    context = _tool_context({STATE_USER_ID: "owner", STATE_CONSENT_TOKEN: "opaque"})
+    candidates = [
+        {"userId": "user-1", "displayName": "Alex Smith"},
+        {"userId": "user-2", "displayName": "Alex Jones"},
+    ]
+    question = "Which Alex do you mean?"
+    if case == "too_many":
+        candidates = [{"userId": str(i), "displayName": "Alex"} for i in range(26)]
+    elif case == "empty":
+        candidates = []
+    elif case == "id_long":
+        candidates[0]["userId"] = "x" * 257
+    elif case == "name_long":
+        candidates[0]["displayName"] = "x" * 201
+    elif case == "question_long":
+        question = "x" * 501
+    elif case == "id_missing":
+        del candidates[0]["userId"]
+    elif case == "extra_mutation_ref":
+        candidates[0]["requestId"] = "request-1"
+    elif case == "duplicate":
+        candidates[1]["userId"] = "user-1"
+    elif case == "bad_candidate":
+        candidates[0] = None
+    result = SpecialistTurnResult(
+        conversation_id="conversation",
+        text="Which person?",
+        directive=A2ADirective(
+            kind="action" if case == "wrong_kind" else "prompt",
+            payload={
+                "type": "connections_choice",
+                "question": question,
+                "candidates": candidates,
+            },
+        ),
+        is_complete=case == "complete",
+        state_changed=False,
+        model="fixture",
+    )
+    with (
+        patch.object(_tree, "_task_from_context", new=AsyncMock(return_value=object())),
+        patch.object(_tree, "dispatch", new=AsyncMock(return_value=result)),
+        patch.object(_tree, "run_app_action", new=AsyncMock()) as execute,
+    ):
+        response = await _tree._specialist_turn(
+            "agent_nav", "review", context, specialist_target="connections"
+        )
+    execute.assert_not_awaited()
+    assert "directive" not in response
+    assert not any(key.startswith(STATE_PENDING_DIRECTIVE) for key in context.state)
+    if case == "valid":
+        assert response["clarification"] == {"question": question, "candidates": candidates}
+        assert response["clarification"]["candidates"] is not candidates
+        assert "Never expose the internal IDs" in response["next_step"]
+        assert "claim a choice card" in response["next_step"]
+    else:
+        assert response["status"] == "invalid_clarification"
+
+
+@pytest.mark.asyncio
+async def test_connections_parent_hop_preserves_child_domain_disable():
+    context = SimpleNamespace(
+        state={
+            STATE_USER_ID: "owner",
+            STATE_CONSENT_TOKEN: "opaque",
+            STATE_VOICE_CONTEXT: {"voice_settings": {"disabled_domains": ["connections"]}},
+        }
+    )
+    with patch.object(_tree, "dispatch", new=AsyncMock()) as dispatch:
+        result = await _tree._specialist_turn(
+            "agent_nav", "review people", context, specialist_target="connections"
+        )
+    assert result["status"] == "domain_disabled"
+    dispatch.assert_not_awaited()

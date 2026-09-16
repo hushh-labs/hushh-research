@@ -170,6 +170,13 @@ export function shouldDisableExternalTelemetryForAutomation(
   return isAutomatedReviewerSession(config);
 }
 
+/** Reviewer rehearsals must not send lifecycle mail from shared fixtures. */
+export function shouldSkipAuthMailForAutomation(
+  config: NativeTestConfig = getNativeTestConfig(),
+): boolean {
+  return isAutomatedReviewerSession(config);
+}
+
 function isAutomatedReviewerSession(config: NativeTestConfig): boolean {
   return isNativeUiTestSession(config) && config.autoReviewerLogin;
 }

@@ -2,7 +2,6 @@ import type { ReactNode } from "react";
 import { connection } from "next/server";
 
 import { OneAuthGate } from "./one-auth-gate";
-import { HushhIntroGate } from "@/components/app-ui/HushhIntroGate";
 
 export default async function OneLayout({ children }: { children: ReactNode }) {
   // Web requests must never reuse authenticated One HTML across people. The
@@ -14,16 +13,8 @@ export default async function OneLayout({ children }: { children: ReactNode }) {
     await connection();
   }
 
-  // HushhIntroGate sits one level above OneAuthGate (and therefore above
-  // VaultLockGuard and every other auth/vault guard). It does not just
-  // overlay them — it withholds `{children}` (OneAuthGate, VaultLockGuard,
-  // the eventual home page) from the tree entirely until its own intro
-  // animation finishes, so nothing below it can mount, re-render, or
-  // interrupt it mid-play, and there is exactly one splash trigger in the
-  // whole app. See that component's file header for the full rationale.
-  return (
-    <HushhIntroGate>
-      <OneAuthGate>{children}</OneAuthGate>
-    </HushhIntroGate>
-  );
+  // The authenticated One tree mounts directly. There is no post-login
+  // greeting splash or animation gate between the route and its auth/vault
+  // boundary.
+  return <OneAuthGate>{children}</OneAuthGate>;
 }

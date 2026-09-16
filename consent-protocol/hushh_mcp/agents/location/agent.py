@@ -22,7 +22,7 @@ class LocationAgent(HushhAgent):
     manifest: Any = None
     hushh_tools: Any = None
 
-    def __init__(self, tools: list[Any] | None = None) -> None:
+    def __init__(self, tools: list[Any] | None = None, model: Any | None = None) -> None:
         manifest_path = os.path.join(os.path.dirname(__file__), "agent.yaml")
         manifest = ManifestLoader.load(manifest_path)
 
@@ -30,10 +30,11 @@ class LocationAgent(HushhAgent):
 
         super().__init__(
             name=manifest.name,
-            model=manifest.model,
+            model=model if model is not None else manifest.model,
             system_prompt=manifest.system_instruction,
             tools=selected_tools,
             required_scopes=manifest.required_scopes,
+            mode=manifest.runtime.adk_mode,
         )
         self.manifest = manifest
         self.hushh_tools = selected_tools
@@ -62,6 +63,13 @@ class LocationAgent(HushhAgent):
             }
 
 
+def build_location_agent(
+    *, tools: list[Any] | None = None, model: Any | None = None
+) -> LocationAgent:
+    """Build a manifest-backed Location agent for one bounded ADK turn."""
+    return LocationAgent(tools=tools, model=model)
+
+
 _location_chat_agent_v2: LocationAgent | None = None
 
 
@@ -69,5 +77,5 @@ def get_location_chat_agent_v2() -> LocationAgent:
     """Singleton LocationAgent used by location chat and voice delegation."""
     global _location_chat_agent_v2
     if _location_chat_agent_v2 is None:
-        _location_chat_agent_v2 = LocationAgent(tools=V2_LOCATION_TOOLS)
+        _location_chat_agent_v2 = build_location_agent(tools=V2_LOCATION_TOOLS)
     return _location_chat_agent_v2

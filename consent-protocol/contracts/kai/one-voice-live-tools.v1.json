@@ -1,0 +1,2267 @@
+{
+  "schema_version": "one.voice.live_tools.v1",
+  "session_tools": [
+    "confirm_pending_action",
+    "cancel_pending_action",
+    "get_pending_action"
+  ],
+  "tools": [
+    {
+      "circle_args": [],
+      "description": "Record that the person accepted the Location sharing consent shown on screen, after they tap Confirm. Consent must be recorded BEFORE any device location permission prompt; the flow refuses the permission step until this is done.",
+      "firebase_plane": false,
+      "gateway_action_id": "location.setup.accept_consent",
+      "name": "accept_location_setup_consent",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "consent_version": {
+            "description": "The Location sharing consent version shown on screen. Never invent it.",
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Consent Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "consent_version"
+        ],
+        "type": "object"
+      },
+      "person_args": [],
+      "policy": "confirm_tap",
+      "result_statuses": [
+        "accepted"
+      ],
+      "tier": "tap",
+      "ui_refresh": [
+        "location_setup"
+      ]
+    },
+    {
+      "circle_args": [
+        "circle"
+      ],
+      "description": "Add a confirmed person to a confirmed circle. Only an existing connection who is eligible for that circle can be added; the result says whether they were added, are already a member, have a pending invitation, or are not connected (then share the circle's invite link instead). Both arguments are canonical ids, never names.",
+      "firebase_plane": false,
+      "gateway_action_id": "location.add_to_circle",
+      "name": "add_circle_member",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "circle": {
+            "additionalProperties": false,
+            "properties": {
+              "circle_id": {
+                "description": "Canonical circle id from list_circles/confirm_circle.",
+                "maxLength": 36,
+                "minLength": 36,
+                "title": "Circle Id",
+                "type": "string"
+              }
+            },
+            "required": [
+              "circle_id"
+            ],
+            "type": "object"
+          },
+          "person": {
+            "additionalProperties": false,
+            "description": "A canonical person reference. Only ids, never names.",
+            "properties": {
+              "user_id": {
+                "description": "Canonical user id from resolve_person/confirm_person.",
+                "maxLength": 128,
+                "minLength": 1,
+                "title": "User Id",
+                "type": "string"
+              }
+            },
+            "required": [
+              "user_id"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "circle",
+          "person"
+        ],
+        "type": "object"
+      },
+      "person_args": [
+        "person"
+      ],
+      "policy": "confirm_voice",
+      "result_statuses": [
+        "added",
+        "already_member",
+        "invite_pending",
+        "not_connected"
+      ],
+      "tier": "voice",
+      "ui_refresh": [
+        "location_circles"
+      ]
+    },
+    {
+      "circle_args": [],
+      "description": "Add a confirmed person to the emergency contacts who receive a Save My Soul alert. Takes a canonical person id only (resolve and confirm the person first). The person must be a connection with a verified phone who has finished Location setup; otherwise the result says which of those is missing.",
+      "firebase_plane": false,
+      "gateway_action_id": "location.add_emergency_contact",
+      "name": "add_emergency_contact",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "person": {
+            "additionalProperties": false,
+            "description": "A canonical person reference. Only ids, never names.",
+            "properties": {
+              "user_id": {
+                "description": "Canonical user id from resolve_person/confirm_person.",
+                "maxLength": 128,
+                "minLength": 1,
+                "title": "User Id",
+                "type": "string"
+              }
+            },
+            "required": [
+              "user_id"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "person"
+        ],
+        "type": "object"
+      },
+      "person_args": [
+        "person"
+      ],
+      "policy": "confirm_voice",
+      "result_statuses": [
+        "added",
+        "already_contact",
+        "not_connected",
+        "not_phone_verified"
+      ],
+      "tier": "voice",
+      "ui_refresh": [
+        "location_emergency_contacts",
+        "location_sos"
+      ]
+    },
+    {
+      "circle_args": [],
+      "description": "Record the next Location setup step: os_permission with the device's reported answer to the OS prompt (the server never shows the prompt), precision (precise or approximate), recipient_key once this device registered its location key, or complete to finish and turn sharing on. Steps must be taken in order after consent.",
+      "firebase_plane": false,
+      "gateway_action_id": "location.setup.advance",
+      "name": "advance_location_setup",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "os_permission_state": {
+            "anyOf": [
+              {
+                "enum": [
+                  "prompt",
+                  "granted",
+                  "denied"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "For step=os_permission: the outcome the device reported for the OS location prompt. The server never shows the prompt; only report what the device actually said.",
+            "title": "Os Permission State"
+          },
+          "precision": {
+            "anyOf": [
+              {
+                "enum": [
+                  "precise",
+                  "approximate"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "For step=precision: precise or approximate.",
+            "title": "Precision"
+          },
+          "step": {
+            "description": "Which step to record: os_permission (the device's answer to the location prompt), precision (precise or approximate), recipient_key (this device's location key), or complete (finish and turn sharing on).",
+            "enum": [
+              "os_permission",
+              "precision",
+              "recipient_key",
+              "complete"
+            ],
+            "title": "Step",
+            "type": "string"
+          }
+        },
+        "required": [
+          "step"
+        ],
+        "type": "object"
+      },
+      "person_args": [],
+      "policy": "direct",
+      "result_statuses": [
+        "advanced",
+        "consent_required",
+        "recipient_key_missing",
+        "step_order"
+      ],
+      "tier": null,
+      "ui_refresh": [
+        "location_setup",
+        "location_settings"
+      ]
+    },
+    {
+      "circle_args": [],
+      "description": "Cancel an outgoing circle invitation the person sent (or one into a circle they own), by its id from list_circle_invites.",
+      "firebase_plane": false,
+      "gateway_action_id": "location.decline_circle_invite",
+      "name": "cancel_circle_invite",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "invite_id": {
+            "description": "Invite id from list_circle_invites.",
+            "maxLength": 36,
+            "minLength": 36,
+            "title": "Invite Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "invite_id"
+        ],
+        "type": "object"
+      },
+      "person_args": [],
+      "policy": "confirm_voice",
+      "result_statuses": [
+        "already_cancelled",
+        "cancelled"
+      ],
+      "tier": "voice",
+      "ui_refresh": [
+        "location_circles",
+        "location_needs_review"
+      ]
+    },
+    {
+      "circle_args": [],
+      "description": "Withdraw one connection request the person sent, by request_id (from list_people's pending_outgoing).",
+      "firebase_plane": true,
+      "gateway_action_id": "people.profile.cancel_connection_request",
+      "name": "cancel_connection_request",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "person": {
+            "anyOf": [
+              {
+                "additionalProperties": false,
+                "description": "A canonical person reference. Only ids, never names.",
+                "properties": {
+                  "user_id": {
+                    "description": "Canonical user id from resolve_person/confirm_person.",
+                    "maxLength": 128,
+                    "minLength": 1,
+                    "title": "User Id",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "user_id"
+                ],
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "The confirmed person this request went to, when known. Only names the card."
+          },
+          "request_id": {
+            "description": "A request_id from list_people's pending_outgoing.",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Request Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "request_id"
+        ],
+        "type": "object"
+      },
+      "person_args": [],
+      "policy": "confirm_tap",
+      "result_statuses": [
+        "cancelled"
+      ],
+      "tier": "tap",
+      "ui_refresh": [
+        "location_people",
+        "connections"
+      ]
+    },
+    {
+      "circle_args": [],
+      "description": "Set a new length on a share you own (grant id from list_shares): a number of hours from now, or until you stop it. The share keeps the same id.",
+      "firebase_plane": false,
+      "gateway_action_id": "location.change_share_duration",
+      "name": "change_share_duration",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "duration_hours": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0,
+                "maximum": 24,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "New total length of the share from now, in hours. Required unless until_stopped.",
+            "title": "Duration Hours"
+          },
+          "grant_id": {
+            "description": "Grant id from list_shares (one you own).",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Grant Id",
+            "type": "string"
+          },
+          "until_stopped": {
+            "default": false,
+            "description": "Keep the share running until you stop it.",
+            "title": "Until Stopped",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "grant_id"
+        ],
+        "type": "object"
+      },
+      "person_args": [],
+      "policy": "confirm_voice",
+      "result_statuses": [
+        "not_active",
+        "not_found",
+        "updated"
+      ],
+      "tier": "voice",
+      "ui_refresh": [
+        "location_active_shares"
+      ]
+    },
+    {
+      "circle_args": [],
+      "description": "Confirm the circle the person meant. Only accepts an id offered by the most recent resolve_circle or list_circles call. Required before any circle mutation.",
+      "firebase_plane": false,
+      "gateway_action_id": "location.open_circles",
+      "name": "confirm_circle",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "circle_id": {
+            "description": "One of the ids offered by resolve_circle or list_circles.",
+            "maxLength": 36,
+            "minLength": 36,
+            "title": "Circle Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "circle_id"
+        ],
+        "type": "object"
+      },
+      "person_args": [],
+      "policy": "read",
+      "result_statuses": [
+        "confirmed"
+      ],
+      "tier": null,
+      "ui_refresh": []
+    },
+    {
+      "circle_args": [],
+      "description": "Confirm one candidate from the last resolve_person by user_id, after the person said which one they meant. Only offered ids are accepted.",
+      "firebase_plane": false,
+      "gateway_action_id": "location.find_contacts",
+      "name": "confirm_person",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "user_id": {
+            "description": "The user_id of the candidate the person chose. Must come from resolve_person.",
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "user_id"
+        ],
+        "type": "object"
+      },
+      "person_args": [],
+      "policy": "read",
+      "result_statuses": [
+        "confirmed"
+      ],
+      "tier": null,
+      "ui_refresh": []
+    },
+    {
+      "circle_args": [],
+      "description": "Send a confirmed connection a one-hour check-in with your position and an optional note. Creates the check-in; the device then publishes your position (client_step). Needs a canonical person id, never a name.",
+      "firebase_plane": false,
+      "gateway_action_id": "location.send_check_in",
+      "name": "create_check_in",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "note": {
+            "anyOf": [
+              {
+                "maxLength": 160,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Optional short note sent with your position, e.g. 'Home safe'.",
+            "title": "Note"
+          },
+          "person": {
+            "additionalProperties": false,
+            "description": "The confirmed person to send the check-in to.",
+            "properties": {
+              "user_id": {
+                "description": "Canonical user id from resolve_person/confirm_person.",
+                "maxLength": 128,
+                "minLength": 1,
+                "title": "User Id",
+                "type": "string"
+              }
+            },
+            "required": [
+              "user_id"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "person"
+        ],
+        "type": "object"
+      },
+      "person_args": [
+        "person"
+      ],
+      "policy": "confirm_voice",
+      "result_statuses": [
+        "check_in_created",
+        "not_connected",
+        "recipient_not_ready"
+      ],
+      "tier": "voice",
+      "ui_refresh": [
+        "location_active_shares",
+        "location_home"
+      ]
+    },
+    {
+      "circle_args": [],
+      "description": "Create an empty circle with the given name (kind family, friends, or other). Creating a circle sends no invitations and shares no location; adding people is a separate action. Reports already_exists when the person already owns one by that name.",
+      "firebase_plane": false,
+      "gateway_action_id": "location.create_circle",
+      "name": "create_circle",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "default": "other",
+            "enum": [
+              "family",
+              "friends",
+              "other"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "name": {
+            "description": "The circle's name.",
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "type": "object"
+      },
+      "person_args": [],
+      "policy": "confirm_voice",
+      "result_statuses": [
+        "already_exists",
+        "created"
+      ],
+      "tier": "voice",
+      "ui_refresh": [
+        "location_circles"
+      ]
+    },
+    {
+      "circle_args": [
+        "circle"
+      ],
+      "description": "Get a shareable join link for a circle the person owns and open the share sheet with it. This is the only way to invite someone who is not yet connected with the person: add_circle_member only works for existing eligible connections. Anyone who opens the link can join the circle. System circles have no link.",
+      "firebase_plane": false,
+      "gateway_action_id": "location.open_join_circle",
+      "name": "create_circle_invite_link",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "circle": {
+            "additionalProperties": false,
+            "properties": {
+              "circle_id": {
+                "description": "Canonical circle id from list_circles/confirm_circle.",
+                "maxLength": 36,
+                "minLength": 36,
+                "title": "Circle Id",
+                "type": "string"
+              }
+            },
+            "required": [
+              "circle_id"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "circle"
+        ],
+        "type": "object"
+      },
+      "person_args": [],
+      "policy": "confirm_voice",
+      "result_statuses": [
+        "link_ready"
+      ],
+      "tier": "voice",
+      "ui_refresh": []
+    },
+    {
+      "circle_args": [],
+      "description": "Create an expiring public location link anyone can open, for at most two hours. Returns the URL and a client_step to open the share sheet.",
+      "firebase_plane": false,
+      "gateway_action_id": "location.create_public_link",
+      "name": "create_public_link",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "duration_hours": {
+            "default": 1,
+            "description": "How long the link stays live, in hours: 0.25, 1, or 2 (at most two hours). Default 1.",
+            "exclusiveMinimum": 0,
+            "maximum": 2,
+            "title": "Duration Hours",
+            "type": "number"
+          }
+        },
+        "type": "object"
+      },
+      "person_args": [],
+      "policy": "confirm_voice",
+      "result_statuses": [
+        "created",
+        "reused"
+      ],
+      "tier": "voice",
+      "ui_refresh": [
+        "location_links"
+      ]
+    },
+    {
+      "circle_args": [
+        "circle"
+      ],
+      "description": "Permanently delete a circle the person owns. Every member loses the sharing that circle provided and it cannot be undone, so it needs a tap on the confirmation card.",
+      "firebase_plane": false,
+      "gateway_action_id": "location.delete_circle",
+      "name": "delete_circle",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "circle": {
+            "additionalProperties": false,
+            "properties": {
+              "circle_id": {
+                "description": "Canonical circle id from list_circles/confirm_circle.",
+                "maxLength": 36,
+                "minLength": 36,
+                "title": "Circle Id",
+                "type": "string"
+              }
+            },
+            "required": [
+              "circle_id"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "circle"
+        ],
+        "type": "object"
+      },
+      "person_args": [],
+      "policy": "confirm_tap",
+      "result_statuses": [
+        "deleted"
+      ],
+      "tier": "tap",
+      "ui_refresh": [
+        "location_circles"
+      ]
+    },
+    {
+      "circle_args": [],
+      "description": "Read the person's Location settings: sharing on/off/not set up, sharing precision, map visibility (hidden or visible), and automatic approval of location requests. Reads only.",
+      "firebase_plane": false,
+      "gateway_action_id": "location.open_settings",
+      "name": "get_location_settings",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {},
+        "type": "object"
+      },
+      "person_args": [],
+      "policy": "read",
+      "result_statuses": [
+        "ok"
+      ],
+      "tier": null,
+      "ui_refresh": []
+    },
+    {
+      "circle_args": [],
+      "description": "Read where the person is in Location setup: not started, the step they're on (consent, device permission, precision, device key), or done. Reads only.",
+      "firebase_plane": false,
+      "gateway_action_id": "location.setup.status",
+      "name": "get_location_setup_state",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {},
+        "type": "object"
+      },
+      "person_args": [],
+      "policy": "read",
+      "result_statuses": [
+        "done",
+        "in_progress",
+        "not_started"
+      ],
+      "tier": null,
+      "ui_refresh": []
+    },
+    {
+      "circle_args": [],
+      "description": "Read the person's own Location status: whether sharing with people is on, off, or not set up; the device location permission (a separate thing from app sharing); how many active shares, people sharing with them, requests waiting, and active links there are; whether Save My Soul is active; and map visibility. Reads only. Use it for 'am I sharing my location', 'who can see me', 'is my location on'.",
+      "firebase_plane": false,
+      "gateway_action_id": "location.open_now",
+      "name": "get_location_status",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {},
+        "type": "object"
+      },
+      "person_args": [],
+      "policy": "read",
+      "result_statuses": [
+        "ok"
+      ],
+      "tier": null,
+      "ui_refresh": []
+    },
+    {
+      "circle_args": [],
+      "description": "Fresh relationship and Location readiness for one confirmed person, plus the person's people counts. Read only.",
+      "firebase_plane": false,
+      "gateway_action_id": "location.open_people",
+      "name": "get_person",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "person": {
+            "additionalProperties": false,
+            "description": "A canonical person reference. Only ids, never names.",
+            "properties": {
+              "user_id": {
+                "description": "Canonical user id from resolve_person/confirm_person.",
+                "maxLength": 128,
+                "minLength": 1,
+                "title": "User Id",
+                "type": "string"
+              }
+            },
+            "required": [
+              "user_id"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "person"
+        ],
+        "type": "object"
+      },
+      "person_args": [
+        "person"
+      ],
+      "policy": "read",
+      "result_statuses": [
+        "not_found",
+        "ok"
+      ],
+      "tier": null,
+      "ui_refresh": []
+    },
+    {
+      "circle_args": [],
+      "description": "Read the person's privacy posture: whether people can find them by phone or email, marketplace opt-in, and whether Location sharing is on, off, or not set up.",
+      "firebase_plane": false,
+      "gateway_action_id": "route.profile_privacy",
+      "name": "get_privacy_settings",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {},
+        "type": "object"
+      },
+      "person_args": [],
+      "policy": "read",
+      "result_statuses": [
+        "ok"
+      ],
+      "tier": null,
+      "ui_refresh": []
+    },
+    {
+      "circle_args": [],
+      "description": "Read the person's own Hussh profile: display name, masked email, masked phone, whether a photo is set, verification, and active persona. Reads only; the raw email and phone are never returned.",
+      "firebase_plane": false,
+      "gateway_action_id": "route.profile",
+      "name": "get_profile",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {},
+        "type": "object"
+      },
+      "person_args": [],
+      "policy": "read",
+      "result_statuses": [
+        "ok"
+      ],
+      "tier": null,
+      "ui_refresh": []
+    },
+    {
+      "circle_args": [],
+      "description": "Read Save My Soul (SOS) status: the emergency contacts by name, whether each is phone-verified and can receive an encrypted location, whether an SOS is active now and how many live shares it holds, and the person's default for a bare emergency phrase (open the SOS screen, or go straight to the trigger card). Reads only; it never sends an alert.",
+      "firebase_plane": false,
+      "gateway_action_id": "location.open_sos",
+      "name": "get_save_my_soul_status",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {},
+        "type": "object"
+      },
+      "person_args": [],
+      "policy": "read",
+      "result_statuses": [
+        "active",
+        "no_emergency_contacts",
+        "ready"
+      ],
+      "tier": null,
+      "ui_refresh": []
+    },
+    {
+      "circle_args": [],
+      "description": "Hide the person on the map (Ghost Mode) right away; no confirmation needed because it only increases privacy. Existing private shares keep going for the people they were made for; this changes who can find them generally.",
+      "firebase_plane": false,
+      "gateway_action_id": "location.set_ghost_mode",
+      "name": "hide_on_map",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {},
+        "type": "object"
+      },
+      "person_args": [],
+      "policy": "direct",
+      "result_statuses": [
+        "hidden"
+      ],
+      "tier": null,
+      "ui_refresh": [
+        "location_settings",
+        "location_map"
+      ]
+    },
+    {
+      "circle_args": [],
+      "description": "Send a connection request to a confirmed person. Connecting grants no information. Reports already_connected or already_pending instead of sending twice.",
+      "firebase_plane": true,
+      "gateway_action_id": "people.profile.connect",
+      "name": "invite_person",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "message": {
+            "anyOf": [
+              {
+                "maxLength": 280,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Message"
+          },
+          "person": {
+            "additionalProperties": false,
+            "description": "A canonical person reference. Only ids, never names.",
+            "properties": {
+              "user_id": {
+                "description": "Canonical user id from resolve_person/confirm_person.",
+                "maxLength": 128,
+                "minLength": 1,
+                "title": "User Id",
+                "type": "string"
+              }
+            },
+            "required": [
+              "user_id"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "person"
+        ],
+        "type": "object"
+      },
+      "person_args": [
+        "person"
+      ],
+      "policy": "confirm_voice",
+      "result_statuses": [
+        "already_connected",
+        "already_pending",
+        "sent",
+        "unsupported"
+      ],
+      "tier": "voice",
+      "ui_refresh": [
+        "location_people",
+        "connections"
+      ]
+    },
+    {
+      "circle_args": [
+        "circle"
+      ],
+      "description": "Leave a circle the person is a member of but does not own. Ends the sharing that circle gave them, so it needs a tap on the confirmation card.",
+      "firebase_plane": false,
+      "gateway_action_id": "location.leave_circle",
+      "name": "leave_circle",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "circle": {
+            "additionalProperties": false,
+            "properties": {
+              "circle_id": {
+                "description": "Canonical circle id from list_circles/confirm_circle.",
+                "maxLength": 36,
+                "minLength": 36,
+                "title": "Circle Id",
+                "type": "string"
+              }
+            },
+            "required": [
+              "circle_id"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "circle"
+        ],
+        "type": "object"
+      },
+      "person_args": [],
+      "policy": "confirm_tap",
+      "result_statuses": [
+        "left"
+      ],
+      "tier": "tap",
+      "ui_refresh": [
+        "location_circles"
+      ]
+    },
+    {
+      "circle_args": [],
+      "description": "List circle invitations: incoming (waiting for the person to accept or decline), outgoing (sent by them or into circles they own), or all. Each invite carries its id and real status (pending, accepted, declined, cancelled, expired). Read only.",
+      "firebase_plane": false,
+      "gateway_action_id": "location.open_needs_review",
+      "name": "list_circle_invites",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "direction": {
+            "default": "all",
+            "enum": [
+              "incoming",
+              "outgoing",
+              "all"
+            ],
+            "title": "Direction",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "person_args": [],
+      "policy": "read",
+      "result_statuses": [
+        "none",
+        "ok"
+      ],
+      "tier": null,
+      "ui_refresh": []
+    },
+    {
+      "circle_args": [],
+      "description": "List the circles the person belongs to, with each circle's canonical id, name, kind, member count, and whether they own it. Read only. Use it before any circle action when you do not yet have a confirmed circle id.",
+      "firebase_plane": false,
+      "gateway_action_id": "location.open_circles",
+      "name": "list_circles",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {},
+        "type": "object"
+      },
+      "person_args": [],
+      "policy": "read",
+      "result_statuses": [
+        "none",
+        "ok"
+      ],
+      "tier": null,
+      "ui_refresh": []
+    },
+    {
+      "circle_args": [],
+      "description": "Read your public location links with their real status (active, expired, revoked), time left, and URL. Read this before revoking one.",
+      "firebase_plane": false,
+      "gateway_action_id": "location.open_links",
+      "name": "list_links",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {},
+        "type": "object"
+      },
+      "person_args": [],
+      "policy": "read",
+      "result_statuses": [
+        "empty",
+        "ok"
+      ],
+      "tier": null,
+      "ui_refresh": []
+    },
+    {
+      "circle_args": [],
+      "description": "Read the ratings the person has given to places they checked in at. Ratings are for places only: there is no such thing as rating a person, and this tool cannot rate anyone or anything. Answers unsupported when ratings aren't available for the account. Reads only.",
+      "firebase_plane": false,
+      "gateway_action_id": "location.open_ratings",
+      "name": "list_my_place_ratings",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {},
+        "type": "object"
+      },
+      "person_args": [],
+      "policy": "read",
+      "result_statuses": [
+        "empty",
+        "listed"
+      ],
+      "tier": null,
+      "ui_refresh": []
+    },
+    {
+      "circle_args": [],
+      "description": "List the person's connections, who can receive their location, and pending connection requests in both directions. Read only.",
+      "firebase_plane": false,
+      "gateway_action_id": "location.open_people",
+      "name": "list_people",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {},
+        "type": "object"
+      },
+      "person_args": [],
+      "policy": "read",
+      "result_statuses": [
+        "no_connections",
+        "ok"
+      ],
+      "tier": null,
+      "ui_refresh": []
+    },
+    {
+      "circle_args": [],
+      "description": "Read location requests: incoming (people asking for your location) and outgoing (requests you sent), with real statuses pending, approved, denied, cancelled or expired. Read this before approving, declining or withdrawing.",
+      "firebase_plane": false,
+      "gateway_action_id": "location.open_needs_review",
+      "name": "list_requests",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "direction": {
+            "default": "all",
+            "description": "incoming = people asking for your location; outgoing = requests you sent.",
+            "enum": [
+              "incoming",
+              "outgoing",
+              "all"
+            ],
+            "title": "Direction",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "person_args": [],
+      "policy": "read",
+      "result_statuses": [
+        "empty",
+        "ok"
+      ],
+      "tier": null,
+      "ui_refresh": []
+    },
+    {
+      "circle_args": [],
+      "description": "Read who you are sharing your location with and who is sharing with you, with each share's real status, time left, and whether a position has been sent yet. Read this before stopping or changing a share.",
+      "firebase_plane": false,
+      "gateway_action_id": "location.open_active_shares",
+      "name": "list_shares",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {},
+        "type": "object"
+      },
+      "person_args": [],
+      "policy": "read",
+      "result_statuses": [
+        "empty",
+        "ok"
+      ],
+      "tier": null,
+      "ui_refresh": []
+    },
+    {
+      "circle_args": [],
+      "description": "Open a screen in the app. Navigation only; it changes nothing. Use it for 'show my map', 'open Location settings', 'show my people', 'open my profile', 'open Save My Soul', 'start location setup'.",
+      "firebase_plane": false,
+      "gateway_action_id": "route.one_location",
+      "name": "open_screen",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "circle_id": {
+            "anyOf": [
+              {
+                "maxLength": 36,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Circle Id"
+          },
+          "screen": {
+            "description": "The screen to open. Only these ids exist.",
+            "enum": [
+              "location_home",
+              "location_people",
+              "location_links",
+              "location_circles",
+              "location_share",
+              "location_ask",
+              "location_invite",
+              "location_create_circle",
+              "location_join_circle",
+              "location_check_in",
+              "location_sos",
+              "location_emergency_contacts",
+              "location_settings",
+              "location_active_shares",
+              "location_shared_with_me",
+              "location_needs_review",
+              "location_map",
+              "location_ratings",
+              "location_setup",
+              "connections",
+              "profile",
+              "profile_privacy",
+              "profile_voice_preferences"
+            ],
+            "title": "Screen",
+            "type": "string"
+          },
+          "user_id": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "User Id"
+          }
+        },
+        "required": [
+          "screen"
+        ],
+        "type": "object"
+      },
+      "person_args": [],
+      "policy": "direct",
+      "result_statuses": [
+        "navigation_dispatched",
+        "rejected"
+      ],
+      "tier": null,
+      "ui_refresh": []
+    },
+    {
+      "circle_args": [
+        "circle"
+      ],
+      "description": "Remove a confirmed person from a circle the person owns. Revokes what that circle shared with them, so it needs a tap on the confirmation card.",
+      "firebase_plane": false,
+      "gateway_action_id": "location.remove_from_circle",
+      "name": "remove_circle_member",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "circle": {
+            "additionalProperties": false,
+            "properties": {
+              "circle_id": {
+                "description": "Canonical circle id from list_circles/confirm_circle.",
+                "maxLength": 36,
+                "minLength": 36,
+                "title": "Circle Id",
+                "type": "string"
+              }
+            },
+            "required": [
+              "circle_id"
+            ],
+            "type": "object"
+          },
+          "person": {
+            "additionalProperties": false,
+            "description": "A canonical person reference. Only ids, never names.",
+            "properties": {
+              "user_id": {
+                "description": "Canonical user id from resolve_person/confirm_person.",
+                "maxLength": 128,
+                "minLength": 1,
+                "title": "User Id",
+                "type": "string"
+              }
+            },
+            "required": [
+              "user_id"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "circle",
+          "person"
+        ],
+        "type": "object"
+      },
+      "person_args": [
+        "person"
+      ],
+      "policy": "confirm_tap",
+      "result_statuses": [
+        "removed"
+      ],
+      "tier": "tap",
+      "ui_refresh": [
+        "location_circles"
+      ]
+    },
+    {
+      "circle_args": [],
+      "description": "End the connection with a confirmed person. Location sharing with them stops; other consent is governed separately.",
+      "firebase_plane": true,
+      "gateway_action_id": "people.profile.remove_connection",
+      "name": "remove_connection",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "person": {
+            "additionalProperties": false,
+            "description": "A canonical person reference. Only ids, never names.",
+            "properties": {
+              "user_id": {
+                "description": "Canonical user id from resolve_person/confirm_person.",
+                "maxLength": 128,
+                "minLength": 1,
+                "title": "User Id",
+                "type": "string"
+              }
+            },
+            "required": [
+              "user_id"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "person"
+        ],
+        "type": "object"
+      },
+      "person_args": [
+        "person"
+      ],
+      "policy": "confirm_tap",
+      "result_statuses": [
+        "not_connected",
+        "removed"
+      ],
+      "tier": "tap",
+      "ui_refresh": [
+        "location_people",
+        "connections"
+      ]
+    },
+    {
+      "circle_args": [],
+      "description": "Remove a confirmed person from the emergency contacts, so they no longer receive a Save My Soul alert. Takes a canonical person id only (resolve and confirm the person first). Does not end an SOS share that is already live.",
+      "firebase_plane": false,
+      "gateway_action_id": "location.remove_emergency_contact",
+      "name": "remove_emergency_contact",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "person": {
+            "additionalProperties": false,
+            "description": "A canonical person reference. Only ids, never names.",
+            "properties": {
+              "user_id": {
+                "description": "Canonical user id from resolve_person/confirm_person.",
+                "maxLength": 128,
+                "minLength": 1,
+                "title": "User Id",
+                "type": "string"
+              }
+            },
+            "required": [
+              "user_id"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "person"
+        ],
+        "type": "object"
+      },
+      "person_args": [
+        "person"
+      ],
+      "policy": "confirm_tap",
+      "result_statuses": [
+        "not_a_contact",
+        "removed"
+      ],
+      "tier": "tap",
+      "ui_refresh": [
+        "location_emergency_contacts",
+        "location_sos"
+      ]
+    },
+    {
+      "circle_args": [
+        "circle"
+      ],
+      "description": "Rename a circle the person owns. Takes a confirmed circle id, never a spoken name.",
+      "firebase_plane": false,
+      "gateway_action_id": "location.rename_circle",
+      "name": "rename_circle",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "circle": {
+            "additionalProperties": false,
+            "properties": {
+              "circle_id": {
+                "description": "Canonical circle id from list_circles/confirm_circle.",
+                "maxLength": 36,
+                "minLength": 36,
+                "title": "Circle Id",
+                "type": "string"
+              }
+            },
+            "required": [
+              "circle_id"
+            ],
+            "type": "object"
+          },
+          "name": {
+            "description": "The new name.",
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "circle",
+          "name"
+        ],
+        "type": "object"
+      },
+      "person_args": [],
+      "policy": "confirm_voice",
+      "result_statuses": [
+        "renamed"
+      ],
+      "tier": "voice",
+      "ui_refresh": [
+        "location_circles"
+      ]
+    },
+    {
+      "circle_args": [],
+      "description": "Verify on the server whether a Save My Soul position actually reached each contact: for the grant ids from trigger_save_my_soul, a contact counts as reached only when an encrypted position envelope is stored on their grant. Call it after the publish_location_envelopes client step finishes. Returns sos_sent, sos_partial, or sos_not_sent with the real names reached and not reached.",
+      "firebase_plane": false,
+      "gateway_action_id": "location.trigger_sos",
+      "name": "report_save_my_soul_delivery",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "grant_ids": {
+            "description": "Grant ids returned by trigger_save_my_soul.",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 50,
+            "minItems": 1,
+            "title": "Grant Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "grant_ids"
+        ],
+        "type": "object"
+      },
+      "person_args": [],
+      "policy": "read",
+      "result_statuses": [
+        "sos_not_sent",
+        "sos_partial",
+        "sos_sent"
+      ],
+      "tier": null,
+      "ui_refresh": []
+    },
+    {
+      "circle_args": [],
+      "description": "Ask a confirmed person to share their location with you for a while. Sends a request they must approve; nothing is visible until they do. Needs a canonical person id from resolve_person/confirm_person, never a name.",
+      "firebase_plane": false,
+      "gateway_action_id": "location.send_request",
+      "name": "request_location",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "duration_hours": {
+            "default": 1,
+            "description": "How long you want to see them for, in hours (15 minutes to 24 hours). Default 1.",
+            "exclusiveMinimum": 0,
+            "maximum": 24,
+            "title": "Duration Hours",
+            "type": "number"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Optional short note the person sees with the request.",
+            "title": "Message"
+          },
+          "person": {
+            "additionalProperties": false,
+            "description": "The confirmed person whose location to ask for.",
+            "properties": {
+              "user_id": {
+                "description": "Canonical user id from resolve_person/confirm_person.",
+                "maxLength": 128,
+                "minLength": 1,
+                "title": "User Id",
+                "type": "string"
+              }
+            },
+            "required": [
+              "user_id"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "person"
+        ],
+        "type": "object"
+      },
+      "person_args": [
+        "person"
+      ],
+      "policy": "confirm_voice",
+      "result_statuses": [
+        "already_pending",
+        "approved",
+        "not_connected",
+        "pending",
+        "recipient_not_ready"
+      ],
+      "tier": "voice",
+      "ui_refresh": [
+        "location_people"
+      ]
+    },
+    {
+      "circle_args": [],
+      "description": "Find which of the person's circles a spoken name refers to. Returns candidate circles (single_likely, multiple, or none) and never confirms one on its own: read the candidate's name back and call confirm_circle with its id once the person agrees.",
+      "firebase_plane": false,
+      "gateway_action_id": "location.open_circles",
+      "name": "resolve_circle",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "spoken_name": {
+            "description": "The circle name as the person said it. Suggestion only; never an id.",
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Spoken Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "spoken_name"
+        ],
+        "type": "object"
+      },
+      "person_args": [],
+      "policy": "read",
+      "result_statuses": [
+        "multiple",
+        "none",
+        "single_likely"
+      ],
+      "tier": null,
+      "ui_refresh": []
+    },
+    {
+      "circle_args": [],
+      "description": "Find who the person means by a spoken name. Returns candidates to read back; it never picks one. Always follow with confirm_person after the person agrees, even when only one candidate is likely. Use pool='directory' only to invite someone new.",
+      "firebase_plane": false,
+      "gateway_action_id": "location.find_contacts",
+      "name": "resolve_person",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "pool": {
+            "default": "connections",
+            "description": "'connections' = people already in your life (connected, location-ready, or with a pending request). 'directory' = anyone findable on Hussh, for inviting someone new.",
+            "enum": [
+              "connections",
+              "directory"
+            ],
+            "title": "Pool",
+            "type": "string"
+          },
+          "spoken_name": {
+            "description": "One name exactly as the person said it.",
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Spoken Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "spoken_name"
+        ],
+        "type": "object"
+      },
+      "person_args": [],
+      "policy": "read",
+      "result_statuses": [
+        "low_confidence",
+        "multiple",
+        "no_connections",
+        "none",
+        "single_likely"
+      ],
+      "tier": null,
+      "ui_refresh": []
+    },
+    {
+      "circle_args": [],
+      "description": "Accept or decline an incoming circle invitation by its id from list_circle_invites. Accepting joins the circle; declining closes the invitation.",
+      "firebase_plane": false,
+      "gateway_action_id": "location.accept_circle_invite",
+      "name": "respond_circle_invite",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "accept": {
+            "description": "True to accept, false to decline.",
+            "title": "Accept",
+            "type": "boolean"
+          },
+          "invite_id": {
+            "description": "Invite id from list_circle_invites.",
+            "maxLength": 36,
+            "minLength": 36,
+            "title": "Invite Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "invite_id",
+          "accept"
+        ],
+        "type": "object"
+      },
+      "person_args": [],
+      "policy": "confirm_voice",
+      "result_statuses": [
+        "accepted",
+        "already_responded",
+        "declined"
+      ],
+      "tier": "voice",
+      "ui_refresh": [
+        "location_circles",
+        "location_needs_review"
+      ]
+    },
+    {
+      "circle_args": [],
+      "description": "Accept or decline one incoming connection request by request_id (from list_people's pending_incoming).",
+      "firebase_plane": true,
+      "gateway_action_id": "people.profile.connect",
+      "name": "respond_connection_request",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "accept": {
+            "description": "true to accept, false to decline.",
+            "title": "Accept",
+            "type": "boolean"
+          },
+          "person": {
+            "anyOf": [
+              {
+                "additionalProperties": false,
+                "description": "A canonical person reference. Only ids, never names.",
+                "properties": {
+                  "user_id": {
+                    "description": "Canonical user id from resolve_person/confirm_person.",
+                    "maxLength": 128,
+                    "minLength": 1,
+                    "title": "User Id",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "user_id"
+                ],
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "The confirmed person this request is from, when known. Only names the card."
+          },
+          "request_id": {
+            "description": "A request_id from list_people's pending_incoming.",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Request Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "request_id",
+          "accept"
+        ],
+        "type": "object"
+      },
+      "person_args": [],
+      "policy": "confirm_voice",
+      "result_statuses": [
+        "accepted",
+        "rejected"
+      ],
+      "tier": "voice",
+      "ui_refresh": [
+        "location_people",
+        "connections"
+      ]
+    },
+    {
+      "circle_args": [],
+      "description": "Approve or decline one incoming location request by its id from list_requests. Approving starts a share for the time they asked (or duration_hours). Bound to the approve gateway action for both outcomes: one tool answers the request either way.",
+      "firebase_plane": false,
+      "gateway_action_id": "location.approve_request",
+      "name": "respond_request",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "approve": {
+            "description": "true to approve and start sharing, false to decline.",
+            "title": "Approve",
+            "type": "boolean"
+          },
+          "duration_hours": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0,
+                "maximum": 24,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "On approve: how long to share, in hours. Leave unset to give what they asked for.",
+            "title": "Duration Hours"
+          },
+          "request_id": {
+            "description": "Request id from list_requests (incoming).",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Request Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "request_id",
+          "approve"
+        ],
+        "type": "object"
+      },
+      "person_args": [],
+      "policy": "confirm_voice",
+      "result_statuses": [
+        "approved",
+        "denied",
+        "expired",
+        "not_found"
+      ],
+      "tier": "voice",
+      "ui_refresh": [
+        "location_needs_review",
+        "location_active_shares"
+      ]
+    },
+    {
+      "circle_args": [],
+      "description": "Revoke a live public location link by its id from list_links, after the person taps Confirm. The link stops opening for everyone.",
+      "firebase_plane": false,
+      "gateway_action_id": "location.revoke_public_link",
+      "name": "revoke_public_link",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "invite_id": {
+            "description": "Link id from list_links.",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Invite Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "invite_id"
+        ],
+        "type": "object"
+      },
+      "person_args": [],
+      "policy": "confirm_tap",
+      "result_statuses": [
+        "not_found",
+        "revoked"
+      ],
+      "tier": "tap",
+      "ui_refresh": [
+        "location_links"
+      ]
+    },
+    {
+      "circle_args": [],
+      "description": "Turn automatic approval of incoming location requests on or off after the person confirms. When enabling, scope is all_contacts, or circle/circles with canonical circle ids that were confirmed in this conversation (never a spoken name). Applies only to requests that arrive afterwards; requests already waiting still need an answer.",
+      "firebase_plane": false,
+      "gateway_action_id": "location.set_auto_share",
+      "name": "set_auto_approve",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "circle_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "maxLength": 36,
+                  "minLength": 36,
+                  "type": "string"
+                },
+                "maxItems": 20,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Canonical circle ids from list_circles/confirm_circle for scope circle or circles. Never a spoken circle name.",
+            "title": "Circle Ids"
+          },
+          "enabled": {
+            "description": "True approves new location requests automatically; False stops that.",
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "scope": {
+            "anyOf": [
+              {
+                "enum": [
+                  "all_contacts",
+                  "circle",
+                  "circles"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Who may be auto-approved when enabling: all_contacts, circle (exactly one circle_id), or circles (one or more circle_ids). Ignored when disabling.",
+            "title": "Scope"
+          }
+        },
+        "required": [
+          "enabled"
+        ],
+        "type": "object"
+      },
+      "person_args": [],
+      "policy": "confirm_voice",
+      "result_statuses": [
+        "off",
+        "on"
+      ],
+      "tier": "voice",
+      "ui_refresh": [
+        "location_settings"
+      ]
+    },
+    {
+      "circle_args": [],
+      "description": "Turn contact matching on or off after the person taps Confirm. On means people who have their number or email can find and auto-connect with them. Turning it on needs the consent_version of the disclosure they accepted on screen.",
+      "firebase_plane": true,
+      "gateway_action_id": "profile.set_contact_discoverable",
+      "name": "set_contact_discoverable",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "consent_version": {
+            "anyOf": [
+              {
+                "maxLength": 80,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "The contact-sync consent disclosure version the person accepted on screen. Required to enable; never invent it.",
+            "title": "Consent Version"
+          },
+          "enabled": {
+            "description": "True lets people who have your number or email find and connect with you.",
+            "title": "Enabled",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "enabled"
+        ],
+        "type": "object"
+      },
+      "person_args": [],
+      "policy": "confirm_tap",
+      "result_statuses": [
+        "consent_required",
+        "updated"
+      ],
+      "tier": "tap",
+      "ui_refresh": [
+        "profile_privacy"
+      ]
+    },
+    {
+      "circle_args": [],
+      "description": "Choose precise or approximate sharing precision after the person confirms. The server only stores the preference: positions are encrypted on the device, so the coarsening itself happens on this device and the server cannot see or adjust coordinates. Save My Soul shares are always precise regardless of this setting.",
+      "firebase_plane": false,
+      "gateway_action_id": "location.set_precision",
+      "name": "set_precision",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "precision": {
+            "description": "precise shares the device's exact position; approximate coarsens it on the device.",
+            "enum": [
+              "precise",
+              "approximate"
+            ],
+            "title": "Precision",
+            "type": "string"
+          }
+        },
+        "required": [
+          "precision"
+        ],
+        "type": "object"
+      },
+      "person_args": [],
+      "policy": "confirm_voice",
+      "result_statuses": [
+        "approximate",
+        "precise"
+      ],
+      "tier": "voice",
+      "ui_refresh": [
+        "location_settings"
+      ]
+    },
+    {
+      "circle_args": [],
+      "description": "Share your live location with a confirmed connection for a fixed time or until stopped. Creates the share; the device then publishes your position (client_step). Needs a canonical person id, never a name.",
+      "firebase_plane": false,
+      "gateway_action_id": "location.share_selected",
+      "name": "share_with",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "duration_hours": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0,
+                "maximum": 24,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": 1,
+            "description": "How long to share, in hours (15 minutes to 24 hours). Default 1. Ignored when until_stopped.",
+            "title": "Duration Hours"
+          },
+          "person": {
+            "additionalProperties": false,
+            "description": "The confirmed person to share your location with.",
+            "properties": {
+              "user_id": {
+                "description": "Canonical user id from resolve_person/confirm_person.",
+                "maxLength": 128,
+                "minLength": 1,
+                "title": "User Id",
+                "type": "string"
+              }
+            },
+            "required": [
+              "user_id"
+            ],
+            "type": "object"
+          },
+          "until_stopped": {
+            "default": false,
+            "description": "Share until you stop it instead of for a fixed time.",
+            "title": "Until Stopped",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "person"
+        ],
+        "type": "object"
+      },
+      "person_args": [
+        "person"
+      ],
+      "policy": "confirm_voice",
+      "result_statuses": [
+        "grant_created",
+        "not_connected",
+        "recipient_not_ready"
+      ],
+      "tier": "voice",
+      "ui_refresh": [
+        "location_active_shares",
+        "location_home"
+      ]
+    },
+    {
+      "circle_args": [],
+      "description": "Make the person visible on the map (turn Ghost Mode off) after they confirm. Refused while owner-level sharing is off. It does not start any share.",
+      "firebase_plane": false,
+      "gateway_action_id": "location.set_ghost_mode",
+      "name": "show_on_map",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {},
+        "type": "object"
+      },
+      "person_args": [],
+      "policy": "confirm_voice",
+      "result_statuses": [
+        "visible"
+      ],
+      "tier": "voice",
+      "ui_refresh": [
+        "location_settings",
+        "location_map"
+      ]
+    },
+    {
+      "circle_args": [],
+      "description": "Start or resume Location setup and open the setup flow on screen. Idempotent: an existing run resumes at its current step. Changes no sharing state by itself.",
+      "firebase_plane": false,
+      "gateway_action_id": "location.setup.start",
+      "name": "start_location_setup",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {},
+        "type": "object"
+      },
+      "person_args": [],
+      "policy": "direct",
+      "result_statuses": [
+        "done",
+        "resumed",
+        "started"
+      ],
+      "tier": null,
+      "ui_refresh": [
+        "location_setup"
+      ]
+    },
+    {
+      "circle_args": [],
+      "description": "Stop the active Save My Soul: after the person taps Confirm, every live SOS location share is revoked. Reports the real number of shares ended. It does not tell anyone the person is safe.",
+      "firebase_plane": false,
+      "gateway_action_id": "location.stop_sos",
+      "name": "stop_save_my_soul",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {},
+        "type": "object"
+      },
+      "person_args": [],
+      "policy": "confirm_tap",
+      "result_statuses": [
+        "not_active",
+        "sos_stopped"
+      ],
+      "tier": "tap",
+      "ui_refresh": [
+        "location_sos",
+        "location_home"
+      ]
+    },
+    {
+      "circle_args": [],
+      "description": "Stop one location share immediately by its grant id from list_shares, after the person taps Confirm. Works for a share you own or one you receive.",
+      "firebase_plane": false,
+      "gateway_action_id": "location.stop_share",
+      "name": "stop_share",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "grant_id": {
+            "description": "Grant id from list_shares.",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Grant Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "grant_id"
+        ],
+        "type": "object"
+      },
+      "person_args": [],
+      "policy": "confirm_tap",
+      "result_statuses": [
+        "not_found",
+        "stopped"
+      ],
+      "tier": "tap",
+      "ui_refresh": [
+        "location_active_shares",
+        "location_shared_with_me"
+      ]
+    },
+    {
+      "circle_args": [],
+      "description": "Arm a Save My Soul alert: after the person taps Confirm, one 8-hour SOS location share is created for every emergency contact who can receive it. The server holds no position, so this only ARMS the alert and returns a client_step (publish_location_envelopes) that the app runs to send the encrypted position. Never say the alert was 'sent' from this result: 'sent' may only be reported after the client publishes and report_save_my_soul_delivery verifies it on the server. It does not call emergency services. Optional note: a short message for the contacts.",
+      "firebase_plane": false,
+      "gateway_action_id": "location.trigger_sos",
+      "name": "trigger_save_my_soul",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "note": {
+            "anyOf": [
+              {
+                "maxLength": 140,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Optional short message shown to the contacts with the alert.",
+            "title": "Note"
+          }
+        },
+        "type": "object"
+      },
+      "person_args": [],
+      "policy": "confirm_tap",
+      "result_statuses": [
+        "already_active",
+        "no_emergency_contacts",
+        "sos_grants_created"
+      ],
+      "tier": "tap",
+      "ui_refresh": [
+        "location_sos",
+        "location_home"
+      ]
+    },
+    {
+      "circle_args": [],
+      "description": "Turn owner-level location sharing off after the person taps Confirm. This stops every active share and every active link in the same transaction and hides them on the map. An active Save My Soul share blocks it (sos_active) unless include_sos is set because the person explicitly asked to stop SOS too.",
+      "firebase_plane": false,
+      "gateway_action_id": "location.set_sharing_enabled",
+      "name": "turn_sharing_off",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "include_sos": {
+            "default": false,
+            "description": "Also stop an active Save My Soul share. Only set this when the person explicitly said to stop SOS too; otherwise an active SOS keeps sharing on.",
+            "title": "Include Sos",
+            "type": "boolean"
+          }
+        },
+        "type": "object"
+      },
+      "person_args": [],
+      "policy": "confirm_tap",
+      "result_statuses": [
+        "off",
+        "sos_active"
+      ],
+      "tier": "tap",
+      "ui_refresh": [
+        "location_state",
+        "location_settings",
+        "location_map"
+      ]
+    },
+    {
+      "circle_args": [],
+      "description": "Turn owner-level location sharing on after the person confirms. Needs recorded consent (answers consent_required otherwise) and completed Location setup (answers setup_required otherwise). Turning it on does not start any share; it allows shares again. The device permission is separate and is not changed here.",
+      "firebase_plane": false,
+      "gateway_action_id": "location.set_sharing_enabled",
+      "name": "turn_sharing_on",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "consent_version": {
+            "anyOf": [
+              {
+                "maxLength": 80,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "The Location sharing consent version the person accepted on screen, if the app supplied one. Never invent it; leave it unset and the server answers consent_required.",
+            "title": "Consent Version"
+          }
+        },
+        "type": "object"
+      },
+      "person_args": [],
+      "policy": "confirm_voice",
+      "result_statuses": [
+        "consent_required",
+        "on",
+        "setup_required"
+      ],
+      "tier": "voice",
+      "ui_refresh": [
+        "location_state",
+        "location_settings"
+      ]
+    },
+    {
+      "circle_args": [],
+      "description": "Change the person's own Hussh display name after they tap Confirm. 2-60 characters, no links or handles. This is the caller's own name, never another person.",
+      "firebase_plane": true,
+      "gateway_action_id": "profile.update_display_name",
+      "name": "update_display_name",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "display_name": {
+            "description": "The person's own new Hussh name, exactly as they said it (2-60 characters, no links or handles).",
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Display Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "display_name"
+        ],
+        "type": "object"
+      },
+      "person_args": [],
+      "policy": "confirm_tap",
+      "result_statuses": [
+        "invalid",
+        "unavailable",
+        "updated"
+      ],
+      "tier": "tap",
+      "ui_refresh": [
+        "profile"
+      ]
+    },
+    {
+      "circle_args": [],
+      "description": "Take back a pending location request you sent, by its id from list_requests (outgoing). Only pending requests can be withdrawn.",
+      "firebase_plane": false,
+      "gateway_action_id": "location.send_request",
+      "name": "withdraw_request",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "request_id": {
+            "description": "Request id from list_requests (outgoing).",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Request Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "request_id"
+        ],
+        "type": "object"
+      },
+      "person_args": [],
+      "policy": "confirm_voice",
+      "result_statuses": [
+        "expired",
+        "not_found",
+        "withdrawn"
+      ],
+      "tier": "voice",
+      "ui_refresh": [
+        "location_people"
+      ]
+    }
+  ]
+}

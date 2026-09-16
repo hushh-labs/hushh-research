@@ -41,6 +41,7 @@ import hashlib
 import json
 import logging
 import os
+import time
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
@@ -57,10 +58,24 @@ logger = logging.getLogger(__name__)
 
 _BACKGROUND_SCAN_LIMIT_ENV = "CONSENT_BACKGROUND_SCAN_LIMIT"
 _DEFAULT_BACKGROUND_SCAN_LIMIT = 2000
+# Every action that ends a request must be here: the reminder scan keeps the
+# latest row per request from this list only, so a resolution it cannot see
+# leaves the REQUESTED row current and the owner keeps being reminded.
 _BACKGROUND_CONSENT_ACTIONS = [
     "REQUESTED",
     "CONSENT_GRANTED",
     "CONSENT_DENIED",
+    "CANCELLED",
+    "REVOKED",
+    "TIMEOUT",
+]
+# Actions after which a request may never gain a TIMEOUT row. A request the
+# requester withdrew, or the owner already answered, is resolved; a later
+# TIMEOUT would become its latest event and read as "expired".
+_REQUEST_RESOLVED_ACTIONS = [
+    "CANCELLED",
+    "CONSENT_DENIED",
+    "CONSENT_GRANTED",
     "REVOKED",
     "TIMEOUT",
 ]
@@ -1501,6 +1516,64 @@ class ConsentDBService:
     # Event Insertion
     # =========================================================================
 
+    async def record_export_read_once(
+        self,
+        *,
+        user_id: str,
+        agent_id: str,
+        scope: str,
+        request_id: str,
+        metadata: Optional[Dict] = None,
+    ) -> Optional[int]:
+        """Atomically record a read per owner/request in a rolling one-hour window.
+
+        The transaction lock covers lookup and insertion across workers. The
+        normal audit-table triggers still run, but suppressed reads insert no
+        row and produce no notification. Return None for a suppressed read.
+        """
+
+        def record():
+            with self._get_db().engine.begin() as connection:
+                if connection.dialect.name == "postgresql":
+                    connection.execute(
+                        text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
+                        {"key": "export-read:" + json.dumps([user_id, request_id])},
+                    )
+                elif connection.dialect.name == "sqlite":
+                    # Offline SQLite must acquire its writer lock before reading,
+                    # including when the database is shared by separate processes.
+                    connection.exec_driver_sql("BEGIN IMMEDIATE")
+                else:
+                    raise RuntimeError("Export read deduplication requires PostgreSQL or SQLite")
+                issued_at = int(time.time() * 1000)
+                last_read_at = connection.execute(
+                    text("""SELECT issued_at FROM consent_audit
+                        WHERE user_id = :user_id AND request_id = :request_id
+                          AND action = 'EXPORT_READ'
+                        ORDER BY issued_at DESC LIMIT 1"""),
+                    {"user_id": user_id, "request_id": request_id},
+                ).scalar_one_or_none()
+                if last_read_at is not None and issued_at - int(last_read_at) < 3_600_000:
+                    return None
+                return connection.execute(
+                    text("""INSERT INTO consent_audit
+                        (token_id, user_id, agent_id, scope, action, request_id,
+                         issued_at, metadata)
+                        VALUES (:token_id, :user_id, :agent_id, :scope, 'EXPORT_READ',
+                                :request_id, :issued_at, :metadata) RETURNING id"""),
+                    {
+                        "token_id": f"evt_{issued_at}",
+                        "user_id": user_id,
+                        "agent_id": agent_id,
+                        "scope": scope,
+                        "request_id": request_id,
+                        "issued_at": issued_at,
+                        "metadata": json.dumps(metadata) if metadata else None,
+                    },
+                ).scalar_one()
+
+        return await asyncio.to_thread(record)
+
     async def insert_event(
         self,
         user_id: str,
@@ -1751,8 +1824,12 @@ class ConsentDBService:
 
     async def get_timed_out_requests(self) -> List[Dict]:
         """
-        Return REQUESTED rows that have passed poll_timeout_at and do not yet have a TIMEOUT event.
+        Return REQUESTED rows that have passed poll_timeout_at and are still open.
         Used by the optional timeout job to emit TIMEOUT events over SSE.
+
+        A request that already carries a resolving action (cancelled, denied,
+        granted, revoked, or timed out) is excluded, so a withdrawn or answered
+        request never gains a TIMEOUT row.
         """
         db = self._get_db()
         now_ms = int(datetime.now(tz=timezone.utc).timestamp() * 1000)
@@ -1791,15 +1868,15 @@ class ConsentDBService:
         request_ids = list(by_req.keys())
         if not request_ids:
             return []
-        # Which of these already have a TIMEOUT?
-        timeout_resp = (
+        # Which of these are already resolved (or already timed out)?
+        resolved_resp = (
             db.table("consent_audit")
             .select("request_id")
-            .eq("action", "TIMEOUT")
+            .in_("action", _REQUEST_RESOLVED_ACTIONS)
             .in_("request_id", request_ids)
             .execute()
         )
-        already = {r.get("request_id") for r in (timeout_resp.data or []) if r.get("request_id")}
+        already = {r.get("request_id") for r in (resolved_resp.data or []) if r.get("request_id")}
         return [by_req[rid] for rid in request_ids if rid not in already]
 
     async def emit_timeout_events(self) -> int:
@@ -1988,6 +2065,10 @@ class ConsentDBService:
         """
         Get recent consent events after a timestamp for SSE streaming.
 
+        State transitions only. EXPORT_READ is an audit record of a grant being
+        read; the stream's consumer treats every non-REQUESTED event as a
+        resolution and dedupes by request id, so it would shadow the grant.
+
         Args:
             user_id: The user ID
             after_timestamp_ms: Only get events after this timestamp (ms)
@@ -2068,7 +2149,11 @@ class ConsentDBService:
         return None
 
     async def get_request_status(self, user_id: str, request_id: str) -> Optional[Dict]:
-        """Return the latest external consent event for one request_id."""
+        """Return the latest external consent event for one request_id.
+
+        EXPORT_READ rows are an audit trail of the grant being read, not a
+        state transition, so they are skipped: the GRANTED row stays current.
+        """
         db = self._get_db()
 
         response = (
@@ -2078,6 +2163,7 @@ class ConsentDBService:
             )
             .eq("user_id", user_id)
             .eq("request_id", request_id)
+            .neq("action", "EXPORT_READ")
             .order("issued_at", desc=True)
             .limit(1)
             .execute()

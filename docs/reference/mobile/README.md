@@ -25,7 +25,7 @@ Native checks have two deliberately separate lanes:
 - `npm run ios:cold:audit` and `npm run android:cold:audit` are destructive fixture audits. They reset app state and use a reviewer fixture to prove cold-start route behavior. They do not prove retained route, authenticated session, or the memory-only vault across background/resume.
 - `npm run ios:continuity:local` and `npm run android:continuity:local` are non-destructive same-session rehearsals. The iOS runner stays headless by default; use `npm run ios:continuity:local -- --visible` only when a desktop window is requested. They require an already-installed, normally unlocked app and never install, clear, terminate, or inject reviewer credentials. Use them for rapid interaction, background/resume, and voice-ownership checks.
 
-The vault key and VAULT_OWNER token remain memory-only. A normal background/resume preserves a valid in-memory session; an actual WebView/process restart requires the normal unlock path. The app shell is the single native lifecycle collector; vault, auth, and notification consumers subscribe to its lifecycle signal rather than registering competing Capacitor listeners.
+The vault key and VAULT_OWNER token remain memory-only. A normal background/resume preserves a valid in-memory session; an actual WebView/process restart requires the normal unlock path. The app shell is the single native lifecycle collector. Components that need lifecycle work subscribe to its signal; AuthProvider and VaultProvider deliberately do not use routine resume events to revalidate or rerender an already-unlocked session.
 
 ## Native Authentication Settlement
 
@@ -68,16 +68,17 @@ The vault key and VAULT_OWNER token remain memory-only. A normal background/resu
   snapshot or the first resumed frame. Android also owns `FLAG_SECURE` while
   the cover is visible.
 - Every inactive cycle receives a process-local generation and a cause:
-  `inactive`, `background`, or `restart`. An inactive-only return, including a
-  biometric or permission sheet, reuses settled account validation. Actual
-  backgrounding requires bounded account/session validation; that debt survives
-  later transient inactivity until acknowledged. `HushhSessionPrivacy` publishes
-  retained state events after actual activation, independently of the shared
-  interaction coordinator's background-only `pause`/`resume` events.
+  `inactive`, `background`, or `restart`. The native cover protects snapshots
+  and the first resumed frame; it does not trigger account/session validation
+  for an identity that is already restored in memory. `HushhSessionPrivacy`
+  publishes retained state events after actual activation, independently of the
+  shared interaction coordinator's background-only `pause`/`resume` events.
 - `AuthProvider` reconciles a subscription with a state read, treats unknown
   bridge state as recovery, and checks refused acknowledgements. It acknowledges
-  the current generation only after React commits the validated destination or
-  safe recovery gate. Older acknowledgements cannot uncover a newer shield.
+  the current generation after the resumed document is ready to be shown.
+  Explicit auth recovery and authoritative API failures remain separate paths;
+  routine focus, visibility, and native resume cannot remount the protected UI.
+  Older acknowledgements cannot uncover a newer shield.
 - The shared Vault guard's checking/recovery surface is an opaque browser-modal
   top-layer dialog. Previously mounted and newly appended route portals remain
   covered and implicitly inert; focus and Escape stay with the safe gate. This

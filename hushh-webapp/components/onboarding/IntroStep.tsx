@@ -81,16 +81,19 @@ export function IntroStep({ onLogin }: { onLogin?: () => void }) {
           <FigmaHushhLogo className={styles.brand} />
           <FigmaIllustration variant="intro" className={styles.illustration} />
 
-          <div className={styles.hero}>
-            {/* Figma 145:6108 is a separate emoji, not part of the source image. */}
-            <span aria-hidden="true" className={styles.quietMark}>
-              🤫
-            </span>
+        {/* ── Typography-led hero. No cards, no fake metrics. ── */}
+        <div className={styles.hero}>
+          <span
+            aria-hidden="true"
+            className={styles.emoji}
+          >
+            🤫
+          </span>
 
-            <h1 className={styles.title} aria-label="One">
-              <span className={styles.srOnly}>One</span>
-              <FigmaOneLogo />
-            </h1>
+          <h1 className={styles.title} aria-label="One">
+            <span className={styles.srOnly}>One</span>
+            <FigmaOneLogo />
+          </h1>
 
             <p className={styles.tagline}>
               Your agents. Yours to own.

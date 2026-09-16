@@ -35,12 +35,6 @@ const harness = vi.hoisted(() => ({
     vaultKey: "synthetic-key",
   },
   user: { uid: "test-owner" },
-  popover: {
-    expanded: false,
-    motionState: "closed",
-    minimizeAgent: vi.fn(),
-    openAgent: vi.fn(),
-  },
   session: { busyOperations: {}, setAnalysisParams: vi.fn() },
   router: { push: vi.fn(), replace: vi.fn() },
   systemExecutor: null as OneSystemActionExecutor | null,
@@ -65,9 +59,6 @@ vi.mock("@/lib/persona/persona-context", () => ({
 vi.mock("@/lib/stores/kai-session-store", () => ({
   useKaiSession: (selector: (value: unknown) => unknown) =>
     selector(harness.session),
-}));
-vi.mock("@/components/agent/agent-popover-provider", () => ({
-  useOptionalAgentPopover: () => harness.popover,
 }));
 vi.mock("@/lib/agent/agent-runtime-context", () => ({
   useAgentRuntimeStateOptional: () => harness.runtime,

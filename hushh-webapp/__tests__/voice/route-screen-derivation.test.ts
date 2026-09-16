@@ -12,6 +12,10 @@ describe("deriveVoiceRouteScreen", () => {
       screen: "one_agents",
       subview: null,
     });
+    expect(deriveVoiceRouteScreen("/", undefined, { authenticated: true })).toEqual({
+      screen: "chat",
+      subview: null,
+    });
   });
 
   it("maps the One Agents dashboard to an explicit voice screen", () => {

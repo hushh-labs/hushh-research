@@ -20,6 +20,7 @@ loaded into this runtime.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import time
@@ -33,7 +34,8 @@ from google.adk.tools.google_search_tool import GoogleSearchTool
 from google.adk.tools.tool_context import ToolContext
 from google.genai import types as genai_types
 
-from hushh_mcp.adk_bridge.contract import A2ATask
+from hushh_mcp.adk_bridge.contract import A2AAuthorityContext, A2ATask
+from hushh_mcp.adk_bridge.delegation import validate_first_party_owner_token
 from hushh_mcp.adk_bridge.dispatch import dispatch
 from hushh_mcp.agents.calendar.tools import (
     calendar_availability,
@@ -912,7 +914,13 @@ async def resolve_onboarding_goal(
     return {"status": "ok", "goal": goal.model_dump()}
 
 
-def _task_from_context(tool_context: ToolContext, request: str) -> Optional[A2ATask]:
+async def _task_from_context(
+    tool_context: ToolContext,
+    request: str,
+    *,
+    agent_id: str,
+    specialist_target: Literal["consent", "connections"] | None = None,
+) -> Optional[A2ATask]:
     """Build a specialist task from governed session state.
 
     Returns None when the session has no authenticated user context, in which
@@ -923,6 +931,41 @@ def _task_from_context(tool_context: ToolContext, request: str) -> Optional[A2AT
     consent_token = resolve_request_secret(state.get(STATE_CONSENT_TOKEN))
     if not user_id or not consent_token:
         return None
+    authority = None
+    tenant_id = task_id = None
+    if agent_id == "agent_nav":
+        # ADK supplies these bindings; model arguments/session state cannot.
+        invocation_id = getattr(tool_context, "invocation_id", None)
+        function_call_id = getattr(tool_context, "function_call_id", None)
+        if (
+            getattr(tool_context, "user_id", None) != user_id
+            or not isinstance(invocation_id, str)
+            or not invocation_id.strip()
+            or not isinstance(function_call_id, str)
+            or not function_call_id.strip()
+            or specialist_target not in {None, "consent", "connections"}
+        ):
+            return None
+        token = await validate_first_party_owner_token(user_id, consent_token)
+        if token is None:
+            return None
+        targets = ["nav"] + (["connections"] if specialist_target == "connections" else [])
+        capabilities = []
+        for target in targets:
+            manifest = ManifestLoader.load(str(_AGENTS_ROOT / target / "agent.yaml"))
+            if not manifest.authorities.invocation:
+                return None
+            capabilities.extend(manifest.authorities.invocation)
+        tenant_id = user_id
+        task_id = json.dumps([invocation_id, function_call_id], separators=(",", ":"))
+        authority = A2AAuthorityContext(
+            subject_user_id=user_id,
+            tenant_id=tenant_id,
+            task_id=task_id,
+            caller_kind="first_party",
+            invocation_capabilities=tuple(dict.fromkeys(capabilities)),
+            expires_at_ms=token.expires_at,
+        )
     conversation_id = str(state.get(STATE_CONVERSATION_ID) or "").strip() or None
     timezone_name = str(state.get(STATE_TIMEZONE) or "").strip() or None
     return A2ATask(
@@ -931,11 +974,19 @@ def _task_from_context(tool_context: ToolContext, request: str) -> Optional[A2AT
         conversation_id=conversation_id,
         message=request,
         timezone=timezone_name,
+        authority=authority,
+        expected_tenant_id=tenant_id,
+        expected_task_id=task_id,
+        specialist_target=specialist_target,
     )
 
 
 async def _specialist_turn(
-    agent_id: str, request: str, tool_context: ToolContext
+    agent_id: str,
+    request: str,
+    tool_context: ToolContext,
+    *,
+    specialist_target: Literal["consent", "connections"] | None = None,
 ) -> dict[str, Any]:
     """Run one governed specialist turn through the existing A2A dispatch."""
     # Importing adk_bridge registers the built-in specialists at import time.
@@ -944,8 +995,13 @@ async def _specialist_turn(
     voice_context = tool_context.state.get(STATE_VOICE_CONTEXT)
     user_id = str(tool_context.state.get(STATE_USER_ID) or "").strip()
     consent_token = resolve_request_secret(tool_context.state.get(STATE_CONSENT_TOKEN))
+    availability_agent_id = (
+        "agent_connections"
+        if agent_id == "agent_nav" and specialist_target == "connections"
+        else agent_id
+    )
     availability = resolve_specialist_availability(
-        agent_id=agent_id,
+        agent_id=availability_agent_id,
         user_id=user_id,
         consent_token=consent_token,
         voice_context=voice_context,
@@ -1022,7 +1078,9 @@ async def _specialist_turn(
             "availability": availability_payload,
             "message": f"{specialist_label(agent_id)} is not available for that request right now.",
         }
-    task = _task_from_context(tool_context, request)
+    task = await _task_from_context(
+        tool_context, request, agent_id=agent_id, specialist_target=specialist_target
+    )
     if task is None:
         # Defensive invariant: availability and task construction must agree.
         return {
@@ -1067,6 +1125,90 @@ async def _specialist_turn(
         directive_payload = (
             result.directive.payload if isinstance(result.directive.payload, dict) else {}
         )
+        if agent_id == "agent_nav" and directive_payload.get("type") == "connections_choice":
+            question = directive_payload.get("question")
+            candidates = directive_payload.get("candidates")
+            if (
+                result.directive.kind != "prompt"
+                or result.is_complete
+                or set(directive_payload) != {"type", "question", "candidates"}
+                or not isinstance(question, str)
+                or not 1 <= len(question.strip()) <= 500
+                or not isinstance(candidates, list)
+                or not 1 <= len(candidates) <= 25
+                or any(
+                    not isinstance(candidate, dict)
+                    or set(candidate) != {"userId", "displayName"}
+                    or not isinstance(candidate.get("userId"), str)
+                    or not 1 <= len(candidate["userId"]) <= 256
+                    or candidate["userId"] != candidate["userId"].strip()
+                    or not isinstance(candidate.get("displayName"), str)
+                    or not 1 <= len(candidate["displayName"].strip()) <= 200
+                    for candidate in candidates
+                )
+            ):
+                return {
+                    "status": "invalid_clarification",
+                    "message": "The possible matches could not be verified.",
+                }
+            if len({candidate["userId"] for candidate in candidates}) != len(candidates):
+                return {
+                    "status": "invalid_clarification",
+                    "message": "The possible matches could not be verified.",
+                }
+            # Preserve lookup evidence for One's next conversational turn, never
+            # a browser selection directive or an authorization to mutate a match.
+            payload["clarification"] = {
+                "question": question.strip(),
+                "candidates": [dict(candidate) for candidate in candidates],
+            }
+            payload["next_step"] = (
+                "Ask the owner for a distinguishing detail using the candidate names. "
+                "Never expose the internal IDs or claim a choice card is displayed. "
+                "Do not select or execute a change before clarification. "
+                "Send the clarified request through this same specialist tool."
+            )
+            return payload
+        if agent_id == "agent_nav" and directive_payload.get("type") == "connections_proposal":
+            action_id = directive_payload.get("actionId")
+            slots = directive_payload.get("slots")
+            id_slot = (
+                {
+                    "connect.send_request": "userId",
+                    "connect.accept_request": "requestId",
+                    "connect.reject_request": "requestId",
+                    "connect.remove_connection": "connectionId",
+                }.get(action_id)
+                if isinstance(action_id, str)
+                else None
+            )
+            if (
+                result.directive.kind != "action"
+                or id_slot is None
+                or not isinstance(slots, dict)
+                or set(slots) != {"person", id_slot}
+                or not isinstance(slots.get("person"), str)
+                or not 1 <= len(slots["person"].strip()) <= 200
+                or not isinstance(slots.get(id_slot), str)
+                or not 1 <= len(slots[id_slot]) <= 256
+                or slots[id_slot] != slots[id_slot].strip()
+            ):
+                return {
+                    "status": "invalid_proposal",
+                    "message": "The proposed action could not be verified.",
+                }
+            # A suggestion is not a client directive or authority. One must use
+            # the canonical gateway to validate this exact record and obtain confirmation.
+            payload["proposed_action"] = {
+                "action_id": action_id,
+                "slots": {"person": slots["person"].strip(), id_slot: slots[id_slot]},
+            }
+            payload["next_step"] = (
+                "Use run_app_action with this proposed action and all slots, preserving the exact record ID. "
+                "The gateway validates the current screen and records and obtains owner confirmation. "
+                "Do not claim the change has happened."
+            )
+            return payload
         session_id = getattr(getattr(tool_context, "session", None), "id", None)
         fingerprint = specialist_directive_fingerprint(
             agent_id,
@@ -1215,6 +1357,11 @@ async def ask_location_agent(request: str, tool_context: ToolContext) -> dict[st
     return await _specialist_turn("agent_location", request, tool_context)
 
 
+async def ask_memory_agent(request: str, tool_context: ToolContext) -> dict[str, Any]:
+    """Ask the Memory Agent about remembered information and marketplace summaries."""
+    return await _specialist_turn("agent_personal_information", request, tool_context)
+
+
 async def ask_connected_systems_agent(request: str, tool_context: ToolContext) -> dict[str, Any]:
     """Ask the Connected Systems specialist about CRM records and external system workflows."""
     return await _specialist_turn("agent_connected_systems", request, tool_context)
@@ -1286,7 +1433,7 @@ async def ask_consent_agent(
                 "permission to navigate."
             ),
         }
-    result = await _specialist_turn(agent_id, request, tool_context)
+    result = await _specialist_turn("agent_nav", request, tool_context, specialist_target=target)
     # Every refusal branch in `_specialist_turn` returned silently, so a session
     # where One asked a specialist and relayed its boundary left no trace at
     # all -- indistinguishable in the logs from One never calling a tool.
@@ -1390,27 +1537,12 @@ def build_one_intro_text_agent(*, model: Any | None = None) -> LlmAgent:
     only generated, directly-wired route actions; it receives neither PKM nor
     a consent token, and has no specialist, persistence, or mutation tool.
     """
+    manifest = next(child for child in _ONE_MANIFEST.subagents if child.id == "one_intro")
     return LlmAgent(
-        name="one_intro",
+        name=manifest.name,
         model=_resolve_text_model(model),
-        description="One's informational, pre-vault private-agent surface.",
-        instruction=(
-            "You are One, the private agent inside Hussh. This is an informational "
-            "conversation before the user's vault is unlocked. Answer general product "
-            "and setup questions warmly and concisely. Use your own semantic judgment; "
-            "do not force a workflow or interpret words with fixed keyword rules. "
-            "When the user clearly asks to open a Hussh screen, call "
-            "run_intro_navigation_action with one exact generated route.* action id. "
-            "Call list_intro_navigation_actions first unless their words are already a "
-            "close match to a route id you already know -- do not rely on a feeling "
-            "of confidence. "
-            "Never claim access to personal information, PKM, "
-            "email, location, consent records, CRM records, or any completed action. "
-            "For protected or mutating work, explain that unlocking the vault and the "
-            "relevant in-app review are required. If no generated route action matches "
-            "the request, say that the capability is not available here yet; never "
-            "invent a route or silently hand the request to another executor."
-        ),
+        description=manifest.description,
+        instruction=manifest.system_instruction,
         tools=[run_intro_navigation_action, list_intro_navigation_actions],
     )
 
@@ -1544,15 +1676,12 @@ def _one_roster_tools(*, specialist_model: Any | None = None, tool_mode: str = "
 
     # Full roster below.
     text_model = specialist_model or build_managed_gemini_adk_model(_SPECIALIST_MODEL)
+    manifest = next(child for child in _ONE_MANIFEST.subagents if child.id == "google_search")
     search_agent = LlmAgent(
-        name="google_search",
+        name=manifest.name,
         model=text_model,
-        description="Search current public web information with Google grounding.",
-        instruction=(
-            "Search only public web information relevant to the request. Return a concise "
-            "grounded answer with source metadata. Never use web search as a substitute "
-            "for private PKM or consented information."
-        ),
+        description=manifest.description,
+        instruction=manifest.system_instruction,
         tools=[GoogleSearchTool()],
     )
     tools = [
@@ -1569,6 +1698,7 @@ def _one_roster_tools(*, specialist_model: Any | None = None, tool_mode: str = "
         AgentTool(agent=_build_finance_agent(model=specialist_model)),
         ask_email_agent,
         ask_location_agent,
+        ask_memory_agent,
         ask_consent_agent,
         list_my_location_circles,
         get_location_circle_members,

@@ -133,6 +133,10 @@ jobs:
     timeout-minutes: 35
     steps:
       - uses: actions/checkout@v6
+        with:
+          # The capability graph check diffs against the merge-group base, which
+          # a shallow clone does not carry.
+          fetch-depth: 0
 
       - uses: actions/setup-node@v6
         with:
@@ -148,9 +152,19 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-nextjs-${{ env.NODE_VERSION }}-${{ hashFiles('hushh-webapp/package-lock.json', 'hushh-webapp/next.config.ts') }}-
 
+      - name: Resolve capability graph base ref
+        id: queue-base
+        shell: bash
+        run: |
+          base="${QUEUE_BASE_REF#refs/heads/}"
+          echo "ref=origin/${base:-main}" >> "$GITHUB_OUTPUT"
+        env:
+          QUEUE_BASE_REF: ${{ github.event.merge_group.base_ref }}
+
       - name: Run full web check
         run: bash scripts/ci/orchestrate.sh web-full
         env:
+          CAPABILITY_GRAPH_BASE_REF: ${{ steps.queue-base.outputs.ref }}
           CI_NATIVE_PARITY_REQUIRED: ${{ env.CI_NATIVE_PARITY_REQUIRED }}
           NEXT_PUBLIC_BACKEND_URL: https://api.example.com
           NEXT_PUBLIC_DEVELOPER_API_URL: https://api.example.com
@@ -176,16 +190,30 @@ jobs:
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v6
+        with:
+          # The capability graph check diffs against the merge-group base, which
+          # a shallow clone does not carry.
+          fetch-depth: 0
 
       - uses: ./consent-protocol/.github/actions/setup-python-uv
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           protocol-dir: ./consent-protocol
 
+      - name: Resolve capability graph base ref
+        id: queue-base
+        shell: bash
+        run: |
+          base="${QUEUE_BASE_REF#refs/heads/}"
+          echo "ref=origin/${base:-main}" >> "$GITHUB_OUTPUT"
+        env:
+          QUEUE_BASE_REF: ${{ github.event.merge_group.base_ref }}
+
       - name: Run full protocol check
         timeout-minutes: 22
         run: bash scripts/ci/orchestrate.sh protocol
         env:
+          CAPABILITY_GRAPH_BASE_REF: ${{ steps.queue-base.outputs.ref }}
           TESTING: "true"
           APP_SIGNING_KEY: "test_secret_key_for_ci_only_32chars_min"
           VAULT_DATA_KEY: "0000000000000000000000000000000000000000000000000000000000000000"

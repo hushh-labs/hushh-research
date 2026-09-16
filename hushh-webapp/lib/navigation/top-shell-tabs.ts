@@ -228,7 +228,7 @@ function resolveSelection(
 
 /**
  * Resolves the one route-owned contextual tab group for the shared top shell.
- * Location, Connect, and RIA are intentionally excluded here: their hubs render the
+ * Location and Connect are intentionally excluded here: their hubs render the
  * same registered tabs directly under their module headers so the local module
  * hierarchy stays intact while retaining shared tab/swipe state.
  */

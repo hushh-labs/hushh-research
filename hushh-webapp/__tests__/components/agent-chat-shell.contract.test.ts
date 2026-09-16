@@ -12,12 +12,14 @@ function read(relativePath: string) {
 describe("private-agent chat shell contract", () => {
   it("keeps the floating frame singular and lets the workspace reach its edges", () => {
     const workspace = read("components/agent/agent-chat-workspace.tsx");
-    const popover = read("components/agent/agent-popover-provider.tsx");
+    const providers = read("app/providers.tsx");
 
     expect(workspace).toContain('"overflow-hidden"');
     expect(workspace).not.toContain('"sm:rounded-lg sm:border sm:border-border sm:shadow-sm"');
-    expect(popover).toContain("rounded-[var(--app-card-radius-feature)]");
-    expect(popover).toContain("bg-background/95 text-foreground");
+    expect(workspace).not.toContain("onNavigationActionComplete");
+    expect(workspace).not.toContain("shouldMinimizeForNavigationResult");
+    expect(providers).not.toContain("AgentPopoverProvider");
+    expect(providers).not.toContain("useOptionalAgentPopover");
   });
 
   it("uses shared Morphy shell controls and motion in the conversation workspace", () => {
@@ -190,13 +192,17 @@ describe("private-agent chat shell contract", () => {
     expect(workspace).toContain("}, [isPuppySurface]);");
   });
 
-  it("minimizes the legacy full-page /agent route to One home, not Profile, when there is no referrer to retrace to", () => {
-    // Issue #5921: falling back to Profile stranded someone who opened this
-    // route with no browser history (e.g. a direct link) somewhere that is
-    // not the section this screen lives under.
+  it("keeps Chat route-level and makes /agent a compatibility redirect", () => {
     const workspace = read("components/agent/agent-chat-workspace.tsx");
+    const proxy = read("proxy.ts");
 
-    expect(workspace).toContain("router.push(ROUTES.ONE_HOME);");
-    expect(workspace).not.toContain("router.push(ROUTES.PROFILE);");
+    expect(workspace).toContain(
+      "var(--app-bottom-shell-height,calc(var(--app-bottom-fixed-ui,0px)+var(--app-safe-area-bottom-effective,0px)))",
+    );
+    expect(workspace).not.toContain('variant="popover"');
+    expect(workspace).not.toContain("onMinimize");
+    expect(workspace).not.toContain("windowControls");
+    expect(proxy).toContain("ROUTES.LEGACY_AGENT");
+    expect(proxy).toContain("ROUTES.HOME");
   });
 });

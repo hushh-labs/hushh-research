@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Check, ExternalLink, ShieldCheck, ShieldOff, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -163,11 +163,24 @@ function agentDisplayName(agentId: string): string {
   return agentId.replace(/^agent_/, "").replace(/_/g, " ") || "This agent";
 }
 
+/**
+ * What a specialist may require, said in the owner's words.
+ *
+ * The five keys mirror SPECIALIST_A2A_SCOPE_MAP in
+ * consent-protocol/hushh_mcp/adk_bridge/delegation.py. Anything else falls
+ * back to a plain phrase rather than the raw identifier: agent.yaml forbids
+ * the model from reading our plumbing out loud, and the chrome used to undo
+ * that by printing "agent.kyc.process" mid-sentence.
+ */
 function scopeDisplayName(scope: string): string {
-  if (scope === "agent.nav.review") return "review your consent and privacy access";
+  if (scope === "agent.nav.review") return "review your sharing";
+  if (scope === "agent.kai.analyze") return "look at your finances";
+  if (scope === "agent.kyc.process") return "run your identity check";
+  if (scope === "cap.pkm.marketplace.view") return "see what you have made available";
+  if (scope === "cap.one.invoke") return "act for you in the app";
   if (scope === "agent.location.manage") return "manage Location requests";
   if (scope === "agent.one.orchestrate") return "coordinate specialist agents";
-  return scope || "the required permission";
+  return "the permission it needs";
 }
 
 export function SpecialistConsentRequiredCard({
@@ -338,7 +351,7 @@ export function SpecialistConsentActionsCard({
                     onClick={() => onRevoke(item)}
                   >
                     <ShieldOff className="h-4 w-4" aria-hidden="true" />
-                    Revoke
+                    Stop sharing
                   </Button>
                 ) : null}
                 {revoked ? (
@@ -377,6 +390,8 @@ export function SpecialistConsentActionsCard({
 
 import type { ConsentScopeItem } from "@/lib/consent/consent-scope-items";
 import { ConsentScopeList } from "@/components/consent/consent-scope-list";
+import { requestDurationLabel } from "@/lib/agent/action-directive-summary";
+import { useArmedAction } from "@/lib/ui/use-armed-action";
 
 export type SpecialistPendingConsentRequestItem = {
   id: string;
@@ -387,7 +402,10 @@ export type SpecialistPendingConsentRequestItem = {
   scopeDescription?: string | null;
   requestedAt?: number | string | null;
   approvalTimeoutAt?: number | string | null;
+  /** How long the access would last once allowed, in whole hours. */
   expiryHours?: number | string | null;
+  /** The request's wire metadata, carried so the details sheet can read it. */
+  metadata?: Record<string, unknown> | null;
   reason?: string | null;
   additionalAccessSummary?: string | null;
   status?: "pending" | "approved" | "denied";
@@ -435,6 +453,18 @@ function formatConsentTime(value?: number | string | null): string | null {
   }).format(date);
 }
 
+/**
+ * The wire carries hours as a number or a string, or not at all. Only a
+ * positive, finite count becomes a sentence; the words come from the same
+ * helper the request sheet used, so both ends of one ask read alike.
+ */
+function pendingDurationLabel(hours?: number | string | null): string | null {
+  if (hours == null || hours === "") return null;
+  const numeric = typeof hours === "number" ? hours : Number(hours);
+  if (!Number.isFinite(numeric) || numeric <= 0) return null;
+  return requestDurationLabel(Math.round(numeric));
+}
+
 export function SpecialistPendingConsentRequestCard({
   item,
   busy,
@@ -443,7 +473,21 @@ export function SpecialistPendingConsentRequestCard({
   onDetails,
 }: SpecialistPendingConsentRequestCardProps) {
   const timeout = formatConsentTime(item.approvalTimeoutAt);
+  const duration = pendingDurationLabel(item.expiryHours);
   const resolved = item.status === "approved" || item.status === "denied";
+
+  // Deny is irreversible, so it takes a confirming second tap: the first tap
+  // arms the button ("Sure?") and it disarms on its own a few seconds later,
+  // so a stray tap cannot turn someone down. One implementation, shared with
+  // the feed's actionable row.
+  const denyTap = useArmedAction();
+  const { armed: denyArmed, disarm: disarmDeny } = denyTap;
+
+  // Approve locks the row; a Deny left armed underneath it must not fire once
+  // the row unlocks.
+  useEffect(() => {
+    if (busy) disarmDeny();
+  }, [busy, disarmDeny]);
   const access = item.scopeDescription || item.scope || "requested context";
   // How many things this one card now stands for. The bundle merge folds
   // same-bundle requests together, so this grows as they arrive.
@@ -497,6 +541,14 @@ export function SpecialistPendingConsentRequestCard({
               />
             </div>
           ) : null}
+          {duration ? (
+            <p
+              className="mt-2 text-sm text-foreground/75"
+              data-testid="specialist-pending-consent-duration"
+            >
+              For {duration}.
+            </p>
+          ) : null}
           {item.additionalAccessSummary ? (
             <p className="mt-2 text-sm text-foreground/70">{item.additionalAccessSummary}</p>
           ) : null}
@@ -526,12 +578,17 @@ export function SpecialistPendingConsentRequestCard({
             <Button
               data-testid="specialist-pending-consent-deny"
               size="sm"
-              variant="ghost"
+              variant={denyArmed ? "destructive" : "ghost"}
               disabled={busy}
-              onClick={() => onDeny(item)}
+              aria-label={denyTap.ariaLabel("Deny")}
+              data-armed={denyArmed ? "true" : undefined}
+              onClick={() => {
+                if (busy) return;
+                denyTap.activate(() => onDeny(item));
+              }}
             >
               <X className="h-4 w-4" aria-hidden="true" />
-              Deny
+              {denyTap.label("Deny")}
             </Button>
           </>
         )}

@@ -47,6 +47,8 @@ for finance-specialist runtime references, and keep future-only One plans under
 
 ## References
 
+- [one-live-voice-decision-2026-09.md](./one-live-voice-decision-2026-09.md): why Gemini Live returns on Vertex ADC behind one flag, the premise-verification table, and the governance reconciliation.
+- [one-voice-live-tool-contract.md](./one-voice-live-tool-contract.md): One Live Voice runtime, supported intents, tool contract, consent rules, Vertex ADC setup and model pinning.
 - [one-voice-runtime-architecture.md](./one-voice-runtime-architecture.md): current Location command capture, semantic planning, execution, user gates, screen handoff and encrypted restart recovery.
 - [one-goal-framework.md](./one-goal-framework.md): existing goal planning and running for Agent Chat, typed search and UI actions; command routing uses the Location lifecycle.
 - [card-network-brand-inventory.md](./card-network-brand-inventory.md): where every card network mark comes from, the two rendering tiers, and the rules for adding official artwork.

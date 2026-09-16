@@ -11,7 +11,6 @@ while avoiding process-local session loss as a second source of chat truth.
 
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 import time
@@ -27,6 +26,7 @@ from google.adk.sessions.in_memory_session_service import InMemorySessionService
 from google.genai import types as genai_types
 
 from hushh_mcp.constants import GEMINI_MODEL
+from hushh_mcp.hushh_adk.events import bounded_adk_events
 from hushh_mcp.one_adk.agent_tree import (
     ONE_APP_NAME,
     STATE_CONSENT_TOKEN,
@@ -84,33 +84,18 @@ class OneTextEmptyResponseError(RuntimeError):
 
 
 async def _bounded_adk_events(source: Any) -> AsyncGenerator[Any, None]:
-    """Bound ADK startup, idle gaps, and total turn time without changing events."""
-    iterator = source.__aiter__()
-    loop = asyncio.get_running_loop()
-    deadline = loop.time() + _TOTAL_TURN_TIMEOUT_SECONDS
-    saw_event = False
+    """Use the shared iterator while retaining this surface's tested bounds."""
+    events = bounded_adk_events(
+        source,
+        first_event_timeout_s=_FIRST_EVENT_TIMEOUT_SECONDS,
+        between_event_timeout_s=_BETWEEN_EVENT_TIMEOUT_SECONDS,
+        total_timeout_s=_TOTAL_TURN_TIMEOUT_SECONDS,
+    )
     try:
-        while True:
-            remaining = deadline - loop.time()
-            if remaining <= 0:
-                raise asyncio.TimeoutError
-            timeout = min(
-                _BETWEEN_EVENT_TIMEOUT_SECONDS if saw_event else _FIRST_EVENT_TIMEOUT_SECONDS,
-                remaining,
-            )
-            try:
-                event = await asyncio.wait_for(anext(iterator), timeout=timeout)
-            except StopAsyncIteration:
-                return
-            saw_event = True
+        async for event in events:
             yield event
     finally:
-        close = getattr(iterator, "aclose", None)
-        if callable(close):
-            try:
-                await asyncio.wait_for(close(), timeout=1.0)
-            except Exception:
-                logger.debug("one_text_stream_close_failed", exc_info=True)
+        await events.aclose()
 
 
 def _runtime_model(
@@ -191,6 +176,7 @@ def _event_thought(event: Any) -> str:
 _SPECIALIST_TOOL_SOURCES: dict[str, tuple[str, str]] = {
     "ask_email_agent": ("agent_email", "Email"),
     "ask_location_agent": ("agent_location", "Location"),
+    "ask_memory_agent": ("agent_personal_information", "Memory"),
     "ask_connected_systems_agent": ("agent_connected_systems", "Connected Systems"),
     "calendar_summary": ("agent_calendar", "Calendar"),
     "calendar_events": ("agent_calendar", "Calendar"),

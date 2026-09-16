@@ -23,6 +23,7 @@ export type ProfileDetail =
   | "voice"
   | "vault"
   | "session"
+  | "trusted-devices"
   | "gmail-connection"
   | "gmail-actions"
   | "support-routing"
@@ -117,7 +118,10 @@ export function normalizeProfileDetail(
   ) {
     return "voice";
   }
-  if (panel === "security" && (detail === "vault" || detail === "session")) {
+  if (
+    panel === "security" &&
+    (detail === "vault" || detail === "session" || detail === "trusted-devices")
+  ) {
     return detail;
   }
   if (
@@ -248,6 +252,13 @@ export function buildProfileRoute(params?: {
   }
 
   if (panel === "security") {
+    if (detail === "trusted-devices") {
+      return appendQuery(
+        ROUTES.PROFILE_SECURITY_DEVICES,
+        {},
+        params?.searchParams,
+      );
+    }
     if (detail === "vault") {
       return appendQuery(
         ROUTES.PROFILE_SECURITY_VAULT,

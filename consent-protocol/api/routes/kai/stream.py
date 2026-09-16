@@ -1575,6 +1575,8 @@ async def analyze_stream_generator(
             disconnection_event=disconnection_event,
             user_context=full_user_context,
             renaissance_context=renaissance_context,
+            user_id=user_id,
+            consent_token=consent_token,
         )
 
         # =========================================================================
@@ -2342,6 +2344,8 @@ async def analyze_stream_generator(
                     "final_statement": debate_result.final_statement,
                 },
                 highlights=debate_highlights,
+                user_id=user_id,
+                consent_token=consent_token,
             ),
             timeout=min(remaining_timeout(), 30.0),
         )

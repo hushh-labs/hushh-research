@@ -12,11 +12,9 @@ import {
   type ReactNode,
   type ClipboardEvent as ReactClipboardEvent,
   type KeyboardEvent as ReactKeyboardEvent,
-  type PointerEvent as ReactPointerEvent,
 } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
-  ArrowLeft,
   Check,
   ChevronRight,
   Copy,
@@ -28,7 +26,6 @@ import {
   Maximize2,
   Mic,
   Minimize2,
-  Minus,
   Pencil,
   RotateCcw,
   Send,
@@ -176,7 +173,6 @@ import {
   type DelegateResult,
 } from "@/lib/agent/specialist-directive-runtime";
 import { useKaiSession } from "@/lib/stores/kai-session-store";
-import { readAgentOrigin } from "@/lib/navigation/agent-origin";
 import { ROUTES } from "@/lib/navigation/routes";
 import { GoogleCalendarService } from "@/lib/services/google-calendar-service";
 import { cn } from "@/lib/utils";
@@ -200,7 +196,6 @@ import { deriveVoiceRouteScreen } from "@/lib/voice/route-screen-derivation";
 import { useAgentRuntimeStateOptional } from "@/lib/agent/agent-runtime-context";
 import {
   useOneConversationSession,
-  type AgentChatHandoff,
   type GmailInformationRequestHandoff,
 } from "@/lib/agent/one-conversation-session";
 import { dedupeAdjacentAgentMessages } from "@/lib/agent/agent-chat-turn-safety";
@@ -340,8 +335,6 @@ type PendingConsentRequestDirectivePayload = {
   item: SpecialistPendingConsentRequestItem;
 };
 
-export type AgentChatWorkspaceVariant = "page" | "popover";
-
 /**
  * Which agent this workspace is showing.
  *
@@ -356,14 +349,7 @@ export type AgentChatWorkspaceVariant = "page" | "popover";
 export type AgentChatSurface = "one" | "puppy";
 
 type AgentChatWorkspaceProps = {
-  variant?: AgentChatWorkspaceVariant;
   className?: string;
-  handoff?: AgentChatHandoff | null;
-  windowControls?: ReactNode;
-  onMinimize?: () => void;
-  onNavigationActionComplete?: (result: AgentActionRuntimeResult) => void;
-  /** The owning popover has started closing; preserve history, stop capture. */
-  isSurfaceClosing?: boolean;
 };
 
 const AGENT_GREETING =
@@ -663,7 +649,22 @@ function getConsentActionsPayload(
   return { kind: "consent_actions", items };
 }
 
-function getPendingConsentRequestPayload(
+/**
+ * Re-reads a pending consent card item out of the directive payload it was
+ * embedded in. The card item is stored as an untyped payload, so every field
+ * the card or the approve handler needs has to be carried through here; a
+ * field dropped at this hop is dropped for good, however faithfully the
+ * mappers before it copied it.
+ *
+ * The bundle fields (bundleId, bundleLabel, bundleScopeCount,
+ * bundledRequestIds, bundledScopes) are deliberately NOT re-emitted. The fold
+ * below compares `payload.item.bundleId` to decide whether a later request in
+ * the same bundle merges into an existing card; leaving it null here keeps
+ * that fold inert, so a bundle of N requests renders N cards, each approvable
+ * on its own. Re-emitting them would fold the cards while Approve only acted
+ * on the head request; folding needs handleApproveBundle wired first.
+ */
+export function getPendingConsentRequestPayload(
   event: SpecialistDirectiveEvent | null,
 ): PendingConsentRequestDirectivePayload | null {
   if (!event || event.directive.kind !== "prompt") return null;
@@ -723,17 +724,28 @@ function getPendingConsentRequestPayload(
           ? rawItem.additionalAccessSummary
           : null,
       status,
+      // Approve wraps the vault key to the requester's public key, which only
+      // travels in metadata. This parser used to rebuild the item without it,
+      // so the card handed the approve handler nothing to wrap.
+      metadata:
+        rawItem.metadata &&
+        typeof rawItem.metadata === "object" &&
+        !Array.isArray(rawItem.metadata)
+          ? (rawItem.metadata as Record<string, unknown>)
+          : null,
     },
   };
 }
 
-function pendingConsentLookupItemToCardItem(
+export function pendingConsentLookupItemToCardItem(
   item: PendingConsentLookupItem,
 ): SpecialistPendingConsentRequestItem | null {
   const id = String(item.request_id || "").trim();
   if (!id) return null;
   const requesterLabel =
     item.requester_label || item.agent_id || item.developer || "An agent";
+  const metadata = item.metadata ?? null;
+  const expiryHours = metadata?.expiry_hours;
   return {
     id,
     requesterLabel,
@@ -743,9 +755,17 @@ function pendingConsentLookupItemToCardItem(
     scopeDescription: item.scope_description ?? null,
     requestedAt: item.issued_at ?? null,
     approvalTimeoutAt: item.poll_timeout_at ?? null,
+    expiryHours:
+      typeof expiryHours === "number" || typeof expiryHours === "string"
+        ? expiryHours
+        : null,
     reason: item.reason ?? null,
     additionalAccessSummary: item.additional_access_summary ?? null,
     status: "pending",
+    // Approve wraps the vault key to the requester's public key, which rides
+    // in metadata. Dropping it here left handleApprove with nothing to wrap
+    // and the backend refusing the approval as missing its wrapped key.
+    metadata,
     // These three were being dropped here, which is why a fourteen-field
     // request rendered as fourteen unrelated cards: the wire said they were one
     // ask and the mapper threw that away.
@@ -759,7 +779,7 @@ function pendingConsentLookupItemToCardItem(
   };
 }
 
-function pendingConsentCardItemToPendingConsent(
+export function pendingConsentCardItemToPendingConsent(
   item: SpecialistPendingConsentRequestItem,
 ): PendingConsent {
   const requestedAt =
@@ -793,7 +813,64 @@ function pendingConsentCardItemToPendingConsent(
         : undefined,
     reason: item.reason || undefined,
     additionalAccessSummary: item.additionalAccessSummary || undefined,
+    bundleId: item.bundleId || undefined,
+    metadata: item.metadata ?? null,
   };
+}
+
+/**
+ * The requests a pending consent card decides for: the head request first,
+ * then every request folded into the card. A single-request card yields only
+ * its own id, so that path is unchanged.
+ */
+export function pendingConsentCardRequestIds(
+  item: SpecialistPendingConsentRequestItem,
+): string[] {
+  const ids = [item.id, ...(item.bundledRequestIds || [])]
+    .map((entry) => String(entry || "").trim())
+    .filter(Boolean);
+  return Array.from(new Set(ids));
+}
+
+/**
+ * The PendingConsents a card's Approve or Deny acts on.
+ *
+ * A folded card says "you decide together, once", so its buttons must answer
+ * every request in it, not only the head one. The card carries the head
+ * request's metadata only (the others were folded in by id and scope), and
+ * Approve wraps the vault key to the key in each request's own metadata, so a
+ * folded card looks every member up again and acts on whichever are still
+ * pending. A single-request card needs no lookup: the card item already holds
+ * everything the hook reads.
+ */
+export async function resolvePendingConsentCardTargets(input: {
+  userId: string;
+  vaultOwnerToken: string | null;
+  item: SpecialistPendingConsentRequestItem;
+}): Promise<PendingConsent[]> {
+  const requestIds = pendingConsentCardRequestIds(input.item);
+  if (requestIds.length < 2) {
+    return [pendingConsentCardItemToPendingConsent(input.item)];
+  }
+  if (!input.vaultOwnerToken) {
+    throw new Error("Unlock your vault first.");
+  }
+  const result = await ConsentCenterService.lookupPendingRequests({
+    userId: input.userId,
+    vaultOwnerToken: input.vaultOwnerToken,
+    requestIds,
+  });
+  const byId = new Map<string, SpecialistPendingConsentRequestItem>();
+  for (const raw of result.items) {
+    const card = pendingConsentLookupItemToCardItem(raw);
+    if (card) byId.set(card.id, card);
+  }
+  const targets: PendingConsent[] = [];
+  for (const id of requestIds) {
+    const card = byId.get(id);
+    if (card) targets.push(pendingConsentCardItemToPendingConsent(card));
+  }
+  return targets;
 }
 
 function agentMessagePendingConsentRequestId(
@@ -1017,6 +1094,95 @@ function AgentWelcomePanel({
             </button>
           ))}
         </div>
+      </div>
+    </section>
+  );
+}
+
+function formatWelcomeDomain(domain: string): string {
+  return domain
+    .replace(/[_-]+/g, " ")
+    .replace(/\b\w/g, (match) => match.toUpperCase())
+    .trim();
+}
+
+function PostSetupWelcomeCard({
+  name,
+  context,
+  disabled,
+  onPromptSelect,
+}: {
+  name: string;
+  context: AgentPkmContext;
+  disabled: boolean;
+  onPromptSelect: (prompt: string) => void;
+}) {
+  const domains = context.domains.filter(Boolean).slice(0, 5);
+  const savedDetails = Math.max(0, context.totalAttributes || 0);
+  return (
+    <section
+      data-testid="post-setup-welcome-card"
+      className="motion-step-enter mx-auto mt-6 w-full max-w-2xl rounded-[28px] border border-border/70 bg-card/80 p-5 shadow-[0_18px_60px_-42px_rgba(0,0,0,0.42)] sm:p-7"
+    >
+      <p className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">
+        A quiet start
+      </p>
+      <h2 className="mt-3 text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
+        Welcome, {name}
+      </h2>
+      <p className="mt-3 max-w-xl text-sm leading-6 text-muted-foreground sm:text-base">
+        Your private workspace is ready. I’ll keep building context only from
+        connections and information you choose to share.
+      </p>
+
+      <div className="mt-6 rounded-2xl bg-muted/45 px-4 py-4 text-sm text-foreground">
+        <p className="font-medium">What’s ready so far</p>
+        {domains.length > 0 ? (
+          <>
+            <p className="mt-1 text-muted-foreground">
+              {savedDetails > 0
+                ? `${savedDetails} saved ${savedDetails === 1 ? "detail" : "details"} across ${domains.length} ${domains.length === 1 ? "category" : "categories"}.`
+                : `Context is available across ${domains.length} ${domains.length === 1 ? "category" : "categories"}.`}
+            </p>
+            <div className="mt-3 flex flex-wrap gap-2" aria-label="Available categories">
+              {domains.map((domain) => (
+                <span
+                  key={domain}
+                  className="rounded-full bg-background px-3 py-1.5 text-xs text-muted-foreground"
+                >
+                  {formatWelcomeDomain(domain)}
+                </span>
+              ))}
+            </div>
+          </>
+        ) : (
+          <p className="mt-1 text-muted-foreground">
+            No categories have been added yet. You can connect a source or
+            tell me what you want to organize.
+          </p>
+        )}
+      </div>
+
+      <p className="mt-5 text-sm leading-6 text-muted-foreground">
+        Optional connections are still available whenever you’re ready. Nothing
+        is sent or connected without your review.
+      </p>
+      <div className="mt-5 flex flex-wrap gap-2">
+        {[
+          "Show what you know",
+          "Set up a connection",
+          "What can you help with?",
+        ].map((prompt) => (
+          <button
+            key={prompt}
+            type="button"
+            disabled={disabled}
+            onClick={() => onPromptSelect(prompt)}
+            className="min-h-11 rounded-full border border-border bg-background px-4 py-2 text-sm font-medium text-foreground transition-colors hover:border-primary/40 hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {prompt}
+          </button>
+        ))}
       </div>
     </section>
   );
@@ -1440,30 +1606,14 @@ export function storedMessageToAgentMessage(
   };
 }
 
-function shouldMinimizeForNavigationResult(
-  result: AgentActionRuntimeResult,
-): boolean {
-  return Boolean(
-    result.routeAfter &&
-    result.status !== "failed" &&
-    result.status !== "invalid" &&
-    result.status !== "noop",
-  );
-}
-
-export function AgentChatWorkspace({
-  variant = "page",
-  className,
-  handoff,
-  windowControls,
-  onMinimize,
-  onNavigationActionComplete,
-  isSurfaceClosing = false,
-}: AgentChatWorkspaceProps) {
+export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const isPopover = variant === "popover";
+  // The workspace is now the canonical full-page chat surface. Keep this
+  // compatibility guard for the proactive-card contract while there is no
+  // popover mount in the current route topology.
+  const isPopover = false;
   const localCrmEnabled = isLocalCrmBuildEnabled();
   const { user, loading: authLoading, phoneNumber } = useAuth();
   const {
@@ -1550,8 +1700,24 @@ export function AgentChatWorkspace({
   const [queuedHandoffPrompt, setQueuedHandoffPrompt] = useState<string | null>(
     null,
   );
+  const pendingSessionHandoff = useOneConversationSession(
+    (state) => state.pendingHandoff,
+  );
+  const pendingEntryWelcome = useOneConversationSession(
+    (state) => state.pendingEntryWelcome,
+  );
+  const consumeEntryWelcome = useOneConversationSession(
+    (state) => state.consumeEntryWelcome,
+  );
+  const handoff = pendingSessionHandoff;
+  const [postSetupWelcomeContext, setPostSetupWelcomeContext] =
+    useState<AgentPkmContext | null>(null);
+  const postSetupWelcomeOwnerRef = useRef<string | null>(null);
   const consumeHandoff = useOneConversationSession(
     (state) => state.consumeHandoff,
+  );
+  const clearConversationSession = useOneConversationSession(
+    (state) => state.clearSession,
   );
   const consumedHandoffIdRef = useRef<string | null>(null);
   const [isChatLoading, setIsChatLoading] = useState(false);
@@ -1743,13 +1909,76 @@ export function AgentChatWorkspace({
     return () => window.clearTimeout(timeoutId);
   }, [isVaultUnlocked, user?.uid, vaultKey, vaultOwnerToken]);
 
+  useEffect(() => {
+    if (
+      !user?.uid ||
+      !isVaultUnlocked ||
+      !vaultKey ||
+      !vaultOwnerToken ||
+      (pendingEntryWelcome && pendingEntryWelcome.userId !== user.uid)
+    ) {
+      postSetupWelcomeOwnerRef.current = null;
+      setPostSetupWelcomeContext(null);
+      if (pendingEntryWelcome && user?.uid && pendingEntryWelcome.userId !== user.uid) {
+        clearConversationSession();
+      }
+      return undefined;
+    }
+
+    // Consuming the marker is an in-memory acknowledgement, not a reason to
+    // remove the card. Keep the card mounted for this owner until the next
+    // authenticated-owner or vault boundary.
+    if (!pendingEntryWelcome) {
+      if (postSetupWelcomeOwnerRef.current !== user.uid) {
+        postSetupWelcomeOwnerRef.current = null;
+        setPostSetupWelcomeContext(null);
+      }
+      return undefined;
+    }
+
+    let active = true;
+    postSetupWelcomeOwnerRef.current = user.uid;
+    const cached = peekAgentPkmContext({ userId: user.uid });
+    setPostSetupWelcomeContext(cached ?? EMPTY_PKM_CONTEXT);
+    consumeEntryWelcome(user.uid);
+
+    // Metadata is intentionally the only fallback. It provides category and
+    // count summaries without placing decrypted values into the card, URL, or
+    // transcript. The vault gate above proves this is the owner's live session.
+    void loadAgentPkmContext({
+      userId: user.uid,
+      vaultKey,
+      vaultOwnerToken,
+      metadataOnly: true,
+    })
+      .then((context) => {
+        if (active) setPostSetupWelcomeContext(context);
+      })
+      .catch(() => undefined);
+
+    return () => {
+      active = false;
+    };
+  }, [
+    consumeEntryWelcome,
+    clearConversationSession,
+    isVaultUnlocked,
+    pendingEntryWelcome,
+    user?.uid,
+    vaultKey,
+    vaultOwnerToken,
+  ]);
+
   const routeQuery = searchParams?.toString() || "";
   const pathnameWithQuery = routeQuery
     ? `${pathname || ""}?${routeQuery}`
     : pathname || "";
   const routeInfo = useMemo(
-    () => deriveVoiceRouteScreen(pathname || "", routeQuery),
-    [pathname, routeQuery],
+    () =>
+      deriveVoiceRouteScreen(pathname || "", routeQuery, {
+        authenticated: Boolean(user?.uid),
+      }),
+    [pathname, routeQuery, user?.uid],
   );
   const activeAnalysisTask = useMemo(() => {
     if (!user?.uid) return null;
@@ -1798,7 +2027,7 @@ export function AgentChatWorkspace({
     userId: user?.uid || null,
     enabled: !isPopover && hasChatAccess,
     idTokenProvider: user?.getIdToken ? gmailIdTokenProvider : null,
-    routeHref: ROUTES.AGENT,
+    routeHref: ROUTES.HOME,
   });
   const gmailNudges = useGmailNudges({
     userId: user?.uid || null,
@@ -2708,12 +2937,25 @@ export function AgentChatWorkspace({
         timestamp,
       });
     }
+    // The owner reads the action's label, never its identifier.
+    const handoffActionLabel = handoff.actionId
+      ? getKaiActionById(handoff.actionId)?.label?.trim() || null
+      : null;
+    // Only a handoff that waits on the owner may promise a confirmation; a
+    // long-running or delegated one simply continues here.
+    const handoffOwesConfirmation =
+      handoff.reason === "action_requires_chat" ||
+      handoff.reason === "sensitive_action" ||
+      handoff.reason === "manual_only";
+    const handoffPurpose = handoffOwesConfirmation
+      ? "so you can confirm it here"
+      : "so you can finish it here";
     const summaryText =
       assistantText ||
       resultSummary ||
-      (handoff.actionId
-        ? `One moved this ${handoff.actionId} request into chat for the governed action path.`
-        : "One moved this command into chat for the governed action path.");
+      (handoffActionLabel
+        ? `One moved "${handoffActionLabel}" into chat ${handoffPurpose}.`
+        : `One moved this command into chat ${handoffPurpose}.`);
     nextMessages.push({
       id: `handoff-${handoff.id}-assistant`,
       role: "assistant",
@@ -3832,9 +4074,6 @@ export function AgentChatWorkspace({
         });
         appendDebugEvent(debugTurnId, "tool_result", result);
         upsertToolStatusMessage(result.resultSummary, toolResultStatus(result));
-        if (shouldMinimizeForNavigationResult(result)) {
-          onNavigationActionComplete?.(result);
-        }
         return result;
       } catch (error) {
         const message =
@@ -4553,9 +4792,6 @@ export function AgentChatWorkspace({
               screenAfter: result.screenAfter,
             },
           );
-          if (shouldMinimizeForNavigationResult(result)) {
-            onNavigationActionComplete?.(result);
-          }
           return result;
         },
       });
@@ -4882,11 +5118,6 @@ export function AgentChatWorkspace({
     void handoffPromptSubmitRef.current?.(prompt);
   }, [queuedHandoffPrompt, setQueuedHandoffPrompt]);
 
-  useEffect(() => {
-    if (!isPopover || !isSurfaceClosing) return;
-    setIsHistoryDrawerOpen(false);
-  }, [isPopover, isSurfaceClosing]);
-
   // Agent Chat never owns audio. Its microphone affordance delegates to the
   // persistent Agent Bar, which is the sole owner of command capture.
   const startConversationalVoice = requestAgentConversation;
@@ -5077,21 +5308,6 @@ export function AgentChatWorkspace({
     setInput(prompt);
     window.setTimeout(() => composerTextareaRef.current?.focus(), 0);
   }, []);
-  const swipeStartYRef = useRef<number | null>(null);
-  const handleHeaderPointerDown = (
-    event: ReactPointerEvent<HTMLDivElement>,
-  ) => {
-    if (!onMinimize || event.pointerType === "mouse") return;
-    swipeStartYRef.current = event.clientY;
-  };
-  const handleHeaderPointerEnd = (event: ReactPointerEvent<HTMLDivElement>) => {
-    if (!onMinimize || swipeStartYRef.current === null) return;
-    const deltaY = event.clientY - swipeStartYRef.current;
-    swipeStartYRef.current = null;
-    if (deltaY > 72) {
-      onMinimize();
-    }
-  };
   const openHistoryDrawer = useCallback(() => {
     historyDrawerReturnFocusRef.current =
       document.activeElement instanceof HTMLElement
@@ -5100,36 +5316,6 @@ export function AgentChatWorkspace({
     setIsHistoryDrawerOpen(true);
     void loadConversationList().catch(() => undefined);
   }, [loadConversationList]);
-  const handlePageMinimize = useCallback(() => {
-    if (onMinimize) {
-      onMinimize();
-      return;
-    }
-    if (typeof window !== "undefined") {
-      // The page that handed off records itself as ?from=. This is checked
-      // before any history heuristic because it is the only signal that
-      // survives a reload or a shared link — and because `document.referrer`,
-      // which this used to rely on, is never set by App Router client
-      // navigation, so every minimize fell through to One home.
-      const origin = readAgentOrigin(window.location.search);
-      if (origin) {
-        router.push(origin);
-        return;
-      }
-      const referrer = document.referrer ? new URL(document.referrer) : null;
-      const isSameOriginReferrer =
-        referrer?.origin === window.location.origin &&
-        referrer.pathname !== ROUTES.AGENT;
-      if (isSameOriginReferrer && window.history.length > 1) {
-        router.back();
-        return;
-      }
-    }
-    // Nothing to retrace to (e.g. a direct link into this legacy full-page
-    // route with no recorded origin): land on One home, not Profile, so
-    // minimizing always returns to the section this screen lives under.
-    router.push(ROUTES.ONE_HOME);
-  }, [onMinimize, router]);
   const handleHistoryDrawerKeyDown = useCallback(
     (event: ReactKeyboardEvent) => {
       if (event.key === "Escape") {
@@ -5207,18 +5393,20 @@ export function AgentChatWorkspace({
     <div
       className={cn(
         "agent-chat-workspace flex min-h-0 w-full flex-col text-foreground",
-        isPopover
-          ? "h-full overflow-hidden bg-background"
-          : "h-[calc(100dvh-var(--app-top-content-offset,0px)-var(--app-bottom-fixed-ui,0px)-var(--app-safe-area-bottom-effective,0px))] min-h-[420px] overflow-hidden bg-background",
+        // Chat is the canonical root workspace. Its composer must clear the
+        // complete fixed bottom shell (voice + navigation), not only the
+        // navigation slot measured by Navbar. The fallback keeps direct
+        // embedding safe before AppBottomShell publishes its measurement.
+        "h-[calc(100dvh-var(--app-top-content-offset,0px)-var(--app-bottom-shell-height,calc(var(--app-bottom-fixed-ui,0px)+var(--app-safe-area-bottom-effective,0px))))] min-h-[420px] overflow-hidden bg-background",
         className,
       )}
-      data-agent-chat-workspace={variant}
+      data-agent-chat-workspace="page"
     >
       <div
         className={cn(
           "relative flex min-h-0 flex-1",
-          // The popover and page both use one continuous workspace surface.
-          // The outer popover owns its floating frame; no inner card is allowed.
+          // The route-level workspace owns one continuous surface. There is
+          // no retired popover frame or second overlay surface here.
           "overflow-hidden",
         )}
       >
@@ -5265,40 +5453,19 @@ export function AgentChatWorkspace({
           <div
             className={cn(
               "agent-chat-header flex shrink-0 touch-pan-y items-center justify-between gap-3 bg-background/82 px-4 pt-[var(--agent-chat-header-safe-top)] backdrop-blur-2xl sm:px-5",
-              isPopover
-                ? "min-h-[calc(3.5rem+var(--agent-chat-header-safe-top))] sm:h-16 sm:min-h-16 sm:pt-0"
-                : "min-h-[calc(3.75rem+var(--agent-chat-header-safe-top))] sm:min-h-[calc(4rem+var(--app-safe-area-top-effective,0px))] sm:pt-[var(--app-safe-area-top-effective,0px)]",
-              !isPopover && "lg:px-6",
+              "min-h-[calc(3.75rem+var(--agent-chat-header-safe-top))] sm:min-h-[calc(4rem+var(--app-safe-area-top-effective,0px))] sm:pt-[var(--app-safe-area-top-effective,0px)] lg:px-6",
             )}
-            onPointerDown={handleHeaderPointerDown}
-            onPointerUp={handleHeaderPointerEnd}
-            onPointerCancel={() => {
-              swipeStartYRef.current = null;
-            }}
           >
             <div className="flex min-w-0 items-center gap-3">
-              {isPopover && onMinimize ? (
-                <ShellActionSurface
-                  variant="icon"
-                  onClick={onMinimize}
-                  aria-label="Back"
-                  title="Back"
-                  className="sm:hidden"
-                >
-                  <ArrowLeft className="h-[18px] w-[18px]" strokeWidth={2} />
-                </ShellActionSurface>
-              ) : null}
-              {!isPopover ? (
-                <ShellActionSurface
-                  variant="icon"
-                  className="lg:hidden"
-                  onClick={openHistoryDrawer}
-                  aria-label="Open chat history"
-                  title="Open chat history"
-                >
-                  <Menu className="h-4 w-4" />
-                </ShellActionSurface>
-              ) : null}
+              <ShellActionSurface
+                variant="icon"
+                className="lg:hidden"
+                onClick={openHistoryDrawer}
+                aria-label="Open chat history"
+                title="Open chat history"
+              >
+                <Menu className="h-4 w-4" />
+              </ShellActionSurface>
               <div className="grid h-9 w-9 shrink-0 place-items-center overflow-hidden rounded-[13px] bg-[color:var(--app-accent-soft)] shadow-[0_10px_28px_-20px_var(--app-accent-deep)]">
                 {isPuppySurface ? (
                   <Laptop
@@ -5466,31 +5633,6 @@ export function AgentChatWorkspace({
               >
                 {statusText}
               </span>
-              {isPopover ? (
-                <ShellActionSurface
-                  variant="icon"
-                  className="sm:hidden"
-                  onClick={openHistoryDrawer}
-                  aria-label="Open chat history"
-                  title="Open chat history"
-                >
-                  <Menu className="h-4 w-4" />
-                </ShellActionSurface>
-              ) : null}
-              {!isPopover ? (
-                <ShellActionSurface
-                  variant="icon"
-                  className="lg:hidden"
-                  onClick={handlePageMinimize}
-                  aria-label="Minimize Agent"
-                  title="Minimize Agent"
-                >
-                  <Minus className="h-4 w-4" />
-                </ShellActionSurface>
-              ) : null}
-              {windowControls ? (
-                <div className="ml-1">{windowControls}</div>
-              ) : null}
             </div>
           </div>
 
@@ -5508,7 +5650,7 @@ export function AgentChatWorkspace({
           {puppyEverOpened ? (
             <PuppyOneSurface
               active={isPuppySurface}
-              className={cn(!isPuppySurface && "hidden", !isPopover && "lg:px-8")}
+              className={cn(!isPuppySurface && "hidden", "lg:px-8")}
             />
           ) : null}
 
@@ -5523,7 +5665,7 @@ export function AgentChatWorkspace({
             }}
             className={cn(
               "min-h-0 flex-1 overflow-y-auto scroll-smooth px-4 pt-5 scrollbar-thin scrollbar-thumb-muted scrollbar-track-transparent sm:px-6",
-              isPopover ? "pb-4" : "pb-6 lg:px-8",
+              "pb-6 lg:px-8",
               isPuppySurface && "hidden",
             )}
           >
@@ -5614,7 +5756,14 @@ export function AgentChatWorkspace({
                 />
               ) : null}
 
-              {!hasStartedConversation ? (
+              {postSetupWelcomeContext ? (
+                <PostSetupWelcomeCard
+                  name={displayName}
+                  context={postSetupWelcomeContext}
+                  disabled={isChatLoading || isStreaming}
+                  onPromptSelect={handleWelcomePromptSelect}
+                />
+              ) : !hasStartedConversation ? (
                 <AgentWelcomePanel
                   name={displayName}
                   prompts={welcomePrompts}
@@ -5670,11 +5819,40 @@ export function AgentChatWorkspace({
                         );
                       }}
                       onPendingConsentApprove={async (item) => {
+                        // The hook returns without throwing when the vault is
+                        // locked, which would mark the card approved for an
+                        // approval that never went out. Refuse here instead.
+                        if (!user?.uid || !isVaultUnlocked || !vaultKey) {
+                          addErrorMessage(
+                            "Unlock your vault to approve this request.",
+                          );
+                          return;
+                        }
                         setSpecialistBusyItemId(item.id);
                         try {
-                          await consentActions.handleApprove(
-                            pendingConsentCardItemToPendingConsent(item),
-                          );
+                          // A folded card answers every request in it. Each
+                          // member is looked up again so Approve wraps the key
+                          // in that request's own metadata.
+                          const targets = await resolvePendingConsentCardTargets({
+                            userId: user.uid,
+                            vaultOwnerToken: getVaultOwnerToken(),
+                            item,
+                          });
+                          if (!targets.length) {
+                            addErrorMessage(
+                              "That request is no longer waiting on you.",
+                            );
+                            return;
+                          }
+                          // Quiet so the outcome lands in the transcript, not
+                          // a toast over it. Quiet rethrows a failed request,
+                          // so the card is only marked approved when every
+                          // request in it was.
+                          for (const target of targets) {
+                            await consentActions.handleApprove(target, {
+                              quiet: true,
+                            });
+                          }
                           updateMessage(message.id, (current) => ({
                             ...current,
                             specialistDirective:
@@ -5684,14 +5862,44 @@ export function AgentChatWorkspace({
                                 "approved",
                               ),
                           }));
+                        } catch (error) {
+                          console.error("Chat consent approve failed:", error);
+                          addErrorMessage(
+                            "Could not approve that request. Try again.",
+                          );
                         } finally {
                           setSpecialistBusyItemId(null);
                         }
                       }}
                       onPendingConsentDeny={async (item) => {
+                        // Same guard as approve: the hook returns silently
+                        // without a signed-in owner or an unlocked vault.
+                        if (!user?.uid || !isVaultUnlocked) {
+                          addErrorMessage(
+                            "Unlock your vault to decline this request.",
+                          );
+                          return;
+                        }
                         setSpecialistBusyItemId(item.id);
                         try {
-                          await consentActions.handleDeny(item.id);
+                          // Same shape as approve: a folded card declines every
+                          // request in it, and only those still pending.
+                          const targets = await resolvePendingConsentCardTargets({
+                            userId: user.uid,
+                            vaultOwnerToken: getVaultOwnerToken(),
+                            item,
+                          });
+                          if (!targets.length) {
+                            addErrorMessage(
+                              "That request is no longer waiting on you.",
+                            );
+                            return;
+                          }
+                          for (const target of targets) {
+                            await consentActions.handleDeny(target.id, {
+                              quiet: true,
+                            });
+                          }
                           updateMessage(message.id, (current) => ({
                             ...current,
                             specialistDirective:
@@ -5701,6 +5909,11 @@ export function AgentChatWorkspace({
                                 "denied",
                               ),
                           }));
+                        } catch (error) {
+                          console.error("Chat consent deny failed:", error);
+                          addErrorMessage(
+                            "Could not decline that request. Try again.",
+                          );
                         } finally {
                           setSpecialistBusyItemId(null);
                         }
@@ -6450,9 +6663,7 @@ export function AgentChatWorkspace({
               // the native keyboard resize (no React state/rerender round-trip
               // in the path, which was the source of the visible lag on iOS).
               "shrink-0 bg-gradient-to-t from-background via-background/96 to-transparent px-3 pt-3 backdrop-blur transition-[padding-bottom] duration-[var(--motion-duration-sm)] ease-[var(--motion-ease-standard)] motion-reduce:transition-none sm:px-5",
-              isPopover
-                ? "pb-[var(--agent-chat-composer-bottom)] sm:pb-3"
-                : "pb-[var(--agent-chat-composer-bottom)] focus-within:pb-[var(--agent-chat-composer-focused-bottom)]",
+              "pb-[var(--agent-chat-composer-bottom)] focus-within:pb-[var(--agent-chat-composer-focused-bottom)]",
               // Puppy One has its own composer. Leaving One's on screen would
               // let a message meant for the on-device agent be sent to the
               // cloud one, which is exactly the confusion this mode prevents.

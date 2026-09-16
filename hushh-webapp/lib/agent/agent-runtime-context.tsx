@@ -87,7 +87,7 @@ export type AgentRuntimeState = {
   tier: AgentAccessTier;
   /** True when the user is inside the onboarding / intro flow. */
   onboardingActive: boolean;
-  /** True on the marketing root route ("/"). */
+  /** True on the canonical root route ("/"); the route is Chat when signed in. */
   isHomeRoute: boolean;
   /** True when vault is unlocked AND a fresh owner token is available. */
   hasVaultAccess: boolean;
@@ -197,8 +197,8 @@ export function AgentRuntimeStateProvider({ children }: { children: ReactNode })
   const path = pathname ?? "";
   const pathnameWithQuery = routeQuery ? `${path}?${routeQuery}` : path;
   const routeInfo = useMemo(
-    () => deriveVoiceRouteScreen(path, routeQuery),
-    [path, routeQuery]
+    () => deriveVoiceRouteScreen(path, routeQuery, { authenticated: signedIn }),
+    [path, routeQuery, signedIn]
   );
 
   const isHomeRoute = path === ROUTES.HOME;
@@ -206,14 +206,14 @@ export function AgentRuntimeStateProvider({ children }: { children: ReactNode })
     const chrome = getKaiChromeState(path);
     return (
       chrome.useOnboardingChrome ||
-      isHomeRoute ||
+      (isHomeRoute && !signedIn) ||
       path === ROUTES.GETTING_STARTED ||
       path === ROUTES.LOGIN ||
       path === ROUTES.PHONE_MANDATE ||
       path === ROUTES.ONE_SETUP ||
       path.startsWith(`${ROUTES.ONE_SETUP}/`)
     );
-  }, [path, isHomeRoute]);
+  }, [path, isHomeRoute, signedIn]);
 
   const [preVaultState, setPreVaultState] = useState<PreVaultUserState | null>(null);
   useEffect(() => {

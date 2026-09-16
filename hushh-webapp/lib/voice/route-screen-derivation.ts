@@ -6,6 +6,11 @@ export type VoiceRouteScreenInfo = {
   subview?: string | null;
 };
 
+export type VoiceRouteScreenOptions = {
+  /** The canonical root is Chat for authenticated sessions and Intro otherwise. */
+  authenticated?: boolean;
+};
+
 function toSearchParams(
   searchParams?: URLSearchParams | string,
 ): URLSearchParams {
@@ -24,6 +29,7 @@ function toSearchParams(
 export function deriveVoiceRouteScreen(
   pathname: string,
   searchParams?: URLSearchParams | string,
+  options?: VoiceRouteScreenOptions,
 ): VoiceRouteScreenInfo {
   const [normalizedPath, rawQuery = ""] = String(pathname || "").split("?");
   const query =
@@ -33,8 +39,16 @@ export function deriveVoiceRouteScreen(
   if (!normalizedPath) {
     return { screen: "unknown", subview: null };
   }
+  if (normalizedPath === ROUTES.LEGACY_AGENT) {
+    // The legacy route is redirect-only. Keep a typed transitional screen for
+    // generated route contracts; it is never rendered as an active workspace.
+    return { screen: "compatibility_redirect", subview: null };
+  }
   if (normalizedPath === ROUTES.HOME) {
-    return { screen: "one_intro", subview: null };
+    return {
+      screen: options?.authenticated ? "chat" : "one_intro",
+      subview: null,
+    };
   }
   if (normalizedPath === ROUTES.ONE_HOME) {
     return { screen: "one_agents", subview: null };

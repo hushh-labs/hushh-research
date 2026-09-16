@@ -31,6 +31,7 @@ from hushh_mcp.one_adk.agent_tree import (
     build_one_text_agent,
 )
 from hushh_mcp.one_adk.agui_action_tools import action_id_from_tool_name
+from hushh_mcp.one_adk.agui_turn_timing import HEAD_INTRO, HEAD_ONE, TimedADKAgent
 from hushh_mcp.one_adk.encrypted_session_service import EncryptedAdkSessionService
 from hushh_mcp.one_adk.request_secrets import store_request_secret
 from hushh_mcp.services.action_gateway import get_action_gateway_action, list_action_gateway_actions
@@ -142,18 +143,33 @@ _intro_capabilities = {
     "multiAgent": {"supported": False, "delegation": False, "handoffs": False},
     "humanInTheLoop": {"supported": False, "interrupts": False},
 }
-_agent = ADKAgent.from_app(
+# The bridge defaults to 10 concurrent executions per process, across every
+# person, and keeps a slot for 600 s when a run leaves a pending tool call. Ten
+# people mid-confirmation would lock the route for everyone. These bounds are
+# per process, not per person; TimedADKAgent releases slots for runs that end
+# in error or disconnect. Measured 2026-09-14 on localhost with the latency
+# driver (agent-chat-migration-baseline).
+_MAX_CONCURRENT_EXECUTIONS = 64
+_EXECUTION_TIMEOUT_SECONDS = 120
+
+_agent = TimedADKAgent.from_app(
     _app,
+    head=HEAD_ONE,
     user_id_extractor=_user_id,
+    max_concurrent_executions=_MAX_CONCURRENT_EXECUTIONS,
+    execution_timeout_seconds=_EXECUTION_TIMEOUT_SECONDS,
     session_service=_session_service,
     use_in_memory_services=True,
     use_thread_id_as_session_id=True,
     emit_messages_snapshot=True,
     capabilities=_authenticated_capabilities,
 )
-_intro_agent = ADKAgent.from_app(
+_intro_agent = TimedADKAgent.from_app(
     _intro_app,
+    head=HEAD_INTRO,
     user_id_extractor=_user_id,
+    max_concurrent_executions=_MAX_CONCURRENT_EXECUTIONS,
+    execution_timeout_seconds=_EXECUTION_TIMEOUT_SECONDS,
     # Anonymous and Firebase-only pre-vault turns intentionally remain
     # ephemeral. Durable history begins only after VAULT_OWNER authority is
     # present, where the encrypted owner-bound store can enforce teardown.

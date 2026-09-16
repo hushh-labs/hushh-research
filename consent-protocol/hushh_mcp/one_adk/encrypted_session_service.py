@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import threading
 import time
 import uuid
 from typing import Any
@@ -11,11 +12,48 @@ from typing import Any
 from google.adk.events import Event
 from google.adk.sessions import BaseSessionService, Session
 from google.adk.sessions.base_session_service import GetSessionConfig, ListSessionsResponse
+from pydantic import BaseModel
+from pydantic_core import PydanticSerializationError
 
 from db.db_client import DatabaseExecutionError, get_db
 from hushh_mcp.services.agent_chat_service import AgentChatService
 
 logger = logging.getLogger(__name__)
+_SERIALIZER_BUILD_LOCK = threading.Lock()
+
+
+def _prepare_deferred_model_serializers(value: Any) -> None:
+    """Build schemas for SDK models carried through ADK's Any-typed fields.
+
+    GenAI uses deferred Pydantic schemas. Models created with model_construct
+    can still have a placeholder serializer; Pydantic's Any serializer does
+    not initialize it when dumping an enclosing Session. Prepare the schemas
+    without converting the objects or changing their serialization rules.
+    """
+    pending = [value]
+    seen: set[int] = set()
+    while pending:
+        item = pending.pop()
+        if not isinstance(item, (BaseModel, dict, list, tuple, set, frozenset)):
+            continue
+        if id(item) in seen:
+            continue
+        seen.add(id(item))
+        if isinstance(item, BaseModel):
+            model_type = type(item)
+            if not model_type.__pydantic_complete__:
+                # Pydantic rebuild mutates class schema state. Serialize our
+                # repairs and recheck rather than forcing a shared-class rebuild.
+                with _SERIALIZER_BUILD_LOCK:
+                    if not model_type.__pydantic_complete__:
+                        model_type.model_rebuild()
+            pending.extend(item.__dict__.values())
+            if item.__pydantic_extra__:
+                pending.extend(item.__pydantic_extra__.values())
+        elif isinstance(item, dict):
+            pending.extend(item.values())
+        else:
+            pending.extend(item)
 
 
 class EncryptedAdkSessionUnavailableError(RuntimeError):
@@ -46,7 +84,17 @@ class EncryptedAdkSessionService(BaseSessionService):
             ) from None
 
     def _encode(self, session: Session) -> dict[str, str]:
-        payload = self._cipher._encrypt_text(session.model_dump_json(by_alias=True))
+        try:
+            plain = session.model_dump_json(by_alias=True)
+        except PydanticSerializationError as exc:
+            if "MockValSer" not in str(exc):
+                raise
+            # One bounded repair for deferred SDK serializers. Healthy sessions
+            # pay no traversal/rebuild cost; unrelated serialization errors remain
+            # failures rather than silently dropping or stringifying information.
+            _prepare_deferred_model_serializers(session)
+            plain = session.model_dump_json(by_alias=True)
+        payload = self._cipher._encrypt_text(plain)
         return {
             "ciphertext": payload.ciphertext,
             "iv": payload.iv,

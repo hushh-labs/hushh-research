@@ -51,13 +51,13 @@ let identityToken = "";
 let createdBundleId = "";
 let baselineConversationIds = new Set();
 
-async function ensureOnAgent(page) {
+async function ensureOnChat(page) {
   const pathname = await page.evaluate(() => window.location.pathname);
-  if (pathname === "/agent") return;
-  await reviewer.navigateInApp(page, "/agent");
+  if (pathname === "/") return;
+  await reviewer.navigateInApp(page, "/");
 }
 async function sendPrompt(page, text) {
-  await ensureOnAgent(page);
+  await ensureOnChat(page);
   const composer = page.getByTestId("agent-chat-composer-textarea");
   await composer.waitFor({ state: "visible", timeout: 60_000 });
   const baseline = await page.locator('[data-message-role="assistant"]').count();
@@ -130,11 +130,11 @@ async function findOurBundle(personRef) {
 }
 
 try {
-  session = await reviewer.openSession(browser, "/agent");
+  session = await reviewer.openSession(browser, "/");
   const { page } = session;
   ownerToken = await session.capture.ownerToken();
   // The identity token is observed on a Firebase-authenticated request; the
-  // Connect tab issues one on entry, /agent does not. Same-session navigation
+  // Connect tab issues one on entry, root Chat does not. Same-session navigation
   // keeps the vault key.
   // Warm the Connect server render first: right after a backend restart the
   // app-router navigation waits on that render, and a cold one can outlast
@@ -151,7 +151,7 @@ try {
     await reviewer.navigateInApp(page, "/one/connect");
   }
   identityToken = await session.capture.identityToken();
-  await reviewer.navigateInApp(page, "/agent");
+  await reviewer.navigateInApp(page, "/");
   const conversationIds = async () => {
     const result = await ownerJson(`/api/one/agent-chat/conversations/${encodeURIComponent(reviewer.reviewerUid)}?limit=20`);
     return new Set(((result.payload || {}).conversations || []).map((item) => String(item.id)));
@@ -197,7 +197,7 @@ try {
     const payload = await response.json();
     const bundleId = clean(payload.bundleId || payload.bundle_id);
     if (bundleId) await ownerJson(`/api/one/information-requests/${encodeURIComponent(bundleId)}/cancel`, { method: "POST" });
-    await reviewer.navigateInApp(page, "/agent");
+    await reviewer.navigateInApp(page, "/");
     const after = await backendJson(`/api/one/kyc/client-connector?user_id=${encodeURIComponent(reviewer.reviewerUid)}`);
     if (!after.payload?.configured) throw new Error(`connector still not configured after the profile flow (HTTP ${after.status})`);
     return "registered via profile, request cancelled";

@@ -38,7 +38,7 @@ import {
   ShareUnavailableError,
   shareLink,
 } from "@/lib/share/share-link";
-import { useLocalOnboardingActionHandler } from "@/lib/agent/local-onboarding-actions";
+import { useLocalOnboardingActionHandler, type LocalActionPreparer } from "@/lib/agent/local-onboarding-actions";
 import {
   getAppScrollRoot,
   useScrollReset,
@@ -453,7 +453,11 @@ async function resolveConnectionForVoice({
     rows.push(...result.items);
     if (connectionId) {
       const exact = rows.find((row) => row.connectionId === connectionId);
-      if (exact) return { matches: [exact], complete: true };
+      if (exact) return {
+        matches: !spokenName || matchByName([exact], spokenName, (entry) => entry.displayName).length === 1
+          ? [exact] : [],
+        complete: true,
+      };
     }
     if (!result.hasMore) {
       return {
@@ -1929,7 +1933,48 @@ export default function ConnectPageClient() {
       summary: "Searching Connect for the name you gave.",
     };
   });
-  useLocalOnboardingActionHandler("connect.send_request", async (slots) => {
+  const prepareConnection = (remove: boolean): LocalActionPreparer => async (slots, chosenResourceId) => {
+    if (!user) return { status: "blocked", gate: "permission", summary: "Sign in to manage connections." };
+    const person = typeof slots.person === "string" ? slots.person.trim() : "";
+    const key = remove ? "connectionId" : "userId";
+    const selected = Object.prototype.hasOwnProperty.call(slots, key) ? slots[key] : chosenResourceId;
+    if (selected !== undefined && (typeof selected !== "string" || !selected.trim() || selected.length > 256)) {
+      return { status: "blocked", gate: "input", summary: "Choose one person again." };
+    }
+    if (!person) return { status: "blocked", gate: "input", summary: "Who is this for?" };
+    try {
+      const idToken = await user.getIdToken();
+      if (remove) {
+        const result = await resolveConnectionForVoice({ idToken, spokenName: person, connectionId: String(selected ?? "") });
+        if (!result.complete || result.matches.length !== 1) return { status: "blocked", gate: "input", summary: "Choose one current connection." };
+        const row = result.matches[0]!;
+        return { status: "ready", binding: { owner: user.uid, connectionId: row.connectionId, person: row.displayName }, summary: `Remove your connection with ${row.displayName}?` };
+      }
+      const candidates: DirectoryPerson[] = [];
+      const query = person.split(/\s+/).sort((a, b) => b.length - a.length)[0] ?? person;
+      let complete = false;
+      for (let page = 1; page <= DIRECTORY_RESOLVE_MAX_PAGES; page += 1) {
+        const result = await ConnectionsService.searchDirectory({ idToken, query, page, limit: DIRECTORY_RESOLVE_PAGE_SIZE });
+        candidates.push(...result.items);
+        if (!result.hasMore) { complete = true; break; }
+      }
+      const matches = matchByName(candidates, person, (row) => row.displayName)
+        .filter((row) => selected === undefined || row.userId === selected);
+      if ((!complete && selected === undefined) || matches.length !== 1 || matches[0]!.relationship !== "none") {
+        return { status: "blocked", gate: "input", summary: "Choose one person who can receive a new request." };
+      }
+      const row = matches[0]!;
+      return { status: "ready", binding: { owner: user.uid, userId: row.userId, person: row.displayName }, summary: `Send a connection request to ${row.displayName}?` };
+    } catch {
+      return { status: "blocked", gate: "permission", summary: "Connections could not be checked. Try again." };
+    }
+  };
+
+  useLocalOnboardingActionHandler("connect.send_request", async (slots, context) => {
+    if (context?.preparedBinding && !context.directiveId && !context.humanConfirmationToken) {
+      return { status: "blocked", summary: "Confirm the connection request in the app first." };
+    }
+    if (context?.preparedBinding) slots = { ...slots, ...context.preparedBinding };
     const spokenName =
       typeof slots.person === "string" ? slots.person.trim() : "";
     // Set only by the disambiguation card, which resolves a name the person
@@ -1939,6 +1984,10 @@ export default function ConnectPageClient() {
     // way and bounce the card straight back.
     const chosenUserId =
       typeof slots.userId === "string" ? slots.userId.trim() : "";
+    if (Object.prototype.hasOwnProperty.call(slots, "userId") &&
+        (!chosenUserId || chosenUserId.length > 256)) {
+      return { status: "blocked", summary: "Choose the person again." };
+    }
     if (!user) {
       return {
         status: "blocked",
@@ -2005,7 +2054,8 @@ export default function ConnectPageClient() {
       // know.
       // A resolved id wins outright: the person has already pointed at a row.
       const exactMatches = chosenUserId
-        ? candidates.filter((c) => c.userId === chosenUserId)
+        ? candidates.filter((c) => c.userId === chosenUserId &&
+            (!spokenName || matchByName([c], spokenName, (entry) => entry.displayName).length === 1))
         : matchByName(candidates, spokenName, (c) => c.displayName);
       if (exactMatches.length === 0) {
         return {
@@ -2121,7 +2171,7 @@ export default function ConnectPageClient() {
             : "Could not send the connection request.",
       };
     }
-  });
+  }, { prepare: prepareConnection(false) });
 
   useLocalOnboardingActionHandler("connect.cancel_request", async (slots) => {
     const spokenName =
@@ -2190,10 +2240,15 @@ export default function ConnectPageClient() {
   useLocalOnboardingActionHandler(
     "connect.remove_connection",
     async (slots, context) => {
+      if (context?.preparedBinding) slots = { ...slots, ...context.preparedBinding };
       const spokenName =
         typeof slots.person === "string" ? slots.person.trim() : "";
       const chosenConnectionId =
         typeof slots.connectionId === "string" ? slots.connectionId.trim() : "";
+      if (Object.prototype.hasOwnProperty.call(slots, "connectionId") &&
+          (!chosenConnectionId || chosenConnectionId.length > 256)) {
+        return { status: "blocked", summary: "Choose the connection again." };
+      }
       if (!user) {
         return {
           status: "blocked",
@@ -2306,6 +2361,7 @@ export default function ConnectPageClient() {
         };
       }
     },
+    { prepare: prepareConnection(true) },
   );
 
   const directoryMenuItems = CONNECT_DIRECTORY_TABS.map((option) => {

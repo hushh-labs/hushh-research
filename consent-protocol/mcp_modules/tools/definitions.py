@@ -127,7 +127,11 @@ def _private_tool_definitions() -> list[Tool]:
             description="Open the Location People tab.",
             inputSchema=empty,
         ),
-        Tool(name="location_open_links", description="Open the Location Links tab.", inputSchema=empty),
+        Tool(
+            name="location_open_links",
+            description="Open the Location Links tab.",
+            inputSchema=empty,
+        ),
         Tool(
             name="location_open_share",
             description="Open the Location share composer.",
@@ -138,7 +142,11 @@ def _private_tool_definitions() -> list[Tool]:
             description="Open the Location request composer.",
             inputSchema=empty,
         ),
-        Tool(name="location_open_map", description="Open the full-screen Location map.", inputSchema=empty),
+        Tool(
+            name="location_open_map",
+            description="Open the full-screen Location map.",
+            inputSchema=empty,
+        ),
         Tool(
             name="location_open_settings",
             description="Open Location privacy settings.",

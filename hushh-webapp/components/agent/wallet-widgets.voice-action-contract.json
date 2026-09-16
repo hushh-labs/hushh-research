@@ -10,7 +10,7 @@
     "delegate_agent_id": "agent_wallet",
     "reachability": {
       "routes": [
-        "/agent",
+        "/",
         "/one",
         "/one/wallet"
       ],

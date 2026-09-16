@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { OneDashboardPage } from "@/components/dashboard/one-dashboard-page";
@@ -30,20 +30,6 @@ function buildStatusMap(
   return map;
 }
 
-function countRosterMetrics(
-  container: HTMLElement,
-  value: string,
-  label: string,
-): number {
-  return Array.from(
-    container.querySelectorAll('span[data-ui-role="body-strong"]'),
-  ).filter(
-    (node) =>
-      node.textContent === value &&
-      node.nextElementSibling?.textContent === label,
-  ).length;
-}
-
 describe("OneDashboardPage", () => {
   beforeEach(() => {
     window.localStorage.clear();
@@ -51,7 +37,7 @@ describe("OneDashboardPage", () => {
 
   it("keeps unfinished Finance actionable after root onboarding is dismissed", () => {
     const userId = "dashboard-dismissed-user";
-    OneSetupCompletionHintService.markResolved(userId); // dismissed
+    OneSetupCompletionHintService.markResolved(userId);
 
     render(
       <OneDashboardPage
@@ -63,15 +49,13 @@ describe("OneDashboardPage", () => {
       />,
     );
 
-    // Root onboarding completion is not Finance completion. The resolver's
-    // actionable state must still lead to the bounded Finance setup workspace.
-    const financeLink = screen.getByRole("link", { name: "Open Finance" });
+    const financeLink = screen.getByRole("link", { name: /Open Finance/i });
     expect(financeLink.getAttribute("href")).toBe(
       buildOneSetupCapabilityRoute("finance"),
     );
   });
 
-  it("renders the primary One agent modes with route targets", () => {
+  it("renders the One launcher as a clean app grid with stable route targets", () => {
     const { container } = render(
       <OneDashboardPage
         displayName="Kushal Trivedi"
@@ -88,21 +72,26 @@ describe("OneDashboardPage", () => {
 
     expect(screen.queryByText("Good to see you, Kushal.")).toBeNull();
     expect(screen.queryByText("Your private agent")).toBeNull();
+    expect(screen.queryByRole("heading", { name: /Agents/i })).toBeNull();
+    expect(screen.getByRole("heading", { name: "One" })).toBeTruthy();
+    expect(
+      container.querySelector("[data-one-launcher-root='true']"),
+    ).toHaveClass("bg-[color:var(--one-launcher-background)]");
+    expect(screen.getByTestId("one-launcher-avatar")).toHaveTextContent("K");
     expect(screen.getByTestId("one-agents-section")).toBeTruthy();
-    expect(screen.getByTestId("one-agents-list")).toBeTruthy();
-    expect(container.textContent).not.toContain("Finish setup");
-    expect(screen.getByRole("heading", { name: "Agents (9)" })).toBeTruthy();
-
-    // Every dashboard tile enters the same static setup workspace as the hub.
-    // A resolved journey is redirected by that workspace to the normal product
-    // destination, so direct product routes never bypass first-run setup.
-    const financeLink = screen.getByRole("link", { name: "Open Finance" });
-    expect(financeLink.getAttribute("href")).toBe(
-      buildOneSetupCapabilityRoute("finance"),
+    expect(screen.getByTestId("one-agents-grid")).toBeTruthy();
+    expect(screen.queryByTestId("one-agents-list")).toBeNull();
+    expect(screen.queryByTestId("one-agents-search")).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "More One options" }),
+    ).toBeNull();
+    expect(screen.getByTestId("one-launcher-avatar-link")).toHaveAttribute(
+      "href",
+      ROUTES.PROFILE,
     );
-    const expectedProfileFormatIcons = [
+
+    const expectedCanonicalToneIcons = [
       "finance",
-      "wallet",
       "location",
       "ria",
       "gmail",
@@ -111,246 +100,99 @@ describe("OneDashboardPage", () => {
       "pkm",
       "consent",
     ] as const;
-    for (const id of expectedProfileFormatIcons) {
-      const icon = screen.getAllByTestId(`one-agent-icon-${id}`)[0];
+    for (const id of expectedCanonicalToneIcons) {
+      const icon = screen.getByTestId(`one-agent-icon-${id}`);
       expect(icon).toBeTruthy();
       expect(icon).toHaveAttribute("data-agent-icon-kind", "lucide");
+      expect(icon).not.toHaveAttribute("data-agent-icon-palette-index");
       expect(icon.querySelector("svg")).toBeTruthy();
     }
-    const financeIcon = screen.getAllByTestId("one-agent-icon-finance")[0];
-    expect(financeIcon).toHaveStyle({
-      "--agent-icon-profile-bg": "rgba(88, 86, 214, 0.16)",
-      "--agent-icon-profile-fg": "#5856D6",
+    expect(screen.getByTestId("one-agent-icon-location")).toHaveStyle({
+      backgroundColor: "var(--app-accent)",
     });
-    // Palette slots are assigned by roster position, so this list must track
-    // ONE_CAPABILITIES order: the palette exists to keep adjacent rows
-    // distinguishable, and that property is preserved.
-    const rosterPaletteOrder = [
-      "finance",
-      "wallet",
-      "location",
-      "ria",
-      "gmail",
-      "calendar",
-      "email",
-      "pkm",
-      "consent",
-    ] as const;
-    const rosterPaletteSlots = rosterPaletteOrder.map((id) =>
-      screen
-        .getAllByTestId(`one-agent-icon-${id}`)[0]
-        .getAttribute("data-agent-icon-palette-index"),
+
+    const grid = screen.getByTestId("one-agents-grid");
+    expect(grid).toHaveAttribute("data-agent-roster-layout", "app-icon-grid");
+    expect(grid.className).toContain("one-agent-launcher-grid");
+    expect(grid.querySelectorAll("li.one-agent-launcher-tile").length).toBe(8);
+    expect(container.textContent).not.toContain("actions");
+    expect(container.textContent).not.toContain("checking");
+    expect(container.textContent).not.toContain("status not loaded");
+    expect(container.textContent).not.toContain("winner");
+    expect(container.textContent).not.toContain(
+      "Connect your everyday systems",
     );
-    expect(rosterPaletteSlots).toEqual([
-      "0",
-      "1",
-      "2",
-      "3",
-      "4",
-      "5",
-      "6",
-      "7",
-      "8",
-    ]);
-    const iconBackgrounds = Object.fromEntries(
-      rosterPaletteOrder.map((id) => [
-        id,
-        screen
-          .getAllByTestId(`one-agent-icon-${id}`)[0]
-          .style.getPropertyValue("--agent-icon-profile-bg"),
-      ]),
-    );
-    expect(iconBackgrounds.ria).toBe(iconBackgrounds.finance);
-    expect(iconBackgrounds.wallet).toBe(iconBackgrounds.location);
-    expect(iconBackgrounds.gmail).toBe(iconBackgrounds.location);
-    expect(iconBackgrounds.calendar).toBe(iconBackgrounds.location);
-    expect(iconBackgrounds.email).toBe(iconBackgrounds.location);
-    expect(iconBackgrounds.pkm).toBe(iconBackgrounds.consent);
-    expect(new Set(Object.values(iconBackgrounds)).size).toBe(3);
-    expect(financeIcon.className).toContain(
-      "dark:bg-[var(--agent-icon-profile-bg-dark)]",
-    );
-    expect(financeIcon.querySelector("svg")?.className.baseVal).toContain(
-      "text-current",
-    );
-    expect(financeIcon.querySelector("svg")?.className.baseVal).not.toContain(
-      "dark:!text-[#1d1d1f]",
-    );
-    expect(financeIcon.querySelector(".backdrop-blur-\\[8px\\]")).toBeNull();
-    const riaLink = screen.getByRole("link", { name: "Open RIA" });
-    expect(riaLink.getAttribute("href")).toBe(
-      buildOneSetupCapabilityRoute("ria"),
-    );
-    // Agents model: the route link is a normal app-icon tile, not a large
-    // colored workflow card.
-    expect(financeLink.className).not.toContain("border-emerald-500");
-    expect(financeLink.getAttribute("style") ?? "").not.toContain("background");
+
     expect(
-      screen.getByRole("link", { name: "Open Wallet" }).getAttribute("href"),
-    ).toBe(ROUTES.ONE_WALLET);
+      screen.getByRole("link", { name: /Open Finance/i }).getAttribute("href"),
+    ).toBe(buildOneSetupCapabilityRoute("finance"));
     expect(
-      screen.getByRole("link", { name: "Open Gmail" }).getAttribute("href"),
+      screen.getByRole("link", { name: /Open Gmail/i }).getAttribute("href"),
     ).toBe(buildOneSetupCapabilityRoute("gmail"));
     expect(
-      screen.getByRole("link", { name: "Open Calendar" }).getAttribute("href"),
+      screen.getByRole("link", { name: /Open Calendar/i }).getAttribute("href"),
     ).toBe(buildOneSetupCapabilityRoute("calendar"));
     expect(
-      screen.getByRole("link", { name: "Open KYC" }).getAttribute("href"),
+      screen.getByRole("link", { name: /Open KYC/i }).getAttribute("href"),
     ).toBe(ROUTES.ONE_KYC);
     expect(
-      screen.getByRole("link", { name: "Open Location" }).getAttribute("href"),
+      screen.getByRole("link", { name: /Open Location/i }).getAttribute("href"),
     ).toBe(ROUTES.ONE_LOCATION);
-    expect(screen.queryByRole("link", { name: "Open CRM" })).toBeNull();
-
-    // The roster shows a concise, numeric action KPI rather than generic
-    // progress words such as Ready, Open, or Explore.
-    expect(countRosterMetrics(container, "0", "actions")).toBe(2);
-    expect(countRosterMetrics(container, "—", "checking")).toBeGreaterThan(0);
-    expect(screen.queryByText("Ready")).toBeNull();
-    expect(screen.queryByText("Explore")).toBeNull();
-    // Gmail and Calendar are first-class setup capabilities; Wallet, Memory,
-    // and Consent remain direct workspaces and do not inflate setup progress.
-    expect(container.querySelectorAll('a[aria-label^="Open "]').length).toBe(9);
     expect(
-      screen.getByRole("link", { name: "Open Memory" }).getAttribute("href"),
+      screen.getByRole("link", { name: /Open Memory/i }).getAttribute("href"),
     ).toBe(ROUTES.PKM);
     expect(
-      screen.getByRole("link", { name: "Open Consent" }).getAttribute("href"),
+      screen.getByRole("link", { name: /Open Consent/i }).getAttribute("href"),
     ).toContain(ROUTES.CONSENTS);
+    expect(screen.queryByRole("link", { name: /Open CRM/i })).toBeNull();
+    expect(screen.queryByTestId("one-agent-icon-connected-systems")).toBeNull();
     expect(
-      screen.queryByRole("link", { name: "Open Information Marketplace" }),
+      screen.queryByRole("link", { name: /Open Information Marketplace/i }),
     ).toBeNull();
-    expect(screen.queryByTestId("one-finish-setup")).toBeNull();
-    expect(screen.queryByText(/8 agents.*setup steps ready/i)).toBeNull();
-    expect(screen.queryByRole("link", { name: "Open One Agent" })).toBeNull();
+    expect(
+      container.querySelectorAll(
+        'a[aria-label^="Open "]:not([href="/one/profile"])',
+      ).length,
+    ).toBe(8);
   });
 
-  it("reflects completed setup across all capabilities", () => {
-    const { container } = render(
+  it("uses only actionable and live indicators instead of visible KPI captions", () => {
+    render(
       <OneDashboardPage
         displayName="Kushal Trivedi"
         capabilityStatusById={buildStatusMap({
+          consent: { state: "needs-attention", pendingCount: 102 },
+          ria: { state: "in-progress" },
           finance: { state: "completed" },
-          gmail: { state: "completed" },
-          calendar: { state: "completed" },
-          email: { state: "completed" },
-          location: { state: "completed" },
-          ria: { state: "completed" },
         })}
       />,
     );
 
-    // Completed workspace setup is represented as an operational KPI rather
-    // than the generic Ready label.
-    expect(countRosterMetrics(container, "0", "actions")).toBe(6);
-    expect(screen.getByRole("heading", { name: "Agents (9)" })).toBeTruthy();
-    expect(screen.queryByText("Finish setup")).toBeNull();
+    expect(screen.getByText("99+")).toBeTruthy();
+    expect(screen.queryByTestId("one-agent-indicator-setup")).toBeNull();
+    expect(screen.queryByText("Ready")).toBeNull();
+    expect(screen.queryByText("Explore")).toBeNull();
+    expect(screen.queryByText("Set up")).toBeNull();
+    expect(screen.queryByText("Continue")).toBeNull();
   });
 
-  it("renders authored setup actions instead of transient checking states", () => {
-    render(<OneDashboardPage displayName="Kushal Trivedi" />);
-    expect(screen.queryAllByText("Checking...")).toHaveLength(0);
-    expect(screen.queryByText("Connect Gmail")).toBeNull();
-    expect(countRosterMetrics(document.body, "—", "checking")).toBeGreaterThan(
-      0,
-    );
-  });
-
-  it("renders the complete roster as a list first and keeps the grid available", () => {
-    const { container } = render(
-      <OneDashboardPage displayName="Kushal Trivedi" />,
-    );
-
-    expect(screen.getByTestId("one-agents-list")).toBeTruthy();
-    expect(screen.getByTestId("one-agent-list-row-finance")).toBeTruthy();
-    expect(
-      screen.getByRole("link", { name: "Open Finance" }).getAttribute("href"),
-    ).toBe(buildOneSetupCapabilityRoute("finance"));
-    expect(screen.getByLabelText("Show agent grid view")).toHaveAttribute(
-      "aria-pressed",
-      "false",
-    );
-    fireEvent.click(screen.getByLabelText("Show agent grid view"));
-    expect(screen.getByTestId("one-agents-grid")).toBeTruthy();
-    expect(screen.getByTestId("one-agent-tile-finance")).toBeTruthy();
-    const grid = container.querySelector(
-      '[data-agent-roster-layout="grouped-icon-grid"]',
-    );
-    expect(grid?.className).toContain("grid-cols-[repeat(3,minmax(84px,1fr))]");
-    expect(grid?.className).not.toContain("sm:grid-cols-[repeat(4");
-  });
-
-  it("restores a saved list view without replaying a view-change animation", () => {
+  it("ignores stale root list preferences and always renders the launcher grid", () => {
     window.localStorage.setItem("hushh:one-agent-roster-view", "list");
     render(<OneDashboardPage displayName="Kushal Trivedi" />);
 
-    expect(screen.getByTestId("one-agents-list")).toBeTruthy();
-    expect(screen.getByTestId("one-agents-view-content")).not.toHaveClass(
-      "motion-step-enter",
-    );
-
-    fireEvent.click(screen.getByLabelText("Show agent grid view"));
-    expect(screen.getByTestId("one-agents-view-content")).toHaveClass(
-      "motion-step-enter",
-    );
-  });
-
-  it("keeps header, search and view controls mounted while replacing only roster content", () => {
-    window.localStorage.setItem("hushh:one-agent-roster-view", "grid");
-    render(<OneDashboardPage displayName="Kushal Trivedi" />);
-
-    const heading = screen.getByRole("heading", { name: "Agents (9)" });
-    const search = screen.getByTestId("one-agents-search");
-    const gridControl = screen.getByLabelText("Show agent grid view");
-    const listControl = screen.getByLabelText("Show agent list view");
-    const gridContent = screen.getByTestId("one-agents-view-content");
-
-    fireEvent.click(listControl);
-    expect(screen.getByRole("heading", { name: "Agents (9)" })).toBe(heading);
-    expect(screen.getByTestId("one-agents-search")).toBe(search);
-    expect(screen.getByLabelText("Show agent grid view")).toBe(gridControl);
-    expect(screen.getByLabelText("Show agent list view")).toBe(listControl);
-    expect(gridContent.isConnected).toBe(false);
-    expect(screen.queryByTestId("one-agents-grid")).toBeNull();
-    expect(screen.getByTestId("one-agents-list")).toBeTruthy();
-
-    fireEvent.click(gridControl);
-    expect(screen.getByRole("heading", { name: "Agents (9)" })).toBe(heading);
-    expect(screen.getByTestId("one-agents-search")).toBe(search);
+    expect(screen.getByTestId("one-agents-grid")).toBeTruthy();
     expect(screen.queryByTestId("one-agents-list")).toBeNull();
-    expect(screen.getAllByTestId("one-agents-grid")).toHaveLength(1);
+    expect(screen.queryByTestId("one-agents-view-content")).toBeNull();
   });
 
-  it("filters the local agent roster without opening a second global search surface", () => {
+  it("removes root-local discovery controls", () => {
     render(<OneDashboardPage displayName="Kushal Trivedi" />);
 
-    fireEvent.change(screen.getByTestId("one-agents-search"), {
-      target: { value: "location" },
-    });
-
-    expect(screen.getByTestId("one-agent-list-row-location")).toBeTruthy();
-    expect(screen.queryByTestId("one-agent-list-row-finance")).toBeNull();
-  });
-
-  it("clears the roster query from the trailing touch affordance", () => {
-    render(<OneDashboardPage displayName="Kushal Trivedi" />);
-
-    const search = screen.getByTestId("one-agents-search");
-    fireEvent.change(search, { target: { value: "location" } });
-    fireEvent.click(screen.getByRole("button", { name: "Clear agent search" }));
-
-    expect(search).toHaveValue("");
-    expect(screen.getByTestId("one-agent-list-row-finance")).toBeTruthy();
-  });
-
-  it("shows the finance mover as a concise green percentage without redundant winner copy", () => {
-    render(
-      <OneDashboardPage
-        displayName="Kushal Trivedi"
-        userId="roster-finance-metric"
-      />,
-    );
-
-    expect(screen.queryByText(/winner/i)).toBeNull();
+    expect(screen.queryByTestId("one-agents-search")).toBeNull();
+    expect(screen.queryByTestId("one-agents-search-shell")).toBeNull();
+    expect(screen.queryByTestId("one-agents-more")).toBeNull();
+    expect(screen.queryByText("Search agents")).toBeNull();
+    expect(screen.queryByText(/Show as/i)).toBeNull();
+    expect(screen.queryByTestId("one-agents-list")).toBeNull();
   });
 });

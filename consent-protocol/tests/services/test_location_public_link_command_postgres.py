@@ -22,10 +22,11 @@ def service_factory(db, monkeypatch):
           grant_id UUID, envelope_id UUID, request_id UUID, referral_id UUID,
           event_type TEXT, metadata JSONB, created_at TIMESTAMPTZ);
     """)
-    migration = (
-        Path(__file__).resolve().parents[2] / "db/migrations/064_one_location_public_invites.sql"
-    )
-    db.execute_raw(migration.read_text())
+    migrations = Path(__file__).resolve().parents[2] / "db/migrations"
+    db.execute_raw((migrations / "064_one_location_public_invites.sql").read_text())
+    # Location write paths consult the owner-level sharing posture (migration
+    # 221); the fixture's actor_profiles rows come from the shared ``db`` fixture.
+    db.execute_raw((migrations / "221_one_location_account_settings.sql").read_text())
     monkeypatch.setattr(location, "get_db", lambda: db)
     monkeypatch.setattr(
         location, "_public_invite_signing_key", lambda: b"synthetic-public-link-fixture"

@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { PageSubtitle } from "@/components/app-ui/typography";
+import { OneVoicePreferencesSection } from "@/components/profile/one-voice-preferences-section";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import {
@@ -121,7 +122,9 @@ function LocationAgentDefaultsGroup({
             checked={defaults.autoApproveRequests}
             onCheckedChange={(checked) => {
               setDefaults((current) =>
-                current ? { ...current, autoApproveRequests: checked } : current,
+                current
+                  ? { ...current, autoApproveRequests: checked }
+                  : current,
               );
               OneLocationService.updateAutoApprovePreference({
                 vaultOwnerToken,
@@ -129,7 +132,9 @@ function LocationAgentDefaultsGroup({
                 scope: checked ? { kind: "all_contacts" } : undefined,
               }).catch(() =>
                 setDefaults((current) =>
-                  current ? { ...current, autoApproveRequests: !checked } : current,
+                  current
+                    ? { ...current, autoApproveRequests: !checked }
+                    : current,
                 ),
               );
             }}
@@ -288,13 +293,16 @@ export function VoicePreferencesPanel({
     return subscribeVoicePreferences(userId, setState);
   }, [userId]);
 
-  const set = (updater: (current: OneVoicePreferencesState) => OneVoicePreferencesState) => {
+  const set = (
+    updater: (current: OneVoicePreferencesState) => OneVoicePreferencesState,
+  ) => {
     updateVoicePreferences(userId, updater);
   };
 
   return (
     <div className="space-y-4">
       <VoiceHeader />
+      <OneVoicePreferencesSection userId={userId} />
       <SettingsGroup title="How commands work">
         <SettingsRow
           title="Use your own words"
@@ -317,7 +325,10 @@ export function VoicePreferencesPanel({
         />
       </SettingsGroup>
       <SettingsGroup title="Confirmations">
-        <SettingsRow title="Confirm sensitive actions" description="Location commands show a card when an action requires your approval. Tap Confirm to continue." />
+        <SettingsRow
+          title="Confirm sensitive actions"
+          description="Location commands show a card when an action requires your approval. Tap Confirm to continue."
+        />
       </SettingsGroup>
       <LocationAgentDefaultsGroup vaultOwnerToken={vaultOwnerToken} />
       <ConnectAgentDefaultsGroup getIdToken={getIdToken} />
@@ -342,7 +353,9 @@ export function VoicePreferencesPanel({
                       set((current) => ({
                         ...current,
                         disabledDomains: checked
-                          ? current.disabledDomains.filter((key) => key !== domain.key)
+                          ? current.disabledDomains.filter(
+                              (key) => key !== domain.key,
+                            )
                           : [...current.disabledDomains, domain.key],
                       }))
                     }

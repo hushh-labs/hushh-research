@@ -368,7 +368,9 @@ function waitForStatus(route) {
           const readyOk = (lastParsed.ready || "") === "1";
           const markerOk = (lastParsed.marker || "") === route.expectedMarker;
           const routeOk = matchesRoute(lastParsed.route || "", route);
-          const authOk = (lastParsed.auth || "") === route.expectedAuth;
+          const authOk = (route.allowedAuthStates || [route.expectedAuth]).includes(
+            lastParsed.auth || "",
+          );
           const dataOk = route.allowedDataStates.includes(lastParsed.data || "");
           if (readyOk && markerOk && routeOk && authOk && dataOk) {
             return {

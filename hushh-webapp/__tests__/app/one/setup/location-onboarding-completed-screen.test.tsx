@@ -11,7 +11,7 @@ const coordinatorMocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@/app/one/location/page", () => ({
-  default: () => (
+  OneLocationAgentPage: () => (
     <div data-testid="location-onboarding-journey">Location onboarding</div>
   ),
 }));

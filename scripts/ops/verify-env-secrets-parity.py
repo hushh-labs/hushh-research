@@ -352,7 +352,8 @@ def _domain_runtime_contract(project: str) -> dict[str, str]:
         for item in str(runtime.get("passkey_allowed_rp_ids") or "").split(",")
         if item.strip()
     }
-    passkey_status = "valid" if host in passkey_hosts else "mismatch"
+    expected_passkey_hosts = {"localhost", "127.0.0.1", host}
+    passkey_status = "valid" if passkey_hosts == expected_passkey_hosts else "mismatch"
 
     plaid_url = urlsplit(str(runtime.get("plaid_webhook_url") or "").strip())
     plaid_status = (

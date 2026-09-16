@@ -3,26 +3,45 @@ import { describe, expect, it } from "vitest";
 
 import { proxy } from "@/proxy";
 
-describe("legacy route redirects", () => {
-  it("moves Profile paths into One without dropping query state", () => {
-    const response = proxy(
-      new NextRequest(
-        "https://one.hushh.ai/profile/security?unlock_vault=1&return_to=%2Fone%2Flocation",
-      ),
-    );
+function request(path: string): NextRequest {
+  return new NextRequest(`https://one.hushh.ai${path}`);
+}
 
-    expect(response.headers.get("location")).toBe(
-      "https://one.hushh.ai/one/profile/security?unlock_vault=1&return_to=%2Fone%2Flocation",
-    );
+describe("Next proxy root-entry contract", () => {
+  it("leaves the dual-mode root entry available for client auth and onboarding", () => {
+    const response = proxy(request("/?redirect=%2Fone&tab=chat"));
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("location")).toBeNull();
   });
 
-  it("moves Connect paths into One without dropping query state", () => {
-    const response = proxy(
-      new NextRequest("https://one.hushh.ai/connect/settings?source=profile"),
-    );
+  it("redirects legacy agent links to root while preserving their query", () => {
+    const response = proxy(request("/agent?redirect=%2Fone&source=legacy"));
+    const location = response.headers.get("location");
 
-    expect(response.headers.get("location")).toBe(
-      "https://one.hushh.ai/one/connect/settings?source=profile",
-    );
+    expect(response.status).toBe(307);
+    expect(location).not.toBeNull();
+    const target = new URL(location!);
+    expect(target.pathname).toBe("/");
+    expect(target.searchParams.get("redirect")).toBe("/one");
+    expect(target.searchParams.get("source")).toBe("legacy");
+  });
+
+  it("redirects the trailing-slash legacy Agent variant as well", () => {
+    const response = proxy(request("/agent/?source=legacy"));
+    const location = response.headers.get("location");
+
+    expect(response.status).toBe(307);
+    expect(location).not.toBeNull();
+    const target = new URL(location!);
+    expect(target.pathname).toBe("/");
+    expect(target.searchParams.get("source")).toBe("legacy");
+  });
+
+  it("does not pretend that proxy auth is available for protected app routes", () => {
+    const response = proxy(request("/one"));
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("location")).toBeNull();
   });
 });

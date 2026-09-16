@@ -57,7 +57,7 @@
 		<true/>
 	</dict>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Hussh One uses the microphone only when you start a voice command.</string>
+	<string>Hussh One uses the microphone only while you are talking to One.</string>
 	<key>NSFaceIDUsageDescription</key>
 	<string>Hussh One uses Face ID only when you choose to unlock your Vault on this device.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>

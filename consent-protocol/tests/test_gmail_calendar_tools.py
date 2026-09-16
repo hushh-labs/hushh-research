@@ -126,7 +126,7 @@ _RAW_EVENTS_RESULT = {
     "events": [
         {
             "id": "e1",
-            "etag": "\"abc\"",
+            "etag": '"abc"',
             "title": "1:1 with Jamie",
             "description": "Discuss the Q3 roadmap and comp review.",
             "location": "123 Private Rd, Springfield",

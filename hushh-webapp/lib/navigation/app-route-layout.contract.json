@@ -1,18 +1,24 @@
 [
   {
     "route": "/",
-    "mode": "hidden",
-    "exemptionReason": "Anonymous auth-split entry route redirects signed-in users to /one and intentionally does not own the signed-in dashboard shell.",
+    "mode": "standard",
+    "persistentChrome": "standard",
+    "shellVerification": {
+      "file": "app/page.tsx",
+      "includes": [
+        "IntroStep",
+        "VaultLockGuard",
+        "AgentChatWorkspace"
+      ]
+    },
     "voicePlaybook": {
-      "playbookId": "route.one.intro",
-      "purpose": "Welcome a new person and help them claim their private agent.",
-      "screen": "one_intro",
-      "entryCue": "Say \u2018Claim your One\u2019 whenever you are ready.",
-      "proactivity": "on_entry",
-      "primaryActionId": "onboarding.claim_one",
-      "happyPathActionIds": [
-        "onboarding.claim_one"
-      ],
+      "playbookId": "route.chat.root",
+      "purpose": "Welcome anonymous visitors and provide the authenticated private-agent chat workspace.",
+      "screen": "chat",
+      "entryCue": "Ask One anything whenever you are ready.",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
       "requiredInputs": [],
       "recoveries": {
         "blocked": "Explain the current guard and retain the goal.",
@@ -22,9 +28,9 @@
         "callbackError": "Return to the verified callback recovery path without claiming success.",
         "routeMismatch": "Use the verified current route and its generated actions only."
       },
-      "completionBoundary": "The welcome step completes only after the browser settles navigation to Login.",
-      "nextRoute": "/login",
-      "returnPolicy": "navigate",
+      "completionBoundary": "Chat actions complete only after the correlated browser or capability settlement succeeds.",
+      "nextRoute": "/",
+      "returnPolicy": "resolve_root",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
     }
   },
@@ -64,6 +70,33 @@
       "nextRoute": "/one",
       "returnPolicy": "stay",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    }
+  },
+  {
+    "route": "/agent",
+    "mode": "redirect",
+    "exemptionReason": "Compatibility-only redirect to the canonical root Chat workspace.",
+    "voicePlaybook": {
+      "playbookId": "route.agent.compatibility",
+      "purpose": "Redirect legacy agent links to the canonical Chat workspace.",
+      "screen": "compatibility_redirect",
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain that the legacy link is no longer an active workspace and retain the goal.",
+        "cancelled": "Respect the cancellation and retain a safe next step.",
+        "failed": "Acknowledge the redirect failure without claiming completion.",
+        "timeout": "Retain the goal and offer one safe retry.",
+        "callbackError": "Return to the verified root Chat route without claiming success.",
+        "routeMismatch": "Use the verified current route and its generated actions only."
+      },
+      "completionBoundary": "The redirect completes only after the browser settles at the root Chat route.",
+      "nextRoute": "/",
+      "returnPolicy": "resolve_root",
+      "outOfScopeBehavior": "Do not render the removed legacy agent surface."
     }
   },
   {
@@ -198,40 +231,6 @@
     "voicePlaybook": {
       "playbookId": "route.developers",
       "purpose": "Help the person understand and use the developers screen through its generated controls.",
-      "screen": "app",
-      "entryCue": "",
-      "proactivity": "ambient",
-      "primaryActionId": null,
-      "happyPathActionIds": [],
-      "requiredInputs": [],
-      "recoveries": {
-        "blocked": "Explain the current guard and retain the goal.",
-        "cancelled": "Respect the cancellation and retain a safe next step.",
-        "failed": "Acknowledge the failure without claiming completion.",
-        "timeout": "Retain the goal and offer one safe retry.",
-        "callbackError": "Return to the verified callback recovery path without claiming success.",
-        "routeMismatch": "Use the verified current route and its generated actions only."
-      },
-      "completionBoundary": "Completion is shown only after the correlated browser settlement succeeds.",
-      "nextRoute": null,
-      "returnPolicy": "stay",
-      "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
-    }
-  },
-  {
-    "route": "/agent",
-    "mode": "standard",
-    "shellVerification": {
-      "file": "components/agent/agent-screen.tsx",
-      "includes": [
-        "AppPageShell",
-        "AppPageContentRegion",
-        "AgentChatWorkspace"
-      ]
-    },
-    "voicePlaybook": {
-      "playbookId": "route.agent",
-      "purpose": "Help the person understand and use the agent screen through its generated controls.",
       "screen": "app",
       "entryCue": "",
       "proactivity": "ambient",
@@ -3258,7 +3257,7 @@
     "route": "/one/profile/security/devices",
     "mode": "standard",
     "shellVerification": {
-      "file": "app/one/profile/security/devices/page.tsx",
+      "file": "components/profile/trusted-devices-page.tsx",
       "includes": [
         "AppPageShell",
         "AppPageHeaderRegion",

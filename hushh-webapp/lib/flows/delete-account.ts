@@ -31,9 +31,9 @@ export type DeleteAccountAuthResolution =
  * whether its entry point is Profile or the onboarding shell. Keep the copy
  * and confirmed mutation here so route-local affordances cannot drift.
  */
-export const DELETE_ACCOUNT_DIALOG_TITLE = "Delete One account?";
+export const DELETE_ACCOUNT_DIALOG_TITLE = "Delete account?";
 export const DELETE_ACCOUNT_DIALOG_DESCRIPTION =
-  "Deletes your account, Vault, saved details, and connected-service access. Required security or legal records may be retained under our policy. This cannot be undone.";
+  "Deletes account, Vault, data, and access. Required records may remain. Can’t undo.";
 
 type AccountDeletionSessionUser = Pick<User, "uid" | "getIdToken">;
 type DeletionStatusProbe = "active" | "deleted" | "unavailable";

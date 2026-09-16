@@ -531,7 +531,7 @@ def _hash_public_value(value: str) -> str:
 # digest. Rows minted before this carry no version marker, so their token stays
 # unrecoverable and the payload simply omits the URL -- unchanged behaviour for
 # them, rather than a wrong link.
-# A public link is readable by anyone who holds it, so its ceiling is one hour
+# A public link is readable by anyone who holds it, so its ceiling is two hours
 # and the screen says so.
 #
 # The screen was the ONLY thing saying so. `normalize_duration_hours` allows up
@@ -542,9 +542,9 @@ def _hash_public_value(value: str) -> str:
 #
 # Rejected rather than clamped: silently shortening what was asked for is how
 # the client-side clamp hid this in the first place, and no shipped client can
-# reach this branch -- every public-link caller already clamps to one hour
+# reach this branch -- every public-link caller already clamps to two hours
 # before it posts.
-PUBLIC_INVITE_MAX_DURATION_HOURS = 1.0
+PUBLIC_INVITE_MAX_DURATION_HOURS = 2.0
 
 _PUBLIC_INVITE_TOKEN_DOMAIN = b"one-location-public-invite-token:v1:"
 _PUBLIC_INVITE_CODE_VERSION = "derived-v1"
@@ -768,6 +768,33 @@ def _is_sos_lane(share_kind: str | None) -> bool:
     The lane split is `sos` vs everything-else -- NOT one lane per share kind.
     """
     return str(share_kind or "").strip() == "sos"
+
+
+def _assert_sharing_not_off(
+    execute_one: Any,
+    *,
+    owner_user_id: str,
+    share_kind: str | None,
+) -> None:
+    """Enforce the owner-level ``sharing_state='off'`` posture (migration 221).
+
+    Called at the entry of every write path that would start or continue a
+    share. The SOS lane is exempt: an emergency must never be blocked by a
+    privacy toggle. ``execute_one`` is the caller's executor so the check runs
+    inside the caller's transaction when one is bound.
+    """
+    if _is_sos_lane(share_kind):
+        return
+    row = execute_one(
+        "SELECT sharing_state FROM one_location_account_settings WHERE user_id = :user_id",
+        {"user_id": owner_user_id},
+    )
+    if row and str(row.get("sharing_state") or "") == "off":
+        raise OneLocationAgentError(
+            "LOCATION_SHARING_OFF",
+            "Location sharing is turned off. Turn it on to share.",
+            status_code=409,
+        )
 
 
 def _classify_share_kind(reason: str | None) -> str:
@@ -1407,6 +1434,45 @@ class OneLocationAgentService:
                     del self._key_writer_connection
                 else:
                     self._key_writer_connection = previous_connection
+
+    def _assert_envelope_precision_matches_preference(
+        self,
+        *,
+        owner_user_id: str,
+        envelope: dict[str, Any],
+        share_kind: str | None,
+    ) -> None:
+        """Reject an envelope whose plaintext ``metadata.precision`` tag disagrees
+        with the owner's stored preference (migration 221).
+
+        The tag is the only thing the server can check: coordinates are
+        ciphertext, so coarsening is the device's job before encryption. SOS
+        envelopes are always precise and are exempt from the preference.
+        """
+        metadata = envelope.get("metadata")
+        tag = None
+        if isinstance(metadata, dict):
+            raw = metadata.get("precision")
+            tag = str(raw).strip().lower() if raw is not None else None
+        if tag is not None and tag not in {"precise", "approximate"}:
+            raise OneLocationAgentError(
+                "LOCATION_PRECISION_INVALID",
+                "Envelope precision must be precise or approximate.",
+                status_code=422,
+            )
+        if _is_sos_lane(share_kind):
+            return
+        row = self._execute_one(
+            "SELECT precision FROM one_location_account_settings WHERE user_id = :user_id",
+            {"user_id": owner_user_id},
+        )
+        preference = str((row or {}).get("precision") or "precise")
+        if preference == "approximate" and tag != "approximate":
+            raise OneLocationAgentError(
+                "LOCATION_PRECISION_MISMATCH",
+                "Your sharing precision is approximate. Coarsen the point before encrypting it.",
+                status_code=409,
+            )
 
     @contextmanager
     def _event_bound_writer(self) -> Iterator[None]:
@@ -5698,6 +5764,11 @@ class OneLocationAgentService:
                 status_code=422,
             )
         if not _key_writer_guarded:
+            _assert_sharing_not_off(
+                self._execute_one,
+                owner_user_id=owner_user_id,
+                share_kind=share_kind or _classify_share_kind(reason),
+            )
             with self._key_bound_writer_guard(
                 owner_user_id=owner_user_id,
                 recipient_user_id=recipient_user_id,
@@ -6595,6 +6666,20 @@ class OneLocationAgentService:
             raise OneLocationAgentError(
                 "LOCATION_GRANT_NOT_ACTIVE", "Location share is not active.", status_code=409
             )
+        _grant_meta = _loads_json(grant_row.get("metadata"))
+        grant_share_kind = (
+            str((_grant_meta if isinstance(_grant_meta, dict) else {}).get("share_kind") or "")
+            or str(grant_row.get("share_kind") or "")
+            or _classify_share_kind(grant_row.get("reason"))
+        )
+        _assert_sharing_not_off(
+            self._execute_one, owner_user_id=owner_user_id, share_kind=grant_share_kind
+        )
+        self._assert_envelope_precision_matches_preference(
+            owner_user_id=owner_user_id,
+            envelope=envelope,
+            share_kind=grant_share_kind,
+        )
         is_first_envelope = not bool(grant_row.get("latest_envelope_id"))
         if _grant_expires_at_is_past(grant_row):
             self._expire_stale_grants(owner_user_id)
@@ -7483,6 +7568,9 @@ class OneLocationAgentService:
                 "Review the public-link action.",
                 status_code=422,
             )
+        _assert_sharing_not_off(
+            self._execute_one, owner_user_id=owner_user_id, share_kind="public_link"
+        )
         try:
             return write_public_link(
                 self,
@@ -7524,7 +7612,7 @@ class OneLocationAgentService:
         if duration > PUBLIC_INVITE_MAX_DURATION_HOURS:
             raise OneLocationAgentError(
                 "LOCATION_DURATION_INVALID",
-                "A public location link can stay live for at most 1 hour.",
+                "A public location link can stay live for at most 2 hours.",
                 status_code=422,
             )
         # Validated before either branch below: a malformed snapshot is a 422
@@ -10040,6 +10128,8 @@ class OneLocationAgentService:
                 "Auto-approve is unavailable. Review this request.",
                 status_code=422,
             )
+        # An approval starts a share, so the owner-level "off" posture applies.
+        _assert_sharing_not_off(self._execute_one, owner_user_id=owner_user_id, share_kind="share")
         if not automatic and auto_approve_rule_version is not None:
             raise OneLocationAgentError(
                 "LOCATION_APPROVAL_MODE_INVALID",

@@ -9,6 +9,7 @@ import {
 } from "react";
 
 import { AgentBar } from "@/components/agent/agent-bar";
+import { useAgentVoiceState } from "@/lib/agent/agent-voice-state";
 import { useOptionalLocationCommand } from "@/components/agent/location-command-provider";
 import { Navbar } from "@/components/navbar";
 import { AmbientChromeMask } from "@/components/app-ui/ambient-chrome-mask";
@@ -24,13 +25,14 @@ export type BottomShellModel = {
 const BOTTOM_SCROLL_TRANSFORM =
   "translate3d(0, calc((var(--kb-height, 0px) * -1) + (var(--bottom-chrome-progress, 0) * var(--bottom-nav-travel, 0px))), 0)";
 
-/** Shared persistent bottom chrome: one material/motion owner, separate controls. */
+/** Shared persistent bottom chrome: separate voice and navigation bars. */
 export function AppBottomShell({ model }: { model: BottomShellModel }) {
   const command = useOptionalLocationCommand();
-  const hidden = model.hidden && !command?.active;
+  const voiceActive = useAgentVoiceState((state) => state.active);
+  const hidden = model.hidden && !command?.active && !voiceActive;
   const shellRef = useRef<HTMLDivElement | null>(null);
   const navigationSlotRef = useRef<HTMLDivElement | null>(null);
-  // AgentBar reads client-only auth and agent-popover state. Rendering its
+  // AgentBar reads client-only auth and location-command state. Rendering its
   // markup only after the first client commit keeps the server and hydration
   // trees identical while preserving the shared shell slot.
   const [agentBarMounted, setAgentBarMounted] = useState(false);
@@ -55,6 +57,7 @@ export function AppBottomShell({ model }: { model: BottomShellModel }) {
       const navigationHeight = navigationSlotRef.current
         ? Math.ceil(navigationSlotRef.current.getBoundingClientRect().height)
         : 0;
+      // Keep the hide transform clear of the navigation pill's outer border.
       const navigationTravel = `${navigationHeight + 6}px`;
       root.style.setProperty("--app-bottom-shell-height", height);
       root.style.setProperty("--bottom-nav-travel", navigationTravel);

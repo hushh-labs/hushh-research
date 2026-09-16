@@ -648,12 +648,25 @@ delete/absent lifecycle with cleanup.
 
 #### One Voice
 
-There is no `/api/one/voice/*` router. The product-facing voice wrapper described
-in earlier plans was never registered: `consent-protocol/api/routes/one/` has no
-`voice.py`, and no `/api/one/voice/...` path exists in the codebase.
+`consent-protocol/api/routes/one/voice.py` owns One Live Voice (Gemini Live on
+Vertex ADC behind `ONE_VOICE_LIVE_ENABLED`). The retired `/api/one/adk/*` paths
+stay as retirement responders.
 
-Location commands use the canonical proposal namespace. The semantic model has
-no effect tools; admission, confirmation and execution remain separate.
+| Method | Path | Notes |
+| ------ | ---- | ----- |
+| GET    | `/api/one/voice/readiness` | Firebase auth. The single flag the app reads: `{enabled, status, model, location, protocol_version, ws_path}`; always 200, fails closed |
+| POST   | `/api/one/voice/sessions` | Vault-owner token. Mints a single-use 60 s HMAC ticket `{ticket, expires_at, session_id, ws_path}`; 404 `ONE_VOICE_LIVE_DISABLED` when off |
+| WS     | `/api/one/voice/live?ticket=` | The relay. Ticket consumed against `relay_ticket_nonces` (fail closed); first frame must be `auth` with the vault-owner token; frames are `one-voice-v1` |
+| GET    | `/api/one/voice/pending-actions?conversation_id=` | Vault-owner token. Open confirmation cards for a conversation (refresh-safe) |
+| POST   | `/api/one/voice/pending-actions/{id}/confirm` | Vault-owner token. HTTP twin of the socket's tap confirmation (`receipt_token`, optional `firebase_id_token`) |
+| POST   | `/api/one/voice/pending-actions/{id}/cancel` | Vault-owner token. Cancels an open confirmation |
+| GET/PATCH | `/api/one/location/account-settings` | Vault-owner token. Owner-level sharing posture: `sharingState on|off`, `precision`, `includeSos`, `consentVersion`, `osPermissionReported` (`api/routes/one/location_settings.py`) |
+| GET/PATCH | `/api/one/location/setup-progress` | Vault-owner token. Voice-first Location setup step machine (`action: start|accept_consent|record_os_permission|set_precision|confirm_recipient_key|complete`) |
+| PATCH  | `/api/account/identity/display-name` | Firebase auth. Changes the display name at Firebase Auth and re-syncs the identity shadow |
+
+Location commands (the bounded runtime) keep the canonical proposal namespace.
+The semantic model there has no effect tools; admission, confirmation and
+execution remain separate.
 
 | Method | Path | Description |
 | --- | --- | --- |

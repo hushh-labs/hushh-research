@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 describe("Profile canonical page layout", () => {
   it("uses the shared signed-in shell without route-local header spacing", () => {
     const source = readFileSync(
-      join(process.cwd(), "app/profile/profile-workspace-page.tsx"),
+      join(process.cwd(), "components/profile/profile-workspace-page.tsx"),
       "utf8",
     );
 
@@ -36,7 +36,7 @@ describe("Profile canonical page layout", () => {
   });
   it("keeps account identity in a compact leading-aligned header row", () => {
     const source = readFileSync(
-      join(process.cwd(), "app/profile/profile-workspace-page.tsx"),
+      join(process.cwd(), "components/profile/profile-workspace-page.tsx"),
       "utf8",
     );
 
@@ -59,7 +59,7 @@ describe("Profile canonical page layout", () => {
 
   it("uses the Google mark only for personal Gmail and the work icon otherwise", () => {
     const source = readFileSync(
-      join(process.cwd(), "app/profile/profile-workspace-page.tsx"),
+      join(process.cwd(), "components/profile/profile-workspace-page.tsx"),
       "utf8",
     );
     const socialIcons = readFileSync(

@@ -59,6 +59,7 @@ import {
   resolveRuntimeBackendUrl,
   resolveRuntimeFrontendUrl,
 } from "@/lib/runtime/settings";
+import { shouldSkipAuthMailForAutomation } from "@/lib/testing/native-test";
 import { sanitizeErrorMessage } from "@/lib/services/error-sanitizer";
 import {
   AUTH_ACCOUNT_NOT_FOUND_BACKEND_CODE,
@@ -239,7 +240,7 @@ function isLocalNativeHost(host: string | null): boolean {
   return Boolean(host && LOCAL_NATIVE_HOSTS.has(host));
 }
 
-function normalizeNativeBackendUrl(raw: string): string {
+export function normalizeNativeBackendUrl(raw: string): string {
   const trimmed = raw.trim().replace(/\/$/, "");
   const platform = Capacitor.getPlatform();
   const backendHost = hostFromUrl(trimmed);
@@ -501,6 +502,7 @@ const WEB_FETCH_TIMEOUT_MS = 60_000;
 export async function fetchWithWebTimeout(
   url: string,
   init: RequestInit,
+  timeoutMs: number = WEB_FETCH_TIMEOUT_MS,
 ): Promise<Response> {
   const controller = new AbortController();
   const callerSignal = init.signal ?? null;
@@ -515,11 +517,11 @@ export async function fetchWithWebTimeout(
   const timer = setTimeout(() => {
     controller.abort(
       new DOMException(
-        `Request timed out after ${WEB_FETCH_TIMEOUT_MS}ms`,
+        `Request timed out after ${timeoutMs}ms`,
         "TimeoutError",
       ),
     );
-  }, WEB_FETCH_TIMEOUT_MS);
+  }, timeoutMs);
 
   try {
     return await fetch(url, { ...init, signal: controller.signal });
@@ -870,7 +872,7 @@ async function apiFetch(
       ) {
         if (options.body instanceof FormData) {
           // Multipart uploads route through native plugins; keep fetch fallback for safety.
-          const formResponse = await fetch(url, {
+          const formResponse = await fetchWithWebTimeout(url, {
             ...options,
             credentials: "include",
             headers: mergedHeaders,
@@ -1444,6 +1446,63 @@ export class ApiService {
     }
   }
 
+  /**
+   * One Live Voice readiness: the single server-owned flag the app reads to
+   * decide which voice owner mounts. Never a build-time flag. Fails closed.
+   *
+   * Web: `/api/one/voice/readiness` through the Next.js proxy (forwards the
+   * Firebase bearer). Native: backend directly.
+   */
+  static async getOneVoiceReadiness(): Promise<{
+    enabled: boolean;
+    status: "ready" | "disabled" | "not_configured" | "provider_unavailable";
+    model: string | null;
+    location: string | null;
+    wsPath: string;
+  }> {
+    const closed = {
+      enabled: false,
+      status: "disabled" as const,
+      model: null,
+      location: null,
+      wsPath: "/api/one/voice/live",
+    };
+    try {
+      const authToken = await this.getFirebaseToken();
+      if (!authToken) return closed;
+      const response = await apiFetch("/api/one/voice/readiness", {
+        method: "GET",
+        cache: "no-store",
+        headers: { Authorization: `Bearer ${authToken}` },
+      });
+      if (!response.ok) return closed;
+      const data = (await response.json().catch(() => ({}))) as {
+        enabled?: unknown;
+        status?: unknown;
+        model?: unknown;
+        location?: unknown;
+        ws_path?: unknown;
+      };
+      const status = data.status;
+      return {
+        enabled: data.enabled === true,
+        status:
+          status === "ready" ||
+          status === "disabled" ||
+          status === "not_configured" ||
+          status === "provider_unavailable"
+            ? status
+            : "disabled",
+        model: typeof data.model === "string" ? data.model : null,
+        location: typeof data.location === "string" ? data.location : null,
+        wsPath: typeof data.ws_path === "string" ? data.ws_path : "/api/one/voice/live",
+      };
+    } catch (error) {
+      console.warn("[ApiService] getOneVoiceReadiness failed:", error);
+      return closed;
+    }
+  }
+
   static async authorizeTrustedDevice(data: {
     redirect_uri: string;
     code_challenge: string;
@@ -1643,6 +1702,8 @@ export class ApiService {
       idToken?: string;
     },
   ): Promise<boolean> {
+    if (shouldSkipAuthMailForAutomation()) return false;
+
     try {
       const idToken = options?.idToken || (await this.getFirebaseToken());
       if (!idToken) return false;
@@ -2766,6 +2827,11 @@ export class ApiService {
   }
 
   // Helper to get Firebase ID Token for Native calls
+  /** Public accessor for callers outside this class (voice session tickets). */
+  static async getFirebaseIdToken(): Promise<string | undefined> {
+    return this.getFirebaseToken();
+  }
+
   private static async getFirebaseToken(): Promise<string | undefined> {
     if (Capacitor.isNativePlatform()) {
       try {

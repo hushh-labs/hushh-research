@@ -107,6 +107,44 @@ UAT and production remain GitHub-Actions-only.
   and redeploy. Never "fix" dev by hand-editing infrastructure.
 - Auditing dev at any time: `python3 scripts/ops/dev_environment_doctor.py`.
 
+### Proving information sharing between two people
+
+`hushh-webapp/e2e/information-sharing-two-people.spec.ts` drives two browser contexts
+against a running stack (localhost by default, or a dev preview via `BASE_URL`): the
+primary reviewer owns the records, the counterpart asks for three of them for 72 hours,
+and the proof walks allow (Consent Center, then the chat card the push would have
+raised), decline, reveal, stop sharing and withdraw. Every state is read straight from
+`/api/consent/center/list` with a per-read nonce, because the Next.js route keeps a
+30 second hot cache per query string and bearer and nothing invalidates it on a decision;
+a proof that trusted the page's own fetch could read the state from before the tap it
+just made. It skips itself unless `REVIEWER_UID`, `REVIEWER_VAULT_PASSPHRASE`,
+`REVIEWER_COUNTERPART_UID`, `REVIEWER_COUNTERPART_VAULT_PASSPHRASE`,
+`E2E_COUNTERPART_PERSON_REF` (the owner's public person reference, the `/people/<ref>`
+segment the counterpart opens), `E2E_REVIEWER_SIGNIN=1` and `E2E_INFORMATION_SHARING=1`
+are all set; add `E2E_EXPECTED_GRANT_KEY` (a key present in the owner's first requested
+item, never the value) to run the reveal step, and `E2E_LIVE_MODEL=1` to lift the
+Flow B step where the counterpart asks through the private agent instead of the
+composer (it needs a model that answers a turn, and it withdraws its own request
+afterwards). One-time counterpart setup: create the second account in the same
+environment, sign in, finish first-run setup so login no longer routes it to `/one/setup`,
+and unlock its vault once so the wrapper exists. Nothing else on the account is needed:
+the composer prepares the counterpart's secure key on every send, so do not seed a request
+by hand, because a leftover pending request is exactly what the withdraw step counts
+against. The backend serving the stack must hold the same four values plus
+`APP_REVIEW_MODE=true` (`consent-protocol/api/routes/health.py` picks which identity to mint by matching
+the passphrase, and a backend that holds no passphrase mints the primary for every
+session, which the bridge then refuses as `uid_mismatch` rather than letting a two-person
+proof run as one person). On localhost the overlay in `consent-protocol/.env.local`
+still carries only `APP_REVIEW_MODE=true` (see `docs/reference/operations/env-and-secrets.md`), so export the four
+reviewer values into the backend process environment for the session and restart it,
+and agree that with whoever the running backend belongs to. Keep both identities in an
+ignored local env file or a secret overlay, never in tracked files. Run it with:
+
+```bash
+cd hushh-webapp && E2E_REVIEWER_SIGNIN=1 E2E_INFORMATION_SHARING=1 \
+  npx playwright test e2e/information-sharing-two-people.spec.ts --project=chromium
+```
+
 ## The agentic-team principle behind the rule
 
 Agents ship in minutes; humans sign off in hours. The pipeline must let those two

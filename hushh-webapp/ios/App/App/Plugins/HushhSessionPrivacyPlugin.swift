@@ -87,12 +87,12 @@ struct HushhSessionPrivacyDocumentState {
 }
 
 /**
- * Native, process-local cover for the WebView while a resumed session is being
- * checked. The cover is deliberately not persisted: a fresh process starts
+ * Native, process-local cover for the WebView while the app returns from the
+ * background. The cover is deliberately not persisted: a fresh process starts
  * unshielded so an anonymous cold launch can always reach Login.
  *
  * Every inactive -> active cycle owns a monotonically increasing generation.
- * JavaScript must acknowledge the exact generation it validated; a late
+ * JavaScript must acknowledge the exact generation it rendered; a late
  * completion from an older cycle can therefore never uncover a newer one.
  */
 final class HushhSessionPrivacyShield: NSObject {
@@ -163,8 +163,8 @@ final class HushhSessionPrivacyShield: NSObject {
         dispatchPrecondition(condition: .onQueue(.main))
         lifecycleIsActive = true
         state.markAppActive()
-        // Never remove the cover here. The resumed JavaScript document owns
-        // account validation and must explicitly acknowledge this generation.
+        // Never remove the cover here. The resumed JavaScript document owns the
+        // privacy acknowledgement and must explicitly acknowledge this generation.
         if state.shielded {
             installOverlayIfNeeded()
             scheduleRecovery()
@@ -212,8 +212,8 @@ final class HushhSessionPrivacyShield: NSObject {
 
     private func scheduleRecovery() {
         recoveryWorkItem?.cancel()
-        recoveryTitle?.text = "Checking your session\u{2026}"
-        recoveryDetail?.text = "Your private information stays hidden while we verify access."
+        recoveryTitle?.text = "Protecting private information\u{2026}"
+        recoveryDetail?.text = "Your private information stays hidden while the app resumes."
         recoveryProgress?.isHidden = false
         recoveryProgress?.startAnimating()
         let generation = state.generation
@@ -221,7 +221,7 @@ final class HushhSessionPrivacyShield: NSObject {
             guard let self, self.state.shielded, self.state.generation == generation else { return }
             self.recoveryProgress?.stopAnimating()
             self.recoveryProgress?.isHidden = true
-            self.recoveryTitle?.text = "Unable to verify your session"
+            self.recoveryTitle?.text = "Unable to restore the private view"
             self.recoveryDetail?.text = "Your private information is still hidden. Try again, or restart this session."
             self.recoveryActions?.isHidden = false
             UIAccessibility.post(notification: .layoutChanged, argument: self.recoveryActions)
@@ -279,7 +279,7 @@ final class HushhSessionPrivacyShield: NSObject {
 
         let title = UILabel(frame: .zero)
         title.translatesAutoresizingMaskIntoConstraints = false
-        title.text = "Checking your session\u{2026}"
+        title.text = "Protecting private information\u{2026}"
         title.textColor = .label
         title.font = .preferredFont(forTextStyle: .headline)
         title.adjustsFontForContentSizeCategory = true
@@ -288,7 +288,7 @@ final class HushhSessionPrivacyShield: NSObject {
 
         let detail = UILabel(frame: .zero)
         detail.translatesAutoresizingMaskIntoConstraints = false
-        detail.text = "Your private information stays hidden while we verify access."
+        detail.text = "Your private information stays hidden while the app resumes."
         detail.textColor = .secondaryLabel
         detail.font = .preferredFont(forTextStyle: .subheadline)
         detail.adjustsFontForContentSizeCategory = true

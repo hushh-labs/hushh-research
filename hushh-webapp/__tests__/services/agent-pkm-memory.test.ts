@@ -8,18 +8,20 @@ vi.mock("@/lib/services/api-service", () => ({
 }));
 
 const pkmGetMetadataMock = vi.fn();
-const pkmLoadFullBlobMock = vi.fn();
 vi.mock("@/lib/services/personal-knowledge-model-service", () => ({
   PersonalKnowledgeModelService: {
     getMetadata: (...args: unknown[]) => pkmGetMetadataMock(...args),
-    loadFullBlob: (...args: unknown[]) => pkmLoadFullBlobMock(...args),
   },
 }));
 
 const pkmGetStaleFirstMock = vi.fn();
+const pkmGetManyStaleFirstMock = vi.fn();
+const pkmHydrateFromSecureCacheMock = vi.fn();
 vi.mock("@/lib/pkm/pkm-domain-resource", () => ({
   PkmDomainResourceService: {
     getStaleFirst: (...args: unknown[]) => pkmGetStaleFirstMock(...args),
+    getManyStaleFirst: (...args: unknown[]) => pkmGetManyStaleFirstMock(...args),
+    hydrateFromSecureCache: (...args: unknown[]) => pkmHydrateFromSecureCacheMock(...args),
   },
 }));
 
@@ -75,18 +77,20 @@ const METADATA = {
   lastUpdated: "2026-07-06T12:00:00Z",
 };
 
+let pkmBlob: Record<string, unknown>;
+
 describe("agent PKM memory helpers", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     clearAgentPkmContext();
     pkmGetMetadataMock.mockResolvedValue(METADATA);
-    pkmLoadFullBlobMock.mockResolvedValue({
+    pkmBlob = {
       preferences: {
         writing: {
           default_style: "concise summaries",
         },
       },
-    });
+    };
     pkmGetStaleFirstMock.mockResolvedValue({
       data: {
         identity_profile: {
@@ -95,6 +99,15 @@ describe("agent PKM memory helpers", () => {
         },
       },
     });
+    pkmHydrateFromSecureCacheMock.mockResolvedValue(null);
+    pkmGetManyStaleFirstMock.mockImplementation(async ({ domains }: { domains: string[] }) => ({
+      snapshots: Object.fromEntries(
+        domains
+          .filter((domain) => pkmBlob[domain])
+          .map((domain) => [domain, { data: pkmBlob[domain] }]),
+      ),
+      failedDomains: [],
+    }));
     pkmSavePreparedDomainMock.mockResolvedValue({
       success: true,
       saveState: "saved",
@@ -156,12 +169,35 @@ describe("agent PKM memory helpers", () => {
       selectedFactCount: 1,
       budgetChars: 12000,
     });
-    expect(pkmLoadFullBlobMock).toHaveBeenCalledWith(
+    expect(pkmGetManyStaleFirstMock).toHaveBeenCalledWith(
       expect.objectContaining({
         userId: "user_1",
         vaultKey: "vault_key",
         vaultOwnerToken: "vault_token",
       })
+    );
+  });
+
+  it("uses encrypted device snapshots before detached chat revalidation", async () => {
+    pkmHydrateFromSecureCacheMock.mockImplementation(async ({ domain }) =>
+      domain === "preferences"
+        ? { data: pkmBlob.preferences }
+        : null,
+    );
+
+    const context = await loadAgentPkmContext({
+      userId: "user_1",
+      vaultOwnerToken: "vault_token",
+      vaultKey: "vault_key",
+      message: "what do you know about my writing preferences",
+    });
+
+    expect(context.text).toContain("concise summaries");
+    expect(pkmHydrateFromSecureCacheMock).toHaveBeenCalledWith(
+      expect.objectContaining({ userId: "user_1", domain: "preferences", vaultKey: "vault_key" }),
+    );
+    expect(pkmGetManyStaleFirstMock).toHaveBeenCalledWith(
+      expect.objectContaining({ forceRefresh: true, backgroundRefresh: false }),
     );
   });
 
@@ -181,7 +217,7 @@ describe("agent PKM memory helpers", () => {
         backgroundRefresh: false,
       }),
     );
-    expect(pkmLoadFullBlobMock).not.toHaveBeenCalled();
+    expect(pkmGetManyStaleFirstMock).not.toHaveBeenCalled();
     expect(context.text).toContain("Akshat Kumar");
   });
 
@@ -197,7 +233,7 @@ describe("agent PKM memory helpers", () => {
     await loadAgentPkmContext(params);
 
     expect(pkmGetStaleFirstMock).toHaveBeenCalledTimes(1);
-    expect(pkmLoadFullBlobMock).not.toHaveBeenCalled();
+    expect(pkmGetManyStaleFirstMock).not.toHaveBeenCalled();
   });
 
   it("checks duplicates only against an already-unlocked local inventory", async () => {
@@ -246,7 +282,7 @@ describe("agent PKM memory helpers", () => {
     });
 
     expect(pkmGetMetadataMock).toHaveBeenCalledTimes(1);
-    expect(pkmLoadFullBlobMock).not.toHaveBeenCalled();
+    expect(pkmGetManyStaleFirstMock).not.toHaveBeenCalled();
     expect(peekAgentPkmContext({ userId: "user_1", message: "writing preferences" }))
       .toBeNull();
   });
@@ -288,7 +324,7 @@ describe("agent PKM memory helpers", () => {
     expect(pkmGetMetadataMock).toHaveBeenCalledTimes(2);
     resolveMetadata?.(METADATA);
     await expect(Promise.all([firstRefresh, secondRefresh])).resolves.toHaveLength(2);
-    expect(pkmLoadFullBlobMock).toHaveBeenCalledTimes(1);
+    expect(pkmGetManyStaleFirstMock).toHaveBeenCalledTimes(1);
   });
 
   it("drops an in-flight context load when the vault session clears", async () => {
@@ -308,7 +344,7 @@ describe("agent PKM memory helpers", () => {
     resolveMetadata?.(METADATA);
 
     await expect(pending).resolves.toMatchObject({ text: "", domains: [] });
-    expect(pkmLoadFullBlobMock).not.toHaveBeenCalled();
+    expect(pkmGetManyStaleFirstMock).not.toHaveBeenCalled();
     expect(peekAgentPkmContext({ userId: "user_1" })).toBeNull();
   });
 
@@ -322,7 +358,7 @@ describe("agent PKM memory helpers", () => {
     expect(context.source).toBe("metadata");
     expect(context.text).toContain("PKM compact context");
     expect(context.text).toContain("Preferences");
-    expect(pkmLoadFullBlobMock).not.toHaveBeenCalled();
+    expect(pkmGetManyStaleFirstMock).not.toHaveBeenCalled();
   });
 
   it("uses only redacted metadata for an interactive first-turn preflight", async () => {
@@ -336,11 +372,11 @@ describe("agent PKM memory helpers", () => {
 
     expect(context.source).toBe("metadata");
     expect(context.text).toContain("summary metadata only");
-    expect(pkmLoadFullBlobMock).not.toHaveBeenCalled();
+    expect(pkmGetManyStaleFirstMock).not.toHaveBeenCalled();
   });
 
   it("never projects runtime secrets or quarantined information into an Agent Chat PKM context", async () => {
-    pkmLoadFullBlobMock.mockResolvedValue({
+    pkmBlob = {
       preferences: {
         writing: { default_style: "concise summaries" },
       },
@@ -353,7 +389,7 @@ describe("agent PKM memory helpers", () => {
       __quarantine_v1: {
         saved_but_never_shareable: "must-not-reach-agent-context",
       },
-    });
+    };
 
     const context = await loadAgentPkmContext({
       userId: "user_1",
@@ -379,11 +415,18 @@ describe("agent PKM memory helpers", () => {
       cursor.next = {};
       cursor = cursor.next as Record<string, unknown>;
     }
-    pkmLoadFullBlobMock.mockResolvedValue({
+    pkmBlob = {
       food: {
         drinks: { favorite: "tea" },
         nested: deeplyNested,
       },
+    };
+    pkmGetMetadataMock.mockResolvedValue({
+      ...METADATA,
+      domains: [
+        ...METADATA.domains,
+        { ...METADATA.domains[0], key: "food", displayName: "Food" },
+      ],
     });
 
     const context = await loadAgentPkmContext({

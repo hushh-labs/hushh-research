@@ -120,9 +120,7 @@ async def test_batch_uses_the_chart_endpoint_and_not_the_401_quote_endpoint(monk
         symbol = str(request.url).rsplit("/", 1)[-1].split("?")[0]
         return httpx.Response(200, json=_chart(symbol, 10.0, 8.0))
 
-    monkeypatch.setattr(
-        httpx, "AsyncClient", _mock_client(handler)
-    )
+    monkeypatch.setattr(httpx, "AsyncClient", _mock_client(handler))
     rows = await fetchers._fetch_yahoo_quotes(["AAPL", "MSFT"])
 
     assert {row["ticker"] for row in rows} == {"AAPL", "MSFT"}
@@ -137,9 +135,7 @@ async def test_one_bad_symbol_does_not_blank_the_batch(monkeypatch):
             return httpx.Response(404, json={})
         return httpx.Response(200, json=_chart("AAPL", 5.0, 4.0))
 
-    monkeypatch.setattr(
-        httpx, "AsyncClient", _mock_client(handler)
-    )
+    monkeypatch.setattr(httpx, "AsyncClient", _mock_client(handler))
     rows = await fetchers._fetch_yahoo_quotes(["AAPL", "BAD"])
     assert [row["ticker"] for row in rows] == ["AAPL"]
 
@@ -151,9 +147,7 @@ async def test_a_provider_outage_raises_so_the_cooldown_engages(monkeypatch):
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(429, json={})
 
-    monkeypatch.setattr(
-        httpx, "AsyncClient", _mock_client(handler)
-    )
+    monkeypatch.setattr(httpx, "AsyncClient", _mock_client(handler))
     with pytest.raises(httpx.HTTPStatusError):
         await fetchers._fetch_yahoo_quotes(["AAPL"])
 
@@ -186,7 +180,10 @@ async def test_quotes_are_served_without_a_consent_token(monkeypatch, isolated_c
 
     async def fake_batch(symbols, user_id, consent_token):
         calls.append((list(symbols), user_id, consent_token))
-        return {symbol: {"price": 10.0, "change_percent": 1.5, "company_name": symbol} for symbol in symbols}
+        return {
+            symbol: {"price": 10.0, "change_percent": 1.5, "company_name": symbol}
+            for symbol in symbols
+        }
 
     monkeypatch.setattr(market_quotes, "fetch_market_data_batch", fake_batch)
     body = await market_quotes.public_market_quotes(symbols="AAPL,MSFT")
@@ -216,7 +213,9 @@ async def test_a_repeat_request_is_served_from_cache(monkeypatch, isolated_cache
 
 
 @pytest.mark.asyncio
-async def test_a_symbol_with_no_price_is_omitted_rather_than_zero_filled(monkeypatch, isolated_cache):
+async def test_a_symbol_with_no_price_is_omitted_rather_than_zero_filled(
+    monkeypatch, isolated_cache
+):
     # A rendered zero is indistinguishable from a real one, which is how a strip ends up lying.
     async def fake_batch(symbols, user_id, consent_token):
         return {"AAPL": {"price": 10.0}, "MSFT": {"price": 0}}
@@ -229,7 +228,9 @@ async def test_a_symbol_with_no_price_is_omitted_rather_than_zero_filled(monkeyp
 
 
 @pytest.mark.asyncio
-async def test_a_request_with_no_usable_symbol_is_rejected_before_any_provider_call(monkeypatch, isolated_cache):
+async def test_a_request_with_no_usable_symbol_is_rejected_before_any_provider_call(
+    monkeypatch, isolated_cache
+):
     async def fake_batch(symbols, user_id, consent_token):  # pragma: no cover - must not run
         raise AssertionError("provider must not be called")
 

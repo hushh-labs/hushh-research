@@ -23,6 +23,30 @@ from hushh_mcp.operons.location.plan import (
 )
 from hushh_mcp.runtime_providers.gemini_config import build_generate_content_config
 
+_LOCATION_MANIFEST_PATH = Path(__file__).with_name("agent.yaml")
+_TRANSCRIBER_GENE_ID = "agent_location_transcriber"
+_LOCATION_CONSENT_SCOPE = "location.transcribe"
+_TRANSCRIPTION_SCHEMA: dict[str, object] = {
+    "type": "OBJECT",
+    "properties": {"transcript": {"type": "STRING"}},
+    "required": ["transcript"],
+}
+
+
+def _load_transcriber_gene():
+    from hushh_mcp.hushh_adk.manifest import ManifestLoader
+
+    manifest = ManifestLoader.load(str(_LOCATION_MANIFEST_PATH))
+    try:
+        gene = next(child for child in manifest.subagents if child.id == _TRANSCRIBER_GENE_ID)
+    except StopIteration as exc:
+        raise RuntimeError(f"Location manifest is missing gene: {_TRANSCRIBER_GENE_ID}") from exc
+    if gene.runtime.adk_mode != "single_turn" or gene.runtime.transport != ["in_process"]:
+        raise RuntimeError("Location transcriber must remain an in-process single-turn gene")
+    if gene.privacy.plaintext_telemetry:
+        raise RuntimeError("Location transcriber must not enable plaintext telemetry")
+    return gene
+
 
 class SemanticInput(CommandValue):
     name: str = Field(min_length=1, max_length=128)
@@ -106,7 +130,15 @@ class SemanticAssessment(CommandValue):
 
 
 class LocationCommandBrain:
-    def __init__(self, *, client: Any = None, manifest: Any = None, adk_model: Any = None):
+    def __init__(
+        self,
+        *,
+        client: Any = None,
+        manifest: Any = None,
+        adk_model: Any = None,
+        user_id: str = "location-transcriber",
+        consent_token: str = _LOCATION_CONSENT_SCOPE,
+    ):
         from hushh_mcp.hushh_adk.manifest import ManifestLoader
         from hushh_mcp.runtime_providers import build_managed_runtime_client
         from hushh_mcp.runtime_providers.gemini_config import resolve_fleet_model_name
@@ -115,6 +147,8 @@ class LocationCommandBrain:
         self.client = client or build_managed_runtime_client(runtime_provider="gemini")
         self.model = resolve_fleet_model_name(self.manifest.model_config_for_runtime().name)
         self.adk_model = adk_model
+        self.user_id = user_id
+        self.consent_token = consent_token
 
     async def transcribe(self, encoded_audio: str) -> str:
         try:
@@ -139,6 +173,49 @@ class LocationCommandBrain:
         # transcript hallucinate a command from an empty microphone signal.
         if not any(pcm):
             return ""
+
+        # Production managed clients use the manifest-owned single-turn gene.
+        # Lightweight test clients retain the direct seam and never acquire
+        # credentials or network access.
+        try:
+            from google.adk.models import Gemini
+            from google.genai import Client
+
+            if isinstance(self.client, Client):
+                from hushh_mcp.hushh_adk.single_turn import (
+                    build_single_turn_agent,
+                    run_single_turn,
+                )
+                from hushh_mcp.runtime_providers.gemini_config import resolve_fleet_model_name
+
+                gene = _load_transcriber_gene()
+                model_name = resolve_fleet_model_name(gene.model_config_for_runtime().name)
+                agent = build_single_turn_agent(
+                    gene,
+                    output_schema=_TRANSCRIPTION_SCHEMA,
+                    model=Gemini(model=model_name, client=self.client),
+                )
+                result = await run_single_turn(
+                    agent,
+                    prompt_parts="Transcribe this recording exactly.",
+                    message_content=types.Content(
+                        role="user",
+                        parts=[
+                            types.Part.from_text(
+                                text="Transcribe this recording exactly. Return an empty transcript for silence."
+                            ),
+                            types.Part.from_bytes(data=audio, mime_type="audio/wav"),
+                        ],
+                    ),
+                    user_id=str(self.user_id),
+                    consent_token=str(self.consent_token),
+                    timeout_seconds=max(30.0, gene.performance.latency_p95_ms / 1000),
+                )
+                transcript = result.get("transcript", "") if isinstance(result, dict) else ""
+                return str(transcript or "").strip()[:4096]
+        except Exception as exc:
+            raise TimeoutError("Location transcription is temporarily unavailable.") from exc
+
         result = await asyncio.wait_for(
             self.client.aio.models.generate_content(
                 model=self.model,

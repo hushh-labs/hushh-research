@@ -13,7 +13,7 @@ from hushh_mcp.services.crm_schema_mapping_service import (
 
 
 class FakeMapper:
-    model_name = "gemini-3.5-flash"
+    model_name = "gemini-3.7-flash"
 
     def __init__(self, response: dict | None):
         self.response = response

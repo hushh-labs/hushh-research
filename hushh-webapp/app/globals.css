@@ -594,6 +594,12 @@ textarea {
   --app-radius-md: 14px;
   --app-radius-lg: 18px;
   --app-radius-pill: 9999px;
+  /* Direct-entry controls use a capsule silhouette. Compound controls keep
+     their inner input corners square and inherit this radius on the shell. */
+  --app-input-radius: var(--app-radius-pill);
+  --app-form-field-gap: 6px;
+  --app-form-section-gap: 16px;
+  --app-form-related-gap: 4px;
 
   /* Shadow elevation scale — Apple iCloud single-shadow model */
   --theme-color-fillSecondary: rgba(120, 120, 128, 0.36);
@@ -2175,20 +2181,6 @@ html.kb-open .ambient-chrome-mask--bottom {
   transition: opacity 150ms ease;
 }
 
-/* The 🤫 brand mark. Every surface that renders it — top bar, sidebar, intro
-   gate, onboarding — goes through this class so the glyph is chosen the same
-   way everywhere instead of per-component inline stacks (only the top bar had
-   one) or the ambient product font. Pinning it here also survives a component
-   that sets its own font-family on the mark's ancestor. Note the artwork is
-   still the platform's: Apple's shushing face on macOS/iOS, Segoe's on
-   Windows, Noto's elsewhere. Identical artwork on every OS would need a drawn
-   asset — Apple Color Emoji itself is not redistributable. */
-.hushh-brand-mark {
-  font-family: var(--font-app-emoji), emoji;
-  /* Emoji are presentational here; keep them from being read as text. */
-  font-variant-emoji: emoji;
-}
-
 .app-page-shell {
   width: 100%;
   padding-left: var(--page-inline-gutter-standard);
@@ -2368,6 +2360,13 @@ body:has([data-one-launcher-root="true"]) .foundation-public-ambient {
   pointer-events: none;
 }
 
+/* Location owns a compact module header rather than a large route hero. Keep
+ * the shared shell reservation, but give this route the 24px breathing room
+ * the actual utility row needs instead of an empty band below it. */
+body:has([data-location-hub]) [data-app-shell-top-spacer="true"] {
+  height: calc(var(--app-top-content-offset) - 24px);
+}
+
 /* Activity is a shell extension, not a separate black canvas. Its mobile sheet
  * keeps the active route's Foundation background visible through the shared
  * modal blur in both themes. */
@@ -2511,13 +2510,13 @@ html.native-ios [data-testid="one-location-onboarding"] {
 /* Location onboarding is a focused full-screen flow. Suppress persistent app
    chrome while it is mounted so the primary CTA is never visually covered. */
 html:has([data-testid="one-location-onboarding"]) [data-app-bottom-nav],
-html:has([data-testid="one-location-onboarding"]) [data-app-bottom-shell]:not([data-command-active]),
-html:has([data-testid="one-location-onboarding"]) [data-agent-bar-shell]:not([data-command-active]),
+html:has([data-testid="one-location-onboarding"]) [data-app-bottom-shell],
+html:has([data-testid="one-location-onboarding"]) [data-agent-bar-shell],
 html:has([data-testid="one-location-onboarding"])
   [data-app-bottom-chrome-glass],
 body:has([data-testid="one-location-onboarding"]) [data-app-bottom-nav],
-body:has([data-testid="one-location-onboarding"]) [data-app-bottom-shell]:not([data-command-active]),
-body:has([data-testid="one-location-onboarding"]) [data-agent-bar-shell]:not([data-command-active]),
+body:has([data-testid="one-location-onboarding"]) [data-app-bottom-shell],
+body:has([data-testid="one-location-onboarding"]) [data-agent-bar-shell],
 body:has([data-testid="one-location-onboarding"])
   [data-app-bottom-chrome-glass] {
   visibility: hidden !important;
@@ -4860,8 +4859,9 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
   box-shadow: 0 11px 34px 0 var(--theme-color-boxShadow);
 }
 
-/* Flat bottom nav surface: outer material only. Selection is color, not a
-   separate filled pill or enlarged tab. */
+/* Persistent bottom chrome uses two distinct, shared-material pills: the
+   voice bar and the navigation bar. Keep their geometry separate so the
+   controls read as bars rather than one oversized card. */
 .bottom-chrome-surface,
 .kai-bottom-nav-pill {
   color: var(--foreground);
@@ -4876,6 +4876,21 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
 .dark .kai-bottom-nav-pill {
   border-color: rgba(84, 84, 88, 0.58) !important;
   background: rgba(28, 28, 30, 0.78) !important;
+}
+
+/* Reduced motion keeps the shell present and keyboard-safe, but removes the
+   scroll-driven hide transform and all control transitions from this shared
+   surface. */
+@media (prefers-reduced-motion: reduce) {
+  [data-bottom-shell-motion-stack] {
+    transform: translate3d(0, calc(var(--kb-height, 0px) * -1), 0) !important;
+  }
+
+  [data-bottom-shell-motion-stack],
+  [data-bottom-shell-motion-stack] * {
+    animation: none !important;
+    transition: none !important;
+  }
 }
 
 .kai-bottom-nav-pill [data-segment-indicator] {
@@ -5954,7 +5969,7 @@ body[data-persona-surface="ria"] {
   --ria-cta-height: 3.5rem;
   --ria-cta-shadow: 0 8px 18px var(--morphy-cta-shadow);
   --ria-secondary-border: var(--app-accent-border);
-  --ria-input-radius: var(--app-radius-lg);
+  --ria-input-radius: var(--app-input-radius);
   --ria-input-height: 3.75rem;
   --ria-card-radius: var(--app-card-radius-standard);
   --ria-chip-radius: var(--app-radius-md);
@@ -6226,41 +6241,6 @@ body[data-persona-surface="ria"] {
   line-height: var(--type-section-label-line) !important;
   opacity: 1 !important;
   text-transform: none !important;
-}
-
-:is(.ui-text-section-label-compact) {
-  font-size: var(--type-section-label-compact-size) !important;
-  font-weight: var(--type-section-label-compact-weight) !important;
-  line-height: var(--type-section-label-compact-line) !important;
-}
-
-@layer base {
-  /* Compact app workspaces use a fixed hierarchy instead of the fluid document
- * heading ladder. The old `.app-page-shell [aria-level="2"]` rule had greater
- * specificity than the semantic compact classes, so a SettingsGroup asked for
- * a 14px list heading and still rendered at title-3 size (20-22px). Keep this
- * after the semantic role rules and scope it to compact app/list surfaces. */
-  .app-page-shell[data-app-density="compact"]
-    :is(
-      .ui-text-large-page-title,
-      .ui-text-page-title,
-      .ui-text-agent-title,
-      .ui-text-identity-name
-    ) {
-    font-size: var(--type-page-title-size) !important;
-    line-height: var(--type-page-title-line) !important;
-  }
-
-  .app-page-shell[data-app-density="compact"] .ui-text-section-label-compact,
-  .app-page-shell[data-app-density="compact"]
-    [data-settings-density="compact"]
-    [data-slot="settings-group-heading"] {
-    font-family: var(--font-app-body) !important;
-    font-size: var(--type-section-label-compact-size) !important;
-    font-weight: var(--type-section-label-compact-weight) !important;
-    letter-spacing: normal !important;
-    line-height: var(--type-section-label-compact-line) !important;
-  }
 }
 
 :is(
@@ -6610,4 +6590,54 @@ body[data-persona-surface="ria"] {
 [data-testid="settings-row"][data-tone="destructive"]
   [data-slot="settings-row-title"] {
   color: var(--app-destructive) !important;
+}
+
+/* One Live Voice dock: the conversation panel rises from the pill, the level
+   bars ease between frames, a partial transcript line breathes while the
+   words are still arriving. All of it is switched off under reduced motion;
+   the pill then shows a static level bar instead of the waveform. */
+@keyframes one-voice-panel-enter {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes one-voice-partial-breathe {
+  0%,
+  100% {
+    opacity: 0.72;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+.one-voice-panel-enter {
+  animation: one-voice-panel-enter var(--motion-duration-md, 240ms)
+    var(--motion-ease-decelerate, cubic-bezier(0, 0, 0.2, 1)) both;
+}
+
+.one-voice-level-fill {
+  transition: width var(--motion-duration-xs, 120ms)
+    var(--motion-ease-standard, cubic-bezier(0.2, 0, 0, 1));
+}
+
+.one-voice-transcript-partial {
+  animation: one-voice-partial-breathe 1.6s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .one-voice-panel-enter,
+  .one-voice-transcript-partial {
+    animation: none !important;
+  }
+
+  .one-voice-level-fill {
+    transition: none !important;
+  }
 }

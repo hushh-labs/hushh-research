@@ -69,7 +69,7 @@ if has_match '^hushh-webapp/(components/(consent/|profile/)|lib/(consent/|pkm/|p
   ran=1
 fi
 
-if has_match '^hushh-webapp/(lib/voice/|components/agent/|components/one-location/onboarding/(location-command-device-bridge|location-onboarding-interaction-surface)\.tsx|lib/services/(gemini-live-client|one-location-onboarding-device-orchestrator|one-location-onboarding-run-client)\.ts|scripts/voice/|__tests__/.*(voice|agent)|app/api/(kai|one)/.*(voice|realtime)|\.voice-action-contract\.json)'; then
+if has_match '^hushh-webapp/(lib/voice/|lib/one-voice/|components/one-voice/|components/agent/|components/one-location/onboarding/(location-command-device-bridge|location-onboarding-interaction-surface)\.tsx|lib/services/(gemini-live-client|one-location-onboarding-device-orchestrator|one-location-onboarding-run-client)\.ts|scripts/voice/|__tests__/.*(voice|agent)|app/api/(kai|one)/.*(voice|realtime)|\.voice-action-contract\.json)'; then
   run_check "voice gateway" npm run verify:voice-gateway
   run_check "One Voice runtime evaluations" npm run verify:one-voice
   ran=1
@@ -201,7 +201,7 @@ fi
 # only filters what it is handed. A taxonomy change is a backend-only diff that
 # nothing on this side would otherwise run -- which is how "Hotels" shipped
 # listing a lounge.
-if has_match '^(hushh-webapp/(components/one-location/|__tests__/components/one-location|app/one/location/|lib/one-location/|lib/contacts/|lib/marketplace/contact-matching\.ts)|consent-protocol/hushh_mcp/services/(google_maps_service|place_taxonomy)\.py)'; then
+if has_match '^(hushh-webapp/(components/one-location/|components/location/|lib/location/|__tests__/components/one-location|app/one/location/|lib/one-location/|lib/contacts/|lib/marketplace/contact-matching\.ts)|consent-protocol/hushh_mcp/services/(google_maps_service|place_taxonomy)\.py)'; then
   run_check "One Location flows" npm run verify:one-location
   ran=1
 fi

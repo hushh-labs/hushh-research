@@ -16,6 +16,9 @@ from __future__ import annotations
 import logging
 from typing import Any, Awaitable, Callable
 
+from hushh_mcp.agents.email.agent import build_email_agent
+from hushh_mcp.agents.email.tools import EMAIL_TOOLS
+from hushh_mcp.hushh_adk.turn import SpecialistAdkTurnError, run_specialist_adk_turn
 from hushh_mcp.services.agent_chat_service import get_agent_chat_service
 from hushh_mcp.services.gmail_receipts_service import get_gmail_receipts_service
 
@@ -88,6 +91,30 @@ def _function_declarations(types: Any) -> list:
                 required=["query"],
             ),
         ),
+        types.FunctionDeclaration(
+            name="list_receipts",
+            description=(
+                "List the user's synced purchase receipts, newest first. Read-only. "
+                "Use for what did I buy, receipts, or spending questions."
+            ),
+            parameters=schema(
+                type=kind.OBJECT,
+                properties={
+                    "page": schema(type=kind.INTEGER, description="Page number (default 1)"),
+                    "per_page": schema(
+                        type=kind.INTEGER, description="Receipts per page (default 25, max 100)"
+                    ),
+                },
+                required=[],
+            ),
+        ),
+        types.FunctionDeclaration(
+            name="sync_status",
+            description=(
+                "Report whether the user's Gmail receipt sync is connected and healthy. Read-only."
+            ),
+            parameters=schema(type=kind.OBJECT, properties={}, required=[]),
+        ),
     ]
 
 
@@ -114,11 +141,14 @@ class EmailChatService:
         chat_store: Any = None,
         gmail_service: Any = None,
         model_call: ModelCall | None = None,
+        model: Any | None = None,
         genai_types: Any = None,
         ready: Callable[[], bool] | None = None,
     ) -> None:
         self._chat_store = chat_store if chat_store is not None else get_agent_chat_service()
         self._gmail = gmail_service if gmail_service is not None else get_gmail_receipts_service()
+        self._use_adk = model_call is None
+        self._adk_model = model
 
         if model_call is not None:
             self._model_call = model_call
@@ -138,6 +168,8 @@ class EmailChatService:
                 )
 
             self._model_call = _default_call
+        if self._use_adk and self._adk_model is None:
+            self._adk_model = build_email_agent(tools=EMAIL_TOOLS).model
 
     async def handle_turn(
         self,
@@ -159,6 +191,21 @@ class EmailChatService:
             user_id=user_id, message=message, conversation_id=conversation_id
         )
 
+        if self._use_adk:
+            if not self._ready():
+                return await self._finish(turn, _UNAVAILABLE_MESSAGE, user_id, errored=True)
+            try:
+                reply, errored = await self._run_adk_tool_loop(
+                    user_id=user_id,
+                    consent_token=consent_token,
+                    message=message,
+                    history=turn.history,
+                )
+            except Exception:
+                logger.exception("Email ADK turn failed")
+                return await self._finish(turn, _UNAVAILABLE_MESSAGE, user_id, errored=True)
+            return await self._finish(turn, reply or "Done.", user_id, errored=errored)
+
         if self._types is None or not self._ready():
             return await self._finish(turn, _UNAVAILABLE_MESSAGE, user_id, errored=True)
 
@@ -173,6 +220,27 @@ class EmailChatService:
             return await self._finish(turn, _UNAVAILABLE_MESSAGE, user_id, errored=True)
 
         return await self._finish(turn, reply or "Done.", user_id, errored=errored)
+
+    async def _run_adk_tool_loop(
+        self, *, user_id: str, consent_token: str, message: str, history: list[Any]
+    ) -> tuple[str, bool]:
+        """Run inbox and receipt reads through the manifest-owned ADK agent."""
+        try:
+            turn = await run_specialist_adk_turn(
+                agent=build_email_agent(tools=EMAIL_TOOLS, model=self._adk_model),
+                app_name="email",
+                user_id=user_id,
+                consent_token=consent_token,
+                message=message,
+                history=history,
+                service_ports={"gmail": self._gmail},
+                max_llm_calls=_MAX_TOOL_STEPS,
+            )
+        except SpecialistAdkTurnError as exc:
+            # Email tools are read-only, so an answer produced after a tool
+            # failure is safe to return as an errored, finite turn.
+            return exc.partial_turn.final_text, True
+        return turn.final_text, False
 
     async def _run_tool_loop(self, *, user_id: str, contents: list) -> tuple[str, bool]:
         types = self._types
@@ -236,7 +304,22 @@ class EmailChatService:
             )
             return {"results": results}
 
-        return {"list_needs_reply": list_needs_reply, "search_inbox": search_inbox}
+        async def list_receipts(page: int = 1, per_page: int = 25) -> dict:
+            return await gmail.list_receipts(
+                user_id=user_id,
+                page=max(1, int(page or 1)),
+                per_page=min(max(1, int(per_page or 25)), 100),
+            )
+
+        async def sync_status() -> dict:
+            return await gmail.get_status(user_id=user_id)
+
+        return {
+            "list_needs_reply": list_needs_reply,
+            "search_inbox": search_inbox,
+            "list_receipts": list_receipts,
+            "sync_status": sync_status,
+        }
 
     async def _finish(
         self, turn: Any, reply: str, user_id: str, *, errored: bool

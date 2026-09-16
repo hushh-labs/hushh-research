@@ -2,9 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Loader2, Mail, MailCheck } from "lucide-react";
-import { useRouter } from "next/navigation";
 
-import { useOptionalAgentPopover } from "@/components/agent/agent-popover-provider";
 import { SurfaceInset } from "@/components/app-ui/surfaces";
 import { AdaptiveDetailSurface } from "@/components/app-ui/settings-ui";
 import { Badge } from "@/components/ui/badge";
@@ -21,7 +19,7 @@ import {
 import { Button } from "@/lib/morphy-ux/button";
 import { SegmentedTabs } from "@/lib/morphy-ux/ui/segmented-tabs";
 import { useOneConversationSession } from "@/lib/agent/one-conversation-session";
-import { ROUTES } from "@/lib/navigation/routes";
+import { navigateToAgentChat } from "@/lib/navigation/agent-navigation";
 import {
   isExactGmailInformationRequestCandidate,
   prepareScopedGmailInformationRequestDraft,
@@ -373,8 +371,6 @@ export default function GmailInformationRequestsSection({
   idTokenProvider,
   onRequestVaultUnlock,
 }: Props) {
-  const router = useRouter();
-  const agentPopover = useOptionalAgentPopover();
   const createHandoff = useOneConversationSession(
     (state) => state.createHandoff,
   );
@@ -689,13 +685,9 @@ export default function GmailInformationRequestsSection({
         createdAtMs,
       });
       setSelectedWorkflowId(null);
-      if (agentPopover) {
-        agentPopover.openAgent();
-        return;
-      }
-      router.push(ROUTES.AGENT);
+      navigateToAgentChat();
     },
-    [agentPopover, createHandoff, router],
+    [createHandoff],
   );
 
   const prepareDraft = useCallback(

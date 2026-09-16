@@ -1134,6 +1134,38 @@
       "trust_boundary": "Rating and message reference only; never message content, prompt or model output, so no vault key and no decrypt path are involved.",
       "plaintext_posture": "metadata_only_with_keyed_source_fingerprints",
       "expected_row_growth": "at most one row per assistant turn a person chooses to rate"
+    },
+    {
+      "id": "one_location_sharing_posture",
+      "owner": "iam-consent-governance",
+      "data_class": "workflow_state",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "one_location_account_settings",
+        "one_location_setup_progress"
+      ],
+      "primary_access_path": "OneLocationAccountSettingsService (owner-level sharing on/off, precision preference, reported OS permission; migration 221) and OneLocationSetupService (voice-first Location setup step machine; migration 223) behind GET/PATCH /api/one/location/account-settings and /setup-progress (vault-owner token) and the One Live Voice tools. Turning sharing off revokes active share grants and public links in the same transaction; Location write paths enforce the posture.",
+      "retention_policy": "One mutable row per user for as long as the account exists.",
+      "deletion_behavior": "Hard-delete with account deletion (FK ON DELETE CASCADE to actor_profiles).",
+      "trust_boundary": "Coordinate-free by construction: only posture enums, consent version/timestamps, precision preference, and reported OS permission state. Precision is a preference; coarsening happens on the device before recipient encryption.",
+      "plaintext_posture": "metadata_only",
+      "expected_row_growth": "low_per_user"
+    },
+    {
+      "id": "one_voice_live_runtime",
+      "owner": "iam-consent-governance",
+      "data_class": "workflow_state",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "one_voice_conversations",
+        "one_voice_pending_actions"
+      ],
+      "primary_access_path": "hushh_mcp/one_voice ConversationStore and PendingActionStore used by the One Live Voice relay (WS /api/one/voice/live) and the pending-action HTTP twins (migration 222). Conversations hold the canonical-id entity context, the provider resumption handle, and per-session counters; pending actions are confirmation-gated voice mutations (voice or tap tier, hashed single-use receipt, one open per conversation, 120 s TTL).",
+      "retention_policy": "Conversations expire two hours after last activity; pending actions expire after their TTL and are marked expired on read. Both are operational ledgers, not history.",
+      "deletion_behavior": "Hard-delete with account deletion (FK ON DELETE CASCADE to actor_profiles); pending actions cascade from their conversation.",
+      "trust_boundary": "No audio, transcripts, coordinates, tokens, or spoken names are stored. Entity context holds canonical ids plus display names the server itself returned; receipts are stored as SHA-256 hashes; tool args are canonical ids only.",
+      "plaintext_posture": "metadata_and_hashes_only",
+      "expected_row_growth": "medium_per_user_bounded_ttl"
     }
   ]
 }

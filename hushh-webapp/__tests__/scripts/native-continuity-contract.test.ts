@@ -59,8 +59,11 @@ describe("native cold-audit and continuity contract", () => {
     expect(runtime).toContain('App.addListener("resume"');
     expect(runtime).not.toContain('App.addListener("appStateChange"');
     expect(runtime).toContain('document.visibilityState === "hidden" ? "background" : "active"');
-    expect(vault).toContain("appInteractionCoordinator.subscribeLifecycle");
-    expect(auth).toContain("appInteractionCoordinator.subscribeLifecycle");
+    // Auth and vault state stay stable across ordinary resume/focus events.
+    // Their explicit recovery and expiry paths remain independent of this
+    // shared lifecycle signal.
+    expect(vault).not.toContain("appInteractionCoordinator.subscribeLifecycle");
+    expect(auth).not.toContain("appInteractionCoordinator.subscribeLifecycle");
     expect(notification).toContain("appInteractionCoordinator.subscribeLifecycle");
     expect(vault).not.toContain('App.addListener("pause"');
     expect(vault).not.toContain('App.addListener("resume"');
@@ -264,15 +267,16 @@ describe("native cold-audit and continuity contract", () => {
     expect(nativeSupport).toContain("bridge._uiFlowsRoutingOwned === true");
   });
 
-  it("opens Profile as a pane before entering its canonical routes", () => {
+  it("opens Profile as a recursive pane while retaining canonical routes", () => {
     const runner = source("scripts/native/native-ui-test-runner-source.js");
     const flows = source("scripts/testing/signed-in-ui-flows.mjs");
 
     expect(runner).toContain("clickShellAction");
     expect(runner).not.toContain("NAV_ROUTE_BY_PERSONA_AND_LABEL");
-    expect(flows).toContain('route: "/one/profile/account"');
+    expect(flows).toContain('route: "/one"');
     expect(flows).toContain('testId: "profile-pane"');
-    expect(flows).toContain('routeIds: ["/one/profile/account"]');
+    expect(flows).toContain('value: "profile_pane=1"');
+    expect(flows).toContain('value: "profile_panel=account"');
   });
 
   it("keeps Location onboarding UI-flow checkpoints within the authored screen contract", () => {

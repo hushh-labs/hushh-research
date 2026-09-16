@@ -15,9 +15,15 @@ import logging
 import re
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import Any, Optional
+from typing import Optional
 
-from hushh_mcp.runtime_providers import build_managed_runtime_client
+from hushh_mcp.agents.portfolio_import.runtime import (
+    _HOLDINGS_SCHEMA,
+    _RELEVANCE_SCHEMA,
+    run_portfolio_gene,
+)
+
+_PORTFOLIO_CONSENT_SCOPE = "portfolio.import"
 
 logger = logging.getLogger(__name__)
 
@@ -1903,7 +1909,14 @@ class RichPDFParser:
 
         return holdings
 
-    def _parse_with_gemini_sync(self, text: str, brokerage: str) -> list:
+    def _parse_with_gemini_sync(
+        self,
+        text: str,
+        brokerage: str,
+        *,
+        user_id: str = "portfolio-import",
+        consent_token: str = _PORTFOLIO_CONSENT_SCOPE,
+    ) -> list:
         """Use Gemini to extract holdings (synchronous wrapper)."""
         import asyncio
 
@@ -1914,25 +1927,41 @@ class RichPDFParser:
                 import concurrent.futures
 
                 with concurrent.futures.ThreadPoolExecutor() as executor:
-                    future = executor.submit(asyncio.run, self._parse_with_gemini(text, brokerage))
+                    future = executor.submit(
+                        asyncio.run,
+                        self._parse_with_gemini(
+                            text,
+                            brokerage,
+                            user_id=user_id,
+                            consent_token=consent_token,
+                        ),
+                    )
                     return future.result(timeout=30)
             else:
-                return asyncio.run(self._parse_with_gemini(text, brokerage))
+                return asyncio.run(
+                    self._parse_with_gemini(
+                        text,
+                        brokerage,
+                        user_id=user_id,
+                        consent_token=consent_token,
+                    )
+                )
         except Exception as e:
             logger.warning(f"Gemini sync wrapper failed: {e}")
             return []
 
-    async def _parse_with_gemini(self, text: str, brokerage: str) -> list:
+    async def _parse_with_gemini(
+        self,
+        text: str,
+        brokerage: str,
+        *,
+        user_id: str = "portfolio-import",
+        consent_token: str = _PORTFOLIO_CONSENT_SCOPE,
+    ) -> list:
         """Use Gemini LLM to extract holdings from complex text."""
         holdings = []
 
         try:
-            from google.genai import types
-
-            from hushh_mcp.constants import GEMINI_MODEL
-
-            client = build_managed_runtime_client("gemini")
-
             prompt = f"""Extract all investment holdings from this {brokerage} brokerage statement.
 
 For each holding, extract these fields (use null if not found):
@@ -1948,37 +1977,22 @@ For each holding, extract these fields (use null if not found):
 - cusip: CUSIP identifier if available
 - asset_type: one of [stock, etf, bond, mutual_fund, preferred, cash]
 
-Return ONLY a valid JSON array of objects. No explanation, just the JSON.
+Return ONLY a valid JSON object with a `holdings` array. No explanation, just the JSON.
 
 Statement text (first 12000 chars):
 {text[:12000]}
 """
 
-            from hushh_mcp.runtime_providers import build_generate_content_config
-
-            config = build_generate_content_config(
-                types,
-                GEMINI_MODEL,
-                temperature=0.3,
-                max_output_tokens=8192,
+            payload, _ = await run_portfolio_gene(
+                gene_id="agent_portfolio_import_extract",
+                prompt=prompt,
+                user_id=user_id,
+                consent_token=consent_token,
+                output_schema=_HOLDINGS_SCHEMA,
             )
-
-            response = await client.aio.models.generate_content(
-                model=GEMINI_MODEL,
-                contents=prompt,
-                config=config,
-            )
-            response_text = response.text.strip()
-
-            # Clean up response - extract JSON array
-            if "```json" in response_text:
-                response_text = response_text.split("```json")[1].split("```")[0]
-            elif "```" in response_text:
-                response_text = response_text.split("```")[1].split("```")[0]
-
-            import json
-
-            data = json.loads(response_text)
+            data = payload.get("holdings")
+            if not isinstance(data, list):
+                raise ValueError("Portfolio extractor returned no holdings array")
 
             for item in data:
                 if not item.get("symbol"):
@@ -2012,10 +2026,10 @@ Statement text (first 12000 chars):
 
                 holdings.append(holding)
 
-            logger.info(f"Gemini extracted {len(holdings)} holdings")
+            logger.info("Portfolio Import extractor returned %s holdings", len(holdings))
 
         except Exception as e:
-            logger.error(f"Gemini extraction failed: {e}")
+            logger.error("Portfolio Import extraction failed: %s", type(e).__name__)
 
         return holdings
 
@@ -2023,7 +2037,14 @@ Statement text (first 12000 chars):
     # LLM-FIRST COMPREHENSIVE EXTRACTION (PRIMARY METHOD)
     # ========================================================================
 
-    def parse_comprehensive(self, pdf_bytes: bytes, filename: str) -> ComprehensivePortfolio:
+    def parse_comprehensive(
+        self,
+        pdf_bytes: bytes,
+        filename: str,
+        *,
+        user_id: str = "portfolio-import",
+        consent_token: str = _PORTFOLIO_CONSENT_SCOPE,
+    ) -> ComprehensivePortfolio:
         """
         Parse PDF using LLM-first approach for comprehensive data extraction.
 
@@ -2048,16 +2069,34 @@ Statement text (first 12000 chars):
 
                     with concurrent.futures.ThreadPoolExecutor() as executor:
                         future = executor.submit(
-                            asyncio.run, self._parse_with_gemini_comprehensive(pdf_bytes, filename)
+                            asyncio.run,
+                            self._parse_with_gemini_comprehensive(
+                                pdf_bytes,
+                                filename,
+                                user_id=user_id,
+                                consent_token=consent_token,
+                            ),
                         )
                         portfolio = future.result(timeout=120)  # 2 minute timeout
                 else:
                     portfolio = asyncio.run(
-                        self._parse_with_gemini_comprehensive(pdf_bytes, filename)
+                        self._parse_with_gemini_comprehensive(
+                            pdf_bytes,
+                            filename,
+                            user_id=user_id,
+                            consent_token=consent_token,
+                        )
                     )
             except RuntimeError:
                 # No event loop, create one
-                portfolio = asyncio.run(self._parse_with_gemini_comprehensive(pdf_bytes, filename))
+                portfolio = asyncio.run(
+                    self._parse_with_gemini_comprehensive(
+                        pdf_bytes,
+                        filename,
+                        user_id=user_id,
+                        consent_token=consent_token,
+                    )
+                )
 
             if portfolio and portfolio.holdings:
                 logger.info(f"Gemini Vision extracted {len(portfolio.holdings)} holdings")
@@ -2077,7 +2116,12 @@ Statement text (first 12000 chars):
         return portfolio
 
     async def _parse_with_gemini_comprehensive(
-        self, pdf_bytes: bytes, filename: str
+        self,
+        pdf_bytes: bytes,
+        filename: str,
+        *,
+        user_id: str = "portfolio-import",
+        consent_token: str = _PORTFOLIO_CONSENT_SCOPE,
     ) -> ComprehensivePortfolio:
         """
         Use Gemini with PDF vision to extract ALL financial data.
@@ -2089,25 +2133,7 @@ Statement text (first 12000 chars):
         - Google AI Studio API keys (start with 'AIza')
         - Vertex AI / Google Cloud credentials
         """
-        import base64
-        import json
-
-        from google.genai import types
-
-        from hushh_mcp.constants import GEMINI_MODEL
-
         portfolio = ComprehensivePortfolio()
-
-        logger.info("Using Vertex AI with Application Default Credentials")
-        try:
-            client = build_managed_runtime_client("gemini")
-        except Exception as exc:
-            logger.error("Vertex AI init failed: %s", type(exc).__name__)
-            raise ValueError("Could not initialize managed Gemini client") from exc
-        model_to_use = GEMINI_MODEL
-
-        # Encode PDF as base64
-        pdf_base64 = base64.b64encode(pdf_bytes).decode("utf-8")
 
         prompt = """Act as a forensic document parser. Your task is to extract every single piece of information from this financial statement into a structured JSON format.
 
@@ -2279,78 +2305,20 @@ Extract data into the following nested objects:
 - Robinhood: Look for "Portfolio", "Holdings", "History"
 """
 
-        logger.info(f"Sending PDF to Gemini Vision ({len(pdf_bytes)} bytes), model: {model_to_use}")
+        from google.genai import types
 
-        # Create the content with PDF - use simple list format for Vertex AI compatibility
-        contents = [
-            prompt,
-            types.Part(inline_data=types.Blob(mime_type="application/pdf", data=pdf_base64)),
-        ]
-
-        from hushh_mcp.runtime_providers import build_generate_content_config
-
-        config = build_generate_content_config(
-            types,
-            model_to_use,
-            temperature=0.1,  # Low temperature for accuracy
-            max_output_tokens=32768,  # Large output for comprehensive data
+        logger.info(
+            "Sending PDF to manifest-owned Portfolio Import extractor (%s bytes)", len(pdf_bytes)
         )
-
-        # Use streaming API for real-time progress feedback
-        logger.info("Starting Gemini streaming response...")
-        full_response = ""
-        chunk_count = 0
-
-        try:
-            stream = await client.aio.models.generate_content_stream(
-                model=model_to_use,
-                contents=contents,
-                config=config,
-            )
-
-            async for chunk in stream:
-                if chunk.text:
-                    full_response += chunk.text
-                    chunk_count += 1
-                    # Log progress every 10 chunks
-                    if chunk_count % 10 == 0:
-                        logger.info(
-                            f"Streaming progress: {len(full_response)} chars received ({chunk_count} chunks)"
-                        )
-
-            logger.info(
-                f"Streaming complete: {len(full_response)} chars total ({chunk_count} chunks)"
-            )
-        except Exception as stream_error:
-            logger.warning(f"Streaming failed, falling back to non-streaming: {stream_error}")
-            # Fallback to non-streaming if streaming fails
-            response = await client.aio.models.generate_content(
-                model=model_to_use,
-                contents=contents,
-                config=config,
-            )
-            full_response = response.text
-
-        response_text = full_response.strip()
-        logger.info(f"Gemini response length: {len(response_text)} chars")
-
-        # Clean up response - extract JSON
-        if "```json" in response_text:
-            response_text = response_text.split("```json")[1].split("```")[0]
-        elif "```" in response_text:
-            parts = response_text.split("```")
-            if len(parts) >= 2:
-                response_text = parts[1]
-
-        response_text = response_text.strip()
-
-        # Parse JSON
-        try:
-            data = json.loads(response_text)
-        except json.JSONDecodeError as e:
-            logger.error(f"JSON parse error: {e}")
-            logger.error(f"Response text (first 500 chars): {response_text[:500]}")
-            raise
+        data, _ = await run_portfolio_gene(
+            gene_id="agent_portfolio_import_comprehensive",
+            prompt=f"Filename: {filename}\n\n{prompt}",
+            document_parts=[types.Part.from_bytes(data=pdf_bytes, mime_type="application/pdf")],
+            output_schema=dict,
+            user_id=user_id,
+            consent_token=consent_token,
+        )
+        response_text = json.dumps(data, separators=(",", ":"))
 
         # Convert to ComprehensivePortfolio
         portfolio = self._parse_gemini_comprehensive_response(data)
@@ -2990,6 +2958,8 @@ class PortfolioImportService:
         *,
         file_content: bytes,
         filename: str,
+        user_id: str = "portfolio-import",
+        consent_token: str = _PORTFOLIO_CONSENT_SCOPE,
     ) -> DocumentRelevance:
         """
         Determine whether an uploaded document is relevant for portfolio import.
@@ -3019,6 +2989,8 @@ class PortfolioImportService:
             text_sample=text_sample,
             filename=filename,
             heuristic=heuristic,
+            user_id=user_id,
+            consent_token=consent_token,
         )
         if llm_result is not None:
             return llm_result
@@ -3126,15 +3098,11 @@ class PortfolioImportService:
         text_sample: str,
         filename: str,
         heuristic: DocumentRelevance,
+        user_id: str = "portfolio-import",
+        consent_token: str = _PORTFOLIO_CONSENT_SCOPE,
     ) -> Optional[DocumentRelevance]:
         """LLM classifier for ambiguous uploads. Returns None on classifier failure."""
         try:
-            from google.genai import types
-
-            from hushh_mcp.constants import GEMINI_MODEL
-
-            client = build_managed_runtime_client("gemini")
-
             prompt = f"""
 Classify whether this uploaded file is a brokerage/investment account statement suitable for portfolio import.
 Return JSON only with keys:
@@ -3149,67 +3117,13 @@ Heuristic score: {heuristic.reason}
 Content sample:
 {text_sample[:6000]}
 """.strip()
-
-            from hushh_mcp.runtime_providers import build_generate_content_config
-
-            config = build_generate_content_config(
-                types,
-                GEMINI_MODEL,
-                temperature=0.0,
-                max_output_tokens=256,
-                response_mime_type="application/json",
-                automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
-                response_schema={
-                    "type": "OBJECT",
-                    "properties": {
-                        "is_relevant": {"type": "BOOLEAN"},
-                        "confidence": {"type": "NUMBER"},
-                        "doc_type": {"type": "STRING"},
-                        "reason": {"type": "STRING"},
-                    },
-                    "required": ["is_relevant", "confidence", "reason"],
-                },
+            parsed, _ = await run_portfolio_gene(
+                gene_id="agent_portfolio_import_relevance",
+                prompt=prompt,
+                user_id=user_id,
+                consent_token=consent_token,
+                output_schema=_RELEVANCE_SCHEMA,
             )
-
-            response = await client.aio.models.generate_content(
-                model=GEMINI_MODEL,
-                contents=prompt,
-                config=config,
-            )
-            parsed: dict[str, Any] | None = None
-            if isinstance(getattr(response, "parsed", None), dict):
-                parsed = response.parsed
-
-            if parsed is None:
-                raw = (response.text or "").strip()
-                if not raw and getattr(response, "candidates", None):
-                    candidate = response.candidates[0]
-                    content = getattr(candidate, "content", None)
-                    parts = getattr(content, "parts", None) or []
-                    raw = "".join(str(getattr(part, "text", "") or "") for part in parts).strip()
-
-                if raw.startswith("```json"):
-                    raw = raw[7:]
-                if raw.startswith("```"):
-                    raw = raw[3:]
-                if raw.endswith("```"):
-                    raw = raw[:-3]
-                raw = raw.strip()
-                if not raw:
-                    raise ValueError("Classifier returned empty payload")
-
-                try:
-                    parsed_obj = json.loads(raw)
-                except json.JSONDecodeError:
-                    start = raw.find("{")
-                    end = raw.rfind("}")
-                    if start == -1 or end == -1 or end <= start:
-                        raise
-                    parsed_obj = json.loads(raw[start : end + 1])
-
-                if not isinstance(parsed_obj, dict):
-                    raise ValueError("Classifier payload is not a JSON object")
-                parsed = parsed_obj
 
             is_relevant = bool(parsed.get("is_relevant"))
             confidence = float(parsed.get("confidence") or 0.0)
@@ -3238,6 +3152,7 @@ Content sample:
         user_id: str,
         file_content: bytes,
         filename: str,
+        consent_token: str = _PORTFOLIO_CONSENT_SCOPE,
     ) -> ImportResult:
         """
         Parse portfolio file and return all data for client-side encryption.
@@ -3275,6 +3190,8 @@ Content sample:
                 relevance = await self.assess_document_relevance(
                     file_content=file_content,
                     filename=filename,
+                    user_id=user_id,
+                    consent_token=consent_token,
                 )
                 if not relevance.is_relevant:
                     return ImportResult(
@@ -3291,7 +3208,10 @@ Content sample:
                 logger.info("=" * 60)
 
                 comprehensive_portfolio = self.rich_parser.parse_comprehensive(
-                    file_content, filename
+                    file_content,
+                    filename,
+                    user_id=user_id,
+                    consent_token=consent_token,
                 )
 
                 if comprehensive_portfolio and comprehensive_portfolio.holdings:

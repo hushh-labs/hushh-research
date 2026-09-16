@@ -67,6 +67,7 @@ import {
 } from "@/lib/services/personal-knowledge-model-service";
 import { PkmWriteCoordinator } from "@/lib/services/pkm-write-coordinator";
 import { usePkmDomainChangeRevision } from "@/lib/pkm/use-pkm-domain-change-revision";
+import { PkmDomainResourceService } from "@/lib/pkm/pkm-domain-resource";
 import { useVault } from "@/lib/vault/vault-context";
 
 type DomainDetailState = {
@@ -193,6 +194,7 @@ export function PkmNaturalPanel({
   const [homeSearchQuery, setHomeSearchQuery] = useState("");
   const [memoryCards, setMemoryCards] = useState<PkmMemoryCard[]>([]);
   const [memoryCardsLoading, setMemoryCardsLoading] = useState(false);
+  const [memoryCardsLoadError, setMemoryCardsLoadError] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -540,28 +542,42 @@ export function PkmNaturalPanel({
       return undefined;
     }
     setMemoryCardsLoading(true);
-    void PersonalKnowledgeModelService.loadFullBlob({
+    setMemoryCardsLoadError(false);
+    const loadedDomains: Record<string, Record<string, unknown>> = {};
+    const updateCards = () => {
+      const snapshot = buildPkmMemorySnapshot({
+        metadata,
+        fullBlob: loadedDomains,
+        maxCards: 400,
+        maxCardsPerDomain: 80,
+      });
+      const sorted = [...snapshot.cards].sort((left, right) => {
+        const leftTime = left.updatedAt ? Date.parse(left.updatedAt) : 0;
+        const rightTime = right.updatedAt ? Date.parse(right.updatedAt) : 0;
+        return rightTime - leftTime;
+      });
+      setMemoryCards(sorted);
+    };
+    void PkmDomainResourceService.getManyStaleFirst({
       userId: user.uid,
+      domains: visibleMetadataDomains.map((domain) => domain.key),
       vaultKey,
       vaultOwnerToken,
+      forceRefresh: refreshNonce > 0 || memoryCardsNonce > 0 || pkmChangeRevision > 0,
+      backgroundRefresh: true,
+      onProgress: ({ domain, snapshot }) => {
+        if (cancelled || !snapshot?.data) return;
+        loadedDomains[domain] = snapshot.data;
+        updateCards();
+      },
     })
-      .then((fullBlob) => {
+      .then(({ snapshots, failedDomains }) => {
         if (cancelled) return;
-        const snapshot = buildPkmMemorySnapshot({
-          metadata,
-          fullBlob,
-          maxCards: 400,
-          maxCardsPerDomain: 80,
-        });
-        const sorted = [...snapshot.cards].sort((left, right) => {
-          const leftTime = left.updatedAt ? Date.parse(left.updatedAt) : 0;
-          const rightTime = right.updatedAt ? Date.parse(right.updatedAt) : 0;
-          return rightTime - leftTime;
-        });
-        setMemoryCards(sorted);
-      })
-      .catch(() => {
-        if (!cancelled) setMemoryCards([]);
+        for (const [domain, snapshot] of Object.entries(snapshots)) {
+          loadedDomains[domain] = snapshot.data;
+        }
+        updateCards();
+        setMemoryCardsLoadError(failedDomains.length > 0);
       })
       .finally(() => {
         if (!cancelled) setMemoryCardsLoading(false);
@@ -578,6 +594,7 @@ export function PkmNaturalPanel({
     user,
     vaultKey,
     vaultOwnerToken,
+    visibleMetadataDomains,
     workspaceTab,
   ]);
 
@@ -1160,6 +1177,17 @@ export function PkmNaturalPanel({
               <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
               Opening Memory…
             </SurfaceInset>
+          ) : memoryCardsLoadError && memoryCards.length === 0 ? (
+            <SurfaceInset className="space-y-3 p-4 text-sm text-muted-foreground">
+              <p>Some saved details couldn’t be opened.</p>
+              <Button
+                size="sm"
+                variant="muted"
+                onClick={() => setMemoryCardsNonce((current) => current + 1)}
+              >
+                Try again
+              </Button>
+            </SurfaceInset>
           ) : trimmedQuery ? (
             searchResults.length === 0 && matchedCategories.length === 0 ? (
               <SurfaceInset className="p-4 text-sm text-muted-foreground" data-pkm-search-empty="true">
@@ -1208,7 +1236,7 @@ export function PkmNaturalPanel({
                 </SettingsGroup>
               ) : (
                 <>
-                  {!memoryCardsLoading ? (
+                  {!memoryCardsLoading && !memoryCardsLoadError ? (
                     <p className="px-1 text-sm text-muted-foreground">
                       One hasn’t saved anything yet.
                     </p>
@@ -1221,6 +1249,18 @@ export function PkmNaturalPanel({
                 <p className="px-1 text-sm text-muted-foreground">
                   Some memories couldn’t be loaded. Pull to refresh.
                 </p>
+              ) : null}
+              {memoryCardsLoadError ? (
+                <div className="flex items-center justify-between gap-3 px-1 text-sm text-muted-foreground">
+                  <p>Some saved details couldn’t be refreshed. Your available details are still here.</p>
+                  <Button
+                    size="sm"
+                    variant="muted"
+                    onClick={() => setMemoryCardsNonce((current) => current + 1)}
+                  >
+                    Retry
+                  </Button>
+                </div>
               ) : null}
             </>
           )}

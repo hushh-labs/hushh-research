@@ -5,7 +5,6 @@ import { Capacitor } from "@capacitor/core";
 import { CalendarDays, CheckCircle2, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
-import { useOptionalAgentPopover } from "@/components/agent/agent-popover-provider";
 import { AskOneButton } from "@/components/agent/ask-one-button";
 import {
   AppPageContentRegion,
@@ -45,6 +44,8 @@ import {
   type GoogleCalendarStatus,
 } from "@/lib/services/google-calendar-service";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
+import { navigateToAgentChat } from "@/lib/navigation/agent-navigation";
+import { useOneConversationSession } from "@/lib/agent/one-conversation-session";
 import {
   createGoogleOAuthPopupAttempt,
   isGoogleOAuthPopupSettlement,
@@ -81,7 +82,6 @@ export function CalendarAgentPage({
   connectionPending = false,
 }: CalendarAgentPageProps) {
   const { user, loading } = useAuth();
-  const agentPopover = useOptionalAgentPopover();
   const [status, setStatus] = useState<GoogleCalendarStatus | null>(null);
   const [busy, setBusy] = useState(false);
   const [disconnectConfirmOpen, setDisconnectConfirmOpen] = useState(false);
@@ -325,20 +325,18 @@ export function CalendarAgentPage({
   const shouldShowSetup = !connected && status?.status !== "needs_reauth";
 
   const openChat = (prompt?: string) => {
-    if (!agentPopover) return;
     if (!prompt) {
-      agentPopover.openAgent();
+      navigateToAgentChat();
       return;
     }
     const createdAtMs = Date.now();
-    agentPopover.openAgent({
-      handoff: {
-        id: `calendar-prompt-${createdAtMs}`,
-        reason: "user_requested",
-        transcript: prompt,
-        createdAtMs,
-      },
+    useOneConversationSession.getState().createHandoff({
+      id: `calendar-prompt-${createdAtMs}`,
+      reason: "user_requested",
+      transcript: prompt,
+      createdAtMs,
     });
+    navigateToAgentChat();
   };
 
   return (
@@ -381,7 +379,7 @@ export function CalendarAgentPage({
                 {/* Actions */}
                 <div className="flex flex-col items-center gap-2.5 w-full pt-1">
                   <AskOneButton
-                    disabled={busy || !agentPopover}
+                    disabled={busy}
                     onClick={() => openChat("Summarize my calendar events")}
                     // Full width at every size: this card is a centred column,
                     // not a page whose actions sit inline.

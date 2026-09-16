@@ -11,8 +11,8 @@ import com.hussh.app.MainActivity
  * Narrow bridge for the native resume-time privacy shield.
  *
  * MainActivity owns lifecycle and presentation. The web layer may only read
- * the current generation and release that exact generation after completing
- * its account/session validation.
+ * the current generation and release that exact generation after the resumed
+ * document is ready to be shown.
  */
 @CapacitorPlugin(name = "HushhSessionPrivacy")
 class HushhSessionPrivacyPlugin : Plugin() {

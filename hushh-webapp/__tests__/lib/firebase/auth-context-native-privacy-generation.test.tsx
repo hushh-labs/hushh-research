@@ -5,8 +5,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   authStateListener: null as ((user: unknown) => void) | null,
-  lifecycleListeners: new Set<() => void>(),
-  lifecycleState: "active" as "active" | "background",
   privacyState: { shielded: false, generation: 0, cause: "inactive" as "inactive" | "background" | "restart", appIsActive: true },
   privacyListener: null as ((state: unknown) => void) | null,
   routerReplace: vi.fn(),
@@ -92,16 +90,6 @@ vi.mock("@/lib/utils/session-storage", () => ({
   clearSessionStorage: vi.fn(),
   removeLocalItem: vi.fn(),
   removeSessionItem: vi.fn(),
-}));
-
-vi.mock("@/lib/interaction/interaction-intent-coordinator", () => ({
-  appInteractionCoordinator: {
-    getLifecycleSnapshot: () => ({ state: mocks.lifecycleState }),
-    subscribeLifecycle: (listener: () => void) => {
-      mocks.lifecycleListeners.add(listener);
-      return () => mocks.lifecycleListeners.delete(listener);
-    },
-  },
 }));
 
 vi.mock("@/lib/services/api-service", () => ({
@@ -191,11 +179,6 @@ function SessionProbe() {
   );
 }
 
-function emitLifecycle(state: "active" | "background") {
-  mocks.lifecycleState = state;
-  for (const listener of mocks.lifecycleListeners) listener();
-}
-
 function emitPrivacy(overrides: Partial<typeof mocks.privacyState>, action = "state") {
   mocks.privacyState = { ...mocks.privacyState, ...overrides };
   mocks.privacyListener?.({ ...mocks.privacyState, action });
@@ -212,8 +195,6 @@ describe("AuthProvider native privacy generations", () => {
     mocks.restoreNativeSession.mockReset();
     mocks.getPrivacyState.mockReset();
     mocks.completePrivacyValidation.mockReset();
-    mocks.lifecycleListeners.clear();
-    mocks.lifecycleState = "active";
     mocks.privacyState = { shielded: false, generation: 0, cause: "inactive", appIsActive: true };
     mocks.privacyListener = null;
     mocks.getPrivacyState.mockImplementation(() => Promise.resolve({ ...mocks.privacyState }));
@@ -256,16 +237,9 @@ describe("AuthProvider native privacy generations", () => {
     expect(mocks.authServiceSignOut).not.toHaveBeenCalled();
   });
 
-  it("keeps private native content hidden after an unavailable resume check", async () => {
+  it("releases the native privacy cover without revalidating a restored session", async () => {
     mocks.restoreNativeSession.mockResolvedValue(makeUser());
-    mocks.apiGetAccountSessionStatus
-      .mockResolvedValueOnce(activeSessionResponse())
-      .mockResolvedValueOnce(
-        Response.json({ detail: "temporarily unavailable" }, { status: 503 }),
-      )
-      .mockResolvedValueOnce(
-        Response.json({ detail: "temporarily unavailable" }, { status: 503 }),
-      );
+    mocks.apiGetAccountSessionStatus.mockResolvedValue(activeSessionResponse());
 
     render(
       <AuthProvider>
@@ -274,33 +248,23 @@ describe("AuthProvider native privacy generations", () => {
     );
     await screen.findByText("Native content for native-account-owner");
 
-    mocks.privacyState = { shielded: true, generation: 1, cause: "background", appIsActive: true };
-    act(() => {
-      emitLifecycle("background");
-      emitLifecycle("active");
-    });
+    mocks.apiGetAccountSessionStatus.mockClear();
+    act(() => emitPrivacy({ shielded: true, generation: 1, cause: "background", appIsActive: true }));
 
-    expect(await screen.findByText("Verification required")).toBeInTheDocument();
-    expect(
-      screen.queryByText("Native content for native-account-owner"),
-    ).not.toBeInTheDocument();
     await waitFor(() => {
       expect(mocks.completePrivacyValidation).toHaveBeenCalledWith(1);
     });
+    expect(screen.getByText("Native content for native-account-owner")).toBeInTheDocument();
+    expect(mocks.apiGetAccountSessionStatus).not.toHaveBeenCalled();
+    expect(screen.queryByText("Checking session")).not.toBeInTheDocument();
+    expect(screen.queryByText("Verification required")).not.toBeInTheDocument();
     expect(mocks.authServiceSignOut).not.toHaveBeenCalled();
     expect(mocks.routerReplace).not.toHaveBeenCalled();
   });
 
-  it("queues a fresh validation before releasing a newer resume generation", async () => {
-    const firstResumeStatus = deferred<Response>();
-    const secondResumeStatus = deferred<Response>();
+  it("releases successive native privacy generations without account checks", async () => {
     mocks.restoreNativeSession.mockResolvedValue(makeUser());
-    mocks.apiGetAccountSessionStatus
-      .mockResolvedValueOnce(
-        activeSessionResponse(),
-      )
-      .mockReturnValueOnce(firstResumeStatus.promise)
-      .mockReturnValueOnce(secondResumeStatus.promise);
+    mocks.apiGetAccountSessionStatus.mockResolvedValue(activeSessionResponse());
 
     render(
       <AuthProvider>
@@ -308,46 +272,18 @@ describe("AuthProvider native privacy generations", () => {
       </AuthProvider>,
     );
     await screen.findByText("Native content for native-account-owner");
+    mocks.apiGetAccountSessionStatus.mockClear();
 
-    mocks.privacyState = { shielded: true, generation: 1, cause: "background", appIsActive: true };
-    act(() => {
-      emitLifecycle("background");
-      emitLifecycle("active");
-    });
+    act(() => emitPrivacy({ shielded: true, generation: 1, cause: "background", appIsActive: true }));
     await waitFor(() => {
-      expect(mocks.apiGetAccountSessionStatus).toHaveBeenCalledTimes(2);
+      expect(mocks.completePrivacyValidation).toHaveBeenCalledWith(1);
     });
 
-    mocks.privacyState = { shielded: true, generation: 2, cause: "background", appIsActive: true };
-    act(() => {
-      emitLifecycle("background");
-      emitLifecycle("active");
-    });
-    await act(async () => Promise.resolve());
-    expect(mocks.apiGetAccountSessionStatus).toHaveBeenCalledTimes(2);
-    expect(mocks.completePrivacyValidation).not.toHaveBeenCalledWith(2);
-
-    await act(async () => {
-      firstResumeStatus.resolve(
-        activeSessionResponse(),
-      );
-      await firstResumeStatus.promise;
-    });
-    await waitFor(() => {
-      expect(mocks.apiGetAccountSessionStatus).toHaveBeenCalledTimes(3);
-    });
-    expect(mocks.completePrivacyValidation).not.toHaveBeenCalledWith(2);
-    expect(screen.getByText("Checking session")).toBeInTheDocument();
-
-    await act(async () => {
-      secondResumeStatus.resolve(
-        activeSessionResponse(),
-      );
-      await secondResumeStatus.promise;
-    });
+    act(() => emitPrivacy({ shielded: true, generation: 2, cause: "background", appIsActive: true }));
     await waitFor(() => {
       expect(mocks.completePrivacyValidation).toHaveBeenCalledWith(2);
     });
+    expect(mocks.apiGetAccountSessionStatus).not.toHaveBeenCalled();
     expect(
       screen.getByText("Native content for native-account-owner"),
     ).toBeInTheDocument();
@@ -425,17 +361,16 @@ describe("AuthProvider native privacy generations", () => {
     mocks.apiGetAccountSessionStatus.mockResolvedValue(activeSessionResponse());
     render(<AuthProvider><SessionProbe /></AuthProvider>);
     await screen.findByText("Native content for native-account-owner");
+    mocks.apiGetAccountSessionStatus.mockClear();
     act(() => {
       emitPrivacy({ shielded: true, generation: 1, cause: "background", appIsActive: false });
-      emitLifecycle("background");
-      emitLifecycle("active");
     });
     await act(async () => Promise.resolve());
     expect(mocks.completePrivacyValidation).not.toHaveBeenCalled();
-    expect(mocks.apiGetAccountSessionStatus).toHaveBeenCalledTimes(1);
+    expect(mocks.apiGetAccountSessionStatus).not.toHaveBeenCalled();
     act(() => emitPrivacy({ appIsActive: true }));
     await waitFor(() => expect(mocks.completePrivacyValidation).toHaveBeenCalledWith(1));
-    expect(mocks.apiGetAccountSessionStatus).toHaveBeenCalledTimes(2);
+    expect(mocks.apiGetAccountSessionStatus).not.toHaveBeenCalled();
   });
 
   it("reconciles a refused acknowledgement without repeating account validation", async () => {
@@ -448,39 +383,35 @@ describe("AuthProvider native privacy generations", () => {
     await screen.findByText("Native content for native-account-owner");
     act(() => emitPrivacy({ shielded: true, generation: 1, cause: "background" }));
     await waitFor(() => expect(mocks.completePrivacyValidation).toHaveBeenCalledTimes(2), { timeout: 2_000 });
-    expect(mocks.apiGetAccountSessionStatus).toHaveBeenCalledTimes(2);
-  });
-
-  it("does not reuse transient validation when the same generation gains background debt", async () => {
-    const revalidation = deferred<Response>();
-    mocks.restoreNativeSession.mockResolvedValue(makeUser());
-    mocks.apiGetAccountSessionStatus.mockResolvedValueOnce(activeSessionResponse())
-      .mockReturnValueOnce(revalidation.promise);
-    render(<AuthProvider><SessionProbe /></AuthProvider>);
-    await screen.findByText("Native content for native-account-owner");
-    act(() => emitPrivacy({ shielded: true, generation: 1, cause: "inactive" }));
-    await waitFor(() => expect(mocks.completePrivacyValidation).toHaveBeenCalledWith(1));
     expect(mocks.apiGetAccountSessionStatus).toHaveBeenCalledTimes(1);
-    mocks.completePrivacyValidation.mockClear();
-    act(() => emitPrivacy({ shielded: true, generation: 1, cause: "background" }));
-    await waitFor(() => expect(mocks.apiGetAccountSessionStatus).toHaveBeenCalledTimes(2));
-    expect(mocks.completePrivacyValidation).not.toHaveBeenCalled();
-    await act(async () => revalidation.resolve(activeSessionResponse()));
-    await waitFor(() => expect(mocks.completePrivacyValidation).toHaveBeenCalledWith(1));
   });
 
-  it("keeps an unknown resume covered and reconciles a later native state", async () => {
+  it("does not revalidate when a privacy generation changes cause", async () => {
     mocks.restoreNativeSession.mockResolvedValue(makeUser());
     mocks.apiGetAccountSessionStatus.mockResolvedValue(activeSessionResponse());
     render(<AuthProvider><SessionProbe /></AuthProvider>);
     await screen.findByText("Native content for native-account-owner");
-    mocks.getPrivacyState.mockRejectedValue(new Error("bridge unavailable"));
-    act(() => { emitLifecycle("background"); emitLifecycle("active"); });
-    await screen.findByText("Verification required");
-    expect(mocks.completePrivacyValidation).not.toHaveBeenCalled();
+    mocks.apiGetAccountSessionStatus.mockClear();
+    act(() => emitPrivacy({ shielded: true, generation: 1, cause: "inactive", appIsActive: true }));
+    await waitFor(() => expect(mocks.completePrivacyValidation).toHaveBeenCalledWith(1));
+    expect(mocks.apiGetAccountSessionStatus).not.toHaveBeenCalled();
+    mocks.completePrivacyValidation.mockClear();
+    act(() => emitPrivacy({ shielded: true, generation: 1, cause: "background", appIsActive: true }));
+    await waitFor(() => expect(mocks.completePrivacyValidation).toHaveBeenCalledWith(1));
+    expect(mocks.apiGetAccountSessionStatus).not.toHaveBeenCalled();
+  });
+
+  it("reconciles a native privacy retry without revalidating the session", async () => {
+    mocks.restoreNativeSession.mockResolvedValue(makeUser());
+    mocks.apiGetAccountSessionStatus.mockResolvedValue(activeSessionResponse());
+    render(<AuthProvider><SessionProbe /></AuthProvider>);
+    await screen.findByText("Native content for native-account-owner");
+    mocks.apiGetAccountSessionStatus.mockClear();
+    mocks.completePrivacyValidation.mockClear();
     act(() => emitPrivacy({ shielded: true, generation: 1, cause: "background" }, "retry"));
     await waitFor(() => expect(mocks.completePrivacyValidation).toHaveBeenCalledWith(1));
     expect(screen.getByText("Native content for native-account-owner")).toBeInTheDocument();
+    expect(mocks.apiGetAccountSessionStatus).not.toHaveBeenCalled();
     expect(mocks.authServiceSignOut).not.toHaveBeenCalled();
   });
 

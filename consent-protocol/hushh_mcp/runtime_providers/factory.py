@@ -14,7 +14,7 @@ import re
 from dataclasses import dataclass
 from typing import Any, Literal
 
-from google.genai.types import HttpOptionsDict
+from google.genai.types import HttpOptions, HttpOptionsDict
 
 from .registry import ProviderId, normalize_provider
 from .vertex_failover import VertexRegionalClient
@@ -117,9 +117,35 @@ class ManagedGeminiRuntimeBinding:
             )
         return locations
 
-    def build_direct_client(self, *, model: str | None = None) -> Any:
+    def build_direct_client(
+        self,
+        *,
+        model: str | None = None,
+        location: str | None = None,
+        http_options: Any | None = None,
+    ) -> Any:
+        """Build the google-genai client; the one construction seam for the fleet.
+
+        ``location`` pins a single Vertex location (measurement scripts probe one
+        location at a time) and ``http_options`` bounds the request, so a stalled
+        call surfaces as an error instead of hanging a whole run.
+        """
         from google import genai
 
+        if location is not None:
+            clean_location = str(location).strip()
+            if not _LOCATION_RE.fullmatch(clean_location):
+                raise ValueError("Managed Vertex location is invalid")
+            if not self.project:
+                raise RuntimeError("Managed Vertex binding has no configured project")
+            client_kwargs: dict[str, Any] = {
+                "vertexai": True,
+                "project": self.project,
+                "location": clean_location,
+            }
+            if http_options is not None:
+                client_kwargs["http_options"] = http_options
+            return genai.Client(**client_kwargs)
         if self.auth_mode == DEVELOPER_API_KEY_AUTH_MODE:
             key = (
                 _clean_env("GEMINI_API_KEY")
@@ -132,11 +158,14 @@ class ManagedGeminiRuntimeBinding:
 
         locations = self.locations_for_model(model) if model else self.locations
         if len(locations) == 1:
-            return genai.Client(
-                vertexai=True,
-                project=self.project,
-                location=locations[0],
-            )
+            client_kwargs = {
+                "vertexai": True,
+                "project": self.project,
+                "location": locations[0],
+            }
+            if http_options is not None:
+                client_kwargs["http_options"] = http_options
+            return genai.Client(**client_kwargs)
         return VertexRegionalClient(
             project=self.project,
             locations=locations,
@@ -144,7 +173,45 @@ class ManagedGeminiRuntimeBinding:
             cooldown_seconds=_vertex_location_cooldown_seconds(),
         )
 
-    def build_adk_model(self, model: str, *, location: str | None = None) -> Any:
+    def build_live_client(self, *, model: str, location: str) -> Any:
+        """Build the one ``genai.Client`` that may open a Gemini Live session.
+
+        Vertex ADC only: the developer-key mode is refused outright, because
+        Live must never run on a hosted API-key pool again. The model id must
+        be a registered native-realtime entry (no aliases, no pass-through)
+        and the location must be one of that entry's regional endpoints. There
+        is deliberately no ``VertexRegionalClient`` failover here: Live runs in
+        exactly one pinned region or not at all.
+        """
+        from google import genai
+
+        from .registry import resolve_live_model_entry
+
+        if self.auth_mode != VERTEX_ADC_AUTH_MODE:
+            raise RuntimeError("Gemini Live requires Vertex ADC")
+        clean_location = str(location or "").strip().lower()
+        clean_model = self.validate_model(model, location=clean_location or None)
+        if not clean_location or clean_location in {"global", "us", "eu"}:
+            raise RuntimeError("Gemini Live requires one regional Vertex location")
+        entry = resolve_live_model_entry(clean_model)
+        if clean_location not in entry.supported_vertex_locations:
+            raise RuntimeError(
+                f"Vertex location {clean_location!r} is not supported for Live model "
+                f"{clean_model!r}"
+            )
+        return genai.Client(
+            vertexai=True,
+            project=self.project,
+            location=clean_location,
+        )
+
+    def build_adk_model(
+        self,
+        model: str,
+        *,
+        location: str | None = None,
+        http_options: HttpOptions | HttpOptionsDict | None = None,
+    ) -> Any:
         from google.adk.models import Gemini
 
         clean_location = str(location or "").strip() or (
@@ -153,6 +220,11 @@ class ManagedGeminiRuntimeBinding:
         clean_model = self.validate_model(
             model,
             location=clean_location or None,
+        )
+        transport_options = (
+            {"http_options": HttpOptions.model_validate(http_options)}
+            if http_options is not None
+            else {}
         )
         if self.auth_mode == DEVELOPER_API_KEY_AUTH_MODE:
             key = (
@@ -164,7 +236,7 @@ class ManagedGeminiRuntimeBinding:
                 raise RuntimeError("Developer Gemini API key is not configured")
             return Gemini(
                 model=clean_model,
-                client_kwargs={"vertexai": False, "api_key": key},
+                client_kwargs={"vertexai": False, "api_key": key, **transport_options},
             )
         return Gemini(
             model=clean_model,
@@ -172,6 +244,7 @@ class ManagedGeminiRuntimeBinding:
                 "vertexai": True,
                 "project": self.project,
                 "location": clean_location,
+                **transport_options,
             },
         )
 
@@ -371,10 +444,24 @@ def build_managed_runtime_client(runtime_provider: str, managed_credential: str 
     return _build(provider, key, managed=True)
 
 
+def build_managed_live_client(*, model: str, location: str) -> Any:
+    """Managed Gemini Live client from the canonical ADC contract.
+
+    The relay, the readiness probe, and the model-discovery script all come
+    through here so ``genai.Client(`` stays centralized in this module.
+    """
+
+    return ManagedGeminiRuntimeBinding.from_environment().build_live_client(
+        model=model,
+        location=location,
+    )
+
+
 def build_managed_gemini_adk_model(
     model: str,
     *,
     vertex_location: str | None = None,
+    http_options: HttpOptions | HttpOptionsDict | None = None,
 ) -> Any:
     """Build an ADK Gemini model from the canonical managed auth contract.
 
@@ -386,11 +473,16 @@ def build_managed_gemini_adk_model(
     ADK owns its internal client, so regional retry remains a direct-client
     capability. This function deliberately pins the configured primary region;
     it does not pretend to provide ``VertexRegionalClient`` failover.
+
+    Optional SDK HTTP options bound individual model requests without replaying
+    a turn or its tools. ``timeout`` uses milliseconds; retry ``attempts`` counts
+    the initial request too. Omission preserves ADK's existing transport defaults.
     """
 
     return ManagedGeminiRuntimeBinding.from_environment().build_adk_model(
         model,
         location=vertex_location,
+        http_options=http_options,
     )
 
 

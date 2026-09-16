@@ -37,8 +37,12 @@ the whole fleet; a lane may flip it only after its project's Vertex
 `constraints/vertexai.allowedModels` policy admits the id. UAT runs `gemini-3.8-flash`
 (admitted in `hushh-pda-uat` on 2026-09-02); production stays on the default until its
 allowlist changes. Every text agent, including the memory chain and the summary reducer, names the alias
-(founder directive 2026-09-02: the fleet runs Flash, 3.8 preferred, 3.7 next, 3.6 worst
-case, and never `gemini-3.1-pro-preview`). The Live head is retired.
+(founder directive 2026-09-02: the fleet runs Flash; founder rule 2026-09-14: the catalog
+lists only the last two Gemini releases, today `gemini-3.8-flash` and `gemini-3.7-flash`, and
+a roll-forward replaces the older one, never adds a third; `gemini-3.1-pro-preview` and
+`gemini-3.1-flash-lite` are retired). The Live head is pinned by
+`VERTEX_LIVE_MODEL_ID` (an exact id read once at request time, no manifest alias)
+and runs only in `VERTEX_LIVE_LOCATION` while `ONE_VOICE_LIVE_ENABLED` is on.
 `tests/test_fleet_text_model_switch.py` refuses any manifest that pins a Flash generation.
 
 ### Knobs removed as valueless (2026-09-02)
@@ -117,13 +121,24 @@ provider factory. Verify exact-model audio and structured-output access in the
 release environment. Authentication or quota failure produces an error card;
 it cannot fall back to Live or report an operation completed.
 
-## Retired Live compatibility
+## Live compatibility
 
 The previous Live registry, Developer API key and UAT rollback settings are
-historical configuration. Live websocket and relay-token endpoints return
-explicit retirement responses. Transport compatibility constructors fail before
-networking. BYOK typed turns remain supported; no BYOK or managed Live session
-is available from app entrypoints.
+historical configuration. The `/api/one/adk/*` Live websocket and relay-token
+endpoints return explicit retirement responses and transport compatibility
+constructors fail before networking. BYOK typed turns remain supported; there
+is no BYOK Live session.
+
+The maintained managed Live session is One Live Voice: `POST /api/one/voice/sessions`
+mints a single-use ticket, `WS /api/one/voice/live` relays audio to Gemini Live on
+Vertex ADC, and `GET /api/one/voice/readiness` is the single flag the app reads.
+Three environment names govern it: `ONE_VOICE_LIVE_ENABLED` (kill switch, default
+off), `VERTEX_LIVE_MODEL_ID` (exact pin; `hushh_mcp/runtime_providers/registry.py`
+must carry a native-realtime entry for it) and `VERTEX_LIVE_LOCATION` (one regional
+endpoint). A provider outage reports `provider_unavailable` and hides the control; it
+never falls back to another model or region. Pick the id per lane with
+`consent-protocol/scripts/discover_vertex_live_models.py`; see
+[one-voice-live-tool-contract.md](./one-voice-live-tool-contract.md).
 
 ## Non-goals
 
