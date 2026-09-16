@@ -2134,11 +2134,11 @@ body:has(.profile-account-content)
     0px
   );
   --agent-chat-composer-bottom: max(
-    calc(0.5rem + var(--app-safe-area-bottom-effective)),
+    calc(var(--app-bottom-shell-height, 4.5rem) + 0.5rem),
     calc(var(--agent-chat-keyboard-inset) + 0.5rem)
   );
   --agent-chat-composer-focused-bottom: max(
-    calc(0.75rem + var(--app-safe-area-bottom-effective)),
+    calc(var(--app-bottom-shell-height, 4.5rem) + 0.75rem),
     calc(var(--agent-chat-keyboard-inset) + 0.5rem)
   );
 }
@@ -2148,7 +2148,12 @@ body:has(.profile-account-content)
  * out of the viewport (var(--bottom-nav-travel, 0px) travel is bounded). */
 .agent-chat-workspace[data-agent-chat-route="root"]
   [data-agent-chat-composer-form="root"] {
-  transform: none;
+  transform: translate3d(
+    0,
+    calc(var(--bottom-chrome-progress, 0) * var(--bottom-nav-travel, 0px)),
+    0
+  );
+  will-change: transform;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -2158,6 +2163,16 @@ body:has(.profile-account-content)
   }
 }
 
+body:has(.agent-chat-workspace) .ambient-chrome-mask--bottom {
+  background-image: none !important;
+  background-color: transparent !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  mask-image: none !important;
+  -webkit-mask-image: none !important;
+}
+
+html.kb-open .agent-chat-workspace,
 html.native-keyboard-inset .agent-chat-workspace {
   --agent-chat-keyboard-inset: var(--kb-height, 0px);
 }
@@ -2165,11 +2180,11 @@ html.native-keyboard-inset .agent-chat-workspace {
 html.native-ios .agent-chat-workspace[data-agent-chat-workspace="page"] {
   --agent-chat-header-safe-top: max(64px, var(--app-safe-area-top-effective));
   --agent-chat-composer-bottom: max(
-    calc(1rem + var(--app-safe-area-bottom-effective)),
+    calc(var(--app-bottom-shell-height, 4.5rem) + 0.5rem),
     calc(var(--agent-chat-keyboard-inset) + 0.5rem)
   );
   --agent-chat-composer-focused-bottom: max(
-    calc(1.75rem + var(--app-safe-area-bottom-effective)),
+    calc(var(--app-bottom-shell-height, 4.5rem) + 0.75rem),
     calc(var(--agent-chat-keyboard-inset) + 0.5rem)
   );
 }

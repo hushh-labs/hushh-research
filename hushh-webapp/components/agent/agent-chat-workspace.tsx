@@ -153,7 +153,10 @@ import {
   requestAgentConversation,
   requestAgentConversationStop,
 } from "@/lib/agent/agent-voice-settings";
-import { onScroll as onKaiBottomChromeScroll } from "@/lib/navigation/kai-bottom-chrome-visibility";
+import {
+  onScroll as onKaiBottomChromeScroll,
+  snapKaiBottomChromeVisible,
+} from "@/lib/navigation/kai-bottom-chrome-visibility";
 import {
   deleteAgentChatConversation,
   renameAgentChatConversation,
@@ -2153,6 +2156,12 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   ]);
 
   useEffect(() => {
+    if (isCanonicalChatRoute) {
+      snapKaiBottomChromeVisible();
+    }
+  }, [isCanonicalChatRoute]);
+
+  useEffect(() => {
     const transcript = transcriptRef.current;
     const messagesEnd = messagesEndRef.current;
     if (!transcript || !messagesEnd || isPuppySurface) return;
@@ -2172,7 +2181,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       Math.max(0, transcript.scrollHeight - transcript.clientHeight),
     );
     messagesEnd.scrollIntoView({
-      behavior: "smooth",
+      behavior: "auto",
       block: "end",
     });
   }, [
@@ -5323,12 +5332,9 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           "overflow-hidden",
         )}
       >
-        <div className="hidden h-full lg:flex">
-          {renderHistorySidebar("h-full", undefined, isHistoryCollapsed)}
-        </div>
         <div
           className={cn(
-            "fixed inset-0 z-[520] bg-black/35 backdrop-blur-sm transition-opacity duration-200 dark:bg-black/55 lg:hidden",
+            "fixed inset-0 z-[520] bg-black/35 backdrop-blur-sm transition-opacity duration-200 dark:bg-black/55",
             isHistoryDrawerOpen
               ? "opacity-100"
               : "pointer-events-none opacity-0",
@@ -5339,7 +5345,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         <div
           ref={historyDrawerRef}
           className={cn(
-            "fixed bottom-0 left-0 top-[var(--top-shell-reserved-height,var(--app-safe-area-top-effective,0px))] z-[530] w-[min(88vw,320px)] transform transition-transform duration-200 ease-out lg:hidden",
+            "fixed bottom-0 left-0 top-[var(--top-shell-reserved-height,var(--app-safe-area-top-effective,0px))] z-[530] w-[min(88vw,320px)] transform transition-transform duration-200 ease-out",
             isHistoryDrawerOpen ? "translate-x-0" : "-translate-x-full",
           )}
           role="dialog"
@@ -5372,7 +5378,6 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
             <div className="flex min-w-0 items-center gap-3">
               <ShellActionSurface
                 variant="icon"
-                className="lg:hidden"
                 onClick={openHistoryDrawer}
                 aria-label="Open chat history"
                 title="Open chat history"
@@ -5592,52 +5597,76 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
             />
           ) : null}
 
-          <div
-            ref={transcriptRef}
-            onScroll={(event) => {
-              // A display:none element fires no scroll events, so this only
-              // ever records One's own position; the guard is belt and braces.
-              if (!isPuppySurface) {
-                const transcript = event.currentTarget;
-                const scrollTop = transcript.scrollTop;
-                oneScrollTopRef.current = scrollTop;
-                if (transcriptProgrammaticScrollRef.current) {
-                  const target = transcriptProgrammaticTargetRef.current;
+          <div className="relative min-h-0 flex-1 overflow-hidden">
+            <div
+              ref={transcriptRef}
+              onScroll={(event) => {
+                // A display:none element fires no scroll events, so this only
+                // ever records One's own position; the guard is belt and braces.
+                if (!isPuppySurface) {
+                  const transcript = event.currentTarget;
+                  const scrollTop = transcript.scrollTop;
+                  const previousScrollTop = oneScrollTopRef.current;
+                  oneScrollTopRef.current = scrollTop;
+
                   const maxScrollTop = Math.max(
                     0,
                     transcript.scrollHeight - transcript.clientHeight,
                   );
-                  if (
-                    target === null ||
-                    Math.abs(scrollTop - Math.min(target, maxScrollTop)) <= 3
-                  ) {
+                  const distanceFromBottom = maxScrollTop - scrollTop;
+
+                  // When the reader scrolls up or moves noticeably away from the bottom,
+                  // immediately clear any programmatic lock and mark active reader control.
+                  if (scrollTop < previousScrollTop - 2 || distanceFromBottom > 64) {
                     clearTranscriptProgrammaticScroll();
+                    transcriptUserScrollRef.current = true;
+                  } else if (distanceFromBottom <= 16) {
+                    // Re-enable following when the reader returns to the latest message
+                    transcriptUserScrollRef.current = false;
                   }
-                  return;
+
+                  if (transcriptProgrammaticScrollRef.current) {
+                    const target = transcriptProgrammaticTargetRef.current;
+                    if (
+                      target === null ||
+                      Math.abs(scrollTop - Math.min(target, maxScrollTop)) <= 3
+                    ) {
+                      clearTranscriptProgrammaticScroll();
+                    }
+                    return;
+                  }
+                  // Any unclassified scroll event after the programmatic guard
+                  // is a real reader movement (wheel, keyboard, or touch). Once
+                  // that happens, message updates must respect the reader's
+                  // position instead of repeatedly snapping to the end.
+                  transcriptUserScrollRef.current = true;
+                  // Chat owns an inner transcript scroller inside the shared
+                  // route shell. Feed its committed movement into the same
+                  // bottom-chrome visibility state used by every other route so
+                  // scrolling Chat up/down hides or reveals nav consistently,
+                  // without a React render on each frame.
+                  if (isCanonicalChatRoute) {
+                    onKaiBottomChromeScroll(scrollTop);
+                  }
                 }
-                // Any unclassified scroll event after the programmatic guard
-                // is a real reader movement (wheel, keyboard, or touch). Once
-                // that happens, message updates must respect the reader's
-                // position instead of repeatedly snapping to the end.
+              }}
+              onWheelCapture={() => {
+                clearTranscriptProgrammaticScroll();
                 transcriptUserScrollRef.current = true;
-                // Chat owns an inner transcript scroller inside the shared
-                // route shell. Feed its committed movement into the same
-                // bottom-chrome visibility state used by every other route so
-                // scrolling Chat up/down hides or reveals nav consistently,
-                // without a React render on each frame.
-                if (isCanonicalChatRoute) {
-                  onKaiBottomChromeScroll(scrollTop);
-                }
-              }
-            }}
-            onWheelCapture={clearTranscriptProgrammaticScroll}
-            onTouchStartCapture={clearTranscriptProgrammaticScroll}
-            className={cn(
-              "min-h-0 flex-1 overflow-y-auto scroll-smooth px-4 pt-5 scrollbar-thin scrollbar-thumb-muted scrollbar-track-transparent sm:px-6",
-              "pb-6 lg:px-8",
-              isPuppySurface && "hidden",
-            )}
-          >
+              }}
+              onTouchStartCapture={() => {
+                clearTranscriptProgrammaticScroll();
+                transcriptUserScrollRef.current = true;
+              }}
+              className={cn(
+                "h-full w-full overflow-y-auto px-4 pt-5 scrollbar-thin scrollbar-thumb-muted scrollbar-track-transparent sm:px-6",
+                "pb-[calc(var(--agent-chat-composer-bottom,5rem)+5.5rem)] lg:px-8",
+                isPuppySurface && "hidden",
+              )}
+              tabIndex={0}
+              role="region"
+              aria-label="Agent conversation history"
+            >
             <div className="mx-auto flex min-h-full w-full max-w-4xl flex-col gap-6">
               {accessMessage ? (
                 <div className="flex flex-col gap-3 rounded-[20px] bg-foreground/[0.045] px-4 py-4 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
@@ -6550,10 +6579,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
               // CSS-only focus-within drives the padding shift in lockstep with
               // the native keyboard resize (no React state/rerender round-trip
               // in the path, which was the source of the visible lag on iOS).
-              "shrink-0 px-3 pt-3 transition-[padding-bottom,transform] duration-[var(--motion-duration-sm)] ease-[var(--motion-ease-standard)] motion-reduce:transition-none sm:px-5",
-              !isCanonicalChatRoute &&
-                "bg-gradient-to-t from-background via-background/96 to-transparent backdrop-blur",
-              "pb-[var(--agent-chat-composer-bottom)] focus-within:pb-[var(--agent-chat-composer-focused-bottom)]",
+              "pointer-events-none absolute inset-x-0 bottom-0 z-10 px-3 pt-3 transition-[padding-bottom] duration-[var(--motion-duration-sm)] ease-[var(--motion-ease-standard)] motion-reduce:transition-none sm:px-5",
+              "bg-transparent pb-[var(--agent-chat-composer-bottom)] focus-within:pb-[var(--agent-chat-composer-focused-bottom)]",
               // Puppy One has its own composer. Leaving One's on screen would
               // let a message meant for the on-device agent be sent to the
               // cloud one, which is exactly the confusion this mode prevents.
@@ -6562,7 +6589,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           >
             <div
               className={cn(
-                "mx-auto w-full",
+                "pointer-events-auto mx-auto w-full",
                 isCanonicalChatRoute
                   ? "max-w-[var(--app-bottom-shell-max-width)]"
                   : "max-w-4xl",
@@ -6783,19 +6810,24 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                     <div
                       data-testid="agent-chat-composer"
                       className={cn(
-                        "flex min-h-16 items-center gap-2 px-3 py-2 transition-[background-color,box-shadow] focus-within:bg-background/96 focus-within:shadow-[0_20px_60px_-38px_var(--app-accent-deep)] focus-within:ring-[color:var(--app-accent-ring)]",
+                        "flex min-h-14 items-center gap-2 rounded-[var(--app-input-radius)] border-[1.5px] border-black/10 px-4 transition-[border-color,box-shadow,background-color] dark:border-white/15 focus-within:border-[color:var(--app-accent)] focus-within:ring-4 focus-within:ring-[color:var(--app-accent-ring)]",
                         isCanonicalChatRoute
-                          ? "bottom-chrome-surface min-h-[68px] rounded-[28px]"
-                          : "rounded-[24px] bg-foreground/[0.045] shadow-[0_18px_55px_-42px_rgba(0,0,0,0.55)] ring-1 ring-inset ring-foreground/[0.045]",
+                          ? "bottom-chrome-surface min-h-14 rounded-[var(--app-input-radius)]"
+                          : "bg-foreground/[0.045] shadow-[0_18px_55px_-42px_rgba(0,0,0,0.55)]",
                       )}
                     >
-                      <div className="relative min-w-0 flex-1">
+                      <div className="relative flex min-h-0 min-w-0 flex-1 items-center">
                         <textarea
                           ref={composerTextareaRef}
                           data-testid="agent-chat-composer-textarea"
                           aria-label="Message One"
                           value={input}
                           onChange={(event) => setInput(event.target.value)}
+                          onFocus={() => {
+                            if (isCanonicalChatRoute) {
+                              snapKaiBottomChromeVisible();
+                            }
+                          }}
                           onPaste={handleComposerPaste}
                           onKeyDown={(event) => {
                             if (
@@ -6823,18 +6855,14 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                               : "Message One..."
                           }
                           rows={1}
-                          className="block min-h-10 max-h-28 w-full resize-none overscroll-contain overflow-y-auto bg-transparent px-7 py-3 pr-14 text-[16px] leading-6 text-foreground outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-60 sm:max-h-36 sm:px-8 sm:pr-14 sm:text-sm"
+                          className="h-auto max-h-28 min-h-0 min-w-0 flex-1 resize-none overscroll-contain overflow-y-auto border-0 bg-transparent px-0 py-2.5 text-[15px] leading-snug text-foreground caret-[color:var(--app-accent)] outline-none shadow-none focus-visible:border-transparent focus-visible:ring-0 placeholder:text-muted-foreground/60 disabled:cursor-not-allowed disabled:opacity-60 sm:max-h-36 sm:text-sm"
                         />
-                        {/* Always top-right. It used to appear only once the
-                            message grew past a threshold, so the control the
-                            owner reaches for arrived late and moved the moment
-                            it did. */}
                         <Button
                           type="button"
                           variant="ghost"
                           size="icon"
                           data-testid="agent-chat-composer-expand"
-                          className="absolute right-1 top-1.5 h-9 w-9 rounded-xl text-muted-foreground"
+                          className="h-8 w-8 shrink-0 rounded-lg text-muted-foreground hover:bg-foreground/[0.06] hover:text-foreground"
                           aria-label="Expand message editor"
                           title="Expand"
                           onClick={() => setComposerExpanded(true)}
@@ -6842,7 +6870,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                           <Maximize2 className="h-4 w-4" />
                         </Button>
                       </div>
-                      <div className="flex shrink-0 items-center gap-2">
+                      <div className="flex shrink-0 items-center gap-1.5">
                         {composerActionRail}
                       </div>
                     </div>
@@ -6851,6 +6879,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
               )}
             </div>
           </form>
+        </div>
         </section>
       </div>
       {user ? (

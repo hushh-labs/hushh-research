@@ -86,6 +86,8 @@ vi.mock("@/lib/navigation/routes", () => ({
   },
   buildOneSetupRoute: ({ returnTo }: { returnTo: string }) =>
     `/one/setup?return_to=${encodeURIComponent(returnTo)}`,
+  isOneSetupCapabilityRoute: (pathname: string) =>
+    pathname === "/one/setup/location",
   isCapabilityOnboardingRoute: () => false,
   isOnboardingAdmissionExemptRoute: isOnboardingAdmissionExemptRouteMock,
   normalizeStaticExportPathname: (pathname: string) =>
@@ -97,7 +99,8 @@ vi.mock("@/lib/navigation/routes", () => ({
   isOneSetupSurfaceRoute: (pathname: string) =>
     pathname === "/one/setup" ||
     pathname === "/one/setup/connections" ||
-    pathname === "/one/setup/finance",
+    pathname === "/one/setup/finance" ||
+    pathname === "/one/setup/location",
 }));
 
 vi.mock("@/lib/services/pre-vault-user-state-service", () => ({
@@ -235,6 +238,23 @@ describe("OnboardingJourneyGuard", () => {
       expect(replace).toHaveBeenCalledWith("/");
     });
     expect(screen.queryByText("hub")).toBeNull();
+  });
+
+  it("admits a completed capability deep link for its coordinator handoff", async () => {
+    pathnameValue = "/one/setup/location";
+    isPersistentSetupResolvedMock.mockReturnValue(true);
+    clearSetupIntent();
+
+    render(
+      <OnboardingJourneyGuard>
+        <div>location capability handoff</div>
+      </OnboardingJourneyGuard>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("location capability handoff")).toBeTruthy();
+    });
+    expect(replace).not.toHaveBeenCalled();
   });
 
   it("ejects a stale deliberate setup intent after onboarding resolves", async () => {

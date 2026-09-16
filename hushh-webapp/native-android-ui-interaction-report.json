@@ -1,137 +1,59 @@
 {
-  "generated_at": "2026-07-20T15:16:47.444Z",
+  "generated_at": "2026-09-16T23:16:45.411Z",
   "device": "emulator-5554",
   "plan": {
     "version": 1,
-    "digest": "4589f994ab0a3f3eafbb6ab16bf2ba01c14a135c47c8d51446153751fe9a31a9",
-    "flow_count": 1
+    "digest": "f2c11e22f9fb86150f899d9dcdc1bb40492bb3d3e08135325de3221a60af63c6",
+    "flow_count": 15
   },
-  "flow_count": 1,
-  "passed_flows": 1,
+  "flow_count": 15,
+  "passed_flows": 0,
   "failed_flows": 0,
   "skipped_optional_flows": [],
   "skipped_conditional_ria_workspace_flows": [],
-  "ok": true,
+  "ok": false,
   "flows": [
-    "native-reviewer-location-intro-fresh-session"
+    "native-reviewer-location-setup-handoff",
+    "shell-investor-kai-analysis",
+    "native-investor-kai-debate-preview-start",
+    "shell-investor-kai-portfolio",
+    "shell-investor-kai-import",
+    "shell-ria-home",
+    "shell-ria-clients",
+    "shell-ria-picks",
+    "shell-marketplace",
+    "shell-profile",
+    "shell-consents",
+    "ria-workspace-admission",
+    "ria-workspace-account-detail",
+    "ria-workspace-access-panel",
+    "marketplace-workspace-card"
   ],
   "report": {
-    "ok": true,
-    "auditRunId": "android-mrtd9u7q",
-    "auditPlanVersion": 1,
-    "auditPlanDigest": "4589f994ab0a3f3eafbb6ab16bf2ba01c14a135c47c8d51446153751fe9a31a9",
-    "startedAt": "2026-07-20T15:16:41.304Z",
-    "completedAt": "2026-07-20T15:16:46.042Z",
-    "flows": [
-      {
-        "id": "native-reviewer-location-intro-fresh-session",
-        "ok": true,
-        "optional": false,
-        "skipped": false,
-        "results": [
-          {
-            "step": 0,
-            "type": "ensure_persona",
-            "ok": true
-          },
-          {
-            "step": 1,
-            "type": "navigate_route",
-            "ok": true
-          },
-          {
-            "step": 2,
-            "type": "assert_visible_testid",
-            "ok": true,
-            "checkpoint": "one-location-onboarding-welcome"
-          },
-          {
-            "step": 3,
-            "type": "click_button",
-            "ok": true
-          },
-          {
-            "step": 4,
-            "type": "assert_visible_testid",
-            "ok": true,
-            "checkpoint": "one-location-onboarding-arrival"
-          },
-          {
-            "step": 5,
-            "type": "click_button",
-            "ok": true
-          },
-          {
-            "step": 6,
-            "type": "assert_visible_testid",
-            "ok": true,
-            "checkpoint": "one-location-onboarding-checkin"
-          },
-          {
-            "step": 7,
-            "type": "click_button",
-            "ok": true
-          },
-          {
-            "step": 8,
-            "type": "assert_visible_testid",
-            "ok": true,
-            "checkpoint": "one-location-onboarding-sos"
-          },
-          {
-            "step": 9,
-            "type": "click_button",
-            "ok": true
-          },
-          {
-            "step": 10,
-            "type": "assert_visible_testid",
-            "ok": true,
-            "checkpoint": "one-location-onboarding-people"
-          },
-          {
-            "step": 11,
-            "type": "click_button",
-            "ok": true
-          },
-          {
-            "step": 12,
-            "type": "assert_visible_testid",
-            "ok": true,
-            "checkpoint": "one-location-onboarding-circle"
-          },
-          {
-            "step": 13,
-            "type": "click_button",
-            "ok": true
-          },
-          {
-            "step": 14,
-            "type": "assert_visible_testid",
-            "ok": true,
-            "checkpoint": "one-location-onboarding-permissions"
-          }
-        ]
-      }
-    ]
+    "ok": false,
+    "auditRunId": "android-mu4pxo9m",
+    "startedAt": "2026-09-16T23:16:42.468Z",
+    "completedAt": "2026-09-16T23:16:42.468Z",
+    "errorClass": "timeout",
+    "flows": []
   },
-  "errorClass": null,
+  "errorClass": "other",
   "last_status": {
-    "route": "/one/setup/location/",
-    "ready": "1",
-    "marker": "",
-    "auth": "authenticated",
-    "data": "loaded",
+    "route": "/login/",
+    "ready": "0",
+    "marker": "native-route-one-home",
+    "auth": "pending",
+    "data": "loading",
     "doc": "complete",
-    "found": "1",
-    "routeok": "1",
+    "found": "0",
+    "routeok": "0",
     "test": "1",
     "auto": "1",
     "bridge": "1",
     "uirunner": "1",
     "runui": "1",
-    "uistarted": "1",
-    "uifailed": "0",
+    "uistarted": "0",
+    "uifailed": "1",
     "uiboot": "0",
     "persona": "investor",
     "primary_persona": "investor",
@@ -150,22 +72,22 @@
     "trigger": "1",
     "domtest": "true",
     "domauto": "true",
-    "reviewer": "0",
-    "bootstrap": "vault_unlocked",
-    "bootstrap_uid_ok": "<redacted>",
+    "reviewer": "1",
+    "bootstrap": "uid_mismatch",
+    "bootstrap_uid_ok": "0",
     "bootstrap_error": "",
     "jserr": "",
     "jsrej": "",
     "visible404": "0",
     "ui_complete": "1",
-    "ui_ok": "1",
-    "ui_run": "android-mrtd9u7q",
-    "ui_plan": "4589f994ab0a3f3eafbb6ab16bf2ba01c14a135c47c8d51446153751fe9a31a9",
-    "ui_flow": "native-reviewer-location-intro-fresh-session",
-    "ui_step": "14",
-    "ui_step_type": "assert_visible_testid",
-    "ui_checkpoint": "one-location-onboarding-permissions",
+    "ui_ok": "0",
+    "ui_run": "android-mu4pxo9m",
+    "ui_plan": "",
+    "ui_flow": "",
+    "ui_step": "",
+    "ui_step_type": "",
+    "ui_checkpoint": "",
     "ui_error": "",
-    "error": ""
+    "error": "<redacted>"
   }
 }
