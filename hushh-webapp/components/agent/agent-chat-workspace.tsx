@@ -5321,6 +5321,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       )}
       data-agent-chat-workspace="page"
       data-agent-chat-route={isCanonicalChatRoute ? "root" : "embedded"}
+      data-agent-history-drawer-open={isHistoryDrawerOpen ? "true" : undefined}
     >
       <div
         className={cn(
@@ -5525,7 +5526,12 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                       ).replace(/^Gemini\s+/i, "")}
                     </span>
                   </SelectTrigger>
-                  <SelectContent align="end">
+                  <SelectContent
+                    position="popper"
+                    align="end"
+                    sideOffset={6}
+                    className="z-[560] min-w-[12rem]"
+                  >
                     {modelPreference.choices.map((choice) => (
                       <SelectItem key={choice.model_id} value={choice.model_id}>
                         {choice.label}
