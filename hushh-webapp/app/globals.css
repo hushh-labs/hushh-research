@@ -2143,17 +2143,23 @@ body:has(.profile-account-content)
   );
 }
 
-/* Chat's text composer stays stable at the bottom without bouncing or transform jitter. */
+/* Chat's text composer moves down relatively with the bottom chrome navigation. */
 .agent-chat-workspace[data-agent-chat-route="root"]
   [data-agent-chat-composer-form="root"] {
-  transform: none !important;
-  will-change: auto;
+  transform: translate3d(
+    0,
+    calc(var(--bottom-chrome-progress, 0) * var(--bottom-nav-travel, 0px)),
+    0
+  );
+  transition: transform 240ms cubic-bezier(0.16, 1, 0.3, 1);
+  will-change: transform;
 }
 
 @media (prefers-reduced-motion: reduce) {
   .agent-chat-workspace[data-agent-chat-route="root"]
     [data-agent-chat-composer-form="root"] {
     transform: none;
+    transition: none;
   }
 }
 
