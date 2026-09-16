@@ -1882,21 +1882,31 @@ export class ApiService {
     hub: Response;
     pod:
       | { delivered: true; pending: null }
-      | { delivered: false; pending: import("./owner-pod-endpoint").PendingRevocation | null }
+      | {
+          delivered: false;
+          pending: import("./owner-pod-endpoint").PendingRevocation | null;
+        }
       | { delivered: false; pending: null; unpinned: true };
   }> {
     const ownerPod = await import("./owner-pod-endpoint");
     const uid = AuthService.getCurrentUser()?.uid;
     let pod:
       | { delivered: true; pending: null }
-      | { delivered: false; pending: import("./owner-pod-endpoint").PendingRevocation | null }
+      | {
+          delivered: false;
+          pending: import("./owner-pod-endpoint").PendingRevocation | null;
+        }
       | { delivered: false; pending: null; unpinned: true } = {
       delivered: false,
       pending: null,
       unpinned: true,
     };
     if (uid && (await ownerPod.loadPinnedEndpoint(uid).catch(() => null))) {
-      pod = await ownerPod.revokeAtPod(uid, deviceId, await this.ownerPodTransport());
+      pod = await ownerPod.revokeAtPod(
+        uid,
+        deviceId,
+        await this.ownerPodTransport(),
+      );
     }
     const hub = await this.revokeTrustedDevice(deviceId);
     return { hub, pod };
@@ -3297,36 +3307,62 @@ export class ApiService {
   }> {
     const owner = snapshotValidatedAuthSessionOwner();
     const generation = snapshotAuthSessionGeneration();
-    const requireAuthenticated = data?.requireAuthenticated === true || Boolean(owner || AuthService.getCurrentUser());
-    const ownerIsCurrent = () => Boolean(
-      generation && isValidatedAuthSessionOwnerCurrent(generation) &&
-      (owner || AuthService.getCurrentUser() === null),
-    );
+    const requireAuthenticated =
+      data?.requireAuthenticated === true ||
+      Boolean(owner || AuthService.getCurrentUser());
+    const ownerIsCurrent = () =>
+      Boolean(
+        generation &&
+        isValidatedAuthSessionOwnerCurrent(generation) &&
+        (owner || AuthService.getCurrentUser() === null),
+      );
     let firebaseIdToken: string | undefined;
     if (requireAuthenticated) {
       if (!owner) {
-        throw Object.assign(new Error("Sign-in is still being verified. Please retry."), { status: 401 });
+        throw Object.assign(
+          new Error("Sign-in is still being verified. Please retry."),
+          { status: 401 },
+        );
       }
       try {
-        firebaseIdToken = await AuthService.getIdToken(true) || undefined;
+        firebaseIdToken = (await AuthService.getIdToken(true)) || undefined;
       } catch (error) {
         const code = authSessionInvalidationCodeFromFirebaseError(error);
         if (code && ownerIsCurrent()) {
-          dispatchAuthSessionInvalidated({ code, path: "/api/one/adk/relay-session", userId: owner.userId });
+          dispatchAuthSessionInvalidated({
+            code,
+            path: "/api/one/adk/relay-session",
+            userId: owner.userId,
+          });
         }
-        throw Object.assign(new Error(code ? "Sign in again to start voice." : "Sign-in could not be verified for voice. Please retry."), {
-          status: code ? 401 : 503,
-          code: code || "AUTH_PROVIDER_UNAVAILABLE",
-        });
+        throw Object.assign(
+          new Error(
+            code
+              ? "Sign in again to start voice."
+              : "Sign-in could not be verified for voice. Please retry.",
+          ),
+          {
+            status: code ? 401 : 503,
+            code: code || "AUTH_PROVIDER_UNAVAILABLE",
+          },
+        );
       }
-      if (!firebaseIdToken || decodeFirebaseTokenSubject(firebaseIdToken) !== owner.userId) {
-        throw Object.assign(new Error("Sign in again to start voice."), { status: 401 });
+      if (
+        !firebaseIdToken ||
+        decodeFirebaseTokenSubject(firebaseIdToken) !== owner.userId
+      ) {
+        throw Object.assign(new Error("Sign in again to start voice."), {
+          status: 401,
+        });
       }
     } else {
       firebaseIdToken = await this.getFirebaseToken();
     }
     if (!ownerIsCurrent()) {
-      throw Object.assign(new Error("The signed-in account changed. Start voice again."), { status: 401 });
+      throw Object.assign(
+        new Error("The signed-in account changed. Start voice again."),
+        { status: 401 },
+      );
     }
     const response = await ApiService.apiFetch("/api/one/adk/relay-session", {
       method: "POST",
@@ -3343,7 +3379,9 @@ export class ApiService {
       const body = await response.json().catch(() => null);
       if (response.status === 503 && body?.detail?.code === "AGENT_NOT_READY") {
         throw Object.assign(
-          new Error("Private-agent voice is unavailable. Use your private agent's typed chat."),
+          new Error(
+            "Private-agent voice is unavailable. Use your private agent's typed chat.",
+          ),
           { status: 503, code: "AGENT_NOT_READY" },
         );
       }
@@ -3355,7 +3393,10 @@ export class ApiService {
     }
     const relaySession = await response.json();
     if (!ownerIsCurrent()) {
-      throw Object.assign(new Error("The signed-in account changed. Start voice again."), { status: 401 });
+      throw Object.assign(
+        new Error("The signed-in account changed. Start voice again."),
+        { status: 401 },
+      );
     }
     return relaySession;
   }
@@ -3612,22 +3653,33 @@ export class ApiService {
    * record it through the same save path as the manual route. The console link
    * and the copy-paste script remain as the fallback.
    */
-  static async beginByocAuthorize(input: { projectId: string }): Promise<{ authUrl: string }> {
+  static async beginByocAuthorize(input: {
+    projectId: string;
+  }): Promise<{ authUrl: string }> {
     const firebaseIdToken = await this.getFirebaseToken();
-    const response = await ApiService.apiFetch("/api/one/runtime/byoc/authorize/begin", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...(firebaseIdToken ? { Authorization: `Bearer ${firebaseIdToken}` } : {}),
+    const response = await ApiService.apiFetch(
+      "/api/one/runtime/byoc/authorize/begin",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(firebaseIdToken
+            ? { Authorization: `Bearer ${firebaseIdToken}` }
+            : {}),
+        },
+        body: JSON.stringify({ projectId: input.projectId }),
       },
-      body: JSON.stringify({ projectId: input.projectId }),
-    });
+    );
     if (!response.ok) {
       let serverMessage = "";
       try {
-        const body = (await response.json()) as { detail?: { message?: string } | string };
+        const body = (await response.json()) as {
+          detail?: { message?: string } | string;
+        };
         serverMessage =
-          typeof body.detail === "string" ? body.detail : (body.detail?.message ?? "");
+          typeof body.detail === "string"
+            ? body.detail
+            : (body.detail?.message ?? "");
       } catch {
         // fall through to the generic error
       }
@@ -3639,20 +3691,28 @@ export class ApiService {
   // The completion is a background JOB now: this returns a claim ticket in
   // about a second, and getByocSetupStatus serves the live stage record. The
   // six-stage chain inside one HTTP request lost to three stacked timeouts.
-  static async completeByocAuthorize(input: { code: string; state: string }): Promise<{
+  static async completeByocAuthorize(input: {
+    code: string;
+    state: string;
+  }): Promise<{
     jobId: string;
     projectId: string;
     status: "running";
   }> {
     const firebaseIdToken = await this.getFirebaseToken();
-    const response = await ApiService.apiFetch("/api/one/runtime/byoc/authorize/complete", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...(firebaseIdToken ? { Authorization: `Bearer ${firebaseIdToken}` } : {}),
+    const response = await ApiService.apiFetch(
+      "/api/one/runtime/byoc/authorize/complete",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(firebaseIdToken
+            ? { Authorization: `Bearer ${firebaseIdToken}` }
+            : {}),
+        },
+        body: JSON.stringify({ code: input.code, state: input.state }),
       },
-      body: JSON.stringify({ code: input.code, state: input.state }),
-    });
+    );
     if (!response.ok) {
       let serverMessage = "";
       try {
@@ -3689,10 +3749,15 @@ export class ApiService {
     updatedAt: string | null;
   }> {
     const firebaseIdToken = await this.getFirebaseToken();
-    const response = await ApiService.apiFetch("/api/one/runtime/byoc/setup/status", {
-      method: "GET",
-      headers: firebaseIdToken ? { Authorization: `Bearer ${firebaseIdToken}` } : {},
-    });
+    const response = await ApiService.apiFetch(
+      "/api/one/runtime/byoc/setup/status",
+      {
+        method: "GET",
+        headers: firebaseIdToken
+          ? { Authorization: `Bearer ${firebaseIdToken}` }
+          : {},
+      },
+    );
     if (!response.ok) {
       throw new Error("BYOC_SETUP_STATUS_FAILED");
     }
@@ -3713,7 +3778,11 @@ export class ApiService {
     bootstrapServiceAccount: string;
     hushhCaller: string;
     disclosure: {
-      grants_to_bootstrap_sa?: Array<{ role: string; why: string; scope?: string }>;
+      grants_to_bootstrap_sa?: Array<{
+        role: string;
+        why: string;
+        scope?: string;
+      }>;
       grants_to_hushh?: Array<{ role: string; on: string; why: string }>;
       hushh_never_receives?: string[];
       revocation?: string;
@@ -3868,15 +3937,18 @@ export class ApiService {
     capped?: boolean;
     hushhId?: string | null;
   }> {
-    const response = await ApiService.apiFetch("/api/one/personal-agent/provision", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...ApiService.getAuthHeaders(input.vaultOwnerToken),
+    const response = await ApiService.apiFetch(
+      "/api/one/personal-agent/provision",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...ApiService.getAuthHeaders(input.vaultOwnerToken),
+        },
+        body: JSON.stringify({}),
+        signal: input.signal,
       },
-      body: JSON.stringify({}),
-      signal: input.signal,
-    });
+    );
     if (!response.ok) {
       const payload = (await response.json().catch(() => null)) as {
         detail?: { code?: string; message?: string } | string;
@@ -3930,7 +4002,9 @@ export class ApiService {
     const response = await ApiService.apiFetch("/api/one/pod/wake", {
       method: "POST",
       headers: {
-        ...(firebaseIdToken ? { Authorization: `Bearer ${firebaseIdToken}` } : {}),
+        ...(firebaseIdToken
+          ? { Authorization: `Bearer ${firebaseIdToken}` }
+          : {}),
       },
     });
     if (!response.ok) {
@@ -3948,14 +4022,23 @@ export class ApiService {
    * to reinit or rebuild. The recovery classifier tries this FIRST because it
    * preserves the agent's identity and memory.
    */
-  static async adoptOrphanPod(): Promise<{ adopted: boolean; status?: string; hushhId?: string }> {
+  static async adoptOrphanPod(): Promise<{
+    adopted: boolean;
+    status?: string;
+    hushhId?: string;
+  }> {
     const firebaseIdToken = await this.getFirebaseToken();
-    const response = await ApiService.apiFetch("/api/one/personal-agent/adopt", {
-      method: "POST",
-      headers: {
-        ...(firebaseIdToken ? { Authorization: `Bearer ${firebaseIdToken}` } : {}),
+    const response = await ApiService.apiFetch(
+      "/api/one/personal-agent/adopt",
+      {
+        method: "POST",
+        headers: {
+          ...(firebaseIdToken
+            ? { Authorization: `Bearer ${firebaseIdToken}` }
+            : {}),
+        },
       },
-    });
+    );
     if (!response.ok) {
       throw new Error(`pod adopt failed: HTTP ${response.status}`);
     }
@@ -3979,7 +4062,9 @@ export class ApiService {
       {
         method: "GET",
         headers: {
-          ...(firebaseIdToken ? { Authorization: `Bearer ${firebaseIdToken}` } : {}),
+          ...(firebaseIdToken
+            ? { Authorization: `Bearer ${firebaseIdToken}` }
+            : {}),
         },
       },
     );
@@ -4010,7 +4095,9 @@ export class ApiService {
       {
         method: "GET",
         headers: {
-          ...(firebaseIdToken ? { Authorization: `Bearer ${firebaseIdToken}` } : {}),
+          ...(firebaseIdToken
+            ? { Authorization: `Bearer ${firebaseIdToken}` }
+            : {}),
         },
         signal: options.signal,
       },
@@ -4035,7 +4122,9 @@ export class ApiService {
       {
         method: "GET",
         headers: {
-          ...(firebaseIdToken ? { Authorization: `Bearer ${firebaseIdToken}` } : {}),
+          ...(firebaseIdToken
+            ? { Authorization: `Bearer ${firebaseIdToken}` }
+            : {}),
         },
         signal: options.signal,
       },
@@ -4064,13 +4153,18 @@ export class ApiService {
     updateError?: string | null;
   }> {
     const firebaseIdToken = await this.getFirebaseToken();
-    const response = await ApiService.apiFetch("/api/one/personal-agent/status", {
-      method: "GET",
-      headers: {
-        ...(firebaseIdToken ? { Authorization: `Bearer ${firebaseIdToken}` } : {}),
+    const response = await ApiService.apiFetch(
+      "/api/one/personal-agent/status",
+      {
+        method: "GET",
+        headers: {
+          ...(firebaseIdToken
+            ? { Authorization: `Bearer ${firebaseIdToken}` }
+            : {}),
+        },
+        signal: options?.signal,
       },
-      signal: options?.signal,
-    });
+    );
     if (!response.ok) {
       throw new Error(`AGENT_STATUS_UNAVAILABLE:${response.status}`);
     }
@@ -4139,7 +4233,11 @@ export class ApiService {
     // Puppy (the pod's own authority admits the device). There is deliberately no
     // fallback to the hub from this branch: a direct failure is named, so a person
     // who chose their own line is never quietly moved back onto the shared one.
-    const direct = await ApiService.ownerDirectPodTurn(input.hushhId, body, input.signal);
+    const direct = await ApiService.ownerDirectPodTurn(
+      input.hushhId,
+      body,
+      input.signal,
+    );
     if (direct) return direct;
 
     const response = await ApiService.apiFetch(
@@ -4226,6 +4324,79 @@ export class ApiService {
   }
 
   /**
+   * The owner's memory status as the pod reports it, relayed by the hub. Counts,
+   * sequence numbers and the provider's consent WORD (`absent` | `granted` |
+   * `revoked`) -- never a remembered fact. `provider.bank` says whether the pod
+   * has a provider Memory Bank at all, and `provider.consent` whether the owner
+   * has allowed it to process anything.
+   */
+  static async getPodMemoryStatus(hushhId: string): Promise<{
+    hushhId: string;
+    records?: number;
+    facts?: number;
+    tombstones?: number;
+    unreviewed?: number;
+    provider?: {
+      consent?: "absent" | "granted" | "revoked";
+      bank?: boolean;
+      stale?: boolean;
+    };
+  } | null> {
+    const firebaseIdToken = await this.getFirebaseToken();
+    const response = await ApiService.apiFetch(
+      `/api/one/u/${encodeURIComponent(hushhId)}/memory/status`,
+      {
+        method: "GET",
+        headers: {
+          ...(firebaseIdToken
+            ? { Authorization: `Bearer ${firebaseIdToken}` }
+            : {}),
+        },
+      },
+    );
+    if (!response.ok) return null;
+    return response.json().catch(() => null);
+  }
+
+  /**
+   * Grant or revoke the provider's right to process the owner's memory.
+   *
+   * WHY THIS EXISTS. The pod refuses to hand a single remembered fact to Vertex
+   * Memory Bank without a recorded `agent_memory_provider_consent`, and answers
+   * every write with `skipped_no_consent` until one exists. That gate landed on
+   * 2026-09-10 and nothing in the app ever granted it, so the owner's provider
+   * memory was silently off for every person with no way to turn it on. This is
+   * that way. The hub mints the five-minute `cap.memory.provider.process` grant
+   * server-side, exactly as it mints the Puppy inference grant, so the browser
+   * carries only the decision.
+   */
+  static async setPodMemoryProviderConsent(
+    hushhId: string,
+    granted: boolean,
+  ): Promise<{ hushhId: string; provider?: { consent?: string } } | null> {
+    const firebaseIdToken = await this.getFirebaseToken();
+    const response = await ApiService.apiFetch(
+      `/api/one/u/${encodeURIComponent(hushhId)}/memory/provider-consent`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(firebaseIdToken
+            ? { Authorization: `Bearer ${firebaseIdToken}` }
+            : {}),
+        },
+        body: JSON.stringify({ granted }),
+      },
+    );
+    if (!response.ok) {
+      throw new Error(
+        `memory provider consent failed: HTTP ${response.status}`,
+      );
+    }
+    return response.json().catch(() => null);
+  }
+
+  /**
    * The transports `owner-pod-endpoint` needs: the hub with the owner's Firebase
    * bearer applied, and the pod by absolute URL. Both ride `apiFetch` so request
    * ids, telemetry and the per-call timeout behave exactly as for every other call.
@@ -4301,7 +4472,9 @@ export class ApiService {
       if (response.status === 401 || response.status === 403) {
         throw new Error(code ? `AGENT_NOT_YOURS:${code}` : "AGENT_NOT_YOURS");
       }
-      throw new Error(code ? `POD_DIRECT_UNAVAILABLE:${code}` : "AGENT_UNREACHABLE");
+      throw new Error(
+        code ? `POD_DIRECT_UNAVAILABLE:${code}` : "AGENT_UNREACHABLE",
+      );
     }
     const answer = (await response.json()) as {
       text: string;
@@ -4326,11 +4499,14 @@ export class ApiService {
       {
         method: "POST",
         headers: {
-          ...(firebaseIdToken ? { Authorization: `Bearer ${firebaseIdToken}` } : {}),
+          ...(firebaseIdToken
+            ? { Authorization: `Bearer ${firebaseIdToken}` }
+            : {}),
         },
       },
     );
-    if (!response.ok) throw new Error(`PUPPY_INFERENCE_GRANT_UNAVAILABLE:${response.status}`);
+    if (!response.ok)
+      throw new Error(`PUPPY_INFERENCE_GRANT_UNAVAILABLE:${response.status}`);
     return response.json();
   }
 
@@ -4366,12 +4542,15 @@ export class ApiService {
       {
         method: "GET",
         headers: {
-          ...(firebaseIdToken ? { Authorization: `Bearer ${firebaseIdToken}` } : {}),
+          ...(firebaseIdToken
+            ? { Authorization: `Bearer ${firebaseIdToken}` }
+            : {}),
         },
         cache: "no-store",
       },
     );
-    if (!response.ok) throw new Error(`PUPPY_STATUS_UNAVAILABLE:${response.status}`);
+    if (!response.ok)
+      throw new Error(`PUPPY_STATUS_UNAVAILABLE:${response.status}`);
     return response.json();
   }
 
@@ -4387,36 +4566,57 @@ export class ApiService {
     if (!uid) return null;
     const pin = await ownerPod.loadPinnedEndpoint(uid).catch(() => null);
     if (!pin) return null;
-    const session = await ownerPod.currentPodSession(uid, await this.ownerPodTransport());
+    const session = await ownerPod.currentPodSession(
+      uid,
+      await this.ownerPodTransport(),
+    );
     const response = await apiFetch(`${pin.url}/api/one/pod/status`, {
       method: "GET",
       headers: { Authorization: `Bearer ${session.session}` },
       cache: "no-store",
     });
-    if (!response.ok) throw new Error(`PUPPY_STATUS_UNAVAILABLE:${response.status}`);
+    if (!response.ok)
+      throw new Error(`PUPPY_STATUS_UNAVAILABLE:${response.status}`);
     const status = (await response.json()) as {
-      subjects?: Array<{ subjectId: string; role?: string; state: string; scopes?: string[] }>;
-      puppy?: { links?: Array<{ deviceId: string; state: string; busy: boolean }> };
+      subjects?: Array<{
+        subjectId: string;
+        role?: string;
+        state: string;
+        scopes?: string[];
+      }>;
+      puppy?: {
+        links?: Array<{ deviceId: string; state: string; busy: boolean }>;
+      };
     };
-    const subject = (status.subjects ?? []).find((s) => s.subjectId === deviceId);
-    const link = (status.puppy?.links ?? []).find((l) => l.deviceId === deviceId);
+    const subject = (status.subjects ?? []).find(
+      (s) => s.subjectId === deviceId,
+    );
+    const link = (status.puppy?.links ?? []).find(
+      (l) => l.deviceId === deviceId,
+    );
     const trusted = Boolean(subject && subject.state === "trusted");
-    const inferenceScoped = Boolean(subject?.scopes?.includes("puppy.inference"));
-    const state: "revoked" | "ready" | "busy" | "offline" | "unavailable" = subject
-      ? subject.state === "revoked"
-        ? "revoked"
-        : link
-          ? link.busy
-            ? "busy"
-            : "ready"
-          : "offline"
-      : "unavailable";
+    const inferenceScoped = Boolean(
+      subject?.scopes?.includes("puppy.inference"),
+    );
+    const state: "revoked" | "ready" | "busy" | "offline" | "unavailable" =
+      subject
+        ? subject.state === "revoked"
+          ? "revoked"
+          : link
+            ? link.busy
+              ? "busy"
+              : "ready"
+            : "offline"
+        : "unavailable";
     return {
       device_id: deviceId,
       state,
       linked: trusted,
       inference_ready: trusted && inferenceScoped && state === "ready",
-      execution_target: trusted && (state === "ready" || state === "busy") ? "puppy" : "unavailable",
+      execution_target:
+        trusted && (state === "ready" || state === "busy")
+          ? "puppy"
+          : "unavailable",
     };
   }
 
@@ -4448,7 +4648,12 @@ export class ApiService {
     const url = new URL(`${wsBase}/api/one/adk/live`);
     const relaySession = await this.createOneAdkRelaySession(data);
     recordVoiceCell({
-      cell: relaySession.cell === "pod" ? "pod" : relaySession.cell === "hub" ? "hub" : null,
+      cell:
+        relaySession.cell === "pod"
+          ? "pod"
+          : relaySession.cell === "hub"
+            ? "hub"
+            : null,
       reason: relaySession.cell_reason ?? null,
     });
     url.searchParams.set("relay_ticket", relaySession.relay_ticket);

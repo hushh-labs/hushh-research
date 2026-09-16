@@ -410,7 +410,7 @@ The signed-in bottom navigation is a shared shell surface, not a route-local tab
 
 Rules:
 
-1. The primary bottom utility bar is fixed and constant on all signed-in standard routes: `One`, `Connect`, and `Search`. Search is part of the same segmented control and opens `KaiCommandBarGlobal`; it does not route to `/agent` or open agent chat.
+1. The primary bottom utility bar is fixed and constant on all signed-in standard routes: `Chat`, `One`, `Connect`, `Feed`, and `Search`, in that order. `Chat` is the canonical root route (`/`), `One` remains `/one`, `Feed` is `/one/feed`, and `Search` is part of the same segmented control and opens `KaiCommandBarGlobal`. No segment routes to `/agent` or opens a chat overlay.
 2. Profile remains the rightmost signed-in top-bar action, using the signed-in image or shared generic fallback.
 3. Finance owns `Market`, `Portfolio`, and `Analysis`; RIA owns `Home`, `Clients`, and `Picks`. Contextual workspace tabs are rendered by the shared top shell from the central route registry; they never become route-local or bottom-navigation chrome.
 4. Consent Center owns `Requests`, `Active`, `History`, and `Connections` in
@@ -423,7 +423,7 @@ Rules:
    `/one/kai?tab=analysis`; route inventories normalize those URLs to
    the shared pathname without discarding their tab state.
 6. Use canonical route constants through `lib/navigation/app-bottom-nav.ts` and `lib/navigation/*-route-tabs.ts`; route files must not build their own shell navigation arrays.
-7. The Agent Bar and bottom utility bar share the measured bottom-chrome stack with a 6px resting join. The three bottom segments use the Agent Bar's shared frame and remain centered with equal widths on both wide and narrow screens. Do not add component- or route-local offsets.
+7. The Agent Bar and bottom utility bar share one measured bottom-chrome surface. Voice remains a narrower, content-sized accessible slot above the equal-width five-segment navigation slot; the slots have no divider, nested material, or inter-slot gap. The outer surface owns the single boundary, safe-area clearance, and scroll-hide transform. Any spacing needed by an expanded voice approval card belongs inside the Agent Bar slot. Do not add component- or route-local offsets.
 8. Bottom active state uses fill and icon-color contrast. Avoid hover bounce, active icon scaling, or springy overshoot that shifts attention away from the current route.
 9. Use familiar symmetric icons for global anchors. Agent/search entry points should read as search or conversation access, not decorative sparkle automation.
 10. The pending-consent count belongs on the One utility only; never duplicate it onto Profile or a workspace tab.
