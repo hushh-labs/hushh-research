@@ -22,7 +22,6 @@ import {
   Key as KeyRound,
   Laptop,
   SignIn as LogIn,
-  List as Menu,
   ArrowsOut as Maximize2,
   Microphone as Mic,
   ArrowsIn as Minimize2,
@@ -36,6 +35,10 @@ import {
   X,
 } from "@phosphor-icons/react";
 
+import {
+  getStoredPuppyConversations,
+  saveStoredPuppyConversations,
+} from "@/lib/agent/puppy-conversations";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { requestProfilePaneOpen } from "@/lib/navigation/profile-pane";
 import { Button } from "@/components/ui/button";
@@ -1661,20 +1664,9 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const [conversations, setConversations] = useState<AgentChatConversation[]>(
     [],
   );
-  const [puppyConversations, setPuppyConversations] = useState<AgentChatConversation[]>(() => {
-    if (typeof window !== "undefined") {
-      try {
-        const raw = localStorage.getItem("hushh_puppy_conversations");
-        if (raw) {
-          const parsed = JSON.parse(raw);
-          if (Array.isArray(parsed)) return parsed;
-        }
-      } catch {
-        // ignore
-      }
-    }
-    return [];
-  });
+  const [puppyConversations, setPuppyConversations] = useState<AgentChatConversation[]>(
+    () => getStoredPuppyConversations(),
+  );
   const [puppyConversationId, setPuppyConversationId] = useState<string | null>(null);
   const [messages, setMessages] = useState<AgentMessage[]>(() => [
     createGreetingMessage(),
@@ -1696,7 +1688,6 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const [isChatLoading, setIsChatLoading] = useState(false);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const [isHistoryDrawerOpen, setIsHistoryDrawerOpen] = useState(false);
-  const [isHistoryCollapsed, setIsHistoryCollapsed] = useState(false);
   const [historyActionPendingId, setHistoryActionPendingId] = useState<
     string | null
   >(null);
@@ -3258,13 +3249,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     };
     setPuppyConversations((prev) => {
       const next = [newConv, ...prev];
-      if (typeof window !== "undefined") {
-        try {
-          localStorage.setItem("hushh_puppy_conversations", JSON.stringify(next));
-        } catch {
-          // ignore
-        }
-      }
+      saveStoredPuppyConversations(next);
       return next;
     });
     setPuppyConversationId(newId);
@@ -3277,13 +3262,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const handleRenamePuppyConversation = useCallback((targetId: string, title: string) => {
     setPuppyConversations((prev) => {
       const next = prev.map((c) => (c.id === targetId ? { ...c, title } : c));
-      if (typeof window !== "undefined") {
-        try {
-          localStorage.setItem("hushh_puppy_conversations", JSON.stringify(next));
-        } catch {
-          // ignore
-        }
-      }
+      saveStoredPuppyConversations(next);
       return next;
     });
     toast.success("Puppy chat renamed.");
@@ -3292,13 +3271,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const handleDeletePuppyConversation = useCallback((targetId: string) => {
     setPuppyConversations((prev) => {
       const next = prev.filter((c) => c.id !== targetId);
-      if (typeof window !== "undefined") {
-        try {
-          localStorage.setItem("hushh_puppy_conversations", JSON.stringify(next));
-        } catch {
-          // ignore
-        }
-      }
+      saveStoredPuppyConversations(next);
       return next;
     });
     setPuppyConversationId((curr) => (curr === targetId ? null : curr));
@@ -5303,13 +5276,17 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     setInput(prompt);
     window.setTimeout(() => composerTextareaRef.current?.focus(), 0);
   }, []);
-  const openHistoryDrawer = useCallback(() => {
-    historyDrawerReturnFocusRef.current =
-      document.activeElement instanceof HTMLElement
-        ? document.activeElement
-        : null;
-    setIsHistoryDrawerOpen(true);
-    void loadConversationList().catch(() => undefined);
+  const toggleHistoryDrawer = useCallback(() => {
+    setIsHistoryDrawerOpen((prev) => {
+      if (!prev) {
+        historyDrawerReturnFocusRef.current =
+          document.activeElement instanceof HTMLElement
+            ? document.activeElement
+            : null;
+        void loadConversationList().catch(() => undefined);
+      }
+      return !prev;
+    });
   }, [loadConversationList]);
   const handleHistoryDrawerKeyDown = useCallback(
     (event: ReactKeyboardEvent) => {
@@ -5340,7 +5317,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       hideCloseButton={true}
       surface={agentSurface}
       onClose={onClose}
-      onToggleCollapsed={() => setIsHistoryCollapsed((current) => !current)}
+      onToggleCollapsed={toggleHistoryDrawer}
       onCreateNew={handleSidebarCreateNewChat}
       onSelectConversation={handleSidebarSelectConversation}
       onRenameConversation={isPuppySurface ? handleRenamePuppyConversation : handleRenameConversation}
@@ -5454,7 +5431,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
             <div className="flex min-w-0 items-center gap-3">
               <ShellActionSurface
                 variant="icon"
-                onClick={() => setIsHistoryDrawerOpen((open) => !open)}
+                onClick={toggleHistoryDrawer}
                 aria-label={isHistoryDrawerOpen ? "Close chat history" : "Open chat history"}
                 title={isHistoryDrawerOpen ? "Close chat history" : "Open chat history"}
                 className="relative z-[540]"
