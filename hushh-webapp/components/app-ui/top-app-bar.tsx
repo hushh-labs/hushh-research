@@ -17,15 +17,10 @@
  * Capacitor.isNativePlatform() checks — env(safe-area-inset-top)
  * evaluates correctly in both environments.
  */
-
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  ArrowLeft,
   BriefcaseBusiness,
   ChartNoAxesCombined,
-  Check,
-  ChevronDown,
-  ChevronRight,
   Code2,
   Database,
   FileCheck2,
@@ -36,11 +31,17 @@ import {
   Loader2,
   LogOut,
   Mail,
-  MoreHorizontal,
   Shield,
-  Trash2,
   UserRound,
 } from "lucide-react";
+import {
+  ArrowLeftIcon as ArrowLeft,
+  CaretDownIcon as ChevronDown,
+  CaretRightIcon as ChevronRight,
+  CheckIcon as Check,
+  DotsThreeIcon as MoreHorizontal,
+  TrashIcon as Trash2,
+} from "@/components/icons";
 import { cn } from "@/lib/utils";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {

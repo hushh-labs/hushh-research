@@ -10,7 +10,10 @@ import {
   useState,
 } from "react";
 import type { ReactElement, ReactNode } from "react";
-import { ChevronRight, X } from "lucide-react";
+import {
+  CaretRightIcon as ChevronRight,
+  XIcon as X,
+} from "@/components/icons";
 import { Slot } from "radix-ui";
 
 import {

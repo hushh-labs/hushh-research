@@ -1,6 +1,9 @@
 "use client";
 
-import { ArrowLeft, X } from "lucide-react";
+import {
+  ArrowLeftIcon as ArrowLeft,
+  XIcon as X,
+} from "@/components/icons";
 import { usePathname, useSearchParams } from "next/navigation";
 
 import { ProfilePage } from "@/components/profile/profile-workspace-page";

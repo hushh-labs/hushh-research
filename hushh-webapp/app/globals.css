@@ -888,12 +888,12 @@ textarea {
    * Retune this only after the passkey coupling is understood. Shipping a
    * duplicate passkey prompt to make screens feel quicker is not a trade worth
    * making. */
-  --motion-duration-xs: 120ms;
-  --motion-duration-sm: 180ms;
-  --motion-duration-md: 240ms;
-  --motion-duration-lg: 320ms;
-  --motion-duration-xl: 450ms;
-  --motion-duration-xxl: 600ms;
+  --motion-duration-xs: 75ms;
+  --motion-duration-sm: 100ms;
+  --motion-duration-md: 125ms;
+  --motion-duration-lg: 140ms;
+  --motion-duration-xl: 150ms;
+  --motion-duration-xxl: 150ms;
 
   --motion-ease-standard: cubic-bezier(0.2, 0, 0, 1);
   --motion-ease-accelerate: cubic-bezier(0.3, 0, 1, 1);
@@ -903,27 +903,23 @@ textarea {
   /* Press physics: the system-wide active/pressed state is a uniform scale
      shrink layered over the md-ripple. One value everywhere so every control
      carries the same tactile weight; consumed by the .press-scale utility. */
-  --motion-press-scale: 0.95;
+  --motion-press-scale: 0.96;
   --motion-press-duration: var(--motion-duration-xs);
 
   --motion-page-enter-duration: var(--motion-duration-xl);
   --motion-deck-duration: var(--motion-duration-xl);
 
-  /* Overlay (dialog/popover/sheet/menu/tooltip) motion. Open uses a slightly
-   * longer, decelerating curve so surfaces settle in; close is a touch quicker
-   * with a gentle accelerate so dismissal feels responsive yet never snaps.
-   * Tuned for a uniform 60fps frame across every Radix overlay. */
-  --motion-overlay-enter-duration: var(--motion-duration-md); /* 240ms */
-  --motion-overlay-exit-duration: 200ms;
+  /* Overlay (dialog/popover/sheet/menu/tooltip) motion: hard-capped at <=150ms.
+   * Open uses a snappy decelerating curve; close accelerates cleanly out.
+   * Tuned for a uniform 60-120fps frame rate without layout thrashing. */
+  --motion-overlay-enter-duration: 150ms;
+  --motion-overlay-exit-duration: 100ms;
   --motion-overlay-enter-ease: var(--motion-ease-decelerate);
   --motion-overlay-exit-ease: var(--motion-ease-accelerate);
 
-  /* Route transition (full-page crossfade) motion. Deliberately longer and
-   * gentler than overlays so navigation feels graceful, not abrupt. The exit
-   * eases out softly and the enter glides in with a long decelerate. Keep the
-   * JS beats in use-route-transition.ts in sync with these values. */
-  --motion-route-exit-duration: 120ms;
-  --motion-route-enter-duration: 160ms;
+  /* Route transition (full-page crossfade) motion: hard-capped at <=150ms. */
+  --motion-route-exit-duration: 90ms;
+  --motion-route-enter-duration: 140ms;
   --motion-route-exit-ease: cubic-bezier(0.4, 0, 0.2, 1);
   --motion-route-enter-ease: cubic-bezier(0.16, 0.84, 0.28, 1);
 

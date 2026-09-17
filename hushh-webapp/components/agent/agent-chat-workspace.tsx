@@ -1661,6 +1661,21 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const [conversations, setConversations] = useState<AgentChatConversation[]>(
     [],
   );
+  const [puppyConversations, setPuppyConversations] = useState<AgentChatConversation[]>(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const raw = localStorage.getItem("hushh_puppy_conversations");
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed)) return parsed;
+        }
+      } catch {
+        // ignore
+      }
+    }
+    return [];
+  });
+  const [puppyConversationId, setPuppyConversationId] = useState<string | null>(null);
   const [messages, setMessages] = useState<AgentMessage[]>(() => [
     createGreetingMessage(),
   ]);
@@ -3231,23 +3246,86 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     ],
   );
 
-  // The sidebar lists One's conversations only; Puppy One keeps its transcript
-  // on the owner's machine and contributes no rows to it. Acting on one of
-  // those rows therefore means "show me One", and returning to that transcript
-  // is what makes the click do something visible.
+  const handleCreateNewPuppyChat = useCallback(() => {
+    const newId = `puppy-chat-${Date.now()}`;
+    const newConv: AgentChatConversation = {
+      id: newId,
+      title: "New chat",
+      status: "active",
+      message_count: 0,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+    setPuppyConversations((prev) => {
+      const next = [newConv, ...prev];
+      if (typeof window !== "undefined") {
+        try {
+          localStorage.setItem("hushh_puppy_conversations", JSON.stringify(next));
+        } catch {
+          // ignore
+        }
+      }
+      return next;
+    });
+    setPuppyConversationId(newId);
+  }, []);
+
+  const handleSelectPuppyConversation = useCallback((nextId: string) => {
+    setPuppyConversationId(nextId);
+  }, []);
+
+  const handleRenamePuppyConversation = useCallback((targetId: string, title: string) => {
+    setPuppyConversations((prev) => {
+      const next = prev.map((c) => (c.id === targetId ? { ...c, title } : c));
+      if (typeof window !== "undefined") {
+        try {
+          localStorage.setItem("hushh_puppy_conversations", JSON.stringify(next));
+        } catch {
+          // ignore
+        }
+      }
+      return next;
+    });
+    toast.success("Puppy chat renamed.");
+  }, []);
+
+  const handleDeletePuppyConversation = useCallback((targetId: string) => {
+    setPuppyConversations((prev) => {
+      const next = prev.filter((c) => c.id !== targetId);
+      if (typeof window !== "undefined") {
+        try {
+          localStorage.setItem("hushh_puppy_conversations", JSON.stringify(next));
+        } catch {
+          // ignore
+        }
+      }
+      return next;
+    });
+    setPuppyConversationId((curr) => (curr === targetId ? null : curr));
+    toast.success("Puppy chat deleted.");
+  }, []);
+
   const handleSidebarCreateNewChat = useCallback(() => {
     setIsHistoryDrawerOpen(false);
+    if (isPuppySurface) {
+      handleCreateNewPuppyChat();
+      return;
+    }
     setAgentSurface("one");
     handleCreateNewChat();
-  }, [handleCreateNewChat]);
+  }, [handleCreateNewChat, handleCreateNewPuppyChat, isPuppySurface]);
 
   const handleSidebarSelectConversation = useCallback(
     (nextConversationId: string) => {
       setIsHistoryDrawerOpen(false);
+      if (isPuppySurface) {
+        handleSelectPuppyConversation(nextConversationId);
+        return;
+      }
       setAgentSurface("one");
       void handleSelectConversation(nextConversationId);
     },
-    [handleSelectConversation],
+    [handleSelectConversation, handleSelectPuppyConversation, isPuppySurface],
   );
 
   const handleRenameConversation = useCallback(
@@ -5251,10 +5329,10 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     mode: "desktop" | "mobile" = "desktop",
   ) => (
     <AgentHistorySidebar
-      conversations={conversations}
-      activeConversationId={conversationId}
-      loading={isLoadingHistory && conversations.length === 0}
-      disabled={!hasChatAccess || historyInteractionDisabled}
+      conversations={isPuppySurface ? puppyConversations : conversations}
+      activeConversationId={isPuppySurface ? puppyConversationId : conversationId}
+      loading={isPuppySurface ? false : (isLoadingHistory && conversations.length === 0)}
+      disabled={isPuppySurface ? false : (!hasChatAccess || historyInteractionDisabled)}
       actionPendingId={historyActionPendingId}
       className={sidebarClassName}
       collapsed={collapsed}
@@ -5265,8 +5343,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       onToggleCollapsed={() => setIsHistoryCollapsed((current) => !current)}
       onCreateNew={handleSidebarCreateNewChat}
       onSelectConversation={handleSidebarSelectConversation}
-      onRenameConversation={handleRenameConversation}
-      onDeleteConversation={handleDeleteConversation}
+      onRenameConversation={isPuppySurface ? handleRenamePuppyConversation : handleRenameConversation}
+      onDeleteConversation={isPuppySurface ? handleDeletePuppyConversation : handleDeleteConversation}
     />
   );
   const getEmailDeliveryAuth = async () => {

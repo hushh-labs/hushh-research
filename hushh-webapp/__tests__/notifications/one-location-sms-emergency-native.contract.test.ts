@@ -50,6 +50,7 @@ describe("One Location emergency SMS native notification contract", () => {
   it("keeps Capacitor as the iOS notification delegate with badge-only foreground presentation", () => {
     expect(capacitorConfig).toContain("handleApplicationNotifications: true");
     expect(capacitorConfig).toContain('presentationOptions: ["badge"]');
+    expect(capacitorConfig).toContain('loggingBehavior: "none"');
     expect(iosAppDelegate).not.toContain(
       "UNUserNotificationCenter.current().delegate = self",
     );

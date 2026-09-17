@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-09-16T23:16:45.411Z",
+  "generated_at": "2026-09-17T00:10:51.216Z",
   "device": "emulator-5554",
   "plan": {
     "version": 1,
@@ -7,11 +7,20 @@
     "flow_count": 15
   },
   "flow_count": 15,
-  "passed_flows": 0,
+  "passed_flows": 8,
   "failed_flows": 0,
-  "skipped_optional_flows": [],
-  "skipped_conditional_ria_workspace_flows": [],
-  "ok": false,
+  "skipped_optional_flows": [
+    "marketplace-workspace-card"
+  ],
+  "skipped_conditional_ria_workspace_flows": [
+    "shell-ria-home",
+    "shell-ria-clients",
+    "shell-ria-picks",
+    "shell-marketplace",
+    "ria-workspace-account-detail",
+    "ria-workspace-access-panel"
+  ],
+  "ok": true,
   "flows": [
     "native-reviewer-location-setup-handoff",
     "shell-investor-kai-analysis",
@@ -30,34 +39,404 @@
     "marketplace-workspace-card"
   ],
   "report": {
-    "ok": false,
-    "auditRunId": "android-mu4pxo9m",
-    "startedAt": "2026-09-16T23:16:42.468Z",
-    "completedAt": "2026-09-16T23:16:42.468Z",
-    "errorClass": "timeout",
-    "flows": []
+    "ok": true,
+    "auditRunId": "android-mu4rvkak",
+    "auditPlanVersion": 1,
+    "auditPlanDigest": "f2c11e22f9fb86150f899d9dcdc1bb40492bb3d3e08135325de3221a60af63c6",
+    "startedAt": "2026-09-17T00:10:17.405Z",
+    "completedAt": "2026-09-17T00:10:48.316Z",
+    "flows": [
+      {
+        "id": "native-reviewer-location-setup-handoff",
+        "ok": true,
+        "optional": false,
+        "skipped": false,
+        "results": [
+          {
+            "step": 0,
+            "type": "ensure_persona",
+            "ok": true
+          },
+          {
+            "step": 1,
+            "type": "navigate_route",
+            "ok": true
+          },
+          {
+            "step": 2,
+            "type": "wait_beacon",
+            "ok": true
+          }
+        ]
+      },
+      {
+        "id": "shell-investor-kai-analysis",
+        "ok": true,
+        "optional": false,
+        "skipped": false,
+        "results": [
+          {
+            "step": 0,
+            "type": "ensure_persona",
+            "ok": true
+          },
+          {
+            "step": 1,
+            "type": "click_top_tab",
+            "ok": true
+          },
+          {
+            "step": 2,
+            "type": "assert_url_includes",
+            "ok": true
+          },
+          {
+            "step": 3,
+            "type": "wait_beacon",
+            "ok": true
+          },
+          {
+            "step": 4,
+            "type": "assert_viewport_visible_testid",
+            "ok": true
+          },
+          {
+            "step": 5,
+            "type": "assert_visible_testid",
+            "ok": true,
+            "checkpoint": "kai-analysis-primary"
+          }
+        ]
+      },
+      {
+        "id": "native-investor-kai-debate-preview-start",
+        "ok": true,
+        "optional": false,
+        "skipped": false,
+        "results": [
+          {
+            "step": 0,
+            "type": "ensure_persona",
+            "ok": true
+          },
+          {
+            "step": 1,
+            "type": "navigate_route",
+            "ok": true
+          },
+          {
+            "step": 2,
+            "type": "wait_beacon",
+            "ok": true
+          },
+          {
+            "step": 3,
+            "type": "wait_button",
+            "ok": true
+          },
+          {
+            "step": 4,
+            "type": "click_button",
+            "ok": true
+          },
+          {
+            "step": 5,
+            "type": "assert_visible_testid",
+            "ok": true,
+            "checkpoint": "kai-analysis-active-run"
+          }
+        ]
+      },
+      {
+        "id": "shell-investor-kai-portfolio",
+        "ok": true,
+        "optional": false,
+        "skipped": false,
+        "results": [
+          {
+            "step": 0,
+            "type": "ensure_persona",
+            "ok": true
+          },
+          {
+            "step": 1,
+            "type": "click_top_tab",
+            "ok": true
+          },
+          {
+            "step": 2,
+            "type": "assert_url_includes",
+            "ok": true
+          },
+          {
+            "step": 3,
+            "type": "wait_beacon",
+            "ok": true
+          }
+        ]
+      },
+      {
+        "id": "shell-investor-kai-import",
+        "ok": true,
+        "optional": false,
+        "skipped": false,
+        "results": [
+          {
+            "step": 0,
+            "type": "ensure_persona",
+            "ok": true
+          },
+          {
+            "step": 1,
+            "type": "click_top_tab",
+            "ok": true
+          },
+          {
+            "step": 2,
+            "type": "assert_url_includes",
+            "ok": true
+          },
+          {
+            "step": 3,
+            "type": "wait_beacon",
+            "ok": true
+          },
+          {
+            "step": 4,
+            "type": "navigate_route",
+            "ok": true
+          },
+          {
+            "step": 5,
+            "type": "wait_beacon",
+            "ok": true
+          }
+        ]
+      },
+      {
+        "id": "shell-ria-home",
+        "ok": true,
+        "optional": false,
+        "skipped": true,
+        "results": [
+          {
+            "step": 0,
+            "type": "ensure_ria_workspace",
+            "ok": true,
+            "skipped": true,
+            "skipClass": "onboarding_admission"
+          }
+        ]
+      },
+      {
+        "id": "shell-ria-clients",
+        "ok": true,
+        "optional": false,
+        "skipped": true,
+        "results": [
+          {
+            "step": 0,
+            "type": "ensure_ria_workspace",
+            "ok": true,
+            "skipped": true,
+            "skipClass": "onboarding_admission"
+          }
+        ]
+      },
+      {
+        "id": "shell-ria-picks",
+        "ok": true,
+        "optional": false,
+        "skipped": true,
+        "results": [
+          {
+            "step": 0,
+            "type": "ensure_ria_workspace",
+            "ok": true,
+            "skipped": true,
+            "skipClass": "onboarding_admission"
+          }
+        ]
+      },
+      {
+        "id": "shell-marketplace",
+        "ok": true,
+        "optional": false,
+        "skipped": true,
+        "results": [
+          {
+            "step": 0,
+            "type": "ensure_ria_workspace",
+            "ok": true,
+            "skipped": true,
+            "skipClass": "onboarding_admission"
+          }
+        ]
+      },
+      {
+        "id": "shell-profile",
+        "ok": true,
+        "optional": false,
+        "skipped": false,
+        "results": [
+          {
+            "step": 0,
+            "type": "ensure_persona",
+            "ok": true
+          },
+          {
+            "step": 1,
+            "type": "click_shell_action",
+            "ok": true
+          },
+          {
+            "step": 2,
+            "type": "assert_visible_testid",
+            "ok": true,
+            "checkpoint": "profile-pane"
+          },
+          {
+            "step": 3,
+            "type": "assert_text",
+            "ok": true
+          },
+          {
+            "step": 4,
+            "type": "click_button",
+            "ok": true
+          },
+          {
+            "step": 5,
+            "type": "assert_text",
+            "ok": true
+          },
+          {
+            "step": 6,
+            "type": "assert_url_includes",
+            "ok": true
+          },
+          {
+            "step": 7,
+            "type": "assert_url_includes",
+            "ok": true
+          }
+        ]
+      },
+      {
+        "id": "shell-consents",
+        "ok": true,
+        "optional": false,
+        "skipped": false,
+        "results": [
+          {
+            "step": 0,
+            "type": "ensure_persona",
+            "ok": true
+          },
+          {
+            "step": 1,
+            "type": "navigate_route",
+            "ok": true
+          },
+          {
+            "step": 2,
+            "type": "wait_beacon",
+            "ok": true
+          },
+          {
+            "step": 3,
+            "type": "assert_visible_testid",
+            "ok": true,
+            "checkpoint": "consent-manager-primary"
+          }
+        ]
+      },
+      {
+        "id": "ria-workspace-admission",
+        "ok": true,
+        "optional": false,
+        "skipped": false,
+        "results": [
+          {
+            "step": 0,
+            "type": "ensure_persona",
+            "ok": true
+          },
+          {
+            "step": 1,
+            "type": "assert_ria_workspace_admission",
+            "ok": true
+          }
+        ]
+      },
+      {
+        "id": "ria-workspace-account-detail",
+        "ok": true,
+        "optional": false,
+        "skipped": true,
+        "results": [
+          {
+            "step": 0,
+            "type": "ensure_ria_workspace",
+            "ok": true,
+            "skipped": true,
+            "skipClass": "onboarding_admission"
+          }
+        ]
+      },
+      {
+        "id": "ria-workspace-access-panel",
+        "ok": true,
+        "optional": false,
+        "skipped": true,
+        "results": [
+          {
+            "step": 0,
+            "type": "ensure_ria_workspace",
+            "ok": true,
+            "skipped": true,
+            "skipClass": "onboarding_admission"
+          }
+        ]
+      },
+      {
+        "id": "marketplace-workspace-card",
+        "ok": true,
+        "optional": true,
+        "skipped": true,
+        "results": [
+          {
+            "step": 0,
+            "type": "ensure_ria_workspace",
+            "ok": true,
+            "skipped": true,
+            "skipClass": "onboarding_admission"
+          }
+        ]
+      }
+    ]
   },
-  "errorClass": "other",
+  "errorClass": null,
   "last_status": {
-    "route": "/login/",
-    "ready": "0",
-    "marker": "native-route-one-home",
-    "auth": "pending",
-    "data": "loading",
+    "route": "/ria/onboarding/",
+    "ready": "1",
+    "marker": "",
+    "auth": "authenticated",
+    "data": "loaded",
     "doc": "complete",
-    "found": "0",
-    "routeok": "0",
+    "found": "1",
+    "routeok": "1",
     "test": "1",
     "auto": "1",
     "bridge": "1",
     "uirunner": "1",
     "runui": "1",
-    "uistarted": "0",
-    "uifailed": "1",
+    "uistarted": "1",
+    "uifailed": "0",
     "uiboot": "0",
-    "persona": "investor",
-    "primary_persona": "investor",
-    "persona_switch": "",
+    "persona": "ria",
+    "primary_persona": "ria",
+    "persona_switch": "ok:ria",
     "persona_error": "",
     "portfolio_start_state": "",
     "portfolio_start_status": "",
@@ -72,22 +451,22 @@
     "trigger": "1",
     "domtest": "true",
     "domauto": "true",
-    "reviewer": "1",
-    "bootstrap": "uid_mismatch",
-    "bootstrap_uid_ok": "0",
+    "reviewer": "0",
+    "bootstrap": "vault_unlocked",
+    "bootstrap_uid_ok": "1",
     "bootstrap_error": "",
     "jserr": "",
     "jsrej": "",
     "visible404": "0",
     "ui_complete": "1",
-    "ui_ok": "0",
-    "ui_run": "android-mu4pxo9m",
-    "ui_plan": "",
-    "ui_flow": "",
-    "ui_step": "",
-    "ui_step_type": "",
-    "ui_checkpoint": "",
+    "ui_ok": "1",
+    "ui_run": "android-mu4rvkak",
+    "ui_plan": "f2c11e22f9fb86150f899d9dcdc1bb40492bb3d3e08135325de3221a60af63c6",
+    "ui_flow": "marketplace-workspace-card",
+    "ui_step": "0",
+    "ui_step_type": "ensure_ria_workspace",
+    "ui_checkpoint": "consent-manager-primary",
     "ui_error": "",
-    "error": "<redacted>"
+    "error": ""
   }
 }

@@ -167,7 +167,7 @@ export function AgentHistorySidebar({
 }: AgentHistorySidebarProps) {
   const isMobileMode = mode === "mobile";
   // Neutral on the default path, owned when the other agent is on screen.
-  const listTitle = surface === "puppy" ? "One chats" : "Chats";
+  const listTitle = surface === "puppy" ? "Puppy chats" : "Chats";
   const puppyFootnote =
     surface === "puppy" ? (
       <p className="mt-1 text-[12px] text-muted-foreground">
@@ -383,14 +383,13 @@ export function AgentHistorySidebar({
                         : "text-muted-foreground hover:bg-foreground/[0.08] hover:text-foreground dark:hover:bg-white/[0.1]"
                     )}
                     disabled={disabled || pending}
-                    onPointerDown={(event) => event.stopPropagation()}
                     onClick={(event) => event.stopPropagation()}
                     aria-label={`Open actions for ${title}`}
                   >
                     <MoreHorizontal className="h-3.5 w-3.5" aria-hidden="true" />
                   </Button>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" sideOffset={6} className="z-[520]">
+                <DropdownMenuContent align="end" sideOffset={6} className="z-[560]">
                   <DropdownMenuItem
                     className="cursor-pointer rounded-[10px] hover:!bg-[color:var(--app-accent)] hover:!text-[color:var(--app-accent-fg)] hover:[&_svg]:!stroke-[color:var(--app-accent-fg)] hover:[&_svg]:!text-[color:var(--app-accent-fg)] focus:!bg-[color:var(--app-accent)] focus:!text-[color:var(--app-accent-fg)] focus:[&_svg]:!stroke-[color:var(--app-accent-fg)] focus:[&_svg]:!text-[color:var(--app-accent-fg)]"
                     onSelect={() => startRename(conversation)}
@@ -431,7 +430,7 @@ export function AgentHistorySidebar({
       >
         {isMobileMode ? (
           <div className="border-b border-border/65 px-4 pb-3 pt-[max(1rem,var(--app-safe-area-top-effective))] dark:border-white/10">
-            <div className={cn("flex items-center justify-between gap-3", hideCloseButton && "pl-11")}>
+            <div className="flex items-center justify-between gap-3">
               <div className="flex min-w-0 items-center gap-2">
                 <h2 className="truncate text-[16px] font-semibold tracking-[-0.01em] text-foreground">
                   {listTitle}
@@ -460,17 +459,15 @@ export function AgentHistorySidebar({
             <Button
               type="button"
               variant="outline"
-              className="mt-2.5 flex h-9 w-full items-center justify-between rounded-xl border-black/[0.08] bg-foreground/[0.035] px-3 text-[13px] font-medium text-foreground transition-all duration-150 hover:border-black/15 hover:bg-foreground/[0.07] hover:shadow-sm active:scale-[0.99] dark:border-white/10 dark:bg-white/[0.05] dark:hover:border-white/20 dark:hover:bg-white/[0.08]"
+              className="mt-2.5 flex h-9 w-full items-center justify-between rounded-xl border-black/[0.08] bg-foreground/[0.035] px-3 text-[13px] font-medium text-foreground transition-all duration-150 hover:border-black/15 hover:bg-foreground/[0.06] hover:shadow-xs active:scale-[0.98] dark:border-white/10 dark:bg-white/[0.04] dark:hover:border-white/20 dark:hover:bg-white/[0.07]"
               onClick={onCreateNew}
               disabled={disabled}
-              aria-label="Create new Agent chat"
+              aria-label="Create new chat"
               title="Create new chat"
             >
               <div className="flex items-center gap-2">
-                <span className="grid h-5 w-5 place-items-center rounded-md bg-[color:var(--app-accent)] text-white shadow-sm">
-                  <Plus className="h-3 w-3" strokeWidth={3} aria-hidden="true" />
-                </span>
-                <span className="font-medium">New chat</span>
+                <Plus className="h-3.5 w-3.5 text-muted-foreground/80 group-hover:text-foreground" strokeWidth={2.2} aria-hidden="true" />
+                <span className="font-medium text-[13px]">New chat</span>
               </div>
             </Button>
           </div>
@@ -548,17 +545,15 @@ export function AgentHistorySidebar({
                 <Button
                   type="button"
                   variant="outline"
-                  className="group relative flex h-9 w-full items-center justify-between rounded-xl border-black/[0.08] bg-foreground/[0.035] px-3 text-[13px] font-medium text-foreground transition-all duration-150 hover:border-black/15 hover:bg-foreground/[0.07] hover:shadow-sm active:scale-[0.99] dark:border-white/10 dark:bg-white/[0.05] dark:hover:border-white/20 dark:hover:bg-white/[0.08]"
+                  className="group relative flex h-9 w-full items-center justify-between rounded-xl border-black/[0.08] bg-foreground/[0.035] px-3 text-[13px] font-medium text-foreground transition-all duration-150 hover:border-black/15 hover:bg-foreground/[0.06] hover:shadow-xs active:scale-[0.98] dark:border-white/10 dark:bg-white/[0.04] dark:hover:border-white/20 dark:hover:bg-white/[0.07]"
                   onClick={onCreateNew}
                   disabled={disabled}
-                  aria-label="Create new Agent chat"
+                  aria-label="Create new chat"
                   title="Create new chat"
                 >
                   <div className="flex items-center gap-2">
-                    <span className="grid h-5 w-5 place-items-center rounded-md bg-[color:var(--app-accent)] text-white shadow-sm transition-transform group-hover:scale-105">
-                      <Plus className="h-3 w-3" strokeWidth={3} aria-hidden="true" />
-                    </span>
-                    <span className="font-medium">New chat</span>
+                    <Plus className="h-3.5 w-3.5 text-muted-foreground/80 group-hover:text-foreground" strokeWidth={2.2} aria-hidden="true" />
+                    <span className="font-medium text-[13px]">New chat</span>
                   </div>
                   <kbd className="rounded border border-black/10 bg-background/60 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground/70 dark:border-white/10 dark:bg-black/40">
                     ⌘N

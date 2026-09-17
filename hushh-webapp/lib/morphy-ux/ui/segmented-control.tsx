@@ -194,7 +194,7 @@ export function SegmentedControl({
               // and 500ms is off the scale entirely.
               "transition-[color,background-color,box-shadow,transform] duration-[var(--motion-duration-sm)] ease-[var(--motion-ease-standard)]",
               "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
-              "overflow-hidden font-medium tracking-tight",
+              "overflow-hidden font-normal tracking-tight",
               config.segment,
 
               // Active state
