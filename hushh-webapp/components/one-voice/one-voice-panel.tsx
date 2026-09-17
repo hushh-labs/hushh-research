@@ -44,6 +44,9 @@ const HANDOFF_STATUSES = new Set<string>([
   "confirmation_required",
   "tap_required",
   "card_not_shown",
+  // The device step, not a card, owns the interval until the relay settles
+  // the final tool.result for this device's Location switch.
+  "location_updates_pending",
 ]);
 const DISAMBIGUATION_STATUSES = new Set<string>([
   "multiple",

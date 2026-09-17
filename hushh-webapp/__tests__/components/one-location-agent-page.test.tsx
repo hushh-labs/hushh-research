@@ -546,6 +546,17 @@ vi.mock("@/lib/contacts/google-contacts-token", async (importOriginal) => ({
   requestGoogleContactsToken: () => mockRequestGoogleContactsToken(),
 }));
 
+// The device Location switch is a preference over LOCAL state. Its handlers
+// must never reach the account's sharing posture (`PATCH account-settings`),
+// so the write is a spy the pause/resume tests below assert stays untouched.
+const { mockUpdateLocationAccountSettings } = vi.hoisted(() => ({
+  mockUpdateLocationAccountSettings: vi.fn(),
+}));
+vi.mock("@/lib/location/account-settings", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/location/account-settings")>()),
+  updateLocationAccountSettings: mockUpdateLocationAccountSettings,
+}));
+
 vi.mock("sonner", () => {
   const toast = vi.fn();
   return {
@@ -2538,6 +2549,124 @@ describe("OneLocationAgentPage", () => {
       await expect(pending).resolves.toMatchObject({ status: "blocked" });
     });
     expect(screen.getByText("Location off")).toBeTruthy();
+  });
+
+  it("pausing and resuming from a voice handler never touches account posture, grants, or links", async () => {
+    mockGetState.mockResolvedValue({ ...locationState(), ownerGrants: [] });
+    render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
+    await screen.findByRole("switch", { name: "Turn location on" });
+    mockCheckoutNearby.mockClear();
+    mockCreateGrant.mockClear();
+    mockRevokeGrant.mockClear();
+    mockRevokePublicInvite.mockClear();
+    mockUpdateLocationAccountSettings.mockClear();
+
+    // The same handlers the Live device step runs, with the step id as the
+    // operation id -- exactly the direct path a tap takes.
+    let paused!: Awaited<ReturnType<NonNullable<ReturnType<typeof resolveLocalOnboardingHandler>>>>;
+    await act(async () => {
+      paused = await resolveLocalOnboardingHandler("location.pause_updates")!(
+        {},
+        { operationId: "voice-1" },
+      );
+    });
+    expect(paused.status).toBe("succeeded");
+    expect(paused.data).toBeUndefined();
+    await waitFor(() => expect(screen.getByText("Location off")).toBeTruthy());
+    expect(
+      screen.getByRole("switch", { name: "Turn location on" }),
+    ).toHaveAttribute("aria-checked", "false");
+
+    let resumed!: Awaited<ReturnType<NonNullable<ReturnType<typeof resolveLocalOnboardingHandler>>>>;
+    await act(async () => {
+      resumed = await resolveLocalOnboardingHandler("location.resume_updates")!(
+        {},
+        { operationId: "voice-2" },
+      );
+    });
+    expect(resumed.status).toBe("succeeded");
+    expect(resumed.data).toBeUndefined();
+    await waitFor(() => expect(screen.getByText("Location on")).toBeTruthy());
+    expect(
+      screen.getByRole("switch", { name: "Turn location off" }),
+    ).toHaveAttribute("aria-checked", "true");
+
+    // Device-only: the account's sharing posture, every grant, and every
+    // public link are untouched. Nearby is the one remote authority a pause
+    // may clear, and it is cleared at most once.
+    expect(mockUpdateLocationAccountSettings).not.toHaveBeenCalled();
+    expect(mockRevokeGrant).not.toHaveBeenCalled();
+    expect(mockRevokePublicInvite).not.toHaveBeenCalled();
+    expect(mockCreateGrant).not.toHaveBeenCalled();
+    expect(mockCheckoutNearby.mock.calls.length).toBeLessThanOrEqual(1);
+  });
+
+  it("a voice resume refused by device permission carries data.reason permission_denied", async () => {
+    mockGetState.mockResolvedValue({ ...locationState(), ownerGrants: [] });
+    render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
+    await act(async () => {
+      await resolveLocalOnboardingHandler("location.pause_updates")!(
+        {},
+        { operationId: "voice-1" },
+      );
+    });
+    await waitFor(() => expect(screen.getByText("Location off")).toBeTruthy());
+
+    // A genuinely denied device refuses the capture, the way the setup tests
+    // above model it; the handler reports the typed reason with the copy.
+    const denied = new Error("Location permission was not granted.");
+    denied.name = "LocationPermissionDeniedError";
+    mockCaptureCurrentPosition.mockRejectedValue(denied);
+    mockUpdateLocationAccountSettings.mockClear();
+
+    let resumed!: Awaited<ReturnType<NonNullable<ReturnType<typeof resolveLocalOnboardingHandler>>>>;
+    await act(async () => {
+      resumed = await resolveLocalOnboardingHandler("location.resume_updates")!(
+        {},
+        { operationId: "voice-2" },
+      );
+    });
+    expect(resumed.status).not.toBe("succeeded");
+    expect(resumed.data).toEqual({ reason: "permission_denied" });
+    // The optimistic "on" is taken back: the switch never claims an on the
+    // device cannot deliver.
+    await waitFor(() =>
+      expect(
+        screen.getByRole("switch", { name: "Turn location on" }),
+      ).toHaveAttribute("aria-checked", "false"),
+    );
+    expect(mockUpdateLocationAccountSettings).not.toHaveBeenCalled();
+    expect(mockCreateGrant).not.toHaveBeenCalled();
+  });
+
+  it("a voice pause with the vault locked and Nearby available carries data.reason vault_locked", async () => {
+    mockUseVault.mockReturnValue({
+      isVaultUnlocked: false,
+      vaultKey: null,
+      vaultOwnerToken: null,
+    });
+    render(<OneLocationAgentPage />);
+    await waitFor(() =>
+      expect(resolveLocalOnboardingHandler("location.pause_updates")).not.toBeNull(),
+    );
+    mockCheckoutNearby.mockClear();
+    mockUpdateLocationAccountSettings.mockClear();
+
+    let paused!: Awaited<ReturnType<NonNullable<ReturnType<typeof resolveLocalOnboardingHandler>>>>;
+    await act(async () => {
+      paused = await resolveLocalOnboardingHandler("location.pause_updates")!(
+        {},
+        { operationId: "voice-3" },
+      );
+    });
+    // The device half still took effect; only the remote checkout is owed.
+    expect(paused.status).toBe("blocked");
+    expect(paused.data).toEqual({ reason: "vault_locked" });
+    expect(mockCheckoutNearby).not.toHaveBeenCalled();
+    expect(mockUpdateLocationAccountSettings).not.toHaveBeenCalled();
+    expect(mockRevokeGrant).not.toHaveBeenCalled();
   });
 
   it("binds and displays the request amount before command approval", async () => {

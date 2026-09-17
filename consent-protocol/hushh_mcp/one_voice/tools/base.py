@@ -12,7 +12,7 @@ Rules encoded here, not in prose:
 * Every result carries ``status`` from a small, tool-specific vocabulary plus
   ``spoken_facts`` -- the sentences the model may state verbatim. Pending
   states (``confirmation_required``, ``position_publish_pending``,
-  ``navigation_dispatched``) are never success.
+  ``location_updates_pending``, ``navigation_dispatched``) are never success.
 * The host validates ids, schemas, and authority and returns typed refusals.
   It never re-picks a tool, classifies transcripts, or auto-selects a person
   (AGENTS.md "no second decision-maker").
@@ -24,11 +24,15 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any, Literal
+from typing import Any, Final, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
 ENTITY_CONTEXT_TTL_SECONDS = 2 * 60 * 60
+# Interim status of a device-executed Location updates step. Never success:
+# the settled result arrives later as its own tool.result once the device
+# reports back.
+LOCATION_UPDATES_PENDING: Final = "location_updates_pending"
 
 
 class ToolPolicy(str, Enum):
@@ -304,6 +308,7 @@ __all__ = [
     "ConfirmedCircle",
     "ConfirmedPerson",
     "ENTITY_CONTEXT_TTL_SECONDS",
+    "LOCATION_UPDATES_PENDING",
     "EntityContext",
     "Needs",
     "PersonRef",
