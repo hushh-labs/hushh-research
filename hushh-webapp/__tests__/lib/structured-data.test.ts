@@ -39,6 +39,16 @@ describe("seo: organization @graph", () => {
     expect(features).toMatch(/Nav/);
     expect(features).toMatch(/KYC/);
   });
+
+  it("describes the Founder Person node with Wikidata sameAs reconciliation", () => {
+    const graph = buildOrganizationGraph();
+    const person = (graph["@graph"] as Array<Record<string, unknown>>).find(
+      (n) => n["@type"] === "Person",
+    );
+    expect(person).toBeDefined();
+    expect(person?.name).toBe("Manish Sainani");
+    expect(person?.sameAs).toContain("https://www.wikidata.org/wiki/Q141478333");
+  });
 });
 
 describe("seo: FAQ @graph", () => {

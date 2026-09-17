@@ -34,7 +34,20 @@ export function BlogPostView({ post }: { post: BlogPost }) {
         </h1>
         <p className="mt-3 text-lg leading-8 text-muted-foreground">{post.subtitle}</p>
         <p className="mt-4 border-b border-border/60 pb-6 text-sm text-muted-foreground">
-          By <span className="font-medium text-foreground">{post.author}</span>
+          By{" "}
+          {post.author.startsWith("Manish Sainani") ? (
+            <>
+              <Link
+                href={ROUTES.MANISH_SAINANI}
+                className="font-medium text-foreground hover:underline"
+              >
+                Manish Sainani
+              </Link>
+              {post.author.slice("Manish Sainani".length)}
+            </>
+          ) : (
+            <span className="font-medium text-foreground">{post.author}</span>
+          )}
         </p>
       </AppPageHeaderRegion>
 
