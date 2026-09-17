@@ -21,6 +21,7 @@
 .surface {
   position: fixed !important;
   inset: auto 0 0 !important;
+  z-index: 500 !important;
   transform: none !important;
   translate: none !important;
   width: 100% !important;
