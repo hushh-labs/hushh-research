@@ -33,17 +33,19 @@ Decision order for easing:
 --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);     /* iOS-like drawer curve */
 ```
 
-Duration budgets — **UI animations stay under 300ms**:
+Duration budgets — **Hushh UI Hard 150ms Ceiling**:
 
-| Element | Duration |
-| --- | --- |
-| Button press feedback | 100–160ms |
-| Tooltips, small popovers | 125–200ms |
-| Dropdowns, selects | 150–250ms |
-| Modals, drawers | 200–500ms |
-| Marketing / explanatory | Can be longer |
+Across Hushh product surfaces, all interactive feedback, modal presentations, drawers, sheets, dropdowns, and segmented pills are hard-capped at **$\le 150\text{ms}$** maximum duration. Durations $>150\text{ms}$ on interactive UI elements are an immediate finding.
 
-Hunt for: `ease-in` anywhere, bare `ease`/`linear` on entrances, durations > 300ms on UI elements, tooltip delay + animation on every tooltip in a toolbar (after the first, they should be instant).
+| Element | Target Duration | Easing Curve |
+| --- | --- | --- |
+| Button press feedback (`:active`) | 75–100ms | `var(--motion-ease-decelerate)` |
+| Segmented pill crossfade / slide | 100–125ms | `var(--motion-ease-standard)` |
+| Tooltips, dropdowns, popovers | 100–140ms | `var(--motion-ease-decelerate)` |
+| Modals, sheets, history drawer | 125–150ms | `cubic-bezier(0.23, 1, 0.32, 1)` |
+| Route transition crossfade | 140–150ms | `cubic-bezier(0.16, 0.84, 0.28, 1)` |
+
+Hunt for: Any duration $> 150\text{ms}$ on UI surfaces, `ease-in` anywhere, bare `linear` transitions on entrances, and non-composited transitions.
 
 ## 3. Physicality & origin
 
