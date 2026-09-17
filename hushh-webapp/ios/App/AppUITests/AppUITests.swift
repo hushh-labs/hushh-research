@@ -47,26 +47,28 @@ final class AppUITests: XCTestCase {
         XCTAssertFalse(app.secureTextFields["Enter vault key"].exists)
         XCTAssertFalse(app.secureTextFields["Enter your passphrase"].exists)
         XCUIDevice.shared.press(.home)
+        let resumeDeadline = Date().addingTimeInterval(30)
         app.activate()
-        _ = try waitForSatisfiedStatus(app, route: route, timeout: 30)
+        _ = try waitForSatisfiedStatus(
+            app, route: route, timeout: max(0, resumeDeadline.timeIntervalSinceNow)
+        )
         // The route marker can survive while the native privacy cover and
         // asynchronous auth restoration are still settling after activation.
         // Require the actual login control to become usable within a bound.
         let loginButton = app.buttons["Continue with Apple"]
-        let resumeDeadline = Date().addingTimeInterval(15)
-        while Date() < resumeDeadline, !(loginButton.exists && loginButton.isHittable) {
+        // The title changes on recovery failure; require the actual shield to
+        // disappear and login to be usable together within the same warm budget.
+        let privacyCover = app.descendants(matching: .any)
+            .matching(identifier: "session-privacy-shield").firstMatch
+        while Date() < resumeDeadline,
+              privacyCover.exists || !(loginButton.exists && loginButton.isHittable) {
             RunLoop.current.run(until: Date().addingTimeInterval(0.25))
         }
         XCTAssertTrue(
-            loginButton.exists && loginButton.isHittable,
+            !privacyCover.exists && loginButton.exists && loginButton.isHittable
+                && Date() <= resumeDeadline,
             "Login must become usable after the native privacy cover releases"
         )
-        let privacyCover = app.staticTexts["Protecting private information\u{2026}"]
-        let coverDeadline = Date().addingTimeInterval(5)
-        while Date() < coverDeadline, privacyCover.exists {
-            RunLoop.current.run(until: Date().addingTimeInterval(0.25))
-        }
-        XCTAssertFalse(privacyCover.exists, "Privacy cover must release after login becomes usable")
     }
 
     func testPublicAndAuthRoutes() throws {
