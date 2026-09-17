@@ -1164,7 +1164,6 @@
         "native_beacon": false
       },
       "findings": [
-        "review native route beacon coverage",
         "no local cache primitive detected in page/contract source"
       ]
     },
@@ -4797,7 +4796,7 @@
         "route_refresh_completed"
       ],
       "realtime_policy": "not realtime",
-      "reviewer_fixture": "/one/setup/cloud",
+      "reviewer_fixture": "/login?redirect=%2Fone%2Fsetup%2Fcloud",
       "surface_map_present": true,
       "route_contract_present": true,
       "evidence": {
@@ -4813,9 +4812,7 @@
         "sse_or_streaming": false,
         "native_beacon": false
       },
-      "findings": [
-        "review native route beacon coverage"
-      ]
+      "findings": []
     },
     {
       "route": "/one/setup/connected-systems",
@@ -6298,5 +6295,5 @@
       ]
     }
   ],
-  "content_sha256": "e79ef12195b0f8dfc83134ac820c86c3b34464ed8a0bbf9a3adc890dedf6d63a"
+  "content_sha256": "77b456826cf3a52b137bb03e03e4f03c2a8078a5687f07e6e54d44d3466a8a83"
 }

@@ -1941,7 +1941,11 @@
           "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
         }
       },
-      "native": null,
+      "native": {
+        "route": "/manishhussh",
+        "classification": "excluded-web-only",
+        "reason": "Public marketing and founder profile content. The native shell ships the signed-in product; the public site is web."
+      },
       "shell": {
         "app_page_shell": false,
         "page_header": false,
@@ -7293,7 +7297,18 @@
           "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
         }
       },
-      "native": null,
+      "native": {
+        "route": "/one/setup/cloud",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fone%2Fsetup%2Fcloud",
+        "expectedMarker": "native-route-one-setup-cloud",
+        "expectedRoute": "/one/setup/cloud",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded"
+        ]
+      },
       "shell": {
         "app_page_shell": false,
         "page_header": false,
@@ -9516,5 +9531,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "e8f009c0f11e56eaf03c9df4da76efeaa60a9d75419867f27cd72fe7e8806c95"
+  "content_sha256": "d944dde4c7012afad934d2ce44a6d5d71b9219c71514263c0b807105fa835aaa"
 }
