@@ -89,6 +89,7 @@ export const ROUTES = {
   RESEARCH: "/research",
   RESEARCH_PROTOCOL: "/research/protocol",
   BLOG: "/blog",
+  MANISH_SAINANI: "/manishhussh",
   LOGIN: "/login",
   GETTING_STARTED: "/getting-started",
   LOGOUT: "/logout",
@@ -109,7 +110,6 @@ export const ROUTES = {
   PROFILE_SECURITY: "/one/profile/security",
   PROFILE_SECURITY_VAULT: "/one/profile/security/vault",
   PROFILE_SECURITY_SESSION: "/one/profile/security/session",
-  PROFILE_SECURITY_DEVICES: "/one/profile/security/devices",
   PROFILE_SECURITY_DEVICE_AUTHORIZE: "/one/profile/security/devices/authorize",
   PROFILE_MY_DATA: "/one/profile/my-data",
   PROFILE_MY_DATA_DOMAIN: "/one/profile/my-data/domain",
@@ -484,6 +484,7 @@ export function isOnboardingAdmissionExemptRoute(pathname: string): boolean {
     normalizedPathname.startsWith(`${ROUTES.RESEARCH}/`) ||
     normalizedPathname === ROUTES.BLOG ||
     normalizedPathname.startsWith(`${ROUTES.BLOG}/`) ||
+    normalizedPathname === ROUTES.MANISH_SAINANI ||
     normalizedPathname === ROUTES.LOGIN ||
     isFirebaseSessionOnlyRoute(normalizedPathname) ||
     normalizedPathname === ROUTES.GETTING_STARTED ||
@@ -743,6 +744,7 @@ export function isPublicRoute(pathname: string): boolean {
     normalizedPathname.startsWith(`${ROUTES.RESEARCH}/`) ||
     normalizedPathname === ROUTES.BLOG ||
     normalizedPathname.startsWith(`${ROUTES.BLOG}/`) ||
+    normalizedPathname === ROUTES.MANISH_SAINANI ||
     // Both prefixes. `/view/` is where public live-location links point now;
     // `/request/` is what every link minted before the rename carries, and it
     // has to stay public or those land on /login instead of on the forwarder
@@ -784,7 +786,8 @@ export function isFoundationPublicRoute(pathname: string): boolean {
     normalizedPathname === ROUTES.RESEARCH ||
     normalizedPathname.startsWith(`${ROUTES.RESEARCH}/`) ||
     normalizedPathname === ROUTES.BLOG ||
-    normalizedPathname.startsWith(`${ROUTES.BLOG}/`)
+    normalizedPathname.startsWith(`${ROUTES.BLOG}/`) ||
+    normalizedPathname === ROUTES.MANISH_SAINANI
   );
 }
 

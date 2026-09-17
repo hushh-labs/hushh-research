@@ -1,18 +1,19 @@
 
+import { type LucideIcon } from "lucide-react";
+
 import {
-  BookMarked,
-  CalendarDays,
-  ContactRound,
-  CreditCard,
-  FileCheck2,
-  KeyRound,
-  Landmark,
-  Mail,
-  MapPin,
-  Store,
-  UsersRound,
-  type LucideIcon,
-} from "lucide-react";
+  FinanceAgentIcon,
+  WalletAgentIcon,
+  LocationAgentIcon,
+  RiaAgentIcon,
+  GmailAgentIcon,
+  CalendarAgentIcon,
+  KycAgentIcon,
+  MemoryAgentIcon,
+  ConsentAgentIcon,
+  MarketplaceAgentIcon,
+  CrmAgentIcon,
+} from "@/components/icons/agents";
 
 import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
 import { ROUTES } from "@/lib/navigation/routes";
@@ -56,12 +57,25 @@ export type OneCapabilityTone =
 
 export type OneCapabilityGroup = "workflow" | "memory" | "access";
 
+export type OneCapabilityCustomIconComponent = React.ComponentType<{
+  size?: number | string;
+  className?: string;
+  color?: string;
+}>;
+
 export type OneCapabilityIcon =
   | { kind: "lucide"; icon: LucideIcon }
-  | { kind: "image"; src: string; alt: string };
+  | { kind: "image"; src: string; alt: string }
+  | { kind: "custom"; component: OneCapabilityCustomIconComponent };
 
 export function lucideCapabilityIcon(icon: LucideIcon): OneCapabilityIcon {
   return { kind: "lucide", icon };
+}
+
+export function customCapabilityIcon(
+  component: OneCapabilityCustomIconComponent,
+): OneCapabilityIcon {
+  return { kind: "custom", component };
 }
 
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -140,7 +154,7 @@ export const ONE_CAPABILITIES: readonly OneCapability[] = [
     description: "Market, portfolio, analysis, and RIA handoff.",
     previewLabel: "Market, portfolio & analysis",
     href: ROUTES.KAI_HOME,
-    icon: lucideCapabilityIcon(Landmark),
+    icon: customCapabilityIcon(FinanceAgentIcon),
     tone: "finance",
     group: "workflow",
     requiresVault: true,
@@ -152,7 +166,7 @@ export const ONE_CAPABILITIES: readonly OneCapability[] = [
     description: "Every credit and debit card, encrypted in your vault.",
     previewLabel: "Your cards, in your vault",
     href: ROUTES.ONE_WALLET,
-    icon: lucideCapabilityIcon(CreditCard),
+    icon: customCapabilityIcon(WalletAgentIcon),
     tone: "pkm",
     group: "workflow",
     requiresVault: true,
@@ -172,7 +186,7 @@ export const ONE_CAPABILITIES: readonly OneCapability[] = [
     description: "Share where you are with people you trust.",
     previewLabel: "Live location & Alerts",
     href: ROUTES.ONE_LOCATION,
-    icon: lucideCapabilityIcon(MapPin),
+    icon: customCapabilityIcon(LocationAgentIcon),
     tone: "location",
     group: "workflow",
     requiresVault: true,
@@ -188,7 +202,7 @@ export const ONE_CAPABILITIES: readonly OneCapability[] = [
     description: "Advisor verification, profile, clients, and requests.",
     previewLabel: "Advisor profile & verification",
     href: ROUTES.RIA_ONBOARDING,
-    icon: lucideCapabilityIcon(UsersRound),
+    icon: customCapabilityIcon(RiaAgentIcon),
     tone: "ria",
     group: "workflow",
     requiresVault: true,
@@ -200,11 +214,11 @@ export const ONE_CAPABILITIES: readonly OneCapability[] = [
     // Gmail remains a setup/product surface; its conversational reads now
     // belong to the unified Email specialist.
     agentId: "agent_email",
-    title: "Gmail",
+    title: "Email",
     description: "Receipt sync and purchase-memory review.",
     previewLabel: "Receipt & purchase memory",
     href: ROUTES.GMAIL,
-    icon: lucideCapabilityIcon(Mail),
+    icon: customCapabilityIcon(GmailAgentIcon),
     tone: "gmail",
     group: "memory",
     requiresVault: true,
@@ -218,7 +232,7 @@ export const ONE_CAPABILITIES: readonly OneCapability[] = [
     description: "Calendar summaries, availability, and confirmed scheduling.",
     previewLabel: "Availability & scheduling",
     href: ROUTES.CALENDAR,
-    icon: lucideCapabilityIcon(CalendarDays),
+    icon: customCapabilityIcon(CalendarAgentIcon),
     tone: "calendar",
     group: "workflow",
     requiresVault: true,
@@ -231,7 +245,7 @@ export const ONE_CAPABILITIES: readonly OneCapability[] = [
     title: "KYC",
     description: "Review information requests and approve each response.",
     href: ROUTES.ONE_KYC,
-    icon: lucideCapabilityIcon(FileCheck2),
+    icon: customCapabilityIcon(KycAgentIcon),
     tone: "email",
     group: "workflow",
     requiresVault: true,
@@ -243,7 +257,7 @@ export const ONE_CAPABILITIES: readonly OneCapability[] = [
     title: "Memory",
     description: "Saved knowledge and context you can review.",
     href: ROUTES.PKM,
-    icon: lucideCapabilityIcon(BookMarked),
+    icon: customCapabilityIcon(MemoryAgentIcon),
     tone: "pkm",
     group: "memory",
     requiresVault: true,
@@ -256,7 +270,7 @@ export const ONE_CAPABILITIES: readonly OneCapability[] = [
     title: "Consent",
     description: "Access requests, approvals, and revocations.",
     href: buildConsentCenterHref("pending"),
-    icon: lucideCapabilityIcon(KeyRound),
+    icon: customCapabilityIcon(ConsentAgentIcon),
     tone: "consent",
     group: "access",
     isExploreOnly: true,
@@ -270,7 +284,7 @@ export const ONE_CAPABILITIES: readonly OneCapability[] = [
       "Preview priced slices of your personal information you could publish.",
     previewLabel: "Priced information slices",
     href: ROUTES.ONE_MARKETPLACE,
-    icon: lucideCapabilityIcon(Store),
+    icon: customCapabilityIcon(MarketplaceAgentIcon),
     tone: "pkm",
     group: "access",
     isExploreOnly: true,
@@ -284,7 +298,7 @@ export const ONE_CAPABILITIES: readonly OneCapability[] = [
     title: "CRM",
     description: "Approved CRM reads and writes.",
     href: ROUTES.CONNECTED_SYSTEMS,
-    icon: lucideCapabilityIcon(ContactRound),
+    icon: customCapabilityIcon(CrmAgentIcon),
     tone: "connected",
     group: "workflow",
     requiresVault: true,

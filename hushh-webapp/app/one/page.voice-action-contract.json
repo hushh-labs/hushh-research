@@ -21,8 +21,8 @@
   "actions": [
     {
       "action_id": "route.one_agents",
-      "label": "Open One",
-      "meaning": "Navigates to the One agent launcher.",
+      "label": "Open Agents",
+      "meaning": "Navigates to the One Agents dashboard.",
       "aliases": [
         "open agents",
         "open one agents",

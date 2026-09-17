@@ -80,6 +80,49 @@ revision, identical fixtures/model/configuration, per-family accuracy, latency a
 retained failures here before claiming behavioral parity. A passing source or unit
 gate does not substitute for an unrun live-provider measurement.
 
+### Phase H cleanup: retired summary reducer
+
+The unused `agent_summary_reducer` manifest and its generated registry and hierarchy
+entries were removed in `b8e5ff1fb`. Active documentation was then corrected to remove
+the retired name and stale package count in `414446811`. A repository search now finds
+no active `summary_reducer` reference. The focused manifest and authority suites pass
+(`120 passed`), and the full protocol gate passes (`4,025 passed, 191 skipped`), with
+the unrelated live-provider failures below still retained as acceptance evidence.
+
+### September 16 Email auxiliary genes
+
+The remaining Email-owned model calls are now manifest-owned single-turn genes in
+`3ccb254a9`: the opt-in personal-information request classifier and the bounded
+receipt extractor. Their services use the shared Email single-turn runtime with
+schema-constrained outputs and turn-local authority sentinels; no direct
+`google.genai` generation path remains in either classifier. Existing read-only,
+fail-closed behavior and deterministic receipt classification remain unchanged.
+The generated product-agent registries are current.
+
+Static checks and focused verification passed: Python compilation, Ruff, registry
+freshness, Email runtime/manifest/registry tests, and the Gmail classifier/receipt
+service tests yielded **117 passed**. One unrelated pre-existing test failed because
+the branch's migration manifest ends at `223_one_location_setup_progress.sql`, while
+that test still assumes the Gmail migration `220_gmail_personal_information_request_initial_inbox_scan.sql`
+is last; no schema-order change was made here. No live Gemini calls were issued.
+
+### September 16 deterministic ADK/conformance gate
+
+The current branch reran the offline acceptance surfaces without contacting Gemini:
+
+```sh
+cd consent-protocol
+UV_CACHE_DIR=/tmp/hushh-uv-cache uv run pytest -q \
+  tests/test_nav_conformance.py tests/test_conformance_harness.py \
+  tests/test_one_adk_agent_tree.py tests/test_adk_dispatch.py \
+  tests/test_hushh_adk_single_turn.py tests/test_hushh_adk_manifest_and_factory.py
+```
+
+The result was **288 passed, 74 skipped** in 15.47 seconds. This covers the recorded
+Nav/Consent replay, conformance harness invariants, agent-tree authority checks, dispatch,
+single-turn runtime, and manifest/factory contracts. It is deterministic source evidence;
+it does not replace the outstanding live Gemini parity, latency, or final chat acceptance.
+
 ### Phase G routing decisions
 
 Calendar remains on One's existing deterministic toolset. The measured Gemini 3.7
@@ -194,3 +237,182 @@ Focused debate tests pass (70/70); the full backend runner passes (3,867
 passed, 191 skipped), and the One Voice web gate passes (362/362). No live
 Gemini debate run is claimed here, so provider latency, quota behavior, and
 end-to-end debate quality remain open acceptance work.
+
+### September 16 continuation: Gemini 3.8 live Nav acceptance
+
+The unchanged 22-case Nav fixture ran once on `gemini-3.8-flash` through
+`hushh-vertex-personal54/global`, at `0e896f20581323ab6a78f04d2ec51db61cab20b6`.
+The report marks the tree dirty because conformance-test scaffolding was added
+while the run was active; production Nav/Consent source was unchanged during it.
+The live report is `artifacts/regression/after-20260916/nav-adk-38-current-1x.json`.
+
+- First-tool and response-shape rates: **21/22 (95.45%)** each.
+- Median latency: **7,669.7 ms**; p95: **13,875.6 ms**; maximum: **18,712.6 ms**.
+- Observed ADK model requests: **54** (not a count of transport retries).
+- `explain_revoke` failed with provider `429 RESOURCE_EXHAUSTED`; it remains in
+  the denominator. No quota-versus-capacity cause is established.
+- The 90% accuracy thresholds passed for this single repetition; the unchanged
+  median ≤4s and p95 ≤8s gates failed. This is not three-repetition acceptance,
+  Connections coverage, or full One chat completion proof.
+
+Reproduce with the existing process-local environment loaded, selecting the
+personal54 bridge and `GOOGLE_CLOUD_LOCATION=global`:
+
+```sh
+.venv/bin/python scripts/eval_specialist_turns.py --mode adk \
+  --model gemini-3.8-flash --runs 1 \
+  --report artifacts/regression/after-20260916/nav-adk-38-current-1x.json
+```
+
+The CLI rejects an existing report path; choose a new path for a repeat. Official
+A2A v1 Kai rehearsal remains explicitly deferred by the approved plan, rather
+than a newly added migration acceptance requirement. Real-model conformance
+recordings, downstream specialist measurements and final full-chat performance
+remain separate acceptance requirements.
+
+### Nav/Consent real-model conformance
+
+Two fixture-only Gemini 3.8 recordings now live under
+`consent-protocol/tests/conformance/nav/`: active sharing and revoked history.
+They use the production Nav builder, a real Consent child and synthetic
+owner/service boundaries. Offline replay checks parent/child model requests,
+leaf calls, actions and complete outer session state with a refusing model and
+socket guard. Three focused tests pass, including rejection of tampered child
+arguments and recorded responses. The test is included in the backend CI manifest.
+
+ADK 2.9's stock plugins drop nested plugin configuration, overwrite the shared
+recording file and skip AgentTool execution during replay. Test-local adapters
+preserve these specific sequential Nav/Consent exchanges without changing
+production behavior. They do not establish general concurrent-graph replay,
+Connections or public-wrapper acceptance. Fixture documentation records that
+boundary and regeneration procedure. Live latency and other specialist
+acceptance remain open.
+
+The full repository backend runner after adding this replay suite passed:
+**3,870 passed, 191 skipped**, followed by the all-test-file import check.
+Concurrent frontend/One-manifest edits from another session were preserved;
+this evidence does not certify those separate changes or waived browser flows.
+
+### September 16 downstream runtime acceptance
+
+The synthetic PKM release chain ran on Gemini 3.8 through personal54/global with
+shadow reads disabled. The first run stopped on case 10 with `schema_invalid`,
+but the evaluator raised before saving its report. Its log remains local;
+no aggregate accuracy is claimed for that lost partial report. The evaluator
+now saves partial fail-fast results and unattempted counts, distinguishes outer
+timeouts from other exceptions without saving exception messages, and lets the
+45-second runtime budget finish before its own cancellation boundary. Quality
+thresholds are unchanged. A stale import test that expected keyword fallback on
+an unavailable model now asserts the current fail-closed response.
+
+The corrected run (`after-20260916/pkm-38-release-chain-v2.json`) evaluated **7/24**
+cases in **135.69s**, retaining **17 unattempted**. It stopped on an inner
+structure-agent timeout (30,001.61ms); the outer evaluation captured the result
+at 44,956.84ms rather than mislabeling it as an outer timeout. Domain accuracy and
+durable-domain coverage were **71.43%**, fallback **14.29%**. The run fails its
+unchanged quality gates. A provider429 also occurred; that alone does not prove
+the cause of the later timeout.
+
+The existing `run_kai_accuracy_suite.py` benchmarks direct-provider PDF extraction,
+not migrated Kai analyst/debate/chat execution. The new fixture-only
+`eval_kai_adk_synthetic.py` exercises six actual runtime paths, requires expected
+agent/model receipts, rejects fallback as completion, checkpoints each result
+and refuses to overwrite historical reports. It is explicitly a smoke test,
+not a financial accuracy benchmark or full debate/HTTP persistence rehearsal.
+
+Live report `after-20260916/kai-adk-synthetic.json` records source `2790418ae`
+with a dirty working tree (new evaluator plus concurrent unrelated edits):
+
+| Runtime path | Result | Duration |
+| --- | --- | --- |
+| Fundamental analyst | Passed | 5,620ms |
+| Sentiment analyst | Passed | 2,858ms |
+| Valuation analyst | Passed | 2,087ms |
+| One debate statement | Passed | 3,699ms |
+| Synthesis | Failed: provider429 followed by fallback | 14,548ms |
+| Chat with supplied synthetic context | Passed | 6,331ms |
+
+All six observed the expected manifest agent and Gemini 3.8 model. The five
+successes do not erase the synthesis failure, establish before/after accuracy,
+or complete migration acceptance. The ignored local regression outputs are
+retained for inspection; all model inputs in these runs were synthetic.
+
+Verification of the evaluator changes: full backend runner **3,918 passed,
+191 skipped**, followed by the all-test-file import check; focused evaluator
+suites **48 passed**. Synthetic-only runs now omit unused shadow-user identifiers
+from newly generated reports. No runtime quality threshold was relaxed.
+
+### September 16 PKM low-thinking follow-up
+
+The five sequential PKM manifests now explicitly author `thinking_level: low`.
+The shared single-turn builder test proves that this becomes the provider's
+`LOW` thinking configuration for every stage; a missing level would leave the
+Gemini provider default (`MEDIUM`) in effect. The strict prompt allowlist also
+retains every selectable canonical and owner-defined domain, while excluding
+reserved, internal, malformed, and overlong keys. The model remains the semantic
+owner; this change does not add deterministic routing.
+
+The fresh release-chain runs below use the same synthetic fixtures and bounded
+45-second preview budget. They are retained as infrastructure evidence, not
+completion claims:
+
+| Run | Evaluated | Contract result | Failure evidence |
+| --- | ---: | --- | --- |
+| Gemini 3.8 Flash, personal54/global | 1/24 | schema, intent, mutation, and domain each 100% for the completed case | global Vertex 429; inner timeout; 23 cases unattempted |
+| Gemini 3.7 Flash, personal54/global | 2/24 | schema, intent, mutation, and domain each 100% for completed cases | global Vertex 429; fallback 50%; inner timeout 1; inner budget exhausted 2; 22 cases unattempted |
+
+The local run outputs are retained as `pkm-38-low-thinking.json` and
+`pkm-37-low-thinking.json` under the operator's ignored regression-artifact
+directory. Both runs show the bridge is reachable and the 429 is quota/rate
+limiting in the selected personal project. They do not prove quality-gate
+completion; a comparable run after quota recovery is still required.
+
+### Core runtime review closure (September 16)
+
+The post-migration source review found and corrected three shared single-turn
+issues: a process-global schema map keyed by object identity, missing local
+validation for dictionary response schemas, and an implicit 30-second event
+cutoff inside longer caller deadlines. The runtime now uses the agent's own
+schema, validates dictionary schemas with the already-locked jsonschema package
+(declared directly), and gives the one tool-free call its caller-bounded deadline.
+No retry or model-call budget was increased.
+
+Focused offline verification: 53 single-turn, Email, Kai routing/runtime and
+evaluator tests; 11 portfolio optimizer and ADK foundation tests. All 64 passed.
+The agent hierarchy verifier passed. No live Gemini calls were made.
+
+The manual Kai evaluator now supports selected paths, sequential pacing and
+stop-on-first-failure with unattempted cases retained. Its CI tests use mocks.
+The earlier live synthesis 429 is not a CI synthesis workload. Future verification
+should reuse passing evidence and run only failed paths after capacity recovers.
+
+These corrections close the identified core source defects, not the historical
+live accuracy/latency failures. Full migration acceptance still requires the
+outstanding comparable PKM/Kai and final chat evidence above; no failed result
+has been relabeled as a pass. Generate and check dependent artifacts together
+before a single push, rather than using successive remote runs for discovery.
+
+### Admin landing integration verification (September 16)
+
+PR #6803 integration exposed stale `route.one_agents` action metadata from main,
+a roster prop mismatch, an accessibility verifier tied to only `aria-label`,
+and unused frontend declarations. Preserve the published action semantics,
+accept either a direct accessible label or its existing linked Agents heading,
+and regenerate gateway, graph, workflow catalog and topology together.
+The roster retains its caller-compatible prop type. Frontend cleanup removes
+unused bindings and captures the recipient-loader callback for its effect.
+
+Full backend runner: 4,032 passed, 191 skipped; lint, type analysis and security
+checks passed. Generated contract verification and 19 offline voice tests passed.
+These checks made no live Gemini requests. Admin identity and live main branch
+protection were verified; landing still requires exact-head remote CI success.
+
+The existing Location regression pack exposed two main-integration behavior
+regressions: the visible status button had no toggle handler, and duration
+editing bypassed the owning callback that records the focus-return trigger.
+Both paths now use their existing callbacks, including each share lane's trigger.
+The accompanying stale layout/copy assertions now verify current accessible
+labels, keyboard order, command-capture ownership and preserved routing.
+The pack initially passed 1,054/1,069; the five affected files passed 181/184
+after correction, and all three remaining cases passed on their focused rerun.
+TypeScript and lint for the affected files passed. No live provider tests ran.

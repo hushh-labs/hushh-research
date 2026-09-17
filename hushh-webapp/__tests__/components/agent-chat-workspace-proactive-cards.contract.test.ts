@@ -20,6 +20,38 @@ const source = readFileSync(
  * dropping a gating condition here.
  */
 describe("Agent One proactive Gmail cards wiring contract", () => {
+  it("uses one accessible quick-prompt rail for both empty and post-setup states", () => {
+    expect(source).toContain("function AgentPromptSuggestions(");
+    expect(source).toContain('data-testid="agent-chat-suggestions"');
+    expect(source).toContain('aria-label="Suggestions"');
+    expect(source).toContain("variant=\"pill\"");
+    expect(source).toContain("onClick={() => onPromptSelect(prompt)}");
+    expect(source).toContain("setInput(prompt)");
+  });
+
+  it("keeps the dedicated-route history sidebar honest while it loads", () => {
+    expect(source).toContain("setIsLoadingHistory(true);");
+    expect(source).toContain("setIsLoadingHistory(false);");
+    expect(source).toContain("warmAgentChatHistoryCache({");
+    expect(source).toContain('loading={isLoadingHistory && conversations.length === 0}');
+  });
+
+  it("keeps slow history warming out of the canonical chat interaction path", () => {
+    const canSendBlock = source.slice(
+      source.indexOf("const canSend ="),
+      source.indexOf("const canToggleVoice ="),
+    );
+    expect(canSendBlock).not.toContain("isLoadingHistory");
+
+    const runTurnGuard = source.slice(
+      source.indexOf("if (!text.trim()"),
+      source.indexOf("// Pre-model paste guard"),
+    );
+    expect(runTurnGuard).not.toContain("isLoadingHistory");
+
+    expect(source).not.toContain('if (isLoadingHistory) return "Loading";');
+  });
+
   it("imports both proactive card components", () => {
     expect(source).toContain(
       'import { AgentConnectAccessCard } from "@/components/agent/agent-connect-access-card"',

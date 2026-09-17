@@ -27,6 +27,7 @@ import logging
 import math
 from datetime import datetime, timezone
 from typing import Any
+from urllib.parse import urlsplit
 from uuid import UUID
 
 from db.db_client import get_db
@@ -298,9 +299,8 @@ class FeedService:
         request_ids: set[str] = set()
         for row in rows:
             metadata = row.get("metadata")
-            if (
-                isinstance(metadata, dict)
-                and _bounded_text(metadata.get(_COUNTERPART_PHOTO_KEY), limit=1)
+            if isinstance(metadata, dict) and _bounded_text(
+                metadata.get(_COUNTERPART_PHOTO_KEY), limit=1
             ):
                 continue
             source_row_id = str(row.get("source_row_id") or "").strip()

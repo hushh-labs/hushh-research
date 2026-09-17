@@ -5,6 +5,12 @@ const mocks = vi.hoisted(() => ({
   fetchPuppyStatus: vi.fn(),
   // What the shared link store would hand every surface on the page.
   link: { current: null as unknown },
+  navigation: { pathname: "/", search: "" },
+}));
+
+vi.mock("next/navigation", () => ({
+  usePathname: () => mocks.navigation.pathname,
+  useSearchParams: () => new URLSearchParams(mocks.navigation.search),
 }));
 
 vi.mock("@/lib/services/puppy-one-service", async (importOriginal) => {
@@ -44,7 +50,8 @@ const NOT_CONFIGURED: PuppyStatus = {
 };
 
 const GITHUB = "https://github.com/hushh-labs/hussh-one-hermes";
-const DEVICES = "/one/profile/security/devices";
+const DEVICES =
+  "/?profile_pane=1&profile_panel=security&profile_detail=trusted-devices";
 
 function link(overrides: Partial<PuppyLink>): PuppyLink {
   return {
@@ -96,6 +103,8 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.clearAllMocks();
+  mocks.navigation.pathname = "/";
+  mocks.navigation.search = "";
   Object.defineProperty(window, "location", {
     configurable: true,
     value: realLocation,
@@ -103,7 +112,18 @@ afterEach(() => {
 });
 
 describe("HermesChatPanel when the bridge is not connected", () => {
-  it("live: names the machine, the model and when it was seen, and links the devices page", async () => {
+  it("opens the Profile pane on the current route while preserving route query state", async () => {
+    mocks.navigation.pathname = "/one/puppy";
+    mocks.navigation.search = "tab=chat";
+    await mount(link({ state: "unlinked" }));
+
+    expect(screen.getByRole("link", { name: "Trusted devices" })).toHaveAttribute(
+      "href",
+      "/one/puppy?tab=chat&profile_pane=1&profile_panel=security&profile_detail=trusted-devices",
+    );
+  });
+
+  it("live: names the machine, the model and when it was seen, and opens the Profile pane", async () => {
     await mount(
       link({
         state: "live",
@@ -202,7 +222,7 @@ describe("HermesChatPanel when the bridge is not connected", () => {
     );
   });
 
-  it("unlinked: points at the install source and the devices page", async () => {
+  it("unlinked: points at the install source and the Profile pane", async () => {
     await mount(link({ state: "unlinked" }));
     expect(
       await screen.findByText(/Puppy One isn't connected to your account yet/),
@@ -230,9 +250,9 @@ describe("HermesChatPanel when the bridge is not connected", () => {
       "Puppy One was unlinked from this account. On that machine, run /hussh-one connect.",
     );
     // Unlinking can be done from another session or by someone else on the
-    // account, so this is news, and Trusted devices is the only page that says
-    // which device and when. Still no install anchor: that machine already has
-    // Puppy One on it.
+    // account, so this is news, and the Profile detail is the only surface that
+    // says which device and when. Still no install anchor: that machine already
+    // has Puppy One on it.
     expect(screen.getByRole("link", { name: "Trusted devices" })).toHaveAttribute(
       "href",
       DEVICES,

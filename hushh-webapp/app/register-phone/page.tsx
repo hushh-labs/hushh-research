@@ -5,8 +5,6 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { ChevronLeft, LogOut, MoreHorizontal } from "lucide-react";
 import { toast } from "sonner";
 
-import { Dialog, DialogContent, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-
 import { HushhLoader } from "@/components/app-ui/hushh-loader";
 import { NativeRouteMarker } from "@/components/app-ui/native-route-marker";
 import { PhoneVerificationFlow } from "@/components/auth/phone-verification-flow";

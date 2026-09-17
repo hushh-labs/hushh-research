@@ -1,11 +1,12 @@
 "use client";
 
-import { useMemo, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, type ReactNode } from "react";
 
 import {
   AppStreamPanel,
   type AppStreamProgressItem,
 } from "@/components/app-ui/stream-progress-panel";
+import { AgentMarkdown } from "@/components/agent/agent-markdown";
 import { AgentStructuredExperienceView } from "@/components/agent/agent-structured-experience";
 import type { AgentStructuredExperience } from "@/lib/agent/agui-structured-experiences";
 import type { AgentChatToolEvent, AgentSource } from "@/lib/services/agent-chat-client";
@@ -34,6 +35,38 @@ export type AgentTurnStreamPanelProps = {
 };
 
 const MAX_VISIBLE_SOURCES = 8;
+
+function AgentThinkingContent({
+  text,
+  isStreaming,
+}: {
+  text: string;
+  isStreaming: boolean;
+}) {
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const normalizedText = text.trim();
+
+  useEffect(() => {
+    const container = scrollRef.current;
+    if (!container) return;
+    // Reasoning is a live, bounded detail surface. Keep the newest step in
+    // view while it grows; the parent panel remounts closed once response
+    // text arrives, so this never competes with the answer.
+    container.scrollTop = container.scrollHeight;
+  }, [isStreaming, normalizedText]);
+
+  return (
+    <div
+      ref={scrollRef}
+      role="log"
+      aria-label="Thinking details"
+      aria-live={isStreaming ? "polite" : undefined}
+      className="max-h-44 min-h-0 overflow-y-auto overscroll-contain pr-1 text-xs leading-relaxed text-muted-foreground"
+    >
+      <AgentMarkdown text={normalizedText} className="text-xs leading-relaxed" />
+    </div>
+  );
+}
 
 const SOURCE_SUMMARIES: Record<string, { badge: string; message: string }> = {
   agent_email: { badge: "Specialist", message: "Email assistant consulted." },
@@ -152,9 +185,7 @@ export function AgentTurnStreamPanel({
       thinkingTitle="One is thinking"
       thinkingContent={
         thinkingText && thinkingText.trim() ? (
-          <p className="whitespace-pre-wrap text-xs leading-relaxed text-muted-foreground">
-            {thinkingText.trim()}
-          </p>
+          <AgentThinkingContent text={thinkingText} isStreaming={isStreaming} />
         ) : null
       }
       thinkingClassName="bg-transparent dark:bg-transparent"

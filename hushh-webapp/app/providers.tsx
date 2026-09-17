@@ -274,6 +274,7 @@ function AppShellFrame({ children }: ProvidersProps) {
   const shouldLockFullscreenRoot = isFullscreenTopFlow || hidesPersistentChrome;
   const isFoundationRoute = isFoundationPublicRoute(pathname);
   const isPublicStandaloneRoute = isFoundationRoute && pathname !== ROUTES.HOME;
+  const isCanonicalChatRoute = shellPathname === "/" && isAuthenticated;
   const signedInShellContentOffset = useMemo(
     () =>
       resolveSignedInShellContentOffset({
@@ -383,6 +384,11 @@ function AppShellFrame({ children }: ProvidersProps) {
     ambientEnabled:
       ambientChromeEnabled && !isFullscreenTopFlow && !bottomChromeHidden,
     navigationHidden: hideBottomNavigation,
+    // The canonical Chat route already exposes its text composer. Keep the
+    // idle voice launcher out of that route's visual hierarchy while allowing
+    // an active command to remain visible and cancellable.
+    agentBarHidden:
+      isAuthenticated && !authLoading && pathname === ROUTES.HOME,
     hidden: bottomChromeHidden,
   };
   // Drive the bottom-chrome hide animation through a CSS variable instead of a
@@ -673,10 +679,10 @@ function AppShellFrame({ children }: ProvidersProps) {
                         signedInShellContentOffset.mode
                       }
                     >
-                      {!hidesPersistentChrome ? (
+                      {!hidesPersistentChrome && !isCanonicalChatRoute ? (
                         <AppTopShell model={topShellModel} />
                       ) : null}
-                      {!hidesPersistentChrome && !effectiveHideCommandBar ? (
+                      {!hidesPersistentChrome && !effectiveHideCommandBar && !isCanonicalChatRoute ? (
                         <KaiCommandBarGlobal />
                       ) : null}
                       <Suspense
@@ -687,22 +693,27 @@ function AppShellFrame({ children }: ProvidersProps) {
                               <div
                                 data-app-scroll-root="true"
                                 data-app-scroll-mode={
-                                  hideGlobalChrome
-                                    ? "hidden-shell"
-                                    : shouldLockFullscreenRoot
-                                      ? "fullscreen-flow"
-                                      : "standard"
+                                  isCanonicalChatRoute
+                                    ? "fullscreen-flow"
+                                    : hideGlobalChrome
+                                      ? "hidden-shell"
+                                      : shouldLockFullscreenRoot
+                                        ? "fullscreen-flow"
+                                        : "standard"
                                 }
                                 className={
-                                  hideGlobalChrome
-                                    ? "flex-1 overflow-y-auto overflow-x-hidden overscroll-x-none overscroll-y-contain touch-pan-y pb-[var(--app-scroll-bottom-pad,var(--onboarding-agent-bar-clearance))] relative z-10 min-h-0"
-                                    : shouldLockFullscreenRoot
-                                      ? "flex-1 overflow-y-auto overflow-x-hidden overscroll-x-none touch-pan-y relative z-10 min-h-0"
-                                      : "flex-1 overflow-y-auto overflow-x-hidden overscroll-x-none touch-pan-y pb-[var(--app-scroll-bottom-pad,var(--app-bottom-content-clearance))] relative z-10 min-h-0"
+                                  isCanonicalChatRoute
+                                    ? "flex-1 overflow-hidden relative z-10 min-h-0 flex flex-col h-full"
+                                    : hideGlobalChrome
+                                      ? "flex-1 overflow-y-auto overflow-x-hidden overscroll-x-none overscroll-y-contain touch-pan-y pb-[var(--app-scroll-bottom-pad,var(--onboarding-agent-bar-clearance))] relative z-10 min-h-0"
+                                      : shouldLockFullscreenRoot
+                                        ? "flex-1 overflow-y-auto overflow-x-hidden overscroll-x-none touch-pan-y relative z-10 min-h-0"
+                                        : "flex-1 overflow-y-auto overflow-x-hidden overscroll-x-none touch-pan-y pb-[var(--app-scroll-bottom-pad,var(--app-bottom-content-clearance))] relative z-10 min-h-0"
                                 }
                               >
                                 {!hideGlobalChrome &&
-                                !shouldLockFullscreenRoot ? (
+                                !shouldLockFullscreenRoot &&
+                                !isCanonicalChatRoute ? (
                                   <div
                                     data-app-shell-top-spacer="true"
                                     aria-hidden
@@ -711,8 +722,8 @@ function AppShellFrame({ children }: ProvidersProps) {
                                 <div
                                   data-app-shell-content="true"
                                   className={
-                                    shouldLockFullscreenRoot
-                                      ? "min-h-0 h-full"
+                                    isCanonicalChatRoute || shouldLockFullscreenRoot
+                                      ? "min-h-0 h-full flex-1 flex flex-col"
                                       : "min-h-0"
                                   }
                                 >
@@ -735,24 +746,29 @@ function AppShellFrame({ children }: ProvidersProps) {
                               <div
                                 data-app-scroll-root="true"
                                 data-app-scroll-mode={
-                                  hideGlobalChrome
-                                    ? "hidden-shell"
-                                    : shouldLockFullscreenRoot
-                                      ? "fullscreen-flow"
-                                      : "standard"
+                                  isCanonicalChatRoute
+                                    ? "fullscreen-flow"
+                                    : hideGlobalChrome
+                                      ? "hidden-shell"
+                                      : shouldLockFullscreenRoot
+                                        ? "fullscreen-flow"
+                                        : "standard"
                                 }
                                 className={
-                                  hideGlobalChrome
-                                    ? // Landing/onboarding flows retain a scroll tail for the fixed Agent Bar.
-                                      "flex-1 overflow-y-auto overflow-x-hidden overscroll-x-none overscroll-y-contain touch-pan-y pb-[var(--app-scroll-bottom-pad,var(--onboarding-agent-bar-clearance))] relative z-10 min-h-0"
-                                    : shouldLockFullscreenRoot
-                                      ? // Fullscreen flows keep chrome contract, but permit y-scroll for small devices.
-                                        "flex-1 overflow-y-auto overflow-x-hidden overscroll-x-none touch-pan-y relative z-10 min-h-0"
-                                      : "flex-1 overflow-y-auto overflow-x-hidden overscroll-x-none touch-pan-y pb-[var(--app-scroll-bottom-pad,var(--app-bottom-content-clearance))] relative z-10 min-h-0"
+                                  isCanonicalChatRoute
+                                    ? "flex-1 overflow-hidden relative z-10 min-h-0 flex flex-col h-full"
+                                    : hideGlobalChrome
+                                      ? // Landing/onboarding flows retain a scroll tail for the fixed Agent Bar.
+                                        "flex-1 overflow-y-auto overflow-x-hidden overscroll-x-none overscroll-y-contain touch-pan-y pb-[var(--app-scroll-bottom-pad,var(--onboarding-agent-bar-clearance))] relative z-10 min-h-0"
+                                      : shouldLockFullscreenRoot
+                                        ? // Fullscreen flows keep chrome contract, but permit y-scroll for small devices.
+                                          "flex-1 overflow-y-auto overflow-x-hidden overscroll-x-none touch-pan-y relative z-10 min-h-0"
+                                        : "flex-1 overflow-y-auto overflow-x-hidden overscroll-x-none touch-pan-y pb-[var(--app-scroll-bottom-pad,var(--app-bottom-content-clearance))] relative z-10 min-h-0"
                                 }
                               >
                                 {!hideGlobalChrome &&
-                                !shouldLockFullscreenRoot ? (
+                                !shouldLockFullscreenRoot &&
+                                !isCanonicalChatRoute ? (
                                   <div
                                     data-app-shell-top-spacer="true"
                                     aria-hidden
@@ -761,8 +777,8 @@ function AppShellFrame({ children }: ProvidersProps) {
                                 <div
                                   data-app-shell-content="true"
                                   className={
-                                    shouldLockFullscreenRoot
-                                      ? "min-h-0 h-full"
+                                    isCanonicalChatRoute || shouldLockFullscreenRoot
+                                      ? "min-h-0 h-full flex-1 flex flex-col"
                                       : "min-h-0"
                                   }
                                 >

@@ -4,7 +4,7 @@
 // Proves the four founder-reported defects are fixed on a real reviewer session
 // with an unlocked vault:
 //   1. "Trusted devices" is a TOP-LEVEL profile row, not buried under Security.
-//   2. The route carries a Profile > Trusted devices breadcrumb.
+//   2. The row opens the recursive Profile pane on the current route.
 //   3. The status label is honest: "Trusted", never "Active - last synced",
 //      which claims a live reachability the server cannot observe.
 //   4. Revisiting is cache-first: no blocking spinner over data already held.
@@ -27,7 +27,9 @@ const appOrigin = String(
 ).replace(/\/$/, "");
 const timeoutMs = Number(process.env.REVIEWER_APP_TIMEOUT_MS || 360_000);
 
-const DEVICES_ROUTE = "/one/profile/security/devices";
+const PROFILE_ROUTE = "/one/profile";
+const DEVICES_PANE_ROUTE =
+  "/one?profile_pane=1&profile_panel=security&profile_detail=trusted-devices";
 
 await prepareReviewerRehearsal({ repoRoot, appOrigin });
 const reviewer = await createReviewerSessionHarness({ repoRoot, appOrigin, timeoutMs });
@@ -53,12 +55,12 @@ let session;
 try {
   // A cold authenticated entry must visibly hard-gate on the vault before any
   // passphrase is supplied.
-  await reviewer.assertVisibleVaultChallenge(browser, DEVICES_ROUTE);
+  await reviewer.assertVisibleVaultChallenge(browser, PROFILE_ROUTE);
   process.stdout.write("  ok    cold entry hard-gates on the vault\n");
 
-  session = await reviewer.openSession(browser, "/one/profile");
+  session = await reviewer.openSession(browser, PROFILE_ROUTE);
   const { page } = session;
-  await reviewer.assertVaultContinuity(page, "/one/profile");
+  await reviewer.assertVaultContinuity(page, PROFILE_ROUTE);
 
   // 1. Top-level placement. The row must be reachable from the profile root
   //    without first opening Security & privacy.
@@ -69,12 +71,15 @@ try {
     "not found on /one/profile",
   );
 
-  // 2. Client navigation into the route keeps the vault unlocked.
-  await reviewer.navigateInApp(page, DEVICES_ROUTE);
-  await reviewer.assertVaultContinuity(page, DEVICES_ROUTE);
+  // 2. Client navigation into the recursive pane keeps the vault unlocked and
+  // leaves the underlying route at the entry surface.
+  await reviewer.navigateInApp(page, DEVICES_PANE_ROUTE);
+  await reviewer.assertVaultContinuity(page, DEVICES_PANE_ROUTE);
   check(
-    "navigates to the devices route",
-    page.url().includes("/security/devices"),
+    "opens Trusted devices inside the Profile pane",
+    page.url().includes("/one?") &&
+      page.url().includes("profile_detail=trusted-devices") &&
+      (await page.locator('[data-testid="profile-pane"]').count()) === 1,
     page.url(),
   );
 
@@ -100,25 +105,25 @@ try {
     );
   }
 
-  // 4. Breadcrumb context for a standalone route.
+  // 4. Pane context must retain both Profile chrome and the active detail.
   check(
-    "breadcrumb shows Profile > Trusted devices",
+    "pane context shows Profile and Trusted devices",
     /Profile/.test(devicesText) && /Trusted devices/.test(devicesText),
-    "breadcrumb context missing",
+    "pane context missing",
   );
 
   // 5. Cache-first revisit: leaving and returning must paint from the warm
   //    cache rather than blocking on a spinner over data already held.
-  await reviewer.navigateInApp(page, "/one/profile");
-  await reviewer.assertVaultContinuity(page, "/one/profile (return)");
-  await reviewer.navigateInApp(page, DEVICES_ROUTE);
+  await reviewer.navigateInApp(page, PROFILE_ROUTE);
+  await reviewer.assertVaultContinuity(page, `${PROFILE_ROUTE} (return)`);
+  await reviewer.navigateInApp(page, DEVICES_PANE_ROUTE);
   const warmText = clean(await page.locator("body").innerText());
   check(
     "warm revisit does not block on a loading spinner",
     !/Loading devices/i.test(warmText),
     "blocking loader rendered over cached data",
   );
-  await reviewer.assertVaultContinuity(page, `${DEVICES_ROUTE} (warm)`);
+  await reviewer.assertVaultContinuity(page, `${DEVICES_PANE_ROUTE} (warm)`);
 
   // 6. The API contract behind the surface, read through the owner token.
   const ownerToken = await session.capture.ownerToken();

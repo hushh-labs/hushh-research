@@ -16,12 +16,12 @@ describe("route transition intent ownership", () => {
     const third = vi.fn();
 
     beginRouteTransition("/one", first, "tap");
-    vi.advanceTimersByTime(120);
+    vi.advanceTimersByTime(40);
     beginRouteTransition("/one/kai", second, "tap");
-    vi.advanceTimersByTime(120);
+    vi.advanceTimersByTime(40);
     beginRouteTransition("/one/profile", third, "tap");
 
-    vi.advanceTimersByTime(299);
+    vi.advanceTimersByTime(119);
     expect(first).not.toHaveBeenCalled();
     expect(second).not.toHaveBeenCalled();
     expect(third).not.toHaveBeenCalled();
@@ -38,7 +38,7 @@ describe("route transition intent ownership", () => {
 
     beginRouteTransition("/one/kai", navigate, "tap");
     beginRouteTransition("/one/kai", navigate, "tap");
-    vi.advanceTimersByTime(300);
+    vi.advanceTimersByTime(120);
 
     expect(navigate).toHaveBeenCalledTimes(1);
   });
@@ -48,7 +48,7 @@ describe("route transition intent ownership", () => {
     const navigate = vi.fn();
 
     beginRouteTransition("/one/kai", navigate, "tap");
-    vi.advanceTimersByTime(300);
+    vi.advanceTimersByTime(120);
     expect(navigate).toHaveBeenCalledTimes(1);
 
     // A route may take longer than the exit beat to resolve. The old surface

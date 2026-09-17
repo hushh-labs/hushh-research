@@ -18,6 +18,8 @@ import { snapKaiBottomChromeVisible } from "@/lib/navigation/kai-bottom-chrome-v
 export type BottomShellModel = {
   ambientEnabled: boolean;
   navigationHidden: boolean;
+  /** Chat owns the primary text composer, so its idle voice launcher is omitted. */
+  agentBarHidden?: boolean;
   /** An immersive route owns the full viewport and has no persistent chrome. */
   hidden?: boolean;
 };
@@ -30,6 +32,10 @@ export function AppBottomShell({ model }: { model: BottomShellModel }) {
   const command = useOptionalLocationCommand();
   const voiceActive = useAgentVoiceState((state) => state.active);
   const hidden = model.hidden && !command?.active && !voiceActive;
+  // A route may hide the idle launcher without interrupting a command already
+  // in progress. Active capture remains visible and cancellable.
+  const agentBarVisible =
+    !model.agentBarHidden || Boolean(command?.active) || voiceActive;
   const shellRef = useRef<HTMLDivElement | null>(null);
   const navigationSlotRef = useRef<HTMLDivElement | null>(null);
   // AgentBar reads client-only auth and location-command state. Rendering its
@@ -72,7 +78,7 @@ export function AppBottomShell({ model }: { model: BottomShellModel }) {
     observer.observe(shell);
     if (navigationSlotRef.current) observer.observe(navigationSlotRef.current);
     return () => observer.disconnect();
-  }, [hidden, model.navigationHidden]);
+  }, [hidden, model.agentBarHidden, model.navigationHidden]);
 
   if (hidden) return null;
 
@@ -106,19 +112,21 @@ export function AppBottomShell({ model }: { model: BottomShellModel }) {
       >
         <div
           data-bottom-shell-motion-stack
-          className="flex flex-col items-center gap-1.5 transform-gpu will-change-transform"
+          className="flex flex-col items-center gap-1.5 transform-gpu"
           style={{
             transform: model.navigationHidden
               ? undefined
               : BOTTOM_SCROLL_TRANSFORM,
           }}
         >
-          <div
-            data-bottom-shell-agent-slot
-            className="flex w-full justify-center"
-          >
-            {agentBarMounted ? <AgentBar layout="slot" /> : null}
-          </div>
+          {agentBarVisible ? (
+            <div
+              data-bottom-shell-agent-slot
+              className="flex w-full justify-center"
+            >
+              {agentBarMounted ? <AgentBar layout="slot" /> : null}
+            </div>
+          ) : null}
           <div
             ref={navigationSlotRef}
             data-bottom-shell-navigation-slot

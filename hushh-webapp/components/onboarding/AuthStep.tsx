@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import Image from "next/image";
 import { ArrowLeft, Shield } from "lucide-react";
 import lightStyles from "./AuthStepLight.module.css";
-import { OneArcIllustration } from "@/components/onboarding/OneArcIllustration";
 import { AuthService } from "@/lib/services/auth-service";
 import { ApiService } from "@/lib/services/api-service";
 import { useAuth } from "@/lib/firebase/auth-context";
@@ -338,7 +337,7 @@ export function AuthStep({
       const explicitTargetPath = normalizeInternalRouteHref(
         resumeTarget || redirectPath,
       );
-      const targetPath = explicitTargetPath ?? ROUTES.ONE_HOME;
+      const targetPath = explicitTargetPath ?? ROUTES.HOME;
       const navigationKey = `${userId}:${targetPath}`;
       if (lastNavigationKeyRef.current === navigationKey) {
         return lastResolvedNavigationPathRef.current || targetPath;
@@ -1045,24 +1044,12 @@ export function AuthStep({
         }}
         data-auth-content-block
       >
-        {/* Center the complete sign-in group as one visual block while the
-            fixed Back control remains independently anchored above it. Legal
-            copy is anchored separately at the bottom like a standard auth
-            footer, so it does not read as primary sign-in content. */}
         <div
           className={cn("flex w-full flex-none flex-col items-center gap-5 px-2 text-center", lightStyles.clusters)}
           data-auth-signin-clusters
         >
           <div className={cn("flex w-full flex-col items-center gap-3", lightStyles.hero)}>
-            <div className={lightStyles.existingIllustration}><OneArcIllustration /></div>
-            <div className={lightStyles.illustration} aria-hidden="true">
-              <div className={lightStyles.imageCrop}>
-                <Image src="/onboarding/figma/screen-7-art.png" alt="" width={1536} height={1024} priority unoptimized draggable={false} className={lightStyles.darkArtwork} />
-                <Image src="/onboarding/figma/screen-3-art.png" alt="" width={950} height={1698} priority unoptimized draggable={false} />
-              </div>
-              <span className={lightStyles.glow} />
-              <span className={lightStyles.emoji}>🤫</span>
-            </div>
+            <span className={lightStyles.brandMark} aria-hidden="true">🤫</span>
 
             <h1
               role="heading"
@@ -1117,22 +1104,26 @@ export function AuthStep({
                 />
               ) : null}
             </div>
-
           </div>
         </div>
       </div>
-      <div className="absolute inset-x-6 bottom-5 z-10 flex justify-center">
+
+      <div className={cn("absolute inset-x-4 bottom-5 z-10 flex justify-center", lightStyles.footer)}>
         <div
-          className="flex flex-col items-center gap-3"
+          className={cn("flex items-center gap-3.5 text-left max-w-[24rem]", lightStyles.legalRow)}
           data-auth-supporting-content
         >
-          <p className="type-footnote mx-auto max-w-[24rem] text-center leading-5 text-[#86868b] dark:text-white/45">
+          <span className={lightStyles.existingPrivacyIcon}><HandshakePrivacyIcon className="h-[26px] w-[32px] shrink-0" /></span>
+          <Image src="/onboarding/figma/privacy-light-auth.svg" alt="" width={32.245548} height={25.76586} unoptimized className={lightStyles.privacyIcon} />
+          <Image src="/onboarding/figma/privacy-dark.svg" alt="" width={32.245548} height={25.76586} unoptimized className={lightStyles.darkPrivacyIcon} />
+          <p className="text-xs sm:text-[13px] leading-[1.35] text-[#8E8E93] dark:text-white/90">
             By continuing you agree to our{" "}
+            <br />
             <button
               type="button"
               onClick={() => void openLegalDoc("terms")}
               data-voice-control-id="auth_terms"
-              className="font-semibold text-[color:var(--app-accent-deep)] transition-opacity hover:opacity-70 dark:text-[color:var(--app-accent-deep)]"
+              className="font-semibold text-[#387BF5] transition-opacity hover:opacity-75"
             >
               Terms
             </button>
@@ -1141,10 +1132,11 @@ export function AuthStep({
               type="button"
               onClick={() => void openLegalDoc("privacy")}
               data-voice-control-id="auth_privacy"
-              className="font-semibold text-[color:var(--app-accent-deep)] transition-opacity hover:opacity-70 dark:text-[color:var(--app-accent-deep)]"
+              className="font-semibold text-[#387BF5] transition-opacity hover:opacity-75"
             >
               Privacy Policy
             </button>
+            .
           </p>
         </div>
       </div>

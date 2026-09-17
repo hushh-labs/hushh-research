@@ -16,6 +16,7 @@ import {
 const ORG_ID = `${SITE_URL}/#organization`;
 const SITE_ID = `${SITE_URL}/#website`;
 const APP_ID = `${SITE_URL}/#software`;
+const FOUNDER_ID = `${SITE_URL}/#founder`;
 
 export function buildOrganizationGraph(): Record<string, unknown> {
   return {
@@ -29,7 +30,8 @@ export function buildOrganizationGraph(): Record<string, unknown> {
         logo: absoluteUrl("/quiet-emoji-icon.png"),
         description:
           "Hussh is the platform and trust infrastructure for consent-first private AI agents: scoped access, BYOK, zero-knowledge vault, and encrypted PKM.",
-        sameAs: ["https://hushh.ai"],
+        founder: { "@id": FOUNDER_ID },
+        sameAs: ["https://hushh.ai", "https://www.hushh.ai"],
       },
       {
         "@type": "WebSite",
@@ -47,7 +49,30 @@ export function buildOrganizationGraph(): Record<string, unknown> {
         description: PUBLIC_ROUTE_SEMANTICS[route].description,
         isPartOf: { "@id": SITE_ID },
         publisher: { "@id": ORG_ID },
+        ...(PUBLIC_ROUTE_SEMANTICS[route].schemaType === "ProfilePage"
+          ? { mainEntity: { "@id": FOUNDER_ID } }
+          : {}),
       })),
+      {
+        "@type": "Person",
+        "@id": FOUNDER_ID,
+        name: "Manish Sainani",
+        url: absoluteUrl("/manishhussh"),
+        image: absoluteUrl("/manish-sainani.png"),
+        jobTitle: "Founder & CEO",
+        worksFor: { "@id": ORG_ID },
+        alumniOf: {
+          "@type": "CollegeOrUniversity",
+          name: "Purdue University",
+        },
+        description:
+          "Founder & CEO of Hussh, building personal agent infrastructure people own: Hussh One and the open consent protocol PCHP.",
+        sameAs: [
+          "https://www.linkedin.com/in/manishsainani",
+          "https://x.com/manish_sainani",
+          "https://www.wikidata.org/wiki/Q141478333",
+        ],
+      },
       {
         "@type": "SoftwareApplication",
         "@id": APP_ID,

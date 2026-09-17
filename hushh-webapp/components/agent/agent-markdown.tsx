@@ -17,9 +17,15 @@ import { cn } from "@/lib/utils";
  * there, because the workspace already imports the Puppy surface and the
  * cycle would close.
  */
-export function AgentMarkdown({ text }: { text: string }) {
+export function AgentMarkdown({
+  text,
+  className,
+}: {
+  text: string;
+  className?: string;
+}) {
   return (
-    <div className="agent-markdown min-w-0 break-words">
+    <div className={cn("agent-markdown min-w-0 break-words", className)}>
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         components={{

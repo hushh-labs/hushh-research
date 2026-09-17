@@ -344,9 +344,6 @@ export function deriveVoiceRouteScreen(
   if (normalizedPath === ROUTES.PROFILE_RECEIPTS) {
     return { screen: "gmail", subview: "legacy" };
   }
-  if (normalizedPath === ROUTES.PROFILE_SECURITY_DEVICES) {
-    return { screen: "profile_security_devices", subview: null };
-  }
   if (normalizedPath === ROUTES.PROFILE_SECURITY_DEVICE_AUTHORIZE) {
     return { screen: "app", subview: "trusted-device-authorization" };
   }

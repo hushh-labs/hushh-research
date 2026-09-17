@@ -39,9 +39,9 @@ DEFAULT_REPORT_PATH = CONSENT_PROTOCOL_ROOT / "artifacts" / "pkm_structure_agent
 DEFAULT_PRIMARY_MODEL = "gemini-3.7-flash"
 DEFAULT_SECONDARY_MODEL = ""
 DEFAULT_REFERENCE_MODEL = ""
-# The evaluator must outlive the runtime preview's 35-second deadline so it
-# records the service result instead of manufacturing an earlier timeout.
-DEFAULT_PER_PROMPT_TIMEOUT_SECONDS = 40.0
+# Outlive the runtime deadline to capture its result; accuracy/latency gates
+# remain independent of this cancellation boundary.
+DEFAULT_PER_PROMPT_TIMEOUT_SECONDS = pkm_agent_lab_module._PREVIEW_TOTAL_BUDGET_SECONDS + 5.0
 DEFAULT_SHADOW_USERS = [
     "UWHGeUyfUAbmEl5xwIPoWJ7Cyft2",
     "s3xmA4lNSAQFrIaOytnSGAOzXlL2",
@@ -266,6 +266,7 @@ class EvaluationResult:
     # Repetition index within a --reps run. Rep 0 pays one-time costs such as a
     # local model load, so it is summarized apart from the warm repetitions.
     rep: int = 0
+    failure_class: str | None = None
 
 
 def pct(values: list[float], quantile: float) -> float:
@@ -3136,6 +3137,7 @@ async def _evaluate_case(
 ) -> EvaluationResult:
     started_at = time.perf_counter()
     timed_out = False
+    failure_class = None
     try:
         result = await asyncio.wait_for(
             service.generate_structure_preview(
@@ -3150,8 +3152,9 @@ async def _evaluate_case(
             ),
             timeout=per_prompt_timeout_seconds,
         )
-    except Exception:
-        timed_out = True
+    except Exception as error:
+        timed_out = isinstance(error, TimeoutError)
+        failure_class = type(error).__name__
         result = {
             "intent_frame": {
                 "save_class": "",
@@ -3160,8 +3163,8 @@ async def _evaluate_case(
                 "requires_confirmation": False,
             },
             "structure_decision": {"target_domain": ""},
-            "write_mode": "timeout",
-            "validation_hints": ["model_timeout"],
+            "write_mode": "timeout" if timed_out else "error",
+            "validation_hints": ["model_timeout" if timed_out else "model_error"],
             "used_fallback": True,
         }
     latency_ms = round((time.perf_counter() - started_at) * 1000, 2)
@@ -3220,6 +3223,7 @@ async def _evaluate_case(
         drift_flags=dict(result.get("drift_flags") or {}),
         used_fallback=bool(result.get("used_fallback")),
         timed_out=timed_out,
+        failure_class=failure_class,
         finance_contamination=finance_contamination,
         unresolved_domain=unresolved_domain,
         inner_timeout_count=inner_timeout_count,
@@ -3287,6 +3291,7 @@ async def _run_synthetic_mode(
     persona_reports = []
     all_results: list[EvaluationResult] = []
     rep_count = max(1, reps)
+    aborted_reason = None
     for persona in personas:
         state = _blank_state()
         persona_results = []
@@ -3314,9 +3319,10 @@ async def _run_synthetic_mode(
                 if fail_fast:
                     decisive_failure = _decisive_release_failure(evaluation)
                     if decisive_failure:
-                        raise RuntimeError(
-                            f"PKM release evaluator stopped at {case.case_id}: {decisive_failure}"
-                        )
+                        aborted_reason = f"{case.case_id}:{decisive_failure}"
+                        break
+            if aborted_reason:
+                break
         persona_reports.append(
             {
                 "persona_id": persona["persona_id"],
@@ -3330,10 +3336,15 @@ async def _run_synthetic_mode(
                 "results": [asdict(result) for result in persona_results],
             }
         )
+        if aborted_reason:
+            break
     return {
         "mode": mode_name,
         "model_override": model_override or "",
         "strict_small_model": strict_small_model,
+        "aborted_reason": aborted_reason,
+        "unattempted_run_count": sum(len(p["prompts"]) for p in personas) * rep_count
+        - len(all_results),
         # Runs, not prompts: with --reps this is prompts x reps. The top-level
         # report carries `synthetic_prompt_count` meaning distinct prompts, so
         # reusing that name here made the same key mean two different things
@@ -3351,6 +3362,8 @@ def _decisive_release_failure(result: EvaluationResult) -> str:
 
     if result.timed_out:
         return "outer_timeout"
+    if getattr(result, "failure_class", None):
+        return "outer_error"
     if not result.schema_ok:
         return "schema_invalid"
     if result.inner_timeout_count:
@@ -3857,6 +3870,10 @@ def _build_quality_gate(
 ) -> dict[str, Any]:
     failures: list[str] = []
     for report in synthetic_reports:
+        if report.get("aborted_reason"):
+            failures.append(
+                f"synthetic:{report.get('mode') or 'unknown'}:aborted:{report['aborted_reason']}"
+            )
         failures.extend(
             _gate_failures_for_summary(
                 label=f"synthetic:{report.get('mode') or 'unknown'}",
@@ -3898,7 +3915,7 @@ async def main() -> int:
         max_prompts_per_persona=args.max_prompts_per_persona,
     )
     modes = _mode_matrix(args)
-    shadow_users = resolve_shadow_users(args.shadow_users)
+    shadow_users = [] if args.skip_shadow else resolve_shadow_users(args.shadow_users)
 
     synthetic_reports = []
     shadow_reports = []

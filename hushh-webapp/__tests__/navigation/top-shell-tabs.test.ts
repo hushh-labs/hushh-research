@@ -116,13 +116,9 @@ describe("top shell contextual tabs", () => {
     ).toBeNull();
     expect(
       resolvePublicKnowledgeTopShellTabSet("/research/protocol"),
-    ).toMatchObject({
-      label: "Explore",
-      activeValue: "research",
-    });
-    expect(resolvePublicKnowledgeTopShellTabSet("/blog/a-post")).toMatchObject({
-      activeValue: "blog",
-    });
+    ).toBeNull();
+    expect(resolvePublicKnowledgeTopShellTabSet("/blog/a-post")).toBeNull();
+    expect(resolvePublicKnowledgeTopShellTabSet("/developers/api")).toBeNull();
     expect(resolvePublicKnowledgeTopShellTabSet("/developers")).toMatchObject({
       activeValue: "developers",
     });

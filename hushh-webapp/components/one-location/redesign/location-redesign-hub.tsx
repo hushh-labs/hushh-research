@@ -84,14 +84,13 @@ import {
 } from "@/components/ui/dialog";
 import { Switch } from "@/components/ui/switch";
 import { LocationPermissionRecoveryCard } from "@/components/one-location/location-permission-recovery-card";
-import { AgentHeaderIcon, PageHeader } from "@/components/app-ui/page-sections";
+import { PageHeader } from "@/components/app-ui/page-sections";
 import {
   ButtonLabel,
   CardTitle,
   FormLabel,
   MediumRowLabel,
   PageTitle,
-  PageSubtitle,
   RowDescription,
   RowLabel,
   SectionLabel,
@@ -141,8 +140,6 @@ import {
   useExpandedShareLanes,
 } from "./share-lanes";
 import {
-  ACTIVE_SHARE_ACTIONS_CLASSNAME,
-  ACTIVE_SHARE_CHANGE_TIME_CLASSNAME,
   ACTIVE_SHARE_STOP_CLASSNAME,
 } from "./active-share-row-layout";
 import {
@@ -159,16 +156,10 @@ import {
   type ReasonValue,
 } from "./selectors";
 import {
-  PUBLIC_LINK_CONTROLS_CLASSNAME,
-  PUBLIC_LINK_PRIMARY_CTA_CLASSNAME,
   SHARE_CONFIRM_ACTIONS_CLASSNAME,
   SHARE_CONFIRM_PRIMARY_CTA_CLASSNAME,
-  SHARE_CONFIRM_SECONDARY_CTA_CLASSNAME,
 } from "./location-cta-layout";
 import {
-  LOCATION_HEADER_ACTIONS_CLASSNAME,
-  LOCATION_HUB_PAGE_HEADER_CLASSNAME,
-  LOCATION_HEADER_STATUS_CLASSNAME,
 } from "./location-header-layout";
 import {
   CHANGE_TIME_DURATION_LADDER,
@@ -200,7 +191,7 @@ import {
   lastInteractionByUserId,
   sectionRecipients,
 } from "@/lib/one-location/recipient-sections";
-import { ROUTES, buildPersonProfileRoute } from "@/lib/navigation/routes";
+import { ROUTES } from "@/lib/navigation/routes";
 import { circleMemberCountLabel } from "@/lib/one-location/circle-member-count";
 import { useScrollReset } from "@/lib/navigation/use-scroll-reset";
 import { usePageEnterAnimation } from "@/lib/morphy-ux/hooks/use-page-enter";
@@ -979,6 +970,7 @@ function LocationHeaderStatus({
   return (
     <button
       type="button"
+      onClick={onToggle}
       id={LOCATION_HEADER_STATUS_ID}
       data-testid="one-location-header-status"
       className="mt-1 block w-full whitespace-nowrap text-center font-[family-name:var(--font-app-body)] text-[13px] font-medium leading-[18px] tracking-[-0.01em] text-[color:var(--app-secondary-label)]"
@@ -2088,7 +2080,7 @@ function NowHub({
             vm.liveShare.grantCount === 1 &&
             vm.liveShare.stoppableGrantId &&
             !vm.liveShare.singleGrantIsSms
-              ? (trigger) => vm.onEditLiveShareDurationStart(undefined, trigger)
+              ? (trigger) => onEditLiveShareDurationStart(undefined, trigger)
               : undefined
           }
           onShareMore={onStartShare}
@@ -2775,8 +2767,8 @@ function LocationDetailFlow({
                           <button
                             type="button"
                             className="min-h-8 text-[15px] font-medium text-[color:var(--app-accent)]"
-                            onClick={() =>
-                              vm.onEditLiveShareDurationStart(single.id)
+                            onClick={(event) =>
+                              onEditLiveShareDurationStart(single.id, event.currentTarget)
                             }
                           >
                             {single.durationMode === "until_stopped"
@@ -2793,7 +2785,7 @@ function LocationDetailFlow({
                             group={group}
                             counterpartName={name}
                             onStopGrant={vm.onStopGrant}
-                            onChangeEndTime={vm.onEditLiveShareDurationStart}
+                            onChangeEndTime={onEditLiveShareDurationStart}
                             revokingGrantId={vm.revokingGrantId}
                           />
                         </div>
@@ -3705,14 +3697,6 @@ function countdownAsLeft(label: string | null | undefined): string | null {
   return label;
 }
 
-function isGenericConnectionCopy(value: string): boolean {
-  return (
-    value === "Ready for private location sharing" ||
-    /^in your contacts$/i.test(value) ||
-    /existing trust or sharing history/i.test(value)
-  );
-}
-
 type PeopleDirectoryStatus = {
   label: string | null;
   active: boolean;
@@ -4340,6 +4324,7 @@ export function PeopleHub({
     vm.incomingCircleMemberInvitesLoading,
   ]);
 
+  const onLoadMoreRecipients = vm.onLoadMoreRecipients;
   useEffect(() => {
     if (
       !vm.recipientPageHasMore ||
@@ -4353,7 +4338,7 @@ export function PeopleHub({
     const observer = new IntersectionObserver(
       (entries) => {
         if (entries.some((entry) => entry.isIntersecting)) {
-          void vm.onLoadMoreRecipients();
+          void onLoadMoreRecipients();
         }
       },
       { rootMargin: "240px 0px" },
@@ -4361,7 +4346,7 @@ export function PeopleHub({
     observer.observe(node);
     return () => observer.disconnect();
   }, [
-    vm.onLoadMoreRecipients,
+    onLoadMoreRecipients,
     vm.recipientPageHasMore,
     vm.recipientPageLoading,
   ]);
@@ -6138,21 +6123,6 @@ function AskFlow({
   const normalizedRecipientSearch = vm.recipientSearch.trim().toLowerCase();
   const searchActive = normalizedRecipientSearch.length > 0;
   const eligibleRecipientRows = useMemo(
-    () =>
-      rosterRecipientRows.filter(
-        (row) => statusByRecipient.get(row.recipient.userId)?.selectable,
-      ),
-    [rosterRecipientRows, statusByRecipient],
-  );
-  /**
-   * Whether anything on screen is actually measured against the clock.
-   *
-   * "Asked 6m ago" and "Sharing with you, 29 more min" go stale; "Ready for
-   * private sharing" does not. A roster of people you have never asked and who
-   * are not sharing has nothing that ages, and re-rendering it every 30 seconds
-   * is CPU spent to redraw identical text -- battery, on a phone.
-   */
-  const hasTimeRelativeRow = useMemo(
     () =>
       rosterRecipientRows.filter(
         (row) => statusByRecipient.get(row.recipient.userId)?.selectable,

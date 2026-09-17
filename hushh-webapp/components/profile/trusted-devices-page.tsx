@@ -6,7 +6,6 @@ import { Laptop, Loader2, Trash2 } from "lucide-react";
 import {
   AppPageContentRegion,
   AppPageHeaderRegion,
-  AppPageShell,
 } from "@/components/app-ui/app-page-shell";
 import { PageHeader } from "@/components/app-ui/page-sections";
 import {
@@ -27,7 +26,6 @@ import {
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/use-auth";
 import { useStaleResource } from "@/lib/cache/use-stale-resource";
-import { ROUTES } from "@/lib/navigation/routes";
 import { ApiService } from "@/lib/services/api-service";
 import { CACHE_KEYS } from "@/lib/services/cache-service";
 import { deriveSyncDisplay } from "@/lib/trusted-device/sync-display";
@@ -50,13 +48,8 @@ interface TrustedDevice {
   heartbeat?: { current_model?: string; busy?: boolean } | null;
 }
 
-export type TrustedDevicesPagePresentation = "route" | "pane";
-
-export default function TrustedDevicesPage({
-  presentation = "route",
-}: {
-  presentation?: TrustedDevicesPagePresentation;
-} = {}) {
+/** Trusted devices is a recursive Profile-pane detail, not a standalone page. */
+export default function TrustedDevicesPage() {
   const { user } = useAuth();
   const [error, setError] = useState("");
   const [pendingRevocation, setPendingRevocation] =
@@ -199,22 +192,5 @@ export default function TrustedDevicesPage({
     </>
   );
 
-  if (presentation === "pane") {
-    return <div className="w-full">{pageContent}</div>;
-  }
-
-  return (
-    <AppPageShell
-      as="main"
-      width="reading"
-      nativeTest={{
-        routeId: ROUTES.PROFILE_SECURITY_DEVICES,
-        marker: "native-route-profile",
-        authState: user ? "authenticated" : "pending",
-        dataState: loading ? "loading" : "loaded",
-      }}
-    >
-      {pageContent}
-    </AppPageShell>
-  );
+  return <div className="w-full">{pageContent}</div>;
 }

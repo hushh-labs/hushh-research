@@ -173,10 +173,10 @@ export function OnboardingJourneyGuard({
         // is ejected to home — this is the one place that catches every arrival
         // path after the one-time gate resolves.
         if (shouldEjectSetupSurface) {
-          if (redirectTargetRef.current !== ROUTES.ONE_HOME) {
-            redirectTargetRef.current = ROUTES.ONE_HOME;
+          if (redirectTargetRef.current !== ROUTES.HOME) {
+            redirectTargetRef.current = ROUTES.HOME;
             setRedirecting(true);
-            router.replace(ROUTES.ONE_HOME);
+            router.replace(ROUTES.HOME);
           }
           return;
         }

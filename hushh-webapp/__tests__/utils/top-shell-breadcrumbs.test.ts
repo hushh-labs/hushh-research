@@ -50,22 +50,22 @@ describe("top shell breadcrumbs", () => {
     });
   });
 
-  it("returns every welcome workspace tab to One", () => {
+  it("returns every welcome workspace tab to the public root", () => {
     const research = new URLSearchParams("tab=research");
     const blog = new URLSearchParams("tab=blog");
     const developers = new URLSearchParams("tab=developers");
 
     expect(resolveTopShellBreadcrumb("/welcome", research)).toMatchObject({
       hideBack: false,
-      backHref: "/one",
+      backHref: "/",
     });
     expect(resolveTopShellBreadcrumb("/welcome", blog)).toMatchObject({
       hideBack: false,
-      backHref: "/one",
+      backHref: "/",
     });
     expect(resolveTopShellBreadcrumb("/welcome", developers)).toMatchObject({
       hideBack: false,
-      backHref: "/one",
+      backHref: "/",
     });
   });
 

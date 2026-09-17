@@ -922,8 +922,8 @@ textarea {
    * gentler than overlays so navigation feels graceful, not abrupt. The exit
    * eases out softly and the enter glides in with a long decelerate. Keep the
    * JS beats in use-route-transition.ts in sync with these values. */
-  --motion-route-exit-duration: 300ms;
-  --motion-route-enter-duration: 360ms;
+  --motion-route-exit-duration: 120ms;
+  --motion-route-enter-duration: 160ms;
   --motion-route-exit-ease: cubic-bezier(0.4, 0, 0.2, 1);
   --motion-route-enter-ease: cubic-bezier(0.16, 0.84, 0.28, 1);
 
@@ -1129,9 +1129,9 @@ textarea {
   --app-screen-background: #000000;
   --app-grouped-background: #000000;
   --one-launcher-background: var(--background);
-  --app-primary-surface: #1c1c1e;
-  --app-secondary-surface: #2c2c2e;
-  --app-elevated-surface: #2c2c2e;
+  --app-primary-surface: #0a0a0c;
+  --app-secondary-surface: #121215;
+  --app-elevated-surface: #141418;
   --app-label: #f5f5f7;
   --app-secondary-label: rgba(235, 235, 245, 0.72);
   --app-section-label: rgba(235, 235, 245, 0.72);
@@ -1139,8 +1139,8 @@ textarea {
   --app-quaternary-label: rgba(235, 235, 245, 0.18);
   --app-separator: rgba(84, 84, 88, 0.65);
   --app-opaque-separator: #38383a;
-  --app-neutral-fill: #2c2c2e;
-  --app-neutral-fill-strong: #3a3a3c;
+  --app-neutral-fill: rgba(255, 255, 255, 0.06);
+  --app-neutral-fill-strong: rgba(255, 255, 255, 0.10);
   --app-icon-tile-background: #636366;
   --app-icon-tile-foreground: #ffffff;
   --app-destructive: #ff453a;
@@ -1197,15 +1197,12 @@ textarea {
   --app-people-fg: #ffffff;
 
   --app-focus-ring: rgba(10, 132, 255, 0.3);
-  --app-glass-surface: rgba(28, 28, 30, 0.78);
+  --app-glass-surface: rgba(10, 10, 13, 0.88);
   --app-glass-border: rgba(84, 84, 88, 0.65);
   --app-glass-shadow: 0 12px 32px -24px rgba(0, 0, 0, 0.85);
-  /* Dark Profile aliases — same rule as the light block above. The literals
-   * here were the visible dark-mode divergence: a pure #000 canvas with
-   * #1c1c1e cards, where every One Location screen uses the shared
-   * --app-card-surface-default-solid (#2c2c2e) on the app canvas. */
+  /* Dark Profile aliases — same rule as the light block above. */
   --ios-account-screen-background: var(--background, #000000);
-  --ios-account-card-background: var(--app-card-surface-default-solid, #1c1c1e);
+  --ios-account-card-background: var(--app-card-surface-default-solid, #0a0a0c);
   --ios-account-label: var(--foreground, #ffffff);
   --ios-account-secondary-label: var(--muted-foreground, #98989d);
   --ios-account-tertiary-label: #636366;
@@ -1219,12 +1216,12 @@ textarea {
     #636366
   );
   --ios-account-utility-icon-glyph: var(--app-icon-tile-foreground, #ffffff);
-  --ios-account-service-icon-tile-background: #3a3a3c;
+  --ios-account-service-icon-tile-background: #1c1c20;
   --ios-account-service-icon-glyph: #ffffff;
   --ios-account-accent: var(--app-accent, #0a84ff);
   --ios-account-destructive: var(--app-destructive, #ff453a);
   --ios-account-on-accent: #ffffff;
-  --ios-account-nav-material-background: rgba(28, 28, 30, 0.82);
+  --ios-account-nav-material-background: rgba(10, 10, 13, 0.90);
   --ios-account-nav-material-border: rgba(84, 84, 88, 0.65);
 }
 
@@ -1710,6 +1707,13 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
   padding-bottom: 0;
 }
 
+/* The sheet header owns the outer divider. Give the embedded Profile root the
+ * same canonical header-to-content rhythm as a route-level page; pushed pane
+ * screens already receive this gap from ProfileStackNavigator. */
+.profile-home-screen--pane {
+  padding-top: var(--page-header-section-gap);
+}
+
 /* Measure is owned by AppPageShell (width="reading" → 720px) so the Profile
  * root, the pushed Profile screens, and the One Location screens all share one
  * column. These used to re-cap themselves at 520px, which made Profile a
@@ -2116,6 +2120,42 @@ body:has(.profile-account-content)
     calc(1.25rem + var(--app-safe-area-bottom-effective)),
     calc(var(--agent-chat-keyboard-inset) + 0.5rem)
   );
+}
+
+/* The canonical root Chat surface owns the text composer, so it does not
+ * need the larger separation used by embedded agent surfaces above a voice
+ * launcher. Keep a small, safe-area-aware breathing space before the shared
+ * bottom navigation without changing the geometry of other routes. */
+.agent-chat-workspace[data-agent-chat-route="root"] {
+  /* The workspace owns its single, symmetrical top header below the fixed ambient mask.
+   * Safe top respects device notch/island without adding artificial offset on desktop. */
+  --agent-chat-header-safe-top: var(
+    --app-safe-area-top-effective,
+    0px
+  );
+  --agent-chat-composer-bottom: max(
+    calc(0.5rem + var(--app-safe-area-bottom-effective)),
+    calc(var(--agent-chat-keyboard-inset) + 0.5rem)
+  );
+  --agent-chat-composer-focused-bottom: max(
+    calc(0.75rem + var(--app-safe-area-bottom-effective)),
+    calc(var(--agent-chat-keyboard-inset) + 0.5rem)
+  );
+}
+
+/* Chat's text composer remains always visible in the viewport. It adapts
+ * position smoothly relative to the bottom chrome without ever translating
+ * out of the viewport (var(--bottom-nav-travel, 0px) travel is bounded). */
+.agent-chat-workspace[data-agent-chat-route="root"]
+  [data-agent-chat-composer-form="root"] {
+  transform: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agent-chat-workspace[data-agent-chat-route="root"]
+    [data-agent-chat-composer-form="root"] {
+    transform: none;
+  }
 }
 
 html.native-keyboard-inset .agent-chat-workspace {
@@ -3703,15 +3743,15 @@ body:has([data-testid="one-location-onboarding"])
 
   --background: #000000;
   --foreground: #f5f5f7;
-  --card: #1c1c1e;
+  --card: #0a0a0c;
   --card-foreground: #f5f5f7;
-  --popover: #1c1c1e;
+  --popover: #0a0a0c;
   --popover-foreground: #f5f5f7;
   --primary: #f5f5f7;
   --primary-foreground: #000000;
-  --secondary: #2c2c2e;
+  --secondary: #141418;
   --secondary-foreground: #f5f5f7;
-  --muted: #2c2c2e;
+  --muted: #141418;
   --muted-foreground: rgba(235, 235, 245, 0.72);
   --accent: var(--app-accent);
   --accent-foreground: var(--app-accent-fg);
@@ -3723,7 +3763,7 @@ body:has([data-testid="one-location-onboarding"])
   --critical-soft-border: oklch(0.6 0.15 24);
   --critical-soft-text: oklch(0.79 0.13 24);
   --border: rgba(84, 84, 88, 0.65);
-  --input: #2c2c2e;
+  --input: #141418;
   --ring: var(--app-accent-ring);
   /* iOS shifts systemGreen brighter in dark mode and darkens the off-track;
      the thumb stays white in both appearances. */
@@ -4865,17 +4905,18 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
 .bottom-chrome-surface,
 .kai-bottom-nav-pill {
   color: var(--foreground);
-  border: 0.5px solid rgba(60, 60, 67, 0.18) !important;
-  background: rgba(255, 255, 255, 0.78) !important;
-  box-shadow: none !important;
+  border: 0.5px solid rgba(0, 0, 0, 0.08) !important;
+  background: rgba(255, 255, 255, 0.96) !important;
+  box-shadow: 0 10px 30px -8px rgba(0, 0, 0, 0.08), 0 1px 3px rgba(0, 0, 0, 0.04) !important;
   -webkit-backdrop-filter: blur(24px) saturate(160%);
   backdrop-filter: blur(24px) saturate(160%);
 }
 
 .dark .bottom-chrome-surface,
 .dark .kai-bottom-nav-pill {
-  border-color: rgba(84, 84, 88, 0.58) !important;
-  background: rgba(28, 28, 30, 0.78) !important;
+  border-color: rgba(255, 255, 255, 0.12) !important;
+  background: rgba(10, 10, 13, 0.94) !important;
+  box-shadow: 0 12px 36px -4px rgba(0, 0, 0, 0.85), 0 2px 6px rgba(0, 0, 0, 0.5) !important;
 }
 
 /* Reduced motion keeps the shell present and keyboard-safe, but removes the
@@ -5876,19 +5917,16 @@ html[data-accent="gold"].dark {
  * link clicks, sets `data-route-transition` on <html>, fades the current page
  * out, then pushes the route. The incoming page fades in via the same tokens.
  *
- *   pending  → outgoing page fades + lifts away (exit, accelerate)
- *   entering → incoming page fades + settles in (enter, decelerate)
+ *   pending  → outgoing page fades away (exit)
+ *   entering → incoming page fades in (enter)
  *
  * The envelope is the existing app shell content node, so no extra wrapper is
- * introduced. Only opacity/transform animate → GPU-composited, 60fps.
+ * introduced. The route envelope animates opacity only.
  * ========================================================================== */
 :root[data-route-transition="pending"] [data-app-shell-content="true"] {
   opacity: 0;
-  transform: translateY(6px);
-  transition:
-    opacity var(--motion-route-exit-duration) var(--motion-route-exit-ease),
-    transform var(--motion-route-exit-duration) var(--motion-route-exit-ease);
-  will-change: opacity, transform;
+  transition: opacity var(--motion-route-exit-duration) var(--motion-route-exit-ease) 0ms;
+  will-change: opacity;
 }
 
 /* Enter is opacity-only here so it never fights the GSAP enter (which owns the

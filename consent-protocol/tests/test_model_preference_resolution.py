@@ -7,6 +7,8 @@ changing it meant a redeploy and every person on a lane shared one answer.
 
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 
 from hushh_mcp import constants
@@ -105,6 +107,26 @@ async def test_a_preference_read_failure_never_breaks_a_turn(
 
     monkeypatch.setattr(prefs, "get_pool", _boom)
     assert await prefs.resolve_text_model_name("someone") == "gemini-3.7-flash"
+
+
+@pytest.mark.asyncio
+async def test_a_busy_preference_store_does_not_block_catalog_resolution(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The header can show the served catalog while the preference pool is busy."""
+    monkeypatch.setattr(constants, "GEMINI_MODEL", "gemini-3.7-flash")
+
+    async def _slow(_user_id: str) -> None:
+        await asyncio.sleep(prefs._STORED_CHOICE_READ_TIMEOUT_SECONDS + 0.05)
+        return None
+
+    monkeypatch.setattr(prefs, "_stored_choice", _slow)
+    resolved = await prefs.resolve_text_model("someone")
+    assert (resolved.model_id, resolved.source, resolved.selected) == (
+        "gemini-3.7-flash",
+        prefs.SOURCE_DEPLOYMENT,
+        None,
+    )
 
 
 @pytest.mark.asyncio

@@ -12692,7 +12692,7 @@
     {
       "action_id": "route.one_agents",
       "surface_id": "one_agents",
-      "label": "Open One",
+      "label": "Open Agents",
       "aliases": [
         "open agents",
         "open one agents",
@@ -12707,7 +12707,7 @@
         "dashboard",
         "apps"
       ],
-      "meaning": "Navigates to the One agent launcher.",
+      "meaning": "Navigates to the One Agents dashboard.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
@@ -12771,7 +12771,7 @@
           {
             "type": "action",
             "action_id": "route.one_agents",
-            "label": "Open One",
+            "label": "Open Agents",
             "failure_behavior": "stop",
             "settlement_target": {
               "route": "/one",

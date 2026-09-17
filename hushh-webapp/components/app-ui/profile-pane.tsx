@@ -4,6 +4,7 @@ import { ArrowLeft, X } from "lucide-react";
 import { usePathname, useSearchParams } from "next/navigation";
 
 import { ProfilePage } from "@/components/profile/profile-workspace-page";
+import { useVault } from "@/lib/vault/vault-context";
 import {
   canGoBackProfilePane,
   popProfilePaneLocation,
@@ -29,6 +30,7 @@ type ProfilePaneProps = {
  * right-side presentation used by the shell and native edge gesture.
  */
 export function ProfilePane({ open, onOpenChange }: ProfilePaneProps) {
+  const { isVaultUnlocked } = useVault();
   const pathname = usePathname() || "/";
   const searchParams = useSearchParams();
   const paneState = resolveProfilePaneUrlState(searchParams);
@@ -53,13 +55,18 @@ export function ProfilePane({ open, onOpenChange }: ProfilePaneProps) {
                     : "Help & feedback"
       : "Profile";
 
+  // URL state requests a destination, not admission. Keep it for resume, but
+  // unmount the modal while the vault gate owns the screen (including cold
+  // loads and manual relocks), so no sheet or focus trap covers unlock.
+  if (!isVaultUnlocked) return null;
+
   return (
     <Sheet open={open} onOpenChange={onOpenChange} modal>
       <SheetContent
         side="right"
         showCloseButton={false}
         contentDragDismiss={false}
-        className="w-full max-w-none gap-0 overflow-hidden p-0 sm:w-[min(92vw,560px)] sm:max-w-[560px]"
+        className="w-full max-w-none transform-gpu gap-0 overflow-hidden p-0 data-[state=open]:will-change-transform data-[state=closed]:will-change-transform sm:w-[min(92vw,560px)] sm:max-w-[560px]"
         aria-label="Profile"
         data-testid="profile-pane"
       >

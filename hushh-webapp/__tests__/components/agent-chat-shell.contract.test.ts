@@ -29,7 +29,8 @@ describe("private-agent chat shell contract", () => {
     expect(workspace).toContain("ShellActionSurface");
     expect(workspace).toContain('"motion-step-enter flex w-full items-start gap-2"');
     expect(workspace).not.toContain("animate-in fade-in slide-in-from-bottom-1");
-    expect(workspace).toContain('className="flex min-h-16 items-center gap-2 rounded-[24px]');
+    expect(workspace).toContain('data-testid="agent-chat-composer"');
+    expect(workspace).toContain("bottom-chrome-surface min-h-[68px] rounded-[28px]");
     expect(history).toContain("bg-[linear-gradient(180deg");
     expect(history).not.toContain('"border-r border-border/70');
   });
@@ -187,9 +188,10 @@ describe("private-agent chat shell contract", () => {
     // down on the next arriving message.
     const workspace = read("components/agent/agent-chat-workspace.tsx");
 
-    expect(workspace).toContain("oneScrollTopRef.current = event.currentTarget.scrollTop");
+    expect(workspace).toContain("oneScrollTopRef.current = scrollTop");
     expect(workspace).toContain('behavior: "instant" as ScrollBehavior');
-    expect(workspace).toContain("}, [isPuppySurface]);");
+    expect(workspace).toContain("beginTranscriptProgrammaticScroll(target);");
+    expect(workspace).toContain("clearTranscriptProgrammaticScroll");
   });
 
   it("keeps Chat route-level and makes /agent a compatibility redirect", () => {
@@ -204,5 +206,30 @@ describe("private-agent chat shell contract", () => {
     expect(workspace).not.toContain("windowControls");
     expect(proxy).toContain("ROUTES.LEGACY_AGENT");
     expect(proxy).toContain("ROUTES.HOME");
+  });
+
+  it("gives canonical Chat its own bottom-chrome and scroll ownership", () => {
+    const workspace = read("components/agent/agent-chat-workspace.tsx");
+    const shell = read("components/app-ui/app-bottom-shell.tsx");
+    const providers = read("app/providers.tsx");
+
+    expect(workspace).toContain('data-agent-chat-route={isCanonicalChatRoute ? "root" : "embedded"}');
+    expect(workspace).toContain("onKaiBottomChromeScroll(scrollTop)");
+    expect(shell).toContain("agentBarHidden?: boolean");
+    expect(shell).toContain("!model.agentBarHidden || Boolean(command?.active) || voiceActive");
+    expect(providers).toContain("pathname === ROUTES.HOME");
+    expect(providers).toContain("agentBarHidden:");
+  });
+
+  it("lets root Chat use the top spacer and move its composer with bottom chrome", () => {
+    const workspace = read("components/agent/agent-chat-workspace.tsx");
+    const styles = read("app/globals.css");
+
+    expect(workspace).toContain("agent-chat-workspace--root");
+    expect(workspace).toContain('data-agent-chat-composer-form={');
+    expect(workspace).toContain("h-[calc(100dvh-var(--app-top-content-offset,0px)-var(--app-bottom-shell-height");
+    expect(styles).toContain("fixed ambient mask");
+    expect(styles).toContain('[data-agent-chat-composer-form="root"]');
+    expect(styles).toContain("var(--bottom-nav-travel, 0px)");
   });
 });

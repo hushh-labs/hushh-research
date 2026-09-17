@@ -217,11 +217,15 @@ for (const repoPath of [
   }
 }
 
-expectIncludes(
-  "components/dashboard/one-agent-roster.tsx",
-  'aria-label="One agents"',
-  "root launcher must keep a semantic One agents label without painting a dashboard heading",
-);
+const rosterPath = "components/dashboard/one-agent-roster.tsx";
+const rosterSource = read(rosterPath);
+const hasDirectLabel = /<section\b[^>]*aria-label="One agents"/.test(rosterSource);
+const hasHeadingLabel =
+  /<section\b[^>]*aria-labelledby="one-agents-heading"/.test(rosterSource) &&
+  /<PageTitle\b[^>]*id="one-agents-heading"[^>]*>\s*Agents\b/.test(rosterSource);
+if (!hasDirectLabel && !hasHeadingLabel) {
+  failures.push(`${rosterPath}: root launcher must have an accessible agents label or linked heading`);
+}
 
 expectNotIncludes(
   "components/dashboard/one-agent-roster.tsx",

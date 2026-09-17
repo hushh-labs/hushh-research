@@ -1123,6 +1123,52 @@
       "findings": []
     },
     {
+      "route": "/manishhussh",
+      "page_file": "app/manishhussh/page.tsx",
+      "route_contract_mode": "standard",
+      "screen_class": "vault-backed",
+      "cache_policy": "memory-only",
+      "cache_keys": [],
+      "resource_classes": [
+        "unknown"
+      ],
+      "sensitivity_class": "app-metadata",
+      "ttl_class": "CACHE_TTL.MEDIUM",
+      "warm_source": "Route-local resource loader",
+      "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+      "mutation_invalidator": "CacheSyncService user/session invalidation",
+      "best_available_ux_path": [
+        "fresh memory",
+        "cold loader"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed",
+        "cache_resource_resolved",
+        "route_refresh_completed"
+      ],
+      "realtime_policy": "not realtime",
+      "reviewer_fixture": "/manishhussh",
+      "surface_map_present": true,
+      "route_contract_present": true,
+      "evidence": {
+        "cache_service": false,
+        "use_stale_resource": false,
+        "device_cache": false,
+        "secure_cache": false,
+        "cache_sync": false,
+        "resource_wrapper": false,
+        "direct_fetch": false,
+        "api_service": false,
+        "hushh_loader": false,
+        "sse_or_streaming": false,
+        "native_beacon": false
+      },
+      "findings": [
+        "review native route beacon coverage",
+        "no local cache primitive detected in page/contract source"
+      ]
+    },
+    {
       "route": "/marketplace",
       "page_file": "app/marketplace/page.tsx",
       "route_contract_mode": "standard",
@@ -4282,51 +4328,6 @@
       ]
     },
     {
-      "route": "/one/profile/security/devices",
-      "page_file": "app/one/profile/security/devices/page.tsx",
-      "route_contract_mode": "standard",
-      "screen_class": "vault-backed",
-      "cache_policy": "memory-only",
-      "cache_keys": [
-        "TRUSTED_DEVICES"
-      ],
-      "resource_classes": [
-        "unknown"
-      ],
-      "sensitivity_class": "app-metadata",
-      "ttl_class": "CACHE_TTL.MEDIUM",
-      "warm_source": "Route-local resource loader",
-      "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
-      "mutation_invalidator": "CacheSyncService user/session invalidation",
-      "best_available_ux_path": [
-        "fresh memory",
-        "cold loader"
-      ],
-      "readiness_kpis": [
-        "route_readiness_completed",
-        "cache_resource_resolved",
-        "route_refresh_completed"
-      ],
-      "realtime_policy": "not realtime",
-      "reviewer_fixture": "/login?redirect=%2Fone%2Fprofile%2Fsecurity%2Fdevices",
-      "surface_map_present": true,
-      "route_contract_present": true,
-      "evidence": {
-        "cache_service": false,
-        "use_stale_resource": true,
-        "device_cache": false,
-        "secure_cache": false,
-        "cache_sync": false,
-        "resource_wrapper": false,
-        "direct_fetch": false,
-        "api_service": true,
-        "hushh_loader": false,
-        "sse_or_streaming": false,
-        "native_beacon": false
-      },
-      "findings": []
-    },
-    {
       "route": "/one/profile/security/devices/authorize",
       "page_file": "app/one/profile/security/devices/authorize/page.tsx",
       "route_contract_mode": "hidden",
@@ -6252,5 +6253,5 @@
       ]
     }
   ],
-  "content_sha256": "f4fe7c001ae444b34fb66173cf580ef6b0c14d21f6e6004885eb697f0cf0f2f7"
+  "content_sha256": "b99be95ffa7ccd9b6a3b6aae740b4074d68e573c2c03f32256cfc80056679014"
 }

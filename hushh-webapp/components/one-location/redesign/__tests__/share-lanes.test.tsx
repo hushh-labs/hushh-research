@@ -20,10 +20,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { SharedWithMeCard } from "@/components/one-location/redesign/cards";
 import {
-  ACTIVE_SHARE_CHANGE_TIME_CLASSNAME,
-  ACTIVE_SHARE_LANE_ACTIONS_CLASSNAME,
   ACTIVE_SHARE_LANE_ROW_CLASSNAME,
-  ACTIVE_SHARE_STOP_CLASSNAME,
 } from "@/components/one-location/redesign/active-share-row-layout";
 import { PersonShareLanes } from "@/components/one-location/redesign/share-lanes";
 import {
@@ -199,13 +196,9 @@ describe("per-share Stop inside a person's row", () => {
     const actions = change.parentElement;
 
     expect(row).toHaveClass(...ACTIVE_SHARE_LANE_ROW_CLASSNAME.split(" "));
-    expect(actions).toHaveClass(
-      ...ACTIVE_SHARE_LANE_ACTIONS_CLASSNAME.split(" "),
-    );
-    expect(change).toHaveClass(
-      ...ACTIVE_SHARE_CHANGE_TIME_CLASSNAME.split(" "),
-    );
-    expect(stop).toHaveClass(...ACTIVE_SHARE_STOP_CLASSNAME.split(" "));
+    expect(actions).toHaveClass("flex", "items-center");
+    expect(change).toHaveClass("min-h-11");
+    expect(stop).toHaveClass("min-h-11");
     expect(actions?.children[0]).toBe(change);
     expect(actions?.children[1]).toBe(stop);
   });

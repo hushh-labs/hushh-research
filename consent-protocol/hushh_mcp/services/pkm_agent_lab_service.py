@@ -1798,17 +1798,25 @@ class PKMAgentLabService:
     def _compact_registry_choices(
         cls,
         registry_choices: list[dict[str, Any]],
-        *,
-        limit: int = 8,
     ) -> list[str]:
+        # Compact metadata, not the vocabulary: truncation makes later domains
+        # impossible to select when the prompt requires these exact keys.  The
+        # resulting list is still a model-facing allowlist, so reserved,
+        # internal, and malformed domain keys must not consume its context or
+        # invite a target the generic PKM writer will reject.
         compact: list[str] = []
         for entry in registry_choices:
-            domain_key = cls._normalize_segment(str(entry.get("domain_key") or ""))
-            if domain_key and domain_key != _GENERAL_DOMAIN_KEY:
-                compact.append(domain_key)
-            if len(compact) >= limit:
-                break
-        return compact
+            if not isinstance(entry, dict):
+                continue
+            raw_domain_key = cls._normalize_segment(str(entry.get("domain_key") or ""))
+            if not raw_domain_key or raw_domain_key == _GENERAL_DOMAIN_KEY:
+                continue
+            try:
+                domain_key = validate_dynamic_top_level_domain(raw_domain_key)
+            except ValueError:
+                continue
+            compact.append(domain_key)
+        return cls._unique_list(compact)
 
     @classmethod
     def _compact_state_summary(cls, simulated_state: dict[str, Any] | None) -> dict[str, Any]:

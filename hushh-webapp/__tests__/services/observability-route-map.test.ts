@@ -82,9 +82,6 @@ describe("observability route map", () => {
     expect(resolveRouteId("/one/profile/regulatory")).toBe(
       "profile_regulatory",
     );
-    expect(resolveRouteId("/one/profile/security/devices")).toBe(
-      "profile_security_devices",
-    );
     expect(resolveRouteId("/one/profile/security/devices/authorize")).toBe(
       "profile_security_device_authorize",
     );

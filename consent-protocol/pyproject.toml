@@ -36,6 +36,7 @@ dependencies = [
     "grpcio==1.76.0",
     "grpcio-status==1.76.0",
     "gunicorn==25.3.0",
+    "jsonschema>=4.26,<5",
     "httpx>=0.27.1,<0.29",
     "mcp==1.28.1",
     "opentelemetry-api>=1.33.0",

@@ -1,9 +1,6 @@
-import base64
 from types import SimpleNamespace
 
-import pytest
-
-from hushh_mcp.services.feed_service import POSTGRES_BIGINT_MAX, FeedService, _safe_photo_url
+from hushh_mcp.services.feed_service import POSTGRES_BIGINT_MAX, FeedService
 
 
 class _Db:

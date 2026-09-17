@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { usePathname, useSearchParams } from "next/navigation";
 import { HttpAgent } from "@ag-ui/client";
 import { Check, Copy, Laptop, Loader2, Send } from "lucide-react";
 
@@ -15,7 +16,7 @@ import {
 import { formatRelativeTime } from "@/lib/format/relative-time";
 import { isLocalHost } from "@/lib/hermes/local-host";
 import { usePuppyLink } from "@/lib/hermes/use-puppy-link";
-import { ROUTES } from "@/lib/navigation/routes";
+import { buildProfilePaneHref } from "@/lib/navigation/profile-pane";
 import {
   PUPPY_ONE_INSTALL_URL,
   fetchPuppyStatus,
@@ -120,6 +121,12 @@ export function HermesChatPanel({
   // the backend list can take a minute when One is slow, and awaiting both
   // together held a connected agent hostage to a hung backend.
   const link = usePuppyLink();
+  const pathname = usePathname() || "/";
+  const searchParams = useSearchParams();
+  const trustedDevicesHref = buildProfilePaneHref(pathname, searchParams, {
+    panel: "security",
+    detail: "trusted-devices",
+  });
 
   const loadStatus = useCallback(async () => {
     // Through the service layer, not a raw fetch: not-running is an ordinary
@@ -355,7 +362,11 @@ export function HermesChatPanel({
             Checking Puppy One…
           </p>
         ) : !connected && (status || link) ? (
-          <PuppyLinkEmptyState link={link} status={status} />
+          <PuppyLinkEmptyState
+            link={link}
+            status={status}
+            trustedDevicesHref={trustedDevicesHref}
+          />
         ) : null}
         {connected && turns.length === 0 ? (
           <p className="rounded-xl border border-dashed p-6 text-center text-sm text-muted-foreground">
@@ -573,15 +584,17 @@ function describeLinkPill(link: PuppyLink | null): {
 function PuppyLinkEmptyState({
   link,
   status,
+  trustedDevicesHref,
 }: {
   link: PuppyLink | null;
   /** Null while the bridge read is still out: the link alone can carry it. */
   status: PuppyStatus | null;
+  trustedDevicesHref: string;
 }) {
   const developerHint = isLocalHost() ? status?.message?.trim() || null : null;
   return (
     <div className="rounded-xl border border-dashed p-6 text-center text-sm text-muted-foreground">
-      <PuppyLinkCopy link={link} />
+      <PuppyLinkCopy link={link} trustedDevicesHref={trustedDevicesHref} />
       {developerHint ? (
         <p className="mt-3 text-[11px] text-muted-foreground/80">
           {developerHint}
@@ -591,10 +604,16 @@ function PuppyLinkEmptyState({
   );
 }
 
-function PuppyLinkCopy({ link }: { link: PuppyLink | null }) {
+function PuppyLinkCopy({
+  link,
+  trustedDevicesHref,
+}: {
+  link: PuppyLink | null;
+  trustedDevicesHref: string;
+}) {
   const trustedDevices = (
     <Link
-      href={ROUTES.PROFILE_SECURITY_DEVICES}
+      href={trustedDevicesHref}
       className="underline underline-offset-2 hover:text-foreground"
     >
       Trusted devices
@@ -686,9 +705,9 @@ function PuppyLinkCopy({ link }: { link: PuppyLink | null }) {
           <code className="font-mono text-[0.85em]">/hussh-one connect</code>.
         </p>
         {/* Unlinking can be done from another session or by someone else on
-            the account, so this is news to the reader, and Trusted devices is
-            the only page that says which device and when. No install anchor:
-            that machine already has Puppy One on it. */}
+            the account, so this is news to the reader, and the Profile detail
+            is the only surface that says which device and when. No install
+            anchor: that machine already has Puppy One on it. */}
         <p className="mt-2">{trustedDevices}</p>
       </>
     );

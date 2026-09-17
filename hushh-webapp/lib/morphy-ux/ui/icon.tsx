@@ -1,7 +1,6 @@
 "use client";
 
 import * as React from "react";
-import type { LucideIcon, LucideProps } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
@@ -15,9 +14,11 @@ export const ICON_SIZES_PX = {
 
 export type IconSize = keyof typeof ICON_SIZES_PX | number;
 
-export type IconProps = Omit<LucideProps, "size" | "strokeWidth"> & {
-  icon: LucideIcon;
+export type IconProps = Omit<React.SVGProps<SVGSVGElement>, "size" | "strokeWidth" | "ref"> & {
+  icon: React.ComponentType<any>;
   size?: IconSize;
+  color?: string;
+  weight?: string;
   /**
    * Rare escape hatch. Do NOT use for normal sizing; global default is controlled via
    * `--lucide-stroke-width` in `app/globals.css`.

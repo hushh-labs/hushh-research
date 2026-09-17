@@ -332,17 +332,18 @@
 :global(.dark) .privacy {
   position: absolute;
   top: 716px;
-  left: 90px;
-  width: 233px;
+  left: 50%;
+  width: max-content;
+  transform: translateX(-50%);
   height: 26px;
 }
 
 :global(.dark) .privacy > div {
-  width: 233px;
+  width: max-content;
   max-width: none;
   height: 26px;
-  align-items: flex-start;
-  justify-content: flex-start;
+  align-items: center;
+  justify-content: center;
   gap: 12.029842px;
   font-family: var(--intro-font);
   font-size: 11px;
@@ -358,8 +359,8 @@
 
 :global(.dark) .privacy span {
   flex: none;
-  width: 188.724258px;
-  height: 26px;
+  width: max-content;
+  height: auto;
 }
 
 :global(.dark) .cta {
@@ -533,8 +534,9 @@
 :global(html:not(.dark)) .privacy {
   position: absolute;
   top: 716px;
-  left: 90px;
-  width: 233px;
+  left: 50%;
+  width: max-content;
+  transform: translateX(-50%);
   height: 26px;
 }
 
@@ -546,8 +548,8 @@
   flex-shrink: 0;
   max-width: none;
   height: 26px;
-  align-items: flex-start;
-  justify-content: flex-start;
+  align-items: center;
+  justify-content: center;
   gap: 12.029842px;
   font-family: var(--intro-font);
   font-size: 11px;
@@ -564,8 +566,7 @@
 :global(html:not(.dark)) .privacy span {
   flex: none;
   width: max-content;
-  min-width: 188.724258px;
-  height: 26px;
+  height: auto;
 }
 
 :global(html:not(.dark)) .cta {

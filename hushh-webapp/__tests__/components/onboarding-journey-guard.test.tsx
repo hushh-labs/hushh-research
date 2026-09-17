@@ -78,6 +78,7 @@ vi.mock("@/lib/morphy-ux/button", () => ({
 
 vi.mock("@/lib/navigation/routes", () => ({
   ROUTES: {
+    HOME: "/",
     ONE_SETUP: "/one/setup",
     ONE_SETUP_FINANCE: "/one/setup/finance",
     ONE_HOME: "/one",
@@ -231,7 +232,7 @@ describe("OnboardingJourneyGuard", () => {
     );
 
     await waitFor(() => {
-      expect(replace).toHaveBeenCalledWith("/one");
+      expect(replace).toHaveBeenCalledWith("/");
     });
     expect(screen.queryByText("hub")).toBeNull();
   });
@@ -248,7 +249,7 @@ describe("OnboardingJourneyGuard", () => {
     );
 
     await waitFor(() => {
-      expect(replace).toHaveBeenCalledWith("/one");
+      expect(replace).toHaveBeenCalledWith("/");
     });
     expect(screen.queryByText("hub")).toBeNull();
   });

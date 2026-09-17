@@ -1,4 +1,5 @@
 import { render, screen, waitFor } from "@testing-library/react";
+import { StrictMode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -13,6 +14,7 @@ const mocks = vi.hoisted(() => ({
   search: "",
   retrySessionVerification: vi.fn(),
   signOut: vi.fn(),
+  isVaultUnlocked: true,
 }));
 
 vi.mock("next/navigation", () => ({
@@ -29,6 +31,10 @@ vi.mock("@/lib/firebase/auth-context", () => ({
     retrySessionVerification: mocks.retrySessionVerification,
     signOut: mocks.signOut,
   }),
+}));
+
+vi.mock("@/lib/vault/vault-context", () => ({
+  useVault: () => ({ isVaultUnlocked: mocks.isVaultUnlocked }),
 }));
 
 vi.mock("@/lib/services/post-auth-route-service", () => ({
@@ -91,6 +97,7 @@ describe("authenticated root entry", () => {
     mocks.search = "";
     mocks.retrySessionVerification.mockReset();
     mocks.signOut.mockReset();
+    mocks.isVaultUnlocked = true;
     mocks.getIdToken.mockResolvedValue("redacted-id-token");
     mocks.getIdTokenWithRetry.mockResolvedValue("redacted-id-token");
     mocks.resolveAfterLogin.mockResolvedValue("/");
@@ -114,6 +121,21 @@ describe("authenticated root entry", () => {
     await Promise.resolve();
     expect(mocks.resolveAfterLogin).toHaveBeenCalledTimes(1);
     expect(mocks.replace).not.toHaveBeenCalled();
+  });
+
+  it("settles entry when StrictMode replays the admission effect", async () => {
+    render(<StrictMode><Home /></StrictMode>);
+    expect(await screen.findByText("Chat workspace")).toBeTruthy();
+    expect(screen.queryByText("Opening chat…")).toBeNull();
+  });
+
+  it("honors a changed explicit destination for the same owner", async () => {
+    const view = render(<Home />);
+    await screen.findByText("Chat workspace");
+    mocks.search = "redirect=%2Fone%2Fcalendar";
+    mocks.resolveAfterLogin.mockResolvedValue("/one/calendar");
+    view.rerender(<Home />);
+    await waitFor(() => expect(mocks.replace).toHaveBeenCalledWith("/one/calendar"));
   });
 
   it("uses the bounded-retry token fetch, not a single-shot read, for a deep link (e.g. a referral redirect)", async () => {

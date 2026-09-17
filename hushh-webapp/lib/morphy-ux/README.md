@@ -117,6 +117,11 @@ easings in a component — reference the tokens so the whole app shares one fram
 
 ### Route transitions
 
+The shared route envelope uses opacity-only exit (120ms) and enter (160ms),
+with no additional transition delay. Keep the hook timers and CSS route tokens
+aligned. Public Explore tabs belong only to the top-level workspace, not its
+detail routes; exiting the public workspace returns to `/`.
+
 Page navigation is a single, app-wide crossfade — **every** screen-to-screen
 switch shares the exact same frame (the `/one → /one/*` feel), regardless of how
 the navigation was triggered. There is exactly **one** route-transition engine;

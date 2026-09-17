@@ -193,6 +193,19 @@ pre-vault contract. A selected setup credential is process-memory-only: it may
 be request-validated before the vault but is encrypted through the existing
 vault-owner PKM mutation path only at Finish setup.
 
+### One Model Preference
+
+The Chat header reads the served model catalog independently of identity
+warm-up. The read path validates the Firebase bearer token without scheduling
+an unrelated identity synchronization task, so a busy preference pool cannot
+hide the model controls or delay the rest of Chat. Saving a personal choice is
+still an authenticated write and follows the normal Firebase auth dependency.
+
+| Method | Path | Auth | Description |
+| ------ | ---- | ---- | ----------- |
+| GET | `/api/one/models/preference` | Firebase Bearer | Return the authenticated person's selected/effective model and the currently selectable catalog; a missing or busy preference read falls back to the deployment model. |
+| PUT | `/api/one/models/preference` | Firebase Bearer | Set or clear the authenticated person's model choice after catalog validation. |
+
 ### One Email KYC
 
 One mailbox intake is One-led and approval-gated. KYC workspace routes require

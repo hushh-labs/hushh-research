@@ -36,7 +36,7 @@ Every text agent manifest names the alias `gemini-default`; the alias resolves t
 the whole fleet; a lane may flip it only after its project's Vertex
 `constraints/vertexai.allowedModels` policy admits the id. UAT runs `gemini-3.8-flash`
 (admitted in `hushh-pda-uat` on 2026-09-02); production stays on the default until its
-allowlist changes. Every text agent, including the memory chain and the summary reducer, names the alias
+allowlist changes. Every text agent, including the memory chain, names the alias
 (founder directive 2026-09-02: the fleet runs Flash; founder rule 2026-09-14: the catalog
 lists only the last two Gemini releases, today `gemini-3.8-flash` and `gemini-3.7-flash`, and
 a roll-forward replaces the older one, never adds a third; `gemini-3.1-pro-preview` and
