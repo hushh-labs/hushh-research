@@ -385,18 +385,25 @@ export function LocationMapScreen() {
 
   return (
     <main
-      className="flex min-h-svh flex-col bg-background text-foreground md:h-svh md:flex-row md:overflow-hidden"
+      className="flex min-h-svh flex-col bg-background text-foreground"
       data-testid="one-location-map-screen"
       data-ambient-chrome-ignore
     >
-      {/*
-        Map pane. Full-bleed on phones; the left pane beside the controls
-        sidebar from md up. The title and close float over the map so the
-        map keeps every vertical pixel it can, and "Locate me" stays pinned
-        to the map's own corner.
-      */}
+      <header className="flex items-start justify-between gap-3 px-4 pb-3 pt-[max(1rem,env(safe-area-inset-top))]">
+        <TaskFlowHeader title="Your Map" />
+        <Button
+          size="icon-lg"
+          variant="outline"
+          aria-label="Back to Location"
+          onClick={close}
+          data-testid="one-location-map-close"
+        >
+          <X className="h-5 w-5" aria-hidden />
+        </Button>
+      </header>
+
       <div
-        className="relative min-h-[42svh] flex-1 md:min-h-0 md:h-full"
+        className="relative min-h-[320px] flex-1"
         data-testid="one-location-map-canvas"
       >
         {consentReady && mapPoint ? (
@@ -404,7 +411,7 @@ export function LocationMapScreen() {
             <LiveMap point={mapPoint} viewportResetKey={viewportResetKey} />
           </div>
         ) : (
-          <div className="absolute inset-0 flex items-center justify-center overflow-y-auto p-4 pt-16">
+          <div className="absolute inset-0 flex items-center justify-center p-4">
             {!consentReady ? (
               <div
                 className={cn(CARD_SURFACE, "max-w-md space-y-3 p-5")}
@@ -448,26 +455,10 @@ export function LocationMapScreen() {
           </div>
         )}
 
-        <div className="pointer-events-none absolute inset-x-0 top-0 z-30 flex items-start justify-between gap-3 p-4 pt-[max(1rem,env(safe-area-inset-top))]">
-          <div className="pointer-events-auto rounded-2xl border border-border/60 bg-background/85 px-4 py-2.5 shadow-lg backdrop-blur-md">
-            <TaskFlowHeader title="Your Map" />
-          </div>
-          <Button
-            size="icon-lg"
-            variant="outline"
-            aria-label="Back to Location"
-            onClick={close}
-            data-testid="one-location-map-close"
-            className="pointer-events-auto bg-background/85 shadow-lg backdrop-blur-md"
-          >
-            <X className="h-5 w-5" aria-hidden />
-          </Button>
-        </div>
-
         {consentReady ? (
-          <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 flex justify-end p-4">
+          <div className="pointer-events-none absolute inset-x-0 bottom-0 flex justify-end p-4">
             <Button
-              className="pointer-events-auto bg-background/85 shadow-lg backdrop-blur-md"
+              className="pointer-events-auto"
               variant="outline"
               disabled={locating}
               onClick={() => void locateMe()}
@@ -488,11 +479,7 @@ export function LocationMapScreen() {
         ) : null}
       </div>
 
-      {/*
-        Controls + people. A stacked sheet under the map on phones; a fixed
-        sidebar beside the map from md up, with its own scroll.
-      */}
-      <section className="relative z-10 space-y-3 bg-background px-4 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-4 md:h-full md:w-[400px] md:shrink-0 md:overflow-y-auto md:border-l md:border-border md:px-5 md:pb-6 md:pt-[max(1.25rem,env(safe-area-inset-top))]">
+      <section className="space-y-3 px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-3">
         {status === "error" ? (
           <p
             className="ui-text-row-description text-[color:var(--app-destructive)]"

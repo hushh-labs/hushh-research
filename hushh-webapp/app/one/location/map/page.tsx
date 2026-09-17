@@ -1,8 +1,6 @@
 "use client";
 
-import dynamic from "next/dynamic";
 import { LocationImmersiveMap } from "@/components/one-location/location-immersive-map";
-import { useOneVoiceLiveEnabled } from "@/lib/one-voice/readiness";
 import { useRequireAuth } from "@/hooks/use-auth";
 import { deriveLocationVoiceActions } from "@/lib/voice/location-voice-actions";
 import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
@@ -16,18 +14,9 @@ import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metada
 const LOCATION_MAP_VOICE_ACTIONS =
   deriveLocationVoiceActions("one_location_map");
 
-const LocationMapScreen = dynamic(
-  () =>
-    import("@/components/location/map/location-map-screen").then(
-      (module) => module.LocationMapScreen,
-    ),
-  { ssr: false },
-);
-
 /** Private, immersive Map. It owns no persistent app chrome or route-local map state. */
 export default function OneLocationMapPage() {
   const auth = useRequireAuth();
-  const live = useOneVoiceLiveEnabled();
 
   usePublishVoiceSurfaceMetadata(
     !auth.loading && auth.isAuthenticated
@@ -48,6 +37,9 @@ export default function OneLocationMapPage() {
   // Every map state value is owner-scoped: renderer consent, decrypted markers,
   // nearby attendees, and pending location work must never survive an account
   // switch. A user-id key enforces that boundary before passive effects run.
-  if (live) return <LocationMapScreen key={auth.userId ?? "anonymous"} />;
+  // The immersive map is the canonical Your Map experience (including the
+  // "Want to check in?" check-in affordance); the voice-first scaffold screen
+  // introduced for One Voice Live is not used here so the polished UI stays
+  // intact regardless of the Live readiness flag.
   return <LocationImmersiveMap key={auth.userId ?? "anonymous"} />;
 }
