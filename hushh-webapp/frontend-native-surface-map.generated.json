@@ -1941,7 +1941,11 @@
           "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
         }
       },
-      "native": null,
+      "native": {
+        "route": "/manishhussh",
+        "classification": "excluded-web-only",
+        "reason": "Public marketing and founder profile content. The native shell ships the signed-in product; the public site is web."
+      },
       "shell": {
         "app_page_shell": false,
         "page_header": false,
@@ -9457,5 +9461,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "cdfd6f6dd69d96b0b994ac66d81793a278c5bfd3be4d0949ea5fd496c60e9b7b"
+  "content_sha256": "a5f55e42922879036d4670693cdca560379ec91fca4e0b7d4fa025e2c05a7c8c"
 }
