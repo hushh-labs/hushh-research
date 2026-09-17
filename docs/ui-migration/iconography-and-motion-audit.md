@@ -4,6 +4,10 @@
 **Governing Skills**: [skills/hushh-icon-theme/SKILL.md](../../skills/hushh-icon-theme/SKILL.md) · [skills/improve-animations/AUDIT.md](../../skills/improve-animations/AUDIT.md)  
 **Target Package**: `hushh-webapp`
 
+## Visual Context
+
+This audit covers the shared `hushh-webapp` surfaces that establish One’s visual language: the launcher, app shell, navigation and history sidebar, chat workspace, settings and profile panels, and their responsive mobile layouts. The icon registry and motion tokens described below are the shared primitives used by those surfaces; the replacement registry records the remaining migration scope. The canonical visual owner is the [Quality and Design System Index](../reference/quality/README.md).
+
 ---
 
 ## 1. Iconography Architecture: Phosphor Duotone Standard
