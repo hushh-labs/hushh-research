@@ -296,6 +296,7 @@ export const NOT_SUCCESS_STATUSES = new Set<string>([
   "check_in_created",
   "sos_grants_created",
   "position_publish_pending",
+  "location_updates_pending",
   "pending",
   "not_pending",
   "consent_required",

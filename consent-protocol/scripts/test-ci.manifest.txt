@@ -329,6 +329,8 @@ tests/one_voice/test_tool_registry_contract.py
 tests/one_voice/test_tools_people.py
 tests/one_voice/test_phonetic_person_matcher.py
 tests/one_voice/test_tools_location_state.py
+tests/one_voice/test_instruction.py
+tests/one_voice/test_live_tool_selection_eval.py
 tests/one_voice/test_tools_sharing.py
 tests/one_voice/test_tools_circles.py
 tests/one_voice/test_tools_sos.py

@@ -5502,7 +5502,7 @@
   "source_sha256": {
     "a2a_scope_map": "7379039859448ff3db422aa5ee50124bbcadcecc8c9c49e3c1471791f54208c1",
     "action_gateway": "a1df2f45b7b142c529e090e6976031f659d7ea03b5fbb41a94517c7c09bf001b",
-    "agent_registry": "a29ac8ac4a0ff9fe6388b83fd883f8f7739b31ede5ef2bf426a9e41d59c7db0e",
+    "agent_registry": "b865a980c4ff47ff91b316a238af7c70cfe01a3a79459199603791428b46a7d4",
     "cache_manifest": "f8f438ff99d83b6db04e13943c3ec0089d5e171ddffcc88881b3cb9fbaec5dd3",
     "data_plane": "6c29df84a4077029db5866a57b43c750ac677369e9d741a4f9e3f85631b0f8e6",
     "in_process_dispatch": "022c40c305a11e06510f2688041a96c1523cae5b5c03d7876fd122ce027e98c3",
