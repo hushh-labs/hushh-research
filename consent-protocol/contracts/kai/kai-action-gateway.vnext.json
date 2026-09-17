@@ -25180,6 +25180,118 @@
       }
     },
     {
+      "action_id": "setup.open_cloud",
+      "surface_id": "one_setup_hub",
+      "label": "Set up your cloud",
+      "aliases": [
+        "set up my cloud",
+        "connect my cloud",
+        "open cloud setup",
+        "use my own google cloud"
+      ],
+      "search_keywords": [
+        "cloud",
+        "project",
+        "google cloud",
+        "byoc",
+        "own compute"
+      ],
+      "meaning": "Opens the step where the person names and authorizes their own Google Cloud project for their private agent.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/setup"
+        ],
+        "screens": [
+          "one_setup_hub",
+          "one_setup"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/setup/cloud"
+      },
+      "control_ids": [
+        "one_setup_tile_cloud"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/reference/quality/one-onboarding-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/setup/cloud"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.setup.open_cloud",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "setup.open_cloud",
+            "label": "Set up your cloud",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/setup/cloud",
+              "screen": "one_setup_hub"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
       "action_id": "setup.open_connections",
       "surface_id": "one_setup_hub",
       "label": "Choose your AI",
@@ -25515,10 +25627,6 @@
       }
     },
     {
-      "command": {
-        "domain": "location",
-        "review_route": "/one/setup/location"
-      },
       "action_id": "setup.open_location",
       "surface_id": "one_setup_hub",
       "label": "Set up location",
