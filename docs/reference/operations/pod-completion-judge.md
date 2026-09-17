@@ -62,11 +62,16 @@ can skip is not a control.
 
 ## The nag
 
-`.github/workflows/pod-completion-judge.yml` runs the judge on a weekday cadence, on dispatch,
-and on any change to the ledger or the judge itself. **It fails while anything is unfinished**,
-on purpose: a green run that means "still not done" is indistinguishable from one that means
+`.github/workflows/pod-completion-judge.yml` runs the judge on a weekday cadence and on explicit
+dispatch. It does not run on every pull-request commit: the judge reports live completion
+evidence and **fails while anything is unfinished**, on purpose. A green run that means
+"still not done" is indistinguishable from one that means
 "done", which is the lie the whole mechanism exists to prevent. The verdict is written to the
 run summary and kept as an artifact.
+
+When the ledger or judge changes, dispatch this workflow deliberately after the ordinary PR
+validation passes. Keeping that evidence lane out of per-commit validation avoids repeated
+red runs for external prerequisites while preserving the scheduled reminder.
 
 The workflow runs the judge's own tests **before** trusting its verdict, because a judge with a
 broken guard can report anything.

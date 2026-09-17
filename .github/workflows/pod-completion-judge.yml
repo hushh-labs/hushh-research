@@ -29,20 +29,11 @@ on:
   schedule:
     - cron: "17 8 * * 1-5" # weekday mornings, 08:17 UTC
   workflow_dispatch:
-  # Also on any change to the ledger or the judge, so an edit that quietly weakens
-  # a check is caught by the same job that would have reported it.
-  pull_request:
-    paths:
-      - ".github/workflows/pod-completion-judge.yml"
-      - "config/pod-completion-ledger.yaml"
-      - "consent-protocol/scripts/ops/pod_completion_judge.py"
-      - "consent-protocol/tests/test_pod_completion_judge.py"
-      - "hushh-webapp/package.json"
-      - "hushh-webapp/package-lock.json"
-      - "hushh-webapp/vitest.config.ts"
-      - "hushh-webapp/__tests__/setup.ts"
-      - "hushh-webapp/__tests__/components/onboarding-journey-guard.test.tsx"
-      - "hushh-webapp/components/onboarding/onboarding-journey-guard.tsx"
+  # This judge reports live completion evidence and intentionally remains red
+  # while external requirements are unfinished. Keep it off pull requests so
+  # every commit does not add a duplicate failing run beside PR Validation.
+  # Dispatch it after changing the ledger or judge, or let the weekday cadence
+  # provide the reminder from the default branch.
 
 permissions:
   contents: read
