@@ -47,6 +47,13 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  # A newer commit supersedes an older verdict for the same PR. The judge is
+  # intentionally strict, but running stale copies in parallel only consumes
+  # runners and obscures the current result.
+  group: pod-completion-judge-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   did-we-finish-it:
     name: Did we finish it?
