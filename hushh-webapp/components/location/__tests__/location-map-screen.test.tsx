@@ -268,7 +268,7 @@ describe("LocationMapScreen", () => {
 
   it("never covers the app shell and titles itself Your Map", () => {
     expect(SOURCE).toContain('title="Your Map"');
-    expect(SOURCE).toContain('eyebrow="Location"');
+    expect(SOURCE).not.toContain("eyebrow=");
     expect(SOURCE).toContain("<LiveMap");
     expect(SOURCE).not.toContain("fixed inset-0");
     expect(SOURCE).not.toMatch(/\bz-\[\d+\]/);
