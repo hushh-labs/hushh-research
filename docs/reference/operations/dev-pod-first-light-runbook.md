@@ -1,5 +1,57 @@
 # Dev pod first light — the human actions, in order
 
+## Maintaining an existing owner's software release
+
+This section governs upgrades; the dated first-light walkthrough below is historical.
+Dev's control plane is `hushh-pda-dev`. A user-cloud deployment can live in a
+different project: resolve the named owner's registry entry before inspecting its
+service. Shared-project service inventory does not prove an owner has no pod.
+
+Build `consent-protocol/Dockerfile.pod` for the deployment platform with generated
+contracts staged by the existing build recipe. Set `POD_IMAGE_TAG=dev-<full-source-sha>`.
+Record source commit, immutable source digest, copied owner-project digest,
+Cloud Run revision and `/pod/info` imageTag separately. Never treat `latest`, an
+image version variable, or Cloud Run Ready as proof of the serving application.
+Keep the tombstone-compatible ancestry check and owner-local encrypted state.
+
+Normal updates use the existing status, Feed approval, registry operation and
+upgrade service. Publishing a release must not install it. Bind each approval to
+the owner, service incarnation and immutable image digest; Later defers 72 hours.
+Wait for the authenticated handoff's durable idle receipt before replacement.
+Verify the running release, readiness and memory/authority continuity before
+reporting success. Keep the automatic sweep disabled until the deployed hub
+enforces owner approval (`PERSONAL_AGENT_UPGRADE_APPROVAL_REQUIRED=true`).
+
+### One-time legacy bootstrap exception
+
+An installed release may predate the handoff protocol. Check with the configured
+hub machine identity and a pod-audience ID token: the ingress wall returns 404
+for an unauthorized human token even if the route exists. Require a successful
+protected `/pod/info` control before interpreting upgrade-status 404 as absence.
+
+A bootstrap requires explicit authorization for the named existing pod. It is a
+maintenance transition and does not count as proof of the normal Feed upgrade.
+Do not add a permanent bypass flag or silently bootstrap other owners.
+
+1. Pause the dev upgrade sweep to avoid competing updates. Record service UID,
+   traffic, image, configuration fingerprints, storage identity and recovery
+   prerequisites without persisting credentials or decrypted information.
+2. Build and verify a versioned image with the handoff routes and their actual
+   hub-to-pod authorization path. Preserve service identity, storage, KMS,
+   secret bindings and single-writer settings. Do not recreate the service.
+3. Use a deliberate maintenance handoff for this legacy image. Do not infer an
+   authoritative drain receipt from quiet logs. Record any interruption and
+   verify durable state before replacing the image.
+4. Verify image/revision, protected route authentication, admission behavior,
+   encrypted-state recovery and health after the transition. Reconcile registry
+   provenance before enabling normal updates; never fabricate owner approval.
+5. Re-enable the normal channel only after the deployed hub and Feed support
+   owner approval and the next update can obtain a genuine handoff receipt.
+   Preserve rollback ancestry and tombstones; unknown compatibility is a stop.
+
+Record bootstrap results separately from the subsequent owner-approved update
+acceptance. Do not repeat a bootstrap merely because later authentication fails.
+
 **Dated 2026-08-07.** Everything code-side for task #110 is landed and pushed. What remains
 is two human actions and a check: confirm CI is green, dispatch the dev deploy, and a browser
 session with a real AI key. (Setting a dev OTP was removed; the code is optional in the

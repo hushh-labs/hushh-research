@@ -56,6 +56,13 @@ Non-owned surfaces:
 
 ## Workflow
 
+For existing private-pod image updates and explicitly authorized legacy bootstrap,
+follow `docs/reference/operations/dev-pod-first-light-runbook.md`, section
+"Maintaining an existing owner's software release". Resolve owner-cloud placement
+from the environment's registry, verify machine-route authentication before
+diagnosing a missing endpoint, and retain immutable release provenance. A one-time
+bootstrap does not authorize bypassing approval on subsequent updates.
+
 1. Record current branch/worktree state and preserve the user's development branch before branch, CI, deploy, PR, hotfix, or validation work.
 2. Prefer live verification over assumptions for GitHub, CI, deploy, ruleset, and runtime state.
 3. Use `./bin/hushh` as the canonical repo command surface and `gh` for live repository state.

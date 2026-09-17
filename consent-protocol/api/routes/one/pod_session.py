@@ -117,15 +117,20 @@ def verified_session(
 
 
 async def _upgrade_control_authorized(request: Request, authorization: Optional[str]) -> None:
-    """Accept the owner session or the hub's existing pod identity proof.
+    """Use the machine wall's verified hub identity, bound to this pod.
 
-    The hub cannot mint an owner app session. Its Cloud Run identity token and
-    asserted HusshID are already the authenticated lifecycle transport used by
-    heartbeat and specialist doors, so upgrade controls use that same path.
+    Pod-to-hub authentication has the opposite caller and audience and cannot
+    authorize this direction. Upgrade routes remain behind the machine wall;
+    the scoped owner fallback does not make them public app routes.
     """
-    from api.routes.one.pod_identity_auth import verify_pod_identity
+    from hushh_mcp.services.scheduler_identity import SchedulerIdentity
 
-    if await verify_pod_identity(request, authorization):
+    identity = getattr(request.state, "hub_identity", None)
+    if isinstance(identity, SchedulerIdentity):
+        local_id = str(os.getenv("HUSSH_ID") or "").strip()
+        asserted_id = str(request.headers.get("X-Hushh-Pod-Id") or "").strip()
+        if not local_id or asserted_id != local_id:
+            raise HTTPException(status_code=403, detail="upgrade control targets another pod")
         return
     verified_session(authorization, role=ROLE_APP, scope=SCOPE_POD_UPGRADE)
 

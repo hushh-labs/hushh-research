@@ -70,7 +70,9 @@ class PodUpgradeHandoffClient:
                 f"{self._url}{path}",
                 **({"json": body} if body is not None else {}),
                 headers=headers,
-                timeout=15,
+                # The owner's scale-to-zero pod can take over 35 seconds to
+                # start. Keep connection setup bounded while allowing startup.
+                timeout=(10, 60),
                 allow_redirects=False,
             )
         except Exception as exc:  # noqa: BLE001 - the pod may be cold or unavailable

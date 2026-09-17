@@ -5,8 +5,9 @@ hub registry does not prove that the pod has finished that work, so this small
 coordinator fences new turns and emits an idle receipt tied to the operation and
 the current pod incarnation.  The fast counter is process-local, while
 lifecycle markers and idle receipts are appended to the pod's encrypted
-commit log when durable storage is configured so a restart cannot pretend a
-previous runtime was idle.
+commit log so a restart cannot pretend a previous runtime was idle. Ordinary
+turns can run without a configured log, but update handoff requires durable
+fence, commit-position and idle-record evidence.
 """
 
 from __future__ import annotations
@@ -86,22 +87,44 @@ class PodUpgradeAdmission:
         except Exception:  # noqa: BLE001 - an unconfigured pod has no durable log
             return None
 
-    async def _append_marker(self, kind: str, payload: dict[str, Any]) -> dict[str, Any] | None:
-        log = self._log()
-        if log is None:
-            return None
-        record = await log.append(kind, payload)
-        return record if isinstance(record, dict) else None
+    @staticmethod
+    def _record_cursor(record: Any) -> dict[str, Any]:
+        if (
+            not isinstance(record, dict)
+            or type(record.get("seq")) is not int
+            or record["seq"] < 1
+            or not isinstance(record.get("sha"), str)
+            or not record["sha"].strip()
+        ):
+            raise PodUpgradeAdmissionRefused("pod lifecycle durable receipt unavailable")
+        return {"seq": record["seq"], "sha": record["sha"]}
 
-    async def _cursor(self) -> dict[str, Any] | None:
+    async def _append_marker(self, kind: str, payload: dict[str, Any]) -> dict[str, Any]:
         log = self._log()
         if log is None:
-            return None
-        records = await log.replay()
+            raise PodUpgradeAdmissionRefused("pod lifecycle durable storage unavailable")
+        try:
+            record = await log.append(kind, payload)
+        except Exception as exc:
+            raise PodUpgradeAdmissionRefused(
+                f"pod lifecycle durable append unavailable: {type(exc).__name__}"
+            ) from exc
+        self._record_cursor(record)
+        return record
+
+    async def _cursor(self) -> dict[str, Any]:
+        log = self._log()
+        if log is None:
+            raise PodUpgradeAdmissionRefused("pod lifecycle durable storage unavailable")
+        try:
+            records = await log.replay()
+        except Exception as exc:
+            raise PodUpgradeAdmissionRefused(
+                f"pod lifecycle durable cursor unavailable: {type(exc).__name__}"
+            ) from exc
         if not records:
-            return None
-        record = records[-1]
-        return {"seq": record.get("seq"), "sha": record.get("sha")}
+            raise PodUpgradeAdmissionRefused("pod lifecycle durable cursor unavailable")
+        return self._record_cursor(records[-1])
 
     async def _hydrate(self, state: _State) -> None:
         if state.hydrated:
@@ -166,9 +189,12 @@ class PodUpgradeAdmission:
 
     async def _persist_idle(self, state: _State) -> dict[str, Any]:
         operation = state.operation_id or ""
+        self._record_cursor(state.fence_record)
         cursor = await self._cursor()
         committed = hashlib.sha256(
-            f"{operation}|{state.incarnation}|active=0".encode("utf-8")
+            f"{operation}|{state.incarnation}|{cursor['seq']}|{cursor['sha']}|active=0".encode(
+                "utf-8"
+            )
         ).hexdigest()
         receipt: dict[str, Any] = {
             "version": 1,
@@ -179,8 +205,7 @@ class PodUpgradeAdmission:
             "committedState": committed,
             "issuedAt": datetime.now(timezone.utc).isoformat(),
         }
-        if cursor is not None:
-            receipt["committedCursor"] = cursor
+        receipt["committedCursor"] = cursor
         marker = await self._append_marker(
             "pod_upgrade_idle",
             {
@@ -190,8 +215,7 @@ class PodUpgradeAdmission:
                 "idleReceipt": receipt,
             },
         )
-        if marker is not None:
-            receipt["idleRecord"] = {"seq": marker.get("seq"), "sha": marker.get("sha")}
+        receipt["idleRecord"] = self._record_cursor(marker)
         return receipt
 
     async def prepare(self, *, operation_id: str, incarnation: str) -> dict[str, Any]:
@@ -263,6 +287,7 @@ class PodUpgradeAdmission:
             state.operation_id = None
             state.receipt = None
             state.active = 0
+            state.fence_record = None
             return self._snapshot(state)
 
     def _snapshot(self, state: _State) -> dict[str, Any]:
