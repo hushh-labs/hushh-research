@@ -532,19 +532,11 @@ export function useFeedActionables(): UseFeedActionablesResult {
     // Software updates are owner-approved mutations. Keep one calm card in the
     // existing Feed queue; the API binds approval to this pod incarnation and
     // exact release, so a stale tab cannot choose an arbitrary image.
-    const updateReminderDue =
-      agentUpdate.presentationState !== "deferred" ||
-      !agentUpdate.remindAt ||
-      !Number.isFinite(Date.parse(agentUpdate.remindAt)) ||
-      Date.parse(agentUpdate.remindAt) <= Date.now();
-    if (
-      agentUpdate.available === true &&
-      agentUpdate.releaseId &&
-      updateReminderDue &&
-      agentUpdate.presentationState !== "scheduled" &&
-      agentUpdate.presentationState !== "updating"
-    ) {
+    if (agentUpdate.available === true && agentUpdate.offerable && agentUpdate.releaseId) {
       const releaseId = agentUpdate.releaseId;
+      const waiting =
+        agentUpdate.presentationState === "scheduled" ||
+        agentUpdate.presentationState === "updating";
       const approve = async () => {
         if (updateActionBusyRef.current) return;
         updateActionBusyRef.current = true;
@@ -575,12 +567,20 @@ export function useFeedActionables(): UseFeedActionablesResult {
         id: `personal-agent-update:${releaseId}`,
         icon: Download,
         iconTone: "blue",
-        title: "An update is ready",
-        description: agentUpdate.summary || "Keeps your private agent current.",
-        actions: [
-          { key: "approve", label: "Update now", tone: "primary", run: approve },
-          { key: "defer", label: "Later", tone: "ghost", run: defer },
-        ],
+        title: waiting
+          ? agentUpdate.presentationState === "updating"
+            ? "Updating your private agent"
+            : "Update scheduled"
+          : "An update is ready",
+        description: waiting
+          ? "Your current work is finishing before installation."
+          : agentUpdate.summary || "Keeps your private agent current.",
+        actions: waiting
+          ? []
+          : [
+              { key: "approve", label: "Update now", tone: "primary", run: approve },
+              { key: "defer", label: "Later", tone: "ghost", run: defer },
+            ],
         sortAt: Date.now(),
         displayTimestamp: null,
       });

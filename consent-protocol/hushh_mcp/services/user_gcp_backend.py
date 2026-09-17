@@ -1492,52 +1492,114 @@ class UserGcpBackend:
             )
         GcpRunClient.require_service_uid(existing, expected_uid)
         previous_digest = _digest_from_service(existing)
-        # `None` for the recorded digest is the whole difference from a heal: resolve
-        # the source tag fresh and copy THAT digest into the person's registry.
-        image_digest = await asyncio.to_thread(self._ensure_pod_image, spec, None)
-        config = self.render_deploy_config(spec, image_digest=image_digest)
-        changed = image_digest != previous_digest
-        svc: Optional[dict[str, Any]] = existing
-        if changed:
-            acknowledged = await asyncio.to_thread(
-                client.replace_service,
-                name,
-                client.merge_for_replace(existing, config, revision_nonce=spec.upgrade_attempt_id),
-                expected_uid=expected_uid,
+        handoff = None
+        handoff_incarnation = None
+        replacement_submitted = False
+        definitive_failure = False
+        if spec.upgrade_operation_id:
+            from hushh_mcp.services.pod_upgrade_handoff import (
+                PodUpgradeHandoffClient,
+                service_incarnation,
             )
-            acknowledgement_options = {}
-            if spec.on_upgrade_ack is not None:
-                receipt = GcpRunClient.upgrade_acknowledgement(
-                    acknowledged,
-                    name=name,
-                    expected_uid=expected_uid,
-                    attempt_id=spec.upgrade_attempt_id or "",
+
+            pod_url = GcpRunClient.service_url(existing)
+            handoff_incarnation = service_incarnation(existing)
+            if not pod_url or not handoff_incarnation:
+                raise RuntimeError("pod upgrade handoff capability is unavailable")
+            handoff = PodUpgradeHandoffClient(url=pod_url, hushh_id=spec.hushh_id)
+            try:
+                await asyncio.to_thread(
+                    handoff.prepare_and_wait,
+                    operation_id=spec.upgrade_operation_id,
+                    incarnation=handoff_incarnation,
                 )
-                await asyncio.to_thread(spec.on_upgrade_ack, receipt)
-                acknowledgement_options["expected_generation"] = receipt["generation"]
-            ready, svc = await asyncio.to_thread(
-                client.wait_ready,
-                name,
-                expected_uid=expected_uid,
-                **acknowledgement_options,
-                **(
-                    {"expected_revision_nonce": spec.upgrade_attempt_id}
-                    if spec.upgrade_attempt_id
-                    else {}
-                ),
-            )
-            if not ready:
-                boot_failure = GcpRunClient.ready_failure(svc)
-                if boot_failure is not None:
-                    raise PodBootFailedError(
-                        f"pod {name} failed to start on {image_digest[:19]}: "
-                        f"{' '.join(boot_failure.split())[:200]} -- the previous "
-                        "revision keeps serving"
+            except Exception:
+                try:
+                    await asyncio.to_thread(
+                        handoff.release,
+                        operation_id=spec.upgrade_operation_id,
+                        incarnation=handoff_incarnation,
                     )
-                raise RuntimeError(
-                    f"upgrade of {name} to {image_digest[:19]} was not confirmed Ready "
-                    "in time; nothing recorded, the next sweep re-checks"
+                except Exception:
+                    logger.info(
+                        "user_gcp_backend.handoff_release_after_prepare_failed",
+                        exc_info=True,
+                    )
+                raise
+        try:
+            # `None` for the recorded digest is the whole difference from a heal: resolve
+            # the source tag fresh and copy THAT digest into the person's registry.
+            image_digest = await asyncio.to_thread(self._ensure_pod_image, spec, None)
+            config = self.render_deploy_config(spec, image_digest=image_digest)
+            changed = image_digest != previous_digest
+            svc: Optional[dict[str, Any]] = existing
+            if changed:
+                replacement_submitted = True
+                acknowledged = await asyncio.to_thread(
+                    client.replace_service,
+                    name,
+                    client.merge_for_replace(
+                        existing, config, revision_nonce=spec.upgrade_attempt_id
+                    ),
+                    expected_uid=expected_uid,
                 )
+                acknowledgement_options = {}
+                if spec.on_upgrade_ack is not None:
+                    receipt = GcpRunClient.upgrade_acknowledgement(
+                        acknowledged,
+                        name=name,
+                        expected_uid=expected_uid,
+                        attempt_id=spec.upgrade_attempt_id or "",
+                    )
+                    await asyncio.to_thread(spec.on_upgrade_ack, receipt)
+                    acknowledgement_options["expected_generation"] = receipt["generation"]
+                ready, svc = await asyncio.to_thread(
+                    client.wait_ready,
+                    name,
+                    expected_uid=expected_uid,
+                    **acknowledgement_options,
+                    **(
+                        {"expected_revision_nonce": spec.upgrade_attempt_id}
+                        if spec.upgrade_attempt_id
+                        else {}
+                    ),
+                )
+                if not ready:
+                    boot_failure = GcpRunClient.ready_failure(svc)
+                    if boot_failure is not None:
+                        definitive_failure = True
+                        raise PodBootFailedError(
+                            f"pod {name} failed to start on {image_digest[:19]}: "
+                            f"{' '.join(boot_failure.split())[:200]} -- the previous "
+                            "revision keeps serving"
+                        )
+                    raise RuntimeError(
+                        f"upgrade of {name} to {image_digest[:19]} was not confirmed Ready "
+                        "in time; nothing recorded, the next sweep re-checks"
+                    )
+            elif handoff is not None and handoff_incarnation:
+                # A no-op never submits a replacement, so the old incarnation must
+                # resume accepting work before returning to the caller.
+                await asyncio.to_thread(
+                    handoff.release,
+                    operation_id=spec.upgrade_operation_id or "",
+                    incarnation=handoff_incarnation,
+                )
+        except Exception:
+            if (
+                handoff is not None
+                and handoff_incarnation
+                and (not replacement_submitted or definitive_failure)
+            ):
+                try:
+                    await asyncio.to_thread(
+                        handoff.release,
+                        operation_id=spec.upgrade_operation_id or "",
+                        incarnation=handoff_incarnation,
+                    )
+                except Exception:
+                    logger.info("user_gcp_backend.handoff_release_failed", exc_info=True)
+            raise
         url = client.service_url(svc)
         logger.info(
             "user_gcp_backend.upgraded service=%s changed=%s from=%s to=%s",

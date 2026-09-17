@@ -975,20 +975,52 @@ class PersonalAgentRegistryRepo:
                 ) - 'upgradeDeferral'
             WHERE user_id = :user_id
               AND status = 'provisioned'
+              -- The row is the authority for the owner and current pod. A stale
+              -- route read must not be able to bind an approval to a replaced pod.
+              AND hushh_id = :hushh_id
+              AND :user_id = :owner_id
+              AND coalesce(
+                    backend_metadata->>'serviceUid',
+                    external_agent_id,
+                    backend_metadata->>'service',
+                    'unknown'
+                  ) = :pod_incarnation
               AND (
                     backend_metadata->'upgradeApproval' IS NULL
-                    OR backend_metadata->'upgradeApproval'->>'releaseId' = :release_id
+                    -- A terminal operation may be superseded by a later release;
+                    -- an active or uncertain operation may never be overwritten.
+                    OR (
+                      backend_metadata->'upgradeApproval'->>'releaseId' <> :release_id
+                      AND backend_metadata->'upgradeApproval'->>'status' IN
+                        ('succeeded', 'failed', 'blocked')
+                    )
                   )
             RETURNING backend_metadata
             """,
             {
                 "user_id": user_id,
                 "release_id": release_id,
+                "hushh_id": str(approval.get("hushhId") or ""),
+                "owner_id": str(approval.get("ownerId") or ""),
+                "pod_incarnation": str(approval.get("podIncarnation") or "unknown"),
                 "approval": json.dumps(approval),
             },
         )
         rows = list(getattr(response, "data", None) or [])
         if not rows:
+            # A concurrent approval of this release has already won the
+            # conditional write. Return that durable winner so every caller gets
+            # the same operation id; never manufacture a local losing id.
+            current = await self.get(user_id)
+            metadata = (current or {}).get("backend_metadata") or {}
+            winner = metadata.get("upgradeApproval") if isinstance(metadata, dict) else None
+            if (
+                isinstance(winner, dict)
+                and winner.get("releaseId") == release_id
+                and winner.get("hushhId") == approval.get("hushhId")
+                and winner.get("podIncarnation") == approval.get("podIncarnation")
+            ):
+                return winner
             return None
         metadata = rows[0].get("backend_metadata") or {}
         return metadata.get("upgradeApproval") if isinstance(metadata, dict) else None

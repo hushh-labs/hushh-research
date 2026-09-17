@@ -24,7 +24,12 @@ from google.adk.models.llm_response import LlmResponse
 from google.adk.utils.streaming_utils import StreamingResponseAggregator
 from google.genai import types
 
-from .factory import build_runtime_client
+from . import factory
+
+
+def build_runtime_client(*args: Any, **kwargs: Any) -> Any:
+    """Keep one patchable seam while resolving the live factory at call time."""
+    return factory.build_runtime_client(*args, **kwargs)
 
 
 class ProviderAdkModel(BaseLlm):
@@ -93,6 +98,22 @@ class ProviderAdkModel(BaseLlm):
             puppy_device_id=self.device_id,
         )
 
+    def _request_config(self, config: Any) -> Any:
+        """Remove Enterprise-only fields before a Developer API request.
+
+        ADK attaches labels for managed Agent Platform telemetry. The same
+        ``LlmRequest`` is also used by BYOK/Developer API transports, where the
+        genai client rejects that field before making a request. Keep labels for
+        managed Vertex and copy the config for the developer path so one provider
+        cannot mutate another turn's request.
+        """
+        if self.runtime_mode in {"user_adc", "hushh_managed_vertex"}:
+            return config
+        copier = getattr(config, "model_copy", None)
+        if callable(copier):
+            return copier(update={"labels": None})
+        return config
+
     async def generate_content_async(
         self, llm_request: LlmRequest, stream: bool = False
     ) -> AsyncGenerator[LlmResponse, None]:
@@ -102,7 +123,7 @@ class ProviderAdkModel(BaseLlm):
             chunks = await client.aio.models.generate_content_stream(
                 model=self.model,
                 contents=llm_request.contents,
-                config=llm_request.config,
+                config=self._request_config(llm_request.config),
             )
             async for chunk in chunks:
                 response = self._genai_response(chunk)
@@ -118,7 +139,7 @@ class ProviderAdkModel(BaseLlm):
         response = await client.aio.models.generate_content(
             model=self.model,
             contents=llm_request.contents,
-            config=llm_request.config,
+            config=self._request_config(llm_request.config),
         )
         yield LlmResponse(
             model_version=self._model_version(response),

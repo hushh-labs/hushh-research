@@ -709,46 +709,103 @@ class GcpBackend:
                 )
             except (KeyError, IndexError, TypeError):
                 previous = None
-            tag = str(self._image or "").rsplit(":", 1)[-1] or "latest"
-            acknowledged = client.replace_service(
-                name,
-                client.merge_for_replace(
-                    existing, config, revision_nonce=spec.upgrade_attempt_id or f"image-{tag}"
-                ),
-                expected_uid=expected_uid,
-            )
-            acknowledgement_options = {}
-            if spec.on_upgrade_ack is not None:
-                receipt = GcpRunClient.upgrade_acknowledgement(
-                    acknowledged,
-                    name=name,
-                    expected_uid=expected_uid,
-                    attempt_id=spec.upgrade_attempt_id or "",
+            handoff = None
+            handoff_incarnation = None
+            replacement_submitted = False
+            if spec.upgrade_operation_id:
+                from hushh_mcp.services.pod_upgrade_handoff import (
+                    PodUpgradeHandoffClient,
+                    service_incarnation,
                 )
-                spec.on_upgrade_ack(receipt)
-                acknowledgement_options["expected_generation"] = receipt["generation"]
-            ready, svc = client.wait_ready(
-                name,
-                expected_uid=expected_uid,
-                **acknowledgement_options,
-                **(
-                    {"expected_revision_nonce": spec.upgrade_attempt_id}
-                    if spec.upgrade_attempt_id
-                    else {}
-                ),
-            )
-            if not ready:
-                boot_failure = GcpRunClient.ready_failure(svc)
-                if boot_failure is not None:
-                    raise PodBootFailedError(
-                        f"pod {name} failed to start on {self._image}: "
-                        f"{' '.join(boot_failure.split())[:200]} -- the previous "
-                        "revision keeps serving"
+
+                pod_url = GcpRunClient.service_url(existing)
+                handoff_incarnation = service_incarnation(existing)
+                if not pod_url or not handoff_incarnation:
+                    raise RuntimeError("pod upgrade handoff capability is unavailable")
+                handoff = PodUpgradeHandoffClient(url=pod_url, hushh_id=spec.hushh_id)
+                try:
+                    handoff.prepare_and_wait(
+                        operation_id=spec.upgrade_operation_id,
+                        incarnation=handoff_incarnation,
                     )
-                raise RuntimeError(
-                    f"upgrade of {name} to {self._image} was not confirmed Ready in time"
+                except Exception:
+                    try:
+                        handoff.release(
+                            operation_id=spec.upgrade_operation_id,
+                            incarnation=handoff_incarnation,
+                        )
+                    except Exception:
+                        logger.info(
+                            "gcp_backend.handoff_release_after_prepare_failed", exc_info=True
+                        )
+                    raise
+            tag = str(self._image or "").rsplit(":", 1)[-1] or "latest"
+            try:
+                replacement_submitted = True
+                acknowledged = client.replace_service(
+                    name,
+                    client.merge_for_replace(
+                        existing, config, revision_nonce=spec.upgrade_attempt_id or f"image-{tag}"
+                    ),
+                    expected_uid=expected_uid,
                 )
-            return ready, svc, previous
+                acknowledgement_options = {}
+                if spec.on_upgrade_ack is not None:
+                    receipt = GcpRunClient.upgrade_acknowledgement(
+                        acknowledged,
+                        name=name,
+                        expected_uid=expected_uid,
+                        attempt_id=spec.upgrade_attempt_id or "",
+                    )
+                    spec.on_upgrade_ack(receipt)
+                    acknowledgement_options["expected_generation"] = receipt["generation"]
+                ready, svc = client.wait_ready(
+                    name,
+                    expected_uid=expected_uid,
+                    **acknowledgement_options,
+                    **(
+                        {"expected_revision_nonce": spec.upgrade_attempt_id}
+                        if spec.upgrade_attempt_id
+                        else {}
+                    ),
+                )
+                if not ready:
+                    boot_failure = GcpRunClient.ready_failure(svc)
+                    if boot_failure is not None:
+                        raise PodBootFailedError(
+                            f"pod {name} failed to start on {self._image}: "
+                            f"{' '.join(boot_failure.split())[:200]} -- the previous "
+                            "revision keeps serving"
+                        )
+                    raise RuntimeError(
+                        f"upgrade of {name} to {self._image} was not confirmed Ready in time"
+                    )
+                return ready, svc, previous
+            except Exception:
+                # Before a provider mutation the old revision can safely resume.
+                # Once replacement was submitted, keep the fence until the durable
+                # acknowledgement/reconciliation path establishes the outcome.
+                if handoff is not None and handoff_incarnation and not replacement_submitted:
+                    try:
+                        handoff.release(
+                            operation_id=spec.upgrade_operation_id or "",
+                            incarnation=handoff_incarnation,
+                        )
+                    except Exception:
+                        logger.info("gcp_backend.handoff_release_failed", exc_info=True)
+                elif (
+                    handoff is not None
+                    and handoff_incarnation
+                    and isinstance(locals().get("boot_failure"), str)
+                ):
+                    try:
+                        handoff.release(
+                            operation_id=spec.upgrade_operation_id or "",
+                            incarnation=handoff_incarnation,
+                        )
+                    except Exception:
+                        logger.info("gcp_backend.handoff_release_after_boot_failure", exc_info=True)
+                raise
 
         ready, svc, previous = await asyncio.to_thread(_run)
         logger.info("gcp_backend.upgraded service=%s image=%s", name, self._image)

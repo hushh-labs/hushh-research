@@ -2,7 +2,7 @@
  * An upgrade is a software update at login, and the app has to be able to see it.
  *
  * The hub now says what the pod runs and what it wants (`runningImage`, `targetImage`,
- * `updateAvailable`, `updateInProgress`, `updateFailed`), tri-state like `hostReady`.
+ * `updateAvailable`, `updateInProgress`, `updateFailed`, `updateVerified`), tri-state like `hostReady`.
  * These tests pin how the app reads that and how the poll behaves while the build is
  * moving: a settled pod normally stops polling, and an update in flight must not.
  */
@@ -33,6 +33,7 @@ describe("readUpdateStatus", () => {
     });
     expect(update).toEqual({
       available: true,
+      offerable: true,
       inProgress: false,
       failed: false,
       error: null,
@@ -43,7 +44,20 @@ describe("readUpdateStatus", () => {
       presentationState: null,
       remindAt: null,
       operationId: null,
+      verified: false,
     });
+  });
+
+  it("only treats a matching running target as verified completion", () => {
+    expect(
+      readUpdateStatus({
+        runningImage: "dev-bbbbbbbbb",
+        targetImage: "dev-bbbbbbbbb",
+        updateAvailable: false,
+        updateVerified: true,
+      }).verified,
+    ).toBe(true);
+    expect(readUpdateStatus({ updateAvailable: false }).verified).toBe(false);
   });
 
   it("carries the failure reason the hub chose to show", () => {

@@ -130,6 +130,8 @@ class PodSpec:
     expected_service_uid: Optional[str] = None
     # Opaque binding to the existing registry upgrade reservation.
     upgrade_attempt_id: Optional[str] = None
+    # Durable owner approval operation used by the pod lifecycle handoff.
+    upgrade_operation_id: Optional[str] = None
     provision_attempt_id: Optional[str] = None
     on_provision_ack: Optional[Callable[[dict[str, Any]], None]] = dataclass_field(
         default=None, repr=False, compare=False

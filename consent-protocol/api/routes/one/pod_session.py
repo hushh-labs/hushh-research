@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 from fastapi import APIRouter, Body, Header, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field
@@ -67,6 +67,12 @@ class ConfigRequest(BaseModel):
     changes: dict[str, Any] = Field(default_factory=dict)
 
 
+class UpgradeHandoffRequest(BaseModel):
+    operation_id: str = Field(..., alias="operationId", min_length=8, max_length=128)
+    incarnation: str = Field(..., min_length=1, max_length=256)
+    model_config = ConfigDict(populate_by_name=True)
+
+
 def _refuse(exc: PodSessionRefused) -> HTTPException:
     return HTTPException(status_code=exc.status, detail={"code": exc.code, "message": exc.detail})
 
@@ -107,6 +113,20 @@ def verified_session(
             detail={"code": "scope_not_granted", "message": f"{scope} is not in this binding"},
         )
     return authority, claims
+
+
+async def _upgrade_control_authorized(request: Request, authorization: Optional[str]) -> None:
+    """Accept the owner session or the hub's existing pod identity proof.
+
+    The hub cannot mint an owner app session. Its Cloud Run identity token and
+    asserted HusshID are already the authenticated lifecycle transport used by
+    heartbeat and specialist doors, so upgrade controls use that same path.
+    """
+    from api.routes.one.pod_identity_auth import verify_pod_identity
+
+    if await verify_pod_identity(request, authorization):
+        return
+    verified_session(authorization, role=ROLE_APP, scope=SCOPE_POD_STATUS)
 
 
 def _session_response(token: str, claims: dict[str, Any]) -> dict[str, Any]:
@@ -223,6 +243,9 @@ async def pod_status(authorization: Optional[str] = Header(default=None)) -> dic
     """Effective configuration, identity, incarnation, subjects and build. No secrets."""
     authority, _claims = verified_session(authorization, role=ROLE_APP, scope=SCOPE_POD_STATUS)
     fence = await authority.lease.state()
+    from hushh_mcp.services.pod_upgrade_admission import ADMISSION, pod_incarnation
+
+    handoff = await ADMISSION.status(incarnation=pod_incarnation())
     return {
         "hushhId": authority.hushh_id,
         "config": active_pod_config().as_dict(),
@@ -230,11 +253,82 @@ async def pod_status(authorization: Optional[str] = Header(default=None)) -> dic
         "environment": authority.environment,
         "epoch": authority.epoch,
         "incarnation": fence,
+        "upgradeHandoff": handoff,
         "subjects": authority.subjects_report(),
         "imageTag": (os.getenv("HUSSH_POD_IMAGE_TAG") or "").strip()[:128] or None,
         "revision": (os.getenv("K_REVISION") or "").strip()[:128] or None,
         "puppy": await _puppy_report(authority.hushh_id),
     }
+
+
+@router.post("/upgrade/prepare")
+async def pod_upgrade_prepare(
+    request: Request,
+    payload: UpgradeHandoffRequest = Body(...),
+    authorization: Optional[str] = Header(default=None),
+) -> dict[str, Any]:
+    """Fence new pod work for an owner-approved replacement."""
+    await _upgrade_control_authorized(request, authorization)
+    from hushh_mcp.services.pod_upgrade_admission import (
+        ADMISSION,
+        PodUpgradeAdmissionRefused,
+        pod_incarnation,
+    )
+
+    if payload.incarnation != pod_incarnation():
+        raise HTTPException(status_code=409, detail="upgrade handoff targets a stale pod")
+
+    try:
+        return cast(
+            dict[str, Any],
+            await ADMISSION.prepare(
+                operation_id=payload.operation_id,
+                incarnation=payload.incarnation,
+            ),
+        )
+    except PodUpgradeAdmissionRefused as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from None
+
+
+@router.get("/upgrade/status")
+async def pod_upgrade_status(
+    request: Request,
+    authorization: Optional[str] = Header(default=None),
+) -> dict[str, Any]:
+    """Return redacted active-work and idle-receipt evidence."""
+    await _upgrade_control_authorized(request, authorization)
+    from hushh_mcp.services.pod_upgrade_admission import ADMISSION, pod_incarnation
+
+    return cast(dict[str, Any], await ADMISSION.status(incarnation=pod_incarnation()))
+
+
+@router.post("/upgrade/release")
+async def pod_upgrade_release(
+    request: Request,
+    payload: UpgradeHandoffRequest = Body(...),
+    authorization: Optional[str] = Header(default=None),
+) -> dict[str, Any]:
+    """Release a failed or reconciled handoff fence."""
+    await _upgrade_control_authorized(request, authorization)
+    from hushh_mcp.services.pod_upgrade_admission import (
+        ADMISSION,
+        PodUpgradeAdmissionRefused,
+        pod_incarnation,
+    )
+
+    if payload.incarnation != pod_incarnation():
+        raise HTTPException(status_code=409, detail="upgrade handoff targets a stale pod")
+
+    try:
+        return cast(
+            dict[str, Any],
+            await ADMISSION.release(
+                operation_id=payload.operation_id,
+                incarnation=payload.incarnation,
+            ),
+        )
+    except PodUpgradeAdmissionRefused as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from None
 
 
 @router.post("/config")

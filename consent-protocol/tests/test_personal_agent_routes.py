@@ -206,7 +206,7 @@ def _update_client(monkeypatch):
     monkeypatch.setenv("PERSONAL_AGENT_ENABLED", "1")
     monkeypatch.setenv(
         "HUSSH_ONE_POD_IMAGE",
-        "gcr.io/hushh-pda-dev/consent-protocol-pod:dev-new",
+        "gcr.io/hushh-pda-dev/consent-protocol-pod:dev-new@sha256:" + "b" * 64,
     )
     row = {
         "user_id": "uid1",
@@ -214,7 +214,7 @@ def _update_client(monkeypatch):
         "status": "provisioned",
         "external_agent_id": "service-owner",
         "backend_metadata": {
-            "source_image": "gcr.io/hushh-pda-dev/consent-protocol-pod:dev-old",
+            "source_image": "gcr.io/hushh-pda-dev/consent-protocol-pod:dev-old@sha256:" + "a" * 64,
             "serviceUid": "service-owner",
         },
     }
@@ -253,7 +253,7 @@ def test_update_approval_is_bound_and_idempotent(monkeypatch):
     assert first.status_code == 200
     assert second.status_code == 200
     assert first.json() == second.json()
-    assert calls["approval"]["targetImage"].endswith(":dev-new")
+    assert calls["approval"]["targetImage"].endswith("@sha256:" + "b" * 64)
     assert calls["approval"]["hushhId"] == "ha1_owner"
 
 
@@ -274,6 +274,20 @@ def test_update_deferral_is_server_scheduled_and_stale_release_rejected(monkeypa
     assert deferred.status_code == 200
     remind_at = deferred.json()["remindAt"]
     assert calls["deferral"]["remindAt"] == remind_at
+
+
+def test_update_offer_refuses_a_mutable_image_tag(monkeypatch):
+    client, _ = _update_client(monkeypatch)
+    monkeypatch.setenv(
+        "HUSSH_ONE_POD_IMAGE",
+        "gcr.io/hushh-pda-dev/consent-protocol-pod:dev-new",
+    )
+    response = client.post(
+        "/api/one/personal-agent/update/approve",
+        json={"releaseId": "rel_stale_release", "idempotencyKey": "idem-1234"},
+    )
+    assert response.status_code == 409
+    assert response.json()["detail"] == "software update is not yet verified"
 
 
 # --- state vocabulary -------------------------------------------------------

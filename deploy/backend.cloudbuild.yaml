@@ -106,7 +106,41 @@ steps:
           --file consent-protocol/Dockerfile.pod \
           --push \
           consent-protocol
+
     id: "build-pod-image"
+
+  # Docker's builder image does not include gcloud. Resolve the pushed tag in a
+  # Cloud SDK step, then hand the immutable digest to deployment through the
+  # shared workspace. Approval and installation must refer to this exact
+  # artifact; re-resolving a mutable tag later would make the owner's approval
+  # ambiguous.
+  - name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
+    entrypoint: "bash"
+    args:
+      - "-c"
+      - |
+        set -euo pipefail
+        if [[ "${_DEPLOY_ENV}" != "dev" || "${_BUILD_POD_IMAGE}" != "true" ]]; then
+          echo "pod image digest: skipped"
+          exit 0
+        fi
+        pod_tag="gcr.io/$PROJECT_ID/consent-protocol-pod:${_IMAGE_TAG}"
+        pod_digest=""
+        for attempt in 1 2 3 4 5; do
+          pod_digest="$(gcloud container images describe "$pod_tag" \
+            --format='value(image_summary.digest)' 2>/dev/null || true)"
+          if printf '%s' "$pod_digest" | grep -Eq '^sha256:[0-9a-fA-F]{64}$'; then
+            break
+          fi
+          pod_digest=""
+          sleep 2
+        done
+        if [[ -z "$pod_digest" ]]; then
+          echo "pod image digest was not observable after push" >&2
+          exit 1
+        fi
+        printf '%s@%s\n' "${pod_tag%:*}" "$pod_digest" > /workspace/pod-image-reference
+    id: "resolve-pod-image-digest"
 
   # Step 2b: Validate the runtime identity + managed-Vertex IAM prerequisites.
   # Split out of the deploy step: Cloud Build caps one step arg at 10,000 chars,

@@ -50,6 +50,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import logging
+import re
 from collections.abc import Awaitable, Callable
 from dataclasses import replace
 from datetime import datetime, timezone
@@ -145,14 +146,23 @@ def upgrade_release_id(row: Optional[dict], target_image: str) -> str:
     return "rel_" + hashlib.sha256(payload.encode("utf-8")).hexdigest()[:32]
 
 
+_IMMUTABLE_IMAGE_RE = re.compile(r"^.+@sha256:[0-9a-fA-F]{64}$")
+
+
+def is_immutable_image_reference(reference: object) -> bool:
+    """Whether an image reference is pinned to a complete OCI digest."""
+    return bool(_IMMUTABLE_IMAGE_RE.fullmatch(str(reference or "").strip()))
+
+
 def upgrade_approval_matches(row: Optional[dict], target_image: str) -> bool:
     """Whether durable approval covers this exact image and pod incarnation."""
     metadata = (row or {}).get("backend_metadata") or {}
     approval = metadata.get("upgradeApproval")
     if not isinstance(approval, dict):
         return False
-    return (
+    return is_immutable_image_reference(target_image) and (
         approval.get("releaseId") == upgrade_release_id(row, target_image)
+        and approval.get("ownerId") == (row or {}).get("user_id")
         and approval.get("hushhId") == (row or {}).get("hushh_id")
         and approval.get("podIncarnation")
         == str(
@@ -1324,12 +1334,27 @@ class PersonalAgentProvisioningService:
         updated.pop("upgradeLease", None)
         succeeded = handle.status == "live"
         if succeeded:
+            approval = updated.get("upgradeApproval")
+            if isinstance(approval, dict) and approval.get("operationId"):
+                updated["upgradeApproval"] = {
+                    **approval,
+                    "status": "succeeded",
+                    "operationState": "succeeded",
+                    "verifiedAt": datetime.now(timezone.utc).isoformat(),
+                }
             updated.update(handle.backend_metadata or {})
             updated.pop("observed", None)
             updated.pop("upgrade", None)
             if receipt.get("hubRevision"):
                 updated["imageSetByRevision"] = receipt["hubRevision"]
         else:
+            approval = updated.get("upgradeApproval")
+            if isinstance(approval, dict) and approval.get("operationId"):
+                updated["upgradeApproval"] = {
+                    **approval,
+                    "status": "failed",
+                    "operationState": "failed",
+                }
             updated["upgrade"] = {
                 **(metadata.get("upgrade") or {}),
                 "failedImage": receipt["targetImage"],
@@ -1399,6 +1424,12 @@ class PersonalAgentProvisioningService:
         cloud = await resolve_user_cloud(user_id, repo=self._registry)
         if cloud is not None and cloud.blocks_provisioning:
             raise PersonalAgentCloudNotAuthorizedError(cloud.refusal_reason)
+        approval_metadata = (row.get("backend_metadata") or {}).get("upgradeApproval")
+        upgrade_operation_id = (
+            str(approval_metadata.get("operationId") or "").strip()
+            if isinstance(approval_metadata, dict)
+            else ""
+        ) or None
         spec = PodSpec(
             hushh_id=hushh_id,
             phone_e164_hash=phone_hash,
@@ -1412,6 +1443,7 @@ class PersonalAgentProvisioningService:
             user_cloud_project=(cloud.project if cloud else None),
             user_cloud_region=(cloud.region if cloud else None),
             user_cloud_bootstrap_sa=(cloud.bootstrap_sa if cloud else None),
+            upgrade_operation_id=upgrade_operation_id,
             # The person's own warm floor. `PodSpec.resource_tier` was written, tested
             # and read by `_min_instances_for` -- and set by NOTHING, so the axis had an
             # output end and no input end.
@@ -1563,6 +1595,18 @@ class PersonalAgentProvisioningService:
 
         spec = replace(spec, on_upgrade_ack=persist_acknowledgement)
         old_meta = dict(row.get("backend_metadata") or {})
+        approval = old_meta.get("upgradeApproval")
+        if isinstance(approval, dict) and approval.get("operationId"):
+            # Persist the external phase before the provider call. A worker restart
+            # can then report an update in progress instead of inferring success
+            # from a lease disappearing.
+            old_meta["upgradeApproval"] = {
+                **approval,
+                "status": "updating",
+                "operationState": "installing",
+                "startedAt": datetime.now(timezone.utc).isoformat(),
+            }
+            await publish_upgrade(backend_metadata=old_meta, retain_lease=True)
         old_meta.pop("upgradeLease", None)
         previous = running_image(row)
         if set_by_newer_hub(row):
@@ -1619,6 +1663,16 @@ class PersonalAgentProvisioningService:
                 else 1
             )
             reason = user_safe_failure_reason(exc)
+            approval = old_meta.get("upgradeApproval")
+            if isinstance(approval, dict) and approval.get("operationId"):
+                # A provider exception is not proof that replacement stopped. Keep
+                # the operation visibly unresolved until reconciliation can classify
+                # the external outcome.
+                old_meta["upgradeApproval"] = {
+                    **approval,
+                    "status": "blocked",
+                    "operationState": "blocked",
+                }
             failure_recorded = False
             try:
                 await publish_upgrade(
@@ -1657,6 +1711,14 @@ class PersonalAgentProvisioningService:
             raise
 
         new_meta = {**old_meta, **(handle.backend_metadata or {})}
+        approval = new_meta.get("upgradeApproval")
+        if isinstance(approval, dict) and approval.get("operationId"):
+            new_meta["upgradeApproval"] = {
+                **approval,
+                "status": "succeeded",
+                "operationState": "succeeded",
+                "verifiedAt": datetime.now(timezone.utc).isoformat(),
+            }
         new_meta.pop("upgrade", None)
         # `observed` is the OLD pod's report of what it was running, and that pod has
         # just been replaced. Carrying it through leaves source_image=new beside

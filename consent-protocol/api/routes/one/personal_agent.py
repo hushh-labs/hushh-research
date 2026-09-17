@@ -32,6 +32,7 @@ from hushh_mcp.services.personal_agent_provisioning_service import (
     UPGRADE_ATTEMPTS_PER_IMAGE,
     PersonalAgentProvisioningService,
     _lease_is_fresh,
+    is_immutable_image_reference,
     upgrade_release_id,
 )
 from hushh_mcp.services.personal_agent_registry_repo import PersonalAgentRegistryRepo
@@ -106,6 +107,10 @@ async def _upgrade_offer(user_id: str) -> tuple[PersonalAgentRegistryRepo, dict,
     target_reference = str(os.getenv("HUSSH_ONE_POD_IMAGE") or "").strip()
     if not target_reference:
         raise HTTPException(status_code=409, detail="no software update is currently offered")
+    if not is_immutable_image_reference(target_reference):
+        # Approval must bind to one immutable artifact. A mutable tag could move
+        # between the owner's click and the worker's installation.
+        raise HTTPException(status_code=409, detail="software update is not yet verified")
     update = describe_pod_update(row, target_image=target_reference)
     if update.get("updateAvailable") is not True:
         raise HTTPException(status_code=409, detail="your private agent is already up to date")
@@ -330,7 +335,14 @@ def describe_pod_update(row: Optional[dict], *, target_image: Optional[str] = No
     if not (running and target):
         return out
     out["updateAvailable"] = running != target
+    if not out["updateAvailable"]:
+        # A matching running/target pair is positive verification. The client must
+        # not infer success merely because a lease disappeared.
+        out["updateVerified"] = True
     if out["updateAvailable"]:
+        # Keep an unverified target visible to operators as a diagnostic, but do
+        # not turn it into an owner-actionable offer.
+        out["updateOfferable"] = is_immutable_image_reference(target_reference)
         approval = metadata.get("upgradeApproval")
         deferral = metadata.get("upgradeDeferral")
         release = upgrade_release_id(row, target_reference or target)
@@ -343,6 +355,14 @@ def describe_pod_update(row: Optional[dict], *, target_image: Optional[str] = No
             reminder = str(deferral.get("remindAt") or "").strip()
             if reminder:
                 update["remindAt"] = reminder
+                if "reminderGeneration" in deferral:
+                    try:
+                        due = datetime.fromisoformat(reminder.replace("Z", "+00:00"))
+                        if due.tzinfo is None:
+                            due = due.replace(tzinfo=timezone.utc)
+                        update["reminderDue"] = due <= datetime.now(timezone.utc)
+                    except ValueError:
+                        update["reminderDue"] = False
             update["presentationState"] = "deferred"
         if isinstance(approval, dict) and approval.get("releaseId") == release:
             status = str(approval.get("status") or "").strip()
@@ -565,7 +585,11 @@ async def approve_personal_agent_update(
                 "status": "scheduled",
             }
         raise HTTPException(status_code=409, detail="software update approval was superseded")
-    return {"operationId": operation_id, "releaseId": release_id, "status": "scheduled"}
+    return {
+        "operationId": str(stored.get("operationId") or operation_id),
+        "releaseId": release_id,
+        "status": "scheduled",
+    }
 
 
 @router.post("/update/defer")
@@ -579,6 +603,12 @@ async def defer_personal_agent_update(
     if not compare_digest(payload.release_id, release_id):
         raise HTTPException(status_code=409, detail="this software update is no longer current")
     now = datetime.now(timezone.utc)
+    prior_deferral = (row.get("backend_metadata") or {}).get("upgradeDeferral")
+    generation = (
+        int(prior_deferral.get("reminderGeneration") or 0) + 1
+        if isinstance(prior_deferral, dict) and prior_deferral.get("releaseId") == release_id
+        else 1
+    )
     deferral = {
         "version": 1,
         "releaseId": release_id,
@@ -586,6 +616,7 @@ async def defer_personal_agent_update(
         "hushhId": row.get("hushh_id"),
         "remindAt": (now + timedelta(days=3)).isoformat(),
         "deferredAt": now.isoformat(),
+        "reminderGeneration": generation,
     }
     stored = await repo.record_upgrade_deferral(user_id=user_id, deferral=deferral)
     if not isinstance(stored, dict) or stored.get("releaseId") != release_id:

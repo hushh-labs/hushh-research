@@ -1018,6 +1018,25 @@ async def _task_from_context(
         return None
     authority = None
     tenant_id = task_id = None
+    if pod_mode():
+        # Pod ingress has already authenticated the owner and binds its service
+        # adapters to this turn. Construct the same attenuated context that the
+        # browser ADK path receives so runtime-bound dispatch does not fall back to
+        # a legacy, authority-free specialist call.
+        grants = state.get(STATE_DATA_DOOR_GRANTS)
+        grant_keys = tuple(str(key) for key in grants) if isinstance(grants, dict) else ()
+        tenant_id = user_id
+        task_id = f"pod:{str(state.get(STATE_CONVERSATION_ID) or '').strip() or 'turn'}"
+        authority = A2AAuthorityContext(
+            subject_user_id=user_id,
+            tenant_id=tenant_id,
+            task_id=task_id,
+            caller_kind="first_party",
+            invocation_capabilities=("cap.one.invoke",),
+            information_grant_refs=grant_keys,
+            encrypted_export_refs=("pod-turn",) if grant_keys else (),
+            action_capabilities=tuple(key for key in grant_keys if key.startswith("cap.")),
+        )
     if agent_id == "agent_nav":
         # ADK supplies these bindings; model arguments/session state cannot.
         invocation_id = getattr(tool_context, "invocation_id", None)

@@ -66,6 +66,7 @@ const VALID: readonly string[] = [
  */
 export type AgentUpdateStatus = {
   available: boolean | null;
+  offerable: boolean;
   inProgress: boolean;
   failed: boolean;
   error: string | null;
@@ -76,10 +77,12 @@ export type AgentUpdateStatus = {
   presentationState: "ready" | "deferred" | "scheduled" | "updating" | null;
   remindAt: string | null;
   operationId: string | null;
+  verified: boolean;
 };
 
 export const NO_UPDATE: AgentUpdateStatus = {
   available: null,
+  offerable: false,
   inProgress: false,
   failed: false,
   error: null,
@@ -90,6 +93,7 @@ export const NO_UPDATE: AgentUpdateStatus = {
   presentationState: null,
   remindAt: null,
   operationId: null,
+  verified: false,
 };
 
 export function readUpdateStatus(
@@ -98,9 +102,11 @@ export function readUpdateStatus(
         runningImage?: string | null;
         targetImage?: string | null;
         updateAvailable?: boolean;
+        updateOfferable?: boolean;
         updateInProgress?: boolean;
         updateFailed?: boolean;
         updateError?: string | null;
+        updateVerified?: boolean;
         update?: {
           releaseId?: string;
           summary?: string;
@@ -114,6 +120,7 @@ export function readUpdateStatus(
 ): AgentUpdateStatus {
   return {
     available: typeof res?.updateAvailable === "boolean" ? res.updateAvailable : null,
+    offerable: res?.updateOfferable !== false,
     inProgress: res?.updateInProgress === true,
     failed: res?.updateFailed === true,
     error: res?.updateError ? String(res.updateError) : null,
@@ -124,6 +131,7 @@ export function readUpdateStatus(
     presentationState: res?.update?.presentationState ?? null,
     remindAt: res?.update?.remindAt ? String(res.update.remindAt) : null,
     operationId: res?.update?.operationId ? String(res.update.operationId) : null,
+    verified: res?.updateVerified === true,
   };
 }
 
@@ -143,7 +151,6 @@ function reportUpdateTask(
 ): void {
   if (!userId) return;
   const taskId = updateTaskId(userId);
-  const target = update.target ? ` (${update.target})` : "";
   try {
     if (update.inProgress) {
       AppBackgroundTaskService.startTask({
@@ -151,7 +158,7 @@ function reportUpdateTask(
         taskId,
         kind: DEPLOYMENT_TASK_KIND,
         title: "Updating your private agent",
-        description: `A newer build is being installed${target}. Your agent keeps answering meanwhile.`,
+        description: "A verified update is being installed after your current work finishes.",
         routeHref: "/one/feed",
         visibility: "passive",
         groupLabel: "Private agent",
@@ -167,7 +174,15 @@ function reportUpdateTask(
       );
       return;
     }
-    AppBackgroundTaskService.completeTask(taskId, "Your private agent is up to date.");
+    if (update.verified) {
+      AppBackgroundTaskService.completeTask(taskId, "Your private agent is up to date.");
+      return;
+    }
+    AppBackgroundTaskService.failTask(
+      taskId,
+      "Update could not be verified",
+      "Your private agent is still running its previous build.",
+    );
   } catch {
     // A progress indicator must never break the thing it reports on.
   }

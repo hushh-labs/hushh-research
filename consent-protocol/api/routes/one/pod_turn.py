@@ -480,6 +480,21 @@ async def run_pod_turn(
     # The runtime's one memory report per turn (observed recalls, review, written,
     # provider). None when the runner never emitted it (a pre-join image).
     memory_report: dict[str, Any] | None = None
+
+    # Admission is checked after consent and runtime construction but before any
+    # model or tool work. Keeping construction outside the permit scope prevents
+    # a failed setup from leaking an active turn and blocking a later handoff.
+    from hushh_mcp.services.pod_upgrade_admission import (
+        ADMISSION,
+        PodUpgradeAdmissionRefused,
+        pod_incarnation,
+    )
+
+    try:
+        turn_permit = await ADMISSION.acquire_turn(incarnation=pod_incarnation())
+    except PodUpgradeAdmissionRefused as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from None
+
     try:
         with bind_specialist_runtime(specialist_runtime):
             async for event in runner(
@@ -599,6 +614,8 @@ async def run_pod_turn(
         raise HTTPException(
             status_code=502, detail=f"the agent could not complete this turn: {type(exc).__name__}"
         ) from None
+    finally:
+        await turn_permit.release()
 
     text = "".join(chunks).strip()
     # A SUCCESSFUL TURN LEAVES A TRACE. Until this line, `run_pod_turn` logged only on

@@ -3531,14 +3531,17 @@ export class ApiService {
     runningImage?: string | null;
     targetImage?: string | null;
     updateAvailable?: boolean;
+    updateOfferable?: boolean;
     updateInProgress?: boolean;
     updateFailed?: boolean;
     updateError?: string | null;
+    updateVerified?: boolean;
     update?: {
       releaseId: string;
       summary: string;
       presentationState: "ready" | "deferred" | "scheduled" | "updating";
       remindAt?: string;
+      reminderDue?: boolean;
       operationId?: string;
     };
   }> {

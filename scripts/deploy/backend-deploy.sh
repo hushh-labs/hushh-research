@@ -320,16 +320,21 @@ append_optional_env "KAI_ANALYZE_DURABLE_RUN_STORE" "${_KAI_ANALYZE_DURABLE_RUN_
 append_optional_env "CONSENT_WEB_FALLBACK_ENABLED" "${_CONSENT_WEB_FALLBACK_ENABLED}"
 append_optional_env "CONSENT_SSE_ENABLED" "${_CONSENT_SSE_ENABLED}"
 
-# Slim pod image reference, dev only. GcpBackend reads HUSSH_ONE_POD_IMAGE
-# (gcp_backend.py) and until now it resolved to empty in every environment,
-# so a real provision call had no image to deploy. The URI is recomputed
-# rather than passed between steps because Cloud Build steps are separate
-# containers with no shared shell state; it is deterministic from the same
-# two inputs the build step used, and the conditions are repeated verbatim so
-# the env var can never point at an image this build did not push.
+# Slim pod image reference, dev only. The pod build step resolves the pushed tag
+# to a digest and writes it to the shared workspace. The deploy step consumes that
+# recorded value; it never offers a mutable tag for owner approval.
 pod_image=""
 if [[ "${_DEPLOY_ENV}" == "dev" && "${_BUILD_POD_IMAGE}" == "true" ]]; then
-  pod_image="gcr.io/$PROJECT_ID/consent-protocol-pod:${_IMAGE_TAG}"
+  pod_image_file="/workspace/pod-image-reference"
+  if [[ ! -s "$pod_image_file" ]]; then
+    echo "pod image digest record is missing; refusing mutable pod target" >&2
+    exit 1
+  fi
+  pod_image="$(head -n 1 "$pod_image_file" | tr -d '\r\n')"
+  if [[ ! "$pod_image" =~ ^.+@sha256:[0-9a-fA-F]{64}$ ]]; then
+    echo "pod image digest record is invalid; refusing mutable pod target" >&2
+    exit 1
+  fi
 fi
 append_optional_env "HUSSH_ONE_POD_IMAGE" "${pod_image}"
 # The pod's own runtime identity. Created in hushh-pda-dev holding NO project
