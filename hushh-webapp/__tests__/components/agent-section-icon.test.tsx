@@ -7,7 +7,7 @@ import { lucideCapabilityIcon } from "@/lib/onboarding/one-capabilities";
 
 describe("AgentSectionIcon roster palette", () => {
   it.each([
-    ["email", "/agents/kyc.svg"],
+    ["email", "/agents/kyc.png"],
     ["consent", "/agents/consent.png"],
   ])("renders %s artwork without an extra background", (id, src) => {
     render(<AgentIdentityIcon id={id} size="roster-dashboard" />);

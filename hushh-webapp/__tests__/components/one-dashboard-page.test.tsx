@@ -123,15 +123,15 @@ describe("OneDashboardPage", () => {
     // ONE_CAPABILITIES order: the palette exists to keep adjacent rows
     // distinguishable, and that property is preserved.
     const rosterPaletteOrder = [
-      "finance",
-      "wallet",
       "location",
-      "ria",
       "gmail",
       "calendar",
       "email",
-      "pkm",
+      "finance",
+      "ria",
+      "wallet",
       "consent",
+      "pkm",
     ] as const;
     const rosterPaletteSlots = rosterPaletteOrder.map((id) =>
       screen
