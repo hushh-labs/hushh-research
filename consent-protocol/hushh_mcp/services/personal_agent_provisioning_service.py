@@ -132,15 +132,107 @@ class PersonalAgentUpgradeNotApprovedError(PermissionError):
     """The owner has not approved the exact release for this pod incarnation."""
 
 
-def upgrade_release_id(row: Optional[dict], target_image: str) -> str:
-    """Return an opaque release identifier bound to image and pod incarnation."""
+UPGRADE_APPROVAL_VERSION = 1
+_UPGRADE_APPROVAL_ACTIVE_STATUSES = frozenset({"approved", "scheduled", "updating"})
+_UPGRADE_APPROVAL_UNRESOLVED_STATUSES = frozenset({"blocked"})
+_IMAGE_DIGEST_RE = re.compile(r"^sha256:[0-9a-fA-F]{64}$")
+
+
+def pod_incarnation(row: Optional[dict]) -> Optional[str]:
+    """Return the recorded provider incarnation, or ``None`` when it is unknown.
+
+    A service name is a stable address, not an incarnation. The registry records
+    ``serviceUid`` when the provider gives us one and keeps the older
+    ``external_agent_id``/``service`` values only as compatibility fallbacks.
+    ``unknown`` is intentionally not an identity: allowing it to participate in an
+    approval would let a later host inherit authority from a row that never proved
+    which host it owns.
+    """
     metadata = (row or {}).get("backend_metadata") or {}
-    incarnation = str(
+    if not isinstance(metadata, dict):
+        metadata = {}
+    value = (
         metadata.get("serviceUid")
         or (row or {}).get("external_agent_id")
         or metadata.get("service")
-        or "unknown"
-    ).strip()
+    )
+    normalized = str(value or "").strip()
+    return normalized if normalized and normalized.lower() != "unknown" else None
+
+
+def image_digest(reference: object) -> Optional[str]:
+    """Extract a valid OCI ``sha256`` digest from a reference or digest field."""
+    text = str(reference or "").strip()
+    if _IMAGE_DIGEST_RE.fullmatch(text):
+        return text
+    if "@" not in text:
+        return None
+    digest = text.rsplit("@", 1)[1].strip()
+    return digest if _IMAGE_DIGEST_RE.fullmatch(digest) else None
+
+
+def _approval_operation_id(approval: object) -> Optional[str]:
+    if not isinstance(approval, dict):
+        return None
+    value = str(approval.get("operationId") or "").strip()
+    return value or None
+
+
+def _approval_is_well_formed(
+    row: Optional[dict], approval: object, *, allow_unresolved: bool = False
+) -> bool:
+    """Validate the durable approval envelope without making a provider call."""
+    if not isinstance(approval, dict) or (row or {}).get("user_id") is None:
+        return False
+    if type(approval.get("version")) is not int or approval["version"] != UPGRADE_APPROVAL_VERSION:
+        return False
+    target = str(approval.get("targetImage") or "").strip()
+    incarnation = pod_incarnation(row)
+    owner_id = str((row or {}).get("user_id") or "").strip()
+    hushh_id = str((row or {}).get("hushh_id") or "").strip()
+    required_strings = ("releaseId", "operationId", "idempotencyKey", "targetImage")
+    if (
+        not owner_id
+        or not hushh_id
+        or not incarnation
+        or not is_immutable_image_reference(target)
+        or any(
+            not isinstance(approval.get(key), str) or not approval[key].strip()
+            for key in required_strings
+        )
+        or approval.get("ownerId") != owner_id
+        or approval.get("hushhId") != hushh_id
+        or approval.get("podIncarnation") != incarnation
+    ):
+        return False
+    statuses = set(_UPGRADE_APPROVAL_ACTIVE_STATUSES)
+    if allow_unresolved:
+        statuses.update(_UPGRADE_APPROVAL_UNRESOLVED_STATUSES)
+    return approval.get("status") in statuses
+
+
+def upgrade_operation_is_recoverable(row: Optional[dict]) -> bool:
+    """Whether the row retains enough owner authority to observe an old upgrade.
+
+    This deliberately does not compare against the hub's *current* target image:
+    a newer release may be offered while an older provider operation is unresolved.
+    The operation must be reconciled against the target and incarnation saved in its
+    own receipt before a new release can be considered.
+    """
+    metadata = (row or {}).get("backend_metadata") or {}
+    if not isinstance(metadata, dict):
+        return False
+    return bool(
+        isinstance(metadata, dict)
+        and isinstance(metadata.get("upgradeLease"), str)
+        and metadata.get("upgradeLease")
+        and _approval_is_well_formed(row, metadata.get("upgradeApproval"), allow_unresolved=True)
+    )
+
+
+def upgrade_release_id(row: Optional[dict], target_image: str) -> str:
+    """Return an opaque release identifier bound to image and pod incarnation."""
+    incarnation = pod_incarnation(row) or "unknown"
     hushh_id = str((row or {}).get("hushh_id") or "").strip()
     payload = "|".join((hushh_id, incarnation, str(target_image or "").strip()))
     return "rel_" + hashlib.sha256(payload.encode("utf-8")).hexdigest()[:32]
@@ -154,24 +246,22 @@ def is_immutable_image_reference(reference: object) -> bool:
     return bool(_IMMUTABLE_IMAGE_RE.fullmatch(str(reference or "").strip()))
 
 
-def upgrade_approval_matches(row: Optional[dict], target_image: str) -> bool:
+def upgrade_approval_matches(
+    row: Optional[dict], target_image: str, *, allow_unresolved: bool = False
+) -> bool:
     """Whether durable approval covers this exact image and pod incarnation."""
     metadata = (row or {}).get("backend_metadata") or {}
-    approval = metadata.get("upgradeApproval")
-    if not isinstance(approval, dict):
+    if not isinstance(metadata, dict):
         return False
-    return is_immutable_image_reference(target_image) and (
-        approval.get("releaseId") == upgrade_release_id(row, target_image)
-        and approval.get("ownerId") == (row or {}).get("user_id")
-        and approval.get("hushhId") == (row or {}).get("hushh_id")
-        and approval.get("podIncarnation")
-        == str(
-            metadata.get("serviceUid")
-            or (row or {}).get("external_agent_id")
-            or metadata.get("service")
-            or "unknown"
-        )
-        and approval.get("status") in {"approved", "scheduled", "updating"}
+    approval = metadata.get("upgradeApproval")
+    target = str(target_image or "").strip()
+    if not _approval_is_well_formed(row, approval, allow_unresolved=allow_unresolved):
+        return False
+    return (
+        is_immutable_image_reference(target)
+        and image_digest(approval.get("targetImage")) == image_digest(target)
+        and approval.get("targetImage") == target
+        and approval.get("releaseId") == upgrade_release_id(row, target)
     )
 
 
@@ -1258,8 +1348,20 @@ class PersonalAgentProvisioningService:
         out: list[dict[str, Any]] = []
         for row in rows:
             metadata = (row or {}).get("backend_metadata") or {}
-            if personal_agent_upgrade_approval_required() and not upgrade_approval_matches(
-                row, target
+            if not isinstance(metadata, dict):
+                # A malformed metadata blob cannot prove either an approval or an
+                # in-progress lease. Leave it out of the mutating sweep.
+                continue
+            if personal_agent_upgrade_approval_required() and not (
+                upgrade_approval_matches(row, target)
+                or (
+                    # A target may have advanced while an older provider operation is
+                    # unresolved. Keep that row visible to the read-only recovery path;
+                    # it must reconcile its saved operation before accepting the newer
+                    # release. A missing/malformed approval remains ineligible.
+                    metadata.get("upgradeLease") is not None
+                    and upgrade_operation_is_recoverable(row)
+                )
             ):
                 # An available image is not permission to replace an owner's pod.
                 # The owner-facing Feed action records the exact release approval.
@@ -1271,7 +1373,7 @@ class PersonalAgentProvisioningService:
             built_from = running_image(row)
             if not built_from or built_from == target:
                 continue
-            marker = ((row or {}).get("backend_metadata") or {}).get("upgrade") or {}
+            marker = metadata.get("upgrade") or {}
             if (
                 str(marker.get("failedImage") or "") == target
                 and int(marker.get("attempts") or 0) >= UPGRADE_ATTEMPTS_PER_IMAGE
@@ -1289,7 +1391,7 @@ class PersonalAgentProvisioningService:
             # regardless of which image it refers to.
             if str(marker.get("failedImage") or "") == target and _attempted_recently(marker):
                 continue
-            if ((row or {}).get("backend_metadata") or {}).get("upgradeLease") is not None:
+            if metadata.get("upgradeLease") is not None:
                 continue
             out.append(row)
         return out
@@ -1316,11 +1418,37 @@ class PersonalAgentProvisioningService:
         ):
             return unresolved
         attempt = hashlib.sha256(lease.encode()).hexdigest()
+        target_image = str(receipt.get("targetImage") or "").strip()
+        receipt_image = str(receipt.get("image") or "").strip()
+        approval = metadata.get("upgradeApproval")
+        approval_target = (
+            str(approval.get("targetImage") or "").strip() if isinstance(approval, dict) else ""
+        )
         if (
-            receipt.get("attemptId") != attempt
+            type(receipt.get("version")) is not int
+            or receipt.get("version") != UPGRADE_APPROVAL_VERSION
+            or receipt.get("attemptId") != attempt
             or receipt.get("serviceUid") != spec.expected_service_uid
-            or not isinstance(receipt.get("targetImage"), str)
-            or not receipt["targetImage"]
+            or not target_image
+            or not receipt_image
+            or (
+                is_immutable_image_reference(target_image)
+                and image_digest(target_image) != image_digest(receipt_image)
+            )
+            or (
+                receipt.get("targetDigest") is not None
+                and receipt.get("targetDigest") != image_digest(target_image)
+            )
+            or (
+                isinstance(approval, dict)
+                and (
+                    not _approval_is_well_formed(row, approval, allow_unresolved=True)
+                    or approval_target != target_image
+                    or receipt.get("releaseId") != approval.get("releaseId")
+                    or receipt.get("operationId") != approval.get("operationId")
+                    or receipt.get("podIncarnation") != pod_incarnation(row)
+                )
+            )
         ):
             return unresolved
         handle = await observe(replace(spec, upgrade_attempt_id=attempt), receipt)
@@ -1333,6 +1461,15 @@ class PersonalAgentProvisioningService:
         updated = dict(metadata)
         updated.pop("upgradeLease", None)
         succeeded = handle.status == "live"
+        handle_metadata = handle.backend_metadata or {}
+        if not isinstance(handle_metadata, dict):
+            raise RuntimeError("upgrade recovery terminal receipt invalid")
+        if succeeded and is_immutable_image_reference(target_image):
+            observed_digest = image_digest(
+                handle_metadata.get("image_digest") or handle_metadata.get("image")
+            )
+            if observed_digest != image_digest(target_image):
+                return unresolved
         if succeeded:
             approval = updated.get("upgradeApproval")
             if isinstance(approval, dict) and approval.get("operationId"):
@@ -1342,7 +1479,7 @@ class PersonalAgentProvisioningService:
                     "operationState": "succeeded",
                     "verifiedAt": datetime.now(timezone.utc).isoformat(),
                 }
-            updated.update(handle.backend_metadata or {})
+            updated.update(handle_metadata)
             updated.pop("observed", None)
             updated.pop("upgrade", None)
             if receipt.get("hubRevision"):
@@ -1414,8 +1551,14 @@ class PersonalAgentProvisioningService:
         if not hushh_id or not phone_hash:
             raise ValueError("registry row is missing its identity; refusing to upgrade")
 
-        if personal_agent_upgrade_approval_required() and not upgrade_approval_matches(
-            row, current_image
+        metadata = row.get("backend_metadata") or {}
+        if not isinstance(metadata, dict):
+            raise ValueError("registry row metadata is invalid; refusing to upgrade")
+        held = metadata.get("upgradeLease")
+        approval_matches = upgrade_approval_matches(row, current_image)
+        recoverable_operation = upgrade_operation_is_recoverable(row)
+        if personal_agent_upgrade_approval_required() and not (
+            approval_matches or (held is not None and recoverable_operation)
         ):
             raise PersonalAgentUpgradeNotApprovedError(
                 "owner approval for this release and pod incarnation is required"
@@ -1424,10 +1567,14 @@ class PersonalAgentProvisioningService:
         cloud = await resolve_user_cloud(user_id, repo=self._registry)
         if cloud is not None and cloud.blocks_provisioning:
             raise PersonalAgentCloudNotAuthorizedError(cloud.refusal_reason)
-        approval_metadata = (row.get("backend_metadata") or {}).get("upgradeApproval")
+        approval_metadata = metadata.get("upgradeApproval")
+        approval_is_valid = _approval_is_well_formed(row, approval_metadata) or (
+            held is not None
+            and _approval_is_well_formed(row, approval_metadata, allow_unresolved=True)
+        )
         upgrade_operation_id = (
             str(approval_metadata.get("operationId") or "").strip()
-            if isinstance(approval_metadata, dict)
+            if approval_is_valid and isinstance(approval_metadata, dict)
             else ""
         ) or None
         spec = PodSpec(
@@ -1435,7 +1582,7 @@ class PersonalAgentProvisioningService:
             phone_e164_hash=phone_hash,
             billing_space_id=row.get("billing_space_id"),
             pod_pubkey=str(row.get("pod_pubkey") or ""),
-            expected_service_uid=(row.get("backend_metadata") or {}).get("serviceUid"),
+            expected_service_uid=metadata.get("serviceUid"),
             deployment_target=row.get("deployment_target")
             or (cloud.deployment_target if cloud else None),
             model_credential_mode=row.get("model_credential_mode")
@@ -1444,6 +1591,11 @@ class PersonalAgentProvisioningService:
             user_cloud_region=(cloud.region if cloud else None),
             user_cloud_bootstrap_sa=(cloud.bootstrap_sa if cloud else None),
             upgrade_operation_id=upgrade_operation_id,
+            upgrade_target_image=(
+                str(approval_metadata.get("targetImage") or "").strip() or None
+                if approval_is_valid and isinstance(approval_metadata, dict)
+                else None
+            ),
             # The person's own warm floor. `PodSpec.resource_tier` was written, tested
             # and read by `_min_instances_for` -- and set by NOTHING, so the axis had an
             # output end and no input end.
@@ -1467,7 +1619,6 @@ class PersonalAgentProvisioningService:
             resource_tier=row.get("liveness_mode"),
         )
         backend = self._backend_for(spec)
-        held = (row.get("backend_metadata") or {}).get("upgradeLease")
         if held is not None:
             return await self._reconcile_image_upgrade(
                 user_id=user_id, row=row, spec=spec, backend=backend, lease=held
@@ -1555,6 +1706,19 @@ class PersonalAgentProvisioningService:
         spec = replace(spec, upgrade_attempt_id=hashlib.sha256(lease.encode()).hexdigest())
         claimed_metadata = dict(row.get("backend_metadata") or {})
         claimed_row = row
+        approval_metadata = claimed_metadata.get("upgradeApproval")
+        approval_is_valid = _approval_is_well_formed(claimed_row, approval_metadata)
+        approval_operation_id = (
+            _approval_operation_id(approval_metadata)
+            if approval_is_valid and isinstance(approval_metadata, dict)
+            else None
+        )
+        approval_release_id = (
+            str(approval_metadata.get("releaseId") or "").strip()
+            if approval_is_valid and isinstance(approval_metadata, dict)
+            else ""
+        )
+        approval_incarnation = pod_incarnation(row)
 
         async def publish_upgrade(**fields: Any) -> None:
             published = await self._registry.record_image_upgrade(
@@ -1575,6 +1739,19 @@ class PersonalAgentProvisioningService:
             if receipt.get("attemptId") != spec.upgrade_attempt_id:
                 raise RuntimeError("upgrade acknowledgement attempt mismatch")
             bound = {**receipt, "targetImage": current_image, "hubRevision": hub_revision()}
+            # The provider receipts predate owner approval and intentionally remain
+            # provider-neutral. Add the owner operation binding only when one exists;
+            # this keeps old no-approval receipts readable while making an approved
+            # replacement recoverable only for the exact operation and incarnation.
+            if approval_operation_id:
+                bound.update(
+                    {
+                        "operationId": approval_operation_id,
+                        "releaseId": approval_release_id,
+                        "podIncarnation": approval_incarnation,
+                        "targetDigest": image_digest(current_image),
+                    }
+                )
 
             async def persist() -> None:
                 try:
@@ -1595,18 +1772,6 @@ class PersonalAgentProvisioningService:
 
         spec = replace(spec, on_upgrade_ack=persist_acknowledgement)
         old_meta = dict(row.get("backend_metadata") or {})
-        approval = old_meta.get("upgradeApproval")
-        if isinstance(approval, dict) and approval.get("operationId"):
-            # Persist the external phase before the provider call. A worker restart
-            # can then report an update in progress instead of inferring success
-            # from a lease disappearing.
-            old_meta["upgradeApproval"] = {
-                **approval,
-                "status": "updating",
-                "operationState": "installing",
-                "startedAt": datetime.now(timezone.utc).isoformat(),
-            }
-            await publish_upgrade(backend_metadata=old_meta, retain_lease=True)
         old_meta.pop("upgradeLease", None)
         previous = running_image(row)
         if set_by_newer_hub(row):
@@ -1641,6 +1806,19 @@ class PersonalAgentProvisioningService:
                 "image": previous,
                 "previousImage": previous,
             }
+        approval = old_meta.get("upgradeApproval")
+        if isinstance(approval, dict) and approval.get("operationId"):
+            # Persist the external phase immediately before provider work. A worker
+            # restart can then report an update in progress instead of inferring
+            # success from a lease disappearing. This follows supersession and
+            # cooldown checks so a skipped operation remains merely approved.
+            old_meta["upgradeApproval"] = {
+                **approval,
+                "status": "updating",
+                "operationState": "installing",
+                "startedAt": datetime.now(timezone.utc).isoformat(),
+            }
+            await publish_upgrade(backend_metadata=old_meta, retain_lease=True)
         # Narrated as its own stage so the status stream can say "Updating your
         # agent" instead of a spinner. The previous revision serves throughout.
         await pod_lifecycle_append(
@@ -1710,7 +1888,23 @@ class PersonalAgentProvisioningService:
             )
             raise
 
-        new_meta = {**old_meta, **(handle.backend_metadata or {})}
+        if getattr(handle, "status", None) != "live":
+            # A provider's planned/unknown response is not a terminal upgrade
+            # outcome. Keep the lease so a later read-only reconciliation can
+            # establish what happened instead of recording a success that never
+            # reached the host.
+            raise RuntimeError("upgrade provider did not return a live terminal outcome")
+        handle_metadata = handle.backend_metadata or {}
+        if not isinstance(handle_metadata, dict):
+            raise RuntimeError("upgrade provider returned invalid terminal metadata")
+        if is_immutable_image_reference(current_image):
+            observed_digest = image_digest(
+                handle_metadata.get("image_digest") or handle_metadata.get("image")
+            )
+            if observed_digest != image_digest(current_image):
+                raise RuntimeError("upgrade provider returned a different image digest")
+
+        new_meta = {**old_meta, **handle_metadata}
         approval = new_meta.get("upgradeApproval")
         if isinstance(approval, dict) and approval.get("operationId"):
             new_meta["upgradeApproval"] = {

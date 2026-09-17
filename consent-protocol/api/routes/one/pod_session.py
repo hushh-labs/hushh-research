@@ -29,6 +29,7 @@ from hushh_mcp.services.pod_session_authority import (
     SCOPE_POD_CONFIG,
     SCOPE_POD_REVOKE,
     SCOPE_POD_STATUS,
+    SCOPE_POD_UPGRADE,
     PodSessionAuthority,
     PodSessionRefused,
     active_session_authority,
@@ -126,7 +127,7 @@ async def _upgrade_control_authorized(request: Request, authorization: Optional[
 
     if await verify_pod_identity(request, authorization):
         return
-    verified_session(authorization, role=ROLE_APP, scope=SCOPE_POD_STATUS)
+    verified_session(authorization, role=ROLE_APP, scope=SCOPE_POD_UPGRADE)
 
 
 def _session_response(token: str, claims: dict[str, Any]) -> dict[str, Any]:

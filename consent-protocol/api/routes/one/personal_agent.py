@@ -335,17 +335,45 @@ def describe_pod_update(row: Optional[dict], *, target_image: Optional[str] = No
     if not (running and target):
         return out
     out["updateAvailable"] = running != target
+    release = upgrade_release_id(row, target_reference or target)
     if not out["updateAvailable"]:
-        # A matching running/target pair is positive verification. The client must
-        # not infer success merely because a lease disappeared.
-        out["updateVerified"] = True
+        # A matching tag is only a version observation.  Successful owner-approved
+        # updates additionally retain a verified provider acknowledgement; a lease
+        # disappearing or a copied registry tag cannot become a false success.
+        acknowledgement = metadata.get("upgradeAcknowledgement")
+        if (
+            isinstance(acknowledgement, dict)
+            and acknowledgement.get("outcome") == "ready"
+            and isinstance(acknowledgement.get("image"), str)
+            and isinstance(acknowledgement.get("serviceUid"), str)
+        ):
+            out["updateVerified"] = True
     if out["updateAvailable"]:
         # Keep an unverified target visible to operators as a diagnostic, but do
         # not turn it into an owner-actionable offer.
-        out["updateOfferable"] = is_immutable_image_reference(target_reference)
+        # A deferred offer stays in the status response for quiet access, but it
+        # must not create a Feed card until the server deadline.  The deadline
+        # is authoritative; clients cannot manufacture an early reminder.
+        deferred_due = False
+        if isinstance(metadata.get("upgradeDeferral"), dict):
+            deferral = metadata["upgradeDeferral"]
+            if deferral.get("releaseId") == release:
+                reminder = str(deferral.get("remindAt") or "").strip()
+                if reminder:
+                    try:
+                        due = datetime.fromisoformat(reminder.replace("Z", "+00:00"))
+                        if due.tzinfo is None:
+                            due = due.replace(tzinfo=timezone.utc)
+                        deferred_due = due <= datetime.now(timezone.utc)
+                    except ValueError:
+                        deferred_due = False
+        out["updateOfferable"] = is_immutable_image_reference(target_reference) and (
+            not isinstance(metadata.get("upgradeDeferral"), dict)
+            or metadata["upgradeDeferral"].get("releaseId") != release
+            or deferred_due
+        )
         approval = metadata.get("upgradeApproval")
         deferral = metadata.get("upgradeDeferral")
-        release = upgrade_release_id(row, target_reference or target)
         update: dict[str, object] = {
             "releaseId": release,
             "summary": "Keeps your private agent current and preserves its information.",
@@ -552,7 +580,18 @@ async def approve_personal_agent_update(
     if isinstance(existing, dict) and existing.get("releaseId") == release_id:
         operation_id = str(existing.get("operationId") or "").strip()
         if operation_id:
-            return {"operationId": operation_id, "releaseId": release_id, "status": "scheduled"}
+            if not compare_digest(
+                str(existing.get("idempotencyKey") or ""), payload.idempotency_key
+            ):
+                raise HTTPException(
+                    status_code=409,
+                    detail="this software update already has a different operation key",
+                )
+            return {
+                "operationId": operation_id,
+                "releaseId": release_id,
+                "status": str(existing.get("operationState") or "scheduled"),
+            }
     operation_id = "op_" + uuid.uuid4().hex
     now = datetime.now(timezone.utc).isoformat()
     approval = {
@@ -579,16 +618,21 @@ async def approve_personal_agent_update(
         latest = await repo.get(user_id)
         winner = ((latest or {}).get("backend_metadata") or {}).get("upgradeApproval")
         if isinstance(winner, dict) and winner.get("releaseId") == release_id:
+            if not compare_digest(str(winner.get("idempotencyKey") or ""), payload.idempotency_key):
+                raise HTTPException(
+                    status_code=409,
+                    detail="this software update already has a different operation key",
+                )
             return {
                 "operationId": str(winner.get("operationId") or operation_id),
                 "releaseId": release_id,
-                "status": "scheduled",
+                "status": str(winner.get("operationState") or "scheduled"),
             }
         raise HTTPException(status_code=409, detail="software update approval was superseded")
     return {
         "operationId": str(stored.get("operationId") or operation_id),
         "releaseId": release_id,
-        "status": "scheduled",
+        "status": str(stored.get("operationState") or "scheduled"),
     }
 
 

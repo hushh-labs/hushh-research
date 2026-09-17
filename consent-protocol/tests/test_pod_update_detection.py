@@ -60,6 +60,20 @@ def test_a_pod_behind_the_target_has_an_update_available() -> None:
 def test_a_pod_at_the_target_is_positively_current() -> None:
     out = describe_pod_update(_row(source_image=TARGET), target_image=TARGET)
     assert out["updateAvailable"] is False
+    assert "updateVerified" not in out
+
+    out = describe_pod_update(
+        _row(
+            source_image=TARGET,
+            upgradeAcknowledgement={
+                "outcome": "ready",
+                "image": TARGET,
+                "serviceUid": "service-uid",
+            },
+        ),
+        target_image=TARGET,
+    )
+    assert out["updateVerified"] is True
 
 
 def test_deferred_offer_keeps_its_server_deadline() -> None:
@@ -75,6 +89,7 @@ def test_deferred_offer_keeps_its_server_deadline() -> None:
         target_image=TARGET,
     )
     assert out["update"]["presentationState"] == "ready"
+    assert out["updateOfferable"] is False
 
     release = out["update"]["releaseId"]
     out = describe_pod_update(
@@ -90,6 +105,17 @@ def test_deferred_offer_keeps_its_server_deadline() -> None:
         "presentationState": "deferred",
         "remindAt": reminder,
     }
+    assert out["updateOfferable"] is False
+
+    due = (datetime.now(timezone.utc) - timedelta(seconds=1)).isoformat()
+    out = describe_pod_update(
+        _row(
+            source_image=DEPLOYED_OLD,
+            upgradeDeferral={"releaseId": release, "remindAt": due},
+        ),
+        target_image=TARGET,
+    )
+    assert out["updateOfferable"] is False
 
 
 def test_no_lane_target_means_the_field_is_absent_not_false() -> None:

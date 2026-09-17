@@ -257,6 +257,22 @@ def test_update_approval_is_bound_and_idempotent(monkeypatch):
     assert calls["approval"]["hushhId"] == "ha1_owner"
 
 
+def test_update_approval_rejects_conflicting_idempotency_key(monkeypatch):
+    client, _ = _update_client(monkeypatch)
+    offer = client.get("/api/one/personal-agent/status").json()["update"]
+    first = client.post(
+        "/api/one/personal-agent/update/approve",
+        json={"releaseId": offer["releaseId"], "idempotencyKey": "idem-first"},
+    )
+    second = client.post(
+        "/api/one/personal-agent/update/approve",
+        json={"releaseId": offer["releaseId"], "idempotencyKey": "idem-second"},
+    )
+    assert first.status_code == 200
+    assert second.status_code == 409
+    assert "different operation key" in second.json()["detail"]
+
+
 def test_update_deferral_is_server_scheduled_and_stale_release_rejected(monkeypatch):
     client, calls = _update_client(monkeypatch)
     offer = client.get("/api/one/personal-agent/status").json()["update"]

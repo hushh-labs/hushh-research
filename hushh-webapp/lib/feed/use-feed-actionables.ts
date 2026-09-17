@@ -581,7 +581,7 @@ export function useFeedActionables(): UseFeedActionablesResult {
               { key: "approve", label: "Update now", tone: "primary", run: approve },
               { key: "defer", label: "Later", tone: "ghost", run: defer },
             ],
-        sortAt: Date.now(),
+        sortAt: firstSeenAt(`personal-agent-update:${releaseId}`),
         displayTimestamp: null,
       });
     }

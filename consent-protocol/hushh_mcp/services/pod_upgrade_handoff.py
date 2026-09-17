@@ -93,7 +93,7 @@ class PodUpgradeHandoffClient:
         *,
         operation_id: str,
         incarnation: str,
-        timeout_seconds: float = 300.0,
+        timeout_seconds: float | None = None,
         poll_seconds: float = 1.0,
     ) -> dict[str, Any]:
         """Fence work, then return the authoritative idle receipt."""
@@ -102,19 +102,32 @@ class PodUpgradeHandoffClient:
             "incarnation": str(incarnation).strip(),
         }
         self._request("POST", "/api/one/pod/upgrade/prepare", body=payload)
-        deadline = time.monotonic() + max(1.0, float(timeout_seconds))
+        deadline = (
+            time.monotonic() + max(1.0, float(timeout_seconds))
+            if timeout_seconds is not None
+            else None
+        )
         while True:
             status = self._request("GET", "/api/one/pod/upgrade/status")
+            receipt = status.get("idleReceipt")
             if (
                 status.get("state") == "idle"
                 and status.get("operationId") == payload["operationId"]
                 and status.get("incarnation") == payload["incarnation"]
-                and isinstance(status.get("idleReceipt"), dict)
+                and isinstance(receipt, dict)
+                and receipt.get("operationId") == payload["operationId"]
+                and receipt.get("incarnation") == payload["incarnation"]
+                and receipt.get("activeWork") == 0
+                and isinstance(receipt.get("committedState"), str)
+                and receipt.get("runtimeEpoch")
             ):
-                return status["idleReceipt"]
-            if time.monotonic() >= deadline:
+                return receipt
+            if deadline is not None and time.monotonic() >= deadline:
                 raise PodUpgradeHandoffUnavailable("pod did not produce an idle receipt in time")
-            time.sleep(max(0.05, min(float(poll_seconds), deadline - time.monotonic())))
+            interval = max(0.05, float(poll_seconds))
+            if deadline is not None:
+                interval = min(interval, max(0.05, deadline - time.monotonic()))
+            time.sleep(interval)
 
     def release(self, *, operation_id: str, incarnation: str) -> dict[str, Any]:
         """Release a fence only when replacement was not submitted or failed definitively."""

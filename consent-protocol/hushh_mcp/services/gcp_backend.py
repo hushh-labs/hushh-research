@@ -310,8 +310,9 @@ class GcpBackend:
             # non-targetable). Validated against GCP at live-enablement.
             template_annotations["run.googleapis.com/confidential"] = "true"
             template_annotations["hussh/attested-tier"] = "true"
+        image = spec.upgrade_target_image or self._image
         container: dict[str, Any] = {
-            "image": self._image or "",
+            "image": image or "",
             # An EXPLICIT HTTP startup probe, and it is load-bearing.
             #
             # Cloud Run's default startup probe is a TCP connect. Gunicorn's master
@@ -683,7 +684,11 @@ class GcpBackend:
                 a2a_route=route,
                 status="planned",
                 backend=self.backend_id,
-                backend_metadata={"service": name, "image": self._image, "upgraded": False},
+                backend_metadata={
+                    "service": name,
+                    "image": spec.upgrade_target_image or self._image,
+                    "upgraded": False,
+                },
             )
         from hushh_mcp.services.gcp_run_client import GcpRunClient
         from hushh_mcp.services.hosted_tier_guard import require_hosted_pod_creates_permitted
@@ -693,6 +698,9 @@ class GcpBackend:
         expected_uid = spec.expected_service_uid
         if not isinstance(expected_uid, str) or not expected_uid.strip():
             raise RuntimeError("pod incarnation unverified; recovery required before upgrade")
+        target_image = spec.upgrade_target_image or self._image
+        if not target_image:
+            raise RuntimeError("approved upgrade image is unavailable")
         client = self._client or self._build_client()
 
         def _run() -> tuple[bool, Optional[dict[str, Any]], Optional[str]]:
@@ -739,7 +747,7 @@ class GcpBackend:
                             "gcp_backend.handoff_release_after_prepare_failed", exc_info=True
                         )
                     raise
-            tag = str(self._image or "").rsplit(":", 1)[-1] or "latest"
+            tag = str(target_image).rsplit(":", 1)[-1] or "latest"
             try:
                 replacement_submitted = True
                 acknowledged = client.replace_service(
@@ -773,12 +781,12 @@ class GcpBackend:
                     boot_failure = GcpRunClient.ready_failure(svc)
                     if boot_failure is not None:
                         raise PodBootFailedError(
-                            f"pod {name} failed to start on {self._image}: "
+                            f"pod {name} failed to start on {target_image}: "
                             f"{' '.join(boot_failure.split())[:200]} -- the previous "
                             "revision keeps serving"
                         )
                     raise RuntimeError(
-                        f"upgrade of {name} to {self._image} was not confirmed Ready in time"
+                        f"upgrade of {name} to {target_image} was not confirmed Ready in time"
                     )
                 return ready, svc, previous
             except Exception:
@@ -808,7 +816,7 @@ class GcpBackend:
                 raise
 
         ready, svc, previous = await asyncio.to_thread(_run)
-        logger.info("gcp_backend.upgraded service=%s image=%s", name, self._image)
+        logger.info("gcp_backend.upgraded service=%s image=%s", name, target_image)
         return BackendHandle(
             external_agent_id=name,
             a2a_route=route,
@@ -823,7 +831,7 @@ class GcpBackend:
                 "ready": ready,
                 "tier": spec.tier,
                 "ingress": self._ingress,
-                "image": self._image,
+                "image": target_image,
                 "previous_image": previous,
                 "serviceUid": expected_uid,
                 "upgraded": True,

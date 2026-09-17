@@ -4,6 +4,10 @@ __pycache__
 *.pyo
 *.pyd
 .Python
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+coverage.xml
 
 # Virtual env
 venv/
@@ -33,6 +37,7 @@ docs/
 # Misc
 *.md
 submissions/
+tmp/
 
 # GitHub Actions authentication files are never source or image inputs.
 gha-creds-*.json

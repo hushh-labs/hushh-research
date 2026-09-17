@@ -994,7 +994,7 @@ class UserGcpBackend:
                 # source, so the registry row does not misreport the running image. The
                 # source and digest are kept alongside for provenance.
                 "image": self._user_pod_image_ref(spec, image_digest),
-                "source_image": self._image,
+                "source_image": spec.upgrade_target_image or self._image,
                 "image_digest": image_digest,
                 "serviceUid": service_uid,
                 "keyless": True,
@@ -1529,7 +1529,11 @@ class UserGcpBackend:
         try:
             # `None` for the recorded digest is the whole difference from a heal: resolve
             # the source tag fresh and copy THAT digest into the person's registry.
-            image_digest = await asyncio.to_thread(self._ensure_pod_image, spec, None)
+            approved_ref = str(spec.upgrade_target_image or "").strip()
+            recorded_digest = approved_ref.rsplit("@", 1)[-1] if "@" in approved_ref else None
+            if approved_ref and (not recorded_digest or not recorded_digest.startswith("sha256:")):
+                raise RuntimeError("approved upgrade image is not an immutable digest")
+            image_digest = await asyncio.to_thread(self._ensure_pod_image, spec, recorded_digest)
             config = self.render_deploy_config(spec, image_digest=image_digest)
             changed = image_digest != previous_digest
             svc: Optional[dict[str, Any]] = existing
@@ -1621,7 +1625,7 @@ class UserGcpBackend:
                 "url": url or "",
                 "ingress": "internal",
                 "image": self._user_pod_image_ref(spec, image_digest),
-                "source_image": self._image,
+                "source_image": spec.upgrade_target_image or self._image,
                 "image_digest": image_digest,
                 "previous_image_digest": previous_digest,
                 "upgraded": changed,

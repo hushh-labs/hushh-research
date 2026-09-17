@@ -168,11 +168,11 @@ export function OneAgentPresence() {
           ? "bg-emerald-500/50"
           : copy.dotClass;
   const updateNote = updating
-    ? "A newer build is being installed; it keeps answering meanwhile."
+    ? "Your current work is finishing before the update is installed."
     : update.failed
-      ? `The last update did not finish${update.error ? `: ${update.error}` : ""}.`
+      ? "The update could not be verified; your previous build remains active."
       : update.available === true
-        ? `An update is available (${update.target ?? "newer build"}); it installs on its own.`
+        ? "An update is ready. Choose Update now in Feed when you are ready."
         : null;
   // Where it lives, kept as a tooltip rather than two more lines on the screen.
   const whereItLives = cloud

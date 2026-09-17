@@ -103,10 +103,6 @@
       "classification": "owner_alias",
       "sha256": "f851e9f337cd2684d1a85492ee4809625fe7ee31486cc4a319b0da6262786512"
     },
-    ".claude/skills/wire-voice-action/SKILL.md": {
-      "classification": "owner_alias",
-      "sha256": "5cfed1e3853b8747d9e61860da1a5bdca879cfd1a88b8c0563b2162fa133c609"
-    },
     ".claude/skills/wire-voice-navigation/SKILL.md": {
       "classification": "owner_alias",
       "sha256": "2e3583325dd731c4877d15b63217f2d0450026f082eb63384608c63acc849a93"

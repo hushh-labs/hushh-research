@@ -132,6 +132,9 @@ class PodSpec:
     upgrade_attempt_id: Optional[str] = None
     # Durable owner approval operation used by the pod lifecycle handoff.
     upgrade_operation_id: Optional[str] = None
+    # Immutable image reference captured by the approval record. Providers must
+    # execute this value, never re-resolve a mutable deployment tag.
+    upgrade_target_image: Optional[str] = None
     provision_attempt_id: Optional[str] = None
     on_provision_ack: Optional[Callable[[dict[str, Any]], None]] = dataclass_field(
         default=None, repr=False, compare=False

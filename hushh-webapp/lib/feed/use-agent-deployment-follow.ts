@@ -118,9 +118,23 @@ export function readUpdateStatus(
     | null
     | undefined,
 ): AgentUpdateStatus {
+  const hasUpdateSignal = Boolean(
+    res &&
+      (typeof res.updateAvailable === "boolean" ||
+        typeof res.updateOfferable === "boolean" ||
+        typeof res.updateInProgress === "boolean" ||
+        typeof res.updateFailed === "boolean" ||
+        typeof res.updateVerified === "boolean" ||
+        Boolean(res.runningImage) ||
+        Boolean(res.targetImage) ||
+        Boolean(res.update)),
+  );
   return {
     available: typeof res?.updateAvailable === "boolean" ? res.updateAvailable : null,
-    offerable: res?.updateOfferable !== false,
+    // An absent response is unknown, so it must not manufacture an actionable
+    // offer. Once the hub positively reports an update, an omitted offerable
+    // flag retains the legacy ready behavior; an explicit false remains quiet.
+    offerable: hasUpdateSignal ? res?.updateOfferable !== false : false,
     inProgress: res?.updateInProgress === true,
     failed: res?.updateFailed === true,
     error: res?.updateError ? String(res.updateError) : null,
@@ -170,7 +184,7 @@ function reportUpdateTask(
       AppBackgroundTaskService.failTask(
         taskId,
         "Update did not finish",
-        update.error ?? "Your agent is still running its previous build.",
+        "Your private agent is still running its previous build.",
       );
       return;
     }
@@ -329,7 +343,11 @@ export function useAgentDeploymentFollow(options?: {
           setUpdate(nextUpdate);
           reportUpdateTask(userId, nextUpdate, updateInProgressRef.current);
           updateInProgressRef.current = nextUpdate.inProgress;
-          updateMovingRef.current = nextUpdate.inProgress || nextUpdate.available === true;
+          // A deferred offer remains in the status payload for quiet access but
+          // should not keep every open tab polling until its 72-hour deadline.
+          updateMovingRef.current =
+            nextUpdate.inProgress ||
+            (nextUpdate.available === true && nextUpdate.offerable);
         }
       } catch (error) {
         consecutiveFailuresRef.current += 1;

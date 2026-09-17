@@ -880,6 +880,11 @@ async def pod_live_route(websocket: WebSocket) -> None:
     from api.routes.one.pod_live_store import PodVoiceDirectiveStore
     from api.routes.one.pod_live_transport import PodLiveTransport
     from api.routes.one.relay_auth import one_voice_enabled
+    from hushh_mcp.services.pod_upgrade_admission import (
+        ADMISSION,
+        PodUpgradeAdmissionRefused,
+        pod_incarnation,
+    )
 
     try:
         _require_enabled()
@@ -911,6 +916,12 @@ async def pod_live_route(websocket: WebSocket) -> None:
         await private.require_access()
     except Exception:
         await websocket.close(code=1008, reason="Private voice unavailable.")
+        return
+
+    try:
+        live_permit = await ADMISSION.acquire_turn(incarnation=pod_incarnation())
+    except PodUpgradeAdmissionRefused:
+        await websocket.close(code=1013, reason="Private voice is finishing an update.")
         return
 
     await websocket.accept()
@@ -956,3 +967,7 @@ async def pod_live_route(websocket: WebSocket) -> None:
                     task.add_done_callback(
                         lambda finished: None if finished.cancelled() else finished.exception()
                     )
+            try:
+                await live_permit.release()
+            except Exception as exc:  # noqa: BLE001 - surface loss of durable idle evidence
+                logger.error("pod_live.admission_release_failed error=%s", type(exc).__name__)

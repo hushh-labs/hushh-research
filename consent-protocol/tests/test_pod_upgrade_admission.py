@@ -59,3 +59,43 @@ async def test_wait_idle_has_a_bounded_timeout() -> None:
     with pytest.raises(asyncio.TimeoutError):
         await admission.wait_idle(operation_id="op_12345678", incarnation="rev-a", timeout=0.01)
     await permit.release()
+
+
+@pytest.mark.asyncio
+async def test_durable_fence_recovers_across_restart_and_revalidates_receipt() -> None:
+    class MemoryLog:
+        def __init__(self) -> None:
+            self.records: list[dict] = []
+
+        async def replay(self) -> list[dict]:
+            return list(self.records)
+
+        async def append(self, kind: str, payload: dict) -> dict:
+            record = {
+                "seq": len(self.records) + 1,
+                "kind": kind,
+                "payload": payload,
+                "sha": f"sha-{len(self.records) + 1}",
+            }
+            self.records.append(record)
+            return record
+
+    log = MemoryLog()
+    first = PodUpgradeAdmission(log_resolver=lambda: log)
+    await first.prepare(operation_id="op_12345678", incarnation="rev-a")
+    receipt = (await first.status(incarnation="rev-a"))["idleReceipt"]
+    assert receipt["committedCursor"]["seq"] == 1
+    assert receipt["idleRecord"]["seq"] == 2
+
+    restarted = PodUpgradeAdmission(log_resolver=lambda: log)
+    recovered = await restarted.status(incarnation="rev-a")
+    assert recovered["state"] == "draining"
+    assert recovered["operationId"] == "op_12345678"
+    assert recovered["idleReceipt"] is None
+
+    # Re-preparing the same operation issues a receipt from this runtime epoch;
+    # a stale receipt cannot authorize the provider replacement.
+    renewed = await restarted.prepare(operation_id="op_12345678", incarnation="rev-a")
+    assert renewed["state"] == "idle"
+    assert renewed["idleReceipt"]["runtimeEpoch"] != receipt["runtimeEpoch"]
+    await restarted.release(operation_id="op_12345678", incarnation="rev-a")

@@ -49,7 +49,13 @@ def test_handoff_waits_for_idle_receipt_and_releases(monkeypatch) -> None:
                 "state": "idle",
                 "operationId": "op_12345678",
                 "incarnation": "rev-a",
-                "idleReceipt": {"operationId": "op_12345678", "incarnation": "rev-a"},
+                "idleReceipt": {
+                    "operationId": "op_12345678",
+                    "incarnation": "rev-a",
+                    "activeWork": 0,
+                    "committedState": "state",
+                    "runtimeEpoch": "epoch-a",
+                },
             },
             {"state": "accepting"},
         ]

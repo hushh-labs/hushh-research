@@ -15,7 +15,9 @@ never the raw phone number and never a private key.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
+import re
 import uuid
 from copy import deepcopy
 from datetime import datetime, timezone
@@ -67,6 +69,57 @@ _STALLED_POD_STATUSES = ("provisioning", "provisioning_failed")
 # re-provisions to the SAME digest the dead pod already runs, so auto-retry would
 # converge on the same dead boot and flap the owner's surface connecting<->failed.
 REASON_HANDSHAKE_TIMEOUT = "handshake_timeout"
+
+_UPGRADE_APPROVAL_VERSION = 1
+_UPGRADE_APPROVAL_TERMINAL_STATUSES = ("succeeded", "failed")
+_UPGRADE_APPROVAL_ACTIVE_STATUSES = ("approved", "scheduled", "updating")
+_UPGRADE_APPROVAL_UNRESOLVED_STATUSES = ("blocked",)
+_IMMUTABLE_IMAGE_RE = re.compile(r"^.+@sha256:[0-9a-fA-F]{64}$")
+
+
+def _validate_upgrade_approval(approval: object, *, user_id: str) -> dict[str, Any]:
+    """Validate the durable owner-operation envelope before its SQL write."""
+    if not isinstance(approval, dict):
+        raise ValueError("upgrade approval must be an object")
+    if type(approval.get("version")) is not int or approval["version"] != _UPGRADE_APPROVAL_VERSION:
+        raise ValueError("unsupported upgrade approval version")
+    required = (
+        "releaseId",
+        "operationId",
+        "idempotencyKey",
+        "ownerId",
+        "hushhId",
+        "podIncarnation",
+        "targetImage",
+    )
+    if any(not isinstance(approval.get(key), str) or not approval[key].strip() for key in required):
+        raise ValueError("upgrade approval is missing its authority binding")
+    if approval["ownerId"].strip() != str(user_id).strip():
+        raise ValueError("upgrade approval owner does not match the registry owner")
+    if approval["podIncarnation"].strip().lower() == "unknown":
+        raise ValueError("upgrade approval requires a verified pod incarnation")
+    if not _IMMUTABLE_IMAGE_RE.fullmatch(approval["targetImage"].strip()):
+        raise ValueError("upgrade approval requires an immutable image digest")
+    release_payload = "|".join(
+        (
+            approval["hushhId"].strip(),
+            approval["podIncarnation"].strip(),
+            approval["targetImage"].strip(),
+        )
+    )
+    expected_release = "rel_" + hashlib.sha256(release_payload.encode("utf-8")).hexdigest()[:32]
+    if approval["releaseId"].strip() != expected_release:
+        raise ValueError("upgrade approval release is not bound to its image and incarnation")
+    if approval.get("status") not in {
+        *_UPGRADE_APPROVAL_ACTIVE_STATUSES,
+        *_UPGRADE_APPROVAL_UNRESOLVED_STATUSES,
+        *_UPGRADE_APPROVAL_TERMINAL_STATUSES,
+    }:
+        raise ValueError("upgrade approval has an unknown operation state")
+    normalized = dict(approval)
+    for key in required:
+        normalized[key] = approval[key].strip()
+    return normalized
 
 
 def registry_host_snapshot(row: Optional[dict]) -> Optional[dict]:
@@ -962,17 +1015,27 @@ class PersonalAgentRegistryRepo:
         The target image remains registry metadata; clients receive only the
         opaque release and operation identifiers.
         """
-        release_id = str(approval.get("releaseId") or "").strip()
-        if not release_id:
-            raise ValueError("upgrade approval release is required")
+        approval = _validate_upgrade_approval(approval, user_id=user_id)
+        release_id = approval["releaseId"].strip()
+        idempotency_key = approval["idempotencyKey"].strip()
+        target_image = approval["targetImage"].strip()
         response = await asyncio.to_thread(
             self._db().execute_raw,
             """
             UPDATE personal_agent_registry
-            SET backend_metadata = jsonb_set(
+            SET backend_metadata = CASE
+                -- A retry with the same idempotency key returns the first durable
+                -- operation. Do not replace its operation id with a newly generated
+                -- one after a lost acknowledgement.
+                WHEN backend_metadata->'upgradeApproval'->>'releaseId' = :release_id
+                 AND backend_metadata->'upgradeApproval'->>'idempotencyKey' = :idempotency_key
+                 AND backend_metadata->'upgradeApproval'->>'targetImage' = :target_image
+                THEN coalesce(backend_metadata, '{}'::jsonb)
+                ELSE jsonb_set(
                     coalesce(backend_metadata, '{}'::jsonb),
                     '{upgradeApproval}', CAST(:approval AS jsonb), true
                 ) - 'upgradeDeferral'
+              END
             WHERE user_id = :user_id
               AND status = 'provisioned'
               -- The row is the authority for the owner and current pod. A stale
@@ -987,12 +1050,20 @@ class PersonalAgentRegistryRepo:
                   ) = :pod_incarnation
               AND (
                     backend_metadata->'upgradeApproval' IS NULL
+                    -- A retry of the same exact operation is idempotent, including
+                    -- after the prior response was lost.
+                    OR (
+                      backend_metadata->'upgradeApproval'->>'releaseId' = :release_id
+                      AND backend_metadata->'upgradeApproval'->>'idempotencyKey' = :idempotency_key
+                      AND backend_metadata->'upgradeApproval'->>'targetImage' = :target_image
+                    )
                     -- A terminal operation may be superseded by a later release;
                     -- an active or uncertain operation may never be overwritten.
                     OR (
                       backend_metadata->'upgradeApproval'->>'releaseId' <> :release_id
                       AND backend_metadata->'upgradeApproval'->>'status' IN
-                        ('succeeded', 'failed', 'blocked')
+                        ('succeeded', 'failed')
+                      AND backend_metadata->'upgradeApproval'->>'idempotencyKey' <> :idempotency_key
                     )
                   )
             RETURNING backend_metadata
@@ -1000,9 +1071,11 @@ class PersonalAgentRegistryRepo:
             {
                 "user_id": user_id,
                 "release_id": release_id,
-                "hushh_id": str(approval.get("hushhId") or ""),
-                "owner_id": str(approval.get("ownerId") or ""),
-                "pod_incarnation": str(approval.get("podIncarnation") or "unknown"),
+                "hushh_id": approval["hushhId"],
+                "owner_id": approval["ownerId"],
+                "pod_incarnation": approval["podIncarnation"],
+                "idempotency_key": idempotency_key,
+                "target_image": target_image,
                 "approval": json.dumps(approval),
             },
         )
@@ -1014,16 +1087,29 @@ class PersonalAgentRegistryRepo:
             current = await self.get(user_id)
             metadata = (current or {}).get("backend_metadata") or {}
             winner = metadata.get("upgradeApproval") if isinstance(metadata, dict) else None
+            if isinstance(winner, dict):
+                try:
+                    winner = _validate_upgrade_approval(winner, user_id=user_id)
+                except ValueError:
+                    winner = None
             if (
                 isinstance(winner, dict)
-                and winner.get("releaseId") == release_id
-                and winner.get("hushhId") == approval.get("hushhId")
-                and winner.get("podIncarnation") == approval.get("podIncarnation")
+                and winner["releaseId"] == release_id
+                and winner["hushhId"] == approval["hushhId"]
+                and winner["podIncarnation"] == approval["podIncarnation"]
+                and winner["idempotencyKey"] == idempotency_key
+                and winner["targetImage"] == target_image
             ):
                 return winner
             return None
         metadata = rows[0].get("backend_metadata") or {}
-        return metadata.get("upgradeApproval") if isinstance(metadata, dict) else None
+        stored = metadata.get("upgradeApproval") if isinstance(metadata, dict) else None
+        if not isinstance(stored, dict):
+            return None
+        try:
+            return _validate_upgrade_approval(stored, user_id=user_id)
+        except ValueError:
+            return None
 
     async def record_upgrade_deferral(self, *, user_id: str, deferral: dict) -> Optional[dict]:
         """Persist a server-side reminder without creating an upgrade operation."""
