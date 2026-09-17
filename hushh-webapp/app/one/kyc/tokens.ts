@@ -26,15 +26,19 @@ export const EYEBROW_ACCENT = "ui-text-section-label";
  * Primary pill CTA (compact). Solid accent pill, accent-foreground label. Meets
  * the 44px touch target and shows a visible accent focus ring.
  */
-export const BTN_PRIMARY =
-  "inline-flex min-h-[44px] items-center justify-center gap-2 rounded-full bg-[color:var(--app-accent)] px-5 py-2.5 text-sm font-semibold text-[color:var(--app-accent-fg)] transition-colors hover:bg-[color:var(--app-accent-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)] focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:opacity-40 disabled:pointer-events-none";
+// Liquid Glass, not a flat fill: a translucent accent-tinted gradient over
+// backdrop-blur+saturate, a soft white specular rim, and an accent-tinted
+// outer glow -- same recipe as components/ui/button.tsx's default variant.
+const BTN_GLASS_FILL =
+  "relative isolate overflow-hidden border border-[color:color-mix(in_srgb,white_45%,transparent)] bg-[linear-gradient(155deg,color-mix(in_srgb,var(--app-accent)_62%,white_10%),color-mix(in_srgb,var(--app-accent)_48%,transparent_52%))] shadow-[inset_0_1px_0_color-mix(in_srgb,white_55%,transparent),0_8px_22px_-12px_color-mix(in_srgb,var(--app-accent)_60%,transparent)] backdrop-blur-lg backdrop-saturate-[180%] hover:bg-[linear-gradient(155deg,color-mix(in_srgb,var(--app-accent)_72%,white_8%),color-mix(in_srgb,var(--app-accent)_58%,transparent_42%))]";
+
+export const BTN_PRIMARY = `inline-flex min-h-[44px] items-center justify-center gap-2 rounded-full px-5 py-2.5 text-sm font-semibold text-[color:var(--app-accent-fg)] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)] focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:opacity-40 disabled:pointer-events-none ${BTN_GLASS_FILL}`;
 
 /**
  * Primary full-width prominent CTA — the single main action per screen
  * (e.g. Confirm, Send). Carries a soft accent elevation shadow.
  */
-export const BTN_PRIMARY_LG =
-  "flex w-full min-h-[44px] items-center justify-center gap-2 rounded-full bg-[color:var(--app-accent)] py-3.5 text-[17px] font-semibold text-[color:var(--app-accent-fg)] shadow-[0_4px_14px_var(--app-accent-border)] transition-colors hover:bg-[color:var(--app-accent-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)] focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:opacity-40 disabled:pointer-events-none disabled:shadow-none";
+export const BTN_PRIMARY_LG = `flex w-full min-h-[44px] items-center justify-center gap-2 rounded-full py-3.5 text-[17px] font-semibold text-[color:var(--app-accent-fg)] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)] focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:opacity-40 disabled:pointer-events-none disabled:shadow-none ${BTN_GLASS_FILL}`;
 
 /**
  * Neutral outline pill — secondary and destructive actions (Deny, Reject).

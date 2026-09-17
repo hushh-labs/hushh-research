@@ -2288,7 +2288,7 @@ function LocationPrimaryShareCard({ onClick }: { onClick: () => void }) {
           data-voice-label="Share location"
           aria-label="Share location"
           onClick={onClick}
-           className="mx-auto inline-flex h-11 min-h-11 w-[76%] items-center justify-center rounded-[14px] bg-[color:var(--app-accent)] px-5 !text-[15px] !font-semibold !leading-5 text-[color:var(--app-accent-fg)] transition-[background-color,transform] [-webkit-tap-highlight-color:transparent] hover:bg-[color:var(--app-accent-hover)] active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]"
+          className="relative isolate mx-auto inline-flex h-11 min-h-11 w-[76%] items-center justify-center overflow-hidden rounded-[14px] border border-[color:color-mix(in_srgb,white_45%,transparent)] bg-[linear-gradient(155deg,color-mix(in_srgb,var(--app-accent)_62%,white_10%),color-mix(in_srgb,var(--app-accent)_48%,transparent_52%))] px-5 !text-[15px] !font-semibold !leading-5 text-[color:var(--app-accent-fg)] shadow-[inset_0_1px_0_color-mix(in_srgb,white_55%,transparent),0_8px_22px_-12px_color-mix(in_srgb,var(--app-accent)_60%,transparent)] backdrop-blur-lg backdrop-saturate-[180%] transition-[background-color,transform] [-webkit-tap-highlight-color:transparent] hover:bg-[linear-gradient(155deg,color-mix(in_srgb,var(--app-accent)_72%,white_8%),color-mix(in_srgb,var(--app-accent)_58%,transparent_42%))] active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]"
         >
           <ButtonLabel
             as="span"
@@ -4852,7 +4852,7 @@ function LinksHub({ vm }: { vm: LocationHubViewModel }) {
                 onClick={vm.onCreatePublicInvite}
                 isLoading={vm.busy === "publicInvite"}
                 data-voice-control-id="one-location-action-temp-link"
-                 className="mx-auto block h-11 min-h-11 w-[76%] min-w-0 rounded-[14px] px-5 text-[15px] font-semibold leading-5 text-[color:var(--app-accent-fg)] bg-[color:var(--app-accent)] hover:bg-[color:var(--app-accent)]/90"
+                className="mx-auto block h-11 min-h-11 w-[76%] min-w-0 rounded-[14px] px-5 text-[15px] font-semibold leading-5"
               >
                 {vm.busy === "publicInvite"
                   ? "Creating link…"

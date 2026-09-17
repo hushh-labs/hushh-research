@@ -9,10 +9,18 @@ const buttonVariants = cva(
   {
     variants: {
       variant: {
+        // Liquid Glass, not a flat fill: a translucent accent-tinted gradient
+        // over backdrop-blur+saturate (same recipe .app-critical-card already
+        // uses for its glass card, tinted with the accent instead of the
+        // critical palette), a soft white specular rim top-inset, and a
+        // matching outer glow instead of a hard drop shadow. Corner radius is
+        // untouched -- Liquid Glass changes the MATERIAL, not the shape
+        // language, and this app already uses two legitimate Apple shapes
+        // (capsule here, continuous rounded-[14px] on full-width list CTAs).
         default:
-          "bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent-hover)]",
+          "relative isolate overflow-hidden border border-[color:color-mix(in_srgb,white_45%,transparent)] bg-[linear-gradient(155deg,color-mix(in_srgb,var(--app-accent)_62%,white_10%),color-mix(in_srgb,var(--app-accent)_48%,transparent_52%))] text-[color:var(--app-accent-fg)] shadow-[inset_0_1px_0_color-mix(in_srgb,white_55%,transparent),0_8px_22px_-12px_color-mix(in_srgb,var(--app-accent)_60%,transparent)] backdrop-blur-lg backdrop-saturate-[180%] hover:bg-[linear-gradient(155deg,color-mix(in_srgb,var(--app-accent)_72%,white_8%),color-mix(in_srgb,var(--app-accent)_58%,transparent_42%))]",
         destructive:
-          "bg-[color:var(--app-destructive)] text-white hover:[background-color:color-mix(in_srgb,var(--app-destructive)_88%,black_12%)] focus-visible:ring-destructive/20 dark:focus-visible:ring-destructive/40",
+          "relative isolate overflow-hidden border border-[color:color-mix(in_srgb,white_45%,transparent)] bg-[linear-gradient(155deg,color-mix(in_srgb,var(--app-destructive)_62%,white_10%),color-mix(in_srgb,var(--app-destructive)_48%,transparent_52%))] text-white shadow-[inset_0_1px_0_color-mix(in_srgb,white_50%,transparent),0_8px_22px_-12px_color-mix(in_srgb,var(--app-destructive)_60%,transparent)] backdrop-blur-lg backdrop-saturate-[180%] hover:bg-[linear-gradient(155deg,color-mix(in_srgb,var(--app-destructive)_72%,white_8%),color-mix(in_srgb,var(--app-destructive)_58%,transparent_42%))] focus-visible:ring-destructive/20 dark:focus-visible:ring-destructive/40",
         outline:
           "border border-[color:var(--app-separator)] bg-[color:var(--app-neutral-fill)] text-foreground shadow-none hover:bg-[color:var(--app-neutral-fill-strong)] dark:border-[color:var(--app-separator)]",
         secondary:
