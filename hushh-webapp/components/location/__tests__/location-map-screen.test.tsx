@@ -34,6 +34,7 @@ const device = vi.hoisted(() => ({
 }));
 const liveMap = vi.hoisted(() => ({
   renders: [] as Array<{ lat: number; lng: number }>,
+  avatarUrls: [] as Array<string | null | undefined>,
 }));
 const router = vi.hoisted(() => ({ push: vi.fn(), replace: vi.fn() }));
 const toast = vi.hoisted(() => ({
@@ -65,8 +66,15 @@ vi.mock("@/lib/one-location/use-current-location", () => ({
   useCurrentLocation: () => device,
 }));
 vi.mock("@/components/one-location/live-map", () => ({
-  LiveMap: ({ point }: { point: { latitude: number; longitude: number } }) => {
+  LiveMap: ({
+    point,
+    avatarUrl,
+  }: {
+    point: { latitude: number; longitude: number };
+    avatarUrl?: string | null;
+  }) => {
     liveMap.renders.push({ lat: point.latitude, lng: point.longitude });
+    liveMap.avatarUrls.push(avatarUrl);
     return (
       <div
         data-testid="live-map"
@@ -75,6 +83,9 @@ vi.mock("@/components/one-location/live-map", () => ({
       />
     );
   },
+}));
+vi.mock("@/hooks/use-effective-avatar-url", () => ({
+  useEffectiveAvatarUrl: () => "https://example.com/avatar.jpg",
 }));
 vi.mock("@/lib/morphy-ux/morphy", () => ({ morphyToast: toast }));
 vi.mock("@/lib/voice/voice-surface-metadata", () => ({
@@ -142,6 +153,7 @@ describe("LocationMapScreen", () => {
     vi.clearAllMocks();
     window.localStorage.clear();
     liveMap.renders.length = 0;
+    liveMap.avatarUrls.length = 0;
     device.snapshot = null;
     device.snapshotOrigin = null;
     device.request.mockImplementation(async () => {
@@ -255,6 +267,12 @@ describe("LocationMapScreen", () => {
     );
     expect(await screen.findByTestId("live-map")).toBeInTheDocument();
     expect(encryption.decryptLocationEnvelope).toHaveBeenCalled();
+  });
+
+  it("passes the viewer's own avatar to LiveMap so the pin is a face, not a pin", async () => {
+    render(<LocationMapScreen />);
+    await screen.findByTestId("live-map");
+    expect(liveMap.avatarUrls).toContain("https://example.com/avatar.jpg");
   });
 
   it("draws its own way back to Location because the route hides the chrome", async () => {

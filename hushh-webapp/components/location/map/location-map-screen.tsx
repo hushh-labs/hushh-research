@@ -32,6 +32,7 @@ import {
 import { LiveMap } from "@/components/one-location/live-map";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/use-auth";
+import { useEffectiveAvatarUrl } from "@/hooks/use-effective-avatar-url";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
 import {
   CARD_SURFACE,
@@ -125,6 +126,7 @@ type LoadStatus = "idle" | "loading" | "ready" | "error";
 export function LocationMapScreen() {
   const router = useRouter();
   const { userId } = useAuth();
+  const selfAvatarUrl = useEffectiveAvatarUrl();
   const { vaultOwnerToken } = useVault();
   const device = useCurrentLocation({ auto: false, userId });
   const [preferences, setPreferences] =
@@ -408,7 +410,11 @@ export function LocationMapScreen() {
       >
         {consentReady && mapPoint ? (
           <div className="absolute inset-0 overflow-hidden">
-            <LiveMap point={mapPoint} viewportResetKey={viewportResetKey} />
+            <LiveMap
+              point={mapPoint}
+              viewportResetKey={viewportResetKey}
+              avatarUrl={selfAvatarUrl}
+            />
           </div>
         ) : (
           <div className="absolute inset-0 flex items-center justify-center p-4">
