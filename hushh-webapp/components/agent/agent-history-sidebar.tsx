@@ -2,17 +2,17 @@
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import {
-  Check,
-  ChatCircleDots as MessageSquare,
-  DotsThree as MoreHorizontal,
-  SidebarSimple as PanelLeftClose,
-  SidebarSimple as PanelLeftOpen,
-  PencilSimple as Pencil,
-  Plus,
-  MagnifyingGlass as Search,
-  Trash as Trash2,
-  X,
-} from "@phosphor-icons/react";
+  CheckIcon as Check,
+  MessageSquareIcon as MessageSquare,
+  DotsThreeIcon as MoreHorizontal,
+  PanelLeftCloseIcon as PanelLeftClose,
+  PanelLeftOpenIcon as PanelLeftOpen,
+  PencilIcon as Pencil,
+  PlusIcon as Plus,
+  SearchIcon as Search,
+  TrashIcon as Trash2,
+  XIcon as X,
+} from "@/components/icons";
 
 import {
   AlertDialog,
@@ -262,7 +262,7 @@ export function AgentHistorySidebar({
           <button
             type="button"
             className={cn(
-              "relative grid h-9 w-9 place-items-center rounded-xl transition-all outline-none focus-visible:ring-2 focus-visible:ring-primary/60",
+              "relative grid h-9 w-9 place-items-center rounded-xl transition-[transform,opacity] motion-reduce:transition-none outline-none focus-visible:ring-2 focus-visible:ring-primary/60",
               active
                 ? "bg-[color:var(--app-accent)] text-white shadow-sm"
                 : "text-muted-foreground hover:bg-foreground/[0.06] hover:text-foreground dark:hover:bg-white/[0.08]"
@@ -287,7 +287,7 @@ export function AgentHistorySidebar({
         key={conversation.id}
         role="listitem"
         className={cn(
-          "group relative rounded-xl transition-all duration-150",
+          "group relative rounded-xl transition-[transform,opacity] motion-reduce:transition-none duration-150",
           active
             ? "bg-[color:var(--app-accent)] text-white shadow-sm"
             : "text-foreground/80 hover:bg-foreground/[0.05] hover:text-foreground dark:hover:bg-white/[0.06]"
@@ -418,7 +418,7 @@ export function AgentHistorySidebar({
     <>
       <aside
         className={cn(
-          "flex min-h-0 shrink-0 flex-col overflow-hidden text-foreground transition-[width] duration-200 ease-out",
+          "flex min-h-0 shrink-0 flex-col overflow-hidden text-foreground",
           isMobileMode
             ? "chrome-glass-surface rounded-r-[28px] bg-background/95 shadow-[18px_0_42px_rgba(0,0,0,0.25)] border-r border-black/[0.06] dark:border-white/[0.08] dark:bg-[#0A0A0C]/95"
             : "border-r border-black/[0.06] bg-[linear-gradient(180deg,color-mix(in_srgb,var(--app-accent-soft)_22%,var(--background)),var(--background))] backdrop-blur-xl dark:border-white/[0.08] dark:bg-[#070709]",
@@ -459,7 +459,7 @@ export function AgentHistorySidebar({
             <Button
               type="button"
               variant="outline"
-              className="mt-2.5 flex h-9 w-full items-center justify-between rounded-xl border-black/[0.08] bg-foreground/[0.035] px-3 text-[13px] font-medium text-foreground transition-all duration-150 hover:border-black/15 hover:bg-foreground/[0.06] hover:shadow-xs active:scale-[0.98] dark:border-white/10 dark:bg-white/[0.04] dark:hover:border-white/20 dark:hover:bg-white/[0.07]"
+              className="mt-2.5 flex h-9 w-full items-center justify-between rounded-xl border-black/[0.08] bg-foreground/[0.035] px-3 text-[13px] font-medium text-foreground transition-[transform,opacity] motion-reduce:transition-none duration-150 hover:border-black/15 hover:bg-foreground/[0.06] hover:shadow-xs active:scale-[0.98] dark:border-white/10 dark:bg-white/[0.04] dark:hover:border-white/20 dark:hover:bg-white/[0.07]"
               onClick={onCreateNew}
               disabled={disabled}
               aria-label="Create new chat"
@@ -545,7 +545,7 @@ export function AgentHistorySidebar({
                 <Button
                   type="button"
                   variant="outline"
-                  className="group relative flex h-9 w-full items-center justify-between rounded-xl border-black/[0.08] bg-foreground/[0.035] px-3 text-[13px] font-medium text-foreground transition-all duration-150 hover:border-black/15 hover:bg-foreground/[0.06] hover:shadow-xs active:scale-[0.98] dark:border-white/10 dark:bg-white/[0.04] dark:hover:border-white/20 dark:hover:bg-white/[0.07]"
+                  className="group relative flex h-9 w-full items-center justify-between rounded-xl border-black/[0.08] bg-foreground/[0.035] px-3 text-[13px] font-medium text-foreground transition-[transform,opacity] motion-reduce:transition-none duration-150 hover:border-black/15 hover:bg-foreground/[0.06] hover:shadow-xs active:scale-[0.98] dark:border-white/10 dark:bg-white/[0.04] dark:hover:border-white/20 dark:hover:bg-white/[0.07]"
                   onClick={onCreateNew}
                   disabled={disabled}
                   aria-label="Create new chat"

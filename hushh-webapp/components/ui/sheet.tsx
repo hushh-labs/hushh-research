@@ -350,13 +350,14 @@ function useBottomSheetDragDismiss({
       const distance = event.clientY - drag.startY
       const elapsed = Math.max(1, event.timeStamp - drag.lastT)
       const velocity = (event.clientY - drag.lastY) / elapsed
-      surface.style.transition = "transform 240ms cubic-bezier(0.32,0.72,0,1)"
+      const duration = window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 150
+      surface.style.transition = `transform ${duration}ms cubic-bezier(0.32,0.72,0,1)`
 
       if (distance > 96 || velocity > 0.5) {
         // Keep the direct transform until Radix begins its close lifecycle.
         // Clearing it first lets the completed entry animation flash back in.
         surface.style.transform = "translate3d(0, 100%, 0)"
-        window.setTimeout(() => onOpenChange(false), 220)
+        window.setTimeout(() => onOpenChange(false), duration)
         return
       }
 
@@ -367,7 +368,7 @@ function useBottomSheetDragDismiss({
         surface.style.willChange = ""
         // Preserve the settled open state rather than replaying the entry animation.
         surface.style.animation = "none"
-      }, 260)
+      }, duration)
     },
     [enabled, onOpenChange],
   )

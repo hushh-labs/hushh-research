@@ -35,10 +35,7 @@ import {
   X,
 } from "@phosphor-icons/react";
 
-import {
-  getStoredPuppyConversations,
-  saveStoredPuppyConversations,
-} from "@/lib/agent/puppy-conversations";
+import { usePuppyConversations } from "@/lib/agent/puppy-conversations";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { requestProfilePaneOpen } from "@/lib/navigation/profile-pane";
 import { Button } from "@/components/ui/button";
@@ -1664,10 +1661,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const [conversations, setConversations] = useState<AgentChatConversation[]>(
     [],
   );
-  const [puppyConversations, setPuppyConversations] = useState<AgentChatConversation[]>(
-    () => getStoredPuppyConversations(),
-  );
-  const [puppyConversationId, setPuppyConversationId] = useState<string | null>(null);
+  const puppyHistory = usePuppyConversations(user?.uid ?? null);
+  const { conversations: puppyConversations, activeId: puppyConversationId } = puppyHistory;
   const [messages, setMessages] = useState<AgentMessage[]>(() => [
     createGreetingMessage(),
   ]);
@@ -3237,46 +3232,16 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     ],
   );
 
-  const handleCreateNewPuppyChat = useCallback(() => {
-    const newId = `puppy-chat-${Date.now()}`;
-    const newConv: AgentChatConversation = {
-      id: newId,
-      title: "New chat",
-      status: "active",
-      message_count: 0,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    };
-    setPuppyConversations((prev) => {
-      const next = [newConv, ...prev];
-      saveStoredPuppyConversations(next);
-      return next;
-    });
-    setPuppyConversationId(newId);
-  }, []);
-
-  const handleSelectPuppyConversation = useCallback((nextId: string) => {
-    setPuppyConversationId(nextId);
-  }, []);
-
-  const handleRenamePuppyConversation = useCallback((targetId: string, title: string) => {
-    setPuppyConversations((prev) => {
-      const next = prev.map((c) => (c.id === targetId ? { ...c, title } : c));
-      saveStoredPuppyConversations(next);
-      return next;
-    });
+  const handleCreateNewPuppyChat = puppyHistory.create;
+  const handleSelectPuppyConversation = puppyHistory.select;
+  const handleRenamePuppyConversation = (id: string, title: string) => {
+    puppyHistory.rename(id, title);
     toast.success("Puppy chat renamed.");
-  }, []);
-
-  const handleDeletePuppyConversation = useCallback((targetId: string) => {
-    setPuppyConversations((prev) => {
-      const next = prev.filter((c) => c.id !== targetId);
-      saveStoredPuppyConversations(next);
-      return next;
-    });
-    setPuppyConversationId((curr) => (curr === targetId ? null : curr));
+  };
+  const handleDeletePuppyConversation = (id: string) => {
+    puppyHistory.remove(id);
     toast.success("Puppy chat deleted.");
-  }, []);
+  };
 
   const handleSidebarCreateNewChat = useCallback(() => {
     setIsHistoryDrawerOpen(false);
@@ -5388,7 +5353,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       >
         <div
           className={cn(
-            "fixed inset-0 z-[520] bg-black/35 backdrop-blur-sm transition-opacity duration-200 dark:bg-black/55",
+            "fixed inset-0 z-[520] bg-black/35 backdrop-blur-sm transition-opacity duration-150 motion-reduce:transition-none dark:bg-black/55",
             isHistoryDrawerOpen
               ? "opacity-100"
               : "pointer-events-none opacity-0",
@@ -5399,7 +5364,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         <div
           ref={historyDrawerRef}
           className={cn(
-            "fixed bottom-0 left-0 top-[var(--top-shell-reserved-height,var(--app-safe-area-top-effective,0px))] z-[530] w-[min(88vw,320px)] transform transition-transform duration-200 ease-out",
+            "fixed bottom-0 left-0 top-[var(--top-shell-reserved-height,var(--app-safe-area-top-effective,0px))] z-[530] w-[min(88vw,320px)] transform transition-transform duration-150 motion-reduce:transition-none ease-out",
             isHistoryDrawerOpen ? "translate-x-0" : "-translate-x-full",
           )}
           role="dialog"
@@ -5651,7 +5616,11 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
               the two: no message, no history row. */}
           {puppyEverOpened ? (
             <PuppyOneSurface
+              key={user?.uid ?? "signed-out"}
               active={isPuppySurface}
+              conversations={puppyConversations}
+              activeConversationId={puppyConversationId}
+              onCreateConversation={handleCreateNewPuppyChat}
               className={cn(!isPuppySurface && "hidden", "lg:px-8")}
             />
           ) : null}

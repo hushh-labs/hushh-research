@@ -125,7 +125,7 @@ function StaticLevelBar({
             ? "bg-[color:var(--app-destructive)]"
             : "bg-[color:var(--app-accent)]",
         )}
-        style={{ width: `${Math.round(width * 100)}%` }}
+        style={{ width: "100%", transform: `scaleX(${width})`, transformOrigin: "left" }}
       />
     </span>
   );

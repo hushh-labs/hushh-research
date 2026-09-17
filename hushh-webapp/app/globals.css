@@ -3558,9 +3558,9 @@ body:has([data-testid="one-location-onboarding"])
     0 1px 0 rgba(255, 255, 255, 0.6) inset,
     0 14px 30px -18px rgba(58, 38, 12, 0.32);
   transition:
-    transform var(--motion-duration-m, 240ms) var(--motion-ease-decelerate),
-    box-shadow var(--motion-duration-m, 240ms) var(--motion-ease-decelerate),
-    border-color var(--motion-duration-m, 240ms) var(--motion-ease-decelerate);
+    transform var(--motion-duration-md, 125ms) var(--motion-ease-decelerate),
+    box-shadow var(--motion-duration-md, 125ms) var(--motion-ease-decelerate),
+    border-color var(--motion-duration-md, 125ms) var(--motion-ease-decelerate);
 }
 .one-glyph-tile::before {
   content: "";
@@ -5172,7 +5172,8 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
   }
 
   .morphy-transition {
-    transition: all 120ms cubic-bezier(0.2, 0, 0, 1);
+    transition: transform 120ms cubic-bezier(0.2, 0, 0, 1),
+      opacity 120ms cubic-bezier(0.2, 0, 0, 1);
   }
   .morphy-transition-colors {
     transition:
@@ -6675,12 +6676,12 @@ body[data-persona-surface="ria"] {
 }
 
 .one-voice-panel-enter {
-  animation: one-voice-panel-enter var(--motion-duration-md, 240ms)
+  animation: one-voice-panel-enter var(--motion-duration-md, 125ms)
     var(--motion-ease-decelerate, cubic-bezier(0, 0, 0.2, 1)) both;
 }
 
 .one-voice-level-fill {
-  transition: width var(--motion-duration-xs, 120ms)
+  transition: transform var(--motion-duration-xs, 120ms)
     var(--motion-ease-standard, cubic-bezier(0.2, 0, 0, 1));
 }
 

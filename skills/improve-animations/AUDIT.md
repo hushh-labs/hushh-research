@@ -55,7 +55,13 @@ Hunt for: Any duration $> 150\text{ms}$ on UI surfaces, `ease-in` anywhere, bare
   .popover { transform-origin: var(--transform-origin); } /* Base UI */
   ```
   **Modals are exempt** — they appear centered; `transform-origin: center` is correct there. Do not report it.
-- **Press feedback**: `transform: scale(0.97)` on `:active` with `transition: transform 160ms ease-out`. Keep it subtle (0.95–0.98).
+- **Press feedback**: `transform: scale(0.97)` on `:active` with `transition: transform 100ms ease-out`. Keep it subtle (0.95–0.98).
+
+Verify runtime timers as well as CSS: route exit/enter timers must match the
+90ms/140ms CSS tokens, and sheet drag settlement must respect the 150ms ceiling
+and reduced motion. Token values alone do not prove all consumers comply.
+Continuous loading indicators are not interaction latency; do not accelerate
+their loops to 150ms. Measure dropped frames separately before claiming FPS.
 
 Hunt for: `scale(0)`, pure-fade entrances with no initial transform, `transform-origin: center` (or none) on trigger-anchored elements, pressable elements with no press feedback.
 

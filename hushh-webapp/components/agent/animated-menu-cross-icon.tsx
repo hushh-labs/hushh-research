@@ -27,21 +27,21 @@ export function AnimatedMenuCrossIcon({
       {/* Top line */}
       <span
         className={cn(
-          "absolute h-[2px] w-4 rounded-full bg-current transition-all duration-150 ease-in-out transform origin-center",
+          "absolute h-[2px] w-4 rounded-full bg-current transition-[transform,opacity] motion-reduce:transition-none duration-150 ease-in-out transform origin-center",
           isOpen ? "translate-y-0 rotate-45" : "-translate-y-[5px] rotate-0"
         )}
       />
       {/* Middle line */}
       <span
         className={cn(
-          "absolute h-[2px] w-4 rounded-full bg-current transition-all duration-150 ease-in-out transform origin-center",
+          "absolute h-[2px] w-4 rounded-full bg-current transition-[transform,opacity] motion-reduce:transition-none duration-150 ease-in-out transform origin-center",
           isOpen ? "opacity-0 scale-x-0" : "opacity-100 scale-x-100"
         )}
       />
       {/* Bottom line */}
       <span
         className={cn(
-          "absolute h-[2px] w-4 rounded-full bg-current transition-all duration-150 ease-in-out transform origin-center",
+          "absolute h-[2px] w-4 rounded-full bg-current transition-[transform,opacity] motion-reduce:transition-none duration-150 ease-in-out transform origin-center",
           isOpen ? "translate-y-0 -rotate-45" : "translate-y-[5px] rotate-0"
         )}
       />

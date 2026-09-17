@@ -63,7 +63,10 @@ To establish visual coherence across the entire application and maintain strict 
 
 ## 2. Snappy Motion System: Hard $\le 150\text{ms}$ Rule
 
-All animations and transitions across the product adhere to a strict **$\le 150\text{ms}$ hard ceiling**. Sluggish transitions ($>200\text{ms}$) that stall user interaction are removed in favor of snappy, GPU-composited micro-interactions.
+Interactive motion has a **150ms ceiling**. This is an authoring requirement,
+not proof that every legacy surface has been migrated or that a device meets
+a measured frame-rate target. Continuous loading indicators have independent
+durations.
 
 ### Token Scale (`app/globals.css`)
 
@@ -104,8 +107,15 @@ All animations and transitions across the product adhere to a strict **$\le 150\
    - Added dedicated `puppyConversations` and `puppyConversationId` state in `components/agent/agent-chat-workspace.tsx`.
    - Toggling between One and Puppy mode now switches the sidebar conversation list:
      - Cloud "One" displays vault-backed cloud chats.
-     - On-device "Puppy" displays local-only machine chats.
-   - Chats created or deleted in Puppy mode never affect or bleed into One's cloud history.
+   - On-device "Puppy" displays workspace-session chats held in browser memory.
+   - Each Puppy chat owns a mounted Hermes panel, transcript, draft, and server
+     session reference. Selection changes visibility without interrupting streams.
+     Hidden panels stop polling. Deletion and account changes unmount panels and
+     abort pending requests. They do not delete server-side Hermes records.
+   - Conversation titles are not stored in localStorage. The obsolete unowned
+     title index is discarded; it contained no transcript or resumable session.
+   - Sign-out, account changes, a full reload, or leaving the workspace clear this
+     memory. Durable encrypted Puppy history is outside this change.
 
 ---
 
@@ -122,3 +132,40 @@ All animations and transitions across the product adhere to a strict **$\le 150\
   - Onboarding steps (`components/onboarding/`)
 - **Phase 3 (Queued)**:
   - Secondary developer tools & long-tail debug cards
+
+## Verification checkpoint — 2026-09-17
+
+The follow-up fixes wire Puppy history selection into actual mounted chat
+panels, remove the shared plaintext title store, use the canonical sidebar
+icons, and align route, drawer, sheet-drag, and voice-meter motion.
+The desktop sidebar changes width without interpolating layout on every frame;
+the mobile drawer retains a transform transition. Reduced motion disables its
+transition and the sheet drag-settlement transition.
+
+Focused verification commands:
+
+```bash
+cd hushh-webapp
+npx vitest run __tests__/agent/puppy-conversations.test.tsx __tests__/agent/puppy-one-surface.test.tsx __tests__/agent/hermes-chat-panel-transcript.test.tsx __tests__/agent/hermes-chat-panel-link-states.test.tsx __tests__/navigation/route-transition* __tests__/components/bottom-sheet-drag-dismiss.contract.test.tsx __tests__/components/one-dashboard-page.test.tsx
+npm run typecheck
+npm run verify:design-system
+npm run verify:docs
+npm run verify:cache
+```
+
+These passed (48 focused tests and 62 cache tests). The originally proposed
+`__tests__/components/agent-chat-workspace.test.tsx` does not exist; the tests
+above verify the actual session and transcript owners.
+
+The signed-in route sweep did not establish the reviewer route-ready beacon.
+The service-boundary check reports an existing raw fetch in
+`components/location/__tests__/location-setup-flow.test.tsx`.
+Neither check is recorded as passing. Device FPS, signed-in desktop/mobile
+visual acceptance, and real on-device model responses require a separate
+successful runtime rehearsal; mocked stream tests do not prove them.
+
+Migration census: 309 files under `hushh-webapp/{app,components,lib}` still
+import Lucide. Reproduce with
+`rg -l 'from ["\\x27]lucide-react' hushh-webapp/{app,components,lib} | wc -l`.
+Registry availability is not a repository-wide migration claim; Phases 2 and 3
+remain queued.

@@ -9,6 +9,7 @@ import {
   CaretRight,
   CaretUp,
   Check,
+  ChatCircleDots,
   Copy,
   DotsThree,
   EnvelopeSimple,
@@ -40,6 +41,10 @@ export type UiIconProps = IconProps & {
   size?: number | string;
   weight?: IconWeight;
 };
+
+export function MessageSquareIcon({ weight = "duotone", ...props }: UiIconProps) {
+  return <ChatCircleDots weight={weight} {...props} />;
+}
 
 /**
  * 1. Search Icon
