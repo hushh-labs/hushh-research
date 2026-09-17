@@ -68,10 +68,9 @@ const NAVIGATION_TIMEOUT_MS = 120000;
 const CLIENT_NAVIGATION_CONTEXT_KEY = "__hushhSignedInRouteContextProbe";
 const INTERNAL_APP_NAVIGATION_REQUEST_EVENT =
   "app-internal-navigation-requested";
-const REVIEWER_BOOTSTRAP_ROUTE = "/ria";
+const REVIEWER_BOOTSTRAP_ROUTE = "/";
 const REVIEWER_BOOTSTRAP_ROUTE_IDS = [
   REVIEWER_BOOTSTRAP_ROUTE,
-  "/ria/onboarding",
 ];
 const SAME_SESSION_SHELL_ROUTES = new Set([
   "/",
@@ -408,6 +407,7 @@ function loadRouteContract() {
 function shouldIncludeRoute(route) {
   if (route.mode === "hidden") return false;
   if (!routeFilter) return true;
+  if (routeFilter.startsWith("=")) return route.route.toLowerCase() === routeFilter.slice(1);
   return route.route.toLowerCase().includes(routeFilter);
 }
 
@@ -707,8 +707,7 @@ async function ensureReviewerSession(page) {
       { cause: error },
     );
   }
-  process.stdout.write(`→ align reviewer persona to ria\n`);
-  await ensurePersona(page, "ria");
+  // Each route selects its own persona. Chat bootstrap must not require RIA admission.
   process.stdout.write(`→ reviewer route beacon ready\n`);
   process.stdout.write(`✓ reviewer session ready\n`);
 }
@@ -1456,9 +1455,8 @@ function assertUrl(spec, finalUrl) {
 
 async function captureRouteDiagnostics(page) {
   return page.evaluate(() => ({
-    url: window.location.href,
+    pathname: window.location.pathname,
     readyState: document.readyState,
-    bodySnippet: (document.body?.innerText || "").trim().slice(0, 500),
     beacons: Array.from(
       document.querySelectorAll("[data-native-test-beacon='true']"),
     ).map((node) => ({
@@ -1469,9 +1467,7 @@ async function captureRouteDiagnostics(page) {
     bridge: window.__HUSHH_NATIVE_TEST__
       ? {
           bootstrapState: window.__HUSHH_NATIVE_TEST__.bootstrapState || "",
-          bootstrapUserId: window.__HUSHH_NATIVE_TEST__.bootstrapUserId || "",
-          bootstrapError: window.__HUSHH_NATIVE_TEST__.bootstrapError || "",
-          beacon: window.__HUSHH_NATIVE_TEST__.beacon || null,
+          bootstrapErrorClass: window.__HUSHH_NATIVE_TEST__.bootstrapErrorClass || "",
         }
       : null,
   }));

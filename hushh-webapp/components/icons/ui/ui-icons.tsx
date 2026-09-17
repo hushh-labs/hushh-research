@@ -26,6 +26,7 @@ import {
   Plus,
   SidebarSimple,
   SignOut,
+  ShieldCheck,
   Sliders,
   Sparkle,
   SquaresFour,
@@ -44,6 +45,10 @@ export type UiIconProps = IconProps & {
 
 export function MessageSquareIcon({ weight = "duotone", ...props }: UiIconProps) {
   return <ChatCircleDots weight={weight} {...props} />;
+}
+
+export function ShieldIcon({ weight = "duotone", ...props }: UiIconProps) {
+  return <ShieldCheck weight={weight} {...props} />;
 }
 
 /**

@@ -3236,11 +3236,9 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const handleSelectPuppyConversation = puppyHistory.select;
   const handleRenamePuppyConversation = (id: string, title: string) => {
     puppyHistory.rename(id, title);
-    toast.success("Puppy chat renamed.");
   };
   const handleDeletePuppyConversation = (id: string) => {
     puppyHistory.remove(id);
-    toast.success("Puppy chat deleted.");
   };
 
   const handleSidebarCreateNewChat = useCallback(() => {
@@ -5248,11 +5246,11 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           document.activeElement instanceof HTMLElement
             ? document.activeElement
             : null;
-        void loadConversationList().catch(() => undefined);
+        if (!isPuppySurface) void loadConversationList().catch(() => undefined);
       }
       return !prev;
     });
-  }, [loadConversationList]);
+  }, [isPuppySurface, loadConversationList]);
   const handleHistoryDrawerKeyDown = useCallback(
     (event: ReactKeyboardEvent) => {
       if (event.key === "Escape") {
@@ -5353,7 +5351,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       >
         <div
           className={cn(
-            "fixed inset-0 z-[520] bg-black/35 backdrop-blur-sm transition-opacity duration-150 motion-reduce:transition-none dark:bg-black/55",
+            "fixed inset-0 z-[520] bg-black/35 transition-opacity duration-150 motion-reduce:transition-none dark:bg-black/55",
             isHistoryDrawerOpen
               ? "opacity-100"
               : "pointer-events-none opacity-0",
@@ -6611,7 +6609,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
               // CSS-only focus-within drives the padding shift in lockstep with
               // the native keyboard resize (no React state/rerender round-trip
               // in the path, which was the source of the visible lag on iOS).
-              "pointer-events-none absolute inset-x-0 bottom-0 z-10 px-3 pt-3 transition-[padding-bottom] duration-[var(--motion-duration-sm)] ease-[var(--motion-ease-standard)] motion-reduce:transition-none sm:px-5",
+              "pointer-events-none absolute inset-x-0 bottom-0 z-10 px-3 pt-3 sm:px-5",
               "bg-transparent pb-[var(--agent-chat-composer-bottom)] focus-within:pb-[var(--agent-chat-composer-focused-bottom)]",
               // Puppy One has its own composer. Leaving One's on screen would
               // let a message meant for the on-device agent be sent to the

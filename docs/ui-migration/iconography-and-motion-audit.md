@@ -157,12 +157,55 @@ These passed (48 focused tests and 62 cache tests). The originally proposed
 `__tests__/components/agent-chat-workspace.test.tsx` does not exist; the tests
 above verify the actual session and transcript owners.
 
-The signed-in route sweep did not establish the reviewer route-ready beacon.
-The service-boundary check reports an existing raw fetch in
-`components/location/__tests__/location-setup-flow.test.tsx`.
-Neither check is recorded as passing. Device FPS, signed-in desktop/mobile
-visual acceptance, and real on-device model responses require a separate
-successful runtime rehearsal; mocked stream tests do not prove them.
+### Follow-up acceptance
+
+The final focused suite passes 57 tests across 11 files, including regression
+coverage for the service scanner and reviewer bootstrap. Typecheck, design-system,
+documentation, service-boundary, reviewer-harness and native static checks pass.
+The broader `npm run verify:agent-surface` suite also passes 245 tests across
+28 files. These suites overlap; their totals are not additive.
+The service scanner now excludes test assertions without exempting production
+components; its fixture proves a real component-level fetch is still rejected.
+
+The signed-in sweep now bootstraps canonical `/` instead of forcing the RIA
+persona. `HUSHH_ROUTE_FILTER='=/' npm run verify:routes` passes at phone, tablet,
+laptop and desktop widths. This is root coverage, not an all-route sweep.
+Failure diagnostics retain sanitized state and pathname, not page text or owner IDs.
+
+Canonical reviewer rehearsals proved a visible cold vault gate, same-session
+unlock continuity, separate cold-session re-unlock, and a real cloud Chat prompt
+round trip. The new reproducible UI acceptance command is:
+
+```bash
+REVIEWER_APP_ORIGIN=http://localhost:3000 REVIEWER_ALLOW_SHARED_MUTATIONS=true \
+  node .codex/skills/reviewer-app-testing/scripts/verify-reviewer-chat-ui-plan.mjs
+```
+
+This run requires current-task mutation authority: normal post-unlock PKM
+reconciliation can write. It is not a read-only pass. The default guard remains
+intact; only the source-verified metadata read `POST /api/vault/status` joins its
+exact read allowlist. Credentials and decrypted information remain in memory.
+
+At desktop 1440px and phone 390px, the UI rehearsal passes heading alignment,
+symmetric New chat padding, menu viewport placement,
+rename autofocus/save, delete confirmation, One/Puppy list isolation, Phosphor
+viewBoxes, hover foreground inheritance, pointer cursor, no horizontal overflow,
+150ms drawer duration, reduced motion and vault continuity. Fixed-label menu
+screenshots were visually inspected; no transcript or account screenshots are
+retained. Puppy local rename/delete no longer emit a toast that can cover the
+mobile mode switch. Opening Puppy history no longer fetches the cloud chat list.
+The registry now includes the previously missing `ShieldIcon`; shared button,
+theme, fade and composer transitions no longer use the audited over-budget or
+layout-interpolating declarations.
+
+Browser rAF sampling exposed the full-viewport blurred drawer backdrop as a
+performance concern. Removing that blur while preserving the opacity dimmer and
+transform drawer improved the isolated desktop sample from median 23.9ms / p95
+50.3ms to median 10.1ms / p95 18.1ms (33 intervals). Phone measured median 8.3ms /
+p95 9.2ms (48 intervals). These short headless development samples are diagnostic,
+not a sustained FPS benchmark or physical-device guarantee. Native static validation
+and static export do not establish physical-device animation performance or real
+on-device model responses. Those remain separate runtime acceptance obligations.
 
 Migration census: 309 files under `hushh-webapp/{app,components,lib}` still
 import Lucide. Reproduce with
