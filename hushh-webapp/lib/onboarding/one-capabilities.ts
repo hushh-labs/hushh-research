@@ -121,6 +121,35 @@ export interface OneCapability {
  */
 export const ONE_CAPABILITIES: readonly OneCapability[] = [
   {
+    id: "finance",
+    setupActionId: "setup.open_finance",
+    setupControlId: "one_setup_tile_finance",
+    agentId: "agent_kai",
+    // Public agent name is "Finance" (renamed back from a brief "Investor"
+    // pass). Kai remains the internal finance runtime naming: id, routes,
+    // contracts, and code identifiers unchanged.
+    title: "Finance",
+    description: "Market, portfolio, analysis, and RIA handoff.",
+    previewLabel: "Market, portfolio & analysis",
+    href: ROUTES.KAI_HOME,
+    icon: imageCapabilityIcon("/agents/finance.png", "Finance", [159, 195, 936, 900, 1254]),
+    tone: "finance",
+    group: "workflow",
+    requiresVault: true,
+  },
+  {
+    id: "wallet",
+    agentId: "agent_wallet",
+    title: "Wallet",
+    description: "Every credit and debit card, encrypted in your vault.",
+    previewLabel: "Your cards, in your vault",
+    href: ROUTES.ONE_WALLET,
+    icon: imageCapabilityIcon("/agents/wallet.png", "Wallet", [138, 146, 978, 962, 1254]),
+    tone: "pkm",
+    group: "workflow",
+    requiresVault: true,
+  },
+  {
     id: "location",
     setupActionId: "setup.open_location",
     setupControlId: "one_setup_tile_location",
@@ -131,6 +160,22 @@ export const ONE_CAPABILITIES: readonly OneCapability[] = [
     href: ROUTES.ONE_LOCATION,
     icon: imageCapabilityIcon("/agents/location.png", "Location", [108, 115, 809, 802, 1024]),
     tone: "location",
+    group: "workflow",
+    requiresVault: true,
+  },
+  {
+    id: "ria",
+    setupActionId: "setup.open_ria",
+    setupControlId: "one_setup_tile_ria",
+    // RIA setup is an account/persona workflow owned by the existing RIA
+    // onboarding route. It is not a separate product-agent delegation lane.
+    agentId: null,
+    title: "Advisor",
+    description: "Advisor verification, profile, clients, and requests.",
+    previewLabel: "Advisor profile & verification",
+    href: ROUTES.RIA_ONBOARDING,
+    icon: imageCapabilityIcon("/agents/ria.png", "Advisor", [160, 177, 932, 903, 1254]),
+    tone: "ria",
     group: "workflow",
     requiresVault: true,
   },
@@ -178,48 +223,15 @@ export const ONE_CAPABILITIES: readonly OneCapability[] = [
     requiresVault: true,
   },
   {
-    id: "finance",
-    setupActionId: "setup.open_finance",
-    setupControlId: "one_setup_tile_finance",
-    agentId: "agent_kai",
-    // Public agent name is "Finance" (renamed back from a brief "Investor"
-    // pass). Kai remains the internal finance runtime naming: id, routes,
-    // contracts, and code identifiers unchanged.
-    title: "Finance",
-    description: "Market, portfolio, analysis, and RIA handoff.",
-    previewLabel: "Market, portfolio & analysis",
-    href: ROUTES.KAI_HOME,
-    icon: imageCapabilityIcon("/agents/finance.png", "Finance", [159, 195, 936, 900, 1254]),
-    tone: "finance",
-    group: "workflow",
-    requiresVault: true,
-  },
-  {
-    id: "ria",
-    setupActionId: "setup.open_ria",
-    setupControlId: "one_setup_tile_ria",
-    // RIA setup is an account/persona workflow owned by the existing RIA
-    // onboarding route. It is not a separate product-agent delegation lane.
+    id: "pkm",
+    // Memory is a direct private-agent surface, not Marketplace delegation.
     agentId: null,
-    title: "Advisor",
-    description: "Advisor verification, profile, clients, and requests.",
-    previewLabel: "Advisor profile & verification",
-    href: ROUTES.RIA_ONBOARDING,
-    icon: imageCapabilityIcon("/agents/ria.png", "Advisor", [160, 177, 932, 903, 1254]),
-    tone: "ria",
-    group: "workflow",
-    requiresVault: true,
-  },
-  {
-    id: "wallet",
-    agentId: "agent_wallet",
-    title: "Wallet",
-    description: "Every credit and debit card, encrypted in your vault.",
-    previewLabel: "Your cards, in your vault",
-    href: ROUTES.ONE_WALLET,
-    icon: imageCapabilityIcon("/agents/wallet.png", "Wallet", [138, 146, 978, 962, 1254]),
+    title: "Memory",
+    description: "Saved knowledge and context you can review.",
+    href: ROUTES.PKM,
+    icon: imageCapabilityIcon("/agents/memory.png", "Memory", [145, 158, 965, 938, 1254]),
     tone: "pkm",
-    group: "workflow",
+    group: "memory",
     requiresVault: true,
   },
   {
@@ -234,18 +246,6 @@ export const ONE_CAPABILITIES: readonly OneCapability[] = [
     tone: "consent",
     group: "access",
     isExploreOnly: true,
-  },
-  {
-    id: "pkm",
-    // Memory is a direct private-agent surface, not Marketplace delegation.
-    agentId: null,
-    title: "Memory",
-    description: "Saved knowledge and context you can review.",
-    href: ROUTES.PKM,
-    icon: imageCapabilityIcon("/agents/memory.png", "Memory", [145, 158, 965, 938, 1254]),
-    tone: "pkm",
-    group: "memory",
-    requiresVault: true,
   },
   {
     id: "marketplace",

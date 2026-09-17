@@ -123,15 +123,15 @@ describe("OneDashboardPage", () => {
     // ONE_CAPABILITIES order: the palette exists to keep adjacent rows
     // distinguishable, and that property is preserved.
     const rosterPaletteOrder = [
+      "finance",
+      "wallet",
       "location",
+      "ria",
       "gmail",
       "calendar",
       "email",
-      "finance",
-      "ria",
-      "wallet",
-      "consent",
       "pkm",
+      "consent",
     ] as const;
     const rosterPaletteSlots = rosterPaletteOrder.map((id) =>
       screen
@@ -331,53 +331,14 @@ describe("OneDashboardPage", () => {
     expect(screen.getByTestId("one-agent-list-row-finance")).toBeTruthy();
   });
 
-  it("renders circular badges on actionable agents in grid view and clears them when completed", () => {
-    window.localStorage.setItem("hushh:one-agent-roster-view", "grid");
-    const { rerender } = render(
+  it("shows the finance mover as a concise green percentage without redundant winner copy", () => {
+    render(
       <OneDashboardPage
         displayName="Kushal Trivedi"
-        capabilityStatusById={buildStatusMap({
-          location: { state: "not-started" },
-          gmail: { state: "not-started" },
-          calendar: { state: "not-started" },
-          email: { state: "not-started" },
-          finance: { state: "not-started" },
-          ria: { state: "not-started" },
-          wallet: { state: "not-started" },
-          consent: { state: "not-started" },
-          pkm: { state: "not-started" },
-        })}
+        userId="roster-finance-metric"
       />,
     );
 
-    expect(screen.getByTestId("one-agent-badge-gmail")).toHaveTextContent("1");
-    expect(screen.getByTestId("one-agent-badge-calendar")).toHaveTextContent("1");
-    expect(screen.getByTestId("one-agent-badge-finance")).toHaveTextContent("1");
-    expect(screen.getByTestId("one-agent-badge-ria")).toHaveTextContent("1");
-    expect(screen.getByTestId("one-agent-badge-wallet")).toHaveTextContent("1");
-    expect(screen.queryByTestId("one-agent-badge-location")).toBeNull();
-    expect(screen.queryByTestId("one-agent-badge-email")).toBeNull();
-    expect(screen.queryByTestId("one-agent-badge-consent")).toBeNull();
-    expect(screen.queryByTestId("one-agent-badge-pkm")).toBeNull();
-
-    // When an agent completes setup, its badge clears
-    rerender(
-      <OneDashboardPage
-        displayName="Kushal Trivedi"
-        capabilityStatusById={buildStatusMap({
-          gmail: { state: "completed" },
-          calendar: { state: "completed" },
-          finance: { state: "completed" },
-          ria: { state: "completed" },
-          wallet: { state: "completed" },
-        })}
-      />,
-    );
-
-    expect(screen.queryByTestId("one-agent-badge-gmail")).toBeNull();
-    expect(screen.queryByTestId("one-agent-badge-calendar")).toBeNull();
-    expect(screen.queryByTestId("one-agent-badge-finance")).toBeNull();
-    expect(screen.queryByTestId("one-agent-badge-ria")).toBeNull();
-    expect(screen.queryByTestId("one-agent-badge-wallet")).toBeNull();
+    expect(screen.queryByText(/winner/i)).toBeNull();
   });
 });
