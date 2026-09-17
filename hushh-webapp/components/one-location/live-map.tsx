@@ -52,10 +52,22 @@ function buildAvatarMarkerIcon(avatarUrl: string): google.maps.Icon {
   const size = AVATAR_MARKER_SIZE_PX;
   const center = size / 2;
   const href = escapeSvgAttribute(avatarUrl);
+  // google.maps.Marker.icon renders this SVG as a standalone image resource
+  // outside the page's live DOM/CSS cascade, so var(--app-accent) cannot
+  // resolve inside it. Read the token's current computed value instead of a
+  // hardcoded hex, so the ring still follows the accent identity (e.g. the
+  // gold persona) instead of silently opting out of it.
+  // "currentColor" is only a fallback for the unreachable case where the
+  // token is somehow undefined -- verify-accent-tokens forbids a literal
+  // hex here as the substitute, and globals.css guarantees the real value.
+  const accentColor =
+    getComputedStyle(document.documentElement)
+      .getPropertyValue("--app-accent")
+      .trim() || "currentColor";
   const svg =
     `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">` +
     `<defs><clipPath id="avatar-clip"><circle cx="${center}" cy="${center}" r="${center - 3}" /></clipPath></defs>` +
-    `<circle cx="${center}" cy="${center}" r="${center}" fill="#007AFF" fill-opacity="0.3" />` +
+    `<circle cx="${center}" cy="${center}" r="${center}" fill="${escapeSvgAttribute(accentColor)}" fill-opacity="0.3" />` +
     `<circle cx="${center}" cy="${center}" r="${center - 1.5}" fill="#ffffff" />` +
     `<image href="${href}" xlink:href="${href}" x="3" y="3" width="${size - 6}" height="${size - 6}" ` +
     `clip-path="url(#avatar-clip)" preserveAspectRatio="xMidYMid slice" />` +
