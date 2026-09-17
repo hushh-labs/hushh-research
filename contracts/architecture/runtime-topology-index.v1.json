@@ -2182,6 +2182,29 @@
       "alias": null,
       "api_dependencies": [],
       "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": null,
+      "page_file": "app/manishhussh/page.tsx",
+      "pathname": "/manishhussh",
+      "route_mode": "standard",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.manishhussh"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
         "policy": "device-resource",
         "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
         "resource_classes": [
@@ -5480,13 +5503,13 @@
     "a2a_scope_map": "7379039859448ff3db422aa5ee50124bbcadcecc8c9c49e3c1471791f54208c1",
     "action_gateway": "a1df2f45b7b142c529e090e6976031f659d7ea03b5fbb41a94517c7c09bf001b",
     "agent_registry": "a29ac8ac4a0ff9fe6388b83fd883f8f7739b31ede5ef2bf426a9e41d59c7db0e",
-    "cache_manifest": "bb198b514fb5a361bf56302ddbcc01e3a2ad2826fb662f4c258408ac7d191f49",
+    "cache_manifest": "f8f438ff99d83b6db04e13943c3ec0089d5e171ddffcc88881b3cb9fbaec5dd3",
     "data_plane": "6c29df84a4077029db5866a57b43c750ac677369e9d741a4f9e3f85631b0f8e6",
     "in_process_dispatch": "022c40c305a11e06510f2688041a96c1523cae5b5c03d7876fd122ce027e98c3",
     "one_specialist_tools": "9401718600797bd146e47674aaa84e3f836ddaa59f5d9b2044660395fe5172df",
-    "route_index": "a9ff58d8cc61e8717bdbf3ba0aa65719f7683000d143accf52296526831b381c",
-    "route_layout": "d8ba65f253a508ed28e6d7611c1794bdc5a8764b785c429bd662afe052766f8e",
-    "surface_map": "b4ca4b37120e2d1a8d5cfe82f3215c459fac81963b497b126faeb96ae99bfa56",
+    "route_index": "c1876bc9ae8b30fa04ba5852b60096ad26b9f99e2ad6d59d09a8fd1c417394d6",
+    "route_layout": "5054d6f53bce9a4a4db93368375551ff71fec53d1bbcb12835b1c34ca3483d46",
+    "surface_map": "b1187d419d7b6fd9e2d9a0b1c0523bf9ee0609de7ab1558b06e62171d435b30f",
     "topology_contract": "604960e855be06af77bd75d21f3eace0e2ea5647b344d08f0acd2b8c35d4f4e9",
     "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"
   },
@@ -5498,7 +5521,7 @@
     "decision_required": 2,
     "in_process_specialists": 3,
     "one_specialist_tools": 6,
-    "physical_routes": 138,
+    "physical_routes": 139,
     "semantic_routes": 14,
     "table_families": 64
   }
