@@ -55,7 +55,7 @@ describe("native resumed-session privacy shield contract", () => {
     expect(recovery).toContain("autoReviewerLogin: false");
     expect(recovery).toContain('expectedAuth: "anonymous"');
     expect(recovery).toContain("XCTAssertFalse(app.secureTextFields");
-    expect(recovery).toContain("let resumeDeadline = Date().addingTimeInterval(15)");
+    expect(recovery).toContain("let resumeDeadline = Date().addingTimeInterval(30)");
     expect(recovery).toContain("loginButton.exists && loginButton.isHittable");
     expect(statusWait).toMatch(
       /if route\.autoReviewerLogin\s*\{\s*_ = attemptVaultPassphraseUnlock\(app: app\)/,
