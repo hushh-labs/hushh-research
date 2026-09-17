@@ -23,15 +23,19 @@ import { cn } from "@/lib/utils";
 export function AskOneButton({
   className,
   children,
+  icon = true,
   ...props
-}: ComponentPropsWithoutRef<typeof Button>) {
+}: ComponentPropsWithoutRef<typeof Button> & {
+  /** False drops the MessageCircle glyph for a caller that wants text only. */
+  icon?: boolean;
+}) {
   return (
     <Button
       type="button"
       className={cn("w-full justify-center sm:w-auto", className)}
       {...props}
     >
-      <MessageCircle className="h-4 w-4 shrink-0" aria-hidden />
+      {icon ? <MessageCircle className="h-4 w-4 shrink-0" aria-hidden /> : null}
       {children}
     </Button>
   );
