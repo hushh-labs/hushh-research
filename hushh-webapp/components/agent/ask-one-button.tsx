@@ -23,11 +23,15 @@ import { cn } from "@/lib/utils";
 export function AskOneButton({
   className,
   children,
-  icon = true,
+  showIcon = true,
   ...props
 }: ComponentPropsWithoutRef<typeof Button> & {
-  /** False drops the MessageCircle glyph for a caller that wants text only. */
-  icon?: boolean;
+  /**
+   * False drops the MessageCircle glyph for a caller that wants text only.
+   * Named `showIcon`, not `icon` -- Button's own `icon` prop already means
+   * something else entirely (a leading Phosphor icon slot).
+   */
+  showIcon?: boolean;
 }) {
   return (
     <Button
@@ -35,7 +39,9 @@ export function AskOneButton({
       className={cn("w-full justify-center sm:w-auto", className)}
       {...props}
     >
-      {icon ? <MessageCircle className="h-4 w-4 shrink-0" aria-hidden /> : null}
+      {showIcon ? (
+        <MessageCircle className="h-4 w-4 shrink-0" aria-hidden />
+      ) : null}
       {children}
     </Button>
   );

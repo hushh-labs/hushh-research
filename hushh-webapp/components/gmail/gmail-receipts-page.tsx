@@ -2057,7 +2057,7 @@ export default function GmailReceiptsPage({
                   </p>
                 </div>
               </div>
-              <AskOneButton onClick={handleOpenOneChat} icon={false}>
+              <AskOneButton onClick={handleOpenOneChat} showIcon={false}>
                 Open One Chat
               </AskOneButton>
             </SurfaceInset>
