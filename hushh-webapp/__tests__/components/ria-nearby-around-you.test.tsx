@@ -279,7 +279,16 @@ describe("Around you", () => {
     await waitFor(() =>
       expect(screen.getByText("No shortlisted prospects yet.")).toBeInTheDocument(),
     );
-    expect(screen.getByText("Star a public record to save it here.")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /shortlisted prospects/i })).toHaveClass(
+      "ui-text-section-label",
+    );
+    expect(screen.getByText("Star a public record to save it here.")).toHaveClass(
+      "ui-text-row-description",
+    );
+    expect(screen.getByText("No shortlisted prospects yet.")).toHaveClass(
+      "text-sm",
+      "text-muted-foreground",
+    );
     expect(screen.getByText(/look around a place/i)).toBeInTheDocument();
   });
 
