@@ -1802,12 +1802,21 @@ describe("OneLocationAgentPage", () => {
     actionCells?.forEach((cell) => {
       expect(cell.className).toContain("flex-col");
       expect(cell.className).toContain("text-center");
-      expect(cell.className).toContain("h-[62px]");
+      expect(cell.className).toContain("h-[76px]");
       expect(cell.className).toContain("rounded-[14px]");
     });
-    expect(
-      actionGrid?.querySelector("[data-one-location-action-icon]")?.className,
-    ).toContain("text-[color:var(--app-accent)]");
+    const regularActionIconClassName = actionGrid?.querySelector(
+      "[data-one-location-action-icon]",
+    )?.className;
+    expect(regularActionIconClassName).toContain(
+      "text-[color:var(--app-accent)]",
+    );
+    // Was a bare 24px glyph with no chip -- inconsistent with the emergency
+    // cell's own 30px filled circle right below it in the same grid.
+    expect(regularActionIconClassName).toContain("rounded-full");
+    expect(regularActionIconClassName).toContain(
+      "bg-[color:var(--app-accent-tint)]",
+    );
     expect(
       actionGrid?.querySelector('[data-location-menu-icon="ask"]'),
     ).toHaveAttribute("width", "21");

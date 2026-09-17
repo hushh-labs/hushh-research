@@ -293,6 +293,39 @@ describe("SmsContactsFlow", () => {
       );
     });
 
+    it("re-resolves the roster on every re-expand, not just the first", async () => {
+      // The bug this guards: the picker cached its first load in state and
+      // never fetched again for the lifetime of the row, so a member added to
+      // the Circle elsewhere never showed up here without a full remount.
+      const onLoadCircleMembers = vi
+        .fn()
+        .mockResolvedValueOnce(
+          circleSelection([{ userId: "aarav", displayName: "Aarav Shah" }]),
+        )
+        .mockResolvedValueOnce(
+          circleSelection([
+            { userId: "aarav", displayName: "Aarav Shah" },
+            { userId: "maya", displayName: "Maya Chen" },
+          ]),
+        );
+      render(
+        <SmsContactsFlow {...baseProps} onLoadCircleMembers={onLoadCircleMembers} />,
+      );
+
+      const toggle = screen.getByRole("button", {
+        name: "Choose people from Family",
+      });
+      fireEvent.click(toggle);
+      await screen.findByText("Aarav Shah");
+      expect(screen.queryByText("Maya Chen")).not.toBeInTheDocument();
+
+      fireEvent.click(toggle); // collapse
+      fireEvent.click(toggle); // re-expand
+
+      await waitFor(() => expect(onLoadCircleMembers).toHaveBeenCalledTimes(2));
+      expect(await screen.findByText("Maya Chen")).toBeInTheDocument();
+    });
+
     it("names members it cannot add rather than dropping them silently", async () => {
       render(<SmsContactsFlow {...baseProps} />);
 
