@@ -4,6 +4,12 @@
 **Governing Skills**: [skills/hushh-icon-theme/SKILL.md](../../skills/hushh-icon-theme/SKILL.md) · [skills/improve-animations/AUDIT.md](../../skills/improve-animations/AUDIT.md)  
 **Target Package**: `hushh-webapp`
 
+## Visual Context
+
+Canonical visual owner: [Quality and Design System Index](../reference/quality/README.md).
+Visual standard: Flat Phosphor duotone vector geometry and obsidian high-contrast surfaces governed by [skills/hushh-icon-theme/SKILL.md](../../skills/hushh-icon-theme/SKILL.md).
+Motion standard: Hard-capped $\le 150\text{ms}$ transitions and 60-120fps GPU compositing governed by [skills/improve-animations/AUDIT.md](../../skills/improve-animations/AUDIT.md).
+
 ---
 
 ## 1. Iconography Architecture: Phosphor Duotone Standard
