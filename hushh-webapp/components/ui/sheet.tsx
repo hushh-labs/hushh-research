@@ -76,7 +76,7 @@ function SheetOverlay({
       data-slot="sheet-overlay"
       className={cn(
         // Blur/scrim rides the Radix overlay lifecycle so it fades OUT on close.
-        "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 fixed inset-0 z-[711] touch-none bg-black/22 backdrop-blur-[8px] [-webkit-backdrop-filter:blur(8px)] data-[state=closed]:duration-[180ms] data-[state=closed]:ease-[cubic-bezier(0.4,0,1,1)] data-[state=open]:duration-[240ms] data-[state=open]:ease-[cubic-bezier(0.2,0,0,1)]",
+        "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 fixed inset-0 z-[711] touch-none bg-black/22 backdrop-blur-[8px] [-webkit-backdrop-filter:blur(8px)] data-[state=closed]:duration-100 data-[state=closed]:ease-[cubic-bezier(0.4,0,1,1)] data-[state=open]:duration-140 data-[state=open]:ease-[cubic-bezier(0.16,1,0.3,1)]",
         className
       )}
       {...props}
@@ -207,7 +207,7 @@ function SheetContent(
         ref={setSheetContentRef}
         data-slot="sheet-content"
         className={cn(
-          "data-[state=open]:animate-in data-[state=closed]:animate-out fixed z-[712] flex flex-col gap-4 border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] shadow-[var(--app-card-shadow-feature)] transition data-[state=closed]:duration-[180ms] data-[state=closed]:ease-[cubic-bezier(0.4,0,1,1)] data-[state=open]:duration-[240ms] data-[state=open]:ease-[cubic-bezier(0.2,0,0,1)]",
+          "data-[state=open]:animate-in data-[state=closed]:animate-out fixed z-[712] flex flex-col gap-4 border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] shadow-[var(--app-card-shadow-feature)] transition data-[state=closed]:duration-100 data-[state=closed]:ease-[cubic-bezier(0.4,0,1,1)] data-[state=open]:duration-140 data-[state=open]:ease-[cubic-bezier(0.16,1,0.3,1)]",
           side === "right" &&
             "data-[state=closed]:slide-out-to-right data-[state=open]:slide-in-from-right inset-y-0 right-0 h-full w-3/4 border-l sm:max-w-sm sm:rounded-l-[var(--app-card-radius-feature)]",
           side === "left" &&

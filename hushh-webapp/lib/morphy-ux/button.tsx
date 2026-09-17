@@ -159,7 +159,7 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
           data-loading={loading || undefined}
           aria-busy={loading || undefined}
           className={cn(
-            "press-scale relative overflow-hidden transition-[border-color,box-shadow,background-color,transform] duration-200",
+            "press-scale relative overflow-hidden transition-[border-color,box-shadow,background-color,transform] duration-100 ease-out",
             variantStyles,
             effect === "fill" && variant !== "none" && variant !== "link"
               ? "border border-transparent"
@@ -191,7 +191,7 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
         data-loading={loading || undefined}
         aria-busy={loading || undefined}
         className={cn(
-          "press-scale relative overflow-hidden transition-[border-color,box-shadow,background-color,transform] duration-200",
+          "press-scale relative overflow-hidden transition-[border-color,box-shadow,background-color,transform] duration-100 ease-out",
           variantStyles,
           effect === "fill" && variant !== "none" && variant !== "link"
             ? "border border-transparent"

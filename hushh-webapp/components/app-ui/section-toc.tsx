@@ -21,6 +21,9 @@ import {
   DrawerHeader,
   DrawerTitle,
 } from "@/components/ui/drawer";
+import { SECTION_TOC_RAIL_CLASSNAME } from "./section-toc-constants";
+
+export { SECTION_TOC_RAIL_CLASSNAME };
 
 export type SectionTocEntry = {
   id: string;
@@ -72,8 +75,6 @@ function SectionTocRows({
  * Exported so `e2e/app-shell-top-clearance.layout.spec.ts` measures the string
  * that actually ships. See safe-changes R21.
  */
-export const SECTION_TOC_RAIL_CLASSNAME =
-  "hidden lg:sticky lg:top-[calc(var(--top-shell-mask-visible-height)+1rem)] lg:block lg:self-start";
 
 /** Desktop-only sticky rail, hidden below the lg breakpoint. */
 export function SectionTocRail({
@@ -133,7 +134,7 @@ export function SectionTocMobileFab({
   return (
     <Drawer open={open} onOpenChange={onOpenChange}>
       <div
-        className="fixed right-4 z-[160] md:hidden transition-all duration-300"
+        className="fixed right-4 z-[160] md:hidden transition-all duration-120 ease-out"
         style={{ 
           bottom: "calc(max(var(--app-safe-area-bottom-effective), 0.75rem) + var(--app-scroll-bottom-pad, 0px) + 0.5rem)" 
         }}

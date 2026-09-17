@@ -28,7 +28,7 @@ const FIELD_TRIGGER_CLASSNAME =
   "flex min-h-10 w-full items-center justify-between gap-3 rounded-[16px] border px-3 py-2 text-left text-sm outline-none transition focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70";
 
 const COMMAND_ITEM_CLASSNAME =
-  "rounded-[18px] border border-transparent px-3 py-3 transition-colors duration-300 hover:bg-primary/10 hover:text-foreground aria-selected:border-primary/25 aria-selected:bg-primary/15 aria-selected:text-foreground data-[disabled=true]:pointer-events-none data-[disabled=true]:opacity-45";
+  "rounded-[18px] border border-transparent px-3 py-3 transition-all duration-100 ease-out active:scale-[0.98] hover:bg-primary/10 hover:text-foreground aria-selected:border-primary/25 aria-selected:bg-primary/15 aria-selected:text-foreground data-[disabled=true]:pointer-events-none data-[disabled=true]:opacity-45";
 
 // Mobile: these editors top-anchor the sheet. The offset must clear the iOS
 // status bar / Dynamic Island even on routes where the top shell is hidden

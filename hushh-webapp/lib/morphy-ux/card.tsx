@@ -120,12 +120,12 @@ const Card = React.forwardRef<HTMLDivElement, CardProps>(
         <div className={cn("flex items-center gap-3 w-full", iconAlignClasses[iconPosition])}>
           <div
             className={cn(
-              "h-10 w-10 rounded-lg border flex items-center justify-center transition-colors duration-200",
+              "h-10 w-10 rounded-lg border flex items-center justify-center transition-colors duration-100 ease-out",
               getIconBoxStyle(gradient)
             )}
           >
             <IconComponent
-              className={cn("h-5 w-5 transition-colors duration-200", getIconColor(gradient))}
+              className={cn("h-5 w-5 transition-colors duration-100 ease-out", getIconColor(gradient))}
               weight="regular"
             />
           </div>
@@ -142,7 +142,7 @@ const Card = React.forwardRef<HTMLDivElement, CardProps>(
         <Comp
         ref={ref}
         className={cn(
-          "relative !overflow-visible transition-[box-shadow,background-color] duration-200",
+          "relative !overflow-visible transition-[box-shadow,background-color,transform] duration-120 ease-out",
           isApple
             ? "!rounded-[var(--app-card-radius-standard)] !border-0 !bg-[color:var(--app-card-surface-default-solid)] !shadow-[var(--app-card-shadow-standard)]"
             : cn("border border-solid border-transparent", presetConfig.shell),
@@ -153,7 +153,7 @@ const Card = React.forwardRef<HTMLDivElement, CardProps>(
               ? "!backdrop-blur-none"
               : "backdrop-blur-[22px] backdrop-saturate-[155%] backdrop-contrast-[1.02]",
           isApple ? "min-w-0 p-0" : presetConfig.spacing,
-          interactive ? "cursor-pointer" : "",
+          interactive ? "cursor-pointer press-scale active:scale-[0.985] hover:brightness-[1.01]" : "",
           fullHeight ? "h-full" : "",
           selected ? "ring-1 ring-accent/60 dark:ring-accent/50" : "",
           className

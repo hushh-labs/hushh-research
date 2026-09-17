@@ -14,7 +14,7 @@ import {
   resolveSignedInShellContentOffset,
   resolveTopShellGeometryStyle,
 } from "../components/app-ui/signed-in-shell-content-offset";
-import { SECTION_TOC_RAIL_CLASSNAME } from "../components/app-ui/section-toc";
+import { SECTION_TOC_RAIL_CLASSNAME } from "../components/app-ui/section-toc-constants";
 
 /**
  * Nothing a route paints may sit under the fixed top shell.

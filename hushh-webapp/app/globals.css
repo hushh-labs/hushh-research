@@ -120,7 +120,9 @@ textarea {
 @theme inline {
   --radius: 1.5rem;
   --spacing: 0.25rem;
-  --transition-duration-normal: 600ms;
+  --transition-duration-fast: 75ms;
+  --transition-duration-normal: 120ms;
+  --transition-duration-slow: 150ms;
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --font-sans: var(--font-app-body);
@@ -903,8 +905,8 @@ textarea {
   /* Press physics: the system-wide active/pressed state is a uniform scale
      shrink layered over the md-ripple. One value everywhere so every control
      carries the same tactile weight; consumed by the .press-scale utility. */
-  --motion-press-scale: 0.96;
-  --motion-press-duration: var(--motion-duration-xs);
+  --motion-press-scale: 0.97;
+  --motion-press-duration: 80ms;
 
   --motion-page-enter-duration: var(--motion-duration-xl);
   --motion-deck-duration: var(--motion-duration-xl);
@@ -5150,31 +5152,41 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
      transform; each consumer keeps `transform` in its own transition list so
      color/opacity fades are never clobbered. GPU-composited; stands down
      under prefers-reduced-motion. */
+  .press-scale {
+    transition-property: transform;
+    transition-duration: var(--motion-press-duration, 80ms);
+    transition-timing-function: var(--motion-ease-emphasized, cubic-bezier(0.2, 0, 0, 1));
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+  }
   .press-scale:active:not(:disabled) {
-    transform: scale(var(--motion-press-scale));
+    transform: scale(var(--motion-press-scale, 0.97));
+    transition-duration: 50ms;
   }
   @media (prefers-reduced-motion: reduce) {
+    .press-scale,
     .press-scale:active:not(:disabled) {
       transform: none;
+      transition: none;
     }
   }
 
   .morphy-transition {
-    transition: all 200ms ease-in-out;
+    transition: all 120ms cubic-bezier(0.2, 0, 0, 1);
   }
   .morphy-transition-colors {
     transition:
-      background-color 200ms ease-in-out,
-      border-color 200ms ease-in-out,
-      color 200ms ease-in-out,
-      fill 200ms ease-in-out,
-      stroke 200ms ease-in-out;
+      background-color 100ms cubic-bezier(0.2, 0, 0, 1),
+      border-color 100ms cubic-bezier(0.2, 0, 0, 1),
+      color 100ms cubic-bezier(0.2, 0, 0, 1),
+      fill 100ms cubic-bezier(0.2, 0, 0, 1),
+      stroke 100ms cubic-bezier(0.2, 0, 0, 1);
   }
   .morphy-transition-shadow {
-    transition: box-shadow 200ms ease-in-out;
+    transition: box-shadow 120ms cubic-bezier(0.2, 0, 0, 1);
   }
   .morphy-transition-transform {
-    transition: transform 200ms ease-in-out;
+    transition: transform 100ms cubic-bezier(0.2, 0, 0, 1);
   }
 
   /* Fade carousel edges so adjacent slides "tease" into view without hard clipping. */
@@ -5215,7 +5227,7 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
 }
 
 .animate-ripple {
-  animation: ripple 600ms cubic-bezier(0.2, 0, 0.1, 1) forwards;
+  animation: ripple 240ms cubic-bezier(0.2, 0, 0.1, 1) forwards;
   will-change: transform, opacity;
   backface-visibility: hidden;
   pointer-events: none;
