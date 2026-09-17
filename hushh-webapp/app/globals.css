@@ -2106,6 +2106,7 @@ body:has(.profile-account-content)
 
 .agent-chat-workspace {
   --agent-chat-header-safe-top: var(--app-safe-area-top-effective);
+  --agent-chat-header-height: calc(3.75rem + var(--agent-chat-header-safe-top));
   /* Mobile browsers already shrink this full-screen workspace through `dvh`.
    * Capacitor keeps its WebView frame stable, so it opts into the additional
    * keyboard inset below. */
@@ -2118,6 +2119,22 @@ body:has(.profile-account-content)
     calc(1.25rem + var(--app-safe-area-bottom-effective)),
     calc(var(--agent-chat-keyboard-inset) + 0.5rem)
   );
+}
+
+@media (min-width: 640px) {
+  .agent-chat-workspace {
+    --agent-chat-header-height: calc(4rem + var(--agent-chat-header-safe-top));
+  }
+}
+
+/* A compact 36px control keeps an uncluttered silhouette and a 44px hit area. */
+.agent-chat-workspace [data-chat-new-button] {
+  position: relative;
+}
+.agent-chat-workspace [data-chat-new-button]::after {
+  content: "";
+  position: absolute;
+  inset: -4px 0;
 }
 
 /* The canonical root Chat surface owns the text composer, so it does not

@@ -1,7 +1,8 @@
 "use client";
 
-import type { ComponentPropsWithoutRef, ReactNode } from "react";
-import type { LucideIcon } from "lucide-react";
+import type { ComponentPropsWithoutRef, ComponentType, ReactNode, SVGProps } from "react";
+
+type SectionIcon = ComponentType<SVGProps<SVGSVGElement>>;
 
 import {
   SurfaceCard,
@@ -132,7 +133,7 @@ export function AgentHeaderIcon({
   className,
   ...props
 }: {
-  icon: LucideIcon;
+  icon: SectionIcon;
   className?: string;
 } & Omit<ComponentPropsWithoutRef<"span">, "children">) {
   return (
@@ -156,7 +157,7 @@ function HeaderLeading({
   iconSize,
   titleRole,
 }: {
-  icon?: LucideIcon;
+  icon?: SectionIcon;
   leading?: ReactNode;
   iconClassName: string;
   iconSize: "md" | "lg";
@@ -212,7 +213,7 @@ export function PageHeader({
   actions?: ReactNode;
   actionsInlineMobile?: boolean;
   descriptionFullWidth?: boolean;
-  icon?: LucideIcon;
+  icon?: SectionIcon;
   leading?: ReactNode;
   accent?: SectionAccent;
   titleRole?: "page" | "agent";
@@ -320,7 +321,7 @@ export function SectionHeader({
   title: ReactNode;
   description?: ReactNode;
   actions?: ReactNode;
-  icon?: LucideIcon;
+  icon?: SectionIcon;
   leading?: ReactNode;
   accent?: SectionAccent;
   className?: string;

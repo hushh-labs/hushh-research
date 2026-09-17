@@ -2,14 +2,14 @@
 
 import { useEffect, useMemo, useState } from "react";
 import {
-  Database,
-  FolderTree,
-  KeyRound,
-  Loader2,
-  RefreshCw,
-  ShieldAlert,
-  Vault,
-} from "lucide-react";
+  DatabaseIcon as Database,
+  TreeStructureIcon as FolderTree,
+  KeyIcon as KeyRound,
+  SpinnerGapIcon as Loader2,
+  ArrowsClockwiseIcon as RefreshCw,
+  ShieldWarningIcon as ShieldAlert,
+  VaultIcon as Vault,
+} from "@/components/icons";
 
 import { SectionHeader } from "@/components/app-ui/page-sections";
 import {

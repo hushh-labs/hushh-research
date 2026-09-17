@@ -46,6 +46,20 @@ try {
     const createButton = drawer.getByRole("button", { name: "Create new chat", exact: true });
     const headerBox = await header.boundingBox();
     const createBox = await createButton.boundingBox();
+    const searchBox = await drawer.getByRole("searchbox", { name: "Search chats", exact: true }).boundingBox();
+    assert.ok(createBox && createBox.height <= 40, "New chat must not inherit the default 50px minimum");
+    assert.ok(searchBox && createBox && Math.abs(searchBox.width - createBox.width) <= 1,
+      "New chat and search have matching insets");
+    const topBarBox = await page.locator(".agent-chat-header").boundingBox();
+    const drawerBox = await drawer.boundingBox();
+    assert.ok(topBarBox && drawerBox && Math.abs(drawerBox.y - topBarBox.y - topBarBox.height) <= 1,
+      "drawer meets the actual chat header without a reserved-shell gap");
+    assert.equal(await createButton.locator('svg [opacity="0.2"]').count(), 0,
+      "Plus glyph has no square backing");
+    if (process.env.REVIEWER_SAFE_UI_SCREENSHOTS === "true") {
+      mkdirSync(path.join(repoRoot, "tmp", "chat-ui-plan"), { recursive: true });
+      await createButton.screenshot({ path: path.join(repoRoot, "tmp", "chat-ui-plan", `new-chat-${viewport.width}.png`) });
+    }
     assert.ok(headerBox && createBox && Math.abs(headerBox.x - createBox.x) <= 1,
       "history heading and new-chat control share the same left inset");
     const padding = await createButton.evaluate((el) => {
@@ -120,6 +134,17 @@ try {
     console.log(JSON.stringify({ viewport: viewport.width, browserFrameTiming: frameTiming }));
     await page.getByRole("radio", { name: "One, your cloud agent", exact: true }).click();
   }
+  await page.getByRole("button", { name: "Open Profile", exact: true }).click();
+  const closeProfile = page.getByRole("button", { name: "Close Profile", exact: true });
+  await closeProfile.waitFor();
+  assert.equal(await closeProfile.locator('svg [opacity="0.2"]').count(), 0, "close glyph has no square backing");
+  assert.equal(await closeProfile.evaluate(el => getComputedStyle(el).boxShadow), "none");
+  if (process.env.REVIEWER_SAFE_UI_SCREENSHOTS === "true") {
+    await closeProfile.screenshot({ path: path.join(repoRoot, "tmp", "chat-ui-plan", "profile-close.png") });
+  }
+  await closeProfile.click();
+  await reviewer.assertVaultContinuity(page, "Profile close");
+  console.log("Profile close glyph and flat surface: pass");
 } finally {
   await session?.context.close();
   await browser.close();

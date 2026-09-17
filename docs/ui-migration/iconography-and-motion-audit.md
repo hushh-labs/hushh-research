@@ -37,8 +37,8 @@ To establish visual coherence across the entire application and maintain strict 
 | `ChevronUp` | `CaretUp` | `CaretUpIcon`, `ChevronUpIcon` | `duotone` | ✅ Migrated |
 | `ArrowLeft` | `ArrowLeft` | `ArrowLeftIcon` | `duotone` | ✅ Migrated |
 | `ArrowRight` | `ArrowRight` | `ArrowRightIcon` | `duotone` | ✅ Migrated |
-| `Plus` | `Plus` | `PlusIcon` | `duotone` | ✅ Migrated |
-| `X` | `X` | `XIcon`, `CloseIcon` | `duotone` | ✅ Migrated |
+| `Plus` | `Plus` | `PlusIcon` | `regular` | ✅ Migrated |
+| `X` | `X` | `XIcon`, `CloseIcon` | `regular` | ✅ Migrated |
 | `Check` | `Check` | `CheckIcon` | `duotone` | ✅ Migrated |
 | `Trash` / `Trash2` | `Trash` | `TrashIcon` | `duotone` | ✅ Migrated |
 | `Pencil` / `Edit` | `PencilSimple` | `PencilIcon` | `duotone` | ✅ Migrated |
@@ -207,7 +207,29 @@ not a sustained FPS benchmark or physical-device guarantee. Native static valida
 and static export do not establish physical-device animation performance or real
 on-device model responses. Those remain separate runtime acceptance obligations.
 
-Migration census: 309 files under `hushh-webapp/{app,components,lib}` still
+### Sidebar and Profile visual follow-up
+
+New chat now selects the shared small button size, avoiding the default 50px
+minimum and primary-action padding. Its 36px silhouette matches search, with a
+transparent 44px hit area. Header, search and list use one inset. The drawer
+starts at the actual chat-header height, not the unrelated reserved app-shell
+height; its top corner is flush and safe-area clearance is owned by the header.
+
+The close and add glyphs default to official Phosphor regular: the duotone
+variants contained square backplates. Profile's close control has no raised
+shadow/border, while capability glyphs retain duotone. The animated menu/close
+control now crossfades registry icons instead of drawing custom bars.
+Profile's 17 authored icon consumers, plus its theme, Gemini and Kai preference
+controls, import the registry; section-header types are vendor-neutral.
+
+Codex and Claude icon bridges resolve to the same canonical skill with identical
+frontmatter and body. Tests enforce bridge equality, transparent close/add paths,
+capability duotone and Profile import ownership. The reviewer rehearsal verifies
+rendered button height, shared insets, zero header/drawer gap and the flat Profile
+close control on mobile and desktop. Fixed-label control crops are safe visual
+evidence; entire authenticated pages are not captured.
+
+Earlier migration census: 309 files under `hushh-webapp/{app,components,lib}` still
 import Lucide. Reproduce with
 `rg -l 'from ["\\x27]lucide-react' hushh-webapp/{app,components,lib} | wc -l`.
 Registry availability is not a repository-wide migration claim; Phases 2 and 3

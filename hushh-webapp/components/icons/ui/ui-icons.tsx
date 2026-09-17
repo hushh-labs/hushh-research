@@ -225,7 +225,7 @@ export function ArrowRightIcon({
  */
 export function PlusIcon({
   size = "1em",
-  weight = "duotone",
+  weight = "regular",
   className,
   ...props
 }: UiIconProps) {
@@ -241,7 +241,7 @@ export function PlusIcon({
 
 export function XIcon({
   size = "1em",
-  weight = "duotone",
+  weight = "regular",
   className,
   ...props
 }: UiIconProps) {

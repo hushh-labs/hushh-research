@@ -5362,7 +5362,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         <div
           ref={historyDrawerRef}
           className={cn(
-            "fixed bottom-0 left-0 top-[var(--top-shell-reserved-height,var(--app-safe-area-top-effective,0px))] z-[530] w-[min(88vw,320px)] transform transition-transform duration-150 motion-reduce:transition-none ease-out",
+            "absolute bottom-0 left-0 top-[var(--agent-chat-header-height)] z-[530] w-[min(88vw,320px)] transform transition-transform duration-150 motion-reduce:transition-none ease-out",
             isHistoryDrawerOpen ? "translate-x-0" : "-translate-x-full",
           )}
           role="dialog"
@@ -5388,7 +5388,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           <div
             className={cn(
               "agent-chat-header relative z-[540] flex shrink-0 touch-pan-y items-center justify-between gap-3 bg-background/90 px-4 pt-[var(--agent-chat-header-safe-top)] backdrop-blur-2xl sm:px-5",
-              "min-h-[calc(3.75rem+var(--agent-chat-header-safe-top))] sm:min-h-[calc(4rem+var(--app-safe-area-top-effective,0px))] sm:pt-[var(--app-safe-area-top-effective,0px)] lg:px-6",
+              "h-[var(--agent-chat-header-height)] lg:px-6",
             )}
           >
             <div className="flex min-w-0 items-center gap-3">

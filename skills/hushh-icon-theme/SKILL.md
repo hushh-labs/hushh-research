@@ -87,7 +87,19 @@ To avoid washed-out milky gray tones (`#1c1c1e` / `rgb(28, 28, 30)`), dark mode 
 
 ## 6. Universal UI Icon Registry & Replacement Map
 
-To preserve the design language across every route and sheet, all generic UI icons must come from `@/components/icons` and use official Phosphor duotone vector geometry. Direct ad-hoc `lucide-react` imports with mismatched stroke widths (1.5, 1.8, 2, 2.5) are strictly prohibited on modernized surfaces.
+To preserve the design language across every route and sheet, all generic UI icons must come from `@/components/icons` and use official Phosphor geometry, normally duotone. Direct ad-hoc `lucide-react` imports with mismatched stroke widths (1.5, 1.8, 2, 2.5) are strictly prohibited on modernized surfaces.
+
+Close and add controls are deliberate exceptions: `XIcon`/`CloseIcon` and
+`PlusIcon` default to Phosphor `regular`. Their duotone artwork contains a
+square backing that reads as a second surface inside a button. Preserve the
+official regular paths and native viewBox; do not hide SVG paths with CSS or
+hand-draw substitutes. Animated menu/close controls crossfade registry icons.
+Capabilities retain duotone. Verify rendered glyphs, not just import names.
+
+Codex discovers this portable skill through `.agents/skills/hushh-icon-theme/`;
+Claude uses `.claude/skills/hushh-icon-theme/`. Both bridges copy only this
+frontmatter and point here. Governed owner skills remain in `.codex/skills/`;
+host-specific adapters are not a second copy of portable behavior.
 
 ### UI Replacement Index
 
@@ -102,8 +114,8 @@ To preserve the design language across every route and sheet, all generic UI ico
 | `ChevronUp` | `CaretUp` | `CaretUpIcon`, `ChevronUpIcon` | `duotone` |
 | `ArrowLeft` | `ArrowLeft` | `ArrowLeftIcon` | `duotone` |
 | `ArrowRight` | `ArrowRight` | `ArrowRightIcon` | `duotone` |
-| `Plus` | `Plus` | `PlusIcon` | `duotone` |
-| `X` | `X` | `XIcon`, `CloseIcon` | `duotone` |
+| `Plus` | `Plus` | `PlusIcon` | `regular` |
+| `X` | `X` | `XIcon`, `CloseIcon` | `regular` |
 | `Check` | `Check` | `CheckIcon` | `duotone` |
 | `Trash` / `Trash2` | `Trash` | `TrashIcon` | `duotone` |
 | `Pencil` / `Edit` | `PencilSimple` | `PencilIcon` | `duotone` |
@@ -123,4 +135,3 @@ To preserve the design language across every route and sheet, all generic UI ico
 | `Key` | `Key` | `KeyIcon` | `duotone` |
 | `Mail` | `EnvelopeSimple` | `MailIcon` | `duotone` |
 | `LogOut` | `SignOut` | `LogOutIcon` | `duotone` |
-

@@ -10,35 +10,36 @@ import {
 } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
-  Warning as AlertTriangle,
-  Briefcase as BriefcaseBusiness,
-  Code as CodeXml,
-  AddressBook as ContactRound,
-  ArrowSquareOut as ExternalLink,
-  Fingerprint,
-  FolderSimple as Folder,
-  Key as KeyRound,
-  SpinnerGap as Loader2,
-  SignOut as LogOut,
-  EnvelopeSimple as Mail,
-  MapPin,
-  Microphone as Mic,
-  Question as MessageCircleQuestion,
-  UsersThree as Users,
-  Desktop as Monitor,
-  Laptop,
-  Phone,
-  Palette,
-  ArrowsClockwise as RefreshCw,
-  ShareNetwork as Share2,
-  PaperPlaneRight as SendHorizontal,
-  ShieldCheck,
-  SlidersHorizontal,
-  Trash as Trash2,
-  UserCircle as User,
-  User as UserRound,
-  Wallet,
-} from "@phosphor-icons/react";
+  WarningIcon as AlertTriangle,
+  BriefcaseIcon as BriefcaseBusiness,
+  CodeIcon as CodeXml,
+  AddressBookIcon as ContactRound,
+  ExternalLinkIcon as ExternalLink,
+  FingerprintIcon as Fingerprint,
+  FolderSimpleIcon as Folder,
+  KeyIcon as KeyRound,
+  LockIcon,
+  SpinnerGapIcon as Loader2,
+  LogOutIcon as LogOut,
+  MailIcon as Mail,
+  MapPinIcon as MapPin,
+  MicrophoneIcon as Mic,
+  QuestionIcon as MessageCircleQuestion,
+  UsersThreeIcon as Users,
+  DesktopIcon as Monitor,
+  LaptopIcon as Laptop,
+  PhoneIcon as Phone,
+  PaletteIcon as Palette,
+  ArrowsClockwiseIcon as RefreshCw,
+  ShareNetworkIcon as Share2,
+  SendIcon as SendHorizontal,
+  ShieldIcon as ShieldCheck,
+  SlidersHorizontalIcon as SlidersHorizontal,
+  TrashIcon as Trash2,
+  UserCircleIcon as User,
+  UserIcon as UserRound,
+  WalletIcon as Wallet,
+} from "@/components/icons";
 import { toast } from "sonner";
 
 import {
@@ -516,35 +517,10 @@ function VaultComingSoonLogos() {
   return (
     <div className="flex items-center gap-1.5">
       <span className="grid h-7 w-7 place-items-center rounded-full border border-border/70 bg-background/70 text-muted-foreground">
-        <svg
-          aria-hidden="true"
-          viewBox="0 0 24 24"
-          className="h-3.5 w-3.5"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        >
-          <path d="M15 7a4 4 0 1 0-3.3 3.94L7 15.64V18h2.36l1.36-1.36H13v-2.28l2.06-2.06A4 4 0 0 0 15 7Z" />
-          <path d="M15 7h.01" />
-        </svg>
+<KeyRound aria-hidden="true" className="h-3.5 w-3.5" />
       </span>
       <span className="grid h-7 w-7 place-items-center rounded-full border border-border/70 bg-background/70 text-muted-foreground">
-        <svg
-          aria-hidden="true"
-          viewBox="0 0 24 24"
-          className="h-3.5 w-3.5"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        >
-          <path d="M12 3a5 5 0 0 0-5 5v2" />
-          <path d="M7 10h10a2 2 0 0 1 2 2v7H5v-7a2 2 0 0 1 2-2Z" />
-          <path d="M9 15h6" />
-        </svg>
+<LockIcon aria-hidden="true" className="h-3.5 w-3.5" />
       </span>
       <Badge variant="secondary" className={VAULT_INLINE_BADGE_CLASS}>
         Coming soon

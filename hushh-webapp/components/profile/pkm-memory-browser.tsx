@@ -1,6 +1,11 @@
 "use client";
 
-import { ChevronDown, ChevronRight, Folder, FolderOpen } from "lucide-react";
+import {
+  ChevronDownIcon as ChevronDown,
+  ChevronRightIcon as ChevronRight,
+  FolderSimpleIcon as Folder,
+  FolderOpenIcon as FolderOpen,
+} from "@/components/icons";
 import { useState, type ReactNode } from "react";
 
 import type { PkmMemoryCard } from "@/lib/pkm/pkm-memory-cards";

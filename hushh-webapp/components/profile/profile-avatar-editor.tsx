@@ -3,12 +3,12 @@
 import { useState } from "react";
 import Image from "next/image";
 import {
-  Camera as CameraIcon,
-  ImagePlus,
-  Loader2,
-  Trash2,
-  User as UserIcon,
-} from "lucide-react";
+  CameraIcon as CameraIcon,
+  ImageSquareIcon as ImagePlus,
+  SpinnerGapIcon as Loader2,
+  TrashIcon as Trash2,
+  UserIcon as UserIcon,
+} from "@/components/icons";
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {

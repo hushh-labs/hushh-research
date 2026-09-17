@@ -5,14 +5,14 @@ import { ConsentScopeList } from "@/components/consent/consent-scope-list";
 import { scopeItemsFromPermissions } from "@/lib/consent/consent-scope-items";
 import { Switch } from "@/components/ui/switch";
 import {
-  AlertTriangle,
-  ChevronRight,
-  Database,
-  Eye,
-  Folder,
-  RefreshCw,
-  X,
-} from "lucide-react";
+  WarningIcon as AlertTriangle,
+  ChevronRightIcon as ChevronRight,
+  DatabaseIcon as Database,
+  EyeIcon as Eye,
+  FolderSimpleIcon as Folder,
+  ArrowsClockwiseIcon as RefreshCw,
+  XIcon as X,
+} from "@/components/icons";
 
 import {
   SurfaceCard,

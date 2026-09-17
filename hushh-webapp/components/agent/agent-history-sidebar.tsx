@@ -420,7 +420,7 @@ export function AgentHistorySidebar({
         className={cn(
           "flex min-h-0 shrink-0 flex-col overflow-hidden text-foreground",
           isMobileMode
-            ? "chrome-glass-surface rounded-r-[28px] bg-background/95 shadow-[18px_0_42px_rgba(0,0,0,0.25)] border-r border-black/[0.06] dark:border-white/[0.08] dark:bg-[#0A0A0C]/95"
+            ? "chrome-glass-surface rounded-br-[28px] bg-background/95 shadow-[18px_0_42px_rgba(0,0,0,0.25)] border-r border-black/[0.06] dark:border-white/[0.08] dark:bg-[#0A0A0C]/95"
             : "border-r border-black/[0.06] bg-[linear-gradient(180deg,color-mix(in_srgb,var(--app-accent-soft)_22%,var(--background)),var(--background))] backdrop-blur-xl dark:border-white/[0.08] dark:bg-[#070709]",
           collapsed && !isMobileMode ? "w-16" : "w-72",
           className
@@ -429,7 +429,7 @@ export function AgentHistorySidebar({
         data-collapsed={collapsed ? "true" : "false"}
       >
         {isMobileMode ? (
-          <div className="border-b border-border/65 px-4 pb-3 pt-[max(1rem,var(--app-safe-area-top-effective))] dark:border-white/10">
+          <div className="border-b border-border/65 px-3 py-3 dark:border-white/10">
             <div className="flex items-center justify-between gap-3">
               <div className="flex min-w-0 items-center gap-2">
                 <h2 className="truncate text-[16px] font-semibold tracking-[-0.01em] text-foreground">
@@ -459,6 +459,8 @@ export function AgentHistorySidebar({
             <Button
               type="button"
               variant="outline"
+              size="sm"
+              data-chat-new-button
               className="mt-2.5 flex h-9 w-full items-center justify-between rounded-xl border-black/[0.08] bg-foreground/[0.035] px-3 text-[13px] font-medium text-foreground transition-[transform,opacity] motion-reduce:transition-none duration-150 hover:border-black/15 hover:bg-foreground/[0.06] hover:shadow-xs active:scale-[0.98] dark:border-white/10 dark:bg-white/[0.04] dark:hover:border-white/20 dark:hover:bg-white/[0.07]"
               onClick={onCreateNew}
               disabled={disabled}
@@ -545,6 +547,8 @@ export function AgentHistorySidebar({
                 <Button
                   type="button"
                   variant="outline"
+                  size="sm"
+                  data-chat-new-button
                   className="group relative flex h-9 w-full items-center justify-between rounded-xl border-black/[0.08] bg-foreground/[0.035] px-3 text-[13px] font-medium text-foreground transition-[transform,opacity] motion-reduce:transition-none duration-150 hover:border-black/15 hover:bg-foreground/[0.06] hover:shadow-xs active:scale-[0.98] dark:border-white/10 dark:bg-white/[0.04] dark:hover:border-white/20 dark:hover:bg-white/[0.07]"
                   onClick={onCreateNew}
                   disabled={disabled}
