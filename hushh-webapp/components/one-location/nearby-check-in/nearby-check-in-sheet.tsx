@@ -186,6 +186,18 @@ type NearbyCheckInCompletionReason = "left" | "expired" | "ended";
 const VISIT_RATING_HEADING_ID = "one-location-visit-rating-heading";
 const VISIT_RATING_NOTE_ID = "one-location-visit-rating-note";
 
+/**
+ * The drawer's section-head voice, in one place.
+ *
+ * The sheet title ("Check in nearby") ships 17px; every section inside it --
+ * People nearby, Nearby places, Visible for, Visibility -- is one step down
+ * at 15px semibold. Bare `font-semibold` h2s fell back to the browser's 24px
+ * default and dwarfed the title they sat under, on phones and desktop alike.
+ * One step, same on every viewport: 15px is already phone-safe, so there is
+ * no `sm:` variant to drift.
+ */
+const NEARBY_SECTION_HEADING_CLASSNAME = "text-[15px] font-semibold leading-5";
+
 type CompletedCheckIn = {
   placeLabel: string | null;
   reason: NearbyCheckInCompletionReason;
@@ -2610,7 +2622,10 @@ export function NearbyCheckInSheet({
                     state that already says "nobody", a "0" is the same word
                     twice. */}
                   <div className="flex items-center justify-between gap-3">
-                    <h2 id="nearby-people-title" className="font-semibold">
+                    <h2
+                      id="nearby-people-title"
+                      className={NEARBY_SECTION_HEADING_CLASSNAME}
+                    >
                       People nearby
                     </h2>
                     {state.attendees.length ? (
@@ -2668,7 +2683,9 @@ export function NearbyCheckInSheet({
                     to say what the list is. */}
                   <div className="flex items-center justify-between gap-3">
                     <div>
-                      <h2 className="font-semibold">Nearby places</h2>
+                      <h2 className={NEARBY_SECTION_HEADING_CLASSNAME}>
+                        Nearby places
+                      </h2>
                     </div>
                     {capturing ? (
                       <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
@@ -2975,7 +2992,10 @@ export function NearbyCheckInSheet({
                     pair, no leading glyph. One of the two section headings
                     carrying an icon and the other not was the only reason
                     they did not read as a pair. */}
-                  <h2 className="font-semibold" id="nearby-check-in-duration-label">
+                  <h2
+                    className={NEARBY_SECTION_HEADING_CLASSNAME}
+                    id="nearby-check-in-duration-label"
+                  >
                     Visible for
                   </h2>
                   {/* One dropdown instead of three cells: the same three stay
@@ -2996,10 +3016,18 @@ export function NearbyCheckInSheet({
                     >
                       <SelectValue />
                     </SelectTrigger>
+                    {/* `z-[720]` is load-bearing, not decoration. This sheet is
+                        non-modal with no overlay, and its content paints at
+                        z-712 -- while the shared Select menu paints at z-520.
+                        The menu opened fine and rendered entirely behind the
+                        sheet's solid surface, which reads as "the dropdown
+                        does not open" on UAT. Scoped to this instance:
+                        bumping the shared primitive would bury selects
+                        nested in higher dialogs instead. */}
                     <SelectContent
                       align="start"
                       position="popper"
-                      className="rounded-[14px]"
+                      className="rounded-[14px] z-[720]"
                     >
                       {DURATIONS.map((duration) => (
                         <SelectItem
@@ -3014,7 +3042,9 @@ export function NearbyCheckInSheet({
                 </section>
 
                 <section>
-                  <h2 className="font-semibold">Visibility</h2>
+                  <h2 className={NEARBY_SECTION_HEADING_CLASSNAME}>
+                    Visibility
+                  </h2>
                   <div className="mt-3 rounded-2xl border border-border/60">
                     <label className="flex cursor-pointer items-start gap-3 p-4">
                       <Checkbox
