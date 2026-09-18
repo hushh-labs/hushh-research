@@ -2237,8 +2237,8 @@
         "routeMismatch": "Use the verified current route and its generated actions only."
       },
       "completionBoundary": "Setup records only a strict non-secret runtime preference; a BYOK key is validated and encrypted only after setup through the vault-backed configuration mutation.",
-      "nextRoute": "/one/setup",
-      "returnPolicy": "return_to_hub",
+      "nextRoute": "/",
+      "returnPolicy": "resolve_root",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
     }
   },
