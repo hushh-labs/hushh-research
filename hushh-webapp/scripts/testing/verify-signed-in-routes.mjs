@@ -170,6 +170,17 @@ function isExpectedLocalOptionalResponseFailure(value) {
   ) {
     return false;
   }
+  // Calendar availability is optional on the dashboard. A reviewer can have
+  // a calendar status row while lacking the event scope or a usable refresh
+  // token; the backend correctly returns 403 and the client renders a
+  // non-blocking unavailable state. Keep this allowance local-only so a
+  // hosted authorization regression remains visible.
+  if (
+    value.includes("403 POST ") &&
+    value.includes("/api/one/calendar/events")
+  ) {
+    return true;
+  }
   if (
     localConsentSseDisabled &&
     value.includes("410 GET ") &&
@@ -437,6 +448,11 @@ const REDIRECT_EXPECTATIONS = {
     path: "/one/profile/google/oauth/return",
     expectedPathname: "/one/calendar",
     allowedRouteIds: ["/one/calendar"],
+  },
+  "/one/profile/connectors/oauth/return": {
+    path: "/one/profile/connectors/oauth/return",
+    expectedPathname: "/one/profile/connectors",
+    allowedRouteIds: ["/one/profile/connectors"],
   },
   "/one/profile/integrations": {
     path: "/one/profile/integrations",

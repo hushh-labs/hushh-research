@@ -52,6 +52,14 @@
       "file": "app/api/connected-systems/[...path]/route.ts"
     },
     {
+      "template": "/api/connectors",
+      "file": "app/api/connectors/route.ts"
+    },
+    {
+      "template": "/api/connectors/{path*}",
+      "file": "app/api/connectors/[...path]/route.ts"
+    },
+    {
       "template": "/api/consent/active",
       "file": "app/api/consent/active/route.ts"
     },
@@ -5314,7 +5322,21 @@
           "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
         }
       },
-      "native": null,
+      "native": {
+        "route": "/one/profile/connectors",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fone%2Fprofile%2Fconnectors",
+        "expectedMarker": "native-route-profile-connectors",
+        "expectedRoute": "/one/profile/connectors",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loading",
+          "loaded",
+          "empty-valid",
+          "unavailable-valid"
+        ]
+      },
       "shell": {
         "app_page_shell": true,
         "page_header": false,
@@ -9556,5 +9578,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "a38c91244529fdcea63b2ccfb204f85ccbee2a3e59ee57243a78ca85f9d144c2"
+  "content_sha256": "1982946372e1b5e791f4317c6cd0de1a88a95edd97db0b16b416286fc848c5ce"
 }

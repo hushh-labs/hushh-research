@@ -3436,7 +3436,7 @@
         "route_refresh_completed"
       ],
       "realtime_policy": "not realtime",
-      "reviewer_fixture": "/one/profile/connectors",
+      "reviewer_fixture": "/login?redirect=%2Fone%2Fprofile%2Fconnectors",
       "surface_map_present": true,
       "route_contract_present": true,
       "evidence": {
@@ -6330,5 +6330,5 @@
       ]
     }
   ],
-  "content_sha256": "0cda01e430059a23fd48e3396f416483ff2b0591a0a910ac1a1e0e9ec3df349b"
+  "content_sha256": "9b88bd0b1dae7f965cec355e50c4d59ba44619f3d1b72392a8bb9f8608119b14"
 }
