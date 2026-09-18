@@ -113,6 +113,7 @@ import {
   type VoiceSurfacePublisherRole,
 } from "@/lib/voice/voice-surface-metadata";
 import { useLocalOnboardingActionHandler } from "@/lib/agent/local-onboarding-actions";
+import { trackEvent } from "@/lib/observability/client";
 import { HushhAuth } from "@/lib/capacitor";
 
 function formatDate(value?: string | null): string {
@@ -585,6 +586,8 @@ export default function GmailReceiptsPage({
       pendingSyncFeedbackRef.current = false;
       const feedback = resolveGmailSyncFeedback(status);
       if (feedback.kind === "success") {
+        trackEvent("gmail_sync_requested", { action: "queue", result: "success" });
+        trackEvent("one_gmail_receipt_synced", { result: "success" });
         toast.success("Receipts updated");
       } else if (feedback.kind === "error") {
         toast.error(feedback.message);
@@ -963,6 +966,8 @@ export default function GmailReceiptsPage({
             (provider) => provider.providerId === "google.com",
           ) ?? false;
 
+        trackEvent("gmail_connect_started", { action: "read" });
+        trackEvent("one_gmail_connected", { result: "success" });
         const payload = await GmailReceiptsService.startConnect({
           idToken,
           userId: user.uid,

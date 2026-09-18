@@ -34,6 +34,8 @@ import { FinanceSetupDraftService } from "@/lib/services/finance-setup-draft-ser
 import { PostUnlockSyncService } from "@/lib/services/post-unlock-sync-service";
 import { notifyGeminiRuntimeConfigurationChanged } from "@/lib/connections/gemini-runtime-configuration";
 import { useOneConversationSession } from "@/lib/agent/one-conversation-session";
+import { trackEvent } from "@/lib/observability/client";
+import { trackLocationFunnelStepCompleted } from "@/lib/observability/growth";
 
 /**
  * OneSetupHub: the `/one/setup` hub screen.
@@ -195,6 +197,9 @@ export function OneSetupHub() {
         vaultKey,
         vaultOwnerToken,
       });
+      trackEvent("onboarding_completed", { result: "success" });
+      trackEvent("one_onboarding_completed", { result: "success" });
+      trackLocationFunnelStepCompleted("onboarding_completed");
       // Queue only a typed, owner-scoped marker after the encrypted setup
       // boundary. The Chat surface derives its summary from the unlocked
       // in-memory context and consumes this marker once; no private values

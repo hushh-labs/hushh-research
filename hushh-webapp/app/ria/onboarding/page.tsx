@@ -948,6 +948,7 @@ export default function RiaOnboardingPage({
       });
 
       trackEvent("ria_onboarding_submitted", { result: "success" });
+      trackEvent("one_ria_onboarding_completed", { result: "success" });
       trackGrowthFunnelStepCompleted({
         journey: "ria",
         step: "profile_submitted",

@@ -1,9 +1,10 @@
 "use client";
 
-import { Suspense, useMemo } from "react";
+import { Suspense, useEffect, useMemo } from "react";
 import { useSearchParams } from "next/navigation";
 
 import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
+import { trackEvent } from "@/lib/observability/client";
 import {
   sanitizePortfolioSharePayload,
   type PortfolioSharePayload,
@@ -329,11 +330,22 @@ function SnapshotView({ payload }: { payload: PortfolioSharePayload }) {
   );
 }
 
+"use client";
+
 function SharedPortfolioPageContent() {
   const searchParams = useSearchParams();
   const token = String(searchParams.get("token") || "").trim();
 
   const payload = useMemo(() => resolvePayloadFromToken(token), [token]);
+
+  useEffect(() => {
+    if (payload) {
+      trackEvent("portfolio_viewed", { result: "success", portfolio_source: "statement" });
+      trackEvent("one_finance_portfolio_viewed", { result: "success", source: "shared_link" });
+      trackEvent("analysis_stream_started", { result: "success" });
+      trackEvent("one_finance_analysis_started", { result: "success", action: "snapshot" });
+    }
+  }, [payload]);
 
   if (!payload) {
     return <EmptySnapshot />;

@@ -23,6 +23,7 @@ import {
 import { ROUTES } from "@/lib/navigation/routes";
 import { oneLocationErrorMessage } from "@/lib/one-location/error-message";
 import { requestInternalAppNavigation } from "@/lib/utils/browser-navigation";
+import { trackEvent } from "@/lib/observability/client";
 
 // ============================================================================
 // Types
@@ -237,6 +238,11 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
       CacheSyncService.onConsentMutated(userId);
       onActionComplete?.(eventDetail);
       dispatchConsentStateChanged({ ...eventDetail });
+      trackEvent("consent_action_submitted", { action: detail.action, result: "success" });
+      trackEvent("one_consent_preferences_updated", { action: detail.action, result: "success" });
+      if (detail.scope) {
+        trackEvent("one_consent_data_unlocked", { scope: detail.scope, result: "success" });
+      }
     },
     [onActionComplete, userId]
   );

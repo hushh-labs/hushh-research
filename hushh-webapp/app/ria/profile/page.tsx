@@ -7,6 +7,7 @@ import { RiaProfileSection } from "@/components/ria/profile/ria-profile-section"
 import { RiaPageShell } from "@/components/ria/ria-page-shell";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/use-auth";
+import { trackEvent } from "@/lib/observability/client";
 import {
   RiaService,
   type RiaOnboardingStatus,
@@ -54,6 +55,8 @@ export default function RiaProfilePage() {
 
   useEffect(() => {
     if (authLoading) return;
+    trackEvent("ria_workspace_opened", { result: "success" });
+    trackEvent("one_ria_workspace_visited", { result: "success" });
     void refreshStatus();
   }, [authLoading, refreshStatus]);
 

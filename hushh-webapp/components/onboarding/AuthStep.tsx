@@ -511,6 +511,10 @@ export function AuthStep({
           action: "reviewer",
           result: "success",
         });
+        trackEvent("one_auth_login_completed", {
+          action: "reviewer",
+          result: "success",
+        });
         if (growthJourney) {
           trackGrowthFunnelStepCompleted({
             journey: growthJourney,
@@ -689,6 +693,10 @@ export function AuthStep({
               };
             }
             trackEvent("auth_succeeded", {
+              action: provider,
+              result: "success",
+            });
+            trackEvent("one_auth_login_completed", {
               action: provider,
               result: "success",
             });

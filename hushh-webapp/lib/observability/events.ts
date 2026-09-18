@@ -182,7 +182,18 @@ export type ObservabilityEventName =
   | "one_location_review_handoff_opened"
   | "one_location_circle_created"
   | "one_location_sos_triggered"
-  | "one_location_journey_action";
+  | "one_location_journey_action"
+  | "one_auth_login_completed"
+  | "one_phone_verified"
+  | "one_onboarding_completed"
+  | "one_finance_portfolio_viewed"
+  | "one_finance_analysis_started"
+  | "one_ria_workspace_visited"
+  | "one_ria_onboarding_completed"
+  | "one_consent_preferences_updated"
+  | "one_consent_data_unlocked"
+  | "one_gmail_connected"
+  | "one_gmail_receipt_synced";
 
 export type StatusBucket =
   | "2xx"
@@ -533,6 +544,45 @@ export interface EventPayloadMap {
     result: EventResult;
   };
   gmail_receipts_loaded: {
+    result: EventResult;
+  };
+  one_auth_login_completed: {
+    action: string;
+    result: EventResult;
+  };
+  one_phone_verified: {
+    action: string;
+    result: EventResult;
+  };
+  one_onboarding_completed: {
+    result: EventResult;
+  };
+  one_finance_portfolio_viewed: {
+    result: EventResult;
+    source?: string;
+  };
+  one_finance_analysis_started: {
+    result: EventResult;
+    action?: string;
+  };
+  one_ria_workspace_visited: {
+    result: EventResult;
+  };
+  one_ria_onboarding_completed: {
+    result: EventResult;
+  };
+  one_consent_preferences_updated: {
+    action: string;
+    result: EventResult;
+  };
+  one_consent_data_unlocked: {
+    scope: string;
+    result: EventResult;
+  };
+  one_gmail_connected: {
+    result: EventResult;
+  };
+  one_gmail_receipt_synced: {
     result: EventResult;
   };
   growth_funnel_step_completed: {

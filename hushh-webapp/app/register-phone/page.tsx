@@ -41,6 +41,8 @@ import {
 import { shouldBypassPhoneMandateForLocalhost } from "@/lib/services/phone-mandate-service";
 import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 import { resolvePostPhoneOnboardingPhase } from "@/lib/onboarding/onboarding-journey-phase";
+import { trackEvent } from "@/lib/observability/client";
+import { trackLocationFunnelStepCompleted } from "@/lib/observability/growth";
 import { cn } from "@/lib/utils";
 import styles from "./page.module.css";
 
@@ -98,6 +100,9 @@ export function PhoneMandatePageContent() {
       }
 
       const identity = await AccountIdentityService.syncCurrentUser(activeUser);
+      trackEvent("phone_verification_completed", { action: "link", result: "success" });
+      trackEvent("one_phone_verified", { action: "link", result: "success" });
+      trackLocationFunnelStepCompleted("phone_verified");
       // Phone verification is an onboarding boundary, not a generic post-auth
       // redirect. Refresh the authoritative root state before resolving a
       // destination: a stale cached bootstrap result must never let a newly
