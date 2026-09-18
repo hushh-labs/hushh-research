@@ -159,7 +159,11 @@ describe("the circle row's second line", () => {
 
     expect(within(joined).getByText("Joined circles")).toBeTruthy();
     expect(within(joined).getByText("Road Trip")).toBeTruthy();
-    expect(within(joined).getByText("Parth Mawai's SMS Circle")).toBeTruthy();
+    // Someone else's SMS Circle is not usable on the viewer's side, so the
+    // People tab hides it. The viewer's own SMS Circle stays under "Your
+    // circles" above.
+    expect(within(joined).queryByText("Parth Mawai's SMS Circle")).toBeNull();
+    expect(screen.queryByText("Parth Mawai's SMS Circle")).toBeNull();
     expect(within(joined).queryByText("Family")).toBeNull();
     expect(screen.queryByText("Built-in")).toBeNull();
   });

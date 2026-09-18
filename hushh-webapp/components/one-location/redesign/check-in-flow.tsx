@@ -58,6 +58,7 @@ import {
   mergeRecipientsByUserId,
   type CircleRecipientSelection,
 } from "@/lib/one-location/circle-recipient-selection";
+import { isForeignSmsSystemCircle } from "@/lib/one-location/system-circles";
 import { ContactAvatar } from "@/components/one-location/redesign/contact-picker/atoms";
 import { CircleGrowActions } from "@/components/one-location/redesign/circles/circle-grow-actions";
 
@@ -249,9 +250,16 @@ export function CheckInFlow({
   const [circleLoadingId, setCircleLoadingId] = useState<string | null>(null);
   // Trusted is an auto-managed contact-sync view and may contain thousands of
   // connections. Private Check-In must stay an explicit, bounded choice, so
-  // only user-managed/SMS Circles and direct contacts are selectable here.
+  // only user-managed Circles, the viewer's own SMS Circle, and direct
+  // contacts are selectable here. Someone else's SMS Circle cannot authorize
+  // recipients, so it is hidden rather than offered and refused.
   const selectableCircles = useMemo(
-    () => vm.circles.filter((circle) => circle.systemKind !== "trusted"),
+    () =>
+      vm.circles.filter(
+        (circle) =>
+          circle.systemKind !== "trusted" &&
+          !isForeignSmsSystemCircle(circle),
+      ),
     [vm.circles],
   );
   const [confirmedPoint, setConfirmedPoint] =
