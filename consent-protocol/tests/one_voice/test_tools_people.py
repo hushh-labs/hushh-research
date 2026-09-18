@@ -298,36 +298,37 @@ def test_catalog_policies_gateway_ids_and_planes():
         tool.name: (tool.policy, tool.gateway_action_id, tool.person_args, tool.firebase_plane)
         for tool in people.TOOLS
     }
+    # Every people tool binds to the Connect family's own action: searching is
+    # connect.search_people (never location.find_contacts, whose meaning is
+    # device contact sync), and accept/decline are distinct actions.
     assert table == {
-        "resolve_person": (ToolPolicy.read, "location.find_contacts", (), False),
-        "confirm_person": (ToolPolicy.read, "location.find_contacts", (), False),
+        "resolve_person": (ToolPolicy.read, "connect.search_people", (), False),
+        "confirm_person": (ToolPolicy.read, "connect.search_people", (), False),
         "list_people": (ToolPolicy.read, "location.open_people", (), False),
         "get_person": (ToolPolicy.read, "location.open_people", ("person",), False),
-        "invite_person": (ToolPolicy.confirm_voice, "people.profile.connect", ("person",), True),
-        "respond_connection_request": (
+        "invite_person": (ToolPolicy.confirm_voice, "connect.send_request", ("person",), True),
+        "accept_connection_request": (ToolPolicy.confirm_voice, "connect.accept_request", (), True),
+        "decline_connection_request": (
             ToolPolicy.confirm_voice,
-            "people.profile.connect",
+            "connect.reject_request",
             (),
             True,
         ),
-        "cancel_connection_request": (
-            ToolPolicy.confirm_tap,
-            "people.profile.cancel_connection_request",
-            (),
-            True,
-        ),
+        "cancel_connection_request": (ToolPolicy.confirm_tap, "connect.cancel_request", (), True),
         "remove_connection": (
             ToolPolicy.confirm_tap,
-            "people.profile.remove_connection",
+            "connect.remove_connection",
             ("person",),
             True,
         ),
     }
+    assert not any("find_contacts" in tool.gateway_action_id for tool in people.TOOLS)
     for tool in people.TOOLS:
         assert (tool.summarize is not None) == tool.policy.needs_confirmation, tool.name
         statuses = tool.output_model.model_fields["status"].annotation.__args__
         assert statuses and all(isinstance(item, str) for item in statuses), tool.name
         tool.declaration()  # schema must inline without error
+    assert people.InvitePersonInput.model_fields["message"].metadata[0].max_length == 1000
 
 
 def test_no_tool_accepts_a_free_text_name_for_a_person():
@@ -557,10 +558,11 @@ async def test_confirm_person_vanished_from_every_source():
 
 
 async def test_list_people_reports_real_lists_and_counts():
-    ctx, _, _ = make_ctx()
+    ctx, connections, _ = make_ctx()
     result = await people.list_people(ctx, people.ListPeopleInput())
     assert result.status == "ok"
     assert [p.display_name for p in result.connected] == ["Aisha Khan", "Ayesha Sharma"]
+    assert result.page == 1 and result.has_more is False
     assert [p.display_name for p in result.ready_for_location] == ["Ayesha Sharma", "Priya Nair"]
     assert [(r.request_id, r.display_name) for r in result.pending_incoming] == [
         (REQ_IN, "Rahul Verma")
@@ -582,6 +584,41 @@ async def test_list_people_reports_real_lists_and_counts():
     ]
     assert result.connected[1].connection_id == "conn-ayesha"
     assert result.connected[1].connected_from_contacts is True
+    # The page came from the paged read, bounded; the legacy full list is not the model's context.
+    assert ("list_connections_page", (OWNER, "", 1, people.LIST_PAGE_LIMIT)) in connections.calls
+
+
+async def test_list_people_pages_and_never_calls_a_page_the_total():
+    connections = ConnectionsDouble()
+    connections.connections = [
+        {
+            "connectionId": f"conn-{i:03d}",
+            "userId": f"u-{i:03d}",
+            "publicPersonRef": None,
+            "displayName": f"Person {i:03d}",
+            "photoUrl": None,
+            "email": None,
+            "createdAt": "2026-01-01T00:00:00+00:00",
+            "isRia": False,
+            "connectedFromContacts": False,
+        }
+        for i in range(1, 46)
+    ]
+    ctx, _, _ = make_ctx(connections=connections)
+    first = await people.list_people(ctx, people.ListPeopleInput())
+    assert len(first.connected) == people.LIST_PAGE_LIMIT
+    assert first.has_more is True and first.counts.connections == 45
+    assert first.spoken_facts[0].startswith("You have 45 connections. Page 1 has ")
+    assert first.spoken_facts[0].endswith(", and 14 more.")
+    assert first.spoken_facts[1] == "There are more on the next page."
+    third = await people.list_people(ctx, people.ListPeopleInput(page=3))
+    assert len(third.connected) == 5 and third.has_more is False
+    fourth = await people.list_people(ctx, people.ListPeopleInput(page=4))
+    assert fourth.connected == [] and fourth.spoken_facts[0] == "There's nobody on page 4."
+    assert fourth.status == "ok"
+    filtered = await people.list_people(ctx, people.ListPeopleInput(query="Person 04"))
+    assert [p.display_name for p in filtered.connected] == [f"Person 04{i}" for i in range(0, 6)]
+    assert filtered.spoken_facts[0].startswith("6 connections match that name: ")
 
 
 async def test_list_people_no_connections_needs_invite():
@@ -596,6 +633,18 @@ async def test_list_people_no_connections_needs_invite():
     assert result.status == "no_connections"
     assert result.needs == "invite"
     assert result.spoken_facts == ["You don't have anyone connected yet."]
+
+
+async def test_list_people_failed_page_is_a_refusal_not_an_empty_page():
+    connections = ConnectionsDouble()
+
+    def broken(*args: Any, **kwargs: Any):
+        raise ConnectionsError("CONNECTIONS_UNAVAILABLE", "Connections are unavailable.")
+
+    connections.list_connections_page = broken  # type: ignore[method-assign]
+    ctx, _, _ = make_ctx(connections=connections)
+    result = await people.list_people(ctx, people.ListPeopleInput())
+    assert result.status == "rejected" and result.reason_code == "CONNECTIONS_UNAVAILABLE"
 
 
 async def test_get_person_requires_a_confirmed_person_via_executor_guard():
@@ -658,12 +707,112 @@ async def test_invite_person_sends_a_real_request():
     )
     assert result.status == "sent"
     assert result.request_id == "req-new"
-    assert result.request_status == "pending"
-    assert result.spoken_facts == ["Connection request sent to Preeti Rao."]
+    assert result.request_status == "pending" and result.direction == "outgoing"
+    assert result.spoken_facts == [
+        "Connection request sent to Preeti Rao. It's waiting for them to accept."
+    ]
     assert (
         "create_request",
         (OWNER, {"addressee_user_id": "u-preeti", "message": "hello"}),
     ) in connections.calls
+    assert ctx.entities.person("u-preeti").relationship == "pending_outgoing"
+
+
+async def test_invite_person_reads_the_committed_payload_not_the_expectation():
+    """The service returns an existing pending request in either direction and
+    the same shape for a new one; only the payload says which happened."""
+    ctx, connections, _ = make_ctx()
+    confirm(ctx, "u-preeti", "Preeti Rao", relationship="none")
+
+    # They asked first between our read and our write: nothing was sent backwards.
+    connections.create_request = lambda requester_user_id, **kw: {  # type: ignore[method-assign]
+        "id": "req-theirs",
+        "requesterUserId": "u-preeti",
+        "addresseeUserId": OWNER,
+        "status": "pending",
+        "message": None,
+        "scopes": [],
+    }
+    result = await people.invite_person(
+        ctx, people.InvitePersonInput(person=PersonRef(user_id="u-preeti"))
+    )
+    assert result.status == "already_pending" and result.direction == "incoming"
+    assert result.request_id == "req-theirs"
+    assert result.spoken_facts == [
+        "Preeti Rao already asked to connect with you. You can accept it."
+    ]
+
+    # Our own earlier request came back (a concurrent send): pending, not "sent".
+    connections.outgoing.append(
+        {
+            "id": "req-mine",
+            "requesterUserId": OWNER,
+            "addresseeUserId": "u-preeti",
+            "status": "pending",
+            "message": None,
+            "createdAt": "2026-01-05T00:00:00+00:00",
+            "counterpartUserId": "u-preeti",
+            "counterpartDisplayName": "Preeti Rao",
+            "counterpartPhotoUrl": None,
+            "scopes": [],
+        }
+    )
+    ctx2, connections2, _ = make_ctx(connections=connections)
+    confirm(ctx2, "u-preeti", "Preeti Rao", relationship="none")
+    result = await people.invite_person(
+        ctx2, people.InvitePersonInput(person=PersonRef(user_id="u-preeti"))
+    )
+    assert result.status == "already_pending" and result.direction == "outgoing"
+    assert result.request_id == "req-mine"
+    assert not [c for c in connections2.calls if c[0] == "create_request"]
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {},
+        {"id": "", "status": "pending", "requesterUserId": OWNER, "addresseeUserId": "u-preeti"},
+        {"id": "req-x", "status": "", "requesterUserId": OWNER, "addresseeUserId": "u-preeti"},
+        {
+            "id": "req-x",
+            "status": "pending",
+            "requesterUserId": "u-someone",
+            "addresseeUserId": "u-else",
+        },
+    ],
+)
+async def test_invite_person_never_says_sent_on_a_malformed_result(payload):
+    ctx, connections, _ = make_ctx()
+    confirm(ctx, "u-preeti", "Preeti Rao", relationship="none")
+    connections.create_request = lambda requester_user_id, **kw: dict(payload)  # type: ignore[method-assign]
+    result = await people.invite_person(
+        ctx, people.InvitePersonInput(person=PersonRef(user_id="u-preeti"))
+    )
+    assert result.status == "rejected" and result.reason_code == "malformed_request_result"
+    assert "couldn't confirm" in result.spoken_facts[0]
+    assert "sent" not in result.spoken_facts[0].lower().replace("went through", "")
+
+
+async def test_invite_person_keeps_the_message_as_written_up_to_the_route_limit():
+    ctx, connections, _ = make_ctx()
+    confirm(ctx, "u-preeti", "Preeti Rao", relationship="none")
+    note = "x" * 1000
+    result = await people.invite_person(
+        ctx, people.InvitePersonInput(person=PersonRef(user_id="u-preeti"), message=note)
+    )
+    assert result.status == "sent"
+    sent = next(c for c in connections.calls if c[0] == "create_request")[1][1]["message"]
+    assert sent == note
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        people.InvitePersonInput(person=PersonRef(user_id="u-preeti"), message="x" * 1001)
+    assert (
+        people.summarize_invite(
+            ctx, people.InvitePersonInput(person=PersonRef(user_id="u-preeti"), message="hi")
+        )
+        == "send a connection request to Preeti Rao with your note"
+    )
 
 
 async def test_invite_person_already_connected_and_pending_do_not_send():
@@ -740,38 +889,43 @@ async def test_invite_person_executor_guard_rejects_unconfirmed():
 # -- respond_connection_request --------------------------------------------
 
 
-def test_respond_summary_with_and_without_a_confirmed_person():
+def test_accept_and_decline_summaries_with_and_without_a_confirmed_person():
     ctx, _, _ = make_ctx()
-    summarize = spec("respond_connection_request").summarize
-    args = people.RespondConnectionRequestInput(request_id=REQ_IN, accept=True)
-    assert summarize(ctx, args) == "accept the connection request"
-    args = people.RespondConnectionRequestInput(
-        request_id=REQ_IN, accept=False, person=PersonRef(user_id=RAHUL)
-    )
+    args = people.ConnectionRequestInput(request_id=REQ_IN)
+    assert spec("accept_connection_request").summarize(ctx, args) == "accept the connection request"
+    args = people.ConnectionRequestInput(request_id=REQ_IN, person=PersonRef(user_id=RAHUL))
     # Unconfirmed person: the card never names anyone the context does not hold.
-    assert summarize(ctx, args) == "decline the connection request"
-    confirm(ctx, RAHUL, "Rahul Verma", relationship="pending_incoming")
-    assert summarize(ctx, args) == "decline the connection request from Rahul Verma"
-
-
-async def test_respond_accepts_and_remembers_the_new_connection():
-    ctx, connections, _ = make_ctx()
-    result = await people.respond_connection_request(
-        ctx, people.RespondConnectionRequestInput(request_id=REQ_IN, accept=True)
+    assert (
+        spec("decline_connection_request").summarize(ctx, args) == "decline the connection request"
     )
-    assert result.status == "accepted"
+    confirm(ctx, RAHUL, "Rahul Verma", relationship="pending_incoming")
+    assert spec("decline_connection_request").summarize(ctx, args) == (
+        "decline the connection request from Rahul Verma"
+    )
+    assert spec("accept_connection_request").summarize(ctx, args) == (
+        "accept the connection request from Rahul Verma"
+    )
+
+
+async def test_accept_remembers_the_new_connection():
+    ctx, connections, _ = make_ctx()
+    result = await people.accept_connection_request(
+        ctx, people.ConnectionRequestInput(request_id=REQ_IN)
+    )
+    assert result.status == "accepted" and result.request_status == "accepted"
     assert result.display_name == "Rahul Verma"
     assert result.user_id == RAHUL
     assert result.connection_id == "conn-new"
+    assert result.client_step is None
     assert result.spoken_facts == ["You're now connected with Rahul Verma."]
     assert ("accept_request", (OWNER, REQ_IN)) in connections.calls
     assert ctx.entities.person(RAHUL).relationship == "connected"
 
 
-async def test_respond_declines():
+async def test_decline_is_a_success_outcome_over_a_rejected_row():
     ctx, connections, _ = make_ctx()
-    result = await people.respond_connection_request(
-        ctx, people.RespondConnectionRequestInput(request_id=REQ_IN, accept=False)
+    result = await people.decline_connection_request(
+        ctx, people.ConnectionRequestInput(request_id=REQ_IN)
     )
     # A decline that went through is a success outcome; the request row is
     # what the service calls "rejected". Never conflate the two.
@@ -779,35 +933,34 @@ async def test_respond_declines():
     assert result.public()["status"] not in {"rejected", "unsupported"}
     assert result.spoken_facts == ["Declined the request from Rahul Verma."]
     assert ("reject_request", (OWNER, REQ_IN)) in connections.calls
+    assert not [c for c in connections.calls if c[0] == "accept_request"]
 
 
-async def test_respond_unknown_request_and_person_mismatch():
+@pytest.mark.parametrize("tool", ["accept_connection_request", "decline_connection_request"])
+async def test_accept_decline_unknown_request_and_person_mismatch(tool):
     ctx, connections, _ = make_ctx()
-    missing = await people.respond_connection_request(
-        ctx, people.RespondConnectionRequestInput(request_id=REQ_OUT, accept=True)
-    )
-    assert missing.status == "rejected"
-    assert missing.reason_code == "request_not_found"
-    unconfirmed = await people.respond_connection_request(
-        ctx,
-        people.RespondConnectionRequestInput(
-            request_id=REQ_IN, accept=True, person=PersonRef(user_id=AYESHA)
-        ),
+    handler = spec(tool).handler
+    # An outgoing id is not an incoming request; a fabricated id never reaches the service.
+    missing = await handler(ctx, people.ConnectionRequestInput(request_id=REQ_OUT))
+    assert missing.status == "rejected" and missing.reason_code == "request_not_found"
+    made_up = await handler(ctx, people.ConnectionRequestInput(request_id="not-a-real-id"))
+    assert made_up.reason_code == "request_not_found"
+    unconfirmed = await handler(
+        ctx, people.ConnectionRequestInput(request_id=REQ_IN, person=PersonRef(user_id=AYESHA))
     )
     assert unconfirmed.reason_code == "person_not_confirmed"
     confirm(ctx, AYESHA, "Ayesha Sharma")
-    mismatch = await people.respond_connection_request(
-        ctx,
-        people.RespondConnectionRequestInput(
-            request_id=REQ_IN, accept=True, person=PersonRef(user_id=AYESHA)
-        ),
+    mismatch = await handler(
+        ctx, people.ConnectionRequestInput(request_id=REQ_IN, person=PersonRef(user_id=AYESHA))
     )
     assert mismatch.reason_code == "request_person_mismatch"
     assert mismatch.spoken_facts == ["That request is from Rahul Verma, not who you named."]
-    assert not [call for call in connections.calls if call[0] == "accept_request"]
+    assert not [
+        call for call in connections.calls if call[0] in {"accept_request", "reject_request"}
+    ]
 
 
-async def test_respond_scope_review_error_needs_a_client_step():
+async def test_accept_with_scopes_opens_the_review_and_accepts_nothing():
     connections = ConnectionsDouble()
     connections.accept_error = ConnectionsError(
         "CONNECTION_SCOPE_SELECTION_REQUIRED",
@@ -815,15 +968,26 @@ async def test_respond_scope_review_error_needs_a_client_step():
         status_code=409,
     )
     ctx, _, _ = make_ctx(connections=connections)
-    result = await people.respond_connection_request(
-        ctx, people.RespondConnectionRequestInput(request_id=REQ_IN, accept=True)
+    result = await people.accept_connection_request(
+        ctx, people.ConnectionRequestInput(request_id=REQ_IN)
     )
-    assert result.status == "rejected"
-    assert result.reason_code == "CONNECTION_SCOPE_SELECTION_REQUIRED"
+    assert result.status == "scope_review_required" and result.request_status == "pending"
     assert result.needs == "client_step"
+    assert result.client_step == {
+        "kind": "open_request_review",
+        "purpose": "connection_scope_review",
+        "request_id": REQ_IN,
+        "user_id": RAHUL,
+        "display_name": "Rahul Verma",
+        "timeout_s": 600,
+    }
     assert result.spoken_facts == [
-        "Review the requested and offered scopes before accepting this connection."
+        "Rahul Verma's request includes information they want to share or see. "
+        "I'm opening it so you can review that before accepting."
     ]
+    # Opening the review is not acceptance: the relationship is unchanged.
+    assert ctx.entities.person(RAHUL) is None
+    assert result.public()["status"] not in {"accepted"}
 
 
 # -- cancel_connection_request ---------------------------------------------
@@ -865,27 +1029,43 @@ async def test_cancel_connection_request_unknown_request():
 # -- remove_connection ------------------------------------------------------
 
 
-def test_remove_summary_names_the_confirmed_person():
+def test_remove_summary_states_the_connection_level_consequence():
     ctx, _, _ = make_ctx()
     confirm(ctx, AYESHA, "Ayesha Sharma")
     args = people.RemoveConnectionInput(person=PersonRef(user_id=AYESHA))
     assert spec("remove_connection").summarize(ctx, args) == (
-        "remove Ayesha Sharma from your connections"
+        "disconnect from Ayesha Sharma: this ends your connection everywhere, including any "
+        "circle memberships that came from it"
     )
 
 
-async def test_remove_connection_uses_the_real_connection_id():
-    ctx, connections, _ = make_ctx()
+async def test_remove_connection_uses_the_real_connection_id_and_verifies_the_post_state():
+    ctx, connections, location = make_ctx()
     confirm(ctx, AYESHA, "Ayesha Sharma")
     result = await people.remove_connection(
         ctx, people.RemoveConnectionInput(person=PersonRef(user_id=AYESHA))
     )
-    assert result.status == "removed"
-    assert result.spoken_facts == ["Removed Ayesha Sharma from your connections."]
+    assert result.status == "removed" and result.relationship_after == "none"
+    assert result.spoken_facts == ["You're no longer connected with Ayesha Sharma."]
     assert ("remove_connection", (OWNER, "conn-ayesha")) in connections.calls
+    # Re-read after the write: the relationship is what the server says now.
+    reads = [c for c in connections.calls if c[0] == "list_connections"]
+    assert len(reads) >= 2
     remembered = ctx.entities.person(AYESHA)
     assert remembered.relationship == "none"
-    assert remembered.has_location_key is False
+
+
+async def test_remove_connection_reports_unverified_when_the_re_read_disagrees():
+    connections = ConnectionsDouble()
+    connections.removal_leaves_connected = True  # the service said removed, the graph did not move
+    ctx, _, _ = make_ctx(connections=connections)
+    confirm(ctx, AYESHA, "Ayesha Sharma")
+    result = await people.remove_connection(
+        ctx, people.RemoveConnectionInput(person=PersonRef(user_id=AYESHA))
+    )
+    assert result.status == "unverified" and result.relationship_after == "connected"
+    assert result.public()["status"] not in {"removed"}
+    assert "still show as connected" in result.spoken_facts[0]
 
 
 async def test_remove_connection_not_connected_and_nothing_removed():
@@ -915,65 +1095,6 @@ async def test_remove_connection_executor_guard_rejects_unconfirmed():
 # -- recipient grounding: names only, bounded pages, fresh offers -----------------
 
 
-def _directory_of(count: int, prefix: str = "Pri") -> list[dict[str, Any]]:
-    return [
-        {
-            "userId": f"u-{prefix.lower()}-{i:03d}",
-            "publicPersonRef": None,
-            "displayName": f"{prefix}ya Number{i:03d}",
-            "photoUrl": None,
-            "relationship": "none",
-            "isRia": False,
-        }
-        for i in range(count)
-    ]
-
-
-async def test_list_people_pages_and_never_calls_a_page_the_total():
-    connections = ConnectionsDouble()
-    connections.connections = [
-        {
-            "connectionId": f"conn-{i:03d}",
-            "userId": f"u-{i:03d}",
-            "publicPersonRef": None,
-            "displayName": f"Person {i:03d}",
-            "photoUrl": None,
-            "email": None,
-            "createdAt": "2026-01-01T00:00:00+00:00",
-            "isRia": False,
-            "connectedFromContacts": False,
-        }
-        for i in range(1, 46)
-    ]
-    ctx, _, _ = make_ctx(connections=connections)
-    first = await people.list_people(ctx, people.ListPeopleInput())
-    assert len(first.connected) == people.LIST_PAGE_LIMIT
-    assert first.has_more is True and first.counts.connections == 45
-    assert first.spoken_facts[0].startswith("You have 45 connections. Page 1 has ")
-    assert first.spoken_facts[0].endswith(", and 14 more.")
-    assert first.spoken_facts[1] == "There are more on the next page."
-    third = await people.list_people(ctx, people.ListPeopleInput(page=3))
-    assert len(third.connected) == 5 and third.has_more is False
-    fourth = await people.list_people(ctx, people.ListPeopleInput(page=4))
-    assert fourth.connected == [] and fourth.spoken_facts[0] == "There's nobody on page 4."
-    assert fourth.status == "ok"
-    filtered = await people.list_people(ctx, people.ListPeopleInput(query="Person 04"))
-    assert [p.display_name for p in filtered.connected] == [f"Person 04{i}" for i in range(0, 6)]
-    assert filtered.spoken_facts[0].startswith("6 connections match that name: ")
-
-
-async def test_list_people_failed_page_is_a_refusal_not_an_empty_page():
-    connections = ConnectionsDouble()
-
-    def broken(*args: Any, **kwargs: Any):
-        raise ConnectionsError("CONNECTIONS_UNAVAILABLE", "Connections are unavailable.")
-
-    connections.list_connections_page = broken  # type: ignore[method-assign]
-    ctx, _, _ = make_ctx(connections=connections)
-    result = await people.list_people(ctx, people.ListPeopleInput())
-    assert result.status == "rejected" and result.reason_code == "CONNECTIONS_UNAVAILABLE"
-
-
 @pytest.mark.parametrize(
     "spoken", ["9876543210", "+91 98765 43210", "priya@example.com", "call 98765-43210"]
 )
@@ -989,6 +1110,20 @@ async def test_resolve_person_refuses_a_phone_or_email_as_a_name(spoken):
     ]
     assert not [c for c in connections.calls if c[0] == "search_directory"]
     assert ctx.entities.offered_person_ids == []
+
+
+def _directory_of(count: int, prefix: str = "Pri") -> list[dict[str, Any]]:
+    return [
+        {
+            "userId": f"u-{prefix.lower()}-{i:03d}",
+            "publicPersonRef": None,
+            "displayName": f"{prefix}ya Number{i:03d}",
+            "photoUrl": None,
+            "relationship": "none",
+            "isRia": False,
+        }
+        for i in range(count)
+    ]
 
 
 async def test_resolve_person_reads_more_than_one_directory_page_before_claiming_nobody():

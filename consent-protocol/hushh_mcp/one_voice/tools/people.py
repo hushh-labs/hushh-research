@@ -830,10 +830,16 @@ async def get_person(ctx: ToolContext, args: GetPersonInput) -> ToolResult:
 
 class InvitePersonInput(ToolInput):
     person: PersonRef
-    message: str | None = Field(default=None, max_length=280)
+    message: str | None = Field(
+        default=None,
+        max_length=MESSAGE_MAX_CHARS,
+        description="An optional note to the person, sent as written. Never invented.",
+    )
 
 
 class InvitePersonResult(ToolResult):
+    # ``sent`` needs a committed request id from the service; ``already_pending``
+    # names the direction of the request that already exists.
     status: Literal["sent", "already_connected", "already_pending", "unsupported"]
     request_id: str | None = None
     request_status: str | None = None
@@ -841,10 +847,34 @@ class InvitePersonResult(ToolResult):
 
 
 def summarize_invite(ctx: ToolContext, args: InvitePersonInput) -> str:
-    return f"send a connection request to {_name(ctx, args.person) or 'this person'}"
+    who = _name(ctx, args.person) or "this person"
+    if args.message and args.message.strip():
+        return f"send a connection request to {who} with your note"
+    return f"send a connection request to {who}"
+
+
+def _pending_result(
+    name: str, request: dict[str, Any], *, direction: str, fresh: bool
+) -> InvitePersonResult:
+    if direction == "outgoing":
+        facts = [f"Your request to {name} is still pending."]
+    else:
+        facts = [f"{name} already asked to connect with you. You can accept it."]
+    return InvitePersonResult(
+        status="already_pending",
+        request_id=str(request.get("id") or "") or None,
+        request_status="pending",
+        direction=direction,  # type: ignore[arg-type]
+        spoken_facts=facts,
+    )
 
 
 async def invite_person(ctx: ToolContext, args: InvitePersonInput) -> ToolResult:
+    """Send one plain connection request. The decision is made on a fresh
+    read, and the *committed* payload decides what is said: ``sent`` needs a
+    new pending request whose requester is this person; an existing request
+    in either direction is reported as what it is; a missing id or status is
+    a malformed result, never a success."""
     uid = args.person.user_id
     name = _name(ctx, args.person) or "this person"
     if uid == ctx.user_id:
@@ -860,27 +890,27 @@ async def invite_person(ctx: ToolContext, args: InvitePersonInput) -> ToolResult
                 status="already_connected",
                 spoken_facts=[f"You're already connected with {name}."],
             )
+        known_outgoing = {
+            str(r.get("request_id") or "")
+            for r in snapshot.pending_outgoing
+            if r.get("user_id") == uid
+        }
         if record and record["relationship"] == "pending_outgoing":
-            return InvitePersonResult(
-                status="already_pending",
-                request_id=record["request_id"],
-                request_status="pending",
-                direction="outgoing",
-                spoken_facts=[f"Your request to {name} is still pending."],
+            return _pending_result(
+                name, {"id": record["request_id"]}, direction="outgoing", fresh=False
             )
         if record and record["relationship"] == "pending_incoming":
-            return InvitePersonResult(
-                status="already_pending",
-                request_id=record["request_id"],
-                request_status="pending",
-                direction="incoming",
-                spoken_facts=[f"{name} already asked to connect with you. You can accept it."],
+            return _pending_result(
+                name, {"id": record["request_id"]}, direction="incoming", fresh=False
             )
-        created = await asyncio.to_thread(
-            _connections(ctx).create_request,
-            ctx.user_id,
-            addressee_user_id=uid,
-            message=(args.message or "").strip() or None,
+        created = dict(
+            await asyncio.to_thread(
+                _connections(ctx).create_request,
+                ctx.user_id,
+                addressee_user_id=uid,
+                message=(args.message or "").strip() or None,
+            )
+            or {}
         )
     except ConnectionsError as err:
         if err.code == "CONNECTION_ALREADY_CONNECTED":
@@ -890,119 +920,294 @@ async def invite_person(ctx: ToolContext, args: InvitePersonInput) -> ToolResult
         return _rejected(err)
     except OneLocationAgentError as err:
         return _rejected(err)
-    request_status = str((created or {}).get("status") or "pending")
+    # Interpret what was committed, not what was expected.
+    request_id = str(created.get("id") or "").strip()
+    request_status = str(created.get("status") or "").strip()
+    requester = str(created.get("requesterUserId") or "").strip()
+    addressee = str(created.get("addresseeUserId") or "").strip()
+    if not request_id or not request_status or not requester or not addressee:
+        return Rejected(
+            reason_code="malformed_request_result",
+            spoken_facts=[
+                f"I couldn't confirm whether the request to {name} went through. "
+                "Check your pending requests before trying again."
+            ],
+        )
     if request_status != "pending":
         return Rejected(
             reason_code="request_not_pending",
             spoken_facts=[f"The request to {name} is {request_status}."],
         )
+    if requester != ctx.user_id:
+        # The service returned the other person's pending request to us:
+        # they asked first. Nothing was sent backwards.
+        if addressee != ctx.user_id:
+            return Rejected(
+                reason_code="malformed_request_result",
+                spoken_facts=[f"I couldn't confirm the request to {name}; it names other people."],
+            )
+        return _pending_result(name, created, direction="incoming", fresh=True)
+    if request_id in known_outgoing:
+        return _pending_result(name, created, direction="outgoing", fresh=True)
+    known = ctx.entities.person(uid)
+    if known is not None:
+        ctx.entities.remember_person(known.model_copy(update={"relationship": "pending_outgoing"}))
     return InvitePersonResult(
         status="sent",
-        request_id=str((created or {}).get("id") or "") or None,
+        request_id=request_id,
         request_status=request_status,
         direction="outgoing",
-        spoken_facts=[f"Connection request sent to {name}."],
+        spoken_facts=[f"Connection request sent to {name}. It's waiting for them to accept."],
     )
 
 
-# -- respond_connection_request --------------------------------------------
+# -- accept_connection_request / decline_connection_request --------------------
 
 
-class RespondConnectionRequestInput(ToolInput):
+class ConnectionRequestInput(ToolInput):
     request_id: str = Field(
         min_length=1, max_length=64, description="A request_id from list_people's pending_incoming."
     )
-    accept: bool = Field(description="true to accept, false to decline.")
     person: PersonRef | None = Field(
         default=None,
         description="The confirmed person this request is from, when known. Only names the card.",
     )
 
 
-class RespondConnectionRequestResult(ToolResult):
-    # Execution outcome. A successful decline is ``declined``, never
-    # ``rejected``: ``rejected`` is the executor's word for "this call was
-    # refused", and a decline that went through is not a refusal.
-    status: Literal["accepted", "declined"]
+class AcceptConnectionRequestResult(ToolResult):
+    # ``accepted`` is an active connection now. ``scope_review_required`` opens
+    # the request-review screen: the request carries information scopes that
+    # only an explicit on-screen review can accept; opening it accepts nothing.
+    status: Literal["accepted", "scope_review_required"]
     request_id: str
     user_id: str
     display_name: str
-    # Domain state of the request row as the service reports it.
-    request_status: Literal["accepted", "rejected"]
+    request_status: Literal["accepted", "pending"]
     connection_id: str | None = None
+    client_step: dict[str, Any] | None = None
 
 
-def summarize_respond(ctx: ToolContext, args: RespondConnectionRequestInput) -> str:
-    verb = "accept" if args.accept else "decline"
+class DeclineConnectionRequestResult(ToolResult):
+    # A decline that went through is ``declined``; the row's own state is
+    # ``request_status`` ("rejected" is what the service stores).
+    status: Literal["declined"]
+    request_id: str
+    user_id: str
+    display_name: str
+    request_status: Literal["rejected"]
+
+
+def summarize_accept(ctx: ToolContext, args: ConnectionRequestInput) -> str:
+    name = _name(ctx, args.person)
+    return f"accept the connection request from {name}" if name else "accept the connection request"
+
+
+def summarize_decline(ctx: ToolContext, args: ConnectionRequestInput) -> str:
     name = _name(ctx, args.person)
     return (
-        f"{verb} the connection request from {name}" if name else f"{verb} the connection request"
+        f"decline the connection request from {name}" if name else "decline the connection request"
     )
 
 
 def _find_request(rows: list[dict[str, Any]], request_id: str) -> dict[str, Any] | None:
-    return next((row for row in rows if row["request_id"] == request_id), None)
+    return next((r for r in rows if r["request_id"] == request_id), None)
 
 
-async def respond_connection_request(
-    ctx: ToolContext, args: RespondConnectionRequestInput
-) -> ToolResult:
+async def _incoming_request(
+    ctx: ToolContext, args: ConnectionRequestInput
+) -> tuple[PeopleSnapshot, dict[str, Any]] | Rejected:
+    """The incoming request this id names, revalidated: it must be pending, addressed
+    to this person, and -- when a person was named -- from that person."""
     if args.person is not None and ctx.entities.person(args.person.user_id) is None:
         return Rejected(reason_code="person_not_confirmed", needs="disambiguation")
+    snapshot = await load_people_snapshot(ctx)
+    request = _find_request(snapshot.pending_incoming, args.request_id)
+    if request is None:
+        return Rejected(
+            reason_code="request_not_found",
+            spoken_facts=["That request isn't waiting for you anymore."],
+        )
+    if args.person is not None and args.person.user_id != request["user_id"]:
+        return Rejected(
+            reason_code="request_person_mismatch",
+            needs="disambiguation",
+            spoken_facts=[f"That request is from {request['display_name']}, not who you named."],
+        )
+    return snapshot, request
+
+
+async def accept_connection_request(ctx: ToolContext, args: ConnectionRequestInput) -> ToolResult:
     try:
-        snapshot = await load_people_snapshot(ctx)
-        request = _find_request(snapshot.pending_incoming, args.request_id)
-        if request is None:
-            return Rejected(
-                reason_code="request_not_found",
-                spoken_facts=["That request isn't waiting for you anymore."],
-            )
-        if args.person is not None and args.person.user_id != request["user_id"]:
-            return Rejected(
-                reason_code="request_person_mismatch",
-                needs="disambiguation",
+        found = await _incoming_request(ctx, args)
+        if isinstance(found, Rejected):
+            return found
+        snapshot, request = found
+        outcome = dict(
+            await asyncio.to_thread(_connections(ctx).accept_request, ctx.user_id, args.request_id)
+            or {}
+        )
+    except ConnectionsError as err:
+        if err.code == "CONNECTION_SCOPE_SELECTION_REQUIRED":
+            # The request carries information scopes. Only the review screen
+            # can accept those, and only the person can choose them; the relay
+            # re-reads the request after the screen closes and reports what
+            # actually happened.
+            return AcceptConnectionRequestResult(
+                status="scope_review_required",
+                needs="client_step",
+                request_id=args.request_id,
+                user_id=request["user_id"],
+                display_name=request["display_name"],
+                request_status="pending",
+                client_step={
+                    "kind": "open_request_review",
+                    "purpose": "connection_scope_review",
+                    "request_id": args.request_id,
+                    "user_id": request["user_id"],
+                    "display_name": request["display_name"],
+                    "timeout_s": 600,
+                },
                 spoken_facts=[
-                    f"That request is from {request['display_name']}, not who you named."
+                    f"{request['display_name']}'s request includes information they want to "
+                    "share or see. I'm opening it so you can review that before accepting."
                 ],
             )
+        return _rejected(err)
+    except OneLocationAgentError as err:
+        return _rejected(err)
+    status = str(outcome.get("status") or "")
+    name = request["display_name"]
+    if status != "accepted":
+        return Rejected(
+            reason_code="unexpected_request_status",
+            spoken_facts=[f"The request from {name} is {status or 'in an unknown state'}."],
+        )
+    record = snapshot.people.get(request["user_id"]) or _blank_record(request["user_id"])
+    record.update(relationship="connected", request_id=None, display_name=name)
+    ctx.entities.remember_person(_confirmed(record))
+    return AcceptConnectionRequestResult(
+        status="accepted",
+        request_id=args.request_id,
+        user_id=request["user_id"],
+        display_name=name,
+        request_status="accepted",
+        connection_id=str(outcome.get("connectionId") or "") or None,
+        spoken_facts=[f"You're now connected with {name}."],
+    )
+
+
+class RequestReviewOutcome(ToolResult):
+    """What a scope review actually did, decided from a re-read after the
+    review screen reported back. The client's claim never decides."""
+
+    status: Literal["accepted", "declined", "still_pending", "withdrawn", "review_unverified"]
+    request_id: str
+    user_id: str
+    display_name: str
+    request_status: str | None = None
+    connection: bool = False
+
+
+REQUEST_REVIEW_STEP = "open_request_review"
+
+
+async def settle_request_review(
+    ctx: ToolContext, *, request_id: str, user_id: str, display_name: str
+) -> RequestReviewOutcome:
+    """Re-read the request and the relationship after the review screen closed."""
+    try:
         connections = _connections(ctx)
-        if args.accept:
-            outcome = await asyncio.to_thread(
-                connections.accept_request, ctx.user_id, args.request_id
-            )
-        else:
-            outcome = await asyncio.to_thread(
-                connections.reject_request, ctx.user_id, args.request_id
-            )
+        rows = await asyncio.to_thread(
+            connections.list_requests, ctx.user_id, direction="incoming", include_resolved=True
+        )
+        snapshot = await load_people_snapshot(ctx)
+    except ServiceError:
+        return RequestReviewOutcome(
+            status="review_unverified",
+            request_id=request_id,
+            user_id=user_id,
+            display_name=display_name,
+            spoken_facts=[
+                f"I couldn't check what happened with {display_name}'s request. "
+                "Check your pending requests."
+            ],
+        )
+    row = next((r for r in (rows or []) if str(r.get("id") or "") == request_id), None)
+    record = snapshot.people.get(user_id)
+    connected = bool(record and record.get("relationship") == "connected")
+    request_status = str((row or {}).get("status") or "") or None
+    base: dict[str, Any] = {
+        "request_id": request_id,
+        "user_id": user_id,
+        "display_name": display_name,
+        "request_status": request_status,
+        "connection": connected,
+    }
+    if connected or request_status == "accepted":
+        if record is not None:
+            ctx.entities.remember_person(_confirmed(record))
+        return RequestReviewOutcome(
+            status="accepted",
+            **base,
+            spoken_facts=[f"You're now connected with {display_name}."],
+        )
+    if request_status == "pending":
+        return RequestReviewOutcome(
+            status="still_pending",
+            **base,
+            spoken_facts=[f"{display_name}'s request is still waiting for you."],
+        )
+    if request_status == "rejected":
+        return RequestReviewOutcome(
+            status="declined",
+            **base,
+            spoken_facts=[f"You declined {display_name}'s request."],
+        )
+    if request_status in {"cancelled", "expired"}:
+        return RequestReviewOutcome(
+            status="withdrawn",
+            **base,
+            spoken_facts=[f"{display_name}'s request is no longer open; it was {request_status}."],
+        )
+    return RequestReviewOutcome(
+        status="review_unverified",
+        **base,
+        spoken_facts=[
+            f"I couldn't find {display_name}'s request anymore, and you aren't connected. "
+            "Check your pending requests."
+        ],
+    )
+
+
+async def decline_connection_request(ctx: ToolContext, args: ConnectionRequestInput) -> ToolResult:
+    try:
+        found = await _incoming_request(ctx, args)
+        if isinstance(found, Rejected):
+            return found
+        _, request = found
+        outcome = dict(
+            await asyncio.to_thread(_connections(ctx).reject_request, ctx.user_id, args.request_id)
+            or {}
+        )
     except ServiceError as err:
         return _rejected(err)
-    status = str((outcome or {}).get("status") or "")
+    status = str(outcome.get("status") or "")
     name = request["display_name"]
-    if status == "accepted":
-        record = snapshot.people.get(request["user_id"]) or _blank_record(request["user_id"])
-        record.update(relationship="connected", request_id=None, display_name=name)
-        ctx.entities.remember_person(_confirmed(record))
-        return RespondConnectionRequestResult(
-            status="accepted",
-            request_status="accepted",
-            request_id=args.request_id,
-            user_id=request["user_id"],
-            display_name=name,
-            connection_id=str((outcome or {}).get("connectionId") or "") or None,
-            spoken_facts=[f"You're now connected with {name}."],
+    if status != "rejected":
+        return Rejected(
+            reason_code="unexpected_request_status",
+            spoken_facts=[f"The request from {name} is {status or 'in an unknown state'}."],
         )
-    if status == "rejected":
-        return RespondConnectionRequestResult(
-            status="declined",
-            request_status="rejected",
-            request_id=args.request_id,
-            user_id=request["user_id"],
-            display_name=name,
-            spoken_facts=[f"Declined the request from {name}."],
-        )
-    return Rejected(
-        reason_code="unexpected_request_status",
-        spoken_facts=[f"The request from {name} is {status or 'in an unknown state'}."],
+    known = ctx.entities.person(request["user_id"])
+    if known is not None:
+        ctx.entities.remember_person(known.model_copy(update={"relationship": "none"}))
+    return DeclineConnectionRequestResult(
+        status="declined",
+        request_id=args.request_id,
+        user_id=request["user_id"],
+        display_name=name,
+        request_status="rejected",
+        spoken_facts=[f"Declined the request from {name}."],
     )
 
 
@@ -1084,13 +1289,20 @@ class RemoveConnectionInput(ToolInput):
 
 
 class RemoveConnectionResult(ToolResult):
-    status: Literal["removed", "not_connected"]
+    # ``removed`` is verified on a re-read; ``unverified`` means the service
+    # reported a removal the re-read could not confirm.
+    status: Literal["removed", "not_connected", "unverified"]
     user_id: str
     display_name: str
+    relationship_after: str | None = None
 
 
 def summarize_remove(ctx: ToolContext, args: RemoveConnectionInput) -> str:
-    return f"remove {_name(ctx, args.person) or 'this person'} from your connections"
+    who = _name(ctx, args.person) or "this person"
+    return (
+        f"disconnect from {who}: this ends your connection everywhere, including any circle "
+        "memberships that came from it"
+    )
 
 
 async def remove_connection(ctx: ToolContext, args: RemoveConnectionInput) -> ToolResult:
@@ -1105,27 +1317,50 @@ async def remove_connection(ctx: ToolContext, args: RemoveConnectionInput) -> To
                 status="not_connected",
                 user_id=uid,
                 display_name=name,
+                relationship_after=(record or {}).get("relationship") or "none",
                 spoken_facts=[f"You're not connected with {name}."],
             )
         outcome = await asyncio.to_thread(
             _connections(ctx).remove_connection, ctx.user_id, connection_id
         )
+        if not int((outcome or {}).get("removed") or 0):
+            return RemoveConnectionResult(
+                status="not_connected",
+                user_id=uid,
+                display_name=name,
+                relationship_after="none",
+                spoken_facts=[f"You're not connected with {name}."],
+            )
+        # Verify the post-state rather than narrate the intent.
+        after_snapshot, after = await _fresh_record(ctx, uid)
     except ServiceError as err:
         return _rejected(err)
-    if not int((outcome or {}).get("removed") or 0):
+    relationship_after = str((after or {}).get("relationship") or "none")
+    if after is not None:
+        ctx.entities.remember_person(_confirmed(after))
+    else:
+        known = ctx.entities.person(uid)
+        if known is not None:
+            ctx.entities.remember_person(
+                known.model_copy(update={"relationship": "none", "has_location_key": False})
+            )
+    if relationship_after == "connected":
         return RemoveConnectionResult(
-            status="not_connected",
+            status="unverified",
             user_id=uid,
             display_name=name,
-            spoken_facts=[f"You're not connected with {name}."],
+            relationship_after=relationship_after,
+            spoken_facts=[
+                f"I asked to disconnect from {name}, but they still show as connected. "
+                "Check your connections."
+            ],
         )
-    record.update(relationship="none", connection_id=None, has_location_key=False)
-    ctx.entities.remember_person(_confirmed(record))
     return RemoveConnectionResult(
         status="removed",
         user_id=uid,
         display_name=name,
-        spoken_facts=[f"Removed {name} from your connections."],
+        relationship_after=relationship_after,
+        spoken_facts=[f"You're no longer connected with {name}."],
     )
 
 
@@ -1135,26 +1370,30 @@ async def remove_connection(ctx: ToolContext, args: RemoveConnectionInput) -> To
 TOOLS: tuple[ToolSpec, ...] = (
     ToolSpec(
         name="resolve_person",
-        gateway_action_id="location.find_contacts",
+        gateway_action_id="connect.search_people",
         policy=ToolPolicy.read,
         input_model=ResolvePersonInput,
         output_model=ResolvePersonResult,
         description=(
-            "Find who the person means by a spoken name. Returns candidates to read back; it "
-            "never picks one. Always follow with confirm_person after the person agrees, even "
-            "when only one candidate is likely. Use pool='directory' only to invite someone new."
+            "Find who the person means by a spoken name, searching by name only (never by "
+            "phone or email, and never the device's contacts). Returns candidates to read back; "
+            "it never picks one. Always follow with confirm_person after the person agrees, "
+            "even when only one candidate is likely. pool='connections' for people already in "
+            "their life; pool='directory' for anyone findable on Hussh, to connect with someone "
+            "new. A relative ('my uncle') is not a name: ask for the name first."
         ),
         handler=resolve_person,
     ),
     ToolSpec(
         name="confirm_person",
-        gateway_action_id="location.find_contacts",
+        gateway_action_id="connect.search_people",
         policy=ToolPolicy.read,
         input_model=ConfirmPersonInput,
         output_model=ConfirmPersonResult,
         description=(
-            "Confirm one candidate from the last resolve_person by user_id, after the person "
-            "said which one they meant. Only offered ids are accepted."
+            "Confirm one candidate from the last resolve_person or list_circle_members by "
+            "user_id, after the person said which one they meant. Only ids from that most "
+            "recent offer are accepted; confirming who they meant approves no action."
         ),
         handler=confirm_person,
     ),
@@ -1165,8 +1404,10 @@ TOOLS: tuple[ToolSpec, ...] = (
         input_model=ListPeopleInput,
         output_model=ListPeopleResult,
         description=(
-            "List the person's connections, who can receive their location, and pending "
-            "connection requests in both directions. Read only."
+            "Read who the person is connected with, one page at a time (optionally filtered by "
+            "name), who can receive their location, and pending connection requests in both "
+            "directions with their request ids. counts carry the totals; the page is not the "
+            "total. Read only."
         ),
         handler=list_people,
     ),
@@ -1177,21 +1418,26 @@ TOOLS: tuple[ToolSpec, ...] = (
         input_model=GetPersonInput,
         output_model=GetPersonResult,
         description=(
-            "Fresh relationship and Location readiness for one confirmed person, plus the "
-            "person's people counts. Read only."
+            "Fresh relationship (connected, request pending either way, or not connected) and "
+            "Location readiness for one confirmed person. Read only."
         ),
         handler=get_person,
         person_args=("person",),
     ),
     ToolSpec(
         name="invite_person",
-        gateway_action_id="people.profile.connect",
+        gateway_action_id="connect.send_request",
         policy=ToolPolicy.confirm_voice,
         input_model=InvitePersonInput,
         output_model=InvitePersonResult,
         description=(
-            "Send a connection request to a confirmed person. Connecting grants no information. "
-            "Reports already_connected or already_pending instead of sending twice."
+            "Send a plain in-app connection request from the signed-in person to one confirmed "
+            "account. It requests a connection: it does not accept on their behalf, add a "
+            "circle member, request location, or attach information-sharing scopes. The result "
+            "is the real outcome: sent (with the request id, waiting for acceptance), "
+            "already_connected, or already_pending with its direction (if they already asked "
+            "you, accept that instead). Needs its own confirmation; confirming who they meant "
+            "is not approval to send."
         ),
         handler=invite_person,
         person_args=("person",),
@@ -1200,29 +1446,48 @@ TOOLS: tuple[ToolSpec, ...] = (
         summarize=summarize_invite,
     ),
     ToolSpec(
-        name="respond_connection_request",
-        gateway_action_id="people.profile.connect",
+        name="accept_connection_request",
+        gateway_action_id="connect.accept_request",
         policy=ToolPolicy.confirm_voice,
-        input_model=RespondConnectionRequestInput,
-        output_model=RespondConnectionRequestResult,
+        input_model=ConnectionRequestInput,
+        output_model=AcceptConnectionRequestResult,
         description=(
-            "Accept or decline one incoming connection request by request_id "
-            "(from list_people's pending_incoming)."
+            "Accept one incoming connection request by request_id (from list_people's "
+            "pending_incoming). accepted means you are connected now; it starts no location "
+            "sharing. If the request carries information scopes it returns "
+            "scope_review_required and opens the review screen instead: opening it accepts "
+            "nothing, and the real outcome arrives afterwards."
         ),
-        handler=respond_connection_request,
+        handler=accept_connection_request,
         ui_refresh=PEOPLE_REFRESH,
         firebase_plane=True,
-        summarize=summarize_respond,
+        summarize=summarize_accept,
+    ),
+    ToolSpec(
+        name="decline_connection_request",
+        gateway_action_id="connect.reject_request",
+        policy=ToolPolicy.confirm_voice,
+        input_model=ConnectionRequestInput,
+        output_model=DeclineConnectionRequestResult,
+        description=(
+            "Decline one incoming connection request by request_id (from list_people's "
+            "pending_incoming). declined closes that request; it does not block anyone and "
+            "they may ask again later."
+        ),
+        handler=decline_connection_request,
+        ui_refresh=PEOPLE_REFRESH,
+        firebase_plane=True,
+        summarize=summarize_decline,
     ),
     ToolSpec(
         name="cancel_connection_request",
-        gateway_action_id="people.profile.cancel_connection_request",
+        gateway_action_id="connect.cancel_request",
         policy=ToolPolicy.confirm_tap,
         input_model=CancelConnectionRequestInput,
         output_model=CancelConnectionRequestResult,
         description=(
             "Withdraw one connection request the person sent, by request_id "
-            "(from list_people's pending_outgoing)."
+            "(from list_people's pending_outgoing). Needs a tap on the confirmation card."
         ),
         handler=cancel_connection_request,
         ui_refresh=PEOPLE_REFRESH,
@@ -1231,13 +1496,15 @@ TOOLS: tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="remove_connection",
-        gateway_action_id="people.profile.remove_connection",
+        gateway_action_id="connect.remove_connection",
         policy=ToolPolicy.confirm_tap,
         input_model=RemoveConnectionInput,
         output_model=RemoveConnectionResult,
         description=(
-            "End the connection with a confirmed person. Location sharing with them stops; "
-            "other consent is governed separately."
+            "End the connection with a confirmed person everywhere: location sharing with them "
+            "stops and circle memberships that came from the connection end too. This is not "
+            "removing them from one circle (remove_circle_member) and there is no block. Needs "
+            "a tap on the confirmation card; the result is verified on a re-read."
         ),
         handler=remove_connection,
         person_args=("person",),
@@ -1250,8 +1517,10 @@ TOOLS: tuple[ToolSpec, ...] = (
 
 __all__ = [
     "PeopleSnapshot",
+    "REQUEST_REVIEW_STEP",
     "TOOLS",
     "load_connected_people",
     "load_people_snapshot",
     "looks_like_contact_identifier",
+    "settle_request_review",
 ]

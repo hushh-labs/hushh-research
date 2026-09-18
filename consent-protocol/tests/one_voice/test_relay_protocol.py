@@ -1244,3 +1244,170 @@ async def test_tap_on_a_firebase_plane_card_verifies_the_proof_before_confirming
         await _finish(transport, task)
     finally:
         mp.undo()
+
+
+# --- a scope-bearing accept: the review screen opens; the re-read decides ------
+
+
+async def _review_session(connections, proof_token="fresh"):  # noqa: S107 - test double, not a credential
+    """A session whose people plane is the given double and whose accept tool
+    is the real one, with a proof that always verifies."""
+    from hushh_mcp.one_voice.tools import people
+    from tests.one_voice.test_tools_people import LocationDouble
+
+    accept = next(t for t in people.TOOLS if t.name == "accept_connection_request")
+    by_name = {t.name: t for t in (*TEST_TOOLS, accept)}
+    import pytest as _pytest
+
+    mp = _pytest.MonkeyPatch()
+    mp.setattr(registry, "get_tool", lambda name: by_name.get(str(name or "")))
+
+    async def prove(token, expected_user_id):
+        return "ok"
+
+    pending = MemoryPendingStore()
+    transport = FakeTransport([AUTH])
+    fake = FakeLive([LiveEvent(kind="setup_complete")])
+    session = VoiceSession(
+        transport=transport,
+        config=CONFIG,
+        claims=CLAIMS,
+        verify_auth=_ok_auth,
+        live_factory=live_factory_for(fake),
+        executor=ToolExecutor(pending_store=pending, actor_proof=prove),
+        conversations=MemoryConversationStore(),
+        pending=pending,
+    )
+    task = asyncio.create_task(session.run())
+    await asyncio.sleep(0.2)
+    session.ctx.services["connections"] = connections
+    session.ctx.services["location"] = LocationDouble()
+    session.ctx.firebase_id_token = proof_token
+    return session, transport, fake, pending, task, mp
+
+
+async def test_scope_review_opens_the_screen_and_settles_from_a_re_read():
+    from hushh_mcp.services.connections_service import ConnectionsError
+    from tests.one_voice.test_tools_people import RAHUL, REQ_IN, ConnectionsDouble
+
+    connections = ConnectionsDouble()
+    connections.accept_error = ConnectionsError(
+        "CONNECTION_SCOPE_SELECTION_REQUIRED", "Review the scopes first.", status_code=409
+    )
+    session, transport, fake, pending, task, mp = await _review_session(connections)
+    try:
+        # Confirm the accept by tap (the proof verifies) -> the tool returns the review step.
+        outcome = await session.executor.call(
+            session.ctx, "accept_connection_request", {"request_id": REQ_IN}
+        )
+        transport.push(
+            {
+                "type": "confirm_action",
+                "pending_action_id": outcome.pending.id,
+                "firebase_id_token": "fresh",
+            }
+        )
+        await asyncio.sleep(0.3)
+        results = transport.frames("tool.result")
+        interim = results[-1]
+        assert interim["status"] == "scope_review_required" and interim["ok"] is False
+        resolved = transport.frames("pending_action.resolved")[-1]
+        # The confirmed action ran (the card settles) but nothing was accepted.
+        assert resolved["status"] == "executed"
+        assert resolved["result_public"]["status"] == "scope_review_required"
+        steps = transport.frames("client_step.request")
+        assert steps and steps[-1]["kind"] == "open_request_review"
+        assert steps[-1]["payload"]["request_id"] == REQ_IN
+        assert steps[-1]["payload"]["user_id"] == RAHUL
+        assert "accept_request" in [
+            c[0] for c in connections.calls
+        ]  # the refusal came from the service
+        assert session._counters.get("tool_results_ok", 0) == 0
+        assert session._counters.get("tool_results_rejected", 0) == 0
+
+        # The person accepted on the screen: the graph now has the connection.
+        connections.incoming = [dict(connections.incoming[0], status="accepted")]
+        connections.connections.append(
+            {
+                "connectionId": "conn-rahul",
+                "userId": RAHUL,
+                "publicPersonRef": "ppr-rahul",
+                "displayName": "Rahul Verma",
+                "photoUrl": None,
+                "email": None,
+                "createdAt": "2026-01-06T00:00:00+00:00",
+                "isRia": False,
+                "connectedFromContacts": False,
+            }
+        )
+        transport.push(
+            {
+                "type": "client_step.result",
+                "step_id": steps[-1]["step_id"],
+                "status": "ok",
+                "payload": {"outcome": "handled"},
+            }
+        )
+        await asyncio.sleep(0.3)
+        settled = transport.frames("tool.result")[-1]
+        assert settled["tool"] == "accept_connection_request"
+        assert settled["status"] == "accepted" and settled["ok"] is True
+        assert settled["result_public"]["spoken_facts"] == [
+            "You're now connected with Rahul Verma."
+        ]
+        assert settled["result_public"]["review_reported"] == "ok"
+        assert "connections" in settled["result_public"]["ui_refresh"]
+        assert session.ctx.entities.person(RAHUL).relationship == "connected"
+        events = [json.loads(e.removeprefix("[ONE_EVENT] ")) for e in fake.events_sent]
+        assert any(
+            e.get("kind") == "tool_result" and e.get("result", {}).get("status") == "accepted"
+            for e in events
+        )
+        assert session._counters.get("tool_results_ok", 0) == 1
+        await _finish(transport, task)
+    finally:
+        mp.undo()
+
+
+async def test_scope_review_closed_without_a_decision_stays_pending():
+    from hushh_mcp.services.connections_service import ConnectionsError
+    from tests.one_voice.test_tools_people import REQ_IN, ConnectionsDouble
+
+    connections = ConnectionsDouble()
+    connections.accept_error = ConnectionsError(
+        "CONNECTION_SCOPE_SELECTION_REQUIRED", "Review the scopes first.", status_code=409
+    )
+    session, transport, fake, pending, task, mp = await _review_session(connections)
+    try:
+        outcome = await session.executor.call(
+            session.ctx, "accept_connection_request", {"request_id": REQ_IN}
+        )
+        transport.push(
+            {
+                "type": "confirm_action",
+                "pending_action_id": outcome.pending.id,
+                "firebase_id_token": "fresh",
+            }
+        )
+        await asyncio.sleep(0.3)
+        step = transport.frames("client_step.request")[-1]
+        # The client says the screen was left (or the step timed out): the
+        # claim does not decide; the re-read finds the request still pending.
+        transport.push(
+            {
+                "type": "client_step.result",
+                "step_id": step["step_id"],
+                "status": "failed",
+                "payload": {"reason": "no_handler"},
+            }
+        )
+        await asyncio.sleep(0.3)
+        settled = transport.frames("tool.result")[-1]
+        assert settled["status"] == "still_pending" and settled["ok"] is False
+        assert settled["result_public"]["spoken_facts"] == [
+            "Rahul Verma's request is still waiting for you."
+        ]
+        assert session._counters.get("tool_results_ok", 0) == 0
+        await _finish(transport, task)
+    finally:
+        mp.undo()

@@ -3151,15 +3151,16 @@
         "resolve_person"
       ],
       "forbidden_tools": [
+        "accept_connection_request",
         "add_circle_member",
         "cancel_connection_request",
         "create_circle",
         "create_circle_invite_link",
+        "decline_connection_request",
         "delete_circle",
         "leave_circle",
         "remove_circle_member",
-        "remove_connection",
-        "respond_connection_request"
+        "remove_connection"
       ],
       "note": "a request is its own action; not an add"
     },
@@ -3173,15 +3174,16 @@
         "resolve_person"
       ],
       "forbidden_tools": [
+        "accept_connection_request",
         "add_circle_member",
         "cancel_connection_request",
         "create_circle",
         "create_circle_invite_link",
+        "decline_connection_request",
         "delete_circle",
         "leave_circle",
         "remove_circle_member",
-        "remove_connection",
-        "respond_connection_request"
+        "remove_connection"
       ],
       "note": "a request is its own action; not an add"
     },
@@ -3195,15 +3197,16 @@
         "resolve_person"
       ],
       "forbidden_tools": [
+        "accept_connection_request",
         "add_circle_member",
         "cancel_connection_request",
         "create_circle",
         "create_circle_invite_link",
+        "decline_connection_request",
         "delete_circle",
         "leave_circle",
         "remove_circle_member",
-        "remove_connection",
-        "respond_connection_request"
+        "remove_connection"
       ],
       "note": "a request is its own action; not an add"
     },
@@ -3217,15 +3220,16 @@
         "resolve_person"
       ],
       "forbidden_tools": [
+        "accept_connection_request",
         "add_circle_member",
         "cancel_connection_request",
         "create_circle",
         "create_circle_invite_link",
+        "decline_connection_request",
         "delete_circle",
         "leave_circle",
         "remove_circle_member",
-        "remove_connection",
-        "respond_connection_request"
+        "remove_connection"
       ],
       "note": "a request is its own action; not an add"
     },
@@ -3239,15 +3243,16 @@
         "resolve_person"
       ],
       "forbidden_tools": [
+        "accept_connection_request",
         "add_circle_member",
         "cancel_connection_request",
         "create_circle",
         "create_circle_invite_link",
+        "decline_connection_request",
         "delete_circle",
         "leave_circle",
         "remove_circle_member",
-        "remove_connection",
-        "respond_connection_request"
+        "remove_connection"
       ],
       "note": "a request is its own action; not an add"
     },
@@ -3372,14 +3377,15 @@
         "resolve_person"
       ],
       "forbidden_tools": [
+        "accept_connection_request",
         "add_circle_member",
         "create_circle_invite_link",
+        "decline_connection_request",
         "delete_circle",
         "invite_person",
         "leave_circle",
         "remove_circle_member",
-        "remove_connection",
-        "respond_connection_request"
+        "remove_connection"
       ],
       "note": "cancel or check an outgoing request"
     },
@@ -3394,14 +3400,15 @@
         "resolve_person"
       ],
       "forbidden_tools": [
+        "accept_connection_request",
         "add_circle_member",
         "create_circle_invite_link",
+        "decline_connection_request",
         "delete_circle",
         "invite_person",
         "leave_circle",
         "remove_circle_member",
-        "remove_connection",
-        "respond_connection_request"
+        "remove_connection"
       ],
       "note": "cancel or check an outgoing request"
     },
@@ -3416,14 +3423,15 @@
         "resolve_person"
       ],
       "forbidden_tools": [
+        "accept_connection_request",
         "add_circle_member",
         "create_circle_invite_link",
+        "decline_connection_request",
         "delete_circle",
         "invite_person",
         "leave_circle",
         "remove_circle_member",
-        "remove_connection",
-        "respond_connection_request"
+        "remove_connection"
       ],
       "note": "cancel or check an outgoing request"
     },
@@ -3438,14 +3446,15 @@
         "resolve_person"
       ],
       "forbidden_tools": [
+        "accept_connection_request",
         "add_circle_member",
         "create_circle_invite_link",
+        "decline_connection_request",
         "delete_circle",
         "invite_person",
         "leave_circle",
         "remove_circle_member",
-        "remove_connection",
-        "respond_connection_request"
+        "remove_connection"
       ],
       "note": "cancel or check an outgoing request"
     },
@@ -3461,14 +3470,15 @@
         "get_person"
       ],
       "forbidden_tools": [
+        "accept_connection_request",
         "add_circle_member",
         "create_circle_invite_link",
+        "decline_connection_request",
         "delete_circle",
         "invite_person",
         "leave_circle",
         "remove_circle_member",
-        "remove_connection",
-        "respond_connection_request"
+        "remove_connection"
       ],
       "note": "cancel or check an outgoing request"
     },
@@ -3834,6 +3844,7 @@
       "utterance": "how would I delete a circle?",
       "expected_tools": [],
       "forbidden_tools": [
+        "accept_connection_request",
         "accept_location_setup_consent",
         "add_circle_member",
         "add_emergency_contact",
@@ -3846,6 +3857,7 @@
         "create_circle",
         "create_circle_invite_link",
         "create_public_link",
+        "decline_connection_request",
         "delete_circle",
         "hide_on_map",
         "invite_person",
@@ -3857,7 +3869,6 @@
         "rename_circle",
         "request_location",
         "respond_circle_invite",
-        "respond_connection_request",
         "respond_request",
         "resume_device_location_updates",
         "revoke_public_link",
@@ -3886,6 +3897,7 @@
       "utterance": "what happens if I leave Work Friends?",
       "expected_tools": [],
       "forbidden_tools": [
+        "accept_connection_request",
         "accept_location_setup_consent",
         "add_circle_member",
         "add_emergency_contact",
@@ -3898,6 +3910,7 @@
         "create_circle",
         "create_circle_invite_link",
         "create_public_link",
+        "decline_connection_request",
         "delete_circle",
         "hide_on_map",
         "invite_person",
@@ -3909,7 +3922,6 @@
         "rename_circle",
         "request_location",
         "respond_circle_invite",
-        "respond_connection_request",
         "respond_request",
         "resume_device_location_updates",
         "revoke_public_link",
@@ -3938,6 +3950,7 @@
       "utterance": "don't delete Family",
       "expected_tools": [],
       "forbidden_tools": [
+        "accept_connection_request",
         "accept_location_setup_consent",
         "add_circle_member",
         "add_emergency_contact",
@@ -3950,6 +3963,7 @@
         "create_circle",
         "create_circle_invite_link",
         "create_public_link",
+        "decline_connection_request",
         "delete_circle",
         "hide_on_map",
         "invite_person",
@@ -3961,7 +3975,6 @@
         "rename_circle",
         "request_location",
         "respond_circle_invite",
-        "respond_connection_request",
         "respond_request",
         "resume_device_location_updates",
         "revoke_public_link",
@@ -3990,6 +4003,7 @@
       "utterance": "my sister said 'delete the circle', but I won't",
       "expected_tools": [],
       "forbidden_tools": [
+        "accept_connection_request",
         "accept_location_setup_consent",
         "add_circle_member",
         "add_emergency_contact",
@@ -4002,6 +4016,7 @@
         "create_circle",
         "create_circle_invite_link",
         "create_public_link",
+        "decline_connection_request",
         "delete_circle",
         "hide_on_map",
         "invite_person",
@@ -4013,7 +4028,6 @@
         "rename_circle",
         "request_location",
         "respond_circle_invite",
-        "respond_connection_request",
         "respond_request",
         "resume_device_location_updates",
         "revoke_public_link",
@@ -4042,6 +4056,7 @@
       "utterance": "I already renamed Family yesterday",
       "expected_tools": [],
       "forbidden_tools": [
+        "accept_connection_request",
         "accept_location_setup_consent",
         "add_circle_member",
         "add_emergency_contact",
@@ -4054,6 +4069,7 @@
         "create_circle",
         "create_circle_invite_link",
         "create_public_link",
+        "decline_connection_request",
         "delete_circle",
         "hide_on_map",
         "invite_person",
@@ -4065,7 +4081,6 @@
         "rename_circle",
         "request_location",
         "respond_circle_invite",
-        "respond_connection_request",
         "respond_request",
         "resume_device_location_updates",
         "revoke_public_link",
@@ -4094,6 +4109,7 @@
       "utterance": "can a circle have more than a hundred people?",
       "expected_tools": [],
       "forbidden_tools": [
+        "accept_connection_request",
         "accept_location_setup_consent",
         "add_circle_member",
         "add_emergency_contact",
@@ -4106,6 +4122,7 @@
         "create_circle",
         "create_circle_invite_link",
         "create_public_link",
+        "decline_connection_request",
         "delete_circle",
         "hide_on_map",
         "invite_person",
@@ -4117,7 +4134,6 @@
         "rename_circle",
         "request_location",
         "respond_circle_invite",
-        "respond_connection_request",
         "respond_request",
         "resume_device_location_updates",
         "revoke_public_link",
@@ -4146,6 +4162,7 @@
       "utterance": "if I remove Rohan from Family, will we still be connected?",
       "expected_tools": [],
       "forbidden_tools": [
+        "accept_connection_request",
         "accept_location_setup_consent",
         "add_circle_member",
         "add_emergency_contact",
@@ -4158,6 +4175,7 @@
         "create_circle",
         "create_circle_invite_link",
         "create_public_link",
+        "decline_connection_request",
         "delete_circle",
         "hide_on_map",
         "invite_person",
@@ -4169,7 +4187,6 @@
         "rename_circle",
         "request_location",
         "respond_circle_invite",
-        "respond_connection_request",
         "respond_request",
         "resume_device_location_updates",
         "revoke_public_link",
@@ -4198,6 +4215,7 @@
       "utterance": "is deleting a circle reversible?",
       "expected_tools": [],
       "forbidden_tools": [
+        "accept_connection_request",
         "accept_location_setup_consent",
         "add_circle_member",
         "add_emergency_contact",
@@ -4210,6 +4228,7 @@
         "create_circle",
         "create_circle_invite_link",
         "create_public_link",
+        "decline_connection_request",
         "delete_circle",
         "hide_on_map",
         "invite_person",
@@ -4221,7 +4240,6 @@
         "rename_circle",
         "request_location",
         "respond_circle_invite",
-        "respond_connection_request",
         "respond_request",
         "resume_device_location_updates",
         "revoke_public_link",
@@ -4250,6 +4268,7 @@
       "utterance": "whatever you do, don't leave Work Friends",
       "expected_tools": [],
       "forbidden_tools": [
+        "accept_connection_request",
         "accept_location_setup_consent",
         "add_circle_member",
         "add_emergency_contact",
@@ -4262,6 +4281,7 @@
         "create_circle",
         "create_circle_invite_link",
         "create_public_link",
+        "decline_connection_request",
         "delete_circle",
         "hide_on_map",
         "invite_person",
@@ -4273,7 +4293,6 @@
         "rename_circle",
         "request_location",
         "respond_circle_invite",
-        "respond_connection_request",
         "respond_request",
         "resume_device_location_updates",
         "revoke_public_link",
@@ -4302,6 +4321,7 @@
       "utterance": "what's the difference between leaving and deleting?",
       "expected_tools": [],
       "forbidden_tools": [
+        "accept_connection_request",
         "accept_location_setup_consent",
         "add_circle_member",
         "add_emergency_contact",
@@ -4314,6 +4334,7 @@
         "create_circle",
         "create_circle_invite_link",
         "create_public_link",
+        "decline_connection_request",
         "delete_circle",
         "hide_on_map",
         "invite_person",
@@ -4325,7 +4346,6 @@
         "rename_circle",
         "request_location",
         "respond_circle_invite",
-        "respond_connection_request",
         "respond_request",
         "resume_device_location_updates",
         "revoke_public_link",
@@ -4354,6 +4374,7 @@
       "utterance": "Priya told me to remove her from Family, weird right?",
       "expected_tools": [],
       "forbidden_tools": [
+        "accept_connection_request",
         "accept_location_setup_consent",
         "add_circle_member",
         "add_emergency_contact",
@@ -4366,6 +4387,7 @@
         "create_circle",
         "create_circle_invite_link",
         "create_public_link",
+        "decline_connection_request",
         "delete_circle",
         "hide_on_map",
         "invite_person",
@@ -4377,7 +4399,6 @@
         "rename_circle",
         "request_location",
         "respond_circle_invite",
-        "respond_connection_request",
         "respond_request",
         "resume_device_location_updates",
         "revoke_public_link",
@@ -4406,6 +4427,7 @@
       "utterance": "does creating a circle share my location?",
       "expected_tools": [],
       "forbidden_tools": [
+        "accept_connection_request",
         "accept_location_setup_consent",
         "add_circle_member",
         "add_emergency_contact",
@@ -4418,6 +4440,7 @@
         "create_circle",
         "create_circle_invite_link",
         "create_public_link",
+        "decline_connection_request",
         "delete_circle",
         "hide_on_map",
         "invite_person",
@@ -4429,7 +4452,6 @@
         "rename_circle",
         "request_location",
         "respond_circle_invite",
-        "respond_connection_request",
         "respond_request",
         "resume_device_location_updates",
         "revoke_public_link",
@@ -4458,6 +4480,7 @@
       "utterance": "I was thinking about deleting Weekend Crew but not now",
       "expected_tools": [],
       "forbidden_tools": [
+        "accept_connection_request",
         "accept_location_setup_consent",
         "add_circle_member",
         "add_emergency_contact",
@@ -4470,6 +4493,7 @@
         "create_circle",
         "create_circle_invite_link",
         "create_public_link",
+        "decline_connection_request",
         "delete_circle",
         "hide_on_map",
         "invite_person",
@@ -4481,7 +4505,6 @@
         "rename_circle",
         "request_location",
         "respond_circle_invite",
-        "respond_connection_request",
         "respond_request",
         "resume_device_location_updates",
         "revoke_public_link",
@@ -4510,6 +4533,7 @@
       "utterance": "circle delete karne se kya hota hai?",
       "expected_tools": [],
       "forbidden_tools": [
+        "accept_connection_request",
         "accept_location_setup_consent",
         "add_circle_member",
         "add_emergency_contact",
@@ -4522,6 +4546,7 @@
         "create_circle",
         "create_circle_invite_link",
         "create_public_link",
+        "decline_connection_request",
         "delete_circle",
         "hide_on_map",
         "invite_person",
@@ -4533,7 +4558,6 @@
         "rename_circle",
         "request_location",
         "respond_circle_invite",
-        "respond_connection_request",
         "respond_request",
         "resume_device_location_updates",
         "revoke_public_link",
@@ -4562,6 +4586,7 @@
       "utterance": "never remove Priya from Family, okay?",
       "expected_tools": [],
       "forbidden_tools": [
+        "accept_connection_request",
         "accept_location_setup_consent",
         "add_circle_member",
         "add_emergency_contact",
@@ -4574,6 +4599,7 @@
         "create_circle",
         "create_circle_invite_link",
         "create_public_link",
+        "decline_connection_request",
         "delete_circle",
         "hide_on_map",
         "invite_person",
@@ -4585,7 +4611,6 @@
         "rename_circle",
         "request_location",
         "respond_circle_invite",
-        "respond_connection_request",
         "respond_request",
         "resume_device_location_updates",
         "revoke_public_link",
@@ -4614,6 +4639,7 @@
       "utterance": "what does adding someone to a circle actually do?",
       "expected_tools": [],
       "forbidden_tools": [
+        "accept_connection_request",
         "accept_location_setup_consent",
         "add_circle_member",
         "add_emergency_contact",
@@ -4626,6 +4652,7 @@
         "create_circle",
         "create_circle_invite_link",
         "create_public_link",
+        "decline_connection_request",
         "delete_circle",
         "hide_on_map",
         "invite_person",
@@ -4637,7 +4664,6 @@
         "rename_circle",
         "request_location",
         "respond_circle_invite",
-        "respond_connection_request",
         "respond_request",
         "resume_device_location_updates",
         "revoke_public_link",
@@ -4666,6 +4692,7 @@
       "utterance": "remove Priya",
       "expected_tools": [],
       "forbidden_tools": [
+        "accept_connection_request",
         "accept_location_setup_consent",
         "add_circle_member",
         "add_emergency_contact",
@@ -4678,6 +4705,7 @@
         "create_circle",
         "create_circle_invite_link",
         "create_public_link",
+        "decline_connection_request",
         "delete_circle",
         "hide_on_map",
         "invite_person",
@@ -4689,7 +4717,6 @@
         "rename_circle",
         "request_location",
         "respond_circle_invite",
-        "respond_connection_request",
         "respond_request",
         "resume_device_location_updates",
         "revoke_public_link",
@@ -4718,6 +4745,7 @@
       "utterance": "get rid of it",
       "expected_tools": [],
       "forbidden_tools": [
+        "accept_connection_request",
         "accept_location_setup_consent",
         "add_circle_member",
         "add_emergency_contact",
@@ -4730,6 +4758,7 @@
         "create_circle",
         "create_circle_invite_link",
         "create_public_link",
+        "decline_connection_request",
         "delete_circle",
         "hide_on_map",
         "invite_person",
@@ -4741,7 +4770,6 @@
         "rename_circle",
         "request_location",
         "respond_circle_invite",
-        "respond_connection_request",
         "respond_request",
         "resume_device_location_updates",
         "revoke_public_link",
@@ -4770,6 +4798,7 @@
       "utterance": "add her",
       "expected_tools": [],
       "forbidden_tools": [
+        "accept_connection_request",
         "accept_location_setup_consent",
         "add_circle_member",
         "add_emergency_contact",
@@ -4782,6 +4811,7 @@
         "create_circle",
         "create_circle_invite_link",
         "create_public_link",
+        "decline_connection_request",
         "delete_circle",
         "hide_on_map",
         "invite_person",
@@ -4793,7 +4823,6 @@
         "rename_circle",
         "request_location",
         "respond_circle_invite",
-        "respond_connection_request",
         "respond_request",
         "resume_device_location_updates",
         "revoke_public_link",
@@ -4822,6 +4851,7 @@
       "utterance": "take him out",
       "expected_tools": [],
       "forbidden_tools": [
+        "accept_connection_request",
         "accept_location_setup_consent",
         "add_circle_member",
         "add_emergency_contact",
@@ -4834,6 +4864,7 @@
         "create_circle",
         "create_circle_invite_link",
         "create_public_link",
+        "decline_connection_request",
         "delete_circle",
         "hide_on_map",
         "invite_person",
@@ -4845,7 +4876,6 @@
         "rename_circle",
         "request_location",
         "respond_circle_invite",
-        "respond_connection_request",
         "respond_request",
         "resume_device_location_updates",
         "revoke_public_link",
@@ -4874,6 +4904,7 @@
       "utterance": "delete that",
       "expected_tools": [],
       "forbidden_tools": [
+        "accept_connection_request",
         "accept_location_setup_consent",
         "add_circle_member",
         "add_emergency_contact",
@@ -4886,6 +4917,7 @@
         "create_circle",
         "create_circle_invite_link",
         "create_public_link",
+        "decline_connection_request",
         "delete_circle",
         "hide_on_map",
         "invite_person",
@@ -4897,7 +4929,6 @@
         "rename_circle",
         "request_location",
         "respond_circle_invite",
-        "respond_connection_request",
         "respond_request",
         "resume_device_location_updates",
         "revoke_public_link",
@@ -4926,6 +4957,7 @@
       "utterance": "rename it",
       "expected_tools": [],
       "forbidden_tools": [
+        "accept_connection_request",
         "accept_location_setup_consent",
         "add_circle_member",
         "add_emergency_contact",
@@ -4938,6 +4970,7 @@
         "create_circle",
         "create_circle_invite_link",
         "create_public_link",
+        "decline_connection_request",
         "delete_circle",
         "hide_on_map",
         "invite_person",
@@ -4949,7 +4982,6 @@
         "rename_circle",
         "request_location",
         "respond_circle_invite",
-        "respond_connection_request",
         "respond_request",
         "resume_device_location_updates",
         "revoke_public_link",
@@ -4978,6 +5010,7 @@
       "utterance": "kick them out",
       "expected_tools": [],
       "forbidden_tools": [
+        "accept_connection_request",
         "accept_location_setup_consent",
         "add_circle_member",
         "add_emergency_contact",
@@ -4990,6 +5023,7 @@
         "create_circle",
         "create_circle_invite_link",
         "create_public_link",
+        "decline_connection_request",
         "delete_circle",
         "hide_on_map",
         "invite_person",
@@ -5001,7 +5035,6 @@
         "rename_circle",
         "request_location",
         "respond_circle_invite",
-        "respond_connection_request",
         "respond_request",
         "resume_device_location_updates",
         "revoke_public_link",
@@ -5030,6 +5063,7 @@
       "utterance": "put Rohan in",
       "expected_tools": [],
       "forbidden_tools": [
+        "accept_connection_request",
         "accept_location_setup_consent",
         "add_circle_member",
         "add_emergency_contact",
@@ -5042,6 +5076,7 @@
         "create_circle",
         "create_circle_invite_link",
         "create_public_link",
+        "decline_connection_request",
         "delete_circle",
         "hide_on_map",
         "invite_person",
@@ -5053,7 +5088,6 @@
         "rename_circle",
         "request_location",
         "respond_circle_invite",
-        "respond_connection_request",
         "respond_request",
         "resume_device_location_updates",
         "revoke_public_link",
@@ -5082,6 +5116,7 @@
       "utterance": "Priya ko hata do",
       "expected_tools": [],
       "forbidden_tools": [
+        "accept_connection_request",
         "accept_location_setup_consent",
         "add_circle_member",
         "add_emergency_contact",
@@ -5094,6 +5129,7 @@
         "create_circle",
         "create_circle_invite_link",
         "create_public_link",
+        "decline_connection_request",
         "delete_circle",
         "hide_on_map",
         "invite_person",
@@ -5105,7 +5141,6 @@
         "rename_circle",
         "request_location",
         "respond_circle_invite",
-        "respond_connection_request",
         "respond_request",
         "resume_device_location_updates",
         "revoke_public_link",
@@ -5134,6 +5169,7 @@
       "utterance": "leave it",
       "expected_tools": [],
       "forbidden_tools": [
+        "accept_connection_request",
         "accept_location_setup_consent",
         "add_circle_member",
         "add_emergency_contact",
@@ -5146,6 +5182,7 @@
         "create_circle",
         "create_circle_invite_link",
         "create_public_link",
+        "decline_connection_request",
         "delete_circle",
         "hide_on_map",
         "invite_person",
@@ -5157,7 +5194,6 @@
         "rename_circle",
         "request_location",
         "respond_circle_invite",
-        "respond_connection_request",
         "respond_request",
         "resume_device_location_updates",
         "revoke_public_link",
@@ -5186,6 +5222,7 @@
       "utterance": "remove Dev",
       "expected_tools": [],
       "forbidden_tools": [
+        "accept_connection_request",
         "accept_location_setup_consent",
         "add_circle_member",
         "add_emergency_contact",
@@ -5198,6 +5235,7 @@
         "create_circle",
         "create_circle_invite_link",
         "create_public_link",
+        "decline_connection_request",
         "delete_circle",
         "hide_on_map",
         "invite_person",
@@ -5209,7 +5247,6 @@
         "rename_circle",
         "request_location",
         "respond_circle_invite",
-        "respond_connection_request",
         "respond_request",
         "resume_device_location_updates",
         "revoke_public_link",
@@ -5238,6 +5275,7 @@
       "utterance": "add Priya",
       "expected_tools": [],
       "forbidden_tools": [
+        "accept_connection_request",
         "accept_location_setup_consent",
         "add_circle_member",
         "add_emergency_contact",
@@ -5250,6 +5288,7 @@
         "create_circle",
         "create_circle_invite_link",
         "create_public_link",
+        "decline_connection_request",
         "delete_circle",
         "hide_on_map",
         "invite_person",
@@ -5261,7 +5300,6 @@
         "rename_circle",
         "request_location",
         "respond_circle_invite",
-        "respond_connection_request",
         "respond_request",
         "resume_device_location_updates",
         "revoke_public_link",

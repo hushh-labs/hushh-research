@@ -619,6 +619,9 @@ class VoiceSession:
             # handed to the model as a client_step event.
             await self._settle_location_updates_step(step, frame)
             return
+        if step.get("kind") == "open_request_review":
+            await self._settle_request_review_step(step, frame)
+            return
         event: dict[str, Any] = {
             "kind": "client_step",
             "step": step.get("kind"),
@@ -675,6 +678,46 @@ class VoiceSession:
         if ok:
             # The narration turn that follows must read as a receipt even if a
             # turn_complete landed between the tool call and the device report.
+            self.turn.ok_results += 1
+            self._last_turn_ok = True
+
+    async def _settle_request_review_step(
+        self, step: dict[str, Any], frame: protocol.ClientStepResultFrame
+    ) -> None:
+        """Final result for a connection request that needed an on-screen scope
+        review. The client only says the screen closed (or that it never
+        opened); the request and the relationship are re-read here and that
+        re-read is what the model and the card get."""
+        from hushh_mcp.one_voice.tools.people import settle_request_review
+
+        request_id = str(step.get("request_id") or "")
+        user_id = str(step.get("user_id") or "")
+        known = self.ctx.entities.person(user_id) if user_id else None
+        display_name = (
+            str(step.get("display_name") or "")
+            or (known.display_name if known else "")
+            or "that person"
+        )
+        result = await settle_request_review(
+            self.ctx, request_id=request_id, user_id=user_id, display_name=display_name
+        )
+        result = result.model_copy(
+            update={
+                "review_reported": frame.status,
+                "review_payload": {
+                    k: v for k, v in dict(frame.payload or {}).items() if k in {"outcome", "reason"}
+                },
+            }
+        )
+        spec = step.get("spec")
+        if isinstance(spec, ToolSpec) and result.status == "accepted":
+            result.ui_refresh = sorted(set(result.ui_refresh) | set(spec.ui_refresh))
+        outcome = ToolCallOutcome(result=result, spec=spec if isinstance(spec, ToolSpec) else None)
+        ok = result.status == "accepted"
+        await self._after_execution(
+            outcome, source="review", ok=ok, call_id=str(step.get("call_id") or "") or None
+        )
+        if ok:
             self.turn.ok_results += 1
             self._last_turn_ok = True
 
