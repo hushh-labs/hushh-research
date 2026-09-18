@@ -79,9 +79,10 @@ describe("LiveMap", () => {
     expect(Map).toHaveBeenCalledTimes(1);
     expect(Marker).toHaveBeenCalledTimes(1);
     expect(screen.queryByTitle("Live location map preview")).toBeNull();
-    // No avatarUrl -> the stock pin (no icon override) is left in place.
+    // No avatarUrl -> the initials-circle fallback, never the stock pin: the
+    // self marker is always a face on Your Map and Check-in.
     expect(Marker).toHaveBeenCalledWith(
-      expect.not.objectContaining({ icon: expect.anything() }),
+      expect.objectContaining({ icon: expect.objectContaining({ url: expect.stringContaining("data:image/svg+xml") }) }),
     );
   });
 
