@@ -45,7 +45,8 @@ const PEOPLE_TOOLS = new Set([
   "list_people",
   "get_person",
   "invite_person",
-  "respond_connection_request",
+  "accept_connection_request",
+  "decline_connection_request",
   "cancel_connection_request",
   "remove_connection",
   "add_emergency_contact",
@@ -53,9 +54,12 @@ const PEOPLE_TOOLS = new Set([
 ]);
 const CIRCLE_TOOLS = new Set([
   "list_circles",
+  "get_circle_details",
+  "list_circle_members",
   "list_circle_invites",
   "create_circle",
   "rename_circle",
+  "set_circle_kind",
   "delete_circle",
   "add_circle_member",
   "remove_circle_member",

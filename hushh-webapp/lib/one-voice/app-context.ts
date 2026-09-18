@@ -37,6 +37,8 @@ export const MAX_APP_CONTEXT_ACTION_IDS = 200;
 export const MAX_APP_CONTEXT_STATE_KEYS = 40;
 const MAX_SCREEN_ID_CHARS = 120;
 const MAX_ROUTE_CHARS = 400;
+/** A canonical circle id is a UUID; anything else is not sent. */
+const CIRCLE_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MAX_STATE_STRING_CHARS = 200;
 const MAX_ACTION_ID_CHARS = 120;
 
@@ -173,6 +175,19 @@ export function collectScreenState(
   return output;
 }
 
+/**
+ * The circle the open screen is about, or null. Only a well-formed canonical
+ * id leaves the device: the relay refuses anything else as a protocol error.
+ */
+export function collectActiveCircleId(
+  surface: VoiceSurfaceMetadata | null,
+): string | null {
+  const raw = surface?.activeCircleId;
+  if (typeof raw !== "string") return null;
+  const id = raw.trim();
+  return CIRCLE_ID_PATTERN.test(id) ? id : null;
+}
+
 /** Build one `app_context` frame from the app's published state. */
 export function buildAppContextFrame(
   input: BuildAppContextInput,
@@ -190,5 +205,6 @@ export function buildAppContextFrame(
     available_action_ids: collectAvailableActionIds(input.runtime, surface),
     screen_state: collectScreenState(input.runtime, surface),
     os_location_permission: permission,
+    active_circle_id: collectActiveCircleId(surface),
   };
 }

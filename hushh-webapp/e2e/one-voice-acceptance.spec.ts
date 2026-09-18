@@ -5,6 +5,9 @@ import {
   mockVoiceRelay,
   pendingAction,
   toolResult,
+  type ClientFrame,
+  type RelayStep,
+  type ServerFrame,
 } from "./fixtures/one-voice-relay";
 import {
   hasReviewerSession,
@@ -384,5 +387,220 @@ test.describe("Talk to One acceptance (mocked relay, real client + UI)", () => {
       page.getByRole("heading", { name: /profile/i }).first(),
     ).toBeVisible({ timeout: 30_000 });
     expect(CONVERSATION_ID).toHaveLength(36);
+  });
+});
+
+/**
+ * This device's Location switch through Live Voice. The relay is scripted
+ * (`tool.started` -> `client_step.request {kind: set_location_updates}` ->
+ * interim `tool.result location_updates_pending`); everything after that is
+ * real: the step bridge, the navigation to /one/location, the Location
+ * screen's own switch handler, and the `client_step.result` the client sends
+ * back. All three requests run in ONE page session so the second "enable"
+ * can only answer `already_on` from the state the first one produced.
+ */
+test.describe("Talk to One: this device's Location switch (mocked relay, real page)", () => {
+  // launchOptions stay at the file's top-level `test.use` (a describe-level
+  // override would force a new worker); only the extra permission and a
+  // fixed position are added here so the real switch can take a fix.
+  test.use({
+    permissions: ["microphone", "geolocation"],
+    geolocation: { latitude: 37.7749, longitude: -122.4194 },
+  });
+
+  test.skip(
+    !hasReviewerSession(),
+    "needs REVIEWER_UID/REVIEWER_VAULT_PASSPHRASE and E2E_REVIEWER_SIGNIN=1",
+  );
+
+  const RESUME_TOOL = "resume_device_location_updates";
+  const PAUSE_TOOL = "pause_device_location_updates";
+  const RESUME_ACTION = "location.resume_updates";
+  const PAUSE_ACTION = "location.pause_updates";
+  const STEP_TIMEOUT_S = 45;
+
+  function deviceStep(
+    callId: string,
+    stepId: string,
+    desired: "on" | "off",
+  ): RelayStep {
+    const tool = desired === "on" ? RESUME_TOOL : PAUSE_TOOL;
+    const actionId = desired === "on" ? RESUME_ACTION : PAUSE_ACTION;
+    return {
+      reply: [
+        { type: "tool.started", call_id: callId, tool, args_public: {} },
+        {
+          type: "client_step.request",
+          step_id: stepId,
+          kind: "set_location_updates",
+          payload: {
+            desired_state: desired,
+            gateway_action_id: actionId,
+            timeout_s: STEP_TIMEOUT_S,
+          },
+          timeout_s: STEP_TIMEOUT_S,
+        },
+        {
+          ...toolResult(tool, {
+            status: "location_updates_pending",
+            desired_state: desired,
+            gateway_action_id: actionId,
+            spoken_facts: [
+              `Switching location updates ${desired} for this device now.`,
+            ],
+          }),
+          call_id: callId,
+        },
+      ],
+    };
+  }
+
+  function settled(
+    callId: string,
+    desired: "on" | "off",
+    spoken: string,
+  ): ServerFrame[] {
+    const tool = desired === "on" ? RESUME_TOOL : PAUSE_TOOL;
+    const actionId = desired === "on" ? RESUME_ACTION : PAUSE_ACTION;
+    return [
+      {
+        ...toolResult(tool, {
+          status: desired,
+          desired_state: desired,
+          gateway_action_id: actionId,
+          observed_state: desired,
+          changed: true,
+          spoken_facts: [spoken],
+        }),
+        call_id: callId,
+      },
+      { type: "state", state: "complete", turn_id: null },
+    ];
+  }
+
+  function stepResultFor(stepId: string) {
+    return (f: ClientFrame) =>
+      f.type === "client_step.result" && f.step_id === stepId;
+  }
+
+  test("enable, enable again, then disable drives the real switch and reports each step once", async ({
+    page,
+  }) => {
+    const relay = await mockVoiceRelay(page, [
+      deviceStep("c1", "st-1", "on"),
+      deviceStep("c2", "st-2", "on"),
+      deviceStep("c3", "st-3", "off"),
+    ]);
+    const accountSettingsPatches: string[] = [];
+    const revokeRequests: string[] = [];
+    page.on("request", (request) => {
+      const url = request.url();
+      if (
+        request.method() === "PATCH" &&
+        url.includes("/api/one/location/account-settings")
+      ) {
+        accountSettingsPatches.push(url);
+      }
+      if (/revoke/.test(url)) revokeRequests.push(`${request.method()} ${url}`);
+    });
+    const switchLocator = page.locator(
+      '[data-voice-control-id="one-location-updates-toggle"]',
+    );
+    const statusLocator = page.getByTestId("one-location-header-status");
+    const resultCard = page.getByTestId("one-voice-tool-result");
+
+    await openReviewerSession(page, "/one");
+    await startSession(page);
+    await relay.waitFor((f) => f.type === "auth");
+
+    // (a) From /one: the step navigates to /one/location, runs the switch's
+    // own handler, and reports the device's real state -- never a coordinate.
+    await say(page, "Can you enable my location?");
+    const first = await relay.waitFor(stepResultFor("st-1"), 45_000);
+    expect(first.status).toBe("ok");
+    const firstPayload = first.payload as Record<string, unknown>;
+    expect(firstPayload).toMatchObject({
+      outcome: "on",
+      observed_state: "on",
+      gateway_action_id: RESUME_ACTION,
+      desired_state: "on",
+    });
+    expect(JSON.stringify(firstPayload)).not.toMatch(/latitude|longitude|\blat\b/i);
+    await expect(page).toHaveURL(/\/one\/location(?:[?#].*)?$/, {
+      timeout: 15_000,
+    });
+    await expect(switchLocator).toHaveAttribute("aria-checked", "true", {
+      timeout: 15_000,
+    });
+    await expect(statusLocator).toHaveText("Location on", { timeout: 30_000 });
+    // The interim pending result never renders a card; the settled one does.
+    await expect(resultCard).toHaveCount(0);
+    relay.emit(settled("c1", "on", "Location is on."));
+    await expect(resultCard).toContainText("Location is on.", {
+      timeout: 10_000,
+    });
+    expect(accountSettingsPatches).toEqual([]);
+    expect(revokeRequests).toEqual([]);
+
+    // (b) The same request again is answered from module-level truth: no
+    // navigation, no handler run, no network side effect.
+    const urlBefore = page.url();
+    await say(page, "enable my location again please");
+    const second = await relay.waitFor(stepResultFor("st-2"), 45_000);
+    expect(second.status).toBe("ok");
+    expect(second.payload as Record<string, unknown>).toMatchObject({
+      outcome: "already_on",
+      observed_state: "on",
+      gateway_action_id: RESUME_ACTION,
+      navigated: false,
+    });
+    expect(page.url()).toBe(urlBefore);
+    await expect(switchLocator).toHaveAttribute("aria-checked", "true");
+    expect(accountSettingsPatches).toEqual([]);
+    relay.emit([
+      {
+        ...toolResult(RESUME_TOOL, {
+          status: "already_on",
+          desired_state: "on",
+          gateway_action_id: RESUME_ACTION,
+          observed_state: "on",
+          changed: false,
+          spoken_facts: ["Location is already on."],
+        }),
+        call_id: "c2",
+      },
+      { type: "state", state: "complete", turn_id: null },
+    ]);
+    await expect(resultCard).toContainText("Location is already on.", {
+      timeout: 10_000,
+    });
+
+    // (c) Pause runs the switch's other handler on the mounted page.
+    await say(page, "turn my location off");
+    const third = await relay.waitFor(stepResultFor("st-3"), 45_000);
+    expect(third.status).toBe("ok");
+    const thirdPayload = third.payload as Record<string, unknown>;
+    expect(thirdPayload).toMatchObject({
+      outcome: "off",
+      observed_state: "off",
+      gateway_action_id: PAUSE_ACTION,
+      desired_state: "off",
+    });
+    expect(JSON.stringify(thirdPayload)).not.toMatch(/latitude|longitude|\blat\b/i);
+    await expect(switchLocator).toHaveAttribute("aria-checked", "false", {
+      timeout: 15_000,
+    });
+    await expect(statusLocator).toHaveText("Location off", { timeout: 15_000 });
+    relay.emit(settled("c3", "off", "Location is off."));
+    await expect(resultCard).toContainText("Location is off.", {
+      timeout: 10_000,
+    });
+
+    // Across the whole conversation nothing touched account-level sharing.
+    expect(accountSettingsPatches).toEqual([]);
+    expect(revokeRequests).toEqual([]);
+    expect(
+      relay.sent.filter((f) => f.type === "client_step.result").map((f) => f.step_id),
+    ).toEqual(["st-1", "st-2", "st-3"]);
   });
 });

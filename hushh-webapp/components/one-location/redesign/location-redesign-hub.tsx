@@ -2275,12 +2275,15 @@ function LocationPrimaryShareCard({ onClick }: { onClick: () => void }) {
           "flex w-full flex-col gap-3 rounded-[18px] px-4 py-4 text-left",
         )}
       >
-        <CardTitle
-          as="span"
-          className="block !text-[17px] !font-semibold !leading-[22px]"
-        >
-          Not sharing with anyone
-        </CardTitle>
+        <div className="flex min-w-0 items-center gap-4">
+          <LocationSharePulseIcon />
+          <CardTitle
+            as="span"
+            className="block !text-[17px] !font-semibold !leading-[22px]"
+          >
+            Not sharing with anyone
+          </CardTitle>
+        </div>
         <button
           type="button"
           data-voice-control-id="one-location-action-share"
@@ -2299,6 +2302,20 @@ function LocationPrimaryShareCard({ onClick }: { onClick: () => void }) {
         </button>
       </div>
     </section>
+  );
+}
+
+function LocationSharePulseIcon() {
+  return (
+    <span
+      aria-hidden="true"
+      data-location-share-pulse-icon=""
+      className="relative inline-flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-[color:var(--app-accent-tint)] shadow-[inset_0_0_0_1px_rgba(0,122,255,0.025)] dark:shadow-none sm:h-16 sm:w-16"
+    >
+      <span className="absolute inset-[13%] rounded-full bg-[color:var(--app-accent-surface)]" />
+      <span className="absolute inset-[28%] rounded-full bg-[color:var(--app-accent)]/20" />
+      <span className="relative h-[25%] w-[25%] rounded-full bg-[color:var(--app-accent)] shadow-[0_0_0_4px_var(--app-primary-surface),0_8px_16px_rgba(0,122,255,0.18)] dark:shadow-[0_0_0_4px_var(--app-primary-surface)]" />
+    </span>
   );
 }
 
@@ -2351,12 +2368,12 @@ function LocationActionGrid({ items }: { items: LocationActionGridItem[] }) {
             data-voice-label={item.ariaLabel}
             aria-label={item.ariaLabel}
             onClick={item.onClick}
-          className="group flex h-[62px] min-h-[62px] min-w-0 flex-col items-center justify-center gap-1 rounded-[14px] bg-[color:var(--app-primary-surface)] px-3 py-2 text-center shadow-none ring-1 ring-inset ring-[color:var(--app-separator)] transition-[background-color,transform] [-webkit-tap-highlight-color:transparent] hover:bg-[color:var(--app-secondary-surface)] active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]"
+          className="group flex h-[76px] min-h-[76px] min-w-0 flex-col items-center justify-center gap-1.5 rounded-[14px] bg-[color:var(--app-primary-surface)] px-3 py-2.5 text-center shadow-none ring-1 ring-inset ring-[color:var(--app-separator)] transition-[background-color,transform] [-webkit-tap-highlight-color:transparent] hover:bg-[color:var(--app-secondary-surface)] active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]"
           >
             <span
               aria-hidden
               data-one-location-action-icon=""
-              className="inline-flex h-6 w-6 shrink-0 items-center justify-center text-[color:var(--app-accent)] transition-colors"
+              className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[color:var(--app-accent-tint)] text-[color:var(--app-accent)] transition-colors"
             >
               {item.icon}
             </span>
@@ -4847,6 +4864,7 @@ function LinksHub({ vm }: { vm: LocationHubViewModel }) {
                 label="Duration"
                 presentation="buttons"
                 maxWidthClassName={null}
+                activeClassName="border-[color:color-mix(in_srgb,var(--app-accent)_60%,white)] bg-[color:color-mix(in_srgb,var(--app-accent)_60%,white)] text-[color:var(--app-accent-fg)]"
               />
               <Button
                 onClick={vm.onCreatePublicInvite}
@@ -5890,7 +5908,7 @@ function RequestRecipientListRow({
               aria-pressed={selected}
               className={cn(
                 "inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full transition-colors touch-manipulation",
-                "hover:bg-[color:var(--app-secondary-system-fill)] focus:outline-none focus:ring-2 focus:ring-[color:var(--app-accent-ring)]",
+                "hover:bg-[color:var(--app-neutral-fill)] focus:outline-none focus:ring-2 focus:ring-[color:var(--app-accent-ring)]",
               )}
             >
               <SelectionDot selected={selected} />

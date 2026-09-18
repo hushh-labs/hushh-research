@@ -12,12 +12,13 @@ are sync SQLAlchemy and run through ``asyncio.to_thread``.
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from typing import Annotated, Any, Literal
 
-from pydantic import Field
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from hushh_mcp.one_voice.tools.base import (
+    LOCATION_UPDATES_PENDING,
     Rejected,
     ToolContext,
     ToolInput,
@@ -782,6 +783,297 @@ async def list_my_place_ratings(ctx: ToolContext, args: ListMyPlaceRatingsInput)
     )
 
 
+# -- resume/pause_device_location_updates (this device's Location switch) ----
+#
+# The switch on the Location screen (control id ``one-location-updates-toggle``)
+# is bound to the gateway actions ``location.resume_updates`` and
+# ``location.pause_updates``. Both are ``local_handler`` actions: the truth
+# (paused preference, self preview, a fresh fix) lives on the device and there
+# is no server row for it. The relay therefore never mutates anything here; it
+# asks the device to run the same handler a tap runs (a ``set_location_updates``
+# client step) and settles the *final* result from the device's typed report,
+# bound to this session, the originating call, the action id, the desired
+# state, and a deadline. Account-level sharing (``turn_sharing_on/off``) is a
+# different thing and is never touched by this path.
+
+SET_LOCATION_UPDATES_STEP_KIND = "set_location_updates"
+LOCATION_UPDATES_STEP_TIMEOUT_S = 45
+LOCATION_UPDATES_STEP_GRACE_S = 5
+LOCATION_UPDATES_SETTLED_OK = frozenset({"on", "off", "already_on", "already_off"})
+
+RESUME_UPDATES_ACTION_ID = "location.resume_updates"
+PAUSE_UPDATES_ACTION_ID = "location.pause_updates"
+
+DesiredState = Literal["on", "off"]
+ObservedState = Literal["on", "off", "unknown"]
+LocationUpdatesStatus = Literal[
+    "location_updates_pending", "on", "off", "already_on", "already_off", "rejected"
+]
+LocationUpdatesOutcome = Literal[
+    "on",
+    "off",
+    "already_on",
+    "already_off",
+    "permission_denied",
+    "no_fix",
+    "superseded",
+    "handler_unavailable",
+    "timed_out",
+    "cancelled",
+    "nearby_checkout_failed",
+    "vault_locked",
+    "signed_out",
+    "failed",
+]
+# ``reason_code`` values the device may echo; anything else is dropped.
+LOCATION_UPDATES_REASON_CODES = frozenset(
+    {
+        "permission_denied",
+        "no_fix",
+        "superseded",
+        "handler_unavailable",
+        "timed_out",
+        "cancelled",
+        "nearby_checkout_failed",
+        "vault_locked",
+        "signed_out",
+        "invalid_step_payload",
+        "inconsistent_step_payload",
+        "step_expired",
+        "failed",
+    }
+)
+
+_LOCATION_UPDATES_SPOKEN: dict[str, str] = {
+    "on": "Location is on.",
+    "off": "Location is off.",
+    "already_on": "Location is already on.",
+    "already_off": "Location is already off.",
+    "permission_denied": (
+        "Location is off for Hussh on this device. Allow location for Hussh in your device "
+        "settings, then ask me again."
+    ),
+    "no_fix": (
+        "I couldn't get a position from this device, so Location stayed off. Try again in a moment."
+    ),
+    "superseded": "That request was replaced by a newer Location change.",
+    "nearby_checkout_failed": (
+        "Location updates are paused on this device, but I couldn't check you out of Nearby -- "
+        "you may still be visible to people around you."
+    ),
+    "vault_locked": (
+        "Location updates are paused on this device, but One is locked so I couldn't check you "
+        "out of Nearby. Unlock One and ask again."
+    ),
+    "handler_unavailable": (
+        "I couldn't open Location on this device. Open Location and try the switch."
+    ),
+    "timed_out": (
+        "I couldn't confirm the Location switch in time. Check the switch on the Location screen."
+    ),
+    "cancelled": "That Location change was cancelled.",
+}
+_LOCATION_UPDATES_UNVERIFIED = (
+    "I couldn't verify the Location switch. Check it on the Location screen."
+)
+
+
+class ResumeDeviceLocationUpdatesInput(ToolInput):
+    pass
+
+
+class PauseDeviceLocationUpdatesInput(ToolInput):
+    pass
+
+
+class LocationUpdatesResult(ToolResult):
+    status: LocationUpdatesStatus
+    desired_state: DesiredState
+    gateway_action_id: str
+    observed_state: ObservedState = "unknown"
+    # True when the device actually moved the switch; False for already_*;
+    # None until the device has reported.
+    changed: bool | None = None
+    client_step: dict[str, Any] | None = None
+
+
+class LocationUpdatesStepPayload(BaseModel):
+    """What the device may say about a ``set_location_updates`` step.
+
+    ``extra="forbid"`` so nothing else (coordinates, free text, bindings) can
+    ride along; the relay narrates only server-authored facts keyed by the
+    settled status and reason.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+    gateway_action_id: str = Field(min_length=1, max_length=80)
+    desired_state: DesiredState
+    outcome: LocationUpdatesOutcome
+    observed_state: ObservedState = "unknown"
+    reason_code: str | None = Field(default=None, max_length=80)
+    navigated: bool = False
+    os_permission: OsPermission = "unknown"
+
+
+def _location_updates_step(desired: DesiredState, gateway_action_id: str) -> LocationUpdatesResult:
+    return LocationUpdatesResult(
+        status=LOCATION_UPDATES_PENDING,
+        needs="client_step",
+        desired_state=desired,
+        gateway_action_id=gateway_action_id,
+        spoken_facts=[f"Switching location updates {desired} for this device now."],
+        client_step={
+            "kind": SET_LOCATION_UPDATES_STEP_KIND,
+            "desired_state": desired,
+            "gateway_action_id": gateway_action_id,
+            "timeout_s": LOCATION_UPDATES_STEP_TIMEOUT_S,
+        },
+    )
+
+
+async def resume_device_location_updates(
+    ctx: ToolContext, args: ResumeDeviceLocationUpdatesInput
+) -> ToolResult:
+    # No server read or write: the device owns the switch and reports back.
+    # ``ctx.screen.os_location_permission`` is deliberately not consulted; it
+    # can be stale and the device's real capture is the only authority.
+    return _location_updates_step("on", RESUME_UPDATES_ACTION_ID)
+
+
+async def pause_device_location_updates(
+    ctx: ToolContext, args: PauseDeviceLocationUpdatesInput
+) -> ToolResult:
+    return _location_updates_step("off", PAUSE_UPDATES_ACTION_ID)
+
+
+def _settled(
+    step: Mapping[str, Any],
+    *,
+    status: LocationUpdatesStatus,
+    reason_code: str | None,
+    observed_state: ObservedState,
+    changed: bool | None,
+) -> LocationUpdatesResult:
+    spoken = _LOCATION_UPDATES_SPOKEN.get(
+        status if status != "rejected" else str(reason_code or ""),
+        _LOCATION_UPDATES_UNVERIFIED,
+    )
+    return LocationUpdatesResult(
+        status=status,
+        reason_code=reason_code,
+        desired_state=step["desired_state"],
+        gateway_action_id=str(step["gateway_action_id"]),
+        observed_state=observed_state,
+        changed=changed,
+        spoken_facts=[spoken],
+    )
+
+
+def settle_location_updates_step(
+    step: Mapping[str, Any],
+    *,
+    status: Literal["ok", "failed"],
+    payload: Mapping[str, Any],
+    now: float,
+) -> LocationUpdatesResult:
+    """Turn the device's report on a ``set_location_updates`` step into the
+    final typed result. Pure: no I/O, no context.
+
+    Success is an allowlist. A late, malformed, mismatched, or self-contradicting
+    claim can never settle as ``on``/``off``; it settles as ``rejected`` with a
+    typed ``reason_code`` and a server-authored explanation.
+    """
+    expires_at = step.get("expires_at")
+    if isinstance(expires_at, (int, float)) and now > float(expires_at):
+        return _settled(
+            step,
+            status="rejected",
+            reason_code="step_expired",
+            observed_state="unknown",
+            changed=None,
+        )
+    # The provider's own timer report, sent when no consumer took the step or
+    # the budget elapsed before the device reported.
+    if set(payload.keys()) == {"reason"} and payload.get("reason") in {"no_handler", "timed_out"}:
+        code = "handler_unavailable" if payload["reason"] == "no_handler" else "timed_out"
+        return _settled(
+            step, status="rejected", reason_code=code, observed_state="unknown", changed=None
+        )
+    try:
+        report = LocationUpdatesStepPayload.model_validate(dict(payload))
+    except ValidationError:
+        return _settled(
+            step,
+            status="rejected",
+            reason_code="invalid_step_payload",
+            observed_state="unknown",
+            changed=None,
+        )
+    if report.gateway_action_id != str(
+        step.get("gateway_action_id") or ""
+    ) or report.desired_state != step.get("desired_state"):
+        return _settled(
+            step,
+            status="rejected",
+            reason_code="inconsistent_step_payload",
+            observed_state="unknown",
+            changed=None,
+        )
+    desired: DesiredState = report.desired_state
+    outcome = report.outcome
+    if outcome in LOCATION_UPDATES_SETTLED_OK:
+        polarity: DesiredState = "on" if outcome in {"on", "already_on"} else "off"
+        if status != "ok" or polarity != desired or report.observed_state != polarity:
+            return _settled(
+                step,
+                status="rejected",
+                reason_code="inconsistent_step_payload",
+                observed_state=report.observed_state,
+                changed=None,
+            )
+        return _settled(
+            step,
+            status=outcome,  # type: ignore[arg-type]
+            reason_code=None,
+            observed_state=report.observed_state,
+            changed=outcome in {"on", "off"},
+        )
+    if status == "ok":
+        # A failure outcome must be reported as failed; anything else is a
+        # contradiction the relay refuses to narrate as either.
+        return _settled(
+            step,
+            status="rejected",
+            reason_code="inconsistent_step_payload",
+            observed_state=report.observed_state,
+            changed=None,
+        )
+    if outcome in {"permission_denied", "no_fix"} and desired != "on":
+        return _settled(
+            step,
+            status="rejected",
+            reason_code="inconsistent_step_payload",
+            observed_state=report.observed_state,
+            changed=None,
+        )
+    if outcome in {"nearby_checkout_failed", "vault_locked"} and desired != "off":
+        return _settled(
+            step,
+            status="rejected",
+            reason_code="inconsistent_step_payload",
+            observed_state=report.observed_state,
+            changed=None,
+        )
+    code = outcome if outcome in LOCATION_UPDATES_REASON_CODES else "failed"
+    return _settled(
+        step,
+        status="rejected",
+        reason_code=code,
+        observed_state=report.observed_state,
+        changed=False if outcome in {"superseded", "cancelled", "handler_unavailable"} else None,
+    )
+
+
 # -- catalog -----------------------------------------------------------------
 
 
@@ -797,7 +1089,8 @@ TOOLS: tuple[ToolSpec, ...] = (
             "not set up; the device location permission (a separate thing from app sharing); "
             "how many active shares, people sharing with them, requests waiting, and active "
             "links there are; whether Save My Soul is active; and map visibility. Reads only. "
-            "Use it for 'am I sharing my location', 'who can see me', 'is my location on'."
+            "It answers questions about sharing with people; it does not read or change this "
+            "device's Location updates switch."
         ),
         handler=get_location_status,
     ),
@@ -811,7 +1104,9 @@ TOOLS: tuple[ToolSpec, ...] = (
             "Turn owner-level location sharing on after the person confirms. Needs recorded "
             "consent (answers consent_required otherwise) and completed Location setup "
             "(answers setup_required otherwise). Turning it on does not start any share; it "
-            "allows shares again. The device permission is separate and is not changed here."
+            "allows shares again. The device permission is separate and is not changed here. "
+            "This is account-level sharing with people, not this device's Location updates "
+            "switch (resume_device_location_updates / pause_device_location_updates)."
         ),
         handler=turn_sharing_on,
         ui_refresh=("location_state", "location_settings"),
@@ -827,7 +1122,9 @@ TOOLS: tuple[ToolSpec, ...] = (
             "Turn owner-level location sharing off after the person taps Confirm. This stops "
             "every active share and every active link in the same transaction and hides them on "
             "the map. An active Save My Soul share blocks it (sos_active) unless include_sos is "
-            "set because the person explicitly asked to stop SOS too."
+            "set because the person explicitly asked to stop SOS too. This is account-level "
+            "sharing with people, not this device's Location updates switch "
+            "(resume_device_location_updates / pause_device_location_updates)."
         ),
         handler=turn_sharing_off,
         ui_refresh=("location_state", "location_settings", "location_map"),
@@ -920,7 +1217,52 @@ TOOLS: tuple[ToolSpec, ...] = (
         ),
         handler=list_my_place_ratings,
     ),
+    ToolSpec(
+        name="resume_device_location_updates",
+        gateway_action_id=RESUME_UPDATES_ACTION_ID,
+        policy=ToolPolicy.direct,
+        input_model=ResumeDeviceLocationUpdatesInput,
+        output_model=LocationUpdatesResult,
+        description=(
+            "Ensures One's location preview and device updates are enabled on the current "
+            "device through the same operation as the Location screen's switch. May require "
+            "device permission. Does not change account-level sharing consent, create "
+            "recipients, or create sharing grants. Existing authorized shares may receive "
+            "updates under the existing rules. This is this device's Location switch, not "
+            "sharing with people (turn_sharing_on). Reports already_on when it is already "
+            "enabled. Call it only when the person asks to change this device now -- not for "
+            "a question, a negation, a report of what someone said, or another person's "
+            "device. Returns location_updates_pending first; the real result arrives later "
+            "as a [ONE_EVENT] tool_result -- only then say location is on."
+        ),
+        handler=resume_device_location_updates,
+    ),
+    ToolSpec(
+        name="pause_device_location_updates",
+        gateway_action_id=PAUSE_UPDATES_ACTION_ID,
+        policy=ToolPolicy.direct,
+        input_model=PauseDeviceLocationUpdatesInput,
+        output_model=LocationUpdatesResult,
+        description=(
+            "Ensures One's location preview and device updates are paused on the current "
+            "device through the same operation as the Location screen's switch. Preserves "
+            "existing sharing grants and account-level sharing consent. Does not disable the "
+            "operating system's global Location Services. This is this device's Location "
+            "switch, not sharing with people (turn_sharing_off, which ends every share and "
+            "link). Reports already_off when it is already paused. Call it only when the "
+            "person asks to change this device now -- not for a question, a negation, a "
+            "report of what someone said, or another person's device. Returns "
+            "location_updates_pending first; the real result arrives later as a [ONE_EVENT] "
+            "tool_result -- only then say location is off."
+        ),
+        handler=pause_device_location_updates,
+    ),
 )
 
 
-__all__ = ["TOOLS"]
+__all__ = [
+    "LOCATION_UPDATES_SETTLED_OK",
+    "SET_LOCATION_UPDATES_STEP_KIND",
+    "TOOLS",
+    "settle_location_updates_step",
+]
