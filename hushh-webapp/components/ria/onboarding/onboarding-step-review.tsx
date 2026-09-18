@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { AskOneButton } from "@/components/agent/ask-one-button";
 import { ChevronDown, ChevronUp, Pencil, ShieldCheck } from "@/components/icons";
 import { cn } from "@/lib/utils";
@@ -140,12 +140,16 @@ function ChipRow({ label, items }: { label: string; items: string[] }) {
           <div className="space-y-2">
             {items.map((item) => {
               const code = certificationCode(item);
+              // A chip only earns its place when it pulls out something
+              // shorter than the full line above it -- "Series 66" extracted
+              // from itself is the same string twice, not a highlight.
+              const showChip = Boolean(code) && code !== item;
               return (
                 <div key={item} className="min-w-0 space-y-1.5">
                   <span className="block whitespace-normal break-words text-left text-[15px] font-medium leading-6 text-[color:var(--ria-ink)] [overflow-wrap:anywhere]">
                     {item}
                   </span>
-                  {code ? (
+                  {showChip ? (
                     <RiaChip variant="outline" className="max-w-full">
                       {code}
                     </RiaChip>
@@ -162,7 +166,23 @@ function ChipRow({ label, items }: { label: string; items: string[] }) {
 
 function BioReviewRow({ bio }: { bio: string }) {
   const [open, setOpen] = useState(false);
+  const [truncated, setTruncated] = useState(false);
+  const paragraphRef = useRef<HTMLParagraphElement | null>(null);
   const hasValue = Boolean(bio?.trim());
+
+  // The clamp is CSS-only, so whether it actually cut anything off has to be
+  // measured, not assumed -- a short bio never overflows 3 lines, and a
+  // control with nothing to expand is worse than no control at all.
+  useLayoutEffect(() => {
+    if (!hasValue) {
+      setTruncated(false);
+      return;
+    }
+    const node = paragraphRef.current;
+    if (!node) return;
+    setTruncated(node.scrollHeight > node.clientHeight + 1);
+  }, [bio, hasValue]);
+
   return (
     <div
       className={cn(
@@ -183,6 +203,7 @@ function BioReviewRow({ bio }: { bio: string }) {
       >
         {hasValue ? (
           <p
+            ref={paragraphRef}
             className={cn(
               "whitespace-normal break-words text-left text-[14px] leading-[1.5] text-[color:var(--ria-ink)] [overflow-wrap:anywhere]",
               !open && "line-clamp-3",
@@ -195,7 +216,7 @@ function BioReviewRow({ bio }: { bio: string }) {
             Not provided
           </span>
         )}
-        {hasValue ? (
+        {hasValue && truncated ? (
           <button
             type="button"
             onClick={() => setOpen((o) => !o)}
