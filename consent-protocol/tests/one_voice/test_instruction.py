@@ -107,3 +107,19 @@ def test_resumed_caveat_is_added_only_when_the_conversation_was_resumed(resumed)
 
 def test_resumed_default_is_false():
     assert instruction.RESUMED_CAVEAT not in _build()
+
+
+def test_rule_ten_separates_circle_membership_from_connection_and_leave_from_delete():
+    text = _build()
+    rule = _rule(text, 10)
+    assert "a circle is a group; being in one is not being connected" in rule
+    assert '"Who is in it" is list_circle_members' in rule
+    assert "remove_circle_member, never remove_connection" in rule
+    assert "leave_circle, never delete_circle" in rule
+    assert "Confirming which circle or person they meant approves nothing" in rule
+    assert "send a connection request only if they ask, with invite_person" in rule
+    assert "one at a time, and report each real result separately" in rule
+    # Both circle reads are declared with their first line, so the model can pick them.
+    declared = {item["name"] for item in registry.declarations()}
+    assert {"get_circle_details", "list_circle_members"} <= declared
+    assert "- get_circle_details: " in text and "- list_circle_members: " in text

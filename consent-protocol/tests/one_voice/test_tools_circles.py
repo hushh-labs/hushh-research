@@ -43,7 +43,16 @@ def _row(
         "role": role,
         "isSystem": False,
         "memberCount": len(members) or 1,
-        "members": [{"userId": uid, "displayName": label} for uid, label in members],
+        "members": [
+            {
+                "userId": uid,
+                "displayName": label,
+                "role": "owner" if (uid == USER and role == "owner") else "member",
+                "relationship": "self" if uid == USER else "connected",
+                "joinedAt": "2030-01-01T00:00:00+00:00",
+            }
+            for uid, label in members
+        ],
         **extra,
     }
 
@@ -136,6 +145,78 @@ class FakeCircleService:
         self._hit("get_circle", user_id=user_id, circle_id=circle_id)
         return self._find(circle_id)
 
+    def _stored(self, circle_id: str) -> dict[str, Any]:
+        for row in self.circles:
+            if row["id"] == circle_id:
+                return row
+        raise OneLocationCircleError(
+            "LOCATION_CIRCLE_NOT_FOUND", "Circle not found.", status_code=404
+        )
+
+    def get_circle_overview(self, *, user_id: str, circle_id: str):
+        """Canonical overview shape: capabilities, classification, and -- for
+        the owner -- the join code, which the voice layer must never read back."""
+        self._hit("get_circle_overview", user_id=user_id, circle_id=circle_id)
+        row = self._find(circle_id)
+        if user_id not in {m["userId"] for m in row["members"]} and row["role"] != "owner":
+            raise OneLocationCircleError(
+                "LOCATION_CIRCLE_NOT_FOUND", "Circle not found.", status_code=404
+            )
+        is_owner = row["role"] == "owner"
+        is_system = bool(row.get("isSystem"))
+        members = row.pop("members")
+        return {
+            **row,
+            "memberCount": len(members),
+            "memberLimit": 100,
+            "systemKind": "sms" if is_system else None,
+            "updatedAt": "2030-01-02T00:00:00+00:00",
+            "viewerCapabilities": {
+                "canInviteMembers": is_owner,
+                "canViewInviteCode": is_owner and not is_system,
+                "canRotateInviteCode": is_owner and not is_system,
+                "canManageCircle": is_owner,
+                "canModerateInvites": is_owner,
+                "canDeleteCircle": is_owner and not is_system,
+                "canLeaveCircle": not is_owner,
+            },
+            "activeInviteCode": (
+                {"code": "SECRET-CODE", "expiresAt": "2030-01-01T00:00:00+00:00"}
+                if is_owner and not is_system
+                else None
+            ),
+        }
+
+    def list_circle_members_page(
+        self, *, user_id: str, circle_id: str, query: str = "", page: int = 1, limit: int = 50
+    ):
+        self._hit(
+            "list_circle_members_page",
+            user_id=user_id,
+            circle_id=circle_id,
+            query=query,
+            page=page,
+            limit=limit,
+        )
+        row = self._find(circle_id)
+        members = list(row["members"])
+        if user_id not in {m["userId"] for m in members} and row["role"] != "owner":
+            raise OneLocationCircleError(
+                "LOCATION_CIRCLE_NOT_FOUND", "Circle not found.", status_code=404
+            )
+        needle = str(query or "").strip().lower()
+        if needle:
+            members = [m for m in members if needle in m["displayName"].lower()]
+        total = len(members)
+        offset = (page - 1) * limit
+        items = members[offset : offset + limit]
+        return {
+            "items": [dict(m) for m in items],
+            "page": page,
+            "hasMore": offset + len(items) < total,
+            "totalCount": total,
+        }
+
     def create_circle(self, *, owner_user_id: str, name: str, kind: str | None = None):
         self._hit("create_circle", owner_user_id=owner_user_id, name=name, kind=kind)
         row = _row(
@@ -171,6 +252,8 @@ class FakeCircleService:
             circle_id=circle_id,
             member_user_id=member_user_id,
         )
+        row = self._stored(circle_id)
+        row["members"] = [m for m in row["members"] if m["userId"] != member_user_id]
         return None
 
     def list_eligible_direct_connections(self, *, actor_user_id: str, circle_id: str):
@@ -188,6 +271,26 @@ class FakeCircleService:
             circle_id=circle_id,
             invitee_user_ids=invitee_user_ids,
         )
+        row = self._stored(circle_id)
+        for uid in self.add_result.get("addedUserIds") or []:
+            if uid in invitee_user_ids and uid not in {m["userId"] for m in row["members"]}:
+                label = next(
+                    (
+                        e["displayName"]
+                        for e in self.eligible.get(circle_id, [])
+                        if e["userId"] == uid
+                    ),
+                    uid,
+                )
+                row["members"].append(
+                    {
+                        "userId": uid,
+                        "displayName": label,
+                        "role": "member",
+                        "relationship": "connected",
+                        "joinedAt": "2030-01-03T00:00:00+00:00",
+                    }
+                )
         return dict(self.add_result)
 
     def list_member_invites(
@@ -243,11 +346,56 @@ class FakeCircleService:
         }
 
 
+class FakeConnectionsService:
+    """People plane double: what ``load_people_snapshot`` reads for a fresh
+    relationship. Rows use the canonical camelCase keys."""
+
+    def __init__(self) -> None:
+        self.connections: list[dict[str, Any]] = [
+            {"userId": AYESHA, "displayName": "Ayesha Sharma", "connectionId": "c-1"},
+            {"userId": PRIYA, "displayName": "Priya Nair", "connectionId": "c-2"},
+        ]
+        self.incoming: list[dict[str, Any]] = []
+        self.outgoing: list[dict[str, Any]] = []
+
+    def list_connections(self, user_id: str):
+        return [dict(r) for r in self.connections]
+
+    def list_requests(self, user_id: str, direction: str = "incoming"):
+        rows = self.incoming if direction == "incoming" else self.outgoing
+        return [dict(r) for r in rows]
+
+    def search_directory(self, user_id: str, *, query: str = "", page: int = 1, limit: int = 20):
+        return {"items": [], "page": page, "hasMore": False, "audience": "all"}
+
+
+class FakeLocationAgentService:
+    def list_verified_recipients(self, *, owner_user_id: str, limit: int):
+        return []
+
+    def search_directory_candidates(
+        self, *, owner_user_id: str, candidate_user_id: str | None = None, **kwargs: Any
+    ):
+        return {"items": [], "page": 1, "hasMore": False}
+
+
+def _request(request_id: str, counterpart: str, name: str) -> dict[str, Any]:
+    return {
+        "id": request_id,
+        "counterpartUserId": counterpart,
+        "counterpartDisplayName": name,
+        "status": "pending",
+        "createdAt": "2030-01-01T00:00:00+00:00",
+    }
+
+
 def make_ctx(
     service: FakeCircleService | None = None,
     *,
     confirm_family: bool = True,
     confirm_ayesha: bool = True,
+    connections: FakeConnectionsService | None = None,
+    screen: ScreenContext | None = None,
 ):
     entities = EntityContext()
     if confirm_family:
@@ -273,9 +421,13 @@ def make_ctx(
         user_id=USER,
         conversation_id="conv-1",
         entities=entities,
-        screen=ScreenContext(),
+        screen=screen or ScreenContext(),
         vault_owner_token="vault-token",  # noqa: S106 - test double, not a credential
-        services={circles.CIRCLE_SERVICE: service or FakeCircleService()},
+        services={
+            circles.CIRCLE_SERVICE: service or FakeCircleService(),
+            "connections": connections or FakeConnectionsService(),
+            "location": FakeLocationAgentService(),
+        },
     )
 
 
@@ -302,6 +454,8 @@ def test_catalog_policies_and_gateway_ids():
         "list_circles": (ToolPolicy.read, "location.open_circles"),
         "resolve_circle": (ToolPolicy.read, "location.open_circles"),
         "confirm_circle": (ToolPolicy.read, "location.open_circles"),
+        "get_circle_details": (ToolPolicy.read, "location.open_circles"),
+        "list_circle_members": (ToolPolicy.read, "location.open_circles"),
         "create_circle": (ToolPolicy.confirm_voice, "location.create_circle"),
         "rename_circle": (ToolPolicy.confirm_voice, "location.rename_circle"),
         "delete_circle": (ToolPolicy.confirm_tap, "location.delete_circle"),
@@ -588,7 +742,10 @@ def test_add_circle_member_added_when_eligible():
         "create_member_invites",
         {"actor_user_id": USER, "circle_id": FAMILY, "invitee_user_ids": [AYESHA]},
     ) in service.calls
+    # The remembered count is re-read from the server, not incremented.
+    assert ("get_circle_overview", {"user_id": USER, "circle_id": FAMILY}) in service.calls
     assert ctx.entities.circle(FAMILY).member_count == 3
+    assert result.relationship == "connected"
 
 
 def test_add_circle_member_reports_pending_invite_only_when_service_says_so():
@@ -682,10 +839,13 @@ def test_add_circle_member_pending_invite_and_not_connected():
         "add_circle_member", ctx, circle={"circle_id": FAMILY}, person={"user_id": "user-stranger"}
     )
     assert result.status == "not_connected" and result.needs == "invite"
+    assert result.relationship == "none"
     assert result.spoken_facts == [
-        "Dev Patel isn't a connection you can add to the Family circle yet. "
-        "Connect with them first, or share the circle's invite link."
+        "You aren't connected with Dev Patel yet, so they can't be added to the Family circle. "
+        "Send them a connection request, or share the circle's join link."
     ]
+    # Nothing here sent a connection request or an invitation.
+    assert not any(name == "create_member_invites" for name, _ in service.calls)
     assert not [call for call in service.calls if call[0] == "create_member_invites"]
 
 
@@ -722,7 +882,10 @@ def test_remove_circle_member():
         "remove_member",
         {"owner_user_id": USER, "circle_id": FAMILY, "member_user_id": AYESHA},
     ) in service.calls
-    assert ctx.entities.circle(FAMILY).member_count == 1
+    # Re-read, not decremented: Ayesha was never in the fake roster, so the
+    # server still says two members.
+    assert ("get_circle_overview", {"user_id": USER, "circle_id": FAMILY}) in service.calls
+    assert ctx.entities.circle(FAMILY).member_count == 2
 
     service.errors["remove_member"] = OneLocationCircleError(
         "LOCATION_CIRCLE_OWNER_REQUIRED", "Only the owner can remove members."
@@ -905,3 +1068,445 @@ def test_build_circle_join_url_matches_webapp_twin(monkeypatch):
     for key in ("HUSHH_ONE_PUBLIC_APP_URL", "NEXT_PUBLIC_APP_URL", "APP_PUBLIC_URL"):
         monkeypatch.delenv(key, raising=False)
     assert circles.build_circle_join_url("AB CD") == "/circle/join?code=AB%20CD"
+
+
+# -- get_circle_details: the circle on screen, capabilities, no secrets --------------
+
+
+def _screen_with(circle_id: str) -> ScreenContext:
+    return ScreenContext(screen_id="one_location_circle", active_circle_id=circle_id)
+
+
+def test_get_circle_details_reads_the_circle_on_screen_without_an_argument():
+    service = FakeCircleService()
+    ctx = make_ctx(service, confirm_family=False, screen=_screen_with(FAMILY))
+    result = run("get_circle_details", ctx)
+    assert result.status == "ok"
+    assert result.circle.circle_id == FAMILY
+    assert result.circle.kind == "family" and result.circle.member_count == 2
+    assert result.circle.is_owner is True
+    assert result.circle.can_add_members is True
+    assert result.circle.can_manage is True
+    assert result.circle.can_delete is True
+    assert result.circle.can_leave is False
+    assert result.circle.member_limit == 100
+    assert result.spoken_facts == ["Family is a family circle with 2 members.", "You own it."]
+    # The screen id was only a hint: the read went through the authorized service.
+    assert ("get_circle_overview", {"user_id": USER, "circle_id": FAMILY}) in service.calls
+    # One authorized record by id is unambiguous: "rename it" can follow.
+    assert ctx.entities.circle(FAMILY) is not None
+    assert ctx.entities.last_circle_id == FAMILY
+    assert FAMILY in ctx.entities.offered_circle_ids
+
+
+def test_get_circle_details_never_reads_back_the_join_code():
+    ctx = make_ctx(screen=_screen_with(FAMILY))
+    public = run("get_circle_details", ctx).public()
+    text = str(public)
+    assert "SECRET-CODE" not in text
+    assert "activeInviteCode" not in text and "invite_code" not in text
+
+
+def test_get_circle_details_member_view_and_system_circle():
+    service = FakeCircleService()
+    service.circles[1] = _row(
+        WORK,
+        "Work Friends",
+        kind="friends",
+        role="member",
+        members=[("user-rohan", "Rohan"), (USER, "Me")],
+    )
+    ctx = make_ctx(service, confirm_family=False)
+    run("list_circles", ctx)  # offers WORK
+    result = run("get_circle_details", ctx, circle={"circle_id": WORK})
+    assert result.status == "ok"
+    assert result.circle.is_owner is False and result.circle.can_leave is True
+    assert result.circle.can_delete is False and result.circle.can_add_members is False
+    assert result.spoken_facts == [
+        "Work Friends is a friends circle with 2 members.",
+        "You're a member; the owner manages it.",
+    ]
+    service.circles[2] = _row(SCHOOL, "Emergency", isSystem=True, members=[(USER, "Me")])
+    run("list_circles", ctx)
+    result = run("get_circle_details", ctx, circle={"circle_id": SCHOOL})
+    assert result.circle.is_system is True and result.circle.system_kind == "sms"
+    assert result.circle.can_delete is False and result.circle.can_manage is True
+    assert result.spoken_facts[-1] == "It's managed by the app, so it can't be deleted."
+
+
+def test_get_circle_details_refuses_when_nothing_is_on_screen_or_offered():
+    ctx = make_ctx(confirm_family=False)
+    result = run("get_circle_details", ctx)
+    assert result.status == "rejected" and result.reason_code == "no_circle_in_view"
+    assert result.needs == "disambiguation"
+    # An id the model made up is not in scope even though the service would have found it.
+    result = run("get_circle_details", ctx, circle={"circle_id": WORK})
+    assert result.status == "rejected" and result.reason_code == "circle_not_offered"
+    assert ctx.entities.circle(WORK) is None
+
+
+def test_get_circle_details_is_a_refusal_when_the_read_fails():
+    service = FakeCircleService()
+    service.errors["get_circle_overview"] = OneLocationCircleError(
+        "LOCATION_CIRCLE_NOT_FOUND", "Circle not found.", status_code=404
+    )
+    ctx = make_ctx(service, confirm_family=False, screen=_screen_with(NOT_OFFERED))
+    result = run("get_circle_details", ctx)
+    assert result.status == "rejected" and result.reason_code == "LOCATION_CIRCLE_NOT_FOUND"
+    assert ctx.entities.circle(NOT_OFFERED) is None
+
+
+def test_confirm_circle_accepts_the_circle_on_screen():
+    ctx = make_ctx(confirm_family=False, screen=_screen_with(FAMILY))
+    result = run("confirm_circle", ctx, circle_id=FAMILY)
+    assert result.status == "confirmed" and ctx.entities.circle(FAMILY) is not None
+    other = make_ctx(confirm_family=False, screen=_screen_with(FAMILY))
+    assert run("confirm_circle", other, circle_id=WORK).reason_code == "circle_not_offered"
+
+
+# -- list_circle_members: paging honesty, roster candidates, failures ----------------
+
+
+def _big_family(service: FakeCircleService, count: int) -> None:
+    members = [(USER, "Me")] + [(f"user-{i:03d}", f"Member {i:03d}") for i in range(1, count)]
+    service.circles[0] = _row(FAMILY, "Family", kind="family", members=members)
+
+
+def test_list_circle_members_reads_the_roster_and_offers_member_ids_for_this_circle():
+    service = FakeCircleService()
+    ctx = make_ctx(service, screen=_screen_with(FAMILY))
+    result = run("list_circle_members", ctx)
+    assert result.status == "ok"
+    assert result.circle_id == FAMILY and result.circle_name == "Family"
+    assert [m.user_id for m in result.members] == [USER, PRIYA]
+    assert result.members[0].is_self is True and result.members[0].relationship == "self"
+    assert result.members[1].display_name == "Priya Nair"
+    assert result.members[1].relationship == "connected" and result.members[1].role == "member"
+    assert result.total_count == 2 and result.has_more is False and result.page == 1
+    assert result.spoken_facts == ["The Family circle has 2 members: Priya Nair and you."]
+    # Priya (not the viewer) may be confirmed next -- as a member of Family.
+    assert ctx.entities.offered_person_ids == [PRIYA]
+    assert ctx.entities.offered_person_circle_id == FAMILY
+    call = next(c for c in service.calls if c[0] == "list_circle_members_page")
+    assert call[1]["limit"] == circles.MEMBERS_PAGE_LIMIT
+
+
+def test_list_circle_members_distinguishes_the_page_from_the_total():
+    service = FakeCircleService()
+    _big_family(service, 45)
+    ctx = make_ctx(service)
+    first = run("list_circle_members", ctx, circle={"circle_id": FAMILY})
+    assert first.status == "ok"
+    assert len(first.members) == circles.MEMBERS_PAGE_LIMIT
+    assert first.total_count == 45 and first.has_more is True
+    assert first.spoken_facts[0].startswith("The Family circle has 45 members. Page 1 has ")
+    assert first.spoken_facts[0].endswith(", and 14 more.")
+    assert first.spoken_facts[1] == "There are more on the next page."
+    assert len(ctx.entities.offered_person_ids) == circles.MEMBERS_PAGE_LIMIT - 1  # self excluded
+    third = run("list_circle_members", ctx, circle={"circle_id": FAMILY}, page=3)
+    assert len(third.members) == 5 and third.has_more is False and third.total_count == 45
+    fourth = run("list_circle_members", ctx, circle={"circle_id": FAMILY}, page=4)
+    assert fourth.status == "none"
+    assert fourth.spoken_facts == ["There's nobody on page 4 of the Family circle."]
+    assert ctx.entities.offered_person_ids == []
+
+
+def test_list_circle_members_search_by_name_is_a_suggestion_only():
+    ctx = make_ctx(screen=_screen_with(FAMILY))
+    hit = run("list_circle_members", ctx, query="priya")
+    assert hit.status == "ok" and [m.user_id for m in hit.members] == [PRIYA]
+    assert hit.spoken_facts == ["In the Family circle, I found Priya Nair."]
+    miss = run("list_circle_members", ctx, query="nobody")
+    assert miss.status == "none"
+    assert miss.spoken_facts == ["Nobody in the Family circle matches that name."]
+    assert ctx.entities.offered_person_ids == []
+
+
+def test_list_circle_members_read_failure_is_never_an_empty_roster():
+    service = FakeCircleService()
+    service.errors["list_circle_members_page"] = OneLocationCircleError(
+        "LOCATION_CIRCLE_UNAVAILABLE", "Circle service is down."
+    )
+    ctx = make_ctx(service)
+    result = run("list_circle_members", ctx, circle={"circle_id": FAMILY})
+    assert result.status == "rejected" and result.reason_code == "LOCATION_CIRCLE_UNAVAILABLE"
+    assert not hasattr(result, "members")
+    # Nothing was offered from a read that failed.
+    assert ctx.entities.offered_person_ids == []
+    assert ctx.entities.offered_person_circle_id is None
+
+
+def test_list_circle_members_without_a_circle_needs_one():
+    result = run("list_circle_members", make_ctx(confirm_family=False))
+    assert result.status == "rejected" and result.reason_code == "no_circle_in_view"
+
+
+def test_duplicate_circle_names_are_read_by_id_not_name():
+    service = FakeCircleService()
+    twin = "77777777-7777-4777-8777-777777777777"
+    service.circles.append(
+        _row(twin, "Family", kind="other", members=[(USER, "Me"), (AYESHA, "Ayesha Sharma")])
+    )
+    ctx = make_ctx(service, confirm_family=False)
+    found = run("resolve_circle", ctx, spoken_name="family")
+    assert found.status == "multiple" and [c.circle_id for c in found.candidates] == [FAMILY, twin]
+    assert run("confirm_circle", ctx, circle_id=twin).status == "confirmed"
+    roster = run("list_circle_members", ctx, circle={"circle_id": twin})
+    assert [m.user_id for m in roster.members] == [USER, AYESHA]
+    assert ctx.entities.offered_person_circle_id == twin
+    details = run("get_circle_details", ctx, circle={"circle_id": twin})
+    assert details.circle.kind == "other"
+
+
+# -- stale references after rename / delete ------------------------------------------
+
+
+def test_rename_updates_the_remembered_name_and_leaves_kind_alone():
+    service = FakeCircleService()
+    ctx = make_ctx(service)
+    result = run("rename_circle", ctx, circle={"circle_id": FAMILY}, name="Fam")
+    assert result.status == "renamed" and result.circle.kind == "family"
+    assert (
+        ctx.entities.circle(FAMILY).name == "Fam" and ctx.entities.circle(FAMILY).kind == "family"
+    )
+    call = next(c for c in service.calls if c[0] == "update_circle")
+    assert call[1] == {"owner_user_id": USER, "circle_id": FAMILY, "name": "Fam", "kind": None}
+    # "Rename it again" targets the same id, not a name search.
+    assert ctx.entities.last_circle_id == FAMILY
+
+
+def test_delete_invalidates_the_circle_and_its_roster_candidates():
+    service = FakeCircleService()
+    ctx = make_ctx(service)
+    run("list_circle_members", ctx, circle={"circle_id": FAMILY})
+    assert ctx.entities.offered_person_ids == [PRIYA]
+    result = run("delete_circle", ctx, circle={"circle_id": FAMILY})
+    assert result.status == "deleted"
+    assert ctx.entities.circle(FAMILY) is None and ctx.entities.last_circle_id is None
+    assert FAMILY not in ctx.entities.offered_circle_ids
+    assert ctx.entities.offered_person_ids == [] and ctx.entities.offered_person_circle_id is None
+
+
+# -- add_circle_member: every prerequisite state, on a fresh read --------------------
+
+
+def _confirm(ctx: ToolContext, user_id: str, name: str, relationship: str = "none") -> None:
+    ctx.entities.remember_person(
+        ConfirmedPerson(
+            user_id=user_id,
+            display_name=name,
+            relationship=relationship,  # type: ignore[arg-type]
+            confirmed_at=now_iso(),
+        )
+    )
+
+
+def test_add_circle_member_already_member_is_reported_before_any_write():
+    service = FakeCircleService()
+    ctx = make_ctx(service)
+    _confirm(ctx, PRIYA, "Priya Nair", "connected")
+    result = run("add_circle_member", ctx, circle={"circle_id": FAMILY}, person={"user_id": PRIYA})
+    assert result.status == "already_member"
+    assert result.spoken_facts == ["Priya Nair is already in the Family circle."]
+    assert not any(name == "create_member_invites" for name, _ in service.calls)
+
+
+def test_add_circle_member_reports_a_pending_outgoing_connection_request():
+    service = FakeCircleService()
+    connections = FakeConnectionsService()
+    connections.outgoing = [_request("req-1", "user-rohan", "Rohan Mehta")]
+    ctx = make_ctx(service, connections=connections)
+    # Confirmed earlier as not connected; the request was sent since. The
+    # decision is made on the fresh read, not the stale card.
+    _confirm(ctx, "user-rohan", "Rohan Mehta", "none")
+    result = run(
+        "add_circle_member", ctx, circle={"circle_id": FAMILY}, person={"user_id": "user-rohan"}
+    )
+    assert result.status == "connection_pending_outgoing"
+    assert result.relationship == "pending_outgoing"
+    assert result.spoken_facts == [
+        "Your connection request to Rohan Mehta is still pending. "
+        "They can be added to the Family circle once they accept."
+    ]
+    assert result.needs is None
+    assert not any(name == "create_member_invites" for name, _ in service.calls)
+
+
+def test_add_circle_member_reports_a_pending_incoming_connection_request():
+    connections = FakeConnectionsService()
+    connections.incoming = [_request("req-2", "user-kushal", "Kushal Rao")]
+    ctx = make_ctx(connections=connections)
+    _confirm(ctx, "user-kushal", "Kushal Rao", "pending_incoming")
+    result = run(
+        "add_circle_member", ctx, circle={"circle_id": FAMILY}, person={"user_id": "user-kushal"}
+    )
+    assert result.status == "connection_pending_incoming"
+    assert result.spoken_facts == [
+        "Kushal Rao has asked to connect with you. "
+        "Accept their request first, then they can be added to the Family circle."
+    ]
+
+
+def test_add_circle_member_connected_but_not_eligible_is_its_own_state():
+    ctx = make_ctx()  # Priya is connected (people plane) but not in Family's eligible list
+    _confirm(ctx, PRIYA, "Priya Nair", "connected")
+    ctx.services[circles.CIRCLE_SERVICE].circles[0]["members"] = [
+        m
+        for m in ctx.services[circles.CIRCLE_SERVICE].circles[0]["members"]
+        if m["userId"] != PRIYA
+    ]
+    result = run("add_circle_member", ctx, circle={"circle_id": FAMILY}, person={"user_id": PRIYA})
+    assert result.status == "not_eligible" and result.relationship == "connected"
+    assert result.spoken_facts == [
+        "Priya Nair is connected with you, but can't be added to the Family circle right now."
+    ]
+
+
+def test_add_circle_member_falls_back_to_the_confirmed_relationship_when_people_plane_is_down():
+    from hushh_mcp.services.connections_service import ConnectionsError
+
+    class DownConnections(FakeConnectionsService):
+        def list_connections(self, user_id: str):
+            raise ConnectionsError("CONNECTIONS_UNAVAILABLE", "People are unavailable.")
+
+    ctx = make_ctx(connections=DownConnections())
+    _confirm(ctx, "user-rohan", "Rohan Mehta", "pending_outgoing")
+    result = run(
+        "add_circle_member", ctx, circle={"circle_id": FAMILY}, person={"user_id": "user-rohan"}
+    )
+    assert result.status == "connection_pending_outgoing"
+
+
+def test_add_circle_member_count_is_dropped_not_guessed_when_the_refresh_fails():
+    service = FakeCircleService()
+    service.errors["get_circle_overview"] = OneLocationCircleError(
+        "LOCATION_CIRCLE_UNAVAILABLE", "Circle service is down."
+    )
+    ctx = make_ctx(service)
+    result = run("add_circle_member", ctx, circle={"circle_id": FAMILY}, person={"user_id": AYESHA})
+    assert result.status == "added"
+    assert ctx.entities.circle(FAMILY).member_count is None
+
+
+# -- remove via the roster: a member who is not a connection ------------------------
+
+
+def _people_ctx_with_roster_member() -> tuple[ToolContext, FakeCircleService]:
+    """Family has a member, Dev, who joined by link and is nobody's connection
+    and hidden from the directory. Only the roster knows him."""
+    service = FakeCircleService()
+    service.circles[0]["members"].append(
+        {
+            "userId": "user-dev",
+            "displayName": "Dev Patel",
+            "role": "member",
+            "relationship": "none",
+            "joinedAt": "2030-01-04T00:00:00+00:00",
+            "phoneVerified": True,
+        }
+    )
+    return make_ctx(service), service
+
+
+def test_remove_member_resolves_the_person_from_the_roster_not_the_connections_list():
+    from hushh_mcp.one_voice.tools import people
+
+    ctx, service = _people_ctx_with_roster_member()
+    person_tool = next(t for t in people.TOOLS if t.name == "confirm_person")
+
+    # Not a connection, not in the directory: resolve_person cannot offer him.
+    resolve_tool = next(t for t in people.TOOLS if t.name == "resolve_person")
+    found = asyncio.run(
+        resolve_tool.handler(ctx, resolve_tool.input_model.model_validate({"spoken_name": "Dev"}))
+    )
+    assert "user-dev" not in [c.user_id for c in getattr(found, "candidates", [])]
+
+    # The roster offers him, bound to Family.
+    roster = run("list_circle_members", ctx, circle={"circle_id": FAMILY})
+    assert "user-dev" in ctx.entities.offered_person_ids
+    assert ctx.entities.offered_person_circle_id == FAMILY
+    confirmed = asyncio.run(
+        person_tool.handler(ctx, person_tool.input_model.model_validate({"user_id": "user-dev"}))
+    )
+    assert confirmed.status == "confirmed"
+    assert confirmed.person.display_name == "Dev Patel"
+    assert ctx.entities.person("user-dev").relationship == "none"
+    # Revalidated against the circle's membership, not taken from the model.
+    assert ("get_circle", {"user_id": USER, "circle_id": FAMILY}) in service.calls
+
+    removed = run(
+        "remove_circle_member", ctx, circle={"circle_id": FAMILY}, person={"user_id": "user-dev"}
+    )
+    assert removed.status == "removed"
+    assert removed.spoken_facts == ["Removed Dev Patel from the Family circle."]
+    assert (
+        "remove_member",
+        {"owner_user_id": USER, "circle_id": FAMILY, "member_user_id": "user-dev"},
+    ) in service.calls
+    # The count is the server's after the change, and he is no longer a candidate.
+    assert ctx.entities.circle(FAMILY).member_count == 2
+    assert "user-dev" not in ctx.entities.offered_person_ids
+    # Membership ended; the connection graph was never touched.
+    assert not any(name == "remove_connection" for name, _ in service.calls)
+    assert len(roster.members) == 3
+
+
+def test_roster_candidate_who_left_since_the_read_is_not_confirmed():
+    from hushh_mcp.one_voice.tools import people
+
+    ctx, service = _people_ctx_with_roster_member()
+    run("list_circle_members", ctx, circle={"circle_id": FAMILY})
+    assert "user-dev" in ctx.entities.offered_person_ids
+    service.circles[0]["members"] = [
+        m for m in service.circles[0]["members"] if m["userId"] != "user-dev"
+    ]
+    person_tool = next(t for t in people.TOOLS if t.name == "confirm_person")
+    result = asyncio.run(
+        person_tool.handler(ctx, person_tool.input_model.model_validate({"user_id": "user-dev"}))
+    )
+    assert result.status == "rejected" and result.reason_code == "person_not_found"
+    assert ctx.entities.person("user-dev") is None
+
+
+def test_resolve_person_clears_the_roster_source():
+    from hushh_mcp.one_voice.tools import people
+
+    ctx, _ = _people_ctx_with_roster_member()
+    run("list_circle_members", ctx, circle={"circle_id": FAMILY})
+    assert ctx.entities.offered_person_circle_id == FAMILY
+    resolve_tool = next(t for t in people.TOOLS if t.name == "resolve_person")
+    asyncio.run(
+        resolve_tool.handler(ctx, resolve_tool.input_model.model_validate({"spoken_name": "Priya"}))
+    )
+    assert ctx.entities.offered_person_circle_id is None
+    assert "user-dev" not in ctx.entities.offered_person_ids
+
+
+# -- executor: roster-confirmed member reaches a tap-tier card, never runs on its own --
+
+
+def test_executor_creates_a_tap_card_for_a_roster_confirmed_removal():
+    from tests.one_voice.fakes import MemoryPendingStore
+
+    ctx, service = _people_ctx_with_roster_member()
+    executor = ToolExecutor(pending_store=MemoryPendingStore())
+    asyncio.run(executor.call(ctx, "list_circle_members", {"circle": {"circle_id": FAMILY}}))
+    confirmed = asyncio.run(executor.call(ctx, "confirm_person", {"user_id": "user-dev"}))
+    assert confirmed.result.status == "confirmed"
+    outcome = asyncio.run(
+        executor.call(
+            ctx,
+            "remove_circle_member",
+            {"circle": {"circle_id": FAMILY}, "person": {"user_id": "user-dev"}},
+        )
+    )
+    assert outcome.result.status == "confirmation_required"
+    assert outcome.result.tier == "tap" and outcome.receipt_token
+    assert outcome.pending is not None and outcome.pending.tool_name == "remove_circle_member"
+    assert not any(name == "remove_member" for name, _ in service.calls)
+    # Identity confirmation is not mutation approval: a spoken yes is refused.
+    spoken = asyncio.run(
+        executor.call(ctx, "confirm_pending_action", {"pending_action_id": outcome.pending.id})
+    )
+    assert spoken.result.status == "tap_required"
+    assert not any(name == "remove_member" for name, _ in service.calls)

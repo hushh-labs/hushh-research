@@ -31,6 +31,8 @@ from hushh_mcp.one_voice.tools.base import (
     ToolSpec,
     now_iso,
 )
+from hushh_mcp.one_voice.tools.people import ServiceError as PeopleServiceError
+from hushh_mcp.one_voice.tools.people import load_people_snapshot
 from hushh_mcp.services.one_location_agent_service import OneLocationAgentError
 from hushh_mcp.services.one_location_circle_service import (
     OneLocationCircleError,
@@ -50,6 +52,9 @@ REFRESH_CIRCLES = ("location_circles",)
 REFRESH_INVITES = ("location_circles", "location_needs_review")
 # How many circle names / invitations are read aloud before "and N more".
 SPOKEN_LIST_LIMIT = 6
+# One roster page. Bounded so a large circle is read a page at a time and the
+# result always says whether more follow; never the whole roster at once.
+MEMBERS_PAGE_LIMIT = 20
 
 CircleKind = Literal["family", "friends", "other"]
 InviteStatus = Literal["pending", "accepted", "declined", "cancelled", "expired"]
@@ -109,6 +114,77 @@ def _forget(ctx: ToolContext, circle_id: str) -> None:
     ctx.entities.offered_circle_ids = [
         item for item in ctx.entities.offered_circle_ids if item != circle_id
     ]
+    if ctx.entities.offered_person_circle_id == circle_id:
+        ctx.entities.offer_people([])
+
+
+def _in_scope(ctx: ToolContext, circle_id: str) -> bool:
+    """An id a read tool may act on: confirmed in this conversation, offered by
+    the last list/resolve, or the circle whose screen is open. Anything else is
+    an id the model made up."""
+    return (
+        ctx.entities.circle(circle_id) is not None
+        or circle_id in ctx.entities.offered_circle_ids
+        or circle_id == ctx.screen.active_circle_id
+    )
+
+
+def _target_circle_id(ctx: ToolContext, ref: CircleRef | None) -> str | Rejected:
+    """The circle a read is about: the given id if in scope, else the one on
+    screen. The screen id is a hint only; the service authorizes the read."""
+    if ref is not None:
+        if not _in_scope(ctx, ref.circle_id):
+            return Rejected(
+                reason_code="circle_not_offered",
+                needs="disambiguation",
+                spoken_facts=["That circle wasn't one of the options. Let me look it up again."],
+            )
+        return ref.circle_id
+    active = str(ctx.screen.active_circle_id or "")
+    if active:
+        return active
+    return Rejected(
+        reason_code="no_circle_in_view",
+        needs="disambiguation",
+        spoken_facts=["Which circle do you mean?"],
+    )
+
+
+async def _refresh_remembered(ctx: ToolContext, circle_id: str) -> None:
+    """Re-read the circle after a membership change so the remembered count is
+    the server's, not a cached number plus or minus one. If the read fails the
+    count is dropped rather than guessed."""
+    service = _service(ctx)
+    try:
+        row = dict(
+            await asyncio.to_thread(
+                service.get_circle_overview, user_id=ctx.user_id, circle_id=circle_id
+            )
+            or {}
+        )
+    except _SERVICE_ERRORS:
+        row = {}
+    if row.get("id"):
+        _remember(ctx, row)
+        return
+    circle = ctx.entities.circle(circle_id)
+    if circle is not None:
+        ctx.entities.remember_circle(circle.model_copy(update={"member_count": None}))
+
+
+async def _fresh_relationship(ctx: ToolContext, user_id: str) -> str:
+    """The person's current relationship to the viewer, re-read now. Falls
+    back to what was true when they were confirmed if the people plane is
+    unavailable, and says so via ``none`` only when nothing is known."""
+    try:
+        snapshot = await load_people_snapshot(ctx)
+    except PeopleServiceError:
+        person = ctx.entities.person(user_id)
+        return person.relationship if person is not None else "none"
+    record = snapshot.people.get(user_id)
+    if record is not None:
+        return str(record.get("relationship") or "none")
+    return "none"
 
 
 def _public_app_origin() -> str:
@@ -151,6 +227,80 @@ class CircleSummary(BaseModel):
             member_count=int(row.get("memberCount") or 0),
             is_owner=str(row.get("role") or "") == "owner",
             is_system=bool(row.get("isSystem")),
+        )
+
+
+class CircleDetails(CircleSummary):
+    """What ``get_circle_details`` reads back: the summary plus the viewer's
+    capabilities and the product classification. Never the join code."""
+
+    system_kind: str | None = None
+    member_limit: int | None = None
+    can_add_members: bool = False
+    can_manage: bool = False
+    can_delete: bool = False
+    can_leave: bool = False
+    updated_at: str | None = None
+
+    @classmethod
+    def from_overview(cls, row: dict[str, Any]) -> CircleDetails:
+        caps = dict(row.get("viewerCapabilities") or {})
+        base = CircleSummary.from_row(row)
+        limit = row.get("memberLimit")
+        return cls(
+            **base.model_dump(),
+            system_kind=str(row.get("systemKind") or "") or None,
+            member_limit=int(limit) if isinstance(limit, int) else None,
+            can_add_members=bool(caps.get("canInviteMembers")),
+            can_manage=bool(caps.get("canManageCircle")),
+            can_delete=bool(caps.get("canDeleteCircle")),
+            can_leave=bool(caps.get("canLeaveCircle")),
+            updated_at=str(row.get("updatedAt") or "") or None,
+        )
+
+    def spoken(self) -> list[str]:
+        kind = "" if self.kind == "other" else f"{self.kind} "
+        count = f"{self.member_count} member{'s' if self.member_count != 1 else ''}"
+        facts = [f"{self.name} is a {kind}circle with {count}."]
+        if self.is_owner:
+            facts.append("You own it.")
+        else:
+            facts.append("You're a member; the owner manages it.")
+        if self.is_system and self.is_owner and not self.can_delete:
+            facts.append("It's managed by the app, so it can't be deleted.")
+        return facts
+
+
+class CircleMember(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    user_id: str
+    display_name: str
+    role: str
+    # Membership is not connection: how this member relates to the viewer.
+    relationship: Literal["connected", "pending_outgoing", "pending_incoming", "none", "self"]
+    is_self: bool = False
+    joined_at: str | None = None
+
+    @classmethod
+    def from_row(cls, row: dict[str, Any], *, viewer_user_id: str) -> CircleMember:
+        user_id = str(row.get("userId") or "")
+        relationship = str(row.get("relationship") or "none")
+        if relationship not in {
+            "connected",
+            "pending_outgoing",
+            "pending_incoming",
+            "none",
+            "self",
+        }:
+            relationship = "none"
+        is_self = user_id == viewer_user_id
+        return cls(
+            user_id=user_id,
+            display_name=str(row.get("displayName") or "") or "Circle member",
+            role=str(row.get("role") or "member"),
+            relationship="self" if is_self else relationship,  # type: ignore[arg-type]
+            is_self=is_self,
+            joined_at=str(row.get("joinedAt") or "") or None,
         )
 
 
@@ -321,7 +471,10 @@ class ConfirmCircleResult(ToolResult):
 
 
 async def confirm_circle(ctx: ToolContext, args: ConfirmCircleInput) -> ToolResult:
-    if args.circle_id not in ctx.entities.offered_circle_ids:
+    if (
+        args.circle_id not in ctx.entities.offered_circle_ids
+        and args.circle_id != ctx.screen.active_circle_id
+    ):
         return Rejected(
             reason_code="circle_not_offered",
             needs="disambiguation",
@@ -341,6 +494,164 @@ async def confirm_circle(ctx: ToolContext, args: ConfirmCircleInput) -> ToolResu
         circle=CircleSummary.from_row(row),
         spoken_facts=[f"Got it, {_circle_label(circle.name)}."],
     )
+
+
+# -- get_circle_details -----------------------------------------------------------
+
+
+class GetCircleDetailsInput(ToolInput):
+    circle: CircleRef | None = Field(
+        default=None,
+        description=(
+            "A circle id from list_circles, resolve_circle, or confirm_circle. Leave it out to "
+            "read the circle whose screen the person is looking at."
+        ),
+    )
+
+
+class GetCircleDetailsResult(ToolResult):
+    status: Literal["ok"]
+    circle: CircleDetails
+
+
+async def get_circle_details(ctx: ToolContext, args: GetCircleDetailsInput) -> ToolResult:
+    target = _target_circle_id(ctx, args.circle)
+    if isinstance(target, Rejected):
+        return target
+    service = _service(ctx)
+    try:
+        row = dict(
+            await asyncio.to_thread(
+                service.get_circle_overview, user_id=ctx.user_id, circle_id=target
+            )
+            or {}
+        )
+    except _SERVICE_ERRORS as exc:
+        return _rejected(exc)
+    details = CircleDetails.from_overview(row)
+    # An authorized read of one circle by id is an unambiguous canonical
+    # record, so "rename it" can follow without a resolve/confirm round trip.
+    _remember(ctx, row)
+    if details.circle_id not in ctx.entities.offered_circle_ids:
+        ctx.entities.offered_circle_ids = [details.circle_id]
+    return GetCircleDetailsResult(status="ok", circle=details, spoken_facts=details.spoken())
+
+
+# -- list_circle_members ----------------------------------------------------------
+
+
+class ListCircleMembersInput(ToolInput):
+    circle: CircleRef | None = Field(
+        default=None,
+        description=(
+            "A circle id from list_circles, resolve_circle, or confirm_circle. Leave it out to "
+            "read the circle whose screen the person is looking at."
+        ),
+    )
+    query: str | None = Field(
+        default=None,
+        max_length=120,
+        description="A name to look for in the roster. Suggestion only; never an id.",
+    )
+    page: int = Field(default=1, ge=1, le=50, description="Roster page, starting at 1.")
+
+
+class ListCircleMembersResult(ToolResult):
+    status: Literal["ok", "none"]
+    circle_id: str
+    circle_name: str
+    members: list[CircleMember] = Field(default_factory=list)
+    page: int = 1
+    has_more: bool = False
+    total_count: int = 0
+
+
+def _spoken_members(members: list[CircleMember]) -> str:
+    names = [("you" if member.is_self else member.display_name) for member in members]
+    # "you" reads best last.
+    names.sort(key=lambda name: name == "you")
+    # ``spoken_name_resolver`` is an un-followed module; pin its str contract.
+    spoken: str = join_names_for_speech(names)
+    return spoken
+
+
+async def list_circle_members(ctx: ToolContext, args: ListCircleMembersInput) -> ToolResult:
+    target = _target_circle_id(ctx, args.circle)
+    if isinstance(target, Rejected):
+        return target
+    service = _service(ctx)
+    circle = ctx.entities.circle(target)
+    try:
+        if circle is None:
+            row = dict(
+                await asyncio.to_thread(
+                    service.get_circle_overview, user_id=ctx.user_id, circle_id=target
+                )
+                or {}
+            )
+            circle = _remember(ctx, row)
+        page = dict(
+            await asyncio.to_thread(
+                service.list_circle_members_page,
+                user_id=ctx.user_id,
+                circle_id=target,
+                query=str(args.query or ""),
+                page=args.page,
+                limit=MEMBERS_PAGE_LIMIT,
+            )
+            or {}
+        )
+    except _SERVICE_ERRORS as exc:
+        # A failed read is a refusal, never an empty roster.
+        return _rejected(exc)
+    members = [
+        CircleMember.from_row(dict(item), viewer_user_id=ctx.user_id)
+        for item in (page.get("items") or [])
+    ]
+    total = int(page.get("totalCount") or 0)
+    has_more = bool(page.get("hasMore"))
+    label = _circle_label(circle.name)
+    # Every member here came from the authorized roster; any of them (but not
+    # the person themself) may be confirmed next, as a member of THIS circle.
+    ctx.entities.offer_people(
+        [member.user_id for member in members if not member.is_self], circle_id=target
+    )
+    base: dict[str, Any] = {
+        "circle_id": target,
+        "circle_name": circle.name,
+        "page": int(page.get("page") or args.page),
+        "has_more": has_more,
+        "total_count": total,
+    }
+    if not members:
+        fact = (
+            f"Nobody in {label} matches that name."
+            if args.query
+            else f"There's nobody on page {args.page} of {label}."
+            if args.page > 1
+            else f"{label[0].upper()}{label[1:]} has no members yet."
+        )
+        return ListCircleMembersResult(status="none", **base, spoken_facts=[fact])
+    spoken = _spoken_members(members[:SPOKEN_LIST_LIMIT])
+    extra = len(members) - min(len(members), SPOKEN_LIST_LIMIT)
+    if args.query:
+        facts = [f"In {label}, I found {spoken}."]
+    elif has_more or args.page > 1:
+        # "the first 20" and "20 members" are different claims; keep both.
+        facts = [
+            f"{label[0].upper()}{label[1:]} has {total} members. "
+            f"Page {base['page']} has {spoken}" + (f", and {extra} more" if extra > 0 else "") + "."
+        ]
+        if has_more:
+            facts.append("There are more on the next page.")
+    else:
+        count = f"{total} member{'s' if total != 1 else ''}"
+        facts = [
+            f"{label[0].upper()}{label[1:]} has {count}: {spoken}"
+            + (f", and {extra} more" if extra > 0 else "")
+            + "."
+        ]
+    return ListCircleMembersResult(status="ok", members=members, **base, spoken_facts=facts)
 
 
 # -- create_circle ----------------------------------------------------------------
@@ -480,38 +791,61 @@ class AddCircleMemberInput(ToolInput):
     person: PersonRef
 
 
+AddMemberStatus = Literal[
+    "added",
+    "invite_pending",
+    "already_member",
+    "not_connected",
+    "connection_pending_outgoing",
+    "connection_pending_incoming",
+    "not_eligible",
+]
+
+
 class AddCircleMemberResult(ToolResult):
-    status: Literal["added", "invite_pending", "already_member", "not_connected"]
+    status: AddMemberStatus
     circle_id: str
     user_id: str
+    # The relationship the decision was made on, re-read at execution time.
+    relationship: str | None = None
 
 
 async def add_circle_member(ctx: ToolContext, args: AddCircleMemberInput) -> ToolResult:
+    """Add one confirmed connection to one confirmed circle.
+
+    Decision order, every branch on a fresh read: already a member -> report
+    it; an eligible direct connection -> the service's direct add; otherwise
+    say exactly which prerequisite is missing (a pending request either way,
+    a legacy circle invitation, or no connection at all). Nothing here sends
+    a connection request: that is its own action with its own confirmation.
+    """
     circle_id = args.circle.circle_id
     user_id = args.person.user_id
     person_name = _person_name(ctx, user_id)
     circle_label = _circle_label(_circle_name(ctx, circle_id))
     service = _service(ctx)
     base: dict[str, Any] = {"circle_id": circle_id, "user_id": user_id}
+
+    def already() -> AddCircleMemberResult:
+        return AddCircleMemberResult(
+            status="already_member",
+            **base,
+            spoken_facts=[f"{person_name} is already in {circle_label}."],
+        )
+
     try:
+        circle_row = dict(
+            await asyncio.to_thread(service.get_circle, user_id=ctx.user_id, circle_id=circle_id)
+            or {}
+        )
+        member_ids = {str(row.get("userId") or "") for row in (circle_row.get("members") or [])}
+        if user_id in member_ids:
+            return already()
         eligible = await asyncio.to_thread(
             service.list_eligible_direct_connections, actor_user_id=ctx.user_id, circle_id=circle_id
         )
         eligible_ids = {str(row.get("userId") or "") for row in (eligible or [])}
         if user_id not in eligible_ids:
-            circle_row = dict(
-                await asyncio.to_thread(
-                    service.get_circle, user_id=ctx.user_id, circle_id=circle_id
-                )
-                or {}
-            )
-            member_ids = {str(row.get("userId") or "") for row in (circle_row.get("members") or [])}
-            if user_id in member_ids:
-                return AddCircleMemberResult(
-                    status="already_member",
-                    **base,
-                    spoken_facts=[f"{person_name} is already in {circle_label}."],
-                )
             outgoing = await asyncio.to_thread(
                 service.list_member_invites,
                 user_id=ctx.user_id,
@@ -531,13 +865,46 @@ async def add_circle_member(ctx: ToolContext, args: AddCircleMemberInput) -> Too
                             "It's pending until they accept."
                         ],
                     )
+            relationship = await _fresh_relationship(ctx, user_id)
+            if relationship == "pending_outgoing":
+                return AddCircleMemberResult(
+                    status="connection_pending_outgoing",
+                    relationship=relationship,
+                    **base,
+                    spoken_facts=[
+                        f"Your connection request to {person_name} is still pending. "
+                        f"They can be added to {circle_label} once they accept."
+                    ],
+                )
+            if relationship == "pending_incoming":
+                return AddCircleMemberResult(
+                    status="connection_pending_incoming",
+                    relationship=relationship,
+                    **base,
+                    spoken_facts=[
+                        f"{person_name} has asked to connect with you. "
+                        f"Accept their request first, then they can be added to {circle_label}."
+                    ],
+                )
+            if relationship == "connected":
+                return AddCircleMemberResult(
+                    status="not_eligible",
+                    relationship=relationship,
+                    **base,
+                    spoken_facts=[
+                        f"{person_name} is connected with you, but can't be added to "
+                        f"{circle_label} right now."
+                    ],
+                )
             return AddCircleMemberResult(
                 status="not_connected",
+                relationship=relationship,
                 **base,
                 needs="invite",
                 spoken_facts=[
-                    f"{person_name} isn't a connection you can add to {circle_label} yet. "
-                    "Connect with them first, or share the circle's invite link."
+                    f"You aren't connected with {person_name} yet, so they can't be added to "
+                    f"{circle_label}. Send them a connection request, or share the circle's "
+                    "join link."
                 ],
             )
         result = await asyncio.to_thread(
@@ -548,11 +915,7 @@ async def add_circle_member(ctx: ToolContext, args: AddCircleMemberInput) -> Too
         )
     except _SERVICE_ERRORS as exc:
         if getattr(exc, "code", "") == "LOCATION_CIRCLE_ALREADY_MEMBER":
-            return AddCircleMemberResult(
-                status="already_member",
-                **base,
-                spoken_facts=[f"{person_name} is already in {circle_label}."],
-            )
+            return already()
         if getattr(exc, "code", "") == "LOCATION_CIRCLE_DIRECT_CONNECTION_REQUIRED":
             return AddCircleMemberResult(
                 status="not_connected",
@@ -564,13 +927,10 @@ async def add_circle_member(ctx: ToolContext, args: AddCircleMemberInput) -> Too
         return _rejected(exc)
     result = dict(result or {})
     if user_id in {str(item) for item in (result.get("addedUserIds") or [])}:
-        circle = ctx.entities.circle(circle_id)
-        if circle is not None and circle.member_count is not None:
-            ctx.entities.remember_circle(
-                circle.model_copy(update={"member_count": circle.member_count + 1})
-            )
+        await _refresh_remembered(ctx, circle_id)
         return AddCircleMemberResult(
             status="added",
+            relationship="connected",
             **base,
             spoken_facts=[f"Added {person_name} to {circle_label}."],
         )
@@ -585,11 +945,7 @@ async def add_circle_member(ctx: ToolContext, args: AddCircleMemberInput) -> Too
             )
     skipped = dict(result.get("skippedReasons") or {})
     if skipped.get(user_id) == "already_member":
-        return AddCircleMemberResult(
-            status="already_member",
-            **base,
-            spoken_facts=[f"{person_name} is already in {circle_label}."],
-        )
+        return already()
     return Rejected(
         reason_code=str(skipped.get(user_id) or "not_added"),
         spoken_facts=[f"{person_name} wasn't added to {circle_label}."],
@@ -630,10 +986,12 @@ async def remove_circle_member(ctx: ToolContext, args: RemoveCircleMemberInput) 
         )
     except _SERVICE_ERRORS as exc:
         return _rejected(exc)
-    circle = ctx.entities.circle(args.circle.circle_id)
-    if circle is not None and circle.member_count:
-        ctx.entities.remember_circle(
-            circle.model_copy(update={"member_count": circle.member_count - 1})
+    await _refresh_remembered(ctx, args.circle.circle_id)
+    if args.person.user_id in ctx.entities.offered_person_ids:
+        # They are no longer a roster candidate for this circle.
+        ctx.entities.offer_people(
+            [uid for uid in ctx.entities.offered_person_ids if uid != args.person.user_id],
+            circle_id=ctx.entities.offered_person_circle_id,
         )
     return RemoveCircleMemberResult(
         status="removed",
@@ -983,6 +1341,36 @@ TOOLS: tuple[ToolSpec, ...] = (
         handler=confirm_circle,
     ),
     ToolSpec(
+        name="get_circle_details",
+        gateway_action_id="location.open_circles",
+        policy=ToolPolicy.read,
+        input_model=GetCircleDetailsInput,
+        output_model=GetCircleDetailsResult,
+        description=(
+            "Read one circle's current name, kind, member count, whether the person owns it, "
+            "and what they can do with it (add members, rename, delete, leave). Read only. With "
+            "no circle argument it reads the circle whose screen is open, so it answers 'this "
+            "circle'. Use it to answer who manages a circle or what kind it is."
+        ),
+        handler=get_circle_details,
+    ),
+    ToolSpec(
+        name="list_circle_members",
+        gateway_action_id="location.open_circles",
+        policy=ToolPolicy.read,
+        input_model=ListCircleMembersInput,
+        output_model=ListCircleMembersResult,
+        description=(
+            "Read who is in a circle: one page of members with each one's canonical id, real "
+            "name, role, and relationship to the person. Read only. With no circle argument it "
+            "reads the circle whose screen is open. Use it for 'who is in this group' and to "
+            "find the member to remove: someone can be in a circle without being a connection, "
+            "so remove_circle_member needs a member from here confirmed with confirm_person. "
+            "The result says whether more pages follow; the total is the total, not the page."
+        ),
+        handler=list_circle_members,
+    ),
+    ToolSpec(
         name="create_circle",
         gateway_action_id="location.create_circle",
         policy=ToolPolicy.confirm_voice,
@@ -1004,7 +1392,8 @@ TOOLS: tuple[ToolSpec, ...] = (
         input_model=RenameCircleInput,
         output_model=RenameCircleResult,
         description=(
-            "Rename a circle the person owns. Takes a confirmed circle id, never a spoken name."
+            "Rename a circle the person owns. Changes only the name: members, kind, sharing, and "
+            "ownership stay as they are. Takes a confirmed circle id, never a spoken name."
         ),
         handler=rename_circle,
         circle_args=("circle",),
@@ -1033,10 +1422,12 @@ TOOLS: tuple[ToolSpec, ...] = (
         input_model=AddCircleMemberInput,
         output_model=AddCircleMemberResult,
         description=(
-            "Add a confirmed person to a confirmed circle. Only an existing connection who is "
-            "eligible for that circle can be added; the result says whether they were added, are "
-            "already a member, have a pending invitation, or are not connected (then share the "
-            "circle's invite link instead). Both arguments are canonical ids, never names."
+            "Add a confirmed person to a confirmed circle. Only an existing connection can be "
+            "added; the result says exactly what happened: added, already_member, invite_pending, "
+            "connection_pending_outgoing (your request to them is waiting), "
+            "connection_pending_incoming (their request to you is waiting), not_eligible, or "
+            "not_connected. It never sends a connection request: that is invite_person, and only "
+            "if the person asks. Both arguments are canonical ids, never names."
         ),
         handler=add_circle_member,
         person_args=("person",),
@@ -1051,8 +1442,10 @@ TOOLS: tuple[ToolSpec, ...] = (
         input_model=RemoveCircleMemberInput,
         output_model=RemoveCircleMemberResult,
         description=(
-            "Remove a confirmed person from a circle the person owns. Revokes what that circle "
-            "shared with them, so it needs a tap on the confirmation card."
+            "Remove a confirmed person from a circle the person owns. Only that circle membership "
+            "ends: it does not disconnect from them (remove_connection) and does not delete the "
+            "circle. Revokes what that circle shared with them, so it needs a tap on the "
+            "confirmation card."
         ),
         handler=remove_circle_member,
         person_args=("person",),
@@ -1067,8 +1460,9 @@ TOOLS: tuple[ToolSpec, ...] = (
         input_model=LeaveCircleInput,
         output_model=LeaveCircleResult,
         description=(
-            "Leave a circle the person is a member of but does not own. Ends the sharing that "
-            "circle gave them, so it needs a tap on the confirmation card."
+            "Leave a circle the person is a member of but does not own: only their own "
+            "membership ends, the circle stays for everyone else (that is not delete_circle). "
+            "Ends the sharing that circle gave them, so it needs a tap on the confirmation card."
         ),
         handler=leave_circle,
         circle_args=("circle",),
@@ -1134,4 +1528,4 @@ TOOLS: tuple[ToolSpec, ...] = (
     ),
 )
 
-__all__ = ["TOOLS", "build_circle_join_url", "match_circles"]
+__all__ = ["MEMBERS_PAGE_LIMIT", "TOOLS", "build_circle_join_url", "match_circles"]

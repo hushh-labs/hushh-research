@@ -66,6 +66,10 @@ class AppContextFrame(_Frame):
     available_action_ids: list[str] = Field(default_factory=list, max_length=200)
     screen_state: dict[str, Any] = Field(default_factory=dict)
     os_location_permission: Literal["unknown", "prompt", "granted", "denied"] = "unknown"
+    # Canonical id of the circle whose detail screen is open. Typed and
+    # separate from ``screen_state`` (which is rendered into the prompt and
+    # carries no identifiers); the host reads it through the circle service.
+    active_circle_id: str | None = Field(default=None, min_length=36, max_length=36)
 
 
 class PendingShownFrame(_Frame):
