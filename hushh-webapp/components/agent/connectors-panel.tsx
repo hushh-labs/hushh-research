@@ -50,7 +50,7 @@ const COMING_SOON_CONNECTORS: { id: string; displayName: string }[] = [
   { id: "hubspot", displayName: "HubSpot" },
   { id: "shopify", displayName: "Shopify" },
   { id: "plaid", displayName: "Plaid" },
-  { id: "circle", displayName: "Circle.com" },
+  { id: "circle", displayName: "Circle" },
 ];
 
 export function ConnectorsPanel({
@@ -220,22 +220,22 @@ export function ConnectorsPanel({
                     <p className="mt-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
                       Coming soon
                     </p>
-                    {comingSoon.map((connector) => (
-                      <Card
-                        key={connector.id}
-                        className="opacity-55"
-                        aria-disabled="true"
-                      >
-                        <CardHeader className="flex-row items-center justify-between gap-4">
-                          <CardTitle className="text-base font-medium">
+                    <div className="divide-y divide-border rounded-lg border border-border">
+                      {comingSoon.map((connector) => (
+                        <div
+                          key={connector.id}
+                          className="flex items-center justify-between gap-3 px-3 py-2 opacity-60"
+                          aria-disabled="true"
+                        >
+                          <span className="text-sm font-medium">
                             {connector.displayName}
-                          </CardTitle>
-                          <Button type="button" variant="outline" disabled>
+                          </span>
+                          <span className="shrink-0 rounded-full border border-border px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
                             Coming soon
-                          </Button>
-                        </CardHeader>
-                      </Card>
-                    ))}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
                   </>
                 ) : null}
               </div>
