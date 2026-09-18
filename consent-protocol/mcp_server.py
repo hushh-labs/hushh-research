@@ -55,10 +55,6 @@ from mcp_modules.public_contract import (
 )
 from mcp_modules.tools.campaign_context_tools import handle_prepare_campaign_context
 from mcp_modules.tools.definitions import get_tool_definitions
-from mcp_modules.tools.gmail_calendar_tools import (
-    handle_list_gmail_receipts,
-    handle_list_upcoming_calendar_events,
-)
 from mcp_modules.tools.kai_tools import (
     handle_kai_analyze_stock,
     handle_kai_cancel_active_analysis,
@@ -71,19 +67,6 @@ from mcp_modules.tools.kai_tools import (
     handle_kai_open_profile,
     handle_kai_resume_active_analysis,
 )
-from mcp_modules.tools.location_tools import (
-    handle_location_get_state,
-    handle_location_list_circles,
-    handle_location_open_ask,
-    handle_location_open_links,
-    handle_location_open_map,
-    handle_location_open_now,
-    handle_location_open_people,
-    handle_location_open_settings,
-    handle_location_open_share,
-    handle_location_open_sos,
-)
-from mcp_modules.tools.pkm_convenience_tools import handle_read_own_pkm_attribute
 from mcp_modules.tools.public_tools_v3 import (
     _error as build_safe_error,
 )
@@ -150,19 +133,6 @@ HANDLERS = {
     "kai_navigate_back": handle_kai_navigate_back,
     "kai_resume_active_analysis": handle_kai_resume_active_analysis,
     "kai_cancel_active_analysis": handle_kai_cancel_active_analysis,
-    "location_open_now": handle_location_open_now,
-    "location_open_people": handle_location_open_people,
-    "location_open_links": handle_location_open_links,
-    "location_open_share": handle_location_open_share,
-    "location_open_ask": handle_location_open_ask,
-    "location_open_map": handle_location_open_map,
-    "location_open_settings": handle_location_open_settings,
-    "location_open_sos": handle_location_open_sos,
-    "location_get_state": handle_location_get_state,
-    "location_list_circles": handle_location_list_circles,
-    "list_gmail_receipts": handle_list_gmail_receipts,
-    "list_upcoming_calendar_events": handle_list_upcoming_calendar_events,
-    "read_own_pkm_attribute": handle_read_own_pkm_attribute,
 }
 _PUBLIC_TOOL_NAMES = frozenset(canonical_tool_name(name) for name in get_public_tool_names())
 _PRIVATE_INPUT_SCHEMAS = {
