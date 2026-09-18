@@ -1043,15 +1043,17 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
           </>
         ) : null}
       </div>
-      <Dialog open={reviewOpen} onOpenChange={setReviewOpen}>
-        <DialogContent>
-          <DialogHeader>
+      <Dialog modal open={reviewOpen} onOpenChange={setReviewOpen}>
+        <DialogContent
+          className="w-[calc(100%-2rem)] max-w-[30rem] max-h-[min(32rem,calc(100dvh-2rem-var(--app-safe-area-top-effective,0px)-env(safe-area-inset-bottom,0px)))] gap-3 overflow-hidden p-4 sm:max-w-[30rem]"
+        >
+          <DialogHeader className="shrink-0 pr-8 text-left">
             <DialogTitle>Request information from {profile.displayName}</DialogTitle>
             <DialogDescription>
               They will see exactly what you asked for, why, and for how long.
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4">
+          <div className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain pr-1">
             <SectionCard title="What you are asking for">
               <div className="space-y-2">
                 {selectedScopes.map((scope) => (
@@ -1084,11 +1086,15 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
                 onChange={(event) => setPurpose(event.target.value)}
                 maxLength={500}
                 placeholder="Explain why you need these and how you will use them."
+                aria-describedby="person-profile-purpose-hint"
                 data-testid="person-profile-purpose"
               />
+              <span id="person-profile-purpose-hint" className="text-xs font-normal text-muted-foreground">
+                Add at least 8 characters so the recipient can make an informed decision.
+              </span>
             </label>
           </div>
-          <DialogFooter>
+          <DialogFooter className="relative z-20 shrink-0 flex-row items-center justify-end border-t border-border/60 pt-3 pointer-events-auto">
             <Button type="button" variant="none" effect="fade" data-voice-control-id="person-profile-request-cancel" onClick={() => setReviewOpen(false)}>
               Cancel
             </Button>
@@ -1098,6 +1104,7 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
               effect="fill"
               disabled={requesting || purpose.trim().length < 8}
               onClick={() => void submitRequest()}
+              className="relative z-30 pointer-events-auto"
               data-voice-control-id="person-profile-request-confirm"
             >
               {requesting ? "Sending…" : "Send request"}

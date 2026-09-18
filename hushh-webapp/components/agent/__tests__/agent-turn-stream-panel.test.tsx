@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -172,9 +172,10 @@ describe("AgentTurnStreamPanel", () => {
     expect(
       screen.getByRole("region", { name: "Information available from Alex Morgan" }),
     ).toBeInTheDocument();
-    expect(screen.getByText("Identity")).toBeInTheDocument();
-    expect(screen.getByText("Financial")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Open Identity" }));
     expect(screen.getByText("Employment status")).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("scope-discovery-scopes-back"));
+    fireEvent.click(screen.getByRole("button", { name: "Open Financial" }));
     expect(screen.getByText("Tax residency")).toBeInTheDocument();
     expect(screen.getByText("Highly sensitive")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /Choose what to ask for/i })).toHaveAttribute(
@@ -182,5 +183,51 @@ describe("AgentTurnStreamPanel", () => {
       "/people/1234567890abcdef",
     );
     expect(screen.queryByText("scope_ref_private_123")).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("You can review these fields before asking for access."),
+    ).not.toBeInTheDocument();
+  });
+
+  it("keeps supplementary notes alongside multiple distinct cards", () => {
+    render(
+      <AgentTurnStreamPanel
+        streamEvents={[]}
+        responseText="A short clarification."
+        isStreaming={false}
+        structuredExperiences={[
+          {
+            id: "activity-1",
+            experience: {
+              type: "one.scope_discovery.v1",
+              person: {
+                displayName: "Alex Morgan",
+                profilePath: "/people/1234567890abcdef",
+                relationship: "connected",
+              },
+              domainFilter: null,
+              scopes: [],
+              presentation: "primary_card",
+            },
+          },
+          {
+            id: "activity-2",
+            experience: {
+              type: "one.scope_discovery.v1",
+              person: {
+                displayName: "Alex Morgan",
+                profilePath: "/people/1234567890abcdef",
+                relationship: "connected",
+              },
+              domainFilter: "Professional",
+              scopes: [],
+              presentation: "supplementary_note",
+            },
+          },
+        ]}
+      />,
+    );
+
+    expect(screen.getAllByRole("region", { name: "Information available from Alex Morgan" })).toHaveLength(2);
+    expect(screen.queryByText("A short clarification.")).not.toBeInTheDocument();
   });
 });

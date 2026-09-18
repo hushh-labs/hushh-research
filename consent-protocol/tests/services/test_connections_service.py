@@ -321,6 +321,57 @@ def test_information_scope_catalog_is_connection_independent_and_filters_private
     assert [entry["scope"] for entry in without_connection["items"]] == ["attr.financial.holdings"]
 
 
+def test_information_scope_catalog_pages_the_full_safe_catalog_before_the_500_bound():
+    entries = [
+        {
+            "scope": f"attr.professional.field_{index}",
+            "label": f"Professional field {index}",
+            "description": "Synthetic test metadata",
+            "domain": "professional",
+            "path": f"field_{index}",
+            "exposure_eligibility": True,
+            "consumer_visible": True,
+            "internal_only": False,
+            "visibility_posture": "consent_required",
+        }
+        for index in range(60)
+    ]
+    svc = ConnectionsService(scope_entries_lookup=lambda _owner: entries)
+
+    first_page = svc.get_information_scope_catalog("user-a", "user-b", page=1, limit=50)
+    second_page = svc.get_information_scope_catalog("user-a", "user-b", page=2, limit=50)
+
+    assert len(first_page["items"]) == 50
+    assert len(second_page["items"]) == 10
+    assert first_page["hasMore"] is True
+    assert second_page["hasMore"] is False
+    assert first_page["totalCount"] == 60
+    assert {item["scope"] for item in first_page["items"] + second_page["items"]} == {
+        entry["scope"] for entry in entries
+    }
+
+
+def test_exact_requestable_scope_entries_do_not_depend_on_ranked_page():
+    entries = [
+        {
+            "scope": f"attr.professional.field_{index}",
+            "label": f"Professional field {index}",
+            "domain": "professional",
+            "exposure_eligibility": True,
+            "consumer_visible": True,
+            "internal_only": False,
+            "visibility_posture": "consent_required",
+        }
+        for index in range(60)
+    ]
+    svc = ConnectionsService(scope_entries_lookup=lambda _owner: entries)
+
+    exact = svc.get_exact_requestable_scope_entries("user-a", "user-b")
+
+    assert len(exact) == 60
+    assert exact[-1]["scope"] == "attr.professional.field_59"
+
+
 class _RecordingDB:
     """Captures every (sql, params) and returns queued rows per call."""
 
@@ -1690,6 +1741,27 @@ def test_search_directory_fallback_folds_separators_like_the_sql_path():
     found = [i["userId"] for i in out["items"]]
     assert found[0] == "u-spaced"
     assert sorted(found[1:]) == ["u-hyphen", "u-initial"]
+
+
+def test_search_directory_fallback_can_match_an_eligible_email_handle_without_exposing_it():
+    svc = _svc()
+    svc._directory_lookup = lambda owner_user_id: [
+        {
+            "userId": "user-c",
+            "displayName": None,
+            "email": "kushaltrivedi54@gmail.com",
+        },
+        {
+            "userId": "user-d",
+            "displayName": "Another person",
+            "email": "other@example.com",
+        },
+    ]
+    db = _RecordingDB([[], [], []])
+    with patch("hushh_mcp.services.connections_service.get_db", lambda: db):
+        out = svc.search_directory("user-a", query="kushal trivedi", page=1, limit=20)
+
+    assert [item["userId"] for item in out["items"]] == ["user-c"]
 
 
 def test_search_directory_fallback_pages_the_ranked_list_not_the_raw_one():

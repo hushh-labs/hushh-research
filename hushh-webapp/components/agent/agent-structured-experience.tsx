@@ -1,8 +1,12 @@
 "use client";
 
 import type { ReactNode } from "react";
+import { ConsentScopeNestedList } from "@/components/consent/consent-scope-nested-list";
 import { ConsentScopeList } from "@/components/consent/consent-scope-list";
-import { domainLabelFor, scopePathSegments } from "@/lib/consent/consent-scope-items";
+import {
+  domainLabelFor,
+  scopeItemsFromRequestable,
+} from "@/lib/consent/consent-scope-items";
 import Link from "next/link";
 import {
   ArrowUpRight,
@@ -103,21 +107,19 @@ function ScopeDiscoveryView({
 }: {
   experience: ScopeDiscoveryExperience;
 }) {
-  // The same list every other scope surface renders. Was a hand-rolled
-  // reduce-based group-by-domain, one of two independent implementations of the
-  // same thing over the same field shape.
-  const items = experience.scopes.map((scope, index) => ({
-    id: `${scope.domain || "other"}:${scope.label}:${index}`,
-    label: scope.label,
-    description: scope.description || null,
-    domainKey: scope.domain || "other",
-    // The catalogue carries the full scope reference, so chat can nest exactly
-    // as deeply as the profile does.
-    pathSegments: scopePathSegments(scope.scopeRef),
-    domainLabel: domainLabelFor(scope.domain),
-    badge: sensitivityLabel(scope.sensitivity),
-    searchText: `${scope.label} ${scope.description || ""} ${scope.domain || ""}`.toLowerCase(),
-  }));
+  // Profile and Chat deliberately consume the same adapter and recursive
+  // selector. Opaque refs stay leaves; only authored attr paths can create
+  // hierarchy.
+  const items = scopeItemsFromRequestable(
+    experience.scopes.map((scope) => ({
+      scopeRef: scope.scopeRef,
+      label: scope.label,
+      description: scope.description,
+      domain: scope.domain,
+      sensitivity: scope.sensitivity,
+      wildcard: false,
+    })),
+  );
 
   return (
     <section
@@ -142,9 +144,9 @@ function ScopeDiscoveryView({
 
       {items.length > 0 ? (
         <div className="px-1">
-          <ConsentScopeList
+          <ConsentScopeNestedList
             items={items}
-            collapsible={false}
+            rootLabel="All information"
             testIdPrefix="scope-discovery-scopes"
           />
         </div>

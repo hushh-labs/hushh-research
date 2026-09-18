@@ -54,7 +54,11 @@ def rank_scope_matches(
     normalized_query = str(query or "").strip().lower()
     domain_filter = str(domain or "").strip().lower()
     try:
-        capped_limit = max(1, min(int(limit), 50))
+        # Discovery pages remain bounded, but the previous 50-row ceiling was
+        # also used by Profile and request validation. That made valid fields
+        # disappear from a person's catalog and made an opaque reference fail
+        # validation merely because it sorted after the first page.
+        capped_limit = max(1, min(int(limit), 500))
     except (TypeError, ValueError):
         capped_limit = 20
 

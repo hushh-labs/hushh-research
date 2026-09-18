@@ -518,7 +518,7 @@ class ConnectionsService:
 
     # ---- Resolution ----
     def _resolve_query(self, owner_user_id: str, query: str) -> str:
-        needle = (query or "").strip().lower()
+        needle = " ".join((query or "").strip().lower().split())
         if not needle:
             raise ConnectionsError(
                 "CONNECTION_QUERY_EMPTY", "No name given to look up.", status_code=422
@@ -651,6 +651,7 @@ class ConnectionsService:
         *,
         query: str = "",
         domain: str = "",
+        page: int = 1,
         limit: int = 20,
     ) -> dict[str, Any]:
         """Search a person's dynamically discoverable ``attr.*`` scopes.
@@ -668,7 +669,45 @@ class ConnectionsService:
             raise ConnectionsError(
                 "CONNECTION_SCOPE_TARGET_INVALID", "Invalid connection target.", status_code=422
             )
-        safe_entries = [
+        safe_entries = self._safe_information_scope_entries(counterpart)
+        try:
+            normalized_page = max(1, int(page or 1))
+        except (TypeError, ValueError):
+            normalized_page = 1
+        try:
+            normalized_limit = max(1, min(int(limit or 20), 100))
+        except (TypeError, ValueError):
+            normalized_limit = 20
+        offset = (normalized_page - 1) * normalized_limit
+        ranked = rank_scope_matches(
+            safe_entries,
+            query=query,
+            domain=domain,
+            # Rank the bounded catalog before slicing it. Ranking only the
+            # requested page makes `hasMore` false on page one and can move a
+            # valid exact scope behind a different page boundary.
+            limit=500,
+        )
+        page_items = ranked[offset : offset + normalized_limit]
+        return {
+            "counterpartUserId": counterpart,
+            "items": page_items,
+            "page": normalized_page,
+            "limit": normalized_limit,
+            "hasMore": offset + len(page_items) < len(ranked),
+            "totalCount": len(ranked),
+            "catalogTruncated": len(safe_entries) > 500,
+        }
+
+    def _safe_information_scope_entries(self, counterpart_user_id: str) -> list[dict[str, Any]]:
+        """Return the current safe catalog before ranking or pagination.
+
+        Enumeration is separate from presentation ranking so a valid opaque
+        scope cannot become unrequestable because it fell beyond a suggestion
+        page. The caller still receives only public metadata; raw PKM values
+        never enter this projection.
+        """
+        return [
             {
                 "scope": str(entry.get("scope") or ""),
                 "label": str(entry.get("label") or "") or None,
@@ -678,7 +717,7 @@ class ConnectionsService:
                 "wildcard": bool(entry.get("wildcard")),
                 "sensitivity": str(entry.get("sensitivity") or "") or None,
             }
-            for entry in self._scope_entries_lookup(counterpart)
+            for entry in self._scope_entries_lookup(counterpart_user_id)
             if isinstance(entry, dict)
             and str(entry.get("scope") or "").startswith("attr.")
             and entry.get("exposure_eligibility") is not False
@@ -686,15 +725,26 @@ class ConnectionsService:
             and entry.get("internal_only") is not True
             and entry.get("visibility_posture") != "private"
         ]
-        return {
-            "counterpartUserId": counterpart,
-            "items": rank_scope_matches(
-                safe_entries,
-                query=query,
-                domain=domain,
-                limit=limit,
-            ),
-        }
+
+    def get_exact_requestable_scope_entries(
+        self, viewer_user_id: str, counterpart_user_id: str
+    ) -> list[dict[str, Any]]:
+        """Return the full current requestable catalog for server validation.
+
+        This intentionally does not call the ranked/paged presentation path.
+        The relationship and consent mutation layer uses this method to
+        validate opaque references against current authority, independent of
+        which page the user happened to load. Public profile visibility remains
+        the owning profile/connection contract; this method only applies the
+        safe, requestable scope policy and never broadens discovery.
+        """
+        viewer = (viewer_user_id or "").strip()
+        counterpart = (counterpart_user_id or "").strip()
+        if not viewer or not counterpart or viewer == counterpart:
+            raise ConnectionsError(
+                "CONNECTION_SCOPE_TARGET_INVALID", "Invalid connection target.", status_code=422
+            )
+        return self._safe_information_scope_entries(counterpart)
 
     def _assert_directory_visible(self, viewer_user_id: str, counterpart_user_id: str) -> None:
         directory_visible = getattr(self, "_directory_visible", None)
@@ -2838,7 +2888,7 @@ class ConnectionsService:
         user_id = (user_id or "").strip()
         page = max(1, int(page or 1))
         limit = max(1, min(int(limit or 20), 50))
-        needle = (query or "").strip().lower()
+        needle = " ".join((query or "").strip().lower().split())
         # An unknown audience widens rather than narrows: a typo in a caller
         # must not silently hide people who are really there.
         audience = (audience or DIRECTORY_AUDIENCE_ALL).strip().lower()
@@ -2880,17 +2930,28 @@ class ConnectionsService:
                 # person is findable comes down to which branch a deployment
                 # happened to take.
                 def _folded(value: str) -> str:
-                    folded = value.strip().lower()
+                    folded = " ".join(value.strip().lower().split())
                     for separator in "-'._/,":
                         folded = folded.replace(separator, " ")
-                    return folded
+                    return " ".join(folded.split())
+
+                query_tokens = needle.split()
+                compact_needle = "".join(char for char in needle if char.isalnum())
 
                 def _tier(person: dict[str, Any]) -> int | None:
                     name = _folded(str(person.get("displayName") or ""))
-                    if name.startswith(needle):
+                    if name == needle:
                         return 0
-                    if any(word.startswith(needle) for word in name.split()):
+                    if name.startswith(needle):
                         return 1
+                    if query_tokens and any(
+                        word.startswith(query_tokens[-1]) for word in name.split()
+                    ):
+                        return 2
+                    email = str(person.get("email") or "").strip().lower()
+                    compact_email = "".join(char for char in email if char.isalnum())
+                    if compact_needle and compact_email.startswith(compact_needle):
+                        return 3
                     return None
 
                 ranked = [(tier, p) for p in people if (tier := _tier(p)) is not None]

@@ -117,11 +117,22 @@ class PersonProfileService:
         if not subject_user_id or subject_user_id == viewer_user_id:
             raise PersonProfileNotFoundError("Person profile was not found.")
         requested = {str(value or "").strip() for value in scope_refs if str(value or "").strip()}
-        catalog = self._connections.get_information_scope_catalog(
-            viewer_user_id, subject_user_id, limit=500
+        exact_catalog_loader = getattr(
+            self._connections, "get_exact_requestable_scope_entries", None
         )
+        if exact_catalog_loader is not None:
+            catalog_items = exact_catalog_loader(viewer_user_id, subject_user_id)
+        else:
+            # Compatibility for narrow test doubles and older adapters. The
+            # production ConnectionsService owns the uncapped exact path.
+            catalog_items = (
+                self._connections.get_information_scope_catalog(
+                    viewer_user_id, subject_user_id, limit=500
+                ).get("items")
+                or []
+            )
         resolved: dict[str, dict[str, Any]] = {}
-        for item in catalog.get("items") or []:
+        for item in catalog_items:
             scope = str(item.get("scope") or "").strip()
             if not scope:
                 continue
@@ -187,15 +198,24 @@ class PersonProfileService:
         if not subject_user_id or subject_user_id == viewer_user_id:
             raise PersonProfileNotFoundError("Person profile was not found.")
 
-        scope_catalog = await asyncio.to_thread(
-            self._connections.get_information_scope_catalog,
-            viewer_user_id,
-            subject_user_id,
-            limit=500,
+        exact_catalog_loader = getattr(
+            self._connections, "get_exact_requestable_scope_entries", None
         )
+        if exact_catalog_loader is not None:
+            scope_items = await asyncio.to_thread(
+                exact_catalog_loader, viewer_user_id, subject_user_id
+            )
+        else:
+            scope_catalog = await asyncio.to_thread(
+                self._connections.get_information_scope_catalog,
+                viewer_user_id,
+                subject_user_id,
+                limit=500,
+            )
+            scope_items = scope_catalog.get("items") or []
         scopes = []
         scope_by_name: dict[str, dict[str, Any]] = {}
-        for item in scope_catalog.get("items") or []:
+        for item in scope_items:
             scope = str(item.get("scope") or "")
             if not scope:
                 continue

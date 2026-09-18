@@ -17,7 +17,15 @@ export type AgentChatMessage = {
   model?: string | null;
   created_at?: string | null;
   completed_at?: string | null;
-  metadata?: { kind?: string; display?: string } | null;
+  metadata?: {
+    kind?: string;
+    display?: string;
+    structuredExperience?: {
+      activityType?: string;
+      content?: unknown;
+    } | null;
+    structuredExperienceId?: string | null;
+  } | null;
 };
 
 export type AgentChatConversation = {
@@ -75,7 +83,8 @@ export type AgentChatStreamHandlers = {
   onError?: (message: string) => void;
   onThought?: (text: string) => void;
   onSources?: (sources: AgentSource[]) => void;
-  onStructuredExperience?: (experience: AgentStructuredExperience) => void;
+  /** The optional id is the AG-UI activity/tool identity for transport dedupe. */
+  onStructuredExperience?: (experience: AgentStructuredExperience, eventId?: string) => void;
   onSpecialistDirective?: (directive: SpecialistDirectiveEvent) => void;
 };
 
@@ -417,21 +426,30 @@ export async function streamAgentChat(input: {
         });
       }
       const experience = parseAgentToolResultExperience(toolName, event.content);
-      if (experience) handlers.onStructuredExperience?.(experience);
+      if (experience) {
+        const eventId = String(
+          (event as { messageId?: unknown }).messageId || event.toolCallId || "",
+        ).trim() || undefined;
+        handlers.onStructuredExperience?.(experience, eventId);
+      }
     },
     onActivitySnapshotEvent: ({ event }) => {
       const experience = parseAgentActivityExperience(
         event.activityType,
         event.content,
       );
-      if (experience) handlers.onStructuredExperience?.(experience);
+      if (experience) {
+        handlers.onStructuredExperience?.(experience, String(event.messageId || "").trim() || undefined);
+      }
     },
     onActivityDeltaEvent: ({ event, activityMessage }) => {
       const experience = parseAgentActivityExperience(
         activityMessage?.activityType || event.activityType,
         activityMessage?.content,
       );
-      if (experience) handlers.onStructuredExperience?.(experience);
+      if (experience) {
+        handlers.onStructuredExperience?.(experience, String(event.messageId || "").trim() || undefined);
+      }
     },
     onStateDeltaEvent: ({ event }) => {
       const patches = Array.isArray(event.delta) ? event.delta : [];

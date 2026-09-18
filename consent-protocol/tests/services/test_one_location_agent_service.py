@@ -3806,8 +3806,11 @@ def test_directory_candidate_search_filters_before_pagination(
         "owner_user_id": "owner",
         "candidate_user_id": None,
         "query": "cara",
+        "exact_name": "cara",
         "name_prefix": "cara%",
         "word_prefix": "% cara%",
+        "email_prefix": "cara%",
+        "email_query": "cara",
         # Every caller that predates the advisor split still asks for both
         # halves, so adding the tab changed nobody else's result set.
         "audience": "all",
@@ -3859,6 +3862,8 @@ def test_directory_search_matches_prefixes_not_substrings() -> None:
     # that also returns "Anand" because it contains an n is not an index.
     assert service.params["name_prefix"] == "n%"
     assert service.params["word_prefix"] == "% n%"
+    assert service.params["email_prefix"] == "n%"
+    assert service.params["email_query"] == "n"
     assert service.sql.count("LIKE :name_prefix ESCAPE '!'") == 2
     assert "LIKE :word_prefix ESCAPE '!'" in service.sql
 
@@ -3876,8 +3881,9 @@ def test_directory_search_ranks_name_prefix_above_word_prefix_then_alphabeticall
     # applied to the page afterwards can only reshuffle rows that were already
     # chosen wrongly.
     assert "CASE" in ordering
-    assert "LIKE :name_prefix ESCAPE '!' THEN 0" in ordering
-    assert "ELSE 1" in ordering
+    assert "LIKE :name_prefix ESCAPE '!' THEN 1" in ordering
+    assert "LIKE :word_prefix ESCAPE '!' THEN 2" in ordering
+    assert "ELSE 4" in ordering
     assert "LOWER(COALESCE(NULLIF(BTRIM(a.display_name), '')" in ordering
     # Deterministic tie-break, or OFFSET paging duplicates and skips rows.
     assert ordering.strip().endswith("a.user_id")
@@ -3919,7 +3925,7 @@ def test_directory_search_folds_separators_so_tiering_is_about_the_name() -> Non
         service.sql.count(
             "TRANSLATE(LOWER(BTRIM(COALESCE(a.display_name, ''))), '-''._/,', '      ')"
         )
-        == 3
+        == 6
     )
 
 
@@ -3957,7 +3963,7 @@ def test_directory_search_escapes_like_metacharacters(
         ("K.R.", "k r"),
         ("Smith-Jones", "smith jones"),
         ("de/la", "de la"),
-        ("Singh, Ankit", "singh  ankit"),
+        ("Singh, Ankit", "singh ankit"),
     ],
 )
 def test_directory_search_folds_the_typed_name_the_same_way_as_the_stored_one(
@@ -3990,7 +3996,7 @@ def test_directory_search_folds_both_sides_with_one_separator_list() -> None:
     service = RecipientDirectoryProbe()
     service.search_directory_candidates(owner_user_id="owner", query="n")
 
-    assert service.sql.count(_DIRECTORY_SEPARATOR_SQL) == 3
+    assert service.sql.count(_DIRECTORY_SEPARATOR_SQL) == 6
     # The Python side folds exactly the characters the SQL side names.
     for separator in _DIRECTORY_SEPARATORS:
         assert f"a{separator}b".translate(_DIRECTORY_SEPARATOR_FOLD) == "a b"

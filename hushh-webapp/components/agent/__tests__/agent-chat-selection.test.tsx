@@ -106,6 +106,42 @@ describe("storedMessageToAgentMessage — selection history mapping", () => {
     expect(mapped?.kind).toBeUndefined();
     expect(mapped?.text).toBe("Yes, go ahead.");
   });
+
+  it("restores a safe structured card from history metadata without replaying the raw text", () => {
+    const stored: AgentChatMessage = {
+      ...base,
+      role: "assistant",
+      content: "I found several things you can request.",
+      metadata: {
+        kind: "structured_experience",
+        structuredExperienceId: "event-discovery-1",
+        structuredExperience: {
+          activityType: "one.scope_discovery.v1",
+          content: {
+            status: "ok",
+            person: {
+              displayName: "Alex Morgan",
+              profilePath: "/people/1234567890abcdef",
+              relationship: "connected",
+            },
+            requestableScopes: [
+              {
+                scopeRef: "attr.professional.employment_status",
+                label: "Employment status",
+                domain: "professional",
+              },
+            ],
+          },
+        },
+      },
+    };
+
+    const mapped = storedMessageToAgentMessage(stored);
+    expect(mapped?.structuredExperiences).toHaveLength(1);
+    expect(mapped?.structuredExperiences?.[0]?.id).toBe("event-discovery-1");
+    expect(mapped?.structuredExperiences?.[0]?.experience.type).toBe("one.scope_discovery.v1");
+    expect(mapped?.text).toBe("I found several things you can request.");
+  });
 });
 
 describe("SelectionChip render branch", () => {

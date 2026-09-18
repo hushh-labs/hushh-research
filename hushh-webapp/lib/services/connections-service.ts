@@ -203,6 +203,11 @@ export interface ConnectionInformationScope {
 export interface ConnectionInformationScopeCatalog {
   counterpartUserId: string;
   items: ConnectionInformationScope[];
+  page?: number;
+  limit?: number;
+  hasMore?: boolean;
+  totalCount?: number;
+  catalogTruncated?: boolean;
 }
 
 export interface ConnectionCircleSummary {
@@ -463,11 +468,13 @@ export class ConnectionsService {
     counterpartUserId: string;
     query?: string;
     domain?: string;
+    page?: number;
     limit?: number;
   }): Promise<ConnectionInformationScopeCatalog> {
     const params = new URLSearchParams();
     if (opts.query) params.set("query", opts.query);
     if (opts.domain) params.set("domain", opts.domain);
+    if (opts.page) params.set("page", String(opts.page));
     if (opts.limit) params.set("limit", String(opts.limit));
     const response = await ApiService.apiFetch(
       `/api/one/connections/${encodeURIComponent(opts.counterpartUserId)}/information-scopes?${params.toString()}`,
@@ -478,6 +485,11 @@ export class ConnectionsService {
     return {
       counterpartUserId: payload.counterpartUserId,
       items: payload.items ?? [],
+      page: payload.page,
+      limit: payload.limit,
+      hasMore: payload.hasMore,
+      totalCount: payload.totalCount,
+      catalogTruncated: payload.catalogTruncated,
     };
   }
 

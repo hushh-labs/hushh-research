@@ -142,12 +142,16 @@ export function scopeItemsFromRequestable(
 ): ConsentScopeItem[] {
   return scopes.map((scope) => {
     const domainKey = scope.domain || parseConsentScope(scope.scopeRef).domain || "other";
+    const parsedScope = parseConsentScope(scope.scopeRef);
     return {
       id: scope.scopeRef,
       label: scope.label || scope.scopeRef,
       description: scope.description,
       domainKey,
-      pathSegments: scopePathSegments(scope.scopeRef),
+      // A non-attr reference is opaque. Never turn its characters into a
+      // navigable hierarchy: hierarchy comes from the protocol's attr path,
+      // not from an identifier that only the service is allowed to interpret.
+      pathSegments: parsedScope.domain ? scopePathSegments(scope.scopeRef) : [],
       domainLabel: domainLabelFor(domainKey),
       badge: sensitivityBadge(scope.sensitivity),
       searchText: haystack([scope.label, scope.description, domainKey]),

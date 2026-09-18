@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
+import re
 from typing import Any
 
 from ag_ui.core import RunAgentInput
@@ -200,6 +202,106 @@ def _event_text(event: Any) -> str:
     return "".join(str(getattr(part, "text", "") or "") for part in parts).strip()
 
 
+_SAFE_PROFILE_PATH = re.compile(r"^/people/[A-Za-z0-9_-]{16,128}$")
+
+
+def _record(value: Any) -> dict[str, Any] | None:
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+        except (TypeError, ValueError):
+            return None
+        return parsed if isinstance(parsed, dict) else None
+    return None
+
+
+def _bounded_text(value: Any, limit: int) -> str | None:
+    if not isinstance(value, str):
+        return None
+    normalized = " ".join(value.split()).strip()
+    return normalized[:limit] or None
+
+
+def _safe_discovery_descriptor(event: Any) -> dict[str, Any] | None:
+    """Project one display-safe discovery card out of an encrypted event.
+
+    The session remains encrypted at rest. This projection is deliberately
+    narrower than the tool result: it carries no personal values, email
+    addresses, credentials, or executable action payloads. It exists so a
+    returning owner can see the same AG-UI card without replaying the action.
+    """
+    parts = getattr(getattr(event, "content", None), "parts", None) or []
+    for part in parts:
+        function_response = getattr(part, "function_response", None)
+        if (
+            function_response is None
+            or getattr(function_response, "name", "") != "discover_person_information"
+        ):
+            continue
+        result = _record(getattr(function_response, "response", None)) or {}
+        for key in ("result", "content", "data"):
+            nested = _record(result.get(key))
+            if nested and (nested.get("status") == "ok" or "requestableScopes" in nested):
+                result = nested
+                break
+        if result.get("status") != "ok":
+            return None
+        person = _record(result.get("person")) or {}
+        display_name = _bounded_text(person.get("displayName"), 120)
+        profile_path = _bounded_text(person.get("profilePath"), 180)
+        if not display_name or not profile_path or not _SAFE_PROFILE_PATH.fullmatch(profile_path):
+            return None
+        scopes: list[dict[str, Any]] = []
+        raw_scopes = result.get("requestableScopes")
+        if isinstance(raw_scopes, list):
+            for raw_scope in raw_scopes[:250]:
+                scope = _record(raw_scope)
+                scope_ref = _bounded_text(scope.get("scopeRef") if scope else None, 180)
+                label = _bounded_text(scope.get("label") if scope else None, 120)
+                domain = _bounded_text(scope.get("domain") if scope else None, 80)
+                if not scope_ref or not label or not domain:
+                    continue
+                sensitivity = _bounded_text(scope.get("sensitivity") if scope else None, 32)
+                scopes.append(
+                    {
+                        "scopeRef": scope_ref,
+                        "label": label,
+                        "description": _bounded_text(
+                            scope.get("description") if scope else None, 280
+                        ),
+                        "domain": domain,
+                        "sensitivity": sensitivity or "standard",
+                    }
+                )
+        return {
+            "activityType": "one.scope_discovery.v1",
+            "content": {
+                "status": "ok",
+                "person": {
+                    "displayName": display_name,
+                    "profilePath": profile_path,
+                    "relationship": _bounded_text(person.get("relationship"), 64),
+                },
+                "domainFilter": _bounded_text(result.get("domainFilter"), 80),
+                "requestableScopes": scopes,
+            },
+        }
+    return None
+
+
+def _safe_agent_history_metadata(event: Any) -> dict[str, Any] | None:
+    descriptor = _safe_discovery_descriptor(event)
+    if not descriptor:
+        return None
+    return {
+        "kind": "structured_experience",
+        "structuredExperience": descriptor,
+        "structuredExperienceId": str(getattr(event, "id", "") or "").strip() or None,
+    }
+
+
 def _session_title(session: Any) -> str:
     authored = str((session.state or {}).get("hussh:thread_title") or "").strip()
     if authored:
@@ -261,7 +363,8 @@ async def conversation_history(
     messages: list[dict[str, object]] = []
     for event in session.events:
         text = _event_text(event)
-        if not text or event.author not in {"user", "one"}:
+        metadata = _safe_agent_history_metadata(event)
+        if event.author not in {"user", "one"} or (not text and not metadata):
             continue
         messages.append(
             {
@@ -273,7 +376,7 @@ async def conversation_history(
                 "model": event.model_version,
                 "created_at": event.timestamp,
                 "completed_at": event.timestamp,
-                "metadata": None,
+                "metadata": metadata,
             }
         )
     return {"conversation_id": conversation_id, "messages": messages[-limit:]}

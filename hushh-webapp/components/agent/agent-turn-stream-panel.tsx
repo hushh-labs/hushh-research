@@ -8,7 +8,10 @@ import {
 } from "@/components/app-ui/stream-progress-panel";
 import { AgentMarkdown } from "@/components/agent/agent-markdown";
 import { AgentStructuredExperienceView } from "@/components/agent/agent-structured-experience";
-import type { AgentStructuredExperience } from "@/lib/agent/agui-structured-experiences";
+import type {
+  AgentStructuredExperience,
+  AgentStructuredExperienceWithPresentation,
+} from "@/lib/agent/agui-structured-experiences";
 import type { AgentChatToolEvent, AgentSource } from "@/lib/services/agent-chat-client";
 
 export type AgentVisibleStreamStatus = "running" | "done" | "blocked" | "error";
@@ -32,6 +35,10 @@ export type AgentTurnStreamPanelProps = {
   thinkingText?: string;
   sources?: AgentSource[];
   structuredExperience?: AgentStructuredExperience | null;
+  structuredExperiences?: Array<{
+    id: string;
+    experience: AgentStructuredExperienceWithPresentation;
+  }>;
 };
 
 const MAX_VISIBLE_SOURCES = 8;
@@ -154,6 +161,7 @@ export function AgentTurnStreamPanel({
   thinkingText,
   sources = [],
   structuredExperience = null,
+  structuredExperiences = [],
 }: AgentTurnStreamPanelProps) {
   const progressItems = useMemo<AppStreamProgressItem[]>(
     () =>
@@ -166,6 +174,20 @@ export function AgentTurnStreamPanel({
     [streamEvents]
   );
   const specialistItems = useMemo(() => normalizeSpecialistSources(sources), [sources]);
+  const experienceItems = useMemo(
+    () =>
+      structuredExperiences.length > 0
+        ? structuredExperiences
+        : structuredExperience
+          ? [{ id: "legacy-structured-experience", experience: structuredExperience }]
+          : [],
+    [structuredExperience, structuredExperiences],
+  );
+  const hasPrimaryExperience = experienceItems.some(
+    ({ experience }) =>
+      !("presentation" in experience) ||
+      experience.presentation !== "supplementary_note",
+  );
   // Provider reasoning is rendered again (founder directive 2026-09-02): the
   // owner asked to see the agent think. It stays inside the activity panel,
   // below the sanitized tool/memory/specialist lifecycle facts, so it is
@@ -175,11 +197,15 @@ export function AgentTurnStreamPanel({
     <AppStreamPanel
       title="One activity"
       progressItems={[...progressItems, ...specialistItems]}
-      responseText={responseText}
-      response={response}
+      responseText={hasPrimaryExperience ? "" : responseText}
+      response={hasPrimaryExperience ? null : response}
       structuredContent={
-        structuredExperience ? (
-          <AgentStructuredExperienceView experience={structuredExperience} />
+        experienceItems.length > 0 ? (
+          <div className="space-y-3">
+            {experienceItems.map(({ id, experience }) => (
+              <AgentStructuredExperienceView key={id} experience={experience} />
+            ))}
+          </div>
         ) : null
       }
       thinkingTitle="One is thinking"

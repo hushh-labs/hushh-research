@@ -267,7 +267,8 @@ def connection_information_scope_catalog(
     counterpart_user_id: str = Path(..., min_length=1, max_length=128),
     query: str = Query(default="", max_length=160),
     domain: str = Query(default="", max_length=80),
-    limit: int = Query(default=20, ge=1, le=50),
+    page: int = Query(default=1, ge=1),
+    limit: int = Query(default=20, ge=1, le=100),
     firebase_uid: str = Depends(require_firebase_auth),
 ):
     try:
@@ -276,6 +277,7 @@ def connection_information_scope_catalog(
             counterpart_user_id,
             query=query,
             domain=domain,
+            page=page,
             limit=limit,
         )
     except Exception as exc:  # noqa: BLE001

@@ -7,6 +7,12 @@ export const EVIDENCE_BRIEF_EXPERIENCE_TYPE = "one.evidence_brief.v1" as const;
 const MAX_SCOPES = 250;
 const PROFILE_PATH_PATTERN = /^\/people\/[A-Za-z0-9_-]{16,128}$/;
 
+/**
+ * A turn may carry an authored card and a short prose note. This role is
+ * explicit so the client never guesses by comparing or stripping text.
+ */
+export type AgentExperiencePresentation = "primary_card" | "supplementary_note";
+
 export type ScopeDiscoverySensitivity =
   | "standard"
   | "sensitive"
@@ -88,6 +94,10 @@ export type AgentStructuredExperience =
   | MemoryImportReviewExperience
   | EvidenceBriefExperience;
 
+export type AgentStructuredExperienceWithPresentation = AgentStructuredExperience & {
+  presentation?: AgentExperiencePresentation;
+};
+
 type ExperienceParser = (
   content: unknown,
 ) => AgentStructuredExperience | null;
@@ -128,6 +138,14 @@ function unwrapToolResult(value: unknown): Record<string, unknown> | null {
     if (nested?.status || nested?.requestableScopes) return nested;
   }
   return record;
+}
+
+function parsePresentation(value: unknown): AgentExperiencePresentation | null {
+  const record = unwrapToolResult(value);
+  const presentation = record?.presentation;
+  return presentation === "primary_card" || presentation === "supplementary_note"
+    ? presentation
+    : null;
 }
 
 function normalizeSensitivity(value: unknown): ScopeDiscoverySensitivity {
@@ -297,15 +315,19 @@ const EXPERIENCE_REGISTRY: Record<string, ExperienceParser> = {
 export function parseAgentActivityExperience(
   activityType: string,
   content: unknown,
-): AgentStructuredExperience | null {
+): AgentStructuredExperienceWithPresentation | null {
   const parser = EXPERIENCE_REGISTRY[activityType];
-  return parser ? parser(content) : null;
+  const experience = parser ? parser(content) : null;
+  const presentation = experience ? parsePresentation(content) : null;
+  return experience && presentation ? { ...experience, presentation } : experience;
 }
 
 export function parseAgentToolResultExperience(
   toolName: string,
   content: unknown,
-): AgentStructuredExperience | null {
+): AgentStructuredExperienceWithPresentation | null {
   if (toolName !== "discover_person_information") return null;
-  return parseScopeDiscovery(content);
+  const experience = parseScopeDiscovery(content);
+  const presentation = experience ? parsePresentation(content) : null;
+  return experience && presentation ? { ...experience, presentation } : experience;
 }

@@ -104,7 +104,11 @@ import {
 } from "@/components/agent/agent-turn-stream-panel";
 import { describeSelection } from "@/lib/agent/describe-selection";
 import { useEntryWelcome, type EntryWelcome } from "@/lib/agent/use-entry-welcome";
-import type { AgentStructuredExperience } from "@/lib/agent/agui-structured-experiences";
+import {
+  parseAgentActivityExperience,
+  type AgentStructuredExperience,
+  type AgentStructuredExperienceWithPresentation,
+} from "@/lib/agent/agui-structured-experiences";
 import {
   getWelcomePromptSetIndex,
   getWelcomePrompts,
@@ -253,6 +257,10 @@ type AgentMessage = {
   thought?: string;
   sources?: AgentSource[];
   structuredExperience?: AgentStructuredExperience | null;
+  structuredExperiences?: Array<{
+    id: string;
+    experience: AgentStructuredExperienceWithPresentation;
+  }>;
 };
 
 type EmailDeliveryTimelineItem = EmailDeliveryHistoryItem & {
@@ -1256,13 +1264,23 @@ function AgentBubble({
   const isStreaming = message.status === "streaming";
   const isError = message.status === "error";
   const streamEvents = message.streamEvents ?? [];
+  const structuredExperiences =
+    message.structuredExperiences ??
+    (message.structuredExperience
+      ? [
+          {
+            id: "legacy-structured-experience",
+            experience: message.structuredExperience,
+          },
+        ]
+      : []);
   // Use the activity surface only while a turn is active or when the settled
   // turn has safe, inspectable activity. Plain completed answers stay readable.
   const hasStreamContent =
     isStreaming ||
     streamEvents.length > 0 ||
     Boolean(message.sources?.length) ||
-    Boolean(message.structuredExperience);
+    structuredExperiences.length > 0;
   const shouldRenderStreamPanel =
     !isUser && !isError && hasStreamContent && !message.renderAsPlainAssistantMessage;
   const animated = useAnimatedAssistantText(
@@ -1352,6 +1370,7 @@ function AgentBubble({
               thinkingText={message.thought}
               sources={message.sources}
               structuredExperience={message.structuredExperience}
+              structuredExperiences={structuredExperiences}
               responseText={assistantText}
               isStreaming={isStreaming}
               isError={isError}
@@ -1515,6 +1534,21 @@ export function storedMessageToAgentMessage(
       : isLegacySelectionSeed
         ? "Your selection"
         : message.content;
+  const descriptor = message.metadata?.structuredExperience;
+  const restoredExperience =
+    descriptor && typeof descriptor.activityType === "string"
+      ? parseAgentActivityExperience(descriptor.activityType, descriptor.content)
+      : null;
+  const structuredExperiences = restoredExperience
+    ? [
+        {
+          id:
+            message.metadata?.structuredExperienceId?.trim() ||
+            `${message.id}:structured-experience`,
+          experience: restoredExperience,
+        },
+      ]
+    : undefined;
   return {
     id: message.id,
     role: message.role,
@@ -1530,6 +1564,7 @@ export function storedMessageToAgentMessage(
     ...(isSelection || isLegacySelectionSeed
       ? { kind: "selection" as const }
       : {}),
+    ...(structuredExperiences ? { structuredExperiences } : {}),
   };
 }
 
@@ -4330,12 +4365,26 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
               sources,
             }));
           },
-          onStructuredExperience: (structuredExperience) => {
+          onStructuredExperience: (structuredExperience, eventId) => {
             if (streamAbortController.signal.aborted) return;
-            updateMessage(assistantMessageId, (message) => ({
-              ...message,
-              structuredExperience,
-            }));
+            const stableId =
+              eventId || `${assistantMessageId}:${structuredExperience.type}`;
+            updateMessage(assistantMessageId, (message) => {
+              const current = message.structuredExperiences ?? [];
+              const index = current.findIndex((item) => item.id === stableId);
+              const next =
+                index >= 0
+                  ? current.map((item, itemIndex) =>
+                      itemIndex === index
+                        ? { id: stableId, experience: structuredExperience }
+                        : item,
+                    )
+                  : [
+                      ...current,
+                      { id: stableId, experience: structuredExperience },
+                    ].slice(-8);
+              return { ...message, structuredExperiences: next };
+            });
           },
           onSpecialistDirective: (directive) => {
             if (streamAbortController.signal.aborted) return;

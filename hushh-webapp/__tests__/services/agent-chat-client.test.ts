@@ -78,6 +78,7 @@ describe("AG-UI Agent One client", () => {
   it("uses the canonical endpoint and official run fields", async () => {
     const tokens: string[] = [];
     const experiences: string[] = [];
+    const experienceIds: Array<string | undefined> = [];
     const result = await streamAgentChat({
       userId: "user-1",
       message: "Hello",
@@ -86,13 +87,17 @@ describe("AG-UI Agent One client", () => {
       screenContext: { available_action_ids: [] },
       handlers: {
         onToken: (token) => tokens.push(token),
-        onStructuredExperience: (experience) => experiences.push(experience.type),
+        onStructuredExperience: (experience, eventId) => {
+          experiences.push(experience.type);
+          experienceIds.push(eventId);
+        },
       },
     });
 
     expect(result).toEqual({ conversationId: "thread-1", model: null, text: "Hello" });
     expect(tokens).toEqual(["Hello"]);
     expect(experiences).toEqual(["one.scope_discovery.v1"]);
+    expect(experienceIds).toEqual(["activity-1"]);
     expect(mockTransport.runAgent).toHaveBeenCalledWith(
       expect.objectContaining({ tools: [], context: [], forwardedProps: expect.any(Object) }),
       expect.objectContaining({ url: "/api/one/agent-chat", threadId: "thread-1" }),

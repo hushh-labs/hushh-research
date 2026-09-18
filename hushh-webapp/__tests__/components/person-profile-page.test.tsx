@@ -439,6 +439,8 @@ describe("PersonProfilePage request catalog tools", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Open Professional" }));
     fireEvent.click(screen.getByRole("button", { name: /Employment status/ }));
     fireEvent.click(screen.getByRole("button", { name: /Review request \(1\)/ }));
+    const sendRequest = screen.getByRole("button", { name: "Send request" });
+    expect(sendRequest).toBeDisabled();
     const duration = screen.getByTestId("person-profile-duration-select") as HTMLSelectElement;
     expect(duration.value).toBe("168");
     fireEvent.change(duration, { target: { value: "24" } });
@@ -447,7 +449,8 @@ describe("PersonProfilePage request catalog tools", () => {
     expect(screen.getByText("They will see exactly what you asked for, why, and for how long.")).toBeTruthy();
     expect(duration.value).toBe("24");
     fireEvent.change(screen.getByTestId("person-profile-purpose"), { target: { value: "Checking references for a role" } });
-    fireEvent.click(screen.getByRole("button", { name: "Send request" }));
+    expect(sendRequest).toBeEnabled();
+    fireEvent.click(sendRequest);
     await waitFor(() =>
       expect(PersonProfileService.createInformationRequest).toHaveBeenCalledWith(
         expect.objectContaining({ durationSeconds: 24 * 3600, scopeRefs: ["scope-0"] }),
