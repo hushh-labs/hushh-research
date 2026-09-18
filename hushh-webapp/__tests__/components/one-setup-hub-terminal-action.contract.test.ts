@@ -109,7 +109,7 @@ describe("One setup hub terminal action contract", () => {
     expect(tile).toContain('size="setup"');
     expect(icon).toContain("setup: {");
     expect(icon).toContain('lucideSurface: "h-9 w-9 rounded-[10px]"');
-    expect(icon).toContain('lucide: "h-[19px] w-[19px]"');
+    expect(icon).toContain('lucide: "h-[22px] w-[22px]"');
   });
 
   it("counts the mandatory AI access choice in the same progress projection as capability rows", () => {
