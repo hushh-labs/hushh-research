@@ -37,6 +37,7 @@ import {
   LogOut,
   Mail,
   MoreHorizontal,
+  Search,
   Shield,
   Trash2,
   UserRound,
@@ -1229,7 +1230,12 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
                           aria-label="Search"
                           onClick={() => openKaiCommandBar()}
                         >
-                          Search 🔍
+                          <Icon
+                            icon={Search}
+                            size="sm"
+                            className="shrink-0 text-current"
+                          />
+                          <span className="truncate">Search</span>
                         </ShellActionSurface>
 
                         <ShellActionSurface
