@@ -4207,6 +4207,7 @@
         "location.send_check_in",
         "location.send_request",
         "location.set_auto_share",
+        "location.set_circle_kind",
         "location.set_ghost_mode",
         "location.set_precision",
         "location.set_sharing_enabled",
@@ -8623,28 +8624,21 @@
       "page_file": "app/ria/page.tsx",
       "physical_page_exists": true,
       "route_contract": {
-        "mode": "standard",
-        "exemption_reason": null,
-        "shell_verification_file": "components/ria/ria-page-shell.tsx",
-        "shell_verification_includes": [
-          "AppPageShell",
-          "AppPageHeaderRegion",
-          "AppPageContentRegion",
-          "SurfaceStack"
-        ],
+        "mode": "redirect",
+        "exemption_reason": "Compatibility redirect to the canonical RIA profile at /ria/profile.",
+        "shell_verification_file": null,
+        "shell_verification_includes": [],
         "interaction_layer_policy": {
           "allowed_families": []
         },
         "voice_playbook": {
           "playbook_id": "route.ria",
           "purpose": "Help the person understand and use the ria screen through its generated controls.",
-          "screen": "ria_home",
-          "entry_cue": "You can say “Open RIA Home” to use the primary control on this screen.",
-          "proactivity": "on_entry",
-          "primary_action_id": "route.ria_home",
-          "happy_path_action_ids": [
-            "route.ria_home"
-          ],
+          "screen": "ria_profile",
+          "entry_cue": "",
+          "proactivity": "ambient",
+          "primary_action_id": null,
+          "happy_path_action_ids": [],
           "required_inputs": [],
           "recoveries": {
             "blocked": "Explain the current guard and retain the goal.",
@@ -8654,9 +8648,9 @@
             "callback_error": "Return to the verified callback recovery path without claiming success.",
             "route_mismatch": "Use the verified current route and its generated actions only."
           },
-          "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
-          "next_route": "/ria",
-          "return_policy": "stay",
+          "completion_boundary": "The compatibility route completes only after navigation settles on the canonical RIA profile.",
+          "next_route": "/ria/profile",
+          "return_policy": "navigate",
           "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
         }
       },
@@ -9461,5 +9455,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "a5f55e42922879036d4670693cdca560379ec91fca4e0b7d4fa025e2c05a7c8c"
+  "content_sha256": "db04abbb1c7c6b91ba40455c5ccf84deb2e933a49306b3f8199a9808f8d68042"
 }

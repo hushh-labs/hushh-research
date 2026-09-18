@@ -12,7 +12,7 @@ Rules encoded here, not in prose:
 * Every result carries ``status`` from a small, tool-specific vocabulary plus
   ``spoken_facts`` -- the sentences the model may state verbatim. Pending
   states (``confirmation_required``, ``position_publish_pending``,
-  ``navigation_dispatched``) are never success.
+  ``location_updates_pending``, ``navigation_dispatched``) are never success.
 * The host validates ids, schemas, and authority and returns typed refusals.
   It never re-picks a tool, classifies transcripts, or auto-selects a person
   (AGENTS.md "no second decision-maker").
@@ -24,11 +24,15 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any, Literal
+from typing import Any, Final, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
 ENTITY_CONTEXT_TTL_SECONDS = 2 * 60 * 60
+# Interim status of a device-executed Location updates step. Never success:
+# the settled result arrives later as its own tool.result once the device
+# reports back.
+LOCATION_UPDATES_PENDING: Final = "location_updates_pending"
 
 
 class ToolPolicy(str, Enum):
@@ -170,6 +174,12 @@ class EntityContext(BaseModel):
     # accepts one of these, so the model cannot invent an id.
     offered_person_ids: list[str] = Field(default_factory=list)
     offered_circle_ids: list[str] = Field(default_factory=list)
+    # When ``offered_person_ids`` came from a circle roster read, the circle
+    # the server read them from. ``confirm_person`` revalidates a roster
+    # candidate against that circle's membership, so a member who is not one
+    # of the person's direct connections can still be confirmed -- and only
+    # as a member of that circle, never as an id the model supplied.
+    offered_person_circle_id: str | None = None
 
     @staticmethod
     def _now() -> datetime:
@@ -191,6 +201,11 @@ class EntityContext(BaseModel):
     def remember_person(self, person: ConfirmedPerson) -> None:
         self.people[person.user_id] = person
         self.last_person_user_id = person.user_id
+
+    def offer_people(self, user_ids: list[str], *, circle_id: str | None = None) -> None:
+        """Replace the offered person candidates and record where they came from."""
+        self.offered_person_ids = list(user_ids)
+        self.offered_person_circle_id = circle_id
 
     def remember_circle(self, circle: ConfirmedCircle) -> None:
         self.circles[circle.circle_id] = circle
@@ -214,6 +229,10 @@ class ScreenContext(BaseModel):
     available_action_ids: list[str] = Field(default_factory=list)
     screen_state: dict[str, Any] = Field(default_factory=dict)
     os_location_permission: Literal["unknown", "prompt", "granted", "denied"] = "unknown"
+    # The circle whose detail screen is open, if any. A hint for "this
+    # circle", never authority: every read of it goes through the authorized
+    # circle service, and every mutation still needs the id confirmed.
+    active_circle_id: str | None = None
 
 
 @dataclass
@@ -304,6 +323,7 @@ __all__ = [
     "ConfirmedCircle",
     "ConfirmedPerson",
     "ENTITY_CONTEXT_TTL_SECONDS",
+    "LOCATION_UPDATES_PENDING",
     "EntityContext",
     "Needs",
     "PersonRef",

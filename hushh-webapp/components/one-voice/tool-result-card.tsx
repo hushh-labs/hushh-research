@@ -53,9 +53,12 @@ const PEOPLE_TOOLS = new Set([
 ]);
 const CIRCLE_TOOLS = new Set([
   "list_circles",
+  "get_circle_details",
+  "list_circle_members",
   "list_circle_invites",
   "create_circle",
   "rename_circle",
+  "set_circle_kind",
   "delete_circle",
   "add_circle_member",
   "remove_circle_member",

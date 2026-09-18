@@ -43,7 +43,7 @@ function DialogOverlay({
       className={cn(
         // The blur/scrim lives on the Radix overlay itself so it shares the
         // open/close lifecycle and fades OUT on close instead of snapping.
-        "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 duration-150 ease-out fixed inset-0 z-[499] touch-none bg-black/22 backdrop-blur-[8px] [-webkit-backdrop-filter:blur(8px)]",
+        "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 duration-150 ease-out fixed inset-0 z-[800] touch-none bg-black/22 backdrop-blur-[8px] [-webkit-backdrop-filter:blur(8px)]",
         className
       )}
       {...props}
@@ -84,7 +84,7 @@ function DialogContent({
           // clipped the title and close button). `--app-safe-area-top-effective`
           // is the probe-backed inset (min 44px on iOS native, 0 on desktop),
           // so this is inert on the web where both insets resolve to 0.
-          "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 fixed top-[50%] left-[50%] z-[500] flex w-full max-w-[calc(100%-2rem)] max-h-[calc(100dvh-2rem-var(--app-safe-area-top-effective,0px)-env(safe-area-inset-bottom,0px))] min-h-0 flex-col overflow-y-auto overscroll-contain [-webkit-overflow-scrolling:touch] translate-x-[-50%] translate-y-[-50%] gap-4 rounded-[var(--app-card-radius-feature)] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] p-6 shadow-[var(--app-card-shadow-feature)] duration-150 ease-[cubic-bezier(0.16,1,0.3,1)] outline-none sm:max-w-lg",
+          "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 fixed top-[50%] left-[50%] z-[801] flex w-full max-w-[calc(100%-2rem)] max-h-[calc(100dvh-2rem-var(--app-safe-area-top-effective,0px)-env(safe-area-inset-bottom,0px))] min-h-0 flex-col overflow-y-auto overscroll-contain [-webkit-overflow-scrolling:touch] translate-x-[-50%] translate-y-[-50%] gap-4 rounded-[var(--app-card-radius-feature)] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] p-6 shadow-[var(--app-card-shadow-feature)] duration-150 ease-[cubic-bezier(0.16,1,0.3,1)] outline-none sm:max-w-lg",
           className
         )}
         {...props}

@@ -79,6 +79,7 @@ export function toolResult(
     "tap_required",
     "navigation_dispatched",
     "grant_created",
+    "location_updates_pending",
     "pending",
   ]);
   return {

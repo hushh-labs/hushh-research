@@ -12,6 +12,8 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError
 
+from hushh_mcp.one_voice.tools.base import LOCATION_UPDATES_PENDING as _LOCATION_UPDATES_PENDING
+
 PROTOCOL_VERSION = "one-voice-v1"
 INPUT_MIME = "audio/pcm;rate=16000"
 OUTPUT_MIME = "audio/pcm;rate=24000"
@@ -19,6 +21,14 @@ MAX_AUDIO_FRAME_B64_CHARS = 1_000_000
 MAX_AUDIO_FRAME_BYTES = 512 * 1024
 MAX_TEXT_CHARS = 4_000
 MAX_CONTEXT_JSON_CHARS = 48_000
+
+# Interim status of a device-executed Location updates step (resume/pause
+# tools); defined with the tool contract, re-exported here for the wire.
+LOCATION_UPDATES_PENDING = _LOCATION_UPDATES_PENDING
+# Statuses whose ``tool.result`` frame carries ``ok: false``.
+NOT_OK_STATUSES = frozenset(
+    {"rejected", "unsupported", "confirmation_required", LOCATION_UPDATES_PENDING}
+)
 
 
 class _Frame(BaseModel):
@@ -56,6 +66,10 @@ class AppContextFrame(_Frame):
     available_action_ids: list[str] = Field(default_factory=list, max_length=200)
     screen_state: dict[str, Any] = Field(default_factory=dict)
     os_location_permission: Literal["unknown", "prompt", "granted", "denied"] = "unknown"
+    # Canonical id of the circle whose detail screen is open. Typed and
+    # separate from ``screen_state`` (which is rendered into the prompt and
+    # carries no identifiers); the host reads it through the circle service.
+    active_circle_id: str | None = Field(default=None, min_length=36, max_length=36)
 
 
 class PendingShownFrame(_Frame):
@@ -205,14 +219,19 @@ def tool_started(*, call_id: str, tool: str, args_public: dict[str, Any]) -> dic
     return {"type": "tool.started", "call_id": call_id, "tool": tool, "args_public": args_public}
 
 
-def tool_result(*, call_id: str | None, tool: str, result_public: dict[str, Any]) -> dict[str, Any]:
+def tool_result(
+    *,
+    call_id: str | None,
+    tool: str,
+    result_public: dict[str, Any],
+    ok: bool | None = None,
+) -> dict[str, Any]:
     return {
         "type": "tool.result",
         "call_id": call_id,
         "tool": tool,
         "status": result_public.get("status"),
-        "ok": result_public.get("status")
-        not in {"rejected", "unsupported", "confirmation_required"},
+        "ok": ok if ok is not None else result_public.get("status") not in NOT_OK_STATUSES,
         "result_public": result_public,
     }
 

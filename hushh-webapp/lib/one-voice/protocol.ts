@@ -30,6 +30,13 @@ export type AppContextFrame = {
   available_action_ids?: string[];
   screen_state?: Record<string, unknown>;
   os_location_permission?: OsPermission;
+  /**
+   * Canonical id of the circle whose detail screen is open, so "this circle"
+   * resolves server-side. Typed and separate from `screen_state` (which is
+   * rendered into the prompt and carries no identifiers); a hint the relay
+   * reads through the authorized circle service, never authority.
+   */
+  active_circle_id?: string | null;
 };
 export type PendingShownFrame = { type: "pending_action.shown"; pending_action_id: string };
 export type ConfirmActionFrame = {
@@ -296,6 +303,7 @@ export const NOT_SUCCESS_STATUSES = new Set<string>([
   "check_in_created",
   "sos_grants_created",
   "position_publish_pending",
+  "location_updates_pending",
   "pending",
   "not_pending",
   "consent_required",
