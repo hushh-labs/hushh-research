@@ -565,6 +565,69 @@ function useCommandController(enabled = true) {
     [command, report],
   );
 
+  // Test-only dispatch entry point (restored; it lived in the Agent Bar until
+  // that surface was rebuilt). Automation supplies the actionId/slots a voice
+  // turn would have produced and gets the dispatcher's truthful result --
+  // proving the action itself, without simulating audio or a relay. Installed
+  // only when the native test bridge is enabled by an init script. The
+  // operation id makes location local handlers take the same direct path the
+  // Live device step takes instead of the bounded command runtime's handoff.
+  useEffect(() => {
+    if (typeof window === "undefined") return undefined;
+    const bridge = window.__HUSHH_NATIVE_TEST__;
+    if (!bridge?.enabled) return undefined;
+
+    const dispatch = async (
+      actionId: string,
+      slots?: Record<string, unknown>,
+    ) => {
+      bridge.dispatchAgentActionStatus = `running:${actionId}`;
+      bridge.dispatchAgentActionError = "";
+      const current = latestRuntimeRef.current;
+      const value = latest.current;
+      if (!current?.appRuntimeState) {
+        const message = "App runtime state is not ready.";
+        bridge.dispatchAgentActionStatus = `error:${actionId}`;
+        bridge.dispatchAgentActionError = message;
+        throw new Error(message);
+      }
+      try {
+        const result = await executeAgentGatewayAction({
+          actionId,
+          slots: slots ?? {},
+          userId: value.user?.uid ?? "",
+          router,
+          appRuntimeState: current.appRuntimeState,
+          surfaceMetadata: getVoiceSurfaceMetadata(),
+          allowedActionIds:
+            current.oneVoiceContextSnapshot.executable_action_ids ?? null,
+          hasPortfolioData: current.appRuntimeState.portfolio.has_portfolio_data,
+          busyOperations: value.busyOperations,
+          setAnalysisParams: value.setAnalysisParams,
+          switchPersona: value.switchPersona,
+          executionContext: {
+            operationId: `native-test:${crypto.randomUUID()}`,
+          },
+        });
+        bridge.dispatchAgentActionStatus = `ok:${actionId}`;
+        return result;
+      } catch (error) {
+        bridge.dispatchAgentActionStatus = `error:${actionId}`;
+        bridge.dispatchAgentActionError =
+          error instanceof Error ? error.message : "native action dispatch failed";
+        throw error;
+      }
+    };
+
+    bridge.dispatchAgentAction = dispatch;
+    return () => {
+      const currentBridge = window.__HUSHH_NATIVE_TEST__;
+      if (currentBridge && currentBridge.dispatchAgentAction === dispatch) {
+        currentBridge.dispatchAgentAction = null;
+      }
+    };
+  }, [router]);
+
   const cancelTask = useCallback(() => {
     cancelCapture();
     run(command.cancel());

@@ -8,7 +8,10 @@ import type {
 } from "@/lib/one-voice/audio/capture";
 import { OneLiveClient } from "@/lib/one-voice/live-client";
 import { CLOSE_CODES } from "@/lib/one-voice/protocol";
-import { VOICE_UNAVAILABLE_MESSAGE } from "@/lib/one-voice/session-reducer";
+import {
+  VOICE_UNAVAILABLE_MESSAGE,
+  selectSuccessReceipt,
+} from "@/lib/one-voice/session-reducer";
 import {
   useVoiceSessionStore,
   useVoiceToolEffects,
@@ -160,7 +163,15 @@ type Mounted = {
 };
 
 function mount(
-  options: { effects?: VoiceToolEffectHandlers; enabled?: boolean } = {},
+  options: {
+    effects?: VoiceToolEffectHandlers;
+    enabled?: boolean;
+    /**
+     * The test override for the client-step budget. `null` leaves it unset so
+     * the provider falls back to the server's `timeout_s` and its own default.
+     */
+    clientStepTimeoutMs?: number | null;
+  } = {},
 ): Mounted {
   const server = new ScriptedVoiceServer();
   const capture = new FakeCapture();
@@ -187,7 +198,9 @@ function mount(
         // Long enough that a busy runner cannot expire it between a pause
         // and the tap that resumes; short enough to observe the graced close.
         backgroundGraceMs: 400,
-        clientStepTimeoutMs: 40,
+        ...(options.clientStepTimeoutMs === null
+          ? {}
+          : { clientStepTimeoutMs: options.clientStepTimeoutMs ?? 40 }),
         directiveClaimMs: 40,
       }}
     >
@@ -224,6 +237,7 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   controller = null;
+  vi.useRealTimers();
 });
 
 describe("VoiceSessionProvider with a scripted relay", () => {
@@ -776,5 +790,160 @@ describe("VoiceSessionProvider with a scripted relay", () => {
       capture.frame?.(new Uint8Array(640));
     });
     expect(server.frames("audio")).toHaveLength(before);
+  });
+
+  describe("client-step budget from the server's timeout_s", () => {
+    // Freezes the clock only after the socket is open and listening so the
+    // handshake keeps its real microtask timing; the step timer is then the
+    // only thing that has to elapse.
+    async function requestStepWithoutHandler(
+      timeoutS: number | undefined,
+      override: number | null = null,
+    ) {
+      const mounted = await startSession(
+        mount({ clientStepTimeoutMs: override }),
+      );
+      const { server } = mounted;
+      vi.useFakeTimers();
+      await act(async () => {
+        server.push({
+          type: "client_step.request",
+          step_id: "step-device",
+          kind: "set_location_updates",
+          payload: {
+            desired_state: "on",
+            gateway_action_id: "location.resume_updates",
+          },
+          // Omitted entirely when the server sent none.
+          ...(timeoutS === undefined ? {} : { timeout_s: timeoutS }),
+        } as never);
+      });
+      expect(controller!.state.clientStep?.stepId).toBe("step-device");
+      return mounted;
+    }
+
+    const reportedAfter = (server: ScriptedVoiceServer) =>
+      server.frames("client_step.result").filter(
+        (frame) => frame.step_id === "step-device",
+      );
+
+    it("honours a server timeout_s of 40: no report at 25 s, the no_handler report at 40 s", async () => {
+      const { server } = await requestStepWithoutHandler(40);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(25_000);
+      });
+      expect(reportedAfter(server)).toHaveLength(0);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(14_999);
+      });
+      expect(reportedAfter(server)).toHaveLength(0);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1);
+      });
+      expect(reportedAfter(server)).toEqual([
+        {
+          type: "client_step.result",
+          step_id: "step-device",
+          status: "failed",
+          payload: { reason: "no_handler" },
+        },
+      ]);
+      expect(controller!.state.clientStep).toBeNull();
+    });
+
+    it("caps a server timeout_s of 90 at 60 s", async () => {
+      const { server } = await requestStepWithoutHandler(90);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(59_999);
+      });
+      expect(reportedAfter(server)).toHaveLength(0);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1);
+      });
+      expect(reportedAfter(server)).toHaveLength(1);
+      expect(reportedAfter(server)[0]?.payload).toEqual({ reason: "no_handler" });
+    });
+
+    it("falls back to 25 s when the server sent no timeout_s", async () => {
+      const { server } = await requestStepWithoutHandler(undefined);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(24_999);
+      });
+      expect(reportedAfter(server)).toHaveLength(0);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1);
+      });
+      expect(reportedAfter(server)).toHaveLength(1);
+    });
+
+    it("lets the deps clientStepTimeoutMs override win over a longer server budget", async () => {
+      const { server } = await requestStepWithoutHandler(90, 40);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(39);
+      });
+      expect(reportedAfter(server)).toHaveLength(0);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1);
+      });
+      expect(reportedAfter(server)).toHaveLength(1);
+    });
+  });
+
+  it("a location_updates_pending tool.result is never a success receipt; the settled result replaces it", async () => {
+    const onToolResult = vi.fn();
+    const mounted = await startSession(mount({ effects: { onToolResult } }));
+    const { server } = mounted;
+    await act(async () => {
+      server.push({ type: "state", state: "executing" });
+      server.push({
+        type: "tool.started",
+        call_id: "c-device",
+        tool: "resume_device_location_updates",
+        args_public: {},
+      });
+      server.push({
+        type: "tool.result",
+        call_id: "c-device",
+        tool: "resume_device_location_updates",
+        status: "location_updates_pending",
+        ok: false,
+        result_public: { status: "location_updates_pending" },
+      });
+    });
+    expect(controller!.state.lastResult?.status).toBe("location_updates_pending");
+    expect(controller!.state.toolTimeline).toHaveLength(1);
+    expect(controller!.state.toolTimeline[0]?.ok).toBe(false);
+    expect(selectSuccessReceipt(controller!.state)).toBeNull();
+    expect(controller!.state.phase).not.toBe("complete");
+    expect(onToolResult).toHaveBeenCalledWith("resume_device_location_updates", {
+      status: "location_updates_pending",
+    });
+
+    await act(async () => {
+      server.push({
+        type: "tool.result",
+        call_id: "c-device",
+        tool: "resume_device_location_updates",
+        status: "on",
+        ok: true,
+        result_public: {
+          status: "on",
+          spoken_facts: ["Location is on."],
+        },
+      });
+      server.push({ type: "state", state: "complete" });
+    });
+    expect(controller!.state.toolTimeline).toHaveLength(1);
+    expect(controller!.state.toolTimeline[0]).toMatchObject({
+      callId: "c-device",
+      ok: true,
+      result: { status: "on" },
+    });
+    expect(selectSuccessReceipt(controller!.state)).toMatchObject({
+      source: "tool.result",
+      tool: "resume_device_location_updates",
+      status: "on",
+    });
+    expect(controller!.state.phase).toBe("complete");
   });
 });

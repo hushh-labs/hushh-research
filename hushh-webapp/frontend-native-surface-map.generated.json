@@ -4203,6 +4203,7 @@
         "location.send_check_in",
         "location.send_request",
         "location.set_auto_share",
+        "location.set_circle_kind",
         "location.set_ghost_mode",
         "location.set_precision",
         "location.set_sharing_enabled",
@@ -9457,5 +9458,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "cdfd6f6dd69d96b0b994ac66d81793a278c5bfd3be4d0949ea5fd496c60e9b7b"
+  "content_sha256": "b372c0629f24008c4dfa5fdd9d31008100f0baf00b2da85d30460b1f6e6eeee1"
 }

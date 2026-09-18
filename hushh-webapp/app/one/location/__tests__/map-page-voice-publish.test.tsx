@@ -1,12 +1,11 @@
-import { render } from "@testing-library/react";
+import { cleanup, render, screen } from "@testing-library/react";
+import { createElement, useEffect } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 /**
- * app/one/location/map/page.tsx used to be one of two Location routes that
- * never called usePublishVoiceSurfaceMetadata at all -- see the same note in
- * check-in-page-voice-publish.test.tsx. These tests pin the wiring: the
- * right screenId and actions publish once authenticated, nothing publishes
- * before then.
+ * Pin the route's auth-gated voice metadata and its immersive map renderer.
+ * PR #6786 made Live voice readiness replace the existing map UI. Voice
+ * readiness must not choose a different map or reset its owner-scoped state.
  */
 
 const authHarness = vi.hoisted(() => ({
@@ -14,7 +13,11 @@ const authHarness = vi.hoisted(() => ({
   isAuthenticated: true,
   userId: "test-user" as string | null,
 }));
-
+const voiceHarness = vi.hoisted(() => ({ enabled: false }));
+const mapLifecycle = vi.hoisted(() => ({
+  mount: vi.fn(),
+  unmount: vi.fn(),
+}));
 const publishSpy = vi.hoisted(() => vi.fn());
 
 vi.mock("@/hooks/use-auth", () => ({
@@ -25,8 +28,25 @@ vi.mock("@/hooks/use-auth", () => ({
   }),
 }));
 
+vi.mock("@/lib/one-voice/readiness", () => ({
+  useOneVoiceLiveEnabled: () => voiceHarness.enabled,
+}));
+
 vi.mock("@/components/one-location/location-immersive-map", () => ({
-  LocationImmersiveMap: () => null,
+  LocationImmersiveMap: () => {
+    useEffect(() => {
+      mapLifecycle.mount();
+      return () => {
+        mapLifecycle.unmount();
+      };
+    }, []);
+    return createElement("div", { "data-testid": "immersive-your-map" });
+  },
+}));
+
+vi.mock("@/components/location/map/location-map-screen", () => ({
+  LocationMapScreen: () =>
+    createElement("div", { "data-testid": "replacement-your-map" }),
 }));
 
 vi.mock("@/lib/voice/voice-surface-metadata", () => ({
@@ -35,12 +55,16 @@ vi.mock("@/lib/voice/voice-surface-metadata", () => ({
 
 import OneLocationMapPage from "@/app/one/location/map/page";
 
-describe("Location map page publishes voice metadata", () => {
+describe("Location map page preserves immersive UI and voice metadata", () => {
   afterEach(() => {
+    cleanup();
     publishSpy.mockClear();
+    mapLifecycle.mount.mockClear();
+    mapLifecycle.unmount.mockClear();
     authHarness.loading = false;
     authHarness.isAuthenticated = true;
     authHarness.userId = "test-user";
+    voiceHarness.enabled = false;
   });
 
   it("publishes the one_location_map screen with its derived actions when authenticated", () => {
@@ -77,5 +101,46 @@ describe("Location map page publishes voice metadata", () => {
     render(<OneLocationMapPage />);
 
     expect(publishSpy).toHaveBeenCalledWith(null);
+  });
+
+  it.each([false, true])(
+    "renders the existing immersive map when Live voice is %s",
+    (enabled) => {
+      voiceHarness.enabled = enabled;
+      render(<OneLocationMapPage />);
+
+      expect(screen.getByTestId("immersive-your-map")).toBeInTheDocument();
+      expect(screen.queryByTestId("replacement-your-map")).not.toBeInTheDocument();
+      expect(publishSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ screenId: "one_location_map", title: "Your Map" }),
+      );
+    },
+  );
+
+  it("does not replace or remount the map when voice readiness changes", () => {
+    const { rerender } = render(<OneLocationMapPage />);
+    const map = screen.getByTestId("immersive-your-map");
+
+    voiceHarness.enabled = true;
+    rerender(<OneLocationMapPage />);
+    expect(screen.getByTestId("immersive-your-map")).toBe(map);
+
+    voiceHarness.enabled = false;
+    rerender(<OneLocationMapPage />);
+    expect(screen.getByTestId("immersive-your-map")).toBe(map);
+    expect(mapLifecycle.mount).toHaveBeenCalledTimes(1);
+    expect(mapLifecycle.unmount).not.toHaveBeenCalled();
+  });
+
+  it("still remounts the map when the authenticated owner changes", () => {
+    const { rerender } = render(<OneLocationMapPage />);
+    const previousMap = screen.getByTestId("immersive-your-map");
+
+    authHarness.userId = "another-user";
+    rerender(<OneLocationMapPage />);
+
+    expect(screen.getByTestId("immersive-your-map")).not.toBe(previousMap);
+    expect(mapLifecycle.unmount).toHaveBeenCalledTimes(1);
+    expect(mapLifecycle.mount).toHaveBeenCalledTimes(2);
   });
 });
