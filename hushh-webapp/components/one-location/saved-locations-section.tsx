@@ -11,7 +11,7 @@ import {
   RefreshCw,
   ShieldCheck,
   Trash2,
-} from "lucide-react";
+} from "@/components/icons";
 import { toast } from "sonner";
 
 import { SaveLocationModal } from "@/components/one-location/onboarding/save-location-modal";
@@ -688,7 +688,7 @@ export function SavedLocationsSection() {
                       </p>
                     </div>
                     <ChevronRight
-                      className="h-4 w-4 shrink-0 text-[color:var(--app-tertiary-label)] transition-transform duration-200"
+                      className="h-4 w-4 shrink-0 text-[color:var(--app-tertiary-label)] transition-transform duration-150"
                       strokeWidth={1.9}
                       aria-hidden
                     />

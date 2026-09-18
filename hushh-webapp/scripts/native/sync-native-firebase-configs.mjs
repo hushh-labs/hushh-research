@@ -72,6 +72,7 @@ export function syncNativeFirebaseConfigs({
   const androidSource = firstExisting([
     path.join(monorepoRoot, "google-services.json"),
     path.join(monorepoRoot, "android/app/google-services.json"),
+    path.join(appRoot, "android/app/google-services.json"),
     path.join(appRoot, "google-services.json"),
   ]);
 
@@ -79,7 +80,9 @@ export function syncNativeFirebaseConfigs({
     throw new Error("Missing root GoogleService-Info.plist for iOS native build.");
   }
   if (includeAndroid && !androidSource) {
-    throw new Error("Missing root google-services.json for Android native build.");
+    throw new Error(
+      "Missing google-services.json for Android native build.",
+    );
   }
 
   const bundleId = includeIos ? iosBundleId(iosSource) : "";

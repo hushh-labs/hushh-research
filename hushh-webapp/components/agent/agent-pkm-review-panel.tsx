@@ -1,6 +1,6 @@
 "use client";
 
-import { Brain, Check, Loader2, Pencil, X } from "lucide-react";
+import { Brain, Check, Loader2, Pencil, X } from "@/components/icons";
 
 import { Button } from "@/components/ui/button";
 import {

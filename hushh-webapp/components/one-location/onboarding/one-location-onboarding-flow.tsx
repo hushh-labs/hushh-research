@@ -18,7 +18,7 @@ import {
   MapPin,
   Share2,
   UserPlus,
-} from "lucide-react";
+} from "@/components/icons";
 import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
 import { OnboardingStepper } from "@/components/app-ui/onboarding-stepper";
 import { ContactSourceBadge } from "@/components/connections/contact-source-badge";
@@ -1895,8 +1895,8 @@ function ReadyScreen({
       </div>
 
       <style>{`
-        [data-one-ready-title] { animation: oneReadyRise 520ms cubic-bezier(0.22, 1, 0.36, 1) both; }
-        [data-one-ready-code] { animation: oneReadyRise 560ms cubic-bezier(0.22, 1, 0.36, 1) both; animation-delay: 140ms; }
+        [data-one-ready-title] { animation: oneReadyRise 150ms cubic-bezier(0.22, 1, 0.36, 1) both; }
+        [data-one-ready-code] { animation: oneReadyRise 150ms cubic-bezier(0.22, 1, 0.36, 1) both; }
         ${READY_MAP_SHORT_WINDOW_CSS}
         @keyframes oneReadyRise {
           from { opacity: 0; transform: translateY(14px); }

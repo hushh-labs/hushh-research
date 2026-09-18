@@ -11,6 +11,7 @@ export const ROUTE_ID_VALUES = [
   "getting_started",
   "one_setup",
   "developers",
+  "founder_profile",
   "research",
   "research_protocol",
   "hushh_tech_launch",
@@ -154,6 +155,7 @@ export function resolveRouteId(rawPathname: string): RouteId {
     return "one_setup";
   }
   if (pathname === ROUTES.DEVELOPERS) return "developers";
+  if (pathname === ROUTES.MANISH_SAINANI) return "founder_profile";
   if (pathname === ROUTES.RESEARCH) return "research";
   if (pathname === ROUTES.RESEARCH_PROTOCOL) return "research_protocol";
   if (pathname === HUSHH_TECH_LAUNCH_PATH) return "hushh_tech_launch";

@@ -220,9 +220,10 @@ present.
 
 Persistent chrome text and icons inherit the neutral theme foreground through
 `currentColor`; do not pin descendant `text-foreground` or
-`text-muted-foreground` classes. Lucide icons use the shared
-`--lucide-stroke-width: 1.6` baseline, with a deliberate component-level
-override only when a compact control needs it.
+`text-muted-foreground` classes. Generic icons come from the canonical
+`@/components/icons` Phosphor registry and preserve their native viewBox and
+weight. Use the registry's regular weight for Plus/X controls and duotone for
+capabilities and utility icons; do not add per-surface stroke overrides.
 
 The top shell’s Finance, Location, Consent Center, and public Explore tab sets
 use equal fixed tracks from the central registry. They remain visible and

@@ -1887,6 +1887,18 @@ async def discover_person_information(
                     "sensitivity": item.get("sensitivity") or "standard",
                 }
             )
+        active_grants = profile.get("grants") or []
+        shared_with_you = [
+            {
+                "label": g.get("label") or "Shared information",
+                "domain": g.get("domain") or "Other",
+                "scopeRef": g.get("scopeRef"),
+                "status": g.get("status") or "granted",
+                "expiresAt": g.get("expiresAt"),
+                "requestId": g.get("requestId"),
+            }
+            for g in active_grants
+        ]
         return {
             "status": "ok",
             "person": {
@@ -1898,11 +1910,13 @@ async def discover_person_information(
                 "relationship": (profile.get("relationship") or {}).get("status"),
             },
             "domainFilter": domain.strip() or None,
+            "sharedWithYou": shared_with_you,
+            "sharedCount": len(shared_with_you),
             "requestableScopes": scopes,
             "scopeCount": len(scopes),
             "nextStep": (
-                "Present these exact fields grouped by domain, then link to profilePath. "
-                "The person must select fields and confirm the request on that profile."
+                "If they have shared information with you (sharedWithYou), tell the user what has been granted. "
+                "For new requests, present requestable fields grouped by domain and link to profilePath."
             ),
         }
     except (ConnectionsError, PersonProfileNotFoundError, ValueError) as exc:
@@ -1912,6 +1926,40 @@ async def discover_person_information(
         return {
             "status": "failed",
             "message": "That information catalog is temporarily unavailable. Please try again.",
+        }
+
+
+async def list_information_shared_with_me(tool_context: ToolContext) -> dict[str, Any]:
+    """List information that connections have shared with this person through active consent grants.
+
+    Returns who has shared information with you, the specific fields/labels granted,
+    domains, and the profile link where the decrypted value can be opened using the vault key.
+    """
+    user_id, blocked = await _read_tool_user_id(tool_context)
+    if blocked is not None:
+        return blocked
+    if user_id is None:
+        raise AssertionError("_read_tool_user_id returned no user_id with blocked=None")
+
+    try:
+        shares = await InformationRequestService().list_granted_shares(requester_user_id=user_id)
+        return {
+            "status": "ok",
+            "shares": shares,
+            "count": len(shares),
+            "nextStep": (
+                "Tell the person what information their connections have granted. "
+                "Values stay end-to-end encrypted; point them to the profilePath link "
+                "where their browser automatically decrypts and displays the records using their vault key."
+                if shares
+                else "No connections have shared information with you yet."
+            ),
+        }
+    except Exception:  # noqa: BLE001 - consumer-safe boundary
+        logger.exception("list_information_shared_with_me failed")
+        return {
+            "status": "failed",
+            "message": "Shared information records are temporarily unavailable.",
         }
 
 

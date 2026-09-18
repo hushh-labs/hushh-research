@@ -15,7 +15,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Loader2, MapPin, Star, Trash2 } from "lucide-react";
+import { Loader2, MapPin, Star, Trash2 } from "@/components/icons";
 
 import {
   StarRatingInput,

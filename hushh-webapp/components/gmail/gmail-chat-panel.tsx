@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useRef, useState } from "react";
-import { RotateCcw, Send, Sparkles } from "lucide-react";
+import { RotateCcw, Send, Sparkles } from "@/components/icons";
 
 import { SurfaceInset } from "@/components/app-ui/surfaces";
 import { Button } from "@/lib/morphy-ux/button";

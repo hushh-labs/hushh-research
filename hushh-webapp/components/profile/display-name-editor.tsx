@@ -23,7 +23,9 @@ import {
   type FormEvent,
 } from "react";
 import type { User } from "firebase/auth";
-import { Loader2 } from "lucide-react";
+import {
+  SpinnerGapIcon as Loader2,
+} from "@/components/icons";
 
 import { Button } from "@/components/ui/button";
 import {

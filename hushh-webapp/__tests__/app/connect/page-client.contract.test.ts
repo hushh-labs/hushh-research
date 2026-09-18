@@ -92,7 +92,8 @@ describe("Connect canonical surface contract", () => {
     expect(tabs).toContain('{ value: "all", label: "Connections"');
     expect(tabs).toContain('value: "circles"');
     expect(tabs).toContain('label: "Circles"');
-    expect(topShellTabs).toContain('tabSet.id === "location" || tabSet.id === "connect"');
+    expect(topShellTabs).toContain('tabSet.id === "location"');
+    expect(topShellTabs).toContain('tabSet.id === "connect"');
     expect(source).toContain(
       'const CONNECT_DIRECTORY_TABS = (["people", "advisors", "nearby"] as const).map(',
     );
@@ -119,9 +120,9 @@ describe("Connect canonical surface contract", () => {
       "utf8",
     );
 
-    expect(routes).toContain(
-      'export type FocusedConnectCircleAction = "create-circle" | "join-circle";',
-    );
+    expect(routes).toContain("export type FocusedConnectCircleAction");
+    expect(routes).toContain('"create-circle"');
+    expect(routes).toContain('"join-circle"');
     expect(source).toContain("const isFocusedCircleTask =");
     expect(source).toContain("{isFocusedCircleTask ? (");
     expect(source).toContain('max-w-[560px]');

@@ -21,7 +21,7 @@ import {
   Pencil,
   Search,
   X,
-} from "lucide-react";
+} from "@/components/icons";
 
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Sheet, SheetContent, useSheetDragHandle } from "@/components/ui/sheet";
@@ -170,7 +170,7 @@ function CarouselDots({
           >
             <span
               className={cn(
-                "block h-[5px] rounded-full transition-all duration-200",
+                "block h-[5px] rounded-full transition-[width] duration-150",
                 active ? "w-[24px]" : "w-[7px]",
                 active || completed
                   ? STEP_DOT_REACHED_CLASSNAME

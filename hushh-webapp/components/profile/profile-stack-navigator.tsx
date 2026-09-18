@@ -182,7 +182,7 @@ export function ProfileStackNavigator({
             <section
               key={entry.key}
               className={cn(
-                "w-full min-w-0 [grid-area:stack] transition-[transform,opacity] duration-[260ms] ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none",
+                "w-full min-w-0 [grid-area:stack] transition-[transform,opacity] duration-[150ms] ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none",
                 isActive
                   ? "relative z-10 opacity-100"
                   : "pointer-events-none absolute inset-x-0 top-0 opacity-0",

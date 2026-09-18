@@ -36,7 +36,7 @@ export const kaiPreviewDockSurfaceClassName = cn(
 );
 
 export const kaiPreviewDockItemClassName =
-  "flex min-w-0 flex-col items-center justify-center gap-0.5 rounded-full border-0 bg-transparent px-0 pb-[5px] pt-[6px] text-[10px] font-medium tracking-normal text-[color:var(--one-fg2)] no-underline transition-[background,color,box-shadow,transform] duration-200 hover:text-[color:var(--one-fg)] active:scale-[0.93]";
+  "flex min-w-0 flex-col items-center justify-center gap-0.5 rounded-full border-0 bg-transparent px-0 pb-[5px] pt-[6px] text-[10px] font-medium tracking-normal text-[color:var(--one-fg2)] no-underline transition-[background,color,box-shadow,transform] duration-150 hover:text-[color:var(--one-fg)] active:scale-[0.93]";
 
 export const kaiPreviewDockActiveItemClassName =
   "bg-white text-[color:var(--one-blue)] shadow-[0_10px_26px_-18px_rgba(0,0,0,0.34),0_1px_2px_rgba(0,0,0,0.08)] dark:bg-white/[0.12]";
@@ -44,7 +44,7 @@ export const kaiPreviewDockActiveItemClassName =
 export const marketCardClassName = cn(
   "relative isolate border border-transparent",
   "bg-[color:var(--app-card-surface-default-solid)] shadow-[var(--app-card-shadow-standard)]",
-  "transition-[background-color,box-shadow,transform] duration-200 ease-out"
+  "transition-[background-color,box-shadow,transform] duration-150 ease-out"
 );
 
 export const marketInsetClassName = cn(
@@ -54,7 +54,7 @@ export const marketInsetClassName = cn(
 
 export const marketMicroSurfaceClassName = cn(
   marketInsetClassName,
-  "transition-[background-color,box-shadow,transform] duration-200 ease-out",
+  "transition-[background-color,box-shadow,transform] duration-150 ease-out",
   "group-hover:bg-[color:var(--app-card-surface-default-solid)]",
   "group-hover:shadow-[var(--app-card-shadow-standard)]"
 );

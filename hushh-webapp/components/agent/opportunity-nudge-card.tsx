@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { CalendarClock, ChevronDown, Inbox, X } from "lucide-react";
+import { CalendarClock, ChevronDown, Inbox, X } from "@/components/icons";
 
 import {
   Collapsible,

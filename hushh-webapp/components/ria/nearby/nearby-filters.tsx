@@ -160,7 +160,7 @@ function Chip({
       onClick={onClick}
       className={cn(
         "press-scale inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 type-footnote",
-        "transition-[background-color,border-color,color] duration-200",
+        "transition-[background-color,border-color,color] duration-150",
         active
           ? "border-[color:var(--app-accent-border)] bg-[color:var(--app-accent-surface)] text-[color:var(--app-accent-fg)]"
           : "border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] text-foreground",

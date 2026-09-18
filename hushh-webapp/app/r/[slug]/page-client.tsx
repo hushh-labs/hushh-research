@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Users } from "lucide-react";
+import { Users } from "@/components/icons";
 
 import { CardTitle, RowDescription } from "@/components/app-ui/typography";
 import { Button } from "@/components/ui/button";

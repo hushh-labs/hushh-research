@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
-import { ArrowLeft, Shield } from "lucide-react";
+import { ArrowLeft, Shield } from "@/components/icons";
 import lightStyles from "./AuthStepLight.module.css";
 import { AuthService } from "@/lib/services/auth-service";
 import { ApiService } from "@/lib/services/api-service";

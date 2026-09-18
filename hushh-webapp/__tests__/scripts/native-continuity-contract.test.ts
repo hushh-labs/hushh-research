@@ -47,6 +47,27 @@ describe("native cold-audit and continuity contract", () => {
       expect(script).not.toContain("RESET_APP_STATE");
       expect(script).not.toContain("VaultPassphrase");
     }
+
+    const androidContinuity = source(
+      "scripts/native/android-continuity-local.mjs",
+    );
+    expect(androidContinuity).toContain("defaultAdb");
+    expect(androidContinuity).toContain("waitForProcessId");
+  });
+
+  it("keeps native test artifacts and Capacitor on the same web asset directory", () => {
+    const artifacts = source("scripts/native/prepare-native-test-artifacts.mjs");
+    expect(artifacts).toContain("ensureWebAssetDirEnvironment");
+    expect(artifacts).toContain("process.env.NEXT_DIST_DIR = assetDir");
+  });
+
+  it("waits for RIA workspace admission to settle before conditional flows continue", () => {
+    const runner = source("scripts/native/native-ui-test-runner-source.js");
+    expect(runner).toContain("waitForRiaWorkspaceOrAdmission");
+    expect(runner).toContain('riaOnboardingAdmissionActive()');
+    expect(runner).toContain(
+      "await waitForRiaWorkspaceOrAdmission(step.timeoutMs)",
+    );
   });
 
   it("uses the app shell as the one native lifecycle collector and resumes browser visibility", () => {
@@ -279,40 +300,20 @@ describe("native cold-audit and continuity contract", () => {
     expect(flows).toContain('value: "profile_panel=account"');
   });
 
-  it("keeps Location onboarding UI-flow checkpoints within the authored screen contract", () => {
+  it("keeps the completed Location capability flow on its canonical handoff", () => {
     const flows = source("scripts/testing/signed-in-ui-flows.mjs");
-    const contract = JSON.parse(
-      source("lib/onboarding/one-location-onboarding.contract.json"),
-    ) as { screens: Array<{ testId: string }> };
     const flowStart = flows.indexOf(
-      'id: "native-reviewer-location-intro-fresh-session"',
+      'id: "native-reviewer-location-setup-handoff"',
     );
     const flowEnd = flows.indexOf("\n  },", flowStart);
     const locationFlow = flows.slice(flowStart, flowEnd);
-    const checkpointIndexes = Array.from(
-      locationFlow.matchAll(/LOCATION_ONBOARDING_CHECKPOINTS\[(\d+)\]/g),
-      (match) => Number(match[1]),
-    );
-    const actionSteps = Array.from(
-      locationFlow.matchAll(
-        /\{ type: "(click_button|wait_button)", name: "([^"]+)" \}/g,
-      ),
-      (match) => ({ type: match[1], name: match[2] }),
-    );
 
     expect(flowStart).toBeGreaterThan(-1);
-    expect(checkpointIndexes).toEqual(
-      contract.screens.map((_, index) => index),
+    expect(locationFlow).toContain('route: "/one/setup/location"');
+    expect(locationFlow).not.toContain('{ type: "assert_route"');
+    expect(locationFlow).toContain(
+      'routeIds: ["/one/location", "/one/setup/location"]',
     );
-    expect(
-      checkpointIndexes.every((index) => index < contract.screens.length),
-    ).toBe(true);
-    expect(actionSteps).toEqual([
-      { type: "click_button", name: "Get started" },
-      { type: "click_button", name: "Set up my location" },
-      { type: "click_button", name: "Skip saving this place" },
-      { type: "wait_button", name: "Finish" },
-    ]);
   });
 
   it("binds each cold UI report to the exact generated manifest and real controls", () => {

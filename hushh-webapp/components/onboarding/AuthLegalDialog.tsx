@@ -1,6 +1,6 @@
 "use client";
 
-import { ExternalLink, X } from "lucide-react";
+import { ExternalLink, X } from "@/components/icons";
 
 import {
   Dialog,

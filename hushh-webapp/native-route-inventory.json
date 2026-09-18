@@ -1,8 +1,8 @@
 {
   "generated_at": "2026-09-02",
-  "total_routes": 120,
-  "native_required_routes": 103,
-  "excluded_routes": 17,
+  "total_routes": 122,
+  "native_required_routes": 104,
+  "excluded_routes": 18,
   "routes": [
     {
       "route": "/",
@@ -299,6 +299,11 @@
         "loaded",
         "empty-valid"
       ]
+    },
+    {
+      "route": "/manishhussh",
+      "classification": "excluded-web-only",
+      "reason": "Public marketing and founder profile content. The native shell ships the signed-in product; the public site is web."
     },
     {
       "route": "/oauth/authorize",
@@ -756,6 +761,21 @@
       "expectedAuth": "authenticated",
       "allowedDataStates": [
         "loaded"
+      ]
+    },
+    {
+      "route": "/one/profile/connectors",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fone%2Fprofile%2Fconnectors",
+      "expectedMarker": "native-route-profile-connectors",
+      "expectedRoute": "/one/profile/connectors",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": [
+        "loading",
+        "loaded",
+        "empty-valid",
+        "unavailable-valid"
       ]
     },
     {

@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertCircle, CheckCircle2, Loader2, Plus } from "lucide-react";
+import { AlertCircle, CheckCircle2, Loader2, Plus } from "@/components/icons";
 import { Button } from "@/lib/morphy-ux/button";
 import { cn } from "@/lib/utils";
 

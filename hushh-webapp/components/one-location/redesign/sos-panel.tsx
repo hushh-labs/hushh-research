@@ -9,7 +9,7 @@ import {
   type KeyboardEvent,
   type PointerEvent,
 } from "react";
-import { Check, ChevronRight, Loader2, Phone } from "lucide-react";
+import { Check, ChevronRight, Loader2, Phone } from "@/components/icons";
 import { toast } from "sonner";
 
 import {
@@ -645,7 +645,7 @@ export function SosPanel({
                 data-sos-core={busy ? "" : undefined}
                 className={cn(
                   "relative z-10 flex h-[78%] w-[78%] touch-none select-none items-center justify-center rounded-full bg-[color:var(--app-destructive)] text-[color:var(--app-destructive-fg)] outline-none",
-                  "transition-transform duration-200 ease-[cubic-bezier(0.4,0,0.2,1)]",
+                  "transition-transform duration-150 ease-[cubic-bezier(0.4,0,0.2,1)]",
                   "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-4 focus-visible:ring-offset-background",
                   progress > 0 && "scale-[0.96]",
                   disabled && "cursor-not-allowed opacity-65",

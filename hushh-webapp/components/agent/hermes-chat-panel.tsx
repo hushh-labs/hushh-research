@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import { HttpAgent } from "@ag-ui/client";
-import { Check, Copy, Laptop, Loader2, Send } from "lucide-react";
+import { Check, Copy, Laptop, Loader2, Send } from "@/components/icons";
 
 import { AgentMarkdown } from "@/components/agent/agent-markdown";
 import { copyTextToClipboard } from "@/components/agent/chat-markdown-link";
@@ -108,10 +108,12 @@ export function HermesChatPanel({
   // region. `sending` is panel-wide and would re-announce older answers.
   const [streamingId, setStreamingId] = useState<string | null>(null);
   const mountedRef = useRef(true);
+  const agentRef = useRef<HttpAgent | null>(null);
   useEffect(() => {
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
+      agentRef.current?.abortRun();
     };
   }, []);
 
@@ -228,6 +230,7 @@ export function HermesChatPanel({
           { id: crypto.randomUUID(), role: "user", content: message },
         ],
       });
+      agentRef.current = agent;
       await agent.runAgent(
         { forwardedProps: { sessionId: sessionRef.current, onDevice } },
         {
@@ -267,6 +270,7 @@ export function HermesChatPanel({
         setError("Puppy One is not answering on this machine.");
       }
     } finally {
+      agentRef.current = null;
       if (mountedRef.current) {
         setSending(false);
         setStreamingId(null);

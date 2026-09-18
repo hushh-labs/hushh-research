@@ -1,6 +1,6 @@
 "use client";
 
-import { Users } from "lucide-react";
+import { Users } from "@/components/icons";
 
 import {
   HelperText,

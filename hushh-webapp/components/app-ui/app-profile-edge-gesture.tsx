@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
-import { ChevronLeft } from "lucide-react";
+import { ChevronLeft } from "@/components/icons";
 import { usePathname } from "next/navigation";
 
 import { requestProfilePaneOpen } from "@/lib/navigation/profile-pane";

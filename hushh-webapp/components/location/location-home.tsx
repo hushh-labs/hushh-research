@@ -25,7 +25,7 @@ import {
   Navigation,
   Settings2,
   UserRoundCheck,
-} from "lucide-react";
+} from "@/components/icons";
 
 import {
   LocationStatusCard,

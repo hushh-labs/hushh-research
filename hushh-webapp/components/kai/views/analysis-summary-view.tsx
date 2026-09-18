@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { ArrowLeft, RefreshCw, Scale } from "lucide-react";
+import { ArrowLeft, RefreshCw, Scale } from "@/components/icons";
 import { APP_MEASURE_STYLES } from "@/components/app-ui/app-page-shell";
 
 import { Button } from "@/lib/morphy-ux/button";
@@ -231,7 +231,7 @@ function ScoreBar({
       <div className="h-2 overflow-hidden rounded-full bg-muted">
         <div
           className={cn(
-            "h-full rounded-full transition-[width] duration-300",
+            "h-full rounded-full transition-[width] duration-150",
             tone === "positive" && "bg-emerald-500",
             tone === "warning" && "bg-blue-500",
             tone === "neutral" && "bg-zinc-900 dark:bg-zinc-100"

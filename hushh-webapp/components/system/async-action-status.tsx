@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertTriangle, CheckCircle2, Loader2, RefreshCcw } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Loader2, RefreshCcw } from "@/components/icons";
 
 type AsyncActionStatusState = "idle" | "loading" | "success" | "error" | "retrying";
 

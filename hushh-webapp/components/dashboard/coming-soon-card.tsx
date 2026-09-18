@@ -1,7 +1,7 @@
 // components/dashboard/coming-soon-card.tsx
 
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, Button } from '@/lib/morphy-ux/morphy';
-import { LucideIcon } from 'lucide-react';
+import { LucideIcon } from '@/components/icons';
 
 interface ComingSoonCardProps {
   title: string;

@@ -1,7 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { Loader2 } from "lucide-react";
+import { Loader2 } from "@/components/icons";
 
 import { ContactSourceBadge } from "@/components/connections/contact-source-badge";
 import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
@@ -78,7 +78,7 @@ export function ContactGroup({
 
 export function EmptyStateCard({ message }: { message: string }) {
   return (
-    <div className="flex min-h-[72px] w-full items-center justify-center rounded-[var(--app-card-radius-compact)] bg-[color:var(--app-card-surface-default-solid)] px-5 py-4 text-center text-[15px] font-normal leading-5 text-[color:var(--app-secondary-label)] shadow-none transition-all duration-200 ease-out">
+    <div className="flex min-h-[72px] w-full items-center justify-center rounded-[var(--app-card-radius-compact)] bg-[color:var(--app-card-surface-default-solid)] px-5 py-4 text-center text-[15px] font-normal leading-5 text-[color:var(--app-secondary-label)] shadow-none transition-[background-color,color,opacity] duration-150 ease-out">
       <p className="max-w-[280px]">{message}</p>
     </div>
   );

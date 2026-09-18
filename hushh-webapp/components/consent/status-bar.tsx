@@ -11,7 +11,7 @@
 
 import { useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
-import { Shield, Clock, ChevronDown } from "lucide-react";
+import { Shield, Clock, ChevronDown } from "@/components/icons";
 import {
   Collapsible,
   CollapsibleContent,

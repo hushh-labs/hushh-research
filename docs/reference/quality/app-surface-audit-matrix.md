@@ -36,4 +36,4 @@ This matrix tracks the target design-system contract for the current application
 
 1. Any new top-level route must use the shell spacing contract before shipping.
 2. Any new actionable row/card must inherit the single-surface hover/ripple contract.
-3. Any new heading must use a semantically grounded Lucide icon and the icon-left centered header pattern.
+3. Any new heading must use a semantically grounded icon from the canonical Phosphor registry and the icon-left centered header pattern.

@@ -39,7 +39,7 @@ describe("AgentHistorySidebar", () => {
     const sidebar = screen.getByLabelText("Agent chat history");
     expect(sidebar).toHaveClass("chrome-glass-surface");
     expect(screen.getByRole("heading", { name: "Chats" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Create new Agent chat" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Create new chat" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Close chat history" })).toBeInTheDocument();
     expect(screen.getByRole("searchbox", { name: "Search chats" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Collapse chat history" })).not.toBeInTheDocument();
@@ -62,5 +62,91 @@ describe("AgentHistorySidebar", () => {
 
     expect(screen.getByText("Summarize my personal details")).toBeInTheDocument();
     expect(screen.queryByText(/pkm/i)).not.toBeInTheDocument();
+  });
+
+  it("renders desktop mode with header, conversation counter, and collapse button", () => {
+    render(
+      <AgentHistorySidebar
+        conversations={conversations}
+        activeConversationId="conv_1"
+        mode="desktop"
+        onToggleCollapsed={vi.fn()}
+        onCreateNew={vi.fn()}
+        onSelectConversation={vi.fn()}
+        onRenameConversation={vi.fn()}
+        onDeleteConversation={vi.fn()}
+      />,
+    );
+
+    const sidebar = screen.getByLabelText("Agent chat history");
+    expect(sidebar).toHaveAttribute("data-collapsed", "false");
+    expect(screen.getByRole("heading", { name: "Chats" })).toBeInTheDocument();
+    expect(screen.getByText("1")).toBeInTheDocument(); // Count badge
+    expect(screen.getByRole("button", { name: "Create new chat" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Collapse chat history" })).toBeInTheDocument();
+    expect(screen.getByText("What needs a reply today?")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^What needs a reply today/i })).toHaveAttribute("aria-current", "page");
+  });
+
+  it("renders collapsed rail in desktop mode with expand control and compact icons", () => {
+    render(
+      <AgentHistorySidebar
+        conversations={conversations}
+        activeConversationId="conv_1"
+        collapsed
+        mode="desktop"
+        onToggleCollapsed={vi.fn()}
+        onCreateNew={vi.fn()}
+        onSelectConversation={vi.fn()}
+        onRenameConversation={vi.fn()}
+        onDeleteConversation={vi.fn()}
+      />,
+    );
+
+    const sidebar = screen.getByLabelText("Agent chat history");
+    expect(sidebar).toHaveAttribute("data-collapsed", "true");
+    expect(screen.getByRole("button", { name: "Expand chat history" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Create new chat" })).toBeInTheDocument();
+    expect(screen.queryByRole("searchbox", { name: "Search chats" })).not.toBeInTheDocument();
+  });
+
+  it("renders friendly empty state when there are no conversations", () => {
+    render(
+      <AgentHistorySidebar
+        conversations={[]}
+        activeConversationId={null}
+        mode="desktop"
+        onCreateNew={vi.fn()}
+        onSelectConversation={vi.fn()}
+        onRenameConversation={vi.fn()}
+        onDeleteConversation={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("No chats yet")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Start new chat" })).toBeInTheDocument();
+  });
+
+  it("highlights the active chat with a solid filled accent background and omits repetitive row icons", () => {
+    render(
+      <AgentHistorySidebar
+        conversations={conversations}
+        activeConversationId="conv_1"
+        mode="desktop"
+        onCreateNew={vi.fn()}
+        onSelectConversation={vi.fn()}
+        onRenameConversation={vi.fn()}
+        onDeleteConversation={vi.fn()}
+      />,
+    );
+
+    const activeItem = screen.getByRole("listitem");
+    expect(activeItem).toHaveClass("bg-[color:var(--app-accent)]");
+    expect(activeItem).toHaveClass("text-white");
+    expect(activeItem).not.toHaveClass("border-[color:var(--app-accent)]/25");
+
+    // In expanded mode, the button directly displays the title without a leading icon
+    const chatButton = screen.getByRole("button", { name: /^What needs a reply today/i });
+    expect(chatButton.querySelector("svg")).toBeNull();
   });
 });

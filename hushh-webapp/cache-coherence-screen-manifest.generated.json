@@ -16,11 +16,11 @@
     "surface_map_count": 141,
     "class_counts": {
       "public/auth-split": 1,
-      "redirect/alias": 48,
+      "redirect/alias": 49,
       "vault-backed": 53,
       "hidden flow": 17,
       "auth/pre-vault": 6,
-      "RIA/provider": 9,
+      "RIA/provider": 8,
       "PKM-secure": 6,
       "public/static": 1
     },
@@ -1164,7 +1164,6 @@
         "native_beacon": false
       },
       "findings": [
-        "review native route beacon coverage",
         "no local cache primitive detected in page/contract source"
       ]
     },
@@ -3434,7 +3433,7 @@
         "route_readiness_completed"
       ],
       "realtime_policy": "not realtime",
-      "reviewer_fixture": "/one/profile/connectors",
+      "reviewer_fixture": "/login?redirect=%2Fone%2Fprofile%2Fconnectors",
       "surface_map_present": true,
       "route_contract_present": true,
       "evidence": {
@@ -5726,9 +5725,9 @@
     {
       "route": "/ria",
       "page_file": "app/ria/page.tsx",
-      "route_contract_mode": "standard",
-      "screen_class": "RIA/provider",
-      "cache_policy": "device-resource",
+      "route_contract_mode": "redirect",
+      "screen_class": "redirect/alias",
+      "cache_policy": "none",
       "cache_keys": [
         "RIA_HOME",
         "PERSONA_STATE",
@@ -5739,20 +5738,15 @@
         "consent_list"
       ],
       "sensitivity_class": "app-metadata",
-      "ttl_class": "CACHE_TTL.MEDIUM",
-      "warm_source": "RIA service memory/device cache",
-      "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
-      "mutation_invalidator": "RIA service invalidation plus CacheSyncService consent hooks",
+      "ttl_class": "none",
+      "warm_source": "none",
+      "refresh_trigger": "none",
+      "mutation_invalidator": "none",
       "best_available_ux_path": [
-        "fresh memory",
-        "plain device stale render",
-        "background refresh",
-        "cold loader when missing"
+        "static render"
       ],
       "readiness_kpis": [
-        "route_readiness_completed",
-        "cache_resource_resolved",
-        "route_refresh_completed"
+        "route_readiness_completed"
       ],
       "realtime_policy": "not realtime",
       "reviewer_fixture": "/login?redirect=%2Fria",
@@ -5769,11 +5763,9 @@
         "api_service": false,
         "hushh_loader": false,
         "sse_or_streaming": false,
-        "native_beacon": true
+        "native_beacon": false
       },
-      "findings": [
-        "no local cache primitive detected in page/contract source"
-      ]
+      "findings": []
     },
     {
       "route": "/ria/claim",
@@ -6333,5 +6325,5 @@
       ]
     }
   ],
-  "content_sha256": "114cf4e07658b3245a04db0aff57377b551bae60b816619358dc8ef4633213ed"
+  "content_sha256": "3e1ff659959bd1ddc1324e48ecb0e27027d96eb9b0c14ec9f34841053ded4c96"
 }

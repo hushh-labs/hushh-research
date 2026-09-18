@@ -15,7 +15,7 @@ import {
   ShieldCheck,
   Trash2,
   UsersRound,
-} from "lucide-react";
+} from "@/components/icons";
 
 import { Button, buttonVariants } from "@/components/ui/button";
 import { INPUT_CLASSNAME } from "@/components/ui/input";

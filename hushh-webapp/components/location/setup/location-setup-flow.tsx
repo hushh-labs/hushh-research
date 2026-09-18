@@ -22,7 +22,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Capacitor } from "@capacitor/core";
-import { KeyRound } from "lucide-react";
+import { KeyRound } from "@/components/icons";
 
 import { useAuth } from "@/hooks/use-auth";
 import {

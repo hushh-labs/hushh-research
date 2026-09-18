@@ -273,10 +273,7 @@ export function resolveBottomNavOptionKeys(
   _scope: AppBottomNavScope,
   _context?: AppBottomNavContext,
 ): AppBottomNavKey[] {
-  // "search" is hidden for now while it's redesigned as a top-bar pill
-  // (left of Profile) instead of a bottom-nav tab -- routing/action wiring
-  // for it is left intact so it can be reinstated without a second pass.
-  return ["chat", "dashboard", "connect", "feed"];
+  return ["chat", "dashboard", "connect", "feed", "search"];
 }
 
 /** Contextual workspace tabs belong exclusively to the unified top shell. */

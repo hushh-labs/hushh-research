@@ -10,7 +10,7 @@
  */
 
 import { useEffect, useRef } from "react";
-import { Hand, MapPinned, Navigation } from "lucide-react";
+import { Hand, MapPinned, Navigation } from "@/components/icons";
 
 import { StatusPill } from "@/lib/morphy-ux/ui/surface-primitives";
 import { MUTED_TEXT, SUBCARD_SURFACE } from "@/lib/morphy-ux/tokens/surfaces";

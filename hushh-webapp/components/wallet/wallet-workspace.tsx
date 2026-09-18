@@ -9,7 +9,7 @@
 
 import { useCallback, useDeferredValue, useEffect, useMemo, useState, useRef } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Search } from "lucide-react";
+import { Search } from "@/components/icons";
 
 import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
 import { PaginatedListFooter } from "@/components/app-ui/paginated-list-footer";

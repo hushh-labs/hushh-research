@@ -45,7 +45,7 @@ import {
   UsersRound,
   ChevronRight,
   X,
-} from "lucide-react";
+} from "@/components/icons";
 
 import {
   requestRecipientStatus,
@@ -158,9 +158,8 @@ import {
 import {
   SHARE_CONFIRM_ACTIONS_CLASSNAME,
   SHARE_CONFIRM_PRIMARY_CTA_CLASSNAME,
+  PUBLIC_LINK_CONTROLS_CLASSNAME,
 } from "./location-cta-layout";
-import {
-} from "./location-header-layout";
 import {
   CHANGE_TIME_DURATION_LADDER,
   REQUEST_DURATION_LADDER,
@@ -3100,7 +3099,7 @@ function LocationToggle({
         onChange(!checked);
       }}
       className={cn(
-        "relative h-[31px] w-[51px] shrink-0 rounded-full transition-colors duration-200",
+        "relative h-[31px] w-[51px] shrink-0 rounded-full transition-colors duration-150",
         // Same tokens as the shared `Switch size="ios"`, not private literals.
         // This used to be `bg-[#34c759]` / `bg-black/15 dark:bg-white/20`, which
         // held the light-mode green in dark mode (where the system value is
@@ -3116,7 +3115,7 @@ function LocationToggle({
     >
       <span
         className={cn(
-          "absolute top-[2px] h-[27px] w-[27px] rounded-full bg-[color:var(--switch-thumb)] shadow-[0_1px_3px_rgba(0,0,0,0.15)] transition-[left] duration-200",
+          "absolute top-[2px] h-[27px] w-[27px] rounded-full bg-[color:var(--switch-thumb)] shadow-[0_1px_3px_rgba(0,0,0,0.15)] transition-[left] duration-150",
           checked ? "left-[22px]" : "left-[2px]",
         )}
       />
@@ -4292,13 +4291,18 @@ export function PeopleHub({
   const pendingRequestByOwnerId = useMemo(() => {
     const byUserId = new globalThis.Map<string, OneLocationAccessRequest>();
     for (const request of vm.requestedByMe) {
-      if (request.status !== "pending" || request.extendsGrantId) continue;
+      if (
+        !isLocationRequestPending(request, vm.nowMs) ||
+        request.extendsGrantId
+      ) {
+        continue;
+      }
       if (!byUserId.has(request.ownerUserId)) {
         byUserId.set(request.ownerUserId, request);
       }
     }
     return byUserId;
-  }, [vm.requestedByMe]);
+  }, [vm.nowMs, vm.requestedByMe]);
 
   const selectedPerson = useMemo(() => {
     if (!selectedPersonId) return null;
@@ -4437,7 +4441,7 @@ export function PeopleHub({
 
   return (
     <div className="pt-4 sm:pt-5" data-testid="one-location-people-hub">
-      <div className="mx-auto w-full max-w-[640px] space-y-4">
+      <div className="w-full space-y-4 sm:space-y-5">
         {!hasSearch ? (
           <CircleSummaryGroup
             circles={vm.circles}
@@ -4452,9 +4456,14 @@ export function PeopleHub({
           className="space-y-2"
           data-testid="one-location-people-connections"
         >
-          <span id="one-location-people-heading" className="sr-only">
+          <SectionLabel
+            as="h2"
+            compact
+            id="one-location-people-heading"
+            className="sr-only"
+          >
             People
-          </span>
+          </SectionLabel>
 
           <div className="flex items-center gap-2">
             <div
@@ -4588,7 +4597,7 @@ export function PeopleHub({
           }}
           onCancelRequest={() => {
             if (selectedPendingRequest) {
-              vm.onWithdrawRequest(selectedPendingRequest.id);
+              void vm.onWithdrawRequest(selectedPendingRequest.id);
             }
           }}
         />
@@ -4815,14 +4824,16 @@ function LinksHub({ vm }: { vm: LocationHubViewModel }) {
                   </span>
                 }
               />
-              <PublicLinkActionRows
-                onCopy={vm.onCopyPublicInvite}
-                onShare={vm.onSharePublicInvite}
-                onRevoke={() => {
-                  if (temp) vm.onRevokePublicInvite(temp);
-                }}
-                revokeBusy={vm.busy === "publicRevoke" || !temp}
-              />
+              <div className={PUBLIC_LINK_CONTROLS_CLASSNAME}>
+                <PublicLinkActionRows
+                  onCopy={vm.onCopyPublicInvite}
+                  onShare={vm.onSharePublicInvite}
+                  onRevoke={() => {
+                    if (temp) vm.onRevokePublicInvite(temp);
+                  }}
+                  revokeBusy={vm.busy === "publicRevoke" || !temp}
+                />
+              </div>
             </>
           ) : (
             <>
@@ -4863,6 +4874,7 @@ function LinksHub({ vm }: { vm: LocationHubViewModel }) {
                 options={PUBLIC_LINK_DURATION_OPTIONS.map((option) => option)}
                 label="Duration"
                 presentation="buttons"
+                equalWidthButtons
                 maxWidthClassName={null}
                 activeClassName="border-[color:var(--app-accent-tint)] bg-[color:var(--app-accent-tint)] text-[color:var(--app-accent)]"
               />

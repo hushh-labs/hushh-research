@@ -22,7 +22,7 @@ import {
   TrendingDown,
   BarChart3,
   ArrowUpDown,
-} from "lucide-react";
+} from "@/components/icons";
 
 // =============================================================================
 // TYPES
@@ -141,7 +141,7 @@ export function LoserReportView({
             variant="none"
             effect="glass"
             showRipple={true}
-            className="cursor-pointer hover:border-red-500/50 transition-all"
+            className="cursor-pointer transition-[border-color] duration-150 hover:border-red-500/50"
             onClick={() => onAnalyzeStock(loser.symbol)}
           >
             <CardContent className="p-6">

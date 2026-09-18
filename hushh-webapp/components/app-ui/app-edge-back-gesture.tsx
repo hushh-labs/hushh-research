@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo } from "react";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft } from "@/components/icons";
 import { Capacitor } from "@capacitor/core";
 import { usePathname, useSearchParams } from "next/navigation";
 

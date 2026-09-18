@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Plugs as PlugIcon } from "@phosphor-icons/react";
+import { Unplug as PlugIcon } from "@/components/icons";
 
 import { Button } from "@/components/ui/button";
 import {

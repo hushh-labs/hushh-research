@@ -10,7 +10,7 @@
  * an inference from what was said.
  */
 
-import { MapPin, Users } from "lucide-react";
+import { MapPin, Users } from "@/components/icons";
 
 import { AvatarBubble } from "@/lib/morphy-ux/ui/surface-primitives";
 import { roleClasses } from "@/lib/morphy-ux/tokens/semantic-roles";

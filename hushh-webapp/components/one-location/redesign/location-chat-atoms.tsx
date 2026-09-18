@@ -1,6 +1,6 @@
 "use client";
 
-import { Bot, Check } from "lucide-react";
+import { Bot, Check } from "@/components/icons";
 
 export function BotAvatar(props: { size?: number }) {
   const size = props.size ?? 32;

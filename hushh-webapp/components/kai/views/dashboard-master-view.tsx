@@ -18,7 +18,7 @@ import {
   Share2,
   FileUp,
   WalletCards,
-} from "lucide-react";
+} from "@/components/icons";
 import { toast } from "sonner";
 
 import { AppPageContentRegion } from "@/components/app-ui/app-page-shell";

@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
-import { TrendingUp, Calendar } from "lucide-react";
+import { TrendingUp, Calendar } from "@/components/icons";
 import { cn } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/lib/morphy-ux/card";
 import { Badge } from "@/components/ui/badge";
@@ -91,7 +91,7 @@ export function ProjectionsCard({ projections, className, isLoading }: Projectio
   if (!cashFlow?.length && !mrd) return null;
 
   return (
-    <Card className={cn("w-full transition-all duration-300 hover:border-primary/20", className)}>
+    <Card className={cn("w-full transition-[background-color,border-color,box-shadow,transform] duration-150 hover:border-primary/20", className)}>
       <CardHeader className="pb-2 flex flex-row items-center justify-between">
         <div className="flex items-center gap-2">
           <Icon icon={TrendingUp} size="md" className="text-primary" />

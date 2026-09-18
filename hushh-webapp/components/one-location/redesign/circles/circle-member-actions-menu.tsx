@@ -57,7 +57,7 @@ import Link from "next/link";
  */
 
 import { useState, useSyncExternalStore } from "react";
-import { MoreVertical, Share2, Trash2, UserRound } from "lucide-react";
+import { MoreVertical, Share2, Trash2, UserRound } from "@/components/icons";
 
 import {
   AlertDialog,

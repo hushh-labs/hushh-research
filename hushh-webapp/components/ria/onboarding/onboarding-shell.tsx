@@ -1,7 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { ChevronLeft, User } from "lucide-react";
+import { ChevronLeft, User } from "@/components/icons";
 import { cn } from "@/lib/utils";
 import { useScrollReset } from "@/lib/navigation/use-scroll-reset";
 import { Button } from "@/lib/morphy-ux/button";
@@ -78,7 +78,7 @@ export function OnboardingShell({
                 type="button"
                 aria-label="Go back to previous step"
                 onClick={onBack}
-                className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-muted/20 text-muted-foreground transition-all hover:bg-muted/40 active:scale-95"
+                className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-muted/20 text-muted-foreground transition-[background-color,color,transform] duration-150 hover:bg-muted/40 active:scale-95"
               >
                 <ChevronLeft className="h-5 w-5" strokeWidth={2} />
               </button>

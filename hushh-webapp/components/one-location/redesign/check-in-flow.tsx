@@ -31,7 +31,7 @@ import {
   Search,
   Shield,
   UsersRound,
-} from "lucide-react";
+} from "@/components/icons";
 
 import { ContactSourceBadge } from "@/components/connections/contact-source-badge";
 import { circleMemberCountLabel } from "@/lib/one-location/circle-member-count";

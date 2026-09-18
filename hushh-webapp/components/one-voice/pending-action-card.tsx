@@ -14,7 +14,7 @@
  */
 
 import { useEffect, useRef, useState } from "react";
-import { AlertTriangle, Check, Clock, ShieldCheck, X } from "lucide-react";
+import { AlertTriangle, Check, Clock, ShieldCheck, X } from "@/components/icons";
 
 import { Button } from "@/components/ui/button";
 import {

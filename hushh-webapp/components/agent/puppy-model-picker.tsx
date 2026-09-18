@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Check, ChevronDown, Cloud, Cpu, Loader2 } from "lucide-react";
+import { Check, ChevronDown, Cloud, Cpu, Loader2 } from "@/components/icons";
 
 import { Button } from "@/components/ui/button";
 import {

@@ -13,7 +13,10 @@
  */
 
 import { useEffect, useState } from "react";
-import { Ear, Radio } from "lucide-react";
+import {
+  EarIcon as Ear,
+  BroadcastIcon as Radio,
+} from "@/components/icons";
 
 import { SettingsGroup, SettingsRow } from "@/components/profile/settings-ui";
 import { VoiceMicrophoneCheck } from "@/components/one-voice/voice-microphone-check";

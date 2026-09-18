@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Loader2, Mail, MailCheck } from "lucide-react";
+import { Loader2, Mail, MailCheck } from "@/components/icons";
 
 import { SurfaceInset } from "@/components/app-ui/surfaces";
 import { AdaptiveDetailSurface } from "@/components/app-ui/settings-ui";

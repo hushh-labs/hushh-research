@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Capacitor } from "@capacitor/core";
-import { CalendarDays, CheckCircle2, Loader2 } from "lucide-react";
+import { CalendarDays, CheckCircle2, Loader2 } from "@/components/icons";
 import { toast } from "sonner";
 
 import { AskOneButton } from "@/components/agent/ask-one-button";
@@ -46,6 +46,7 @@ import {
 import { morphyToast } from "@/lib/morphy-ux/morphy";
 import { navigateToAgentChat } from "@/lib/navigation/agent-navigation";
 import { useOneConversationSession } from "@/lib/agent/one-conversation-session";
+import { ROUTES } from "@/lib/navigation/routes";
 import {
   createGoogleOAuthPopupAttempt,
   isGoogleOAuthPopupSettlement,
@@ -340,7 +341,23 @@ export function CalendarAgentPage({
   };
 
   return (
-    <AppPageShell width="reading" className={CALENDAR_SETUP_SHELL_CLASSNAME}>
+    <AppPageShell
+      width="reading"
+      className={CALENDAR_SETUP_SHELL_CLASSNAME}
+      nativeTest={{
+        routeId: ROUTES.CALENDAR,
+        marker: "native-route-calendar",
+        authState: user ? "authenticated" : loading ? "pending" : "anonymous",
+        dataState:
+          connectionPending || loading
+            ? "loading"
+            : status === null
+              ? "unavailable-valid"
+              : connected
+                ? "loaded"
+                : "empty-valid",
+      }}
+    >
       <AppPageContentRegion className={CALENDAR_SETUP_REGION_CLASSNAME}>
         <SurfaceCard className="overflow-hidden w-full shadow-md text-center">
           <SurfaceCardHeader className="pb-3 pt-5 flex flex-col items-center text-center space-y-0.5">

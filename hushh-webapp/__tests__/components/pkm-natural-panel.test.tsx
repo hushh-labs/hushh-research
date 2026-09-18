@@ -267,7 +267,11 @@ describe("PkmNaturalPanel — Memory redesign", () => {
     await openMainScreen();
 
     expect(screen.getByTestId("memory-recently-learned-row")).toHaveTextContent("2 memories");
-    expect(screen.getByText("Some saved details couldn’t be refreshed. Your available details are still here.")).toBeTruthy();
+    expect(
+      await screen.findByText(
+        "Some saved details couldn’t be refreshed. Your available details are still here.",
+      ),
+    ).toBeTruthy();
     expect(screen.queryByText("One hasn’t saved anything yet.")).toBeNull();
   });
 

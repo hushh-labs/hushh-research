@@ -4,6 +4,8 @@ import { HermesChatPanel } from "@/components/agent/hermes-chat-panel";
 import { PuppyMachineSheet } from "@/components/agent/puppy-resource-monitor";
 import { usePuppyLink } from "@/lib/hermes/use-puppy-link";
 import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
+import type { AgentChatConversation } from "@/lib/services/agent-chat-client";
 
 /**
  * Puppy One as a mode of the Agent Chat workspace.
@@ -24,8 +26,14 @@ import { cn } from "@/lib/utils";
 export function PuppyOneSurface({
   className,
   active = true,
+  conversations,
+  activeConversationId,
+  onCreateConversation,
 }: {
   className?: string;
+  conversations?: AgentChatConversation[];
+  activeConversationId?: string | null;
+  onCreateConversation?: () => void;
   /**
    * Whether this surface is the one on screen. The workspace keeps it mounted
    * and hidden so a slow local answer survives a glance at One, so `active`
@@ -64,7 +72,22 @@ export function PuppyOneSurface({
         ) : null}
         <PuppyMachineSheet className="shrink-0" active={active} />
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-border/60 bg-background">
-          <HermesChatPanel active={active} />
+          {conversations === undefined ? <HermesChatPanel active={active} /> : (
+            <>
+              {conversations.length === 0 ? (
+                <div className="flex flex-1 items-center justify-center p-4">
+                  <Button onClick={onCreateConversation}>Start a Puppy chat</Button>
+                </div>
+              ) : null}
+              {conversations.map((conversation) => (
+                <HermesChatPanel
+                  key={conversation.id}
+                  active={active && activeConversationId === conversation.id}
+                  className={cn(activeConversationId !== conversation.id && "hidden")}
+                />
+              ))}
+            </>
+          )}
         </div>
       </div>
     </div>

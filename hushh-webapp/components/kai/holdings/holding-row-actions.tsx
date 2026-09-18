@@ -1,6 +1,6 @@
 "use client";
 
-import { MoreHorizontal, Pencil, Trash2, Undo2 } from "lucide-react";
+import { MoreHorizontal, Pencil, Trash2, Undo2 } from "@/components/icons";
 
 import { Button as MorphyButton } from "@/lib/morphy-ux/button";
 import { Icon } from "@/lib/morphy-ux/ui";

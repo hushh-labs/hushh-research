@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 
 const profileSource = () =>
   readFileSync(
-    join(process.cwd(), "app/profile/profile-workspace-page.tsx"),
+    join(process.cwd(), "components/profile/profile-workspace-page.tsx"),
     "utf8",
   );
 

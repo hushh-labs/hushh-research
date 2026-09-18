@@ -9,7 +9,7 @@
  */
 
 import { useId } from "react";
-import { Search } from "lucide-react";
+import { Search } from "@/components/icons";
 
 import {
   Select,

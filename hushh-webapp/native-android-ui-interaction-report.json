@@ -1,30 +1,53 @@
 {
-  "generated_at": "2026-07-20T15:16:47.444Z",
+  "generated_at": "2026-09-17T00:10:51.216Z",
   "device": "emulator-5554",
   "plan": {
     "version": 1,
-    "digest": "4589f994ab0a3f3eafbb6ab16bf2ba01c14a135c47c8d51446153751fe9a31a9",
-    "flow_count": 1
+    "digest": "f2c11e22f9fb86150f899d9dcdc1bb40492bb3d3e08135325de3221a60af63c6",
+    "flow_count": 15
   },
-  "flow_count": 1,
-  "passed_flows": 1,
+  "flow_count": 15,
+  "passed_flows": 8,
   "failed_flows": 0,
-  "skipped_optional_flows": [],
-  "skipped_conditional_ria_workspace_flows": [],
+  "skipped_optional_flows": [
+    "marketplace-workspace-card"
+  ],
+  "skipped_conditional_ria_workspace_flows": [
+    "shell-ria-home",
+    "shell-ria-clients",
+    "shell-ria-picks",
+    "shell-marketplace",
+    "ria-workspace-account-detail",
+    "ria-workspace-access-panel"
+  ],
   "ok": true,
   "flows": [
-    "native-reviewer-location-intro-fresh-session"
+    "native-reviewer-location-setup-handoff",
+    "shell-investor-kai-analysis",
+    "native-investor-kai-debate-preview-start",
+    "shell-investor-kai-portfolio",
+    "shell-investor-kai-import",
+    "shell-ria-home",
+    "shell-ria-clients",
+    "shell-ria-picks",
+    "shell-marketplace",
+    "shell-profile",
+    "shell-consents",
+    "ria-workspace-admission",
+    "ria-workspace-account-detail",
+    "ria-workspace-access-panel",
+    "marketplace-workspace-card"
   ],
   "report": {
     "ok": true,
-    "auditRunId": "android-mrtd9u7q",
+    "auditRunId": "android-mu4rvkak",
     "auditPlanVersion": 1,
-    "auditPlanDigest": "4589f994ab0a3f3eafbb6ab16bf2ba01c14a135c47c8d51446153751fe9a31a9",
-    "startedAt": "2026-07-20T15:16:41.304Z",
-    "completedAt": "2026-07-20T15:16:46.042Z",
+    "auditPlanDigest": "f2c11e22f9fb86150f899d9dcdc1bb40492bb3d3e08135325de3221a60af63c6",
+    "startedAt": "2026-09-17T00:10:17.405Z",
+    "completedAt": "2026-09-17T00:10:48.316Z",
     "flows": [
       {
-        "id": "native-reviewer-location-intro-fresh-session",
+        "id": "native-reviewer-location-setup-handoff",
         "ok": true,
         "optional": false,
         "skipped": false,
@@ -41,75 +64,353 @@
           },
           {
             "step": 2,
-            "type": "assert_visible_testid",
-            "ok": true,
-            "checkpoint": "one-location-onboarding-welcome"
+            "type": "wait_beacon",
+            "ok": true
+          }
+        ]
+      },
+      {
+        "id": "shell-investor-kai-analysis",
+        "ok": true,
+        "optional": false,
+        "skipped": false,
+        "results": [
+          {
+            "step": 0,
+            "type": "ensure_persona",
+            "ok": true
+          },
+          {
+            "step": 1,
+            "type": "click_top_tab",
+            "ok": true
+          },
+          {
+            "step": 2,
+            "type": "assert_url_includes",
+            "ok": true
           },
           {
             "step": 3,
-            "type": "click_button",
+            "type": "wait_beacon",
             "ok": true
           },
           {
             "step": 4,
-            "type": "assert_visible_testid",
-            "ok": true,
-            "checkpoint": "one-location-onboarding-arrival"
+            "type": "assert_viewport_visible_testid",
+            "ok": true
           },
           {
             "step": 5,
+            "type": "assert_visible_testid",
+            "ok": true,
+            "checkpoint": "kai-analysis-primary"
+          }
+        ]
+      },
+      {
+        "id": "native-investor-kai-debate-preview-start",
+        "ok": true,
+        "optional": false,
+        "skipped": false,
+        "results": [
+          {
+            "step": 0,
+            "type": "ensure_persona",
+            "ok": true
+          },
+          {
+            "step": 1,
+            "type": "navigate_route",
+            "ok": true
+          },
+          {
+            "step": 2,
+            "type": "wait_beacon",
+            "ok": true
+          },
+          {
+            "step": 3,
+            "type": "wait_button",
+            "ok": true
+          },
+          {
+            "step": 4,
             "type": "click_button",
+            "ok": true
+          },
+          {
+            "step": 5,
+            "type": "assert_visible_testid",
+            "ok": true,
+            "checkpoint": "kai-analysis-active-run"
+          }
+        ]
+      },
+      {
+        "id": "shell-investor-kai-portfolio",
+        "ok": true,
+        "optional": false,
+        "skipped": false,
+        "results": [
+          {
+            "step": 0,
+            "type": "ensure_persona",
+            "ok": true
+          },
+          {
+            "step": 1,
+            "type": "click_top_tab",
+            "ok": true
+          },
+          {
+            "step": 2,
+            "type": "assert_url_includes",
+            "ok": true
+          },
+          {
+            "step": 3,
+            "type": "wait_beacon",
+            "ok": true
+          }
+        ]
+      },
+      {
+        "id": "shell-investor-kai-import",
+        "ok": true,
+        "optional": false,
+        "skipped": false,
+        "results": [
+          {
+            "step": 0,
+            "type": "ensure_persona",
+            "ok": true
+          },
+          {
+            "step": 1,
+            "type": "click_top_tab",
+            "ok": true
+          },
+          {
+            "step": 2,
+            "type": "assert_url_includes",
+            "ok": true
+          },
+          {
+            "step": 3,
+            "type": "wait_beacon",
+            "ok": true
+          },
+          {
+            "step": 4,
+            "type": "navigate_route",
+            "ok": true
+          },
+          {
+            "step": 5,
+            "type": "wait_beacon",
+            "ok": true
+          }
+        ]
+      },
+      {
+        "id": "shell-ria-home",
+        "ok": true,
+        "optional": false,
+        "skipped": true,
+        "results": [
+          {
+            "step": 0,
+            "type": "ensure_ria_workspace",
+            "ok": true,
+            "skipped": true,
+            "skipClass": "onboarding_admission"
+          }
+        ]
+      },
+      {
+        "id": "shell-ria-clients",
+        "ok": true,
+        "optional": false,
+        "skipped": true,
+        "results": [
+          {
+            "step": 0,
+            "type": "ensure_ria_workspace",
+            "ok": true,
+            "skipped": true,
+            "skipClass": "onboarding_admission"
+          }
+        ]
+      },
+      {
+        "id": "shell-ria-picks",
+        "ok": true,
+        "optional": false,
+        "skipped": true,
+        "results": [
+          {
+            "step": 0,
+            "type": "ensure_ria_workspace",
+            "ok": true,
+            "skipped": true,
+            "skipClass": "onboarding_admission"
+          }
+        ]
+      },
+      {
+        "id": "shell-marketplace",
+        "ok": true,
+        "optional": false,
+        "skipped": true,
+        "results": [
+          {
+            "step": 0,
+            "type": "ensure_ria_workspace",
+            "ok": true,
+            "skipped": true,
+            "skipClass": "onboarding_admission"
+          }
+        ]
+      },
+      {
+        "id": "shell-profile",
+        "ok": true,
+        "optional": false,
+        "skipped": false,
+        "results": [
+          {
+            "step": 0,
+            "type": "ensure_persona",
+            "ok": true
+          },
+          {
+            "step": 1,
+            "type": "click_shell_action",
+            "ok": true
+          },
+          {
+            "step": 2,
+            "type": "assert_visible_testid",
+            "ok": true,
+            "checkpoint": "profile-pane"
+          },
+          {
+            "step": 3,
+            "type": "assert_text",
+            "ok": true
+          },
+          {
+            "step": 4,
+            "type": "click_button",
+            "ok": true
+          },
+          {
+            "step": 5,
+            "type": "assert_text",
             "ok": true
           },
           {
             "step": 6,
-            "type": "assert_visible_testid",
-            "ok": true,
-            "checkpoint": "one-location-onboarding-checkin"
+            "type": "assert_url_includes",
+            "ok": true
           },
           {
             "step": 7,
-            "type": "click_button",
+            "type": "assert_url_includes",
+            "ok": true
+          }
+        ]
+      },
+      {
+        "id": "shell-consents",
+        "ok": true,
+        "optional": false,
+        "skipped": false,
+        "results": [
+          {
+            "step": 0,
+            "type": "ensure_persona",
             "ok": true
           },
           {
-            "step": 8,
-            "type": "assert_visible_testid",
-            "ok": true,
-            "checkpoint": "one-location-onboarding-sos"
-          },
-          {
-            "step": 9,
-            "type": "click_button",
+            "step": 1,
+            "type": "navigate_route",
             "ok": true
           },
           {
-            "step": 10,
-            "type": "assert_visible_testid",
-            "ok": true,
-            "checkpoint": "one-location-onboarding-people"
-          },
-          {
-            "step": 11,
-            "type": "click_button",
+            "step": 2,
+            "type": "wait_beacon",
             "ok": true
           },
           {
-            "step": 12,
+            "step": 3,
             "type": "assert_visible_testid",
             "ok": true,
-            "checkpoint": "one-location-onboarding-circle"
-          },
+            "checkpoint": "consent-manager-primary"
+          }
+        ]
+      },
+      {
+        "id": "ria-workspace-admission",
+        "ok": true,
+        "optional": false,
+        "skipped": false,
+        "results": [
           {
-            "step": 13,
-            "type": "click_button",
+            "step": 0,
+            "type": "ensure_persona",
             "ok": true
           },
           {
-            "step": 14,
-            "type": "assert_visible_testid",
+            "step": 1,
+            "type": "assert_ria_workspace_admission",
+            "ok": true
+          }
+        ]
+      },
+      {
+        "id": "ria-workspace-account-detail",
+        "ok": true,
+        "optional": false,
+        "skipped": true,
+        "results": [
+          {
+            "step": 0,
+            "type": "ensure_ria_workspace",
             "ok": true,
-            "checkpoint": "one-location-onboarding-permissions"
+            "skipped": true,
+            "skipClass": "onboarding_admission"
+          }
+        ]
+      },
+      {
+        "id": "ria-workspace-access-panel",
+        "ok": true,
+        "optional": false,
+        "skipped": true,
+        "results": [
+          {
+            "step": 0,
+            "type": "ensure_ria_workspace",
+            "ok": true,
+            "skipped": true,
+            "skipClass": "onboarding_admission"
+          }
+        ]
+      },
+      {
+        "id": "marketplace-workspace-card",
+        "ok": true,
+        "optional": true,
+        "skipped": true,
+        "results": [
+          {
+            "step": 0,
+            "type": "ensure_ria_workspace",
+            "ok": true,
+            "skipped": true,
+            "skipClass": "onboarding_admission"
           }
         ]
       }
@@ -117,7 +418,7 @@
   },
   "errorClass": null,
   "last_status": {
-    "route": "/one/setup/location/",
+    "route": "/ria/onboarding/",
     "ready": "1",
     "marker": "",
     "auth": "authenticated",
@@ -133,9 +434,9 @@
     "uistarted": "1",
     "uifailed": "0",
     "uiboot": "0",
-    "persona": "investor",
-    "primary_persona": "investor",
-    "persona_switch": "",
+    "persona": "ria",
+    "primary_persona": "ria",
+    "persona_switch": "ok:ria",
     "persona_error": "",
     "portfolio_start_state": "",
     "portfolio_start_status": "",
@@ -152,19 +453,19 @@
     "domauto": "true",
     "reviewer": "0",
     "bootstrap": "vault_unlocked",
-    "bootstrap_uid_ok": "<redacted>",
+    "bootstrap_uid_ok": "1",
     "bootstrap_error": "",
     "jserr": "",
     "jsrej": "",
     "visible404": "0",
     "ui_complete": "1",
     "ui_ok": "1",
-    "ui_run": "android-mrtd9u7q",
-    "ui_plan": "4589f994ab0a3f3eafbb6ab16bf2ba01c14a135c47c8d51446153751fe9a31a9",
-    "ui_flow": "native-reviewer-location-intro-fresh-session",
-    "ui_step": "14",
-    "ui_step_type": "assert_visible_testid",
-    "ui_checkpoint": "one-location-onboarding-permissions",
+    "ui_run": "android-mu4rvkak",
+    "ui_plan": "f2c11e22f9fb86150f899d9dcdc1bb40492bb3d3e08135325de3221a60af63c6",
+    "ui_flow": "marketplace-workspace-card",
+    "ui_step": "0",
+    "ui_step_type": "ensure_ria_workspace",
+    "ui_checkpoint": "consent-manager-primary",
     "ui_error": "",
     "error": ""
   }

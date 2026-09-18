@@ -5,15 +5,15 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ColumnDef } from "@tanstack/react-table";
 import {
-  Building2,
-  Database,
-  ListChecks,
-  LockKeyhole,
-  Pencil,
-  RefreshCw,
-  SendHorizontal,
-  Trash2,
-} from "lucide-react";
+  BuildingsIcon as Building2,
+  DatabaseIcon as Database,
+  ListChecksIcon as ListChecks,
+  LockIcon as LockKeyhole,
+  PencilIcon as Pencil,
+  ArrowsClockwiseIcon as RefreshCw,
+  SendIcon as SendHorizontal,
+  TrashIcon as Trash2,
+} from "@/components/icons";
 
 import {
   AlertDialog,

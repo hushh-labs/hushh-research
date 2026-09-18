@@ -1258,6 +1258,34 @@ AgentManifest = AgentManifestV2
 
 class ManifestLoader:
     @staticmethod
+    def index_ids(root: str) -> tuple[dict[str, str], tuple[str, ...]]:
+        """Index authored manifests by declared id without trusting folder names.
+
+        Returns the usable id-to-path map plus directories whose manifests could
+        not be loaded. Callers can decide whether an unreadable optional agent is
+        fatal while still keeping duplicate declared IDs out of the runtime map.
+        """
+        index: dict[str, str] = {}
+        unreadable: list[str] = []
+        if not os.path.isdir(root):
+            return index, (root,)
+        for directory in sorted(os.listdir(root)):
+            directory_path = os.path.join(root, directory)
+            manifest_path = os.path.join(directory_path, "agent.yaml")
+            if not os.path.isdir(directory_path) or not os.path.isfile(manifest_path):
+                continue
+            try:
+                manifest = ManifestLoader.load(manifest_path)
+            except (OSError, ValueError):
+                unreadable.append(directory_path)
+                continue
+            if manifest.id in index:
+                unreadable.append(directory_path)
+                continue
+            index[manifest.id] = manifest_path
+        return index, tuple(unreadable)
+
+    @staticmethod
     def load(path: str) -> AgentManifestV2:
         if not os.path.exists(path):
             raise FileNotFoundError(f"Manifest not found at {path}")
