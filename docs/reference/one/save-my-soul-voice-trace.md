@@ -45,7 +45,7 @@ flowchart TD
 - **`i am safe now`** was an alias of `location.stop_sos`; removed (stopping tells nobody anything).
 - **`location.trigger_sos` gateway policy** is `allow_direct` because its `local_handler`/Kai path only opens the review screen (`review_only`); the One Voice tool is `confirm_tap` regardless. Left as-is (Siri/native regression surface); the `meaning` text now describes both paths.
 - **Roster limit**: `SMS_SYSTEM_CIRCLE_MEMBER_LIMIT = 10` counts the owner's own membership row, so it admits owner + 9. Unchanged; the voice add maps the capacity refusal to `roster_full`.
-- **Revoke event lane**: `_revoke_grant_transition` reads a `share_kind` column that does not exist, so SOS revokes are recorded/pushed as ordinary revokes. Unchanged (existing behaviour; noted for the service owner).
+- **Revoke event lane**: `_revoke_grant_transition` read a `share_kind` column that does not exist (it lives in `metadata->>'share_kind'`, legacy `reason = 'sos_panic'`), so every SOS stop was recorded as `share_kind: "standard"`, pushed as "Location access revoked", and narrated in the feed as "Sharing stopped". Fixed: the transition now reads the lane from metadata with the same fallback `_SHARE_LANE_MATCH_SQL` uses, so the already-authored "SMS location sharing stopped" push, `share_kind: "sos"` event, and "SMS ended" feed row are reachable. Ordinary shares keep the `standard` projection. Proven by `test_stopping_an_sos_share_names_the_sms_lane_in_event_and_push` and its legacy/ordinary twins.
 
 ## Unverified here
 

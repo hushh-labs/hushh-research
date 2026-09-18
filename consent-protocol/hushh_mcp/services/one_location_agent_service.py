@@ -9262,8 +9262,22 @@ class OneLocationAgentService:
         # the emergency (SMS / Save My Soul) lane and every other share, and a
         # person can hold one of each at the same time -- so "a share ended"
         # without naming the lane is genuinely ambiguous to the recipient.
-        revoked_share_kind = str(row.get("share_kind") or "").strip().lower()
-        revoked_via_sms = revoked_share_kind == "sos"
+        #
+        # `share_kind` is not a column on this table: it lives in
+        # `metadata->>'share_kind'`, with the legacy `reason = 'sos_panic'`
+        # marker for rows written before it was persisted -- the same two
+        # sources `_SHARE_LANE_MATCH_SQL` honours. Reading a non-existent
+        # column here made every SOS stop look like an ordinary revoke.
+        revoked_metadata = _loads_json(row.get("metadata"))
+        if not isinstance(revoked_metadata, dict):
+            revoked_metadata = {}
+        stored_share_kind = str(revoked_metadata.get("share_kind") or "").strip().lower()
+        revoked_via_sms = _is_sos_lane(stored_share_kind) or (
+            not stored_share_kind and _classify_share_kind(revoked_metadata.get("reason")) == "sos"
+        )
+        # Only the emergency lane is named; everything else keeps the
+        # "standard" projection it always had (the split is sos vs the rest).
+        revoked_share_kind = "sos" if revoked_via_sms else ""
         self._insert_event(
             owner_user_id=str(row.get("owner_user_id") or owner_user_id),
             actor_user_id=owner_user_id,
@@ -9301,7 +9315,7 @@ class OneLocationAgentService:
         recipient_user_id = str(transition["recipient_user_id"] or "") or None
         owner_label = str(transition["owner_label"] or "")
         recipient_label = str(transition["recipient_label"] or "")
-        revoked_share_kind = str(row.get("share_kind") or transition["revoked_share_kind"] or "")
+        revoked_share_kind = str(transition["revoked_share_kind"] or "")
         revoked_via_sms = bool(transition["revoked_via_sms"])
         notification_user_id = str(
             (recipient_user_id if actor_is_owner else str(row.get("owner_user_id") or "")) or ""
