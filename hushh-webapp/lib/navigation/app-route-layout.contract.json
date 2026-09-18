@@ -3900,14 +3900,12 @@
     "exemptionReason": "Compatibility redirect to the canonical RIA profile at /ria/profile.",
     "voicePlaybook": {
       "playbookId": "route.ria",
-      "purpose": "Help the person understand and use the ria screen through its generated controls.",
-      "screen": "ria_home",
-      "entryCue": "You can say \u201cOpen RIA Home\u201d to use the primary control on this screen.",
-      "proactivity": "on_entry",
-      "primaryActionId": "route.ria_home",
-      "happyPathActionIds": [
-        "route.ria_home"
-      ],
+      "purpose": "Forward the compatibility route to the canonical RIA profile without rendering an interactive workspace.",
+      "screen": "compatibility_redirect",
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
       "requiredInputs": [],
       "recoveries": {
         "blocked": "Explain the current guard and retain the goal.",
@@ -3920,7 +3918,7 @@
       "completionBoundary": "The compatibility route completes only after navigation settles on the canonical RIA profile.",
       "nextRoute": "/ria/profile",
       "returnPolicy": "navigate",
-      "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+      "outOfScopeBehavior": "Do not render the retired RIA home surface or invent controls on this compatibility route."
     }
   },
   {

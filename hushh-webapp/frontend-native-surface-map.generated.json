@@ -8633,14 +8633,12 @@
         },
         "voice_playbook": {
           "playbook_id": "route.ria",
-          "purpose": "Help the person understand and use the ria screen through its generated controls.",
-          "screen": "ria_home",
-          "entry_cue": "You can say “Open RIA Home” to use the primary control on this screen.",
-          "proactivity": "on_entry",
-          "primary_action_id": "route.ria_home",
-          "happy_path_action_ids": [
-            "route.ria_home"
-          ],
+          "purpose": "Forward the compatibility route to the canonical RIA profile without rendering an interactive workspace.",
+          "screen": "compatibility_redirect",
+          "entry_cue": "",
+          "proactivity": "ambient",
+          "primary_action_id": null,
+          "happy_path_action_ids": [],
           "required_inputs": [],
           "recoveries": {
             "blocked": "Explain the current guard and retain the goal.",
@@ -8653,7 +8651,7 @@
           "completion_boundary": "The compatibility route completes only after navigation settles on the canonical RIA profile.",
           "next_route": "/ria/profile",
           "return_policy": "navigate",
-          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+          "out_of_scope_behavior": "Do not render the retired RIA home surface or invent controls on this compatibility route."
         }
       },
       "native": {
@@ -9457,5 +9455,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "d2049e7903a45f98d09051fef951a1e552654ef66a417102061753251e148cf3"
+  "content_sha256": "a98ae1e999948ad5b7eb9339e1264e0181fe8da112b777d41eb546245ad20716"
 }
