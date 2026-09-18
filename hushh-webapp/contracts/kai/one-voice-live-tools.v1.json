@@ -1270,7 +1270,7 @@
     },
     {
       "circle_args": [],
-      "description": "Read who the person is connected with, one page at a time (optionally filtered by name), who can receive their location, and pending connection requests in both directions with their request ids. counts carry the totals; the page is not the total. Read only.",
+      "description": "Read who the person is connected with, one page at a time (optionally filtered by name), who can receive their location, and pending CONNECTION requests in both directions with their request ids (accept, decline and cancel need an id from here; location requests are list_requests instead). counts carry the totals; the page is not the total. Read only.",
       "firebase_plane": false,
       "gateway_action_id": "location.open_people",
       "name": "list_people",
@@ -1313,7 +1313,7 @@
     },
     {
       "circle_args": [],
-      "description": "Read location requests: incoming (people asking for your location) and outgoing (requests you sent), with real statuses pending, approved, denied, cancelled or expired. Read this before approving, declining or withdrawing.",
+      "description": "Read LOCATION requests only: incoming (people asking for your location) and outgoing (location requests you sent), with real statuses pending, approved, denied, cancelled or expired. Not connection requests: those are in list_people. Read this before approving, declining or withdrawing a location request.",
       "firebase_plane": false,
       "gateway_action_id": "location.open_needs_review",
       "name": "list_requests",

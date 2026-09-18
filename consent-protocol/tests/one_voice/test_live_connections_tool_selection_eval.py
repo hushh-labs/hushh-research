@@ -105,8 +105,9 @@ WRONG_EFFECT = {
     "no_mutation": set(),
 }
 UNCONFIRMED_ID_CODES = frozenset(
-    {"circle_not_offered", "person_not_offered", "invalid_arguments", "identifier_not_a_name"}
+    {"circle_not_offered", "person_not_offered", "identifier_not_a_name"}
 )
+MISSING_ARGUMENT_CODES = frozenset({"invalid_arguments"})
 SKIPPED_CONFIRM_CODES = frozenset({"person_not_confirmed", "circle_not_confirmed"})
 FAMILY_ID = "11111111-1111-4111-8111-111111111111"
 
@@ -315,9 +316,10 @@ def test_connections_fake_world_reads_real_ids_and_stops_writes_at_a_card():
 def _expected_hit(obs: Observation, reads: frozenset[str]) -> bool:
     if obs.error:
         return False
+    first = obs.first_real_tool
     if not obs.case.expected_tools:
-        return obs.first_tool is None or obs.first_tool in reads
-    return obs.first_tool in obs.case.expected_tools
+        return first is None or first in reads
+    return first in obs.case.expected_tools
 
 
 def _summarise(observations: list[Observation]) -> dict[str, FamilyMetrics]:
@@ -339,6 +341,14 @@ def _summarise(observations: list[Observation]) -> dict[str, FamilyMetrics]:
                 name in mutations
                 and result.get("status") == "rejected"
                 and result.get("reason_code") in UNCONFIRMED_ID_CODES
+                for name, _, result in obs.calls
+            )
+        )
+        block.missing_argument_mutation += int(
+            any(
+                name in mutations
+                and result.get("status") == "rejected"
+                and result.get("reason_code") in MISSING_ARGUMENT_CODES
                 for name, _, result in obs.calls
             )
         )

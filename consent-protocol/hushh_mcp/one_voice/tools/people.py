@@ -1463,9 +1463,10 @@ TOOLS: tuple[ToolSpec, ...] = (
         output_model=ListPeopleResult,
         description=(
             "Read who the person is connected with, one page at a time (optionally filtered by "
-            "name), who can receive their location, and pending connection requests in both "
-            "directions with their request ids. counts carry the totals; the page is not the "
-            "total. Read only."
+            "name), who can receive their location, and pending CONNECTION requests in both "
+            "directions with their request ids (accept, decline and cancel need an id from "
+            "here; location requests are list_requests instead). counts carry the totals; the "
+            "page is not the total. Read only."
         ),
         handler=list_people,
     ),
