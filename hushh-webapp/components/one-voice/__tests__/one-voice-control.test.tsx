@@ -130,8 +130,7 @@ describe("OneVoiceControl", () => {
 
     expect(screen.queryByTestId("one-voice-panel")).toBeNull();
     expect(screen.queryByTestId("one-voice-stop")).toBeNull();
-    fireEvent.click(screen.getByTestId("one-agent-chat-open"));
-    expect(navigateToAgentChat).toHaveBeenCalledTimes(1);
+    expect(screen.queryByTestId("one-agent-chat-open")).toBeNull();
   });
 
   it("seats layout=fixed above the nav with the shared bottom variable", () => {

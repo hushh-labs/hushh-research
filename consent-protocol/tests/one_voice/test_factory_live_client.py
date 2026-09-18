@@ -102,3 +102,43 @@ def test_hosted_environment_cannot_select_developer_key_for_live(monkeypatch):
     monkeypatch.setenv("HUSHH_GENAI_AUTH_MODE", "developer_api_key")
     with pytest.raises(RuntimeError, match="Vertex ADC"):
         factory.build_managed_live_client(model=LIVE_MODEL, location="us-central1")
+
+
+# --- the declarations really reach the Live model ---------------------------
+
+
+def test_build_live_config_declares_the_device_tools_verbatim_from_one_home():
+    from hushh_mcp.one_voice.instruction import build_instruction
+    from hushh_mcp.one_voice.live_client import build_live_config
+    from hushh_mcp.one_voice.tools import location_state, registry
+    from hushh_mcp.one_voice.tools.base import ScreenContext
+    from hushh_mcp.one_voice.tools.session import OPENABLE_SCREENS
+
+    # A session opened from /one: no Location page mounted, nothing said yet.
+    screen = ScreenContext(screen_id="one_home", route="/one")
+    declarations = registry.declarations()
+    config = build_live_config(
+        system_instruction=build_instruction(
+            tool_declarations=declarations,
+            screen_ids=list(OPENABLE_SCREENS),
+            screen_id=screen.screen_id,
+            display_name="Ayesha",
+        ),
+        tool_declarations=declarations,
+        voice_name="Leda",
+        resumption_handle=None,
+    )
+
+    assert len(config.tools) == 1
+    declared = {item.name: item for item in config.tools[0].function_declarations}
+    for name in ("resume_device_location_updates", "pause_device_location_updates"):
+        spec = next(tool for tool in location_state.TOOLS if tool.name == name)
+        assert name in declared, name
+        assert declared[name].description == spec.description
+        assert declared[name].parameters_json_schema == {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": False,
+        }
+    assert "resume_device_location_updates" in config.system_instruction.parts[0].text
+    assert "one_home" in config.system_instruction.parts[0].text

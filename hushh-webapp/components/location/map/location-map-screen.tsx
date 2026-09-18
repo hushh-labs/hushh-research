@@ -392,7 +392,7 @@ export function LocationMapScreen() {
       data-ambient-chrome-ignore
     >
       <header className="flex items-start justify-between gap-3 px-4 pb-3 pt-[max(1rem,env(safe-area-inset-top))]">
-        <TaskFlowHeader eyebrow="Location" title="Your Map" />
+        <TaskFlowHeader title="Your Map" />
         <Button
           size="icon-lg"
           variant="outline"

@@ -101,6 +101,7 @@ capabilities:
   - { capability_id: location.add_to_circle, kind: action, feature_group_id: circles }
   - { capability_id: location.remove_from_circle, kind: action, feature_group_id: circles }
   - { capability_id: location.rename_circle, kind: action, feature_group_id: circles }
+  - { capability_id: location.set_circle_kind, kind: action, feature_group_id: circles }
   - { capability_id: location.leave_circle, kind: action, feature_group_id: circles }
   - { capability_id: location.delete_circle, kind: action, feature_group_id: circles }
   - { capability_id: location.accept_circle_invite, kind: action, feature_group_id: circles }
