@@ -239,6 +239,7 @@ vi.mock("lucide-react", () => ({
   Lock: () => <span />,
   Mail: () => <span />,
   MessageCircle: () => <span />,
+  PenLine: () => <span />,
   RefreshCw: () => <span />,
   Search: () => <span />,
   RotateCcw: () => <span />,

@@ -8,6 +8,66 @@
   "tools": [
     {
       "circle_args": [],
+      "description": "Accept one incoming connection request by request_id (from list_people's pending_incoming). accepted means you are connected now; it starts no location sharing. If the request carries information scopes it returns scope_review_required and opens the review screen instead: opening it accepts nothing, and the real outcome arrives afterwards.",
+      "firebase_plane": true,
+      "gateway_action_id": "connect.accept_request",
+      "name": "accept_connection_request",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "person": {
+            "anyOf": [
+              {
+                "additionalProperties": false,
+                "description": "A canonical person reference. Only ids, never names.",
+                "properties": {
+                  "user_id": {
+                    "description": "Canonical user id from resolve_person/confirm_person.",
+                    "maxLength": 128,
+                    "minLength": 1,
+                    "title": "User Id",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "user_id"
+                ],
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "The confirmed person this request is from, when known. Only names the card."
+          },
+          "request_id": {
+            "description": "A request_id from list_people's pending_incoming.",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Request Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "request_id"
+        ],
+        "type": "object"
+      },
+      "person_args": [],
+      "policy": "confirm_voice",
+      "result_statuses": [
+        "accepted",
+        "scope_review_required"
+      ],
+      "tier": "voice",
+      "ui_refresh": [
+        "location_people",
+        "connections"
+      ]
+    },
+    {
+      "circle_args": [],
       "description": "Record that the person accepted the Location sharing consent shown on screen, after they tap Confirm. Consent must be recorded BEFORE any device location permission prompt; the flow refuses the permission step until this is done.",
       "firebase_plane": false,
       "gateway_action_id": "location.setup.accept_consent",
@@ -42,7 +102,7 @@
       "circle_args": [
         "circle"
       ],
-      "description": "Add a confirmed person to a confirmed circle. Only an existing connection who is eligible for that circle can be added; the result says whether they were added, are already a member, have a pending invitation, or are not connected (then share the circle's invite link instead). Both arguments are canonical ids, never names.",
+      "description": "Add a confirmed person to a confirmed circle. Only an existing connection can be added; the result says exactly what happened: added, already_member, invite_pending, connection_pending_outgoing (your request to them is waiting), connection_pending_incoming (their request to you is waiting), not_eligible, or not_connected. It never sends a connection request: that is invite_person, and only if the person asks. Both arguments are canonical ids, never names.",
       "firebase_plane": false,
       "gateway_action_id": "location.add_to_circle",
       "name": "add_circle_member",
@@ -96,8 +156,11 @@
       "result_statuses": [
         "added",
         "already_member",
+        "connection_pending_incoming",
+        "connection_pending_outgoing",
         "invite_pending",
-        "not_connected"
+        "not_connected",
+        "not_eligible"
       ],
       "tier": "voice",
       "ui_refresh": [
@@ -263,9 +326,9 @@
     },
     {
       "circle_args": [],
-      "description": "Withdraw one connection request the person sent, by request_id (from list_people's pending_outgoing).",
+      "description": "Withdraw one connection request the person sent, by request_id (from list_people's pending_outgoing). Needs a tap on the confirmation card.",
       "firebase_plane": true,
-      "gateway_action_id": "people.profile.cancel_connection_request",
+      "gateway_action_id": "connect.cancel_request",
       "name": "cancel_connection_request",
       "parameters": {
         "additionalProperties": false,
@@ -407,9 +470,9 @@
     },
     {
       "circle_args": [],
-      "description": "Confirm one candidate from the last resolve_person by user_id, after the person said which one they meant. Only offered ids are accepted.",
+      "description": "Confirm one candidate from the last resolve_person or list_circle_members by user_id, after the person said which one they meant. Only ids from that most recent offer are accepted; confirming who they meant approves no action.",
       "firebase_plane": false,
-      "gateway_action_id": "location.find_contacts",
+      "gateway_action_id": "connect.search_people",
       "name": "confirm_person",
       "parameters": {
         "additionalProperties": false,
@@ -612,6 +675,65 @@
       ]
     },
     {
+      "circle_args": [],
+      "description": "Decline one incoming connection request by request_id (from list_people's pending_incoming). declined closes that request; it does not block anyone and they may ask again later.",
+      "firebase_plane": true,
+      "gateway_action_id": "connect.reject_request",
+      "name": "decline_connection_request",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "person": {
+            "anyOf": [
+              {
+                "additionalProperties": false,
+                "description": "A canonical person reference. Only ids, never names.",
+                "properties": {
+                  "user_id": {
+                    "description": "Canonical user id from resolve_person/confirm_person.",
+                    "maxLength": 128,
+                    "minLength": 1,
+                    "title": "User Id",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "user_id"
+                ],
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "The confirmed person this request is from, when known. Only names the card."
+          },
+          "request_id": {
+            "description": "A request_id from list_people's pending_incoming.",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Request Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "request_id"
+        ],
+        "type": "object"
+      },
+      "person_args": [],
+      "policy": "confirm_voice",
+      "result_statuses": [
+        "declined"
+      ],
+      "tier": "voice",
+      "ui_refresh": [
+        "location_people",
+        "connections"
+      ]
+    },
+    {
       "circle_args": [
         "circle"
       ],
@@ -656,6 +778,51 @@
     },
     {
       "circle_args": [],
+      "description": "Read one circle's current name, kind, member count, whether the person owns it, and what they can do with it (add members, rename, delete, leave). Read only. With no circle argument it reads the circle whose screen is open, so it answers 'this circle'. Use it to answer who manages a circle or what kind it is.",
+      "firebase_plane": false,
+      "gateway_action_id": "location.open_circles",
+      "name": "get_circle_details",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "circle": {
+            "anyOf": [
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "circle_id": {
+                    "description": "Canonical circle id from list_circles/confirm_circle.",
+                    "maxLength": 36,
+                    "minLength": 36,
+                    "title": "Circle Id",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "circle_id"
+                ],
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "A circle id from list_circles, resolve_circle, or confirm_circle. Leave it out to read the circle whose screen the person is looking at."
+          }
+        },
+        "type": "object"
+      },
+      "person_args": [],
+      "policy": "read",
+      "result_statuses": [
+        "ok"
+      ],
+      "tier": null,
+      "ui_refresh": []
+    },
+    {
+      "circle_args": [],
       "description": "Read the person's Location settings: sharing on/off/not set up, sharing precision, map visibility (hidden or visible), and automatic approval of location requests. Reads only.",
       "firebase_plane": false,
       "gateway_action_id": "location.open_settings",
@@ -696,7 +863,7 @@
     },
     {
       "circle_args": [],
-      "description": "Read the person's own Location status: whether sharing with people is on, off, or not set up; the device location permission (a separate thing from app sharing); how many active shares, people sharing with them, requests waiting, and active links there are; whether Save My Soul is active; and map visibility. Reads only. Use it for 'am I sharing my location', 'who can see me', 'is my location on'.",
+      "description": "Read the person's own Location status: whether sharing with people is on, off, or not set up; the device location permission (a separate thing from app sharing); how many active shares, people sharing with them, requests waiting, and active links there are; whether Save My Soul is active; and map visibility. Reads only. It answers questions about sharing with people; it does not read or change this device's Location updates switch.",
       "firebase_plane": false,
       "gateway_action_id": "location.open_now",
       "name": "get_location_status",
@@ -715,7 +882,7 @@
     },
     {
       "circle_args": [],
-      "description": "Fresh relationship and Location readiness for one confirmed person, plus the person's people counts. Read only.",
+      "description": "Fresh relationship (connected, request pending either way, or not connected) and Location readiness for one confirmed person. Read only.",
       "firebase_plane": false,
       "gateway_action_id": "location.open_people",
       "name": "get_person",
@@ -839,9 +1006,9 @@
     },
     {
       "circle_args": [],
-      "description": "Send a connection request to a confirmed person. Connecting grants no information. Reports already_connected or already_pending instead of sending twice.",
+      "description": "Send a plain in-app connection request from the signed-in person to one confirmed account. It requests a connection: it does not accept on their behalf, add a circle member, request location, or attach information-sharing scopes. The result is the real outcome: sent (with the request id, waiting for acceptance), already_connected, or already_pending with its direction (if they already asked you, accept that instead). Needs its own confirmation; confirming who they meant is not approval to send.",
       "firebase_plane": true,
-      "gateway_action_id": "people.profile.connect",
+      "gateway_action_id": "connect.send_request",
       "name": "invite_person",
       "parameters": {
         "additionalProperties": false,
@@ -849,7 +1016,7 @@
           "message": {
             "anyOf": [
               {
-                "maxLength": 280,
+                "maxLength": 1000,
                 "type": "string"
               },
               {
@@ -857,6 +1024,7 @@
               }
             ],
             "default": null,
+            "description": "An optional note to the person, sent as written. Never invented.",
             "title": "Message"
           },
           "person": {
@@ -902,7 +1070,7 @@
       "circle_args": [
         "circle"
       ],
-      "description": "Leave a circle the person is a member of but does not own. Ends the sharing that circle gave them, so it needs a tap on the confirmation card.",
+      "description": "Leave a circle the person is a member of but does not own: only their own membership ends, the circle stays for everyone else (that is not delete_circle). Ends the sharing that circle gave them, so it needs a tap on the confirmation card.",
       "firebase_plane": false,
       "gateway_action_id": "location.leave_circle",
       "name": "leave_circle",
@@ -959,6 +1127,74 @@
             ],
             "title": "Direction",
             "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "person_args": [],
+      "policy": "read",
+      "result_statuses": [
+        "none",
+        "ok"
+      ],
+      "tier": null,
+      "ui_refresh": []
+    },
+    {
+      "circle_args": [],
+      "description": "Read who is in a circle: one page of members with each one's canonical id, real name, role, and relationship to the person. Read only. With no circle argument it reads the circle whose screen is open. Use it for 'who is in this group' and to find the member to remove: someone can be in a circle without being a connection, so remove_circle_member needs a member from here confirmed with confirm_person. The result says whether more pages follow; the total is the total, not the page.",
+      "firebase_plane": false,
+      "gateway_action_id": "location.open_circles",
+      "name": "list_circle_members",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "circle": {
+            "anyOf": [
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "circle_id": {
+                    "description": "Canonical circle id from list_circles/confirm_circle.",
+                    "maxLength": 36,
+                    "minLength": 36,
+                    "title": "Circle Id",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "circle_id"
+                ],
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "A circle id from list_circles, resolve_circle, or confirm_circle. Leave it out to read the circle whose screen the person is looking at."
+          },
+          "page": {
+            "default": 1,
+            "description": "Roster page, starting at 1.",
+            "maximum": 50,
+            "minimum": 1,
+            "title": "Page",
+            "type": "integer"
+          },
+          "query": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "A name to look for in the roster. Suggestion only; never an id.",
+            "title": "Query"
           }
         },
         "type": "object"
@@ -1034,13 +1270,36 @@
     },
     {
       "circle_args": [],
-      "description": "List the person's connections, who can receive their location, and pending connection requests in both directions. Read only.",
+      "description": "Read who the person is connected with, one page at a time (optionally filtered by name), who can receive their location, and pending connection requests in both directions with their request ids. counts carry the totals; the page is not the total. Read only.",
       "firebase_plane": false,
       "gateway_action_id": "location.open_people",
       "name": "list_people",
       "parameters": {
         "additionalProperties": false,
-        "properties": {},
+        "properties": {
+          "page": {
+            "default": 1,
+            "description": "Connections page, starting at 1.",
+            "maximum": 50,
+            "minimum": 1,
+            "title": "Page",
+            "type": "integer"
+          },
+          "query": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "A name to filter your connections by. Suggestion only; never an id.",
+            "title": "Query"
+          }
+        },
         "type": "object"
       },
       "person_args": [],
@@ -1185,10 +1444,34 @@
       "ui_refresh": []
     },
     {
+      "circle_args": [],
+      "description": "Ensures One's location preview and device updates are paused on the current device through the same operation as the Location screen's switch. Preserves existing sharing grants and account-level sharing consent. Does not disable the operating system's global Location Services. This is this device's Location switch, not sharing with people (turn_sharing_off, which ends every share and link). Reports already_off when it is already paused. Call it only when the person asks to change this device now -- not for a question, a negation, a report of what someone said, or another person's device. Returns location_updates_pending first; the real result arrives later as a [ONE_EVENT] tool_result -- only then say location is off.",
+      "firebase_plane": false,
+      "gateway_action_id": "location.pause_updates",
+      "name": "pause_device_location_updates",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {},
+        "type": "object"
+      },
+      "person_args": [],
+      "policy": "direct",
+      "result_statuses": [
+        "already_off",
+        "already_on",
+        "location_updates_pending",
+        "off",
+        "on",
+        "rejected"
+      ],
+      "tier": null,
+      "ui_refresh": []
+    },
+    {
       "circle_args": [
         "circle"
       ],
-      "description": "Remove a confirmed person from a circle the person owns. Revokes what that circle shared with them, so it needs a tap on the confirmation card.",
+      "description": "Remove a confirmed person from a circle the person owns. Only that circle membership ends: it does not disconnect from them (remove_connection) and does not delete the circle. Revokes what that circle shared with them, so it needs a tap on the confirmation card.",
       "firebase_plane": false,
       "gateway_action_id": "location.remove_from_circle",
       "name": "remove_circle_member",
@@ -1249,9 +1532,9 @@
     },
     {
       "circle_args": [],
-      "description": "End the connection with a confirmed person. Location sharing with them stops; other consent is governed separately.",
+      "description": "End the connection with a confirmed person everywhere: location sharing with them stops and circle memberships that came from the connection end too. This is not removing them from one circle (remove_circle_member) and there is no block. Needs a tap on the confirmation card; the result is verified on a re-read.",
       "firebase_plane": true,
-      "gateway_action_id": "people.profile.remove_connection",
+      "gateway_action_id": "connect.remove_connection",
       "name": "remove_connection",
       "parameters": {
         "additionalProperties": false,
@@ -1285,7 +1568,8 @@
       "policy": "confirm_tap",
       "result_statuses": [
         "not_connected",
-        "removed"
+        "removed",
+        "unverified"
       ],
       "tier": "tap",
       "ui_refresh": [
@@ -1343,7 +1627,7 @@
       "circle_args": [
         "circle"
       ],
-      "description": "Rename a circle the person owns. Takes a confirmed circle id, never a spoken name.",
+      "description": "Rename a circle the person owns. Changes only the name: members, kind, sharing, and ownership stay as they are. Takes a confirmed circle id, never a spoken name.",
       "firebase_plane": false,
       "gateway_action_id": "location.rename_circle",
       "name": "rename_circle",
@@ -1529,9 +1813,9 @@
     },
     {
       "circle_args": [],
-      "description": "Find who the person means by a spoken name. Returns candidates to read back; it never picks one. Always follow with confirm_person after the person agrees, even when only one candidate is likely. Use pool='directory' only to invite someone new.",
+      "description": "Find who the person means by a spoken name, searching by name only (never by phone or email, and never the device's contacts). Returns candidates to read back; it never picks one. Always follow with confirm_person after the person agrees, even when only one candidate is likely. pool='connections' for people already in their life; pool='directory' for anyone findable on Hussh, to connect with someone new. A relative ('my uncle') is not a name: ask for the name first.",
       "firebase_plane": false,
-      "gateway_action_id": "location.find_contacts",
+      "gateway_action_id": "connect.search_people",
       "name": "resolve_person",
       "parameters": {
         "additionalProperties": false,
@@ -1566,7 +1850,8 @@
         "multiple",
         "no_connections",
         "none",
-        "single_likely"
+        "single_likely",
+        "truncated"
       ],
       "tier": null,
       "ui_refresh": []
@@ -1610,72 +1895,6 @@
       "ui_refresh": [
         "location_circles",
         "location_needs_review"
-      ]
-    },
-    {
-      "circle_args": [],
-      "description": "Accept or decline one incoming connection request by request_id (from list_people's pending_incoming).",
-      "firebase_plane": true,
-      "gateway_action_id": "people.profile.connect",
-      "name": "respond_connection_request",
-      "parameters": {
-        "additionalProperties": false,
-        "properties": {
-          "accept": {
-            "description": "true to accept, false to decline.",
-            "title": "Accept",
-            "type": "boolean"
-          },
-          "person": {
-            "anyOf": [
-              {
-                "additionalProperties": false,
-                "description": "A canonical person reference. Only ids, never names.",
-                "properties": {
-                  "user_id": {
-                    "description": "Canonical user id from resolve_person/confirm_person.",
-                    "maxLength": 128,
-                    "minLength": 1,
-                    "title": "User Id",
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "user_id"
-                ],
-                "type": "object"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "description": "The confirmed person this request is from, when known. Only names the card."
-          },
-          "request_id": {
-            "description": "A request_id from list_people's pending_incoming.",
-            "maxLength": 64,
-            "minLength": 1,
-            "title": "Request Id",
-            "type": "string"
-          }
-        },
-        "required": [
-          "request_id",
-          "accept"
-        ],
-        "type": "object"
-      },
-      "person_args": [],
-      "policy": "confirm_voice",
-      "result_statuses": [
-        "accepted",
-        "rejected"
-      ],
-      "tier": "voice",
-      "ui_refresh": [
-        "location_people",
-        "connections"
       ]
     },
     {
@@ -1734,6 +1953,30 @@
         "location_needs_review",
         "location_active_shares"
       ]
+    },
+    {
+      "circle_args": [],
+      "description": "Ensures One's location preview and device updates are enabled on the current device through the same operation as the Location screen's switch. May require device permission. Does not change account-level sharing consent, create recipients, or create sharing grants. Existing authorized shares may receive updates under the existing rules. This is this device's Location switch, not sharing with people (turn_sharing_on). Reports already_on when it is already enabled. Call it only when the person asks to change this device now -- not for a question, a negation, a report of what someone said, or another person's device. Returns location_updates_pending first; the real result arrives later as a [ONE_EVENT] tool_result -- only then say location is on.",
+      "firebase_plane": false,
+      "gateway_action_id": "location.resume_updates",
+      "name": "resume_device_location_updates",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {},
+        "type": "object"
+      },
+      "person_args": [],
+      "policy": "direct",
+      "result_statuses": [
+        "already_off",
+        "already_on",
+        "location_updates_pending",
+        "off",
+        "on",
+        "rejected"
+      ],
+      "tier": null,
+      "ui_refresh": []
     },
     {
       "circle_args": [],
@@ -1834,6 +2077,61 @@
       "tier": "voice",
       "ui_refresh": [
         "location_settings"
+      ]
+    },
+    {
+      "circle_args": [
+        "circle"
+      ],
+      "description": "Change a circle's type to family, friends, or other. Changes only the type: the name, members, sharing, and ownership stay as they are (a new name is rename_circle). Takes a confirmed circle id, never a spoken name.",
+      "firebase_plane": false,
+      "gateway_action_id": "location.set_circle_kind",
+      "name": "set_circle_kind",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "circle": {
+            "additionalProperties": false,
+            "properties": {
+              "circle_id": {
+                "description": "Canonical circle id from list_circles/confirm_circle.",
+                "maxLength": 36,
+                "minLength": 36,
+                "title": "Circle Id",
+                "type": "string"
+              }
+            },
+            "required": [
+              "circle_id"
+            ],
+            "type": "object"
+          },
+          "kind": {
+            "description": "The circle's new type: family, friends, or other.",
+            "enum": [
+              "family",
+              "friends",
+              "other"
+            ],
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "circle",
+          "kind"
+        ],
+        "type": "object"
+      },
+      "person_args": [],
+      "policy": "confirm_voice",
+      "result_statuses": [
+        "already_kind",
+        "kind_changed"
+      ],
+      "tier": "voice",
+      "ui_refresh": [
+        "location_circles"
       ]
     },
     {
@@ -2127,7 +2425,7 @@
     },
     {
       "circle_args": [],
-      "description": "Turn owner-level location sharing off after the person taps Confirm. This stops every active share and every active link in the same transaction and hides them on the map. An active Save My Soul share blocks it (sos_active) unless include_sos is set because the person explicitly asked to stop SOS too.",
+      "description": "Turn owner-level location sharing off after the person taps Confirm. This stops every active share and every active link in the same transaction and hides them on the map. An active Save My Soul share blocks it (sos_active) unless include_sos is set because the person explicitly asked to stop SOS too. This is account-level sharing with people, not this device's Location updates switch (resume_device_location_updates / pause_device_location_updates).",
       "firebase_plane": false,
       "gateway_action_id": "location.set_sharing_enabled",
       "name": "turn_sharing_off",
@@ -2158,7 +2456,7 @@
     },
     {
       "circle_args": [],
-      "description": "Turn owner-level location sharing on after the person confirms. Needs recorded consent (answers consent_required otherwise) and completed Location setup (answers setup_required otherwise). Turning it on does not start any share; it allows shares again. The device permission is separate and is not changed here.",
+      "description": "Turn owner-level location sharing on after the person confirms. Needs recorded consent (answers consent_required otherwise) and completed Location setup (answers setup_required otherwise). Turning it on does not start any share; it allows shares again. The device permission is separate and is not changed here. This is account-level sharing with people, not this device's Location updates switch (resume_device_location_updates / pause_device_location_updates).",
       "firebase_plane": false,
       "gateway_action_id": "location.set_sharing_enabled",
       "name": "turn_sharing_on",

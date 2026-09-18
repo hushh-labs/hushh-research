@@ -131,9 +131,16 @@ test.describe("Location voice action dispatch (real backend, no audio/STT)", () 
 
     const paused = await dispatch(page, "location.pause_updates");
     expect(paused.status, paused.resultSummary).toBe("succeeded");
+    // A succeeded run carries no typed reason anywhere: the voice step maps
+    // `reason` / `data.reason` onto its outcome vocabulary, so a stray value
+    // here would misreport a real success as a failure.
+    expect(paused.reason ?? null).toBeNull();
+    expect((paused.data as Record<string, unknown> | undefined)?.reason).toBeUndefined();
 
     const resumed = await dispatch(page, "location.resume_updates");
     expect(resumed.status, resumed.resultSummary).toBe("succeeded");
+    expect(resumed.reason ?? null).toBeNull();
+    expect((resumed.data as Record<string, unknown> | undefined)?.reason).toBeUndefined();
   });
 
   test("select_share_recipient resolves a named connection against real state", async ({

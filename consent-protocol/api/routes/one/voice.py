@@ -433,8 +433,19 @@ async def confirm_pending_action_http(
     if row is None:
         raise HTTPException(status_code=404, detail={"code": "PENDING_ACTION_NOT_FOUND"})
     spec = registry.get_tool(row.tool_name)
-    if spec is not None and spec.firebase_plane and not payload.firebase_id_token:
-        raise HTTPException(status_code=403, detail={"code": "FIREBASE_PROOF_REQUIRED"})
+    if spec is not None and spec.firebase_plane:
+        from hushh_mcp.one_voice.actor_proof import verify_firebase_actor
+
+        proof = await verify_firebase_actor(payload.firebase_id_token, user_id)
+        if proof != "ok":
+            raise HTTPException(
+                status_code=403,
+                detail={
+                    "code": "FIREBASE_PROOF_REQUIRED"
+                    if proof == "missing"
+                    else "FIREBASE_PROOF_INVALID"
+                },
+            )
     try:
         confirmed = await store.confirm(
             user_id=user_id,
