@@ -60,7 +60,7 @@ describe("One Location settings placement", () => {
     expect(HUB_SOURCE).toContain('onRequestLocation={() => openFlow("ask")}');
   });
 
-  it("gives Ask for location an icon distinct from Share location", () => {
+  it("keeps Ask in the action grid and Share in its primary card", () => {
     // These two actions are opposites -- give a location out, ask for one in.
     // They sit in one grid now, so the glyphs must be distinct at a glance.
     const nowStart = HUB_SOURCE.indexOf("function NowHub");
@@ -72,7 +72,8 @@ describe("One Location settings placement", () => {
 
     expect(requestIndex).toBeGreaterThan(-1);
     expect(requestItem).toContain('<LocationMenuGlyph name="ask"');
-    expect(nowSource).toContain('data-location-share-pulse-icon=""');
+    expect(nowSource).toContain("<LocationPrimaryShareCard");
+    expect(HUB_SOURCE).toContain('data-voice-action-id="location.open_share"');
   });
 
   it("owns Saved Locations and does not duplicate it in Profile preferences", () => {

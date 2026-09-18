@@ -6547,71 +6547,6 @@
       "thread_and_consent_contract": null
     },
     {
-      "route": "/one/profile/security/devices",
-      "page_file": "app/one/profile/security/devices/page.tsx",
-      "physical_page_exists": true,
-      "route_contract": {
-        "mode": "standard",
-        "exemption_reason": null,
-        "shell_verification_file": "components/profile/trusted-devices-page.tsx",
-        "shell_verification_includes": [
-          "AppPageShell",
-          "AppPageHeaderRegion",
-          "AppPageContentRegion",
-          "PageHeader"
-        ],
-        "interaction_layer_policy": {
-          "allowed_families": []
-        },
-        "voice_playbook": {
-          "playbook_id": "route.profile.security.devices",
-          "purpose": "Help the person review and revoke computers connected to their private agent.",
-          "screen": "profile_security_devices",
-          "entry_cue": "",
-          "proactivity": "ambient",
-          "primary_action_id": null,
-          "happy_path_action_ids": [],
-          "required_inputs": [],
-          "recoveries": {
-            "blocked": "Explain the current guard and retain the goal.",
-            "cancelled": "Respect the cancellation and retain a safe next step.",
-            "failed": "Acknowledge the failure without claiming completion.",
-            "timeout": "Retain the goal and offer one safe retry.",
-            "callback_error": "Return to the verified callback recovery path without claiming success.",
-            "route_mismatch": "Use the verified current route and its generated actions only."
-          },
-          "completion_boundary": "Revocation completes only after the backend confirms the device is revoked and the list refreshes.",
-          "next_route": null,
-          "return_policy": "stay",
-          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
-        }
-      },
-      "native": {
-        "route": "/one/profile/security/devices",
-        "classification": "native-required-functional",
-        "initialRoute": "/login?redirect=%2Fone%2Fprofile%2Fsecurity%2Fdevices",
-        "expectedMarker": "native-route-profile",
-        "expectedRoute": "/one/profile/security/devices",
-        "autoReviewerLogin": true,
-        "expectedAuth": "authenticated",
-        "allowedDataStates": [
-          "loaded"
-        ]
-      },
-      "shell": {
-        "app_page_shell": false,
-        "page_header": false,
-        "settings_ui": false,
-        "shared_loader": false,
-        "back_button_pattern": "shared-shell"
-      },
-      "voice_action_contract_file": null,
-      "voice_action_contract_ids": [],
-      "api_dependencies": [],
-      "native_plugin_dependencies": [],
-      "thread_and_consent_contract": null
-    },
-    {
       "route": "/one/profile/security/devices/authorize",
       "page_file": "app/one/profile/security/devices/authorize/page.tsx",
       "physical_page_exists": true,
@@ -9473,5 +9408,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "1bab638cdbd131a6fe529f749992107593add02f1c7a45d539bb09929a63a052"
+  "content_sha256": "8a5522da8f4ddb49a360686d440aec55ac341b26006ee71b8ffdc779f1ccb957"
 }

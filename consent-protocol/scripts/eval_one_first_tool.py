@@ -76,7 +76,10 @@ DEFAULT_MIN_FAMILY_RATE = 0.8
 STRICT_FAMILIES: dict[str, float] = {"consent": 1.0, "delegation": 1.0}
 THINKING_LEVELS = ("low", "medium", "high")
 CALL_GAP_SECONDS = 2.0
-QUOTA_RETRY_ATTEMPTS = 6
+# A live evaluator must leave quota headroom for normal product traffic. Three
+# total attempts preserve one transient recovery opportunity without turning a
+# provider 429 into a retry burst for every remaining fixture.
+QUOTA_RETRY_ATTEMPTS = 3
 _LABEL_SAFE = re.compile(r"[^A-Za-z0-9_.-]+")
 
 # (instruction, prompt, screen) -> first tool name, "run_app_action:<id>", or None.

@@ -86,7 +86,7 @@ async def gmail_email_draft(
     firebase_uid: str = Depends(require_firebase_auth),
     token_data: dict[str, Any] = Depends(require_vault_owner_token),
 ) -> dict[str, Any]:
-    _owner_user_id(
+    user_id = _owner_user_id(
         firebase_uid=firebase_uid,
         token_data=token_data,
     )
@@ -94,7 +94,9 @@ async def gmail_email_draft(
         return cast(
             dict[str, Any],
             await get_gmail_delivery_service().draft_from_instruction(
-                instruction=payload.instruction
+                instruction=payload.instruction,
+                user_id=user_id,
+                consent_token=str(token_data.get("token") or ""),
             ),
         )
     except Exception as exc:

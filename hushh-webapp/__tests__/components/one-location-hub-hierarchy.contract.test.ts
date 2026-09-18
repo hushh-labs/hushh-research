@@ -26,7 +26,7 @@ describe("Location hub hierarchy", () => {
     const body = functionBody("LocationRedesignHub");
     const headerIndex = body.indexOf("<PageHeader");
     const titleMatches =
-      body.match(/<PageTitle\s+as="span">\s*Location\s*<\/PageTitle>/g) ?? [];
+      body.match(/<PageTitle\s+as="span"[^>]*>\s*Location\s*<\/PageTitle>/g) ?? [];
     const tabsIndex = body.indexOf("<TopShellTabs");
     const swipeIndex = body.indexOf("<SwipeViews");
     const linksIndex = body.indexOf("<LinksHub");
@@ -82,8 +82,8 @@ describe("Location hub hierarchy", () => {
     expect(motionStart).toBeGreaterThan(-1);
     expect(motionWindow).toContain("key: flow");
     expect(motionWindow).toContain("enabled: true");
-    expect(body).toContain(
-      '<div ref={flowContainerRef} className="space-y-4 sm:space-y-5">',
+    expect(body).toMatch(
+      /<div\s+ref=\{flowContainerRef\}[^>]*data-testid="one-location-action-flow"/,
     );
     expect(body).toContain("ref={flowContainerRef}");
   });
@@ -111,7 +111,10 @@ describe("Location hub hierarchy", () => {
 
     expect(source).toContain("const LOCATION_GROUP_SURFACE");
     expect(source).not.toContain("PEOPLE_GROUP_SURFACE");
-    expect(peopleBody).toContain("className={LOCATION_GROUP_SURFACE}");
+    expect(peopleBody).toContain("<CircleSummaryGroup");
+    expect(functionBody("CircleSummaryGroup")).toContain(
+      "className={LOCATION_GROUP_SURFACE}",
+    );
 
     expect(linksBody).toContain("<SettingsGroup");
     expect(linksBody).toContain(

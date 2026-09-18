@@ -90,6 +90,23 @@ describe("Profile pane navigation state", () => {
     back.mockRestore();
   });
 
+  it("pops a resumed child to its parent instead of closing the sheet", () => {
+    openProfilePane("/one", window.location.search, ACCOUNT);
+    popProfilePaneLocation("/one", window.location.search);
+    expect(resolveProfilePaneUrlState(window.location.search)).toEqual({
+      open: true, location: { panel: null, detail: null },
+    });
+    expect(currentUrl().searchParams.get("view")).toBe("people");
+  });
+
+  it("pops a direct detail through panel and root while remaining open", () => {
+    window.history.replaceState(null, "", "/one?profile_pane=1&profile_panel=account&profile_detail=phone");
+    popProfilePaneLocation("/one", window.location.search);
+    expect(resolveProfilePaneUrlState(window.location.search)).toEqual({ open: true, location: ACCOUNT });
+    popProfilePaneLocation("/one", window.location.search);
+    expect(resolveProfilePaneUrlState(window.location.search)).toEqual({ open: true, location: { panel: null, detail: null } });
+  });
+
   it("closes direct query entry in place while retaining unrelated query parameters", () => {
     window.history.replaceState(
       null,

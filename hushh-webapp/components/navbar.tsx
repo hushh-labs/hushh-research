@@ -10,24 +10,22 @@ import {
   MagnifyingGlass,
   ChatCircle,
   SquaresFour,
-  type IconProps as PhosphorIconProps,
-} from "@phosphor-icons/react";
-import {
-  BriefcaseBusiness,
-  ChartSpline,
-  ChartCandlestick,
-  CircleUserRound,
+  Briefcase,
+  ChartBar,
+  ChartLineUp,
   Database,
-  FileSpreadsheet,
-  FolderSearch,
-  Mail,
+  EnvelopeSimple,
+  FolderSimple,
   MapPin,
   Newspaper,
   ShieldCheck,
-  Store,
-  Users,
-  WalletCards,
-} from "lucide-react";
+  Storefront,
+  Table,
+  UserCircle,
+  UsersThree,
+  Wallet,
+  type IconProps as PhosphorIconProps,
+} from "@phosphor-icons/react";
 
 import { useAuth } from "@/hooks/use-auth";
 import { requestInternalAppNavigation } from "@/lib/utils/browser-navigation";
@@ -92,19 +90,19 @@ const BOTTOM_NAV_OPTION_META: Record<
   finance: {
     value: "finance",
     label: "Market",
-    icon: ChartCandlestick,
+    icon: ChartBar,
     dataTourId: "nav-market",
   },
   portfolio: {
     value: "portfolio",
     label: "Portfolio",
-    icon: WalletCards,
+    icon: Wallet,
     dataTourId: "nav-portfolio",
   },
   analysis: {
     value: "analysis",
     label: "Analysis",
-    icon: ChartSpline,
+    icon: ChartLineUp,
     dataTourId: "nav-analysis",
   },
   connect: {
@@ -117,25 +115,25 @@ const BOTTOM_NAV_OPTION_META: Record<
   "ria-home": {
     value: "ria-home",
     label: "RIA",
-    icon: BriefcaseBusiness,
+    icon: Briefcase,
     dataTourId: "nav-ria-home",
   },
   clients: {
     value: "clients",
     label: "Clients",
-    icon: Users,
+    icon: UsersThree,
     dataTourId: "nav-ria-clients",
   },
   picks: {
     value: "picks",
     label: "Picks",
-    icon: FileSpreadsheet,
+    icon: Table,
     dataTourId: "nav-ria-picks",
   },
   gmail: {
     value: "gmail",
     label: "Gmail",
-    icon: Mail,
+    icon: EnvelopeSimple,
     dataTourId: "nav-one-gmail",
   },
   email: {
@@ -165,13 +163,13 @@ const BOTTOM_NAV_OPTION_META: Record<
   pkm: {
     value: "pkm",
     label: "Memory",
-    icon: FolderSearch,
+    icon: FolderSimple,
     dataTourId: "nav-one-pkm",
   },
   marketplace: {
     value: "marketplace",
     label: "Market",
-    icon: Store,
+    icon: Storefront,
     dataTourId: "nav-one-marketplace",
   },
   connected: {
@@ -190,7 +188,7 @@ const BOTTOM_NAV_OPTION_META: Record<
   profile: {
     value: "profile",
     label: "Profile",
-    icon: CircleUserRound,
+    icon: UserCircle,
     dataTourId: "nav-profile",
   },
 };

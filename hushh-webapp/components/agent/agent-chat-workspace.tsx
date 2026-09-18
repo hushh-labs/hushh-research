@@ -16,25 +16,28 @@ import {
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   Check,
-  ChevronRight,
+  CaretRight as ChevronRight,
   Copy,
   FileText,
-  KeyRound,
+  Key as KeyRound,
   Laptop,
-  LogIn,
-  Menu,
-  Maximize2,
-  Mic,
-  Minimize2,
-  Pencil,
-  RotateCcw,
-  Send,
+  SignIn as LogIn,
+  List as Menu,
+  ArrowsOut as Maximize2,
+  Microphone as Mic,
+  ArrowsIn as Minimize2,
+  PencilSimple as Pencil,
+  ArrowCounterClockwise as RotateCcw,
+  PaperPlaneRight as Send,
   ThumbsDown,
   ThumbsUp,
-  Trash2,
+  Trash as Trash2,
+  User,
   X,
-} from "lucide-react";
+} from "@phosphor-icons/react";
 
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { requestProfilePaneOpen } from "@/lib/navigation/profile-pane";
 import { Button } from "@/components/ui/button";
 import { AgentHistorySidebar } from "@/components/agent/agent-history-sidebar";
 import { SegmentedControl } from "@/lib/morphy-ux/ui/segmented-control";
@@ -98,6 +101,7 @@ import {
   type AgentVisibleStreamStatus,
 } from "@/components/agent/agent-turn-stream-panel";
 import { describeSelection } from "@/lib/agent/describe-selection";
+import { useEntryWelcome, type EntryWelcome } from "@/lib/agent/use-entry-welcome";
 import type { AgentStructuredExperience } from "@/lib/agent/agui-structured-experiences";
 import {
   getWelcomePromptSetIndex,
@@ -149,6 +153,7 @@ import {
   requestAgentConversation,
   requestAgentConversationStop,
 } from "@/lib/agent/agent-voice-settings";
+import { onScroll as onKaiBottomChromeScroll } from "@/lib/navigation/kai-bottom-chrome-visibility";
 import {
   deleteAgentChatConversation,
   renameAgentChatConversation,
@@ -945,6 +950,47 @@ function formatAgentDisplayName(
   return firstName.charAt(0).toUpperCase() + firstName.slice(1);
 }
 
+function AgentPromptSuggestions({
+  prompts,
+  disabled,
+  align = "center",
+  onPromptSelect,
+}: {
+  prompts: readonly string[];
+  disabled: boolean;
+  align?: "center" | "start";
+  onPromptSelect: (prompt: string) => void;
+}) {
+  return (
+    <div
+      data-testid="agent-chat-suggestions"
+      role="group"
+      aria-label="Suggestions"
+      className={cn(
+        "flex flex-wrap gap-2.5",
+        align === "center" ? "justify-center" : "justify-start",
+      )}
+    >
+      {prompts.map((prompt) => (
+        <ShellActionSurface
+          key={prompt}
+          type="button"
+          variant="pill"
+          disabled={disabled}
+          onClick={() => onPromptSelect(prompt)}
+          className="!h-auto !min-h-11 max-w-full !justify-between gap-2.5 !rounded-2xl !px-4 !py-2.5 text-left text-sm font-medium"
+        >
+          <span className="min-w-0 whitespace-normal leading-5">{prompt}</span>
+          <ChevronRight
+            className="h-4 w-4 shrink-0 text-[color:var(--app-accent-deep)]"
+            aria-hidden
+          />
+        </ShellActionSurface>
+      ))}
+    </div>
+  );
+}
+
 function AgentWelcomePanel({
   name,
   prompts,
@@ -958,8 +1004,8 @@ function AgentWelcomePanel({
 }) {
   return (
     <section className="flex min-h-[clamp(18rem,45vh,32rem)] flex-col justify-center py-6 sm:py-10">
-      <div className="mx-auto w-full max-w-2xl text-center flex flex-col items-center">
-        <div className="mb-7 inline-flex items-center gap-2 rounded-full border border-black/10 bg-black/[0.035] px-3 py-1.5 text-xs font-medium text-[rgba(0,0,0,0.56)] dark:border-white/10 dark:bg-white/[0.04] dark:text-zinc-400">
+      <div className="mx-auto flex w-full max-w-2xl flex-col items-center px-1 text-center sm:px-2">
+        <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-black/10 bg-black/[0.035] px-3 py-1.5 text-xs font-medium text-[rgba(0,0,0,0.56)] dark:border-white/10 dark:bg-white/[0.04] dark:text-zinc-400">
           One workspace
         </div>
         <h2 className="text-[34px] font-medium leading-[1.08] tracking-normal text-foreground max-sm:font-[family-name:var(--font-app-display)] max-sm:font-semibold max-sm:tracking-[-0.5px] sm:text-[38px]">
@@ -968,26 +1014,12 @@ function AgentWelcomePanel({
         <p className="mt-3 max-w-xl text-[16px] leading-7 text-muted-foreground max-sm:font-[family-name:var(--font-app-body)] sm:text-[17px] mx-auto text-center text-balance">
           Ask One about your markets, portfolio, memories, or consent workflows.
         </p>
-        <div className="mt-8 grid gap-3 sm:grid-cols-3">
-          {prompts.map((prompt) => (
-            <button
-              key={prompt}
-              type="button"
-              disabled={disabled}
-              onClick={() => onPromptSelect(prompt)}
-              className="group min-h-24 rounded-xl border border-border bg-card p-4 text-left text-sm font-medium text-foreground shadow-sm transition hover:border-primary/40 hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 disabled:cursor-not-allowed disabled:opacity-50 max-sm:rounded-2xl max-sm:font-[family-name:var(--font-app-body)] max-sm:hover:border-[color:var(--app-accent-ring)] max-sm:focus-visible:ring-[color:var(--app-accent-ring)]"
-            >
-              <span className="block leading-5">{prompt}</span>
-              <span className="mt-4 flex items-center justify-between">
-                <span className="block h-px w-10 bg-primary/50 transition group-hover:w-14 max-sm:bg-[color:var(--app-accent)] dark:max-sm:bg-[color:var(--app-accent)]" />
-                <ChevronRight
-                  className="hidden h-4 w-4 text-[color:var(--app-accent-deep)] dark:text-[color:var(--app-accent-deep)] max-sm:block"
-                  aria-hidden
-                />
-              </span>
-            </button>
-          ))}
-        </div>
+        <AgentPromptSuggestions
+          prompts={prompts}
+          disabled={disabled}
+          onPromptSelect={onPromptSelect}
+          align="center"
+        />
       </div>
     </section>
   );
@@ -1007,11 +1039,11 @@ function PostSetupWelcomeCard({
   onPromptSelect,
 }: {
   name: string;
-  context: AgentPkmContext;
+  context: EntryWelcome;
   disabled: boolean;
   onPromptSelect: (prompt: string) => void;
 }) {
-  const domains = context.domains.filter(Boolean).slice(0, 5);
+  const domains = context.domains.slice(0, 5);
   const savedDetails = Math.max(0, context.totalAttributes || 0);
   return (
     <section
@@ -1019,24 +1051,28 @@ function PostSetupWelcomeCard({
       className="motion-step-enter mx-auto mt-6 w-full max-w-2xl rounded-[28px] border border-border/70 bg-card/80 p-5 shadow-[0_18px_60px_-42px_rgba(0,0,0,0.42)] sm:p-7"
     >
       <p className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">
-        A quiet start
+        One · Your private agent
       </p>
       <h2 className="mt-3 text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
         Welcome, {name}
       </h2>
       <p className="mt-3 max-w-xl text-sm leading-6 text-muted-foreground sm:text-base">
-        Your private workspace is ready. I’ll keep building context only from
-        connections and information you choose to share.
+        I’m One, your private agent. You’ve finished setup and opened your vault.
+        Here’s where we can start together.
       </p>
 
       <div className="mt-6 rounded-2xl bg-muted/45 px-4 py-4 text-sm text-foreground">
         <p className="font-medium">What’s ready so far</p>
-        {domains.length > 0 ? (
+        {context.status === "loading" ? (
+          <p className="mt-1 text-muted-foreground" role="status">I’m checking your setup summary…</p>
+        ) : context.status === "unavailable" ? (
+          <p className="mt-1 text-muted-foreground">I couldn’t load your saved summary yet. You can still ask me for help or try “Show what you know.”</p>
+        ) : domains.length > 0 ? (
           <>
             <p className="mt-1 text-muted-foreground">
               {savedDetails > 0
-                ? `${savedDetails} saved ${savedDetails === 1 ? "detail" : "details"} across ${domains.length} ${domains.length === 1 ? "category" : "categories"}.`
-                : `Context is available across ${domains.length} ${domains.length === 1 ? "category" : "categories"}.`}
+                ? `${savedDetails} saved ${savedDetails === 1 ? "detail" : "details"} across ${context.domains.length} ${context.domains.length === 1 ? "category" : "categories"}.`
+                : `Context is available across ${context.domains.length} ${context.domains.length === 1 ? "category" : "categories"}.`}
             </p>
             <div className="mt-3 flex flex-wrap gap-2" aria-label="Available categories">
               {domains.map((domain) => (
@@ -1058,26 +1094,19 @@ function PostSetupWelcomeCard({
       </div>
 
       <p className="mt-5 text-sm leading-6 text-muted-foreground">
-        Optional connections are still available whenever you’re ready. Nothing
-        is sent or connected without your review.
+        Try asking what I remember, tell me a goal you’d like help with, or
+        choose a connection to set up. You decide what to share and with whom.
       </p>
-      <div className="mt-5 flex flex-wrap gap-2">
-        {[
+      <AgentPromptSuggestions
+        prompts={[
           "Show what you know",
           "Set up a connection",
           "What can you help with?",
-        ].map((prompt) => (
-          <button
-            key={prompt}
-            type="button"
-            disabled={disabled}
-            onClick={() => onPromptSelect(prompt)}
-            className="min-h-11 rounded-full border border-border bg-background px-4 py-2 text-sm font-medium text-foreground transition-colors hover:border-primary/40 hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {prompt}
-          </button>
-        ))}
-      </div>
+        ]}
+        disabled={disabled}
+        onPromptSelect={onPromptSelect}
+        align="start"
+      />
     </section>
   );
 }
@@ -1503,6 +1532,7 @@ export function storedMessageToAgentMessage(
 export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const router = useRouter();
   const pathname = usePathname();
+  const isCanonicalChatRoute = pathname === ROUTES.HOME;
   const searchParams = useSearchParams();
   // The workspace is now the canonical full-page chat surface. Keep this
   // compatibility guard for the proactive-card contract while there is no
@@ -1555,6 +1585,46 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   // otherwise animate a long crawl down from the top).
   const transcriptRef = useRef<HTMLDivElement | null>(null);
   const oneScrollTopRef = useRef(0);
+  // Programmatic history/anchor restoration must not be interpreted as a
+  // person's scroll gesture. Chat's transcript is nested inside the app
+  // shell, so this distinction is what keeps the shared bottom chrome visible
+  // while the initial conversation is being positioned at its latest turn.
+  const transcriptProgrammaticScrollRef = useRef(false);
+  const transcriptProgrammaticTargetRef = useRef<number | null>(null);
+  const transcriptProgrammaticScrollTimeoutRef = useRef<number | null>(null);
+  const transcriptUserScrollRef = useRef(false);
+
+  const clearTranscriptProgrammaticScroll = useCallback(() => {
+    transcriptProgrammaticScrollRef.current = false;
+    transcriptProgrammaticTargetRef.current = null;
+    if (
+      transcriptProgrammaticScrollTimeoutRef.current !== null &&
+      typeof window !== "undefined"
+    ) {
+      window.clearTimeout(transcriptProgrammaticScrollTimeoutRef.current);
+      transcriptProgrammaticScrollTimeoutRef.current = null;
+    }
+  }, []);
+
+  const beginTranscriptProgrammaticScroll = useCallback(
+    (target: number) => {
+      transcriptProgrammaticScrollRef.current = true;
+      transcriptProgrammaticTargetRef.current = Math.max(0, target);
+      if (
+        transcriptProgrammaticScrollTimeoutRef.current !== null &&
+        typeof window !== "undefined"
+      ) {
+        window.clearTimeout(transcriptProgrammaticScrollTimeoutRef.current);
+      }
+      if (typeof window !== "undefined") {
+        transcriptProgrammaticScrollTimeoutRef.current = window.setTimeout(
+          clearTranscriptProgrammaticScroll,
+          600,
+        );
+      }
+    },
+    [clearTranscriptProgrammaticScroll],
+  );
   const enterPuppySurface = useCallback(() => {
     // Unconditional, and not behind a `voiceActive` guard. It is a no-op when
     // nothing is running, and it is the only shape that also covers the window
@@ -1597,21 +1667,12 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const pendingSessionHandoff = useOneConversationSession(
     (state) => state.pendingHandoff,
   );
-  const pendingEntryWelcome = useOneConversationSession(
-    (state) => state.pendingEntryWelcome,
-  );
-  const consumeEntryWelcome = useOneConversationSession(
-    (state) => state.consumeEntryWelcome,
-  );
   const handoff = pendingSessionHandoff;
-  const [postSetupWelcomeContext, setPostSetupWelcomeContext] =
-    useState<AgentPkmContext | null>(null);
-  const postSetupWelcomeOwnerRef = useRef<string | null>(null);
+  const postSetupWelcomeContext = useEntryWelcome({
+    userId: user?.uid, isVaultUnlocked, vaultKey, vaultOwnerToken,
+  });
   const consumeHandoff = useOneConversationSession(
     (state) => state.consumeHandoff,
-  );
-  const clearConversationSession = useOneConversationSession(
-    (state) => state.clearSession,
   );
   const consumedHandoffIdRef = useRef<string | null>(null);
   const [isChatLoading, setIsChatLoading] = useState(false);
@@ -1802,66 +1863,6 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     }, 180);
     return () => window.clearTimeout(timeoutId);
   }, [isVaultUnlocked, user?.uid, vaultKey, vaultOwnerToken]);
-
-  useEffect(() => {
-    if (
-      !user?.uid ||
-      !isVaultUnlocked ||
-      !vaultKey ||
-      !vaultOwnerToken ||
-      (pendingEntryWelcome && pendingEntryWelcome.userId !== user.uid)
-    ) {
-      postSetupWelcomeOwnerRef.current = null;
-      setPostSetupWelcomeContext(null);
-      if (pendingEntryWelcome && user?.uid && pendingEntryWelcome.userId !== user.uid) {
-        clearConversationSession();
-      }
-      return undefined;
-    }
-
-    // Consuming the marker is an in-memory acknowledgement, not a reason to
-    // remove the card. Keep the card mounted for this owner until the next
-    // authenticated-owner or vault boundary.
-    if (!pendingEntryWelcome) {
-      if (postSetupWelcomeOwnerRef.current !== user.uid) {
-        postSetupWelcomeOwnerRef.current = null;
-        setPostSetupWelcomeContext(null);
-      }
-      return undefined;
-    }
-
-    let active = true;
-    postSetupWelcomeOwnerRef.current = user.uid;
-    const cached = peekAgentPkmContext({ userId: user.uid });
-    setPostSetupWelcomeContext(cached ?? EMPTY_PKM_CONTEXT);
-    consumeEntryWelcome(user.uid);
-
-    // Metadata is intentionally the only fallback. It provides category and
-    // count summaries without placing decrypted values into the card, URL, or
-    // transcript. The vault gate above proves this is the owner's live session.
-    void loadAgentPkmContext({
-      userId: user.uid,
-      vaultKey,
-      vaultOwnerToken,
-      metadataOnly: true,
-    })
-      .then((context) => {
-        if (active) setPostSetupWelcomeContext(context);
-      })
-      .catch(() => undefined);
-
-    return () => {
-      active = false;
-    };
-  }, [
-    consumeEntryWelcome,
-    clearConversationSession,
-    isVaultUnlocked,
-    pendingEntryWelcome,
-    user?.uid,
-    vaultKey,
-    vaultOwnerToken,
-  ]);
 
   const routeQuery = searchParams?.toString() || "";
   const pathnameWithQuery = routeQuery
@@ -2056,7 +2057,6 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   // full agent, otherwise it runs the pre-vault informational tier. Voice and
   // vault-backed tools stay gated separately by hasChatAccess.
   const canSend =
-    !isLoadingHistory &&
     !isVoiceConnecting &&
     !voiceActive &&
     !emailDraftOpen &&
@@ -2067,7 +2067,6 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const canToggleVoice =
     agentVoiceEnabled && !isVoiceConnecting && !emailDraftOpen;
   const historyInteractionDisabled =
-    isLoadingHistory ||
     isChatLoading ||
     isToolWorking ||
     isVoiceConnecting ||
@@ -2126,7 +2125,6 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     if (voiceState === "thinking") return "Thinking";
     if (voiceState === "speaking") return "Speaking";
     if (voiceState === "error") return "Voice error";
-    if (isLoadingHistory) return "Loading";
     if (isVoiceConnecting) return "Voice connecting";
     if (isToolWorking) return "Working";
     if (isPkmMemoryWorking) return "Saving memory";
@@ -2139,7 +2137,6 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     activeActionRun,
     agentVoiceEnabled,
     isChatLoading,
-    isLoadingHistory,
     isPkmMemoryWorking,
     emailDraftOpen,
     isPuppySurface,
@@ -2156,11 +2153,35 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   ]);
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({
+    const transcript = transcriptRef.current;
+    const messagesEnd = messagesEndRef.current;
+    if (!transcript || !messagesEnd || isPuppySurface) return;
+
+    const distanceFromBottom =
+      transcript.scrollHeight - transcript.clientHeight - transcript.scrollTop;
+    // Keep the latest-turn behavior for a fresh/initial conversation, but do
+    // not yank a reader back to the bottom after they have started browsing
+    // older messages. The ref is intentionally session-local and does not
+    // add a render to the scroll path.
+    const shouldFollowTranscript =
+      !transcriptUserScrollRef.current &&
+      (oneScrollTopRef.current <= 2 || distanceFromBottom <= 48);
+    if (!shouldFollowTranscript) return;
+
+    beginTranscriptProgrammaticScroll(
+      Math.max(0, transcript.scrollHeight - transcript.clientHeight),
+    );
+    messagesEnd.scrollIntoView({
       behavior: "smooth",
       block: "end",
     });
-  }, [emailDraftOpen, messages, pendingSpecialistDirective]);
+  }, [
+    beginTranscriptProgrammaticScroll,
+    emailDraftOpen,
+    isPuppySurface,
+    messages,
+    pendingSpecialistDirective,
+  ]);
 
   // Put One's transcript back where the reader left it after a look at Puppy.
   // `useLayoutEffect` and not `useEffect`, so the correction lands in the same
@@ -2173,11 +2194,16 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     if (isPuppySurface) return;
     const element = transcriptRef.current;
     if (!element) return;
+    const target = Math.min(
+      oneScrollTopRef.current,
+      Math.max(0, element.scrollHeight - element.clientHeight),
+    );
+    beginTranscriptProgrammaticScroll(target);
     element.scrollTo({
-      top: oneScrollTopRef.current,
+      top: target,
       behavior: "instant" as ScrollBehavior,
     });
-  }, [isPuppySurface]);
+  }, [beginTranscriptProgrammaticScroll, isPuppySurface]);
 
   useEffect(() => {
     const token = getVaultOwnerToken();
@@ -2228,15 +2254,18 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   }, [user?.uid, vaultKey, getVaultOwnerToken]);
 
   useEffect(() => {
-    if (!user) return;
+    if (!user) {
+      setModelPreference(null);
+      return;
+    }
     let cancelled = false;
     void (async () => {
       try {
         const preference = await ModelPreferenceService.get(await user.getIdToken());
         if (!cancelled) setModelPreference(preference);
       } catch {
-        // A picker that cannot load is hidden, never a blocking error: the turn
-        // still runs on whatever the backend resolves.
+        // A picker that cannot load is non-blocking: the turn still runs on
+        // whatever the backend resolves.
       }
     })();
     return () => {
@@ -2360,6 +2389,9 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
 
   useEffect(() => {
     abortAgentTurnWork();
+    clearTranscriptProgrammaticScroll();
+    transcriptUserScrollRef.current = false;
+    oneScrollTopRef.current = 0;
     setIsChatLoading(false);
     setIsLoadingHistory(false);
     setIsVoiceConnecting(false);
@@ -2386,10 +2418,19 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     skipInitialHistoryLoadRef.current = false;
     latestVisibleTurnIdRef.current = null;
     inlineConsentRequestIdsRef.current.clear();
-  }, [abortAgentTurnWork, isVaultUnlocked, updateConversationId, user?.uid]);
+  }, [
+    abortAgentTurnWork,
+    clearTranscriptProgrammaticScroll,
+    isVaultUnlocked,
+    updateConversationId,
+    user?.uid,
+  ]);
 
   const handleCreateNewChat = useCallback(() => {
     abortAgentTurnWork();
+    clearTranscriptProgrammaticScroll();
+    transcriptUserScrollRef.current = false;
+    oneScrollTopRef.current = 0;
     historyRestoreEpochRef.current += 1;
     latestVisibleTurnIdRef.current = null;
     updateConversationId(null);
@@ -2415,7 +2456,11 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     setEditingQueuedPromptId(null);
     setEditingQueuedPromptText("");
     setWelcomePromptSetIndex((current) => getWelcomePromptSetIndex(current));
-  }, [abortAgentTurnWork, updateConversationId]);
+  }, [
+    abortAgentTurnWork,
+    clearTranscriptProgrammaticScroll,
+    updateConversationId,
+  ]);
 
   const updateMessage = (
     messageId: string,
@@ -3062,6 +3107,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         return;
       }
       historyLoadKeyRef.current = loadKey;
+      setIsLoadingHistory(true);
       try {
         const next = await warmAgentChatHistoryCache({
           userId: user.uid,
@@ -3072,6 +3118,10 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       } catch {
         if (!cancelled && restoreEpoch === historyRestoreEpochRef.current) {
           historyLoadKeyRef.current = null;
+        }
+      } finally {
+        if (!cancelled && restoreEpoch === historyRestoreEpochRef.current) {
+          setIsLoadingHistory(false);
         }
       }
     };
@@ -3094,6 +3144,9 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const restoreConversationMessages = useCallback(
     async (nextConversationId: string, token: string) => {
       if (!user?.uid) return;
+      clearTranscriptProgrammaticScroll();
+      transcriptUserScrollRef.current = false;
+      oneScrollTopRef.current = 0;
       const history = await loadAgentChatConversationHistory({
         userId: user.uid,
         conversationId: nextConversationId,
@@ -3116,7 +3169,11 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       setPendingSpecialistDirective(null);
       setSpecialistBusy(false);
     },
-    [updateConversationId, user?.uid],
+    [
+      clearTranscriptProgrammaticScroll,
+      updateConversationId,
+      user?.uid,
+    ],
   );
 
   const loadConversationList = useCallback(
@@ -3124,13 +3181,18 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       if (!user?.uid) return [];
       const token = getVaultOwnerToken();
       if (!token) return [];
-      const next = await warmAgentChatHistoryCache({
-        userId: user.uid,
-        vaultOwnerToken: token,
-        force,
-      });
-      setConversations(next.conversations);
-      return next.conversations;
+      setIsLoadingHistory(true);
+      try {
+        const next = await warmAgentChatHistoryCache({
+          userId: user.uid,
+          vaultOwnerToken: token,
+          force,
+        });
+        setConversations(next.conversations);
+        return next.conversations;
+      } finally {
+        setIsLoadingHistory(false);
+      }
     },
     [getVaultOwnerToken, user?.uid],
   );
@@ -4872,7 +4934,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       attachmentText,
       composerText: attachment?.isExpanded ? "" : draftText,
     });
-    if (!text.trim() || isLoadingHistory || isVoiceConnecting || voiceActive) return;
+    if (!text.trim() || isVoiceConnecting || voiceActive) return;
     setInput("");
     setLongPromptAttachment(null);
     setComposerExpanded(false);
@@ -5242,14 +5304,16 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     <div
       className={cn(
         "agent-chat-workspace flex min-h-0 w-full flex-col text-foreground",
-        // Chat is the canonical root workspace. Its composer must clear the
-        // complete fixed bottom shell (voice + navigation), not only the
-        // navigation slot measured by Navbar. The fallback keeps direct
-        // embedding safe before AppBottomShell publishes its measurement.
-        "h-[calc(100dvh-var(--app-top-content-offset,0px)-var(--app-bottom-shell-height,calc(var(--app-bottom-fixed-ui,0px)+var(--app-safe-area-bottom-effective,0px))))] min-h-[420px] overflow-hidden bg-background",
+        // Chat is the canonical root workspace. In canonical mode it spans full
+        // height and manages its internal scroll streams and composer clearance.
+        "min-h-[420px] overflow-hidden bg-background",
+        isCanonicalChatRoute
+          ? "agent-chat-workspace--root h-full min-h-0 flex-1"
+          : "h-[calc(100dvh-var(--app-top-content-offset,0px)-var(--app-bottom-shell-height,calc(var(--app-bottom-fixed-ui,0px)+var(--app-safe-area-bottom-effective,0px))))]",
         className,
       )}
       data-agent-chat-workspace="page"
+      data-agent-chat-route={isCanonicalChatRoute ? "root" : "embedded"}
     >
       <div
         className={cn(
@@ -5301,7 +5365,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         >
           <div
             className={cn(
-              "agent-chat-header flex shrink-0 touch-pan-y items-center justify-between gap-3 bg-background/82 px-4 pt-[var(--agent-chat-header-safe-top)] backdrop-blur-2xl sm:px-5",
+              "agent-chat-header flex shrink-0 touch-pan-y items-center justify-between gap-3 bg-background/90 px-4 pt-[var(--agent-chat-header-safe-top)] backdrop-blur-2xl sm:px-5",
               "min-h-[calc(3.75rem+var(--agent-chat-header-safe-top))] sm:min-h-[calc(4rem+var(--app-safe-area-top-effective,0px))] sm:pt-[var(--app-safe-area-top-effective,0px)] lg:px-6",
             )}
           >
@@ -5482,6 +5546,31 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
               >
                 {statusText}
               </span>
+              <ShellActionSurface
+                variant="icon"
+                data-testid="profile-open-button"
+                aria-label="Open Profile"
+                onClick={() => requestProfilePaneOpen("tap")}
+                className="!h-8 !w-8 shrink-0 !border-transparent !bg-[color:var(--app-accent)] p-0 !text-[color:var(--app-accent-fg)] !shadow-none hover:!bg-[color:var(--app-accent-hover)]"
+              >
+                <Avatar className="h-8 w-8">
+                  {userAvatarUrl ? (
+                    <AvatarImage src={userAvatarUrl} alt="" />
+                  ) : null}
+                  <AvatarFallback className="bg-transparent text-[15px] font-semibold leading-5 text-current">
+                    {user?.displayName ? (
+                      user.displayName
+                        .split(" ")
+                        .filter(Boolean)
+                        .slice(0, 2)
+                        .map((part) => part[0]?.toUpperCase())
+                        .join("")
+                    ) : (
+                      <User className="h-4 w-4" />
+                    )}
+                  </AvatarFallback>
+                </Avatar>
+              </ShellActionSurface>
             </div>
           </div>
 
@@ -5509,9 +5598,40 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
               // A display:none element fires no scroll events, so this only
               // ever records One's own position; the guard is belt and braces.
               if (!isPuppySurface) {
-                oneScrollTopRef.current = event.currentTarget.scrollTop;
+                const transcript = event.currentTarget;
+                const scrollTop = transcript.scrollTop;
+                oneScrollTopRef.current = scrollTop;
+                if (transcriptProgrammaticScrollRef.current) {
+                  const target = transcriptProgrammaticTargetRef.current;
+                  const maxScrollTop = Math.max(
+                    0,
+                    transcript.scrollHeight - transcript.clientHeight,
+                  );
+                  if (
+                    target === null ||
+                    Math.abs(scrollTop - Math.min(target, maxScrollTop)) <= 3
+                  ) {
+                    clearTranscriptProgrammaticScroll();
+                  }
+                  return;
+                }
+                // Any unclassified scroll event after the programmatic guard
+                // is a real reader movement (wheel, keyboard, or touch). Once
+                // that happens, message updates must respect the reader's
+                // position instead of repeatedly snapping to the end.
+                transcriptUserScrollRef.current = true;
+                // Chat owns an inner transcript scroller inside the shared
+                // route shell. Feed its committed movement into the same
+                // bottom-chrome visibility state used by every other route so
+                // scrolling Chat up/down hides or reveals nav consistently,
+                // without a React render on each frame.
+                if (isCanonicalChatRoute) {
+                  onKaiBottomChromeScroll(scrollTop);
+                }
               }
             }}
+            onWheelCapture={clearTranscriptProgrammaticScroll}
+            onTouchStartCapture={clearTranscriptProgrammaticScroll}
             className={cn(
               "min-h-0 flex-1 overflow-y-auto scroll-smooth px-4 pt-5 scrollbar-thin scrollbar-thumb-muted scrollbar-track-transparent sm:px-6",
               "pb-6 lg:px-8",
@@ -6423,11 +6543,16 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
 
           <form
             onSubmit={handleSubmit}
+            data-agent-chat-composer-form={
+              isCanonicalChatRoute ? "root" : "embedded"
+            }
             className={cn(
               // CSS-only focus-within drives the padding shift in lockstep with
               // the native keyboard resize (no React state/rerender round-trip
               // in the path, which was the source of the visible lag on iOS).
-              "shrink-0 bg-gradient-to-t from-background via-background/96 to-transparent px-3 pt-3 backdrop-blur transition-[padding-bottom] duration-[var(--motion-duration-sm)] ease-[var(--motion-ease-standard)] motion-reduce:transition-none sm:px-5",
+              "shrink-0 px-3 pt-3 transition-[padding-bottom,transform] duration-[var(--motion-duration-sm)] ease-[var(--motion-ease-standard)] motion-reduce:transition-none sm:px-5",
+              !isCanonicalChatRoute &&
+                "bg-gradient-to-t from-background via-background/96 to-transparent backdrop-blur",
               "pb-[var(--agent-chat-composer-bottom)] focus-within:pb-[var(--agent-chat-composer-focused-bottom)]",
               // Puppy One has its own composer. Leaving One's on screen would
               // let a message meant for the on-device agent be sent to the
@@ -6435,7 +6560,14 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
               isPuppySurface && "hidden",
             )}
           >
-            <div className="mx-auto w-full max-w-4xl">
+            <div
+              className={cn(
+                "mx-auto w-full",
+                isCanonicalChatRoute
+                  ? "max-w-[var(--app-bottom-shell-max-width)]"
+                  : "max-w-4xl",
+              )}
+            >
               {queuedPrompts.length > 0 ? (
                 <div
                   className="mb-2 rounded-[18px] bg-foreground/[0.045] px-3 py-2"
@@ -6590,7 +6722,12 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                   {composerExpanded ? (
                     <div
                       data-testid="agent-chat-composer-expanded"
-                      className="relative mb-2 overflow-hidden rounded-[24px] bg-foreground/[0.045] shadow-[0_18px_55px_-42px_rgba(0,0,0,0.55)] ring-1 ring-inset ring-foreground/[0.045]"
+                      className={cn(
+                        "relative mb-2 overflow-hidden rounded-[24px]",
+                        isCanonicalChatRoute
+                          ? "bottom-chrome-surface"
+                          : "bg-foreground/[0.045] shadow-[0_18px_55px_-42px_rgba(0,0,0,0.55)] ring-1 ring-inset ring-foreground/[0.045]",
+                      )}
                     >
                       <textarea
                         ref={composerTextareaRef}
@@ -6613,7 +6750,6 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                           }
                         }}
                         disabled={
-                          isLoadingHistory ||
                           isVoiceConnecting ||
                           emailDraftOpen ||
                           isGmailKycSaving
@@ -6646,7 +6782,12 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                   {!composerExpanded ? (
                     <div
                       data-testid="agent-chat-composer"
-                      className="flex min-h-16 items-center gap-2 rounded-[24px] bg-foreground/[0.045] px-3 py-2 shadow-[0_18px_55px_-42px_rgba(0,0,0,0.55)] ring-1 ring-inset ring-foreground/[0.045] transition-[background-color,box-shadow] focus-within:bg-background/96 focus-within:shadow-[0_20px_60px_-38px_var(--app-accent-deep)] focus-within:ring-[color:var(--app-accent-ring)]"
+                      className={cn(
+                        "flex min-h-16 items-center gap-2 px-3 py-2 transition-[background-color,box-shadow] focus-within:bg-background/96 focus-within:shadow-[0_20px_60px_-38px_var(--app-accent-deep)] focus-within:ring-[color:var(--app-accent-ring)]",
+                        isCanonicalChatRoute
+                          ? "bottom-chrome-surface min-h-[68px] rounded-[28px]"
+                          : "rounded-[24px] bg-foreground/[0.045] shadow-[0_18px_55px_-42px_rgba(0,0,0,0.55)] ring-1 ring-inset ring-foreground/[0.045]",
+                      )}
                     >
                       <div className="relative min-w-0 flex-1">
                         <textarea
@@ -6670,7 +6811,6 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                             }
                           }}
                           disabled={
-                            isLoadingHistory ||
                             isVoiceConnecting ||
                             emailDraftOpen ||
                             isGmailKycSaving

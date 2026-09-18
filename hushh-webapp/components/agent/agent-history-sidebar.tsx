@@ -3,16 +3,16 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import {
   Check,
-  MessageSquare,
-  MoreHorizontal,
-  PanelLeftClose,
-  PanelLeftOpen,
-  Pencil,
+  ChatCircleDots as MessageSquare,
+  DotsThree as MoreHorizontal,
+  SidebarSimple as PanelLeftClose,
+  SidebarSimple as PanelLeftOpen,
+  PencilSimple as Pencil,
   Plus,
-  Search,
-  Trash2,
+  MagnifyingGlass as Search,
+  Trash as Trash2,
   X,
-} from "lucide-react";
+} from "@phosphor-icons/react";
 
 import {
   AlertDialog,
@@ -326,12 +326,16 @@ export function AgentHistorySidebar({
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" sideOffset={6} className="z-[520]">
-                  <DropdownMenuItem onSelect={() => startRename(conversation)}>
+                  <DropdownMenuItem
+                    className="cursor-pointer rounded-[10px] hover:!bg-[color:var(--app-accent)] hover:!text-[color:var(--app-accent-fg)] hover:[&_svg]:!stroke-[color:var(--app-accent-fg)] hover:[&_svg]:!text-[color:var(--app-accent-fg)] focus:!bg-[color:var(--app-accent)] focus:!text-[color:var(--app-accent-fg)] focus:[&_svg]:!stroke-[color:var(--app-accent-fg)] focus:[&_svg]:!text-[color:var(--app-accent-fg)]"
+                    onSelect={() => startRename(conversation)}
+                  >
                     <Pencil className="h-4 w-4" aria-hidden="true" />
                     Rename chat
                   </DropdownMenuItem>
                   <DropdownMenuItem
                     variant="destructive"
+                    className="cursor-pointer rounded-[10px] hover:!bg-[color:var(--app-destructive)] hover:!text-[color:var(--app-destructive-fg)] hover:[&_svg]:!stroke-[color:var(--app-destructive-fg)] hover:[&_svg]:!text-[color:var(--app-destructive-fg)] focus:!bg-[color:var(--app-destructive)] focus:!text-[color:var(--app-destructive-fg)] focus:[&_svg]:!stroke-[color:var(--app-destructive-fg)] focus:[&_svg]:!text-[color:var(--app-destructive-fg)]"
                     onSelect={() => setDeleteTarget(conversation)}
                   >
                     <Trash2 className="h-4 w-4" aria-hidden="true" />
@@ -352,8 +356,8 @@ export function AgentHistorySidebar({
         className={cn(
           "flex min-h-0 shrink-0 flex-col overflow-hidden text-foreground transition-[width] duration-200 ease-out",
           isMobileMode
-            ? "chrome-glass-surface rounded-r-[28px] bg-background/92 shadow-[18px_0_42px_rgba(15,23,42,0.18)] dark:bg-background/92"
-            : "bg-[linear-gradient(180deg,color-mix(in_srgb,var(--app-accent-soft)_22%,var(--background)),var(--background))] backdrop-blur-xl dark:bg-white/[0.025]",
+            ? "chrome-glass-surface rounded-r-[28px] bg-background/95 shadow-[18px_0_42px_rgba(0,0,0,0.25)] border-r border-black/[0.06] dark:border-white/[0.08] dark:bg-[#0A0A0C]/95"
+            : "border-r border-black/[0.06] bg-[linear-gradient(180deg,color-mix(in_srgb,var(--app-accent-soft)_22%,var(--background)),var(--background))] backdrop-blur-xl dark:border-white/[0.08] dark:bg-[#070709]",
           collapsed && !isMobileMode ? "w-16" : "w-72",
           className
         )}

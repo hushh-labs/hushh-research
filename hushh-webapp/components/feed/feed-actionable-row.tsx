@@ -190,6 +190,7 @@ export function FeedActionableRow({ item }: { item: FeedActionable }) {
   ) : undefined;
 
   const shared = {
+    layout: "person",
     icon: leading ? undefined : item.icon,
     iconTone: leading ? undefined : item.iconTone,
     leading,

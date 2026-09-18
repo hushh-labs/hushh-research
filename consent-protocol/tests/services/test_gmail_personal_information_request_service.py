@@ -469,9 +469,11 @@ def test_initial_inbox_scan_completion_is_generation_scoped_metadata():
     assert "subject TEXT" not in migration
     assert "body TEXT" not in migration
     assert "DROP COLUMN IF EXISTS initial_inbox_scan_completed_at" in rollback
-    assert manifest["ordered_migrations"][-1] == migration_path.name
+    ordered = manifest["ordered_migrations"]
+    assert migration_path.name in ordered
     assert migration_path.name in manifest["groups"]["iam"]
-    assert sum(name.startswith("220_") for name in manifest["ordered_migrations"]) == 1
+    assert ordered.count(migration_path.name) == 1
+    assert sum(name.startswith("220_") for name in ordered) == 1
 
 
 def test_personal_monitor_keeps_scheduled_history_scans_separate_from_owner_catchup():

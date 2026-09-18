@@ -17,12 +17,12 @@ describe("app shell bottom-clearance contract", () => {
     expect(source).not.toContain(
       "const bottomChromeHidden = hidesPersistentChrome || focusedLocationSmsFlow;",
     );
-    expect(source).toContain("const focusedSosChromeFlow =");
+    expect(source).toContain("const focusedLocationBottomTask =");
     expect(source).toContain("const focusedConnectCircleChromeFlow =");
     expect(source).toContain("isFocusedConnectCircleTask(");
-    expect(source).toContain('"--app-scroll-bottom-pad": hidesPersistentChrome');
+    expect(source).toContain('"--app-scroll-bottom-pad": bottomChromeHidden');
     expect(source).toContain(
-      '"--bottom-chrome-stack-height": effectiveHideCommandBar',
+      '"--bottom-chrome-stack-height": bottomChromeHidden',
     );
     expect(source).toContain(
       '? "var(--app-bottom-shell-height, calc(var(--onboarding-agent-bar-clearance) + 1.5rem))"',

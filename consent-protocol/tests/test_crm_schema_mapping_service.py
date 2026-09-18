@@ -5,11 +5,14 @@ import json
 
 import pytest
 
+from hushh_mcp.services import crm_schema_mapping_service as mapping_module
 from hushh_mcp.services.crm_schema_mapping_service import (
     CrmSchemaMappingError,
     CrmSchemaMappingService,
     InMemoryCrmSchemaMappingStore,
 )
+
+_TEST_CONSENT_TOKEN = "owner-token"
 
 
 class FakeMapper:
@@ -111,3 +114,42 @@ def test_explicitly_unwriteable_onboarding_field_is_rejected() -> None:
 
     with pytest.raises(CrmSchemaMappingError):
         asyncio.run(service.resolve(crm_id="crm_demo", schema=candidate))
+
+
+def test_manifest_mapper_uses_shared_adk_gene_with_owner_authority(monkeypatch) -> None:
+    calls: dict[str, object] = {}
+
+    async def fake_run_connected_systems_gene(**kwargs):
+        calls.update(kwargs)
+        return mapping()
+
+    monkeypatch.setattr(
+        mapping_module, "run_connected_systems_gene", fake_run_connected_systems_gene
+    )
+    mapper = mapping_module.GeminiCrmSchemaMapper()
+
+    result = asyncio.run(
+        mapper.map_schema(
+            mapping_module._schema_projection(schema()),
+            user_id="owner-1",
+            consent_token=_TEST_CONSENT_TOKEN,
+        )
+    )
+
+    assert result == mapping()
+    assert calls["gene_id"] == "crm_schema_mapper"
+    assert calls["user_id"] == "owner-1"
+    assert calls["consent_token"] == "owner-token"
+
+
+def test_manifest_mapper_requires_owner_authority() -> None:
+    mapper = mapping_module.GeminiCrmSchemaMapper()
+
+    with pytest.raises(CrmSchemaMappingError, match="authority"):
+        asyncio.run(
+            mapper.map_schema(
+                mapping_module._schema_projection(schema()),
+                user_id="owner-1",
+                consent_token="",
+            )
+        )

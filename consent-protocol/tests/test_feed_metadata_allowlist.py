@@ -21,9 +21,7 @@ class TestFeedMetadataAllowlist:
         assert safe.get("share_kind") == "sos"
 
     def test_counterpart_photo_url_survives_for_photo_aware_feed_rows(self):
-        safe = _safe_feed_metadata(
-            {"counterpart_photo_url": "https://cdn.example.test/avatar.jpg"}
-        )
+        safe = _safe_feed_metadata({"counterpart_photo_url": "https://cdn.example.test/avatar.jpg"})
         assert safe == {"counterpart_photo_url": "https://cdn.example.test/avatar.jpg"}
 
     def test_unknown_keys_are_still_dropped(self):

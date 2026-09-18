@@ -45,6 +45,9 @@ tests/services/test_push_notifications.py
 tests/test_fcm_messages.py
 tests/routes/test_connections_route.py
 tests/test_adk_a2a_compliance_script.py
+tests/test_agent_manifests.py
+tests/test_hushh_adk_single_turn.py
+tests/services/test_pkm_agent_lab_service.py
 tests/test_ria_claim_flow.py
 tests/test_ria_iam_service_architecture.py
 tests/test_kai_optimize_realtime_contract.py
@@ -258,9 +261,13 @@ tests/services/test_location_nearby_visit_command_postgres.py
 tests/test_agui_turn_timing.py
 tests/test_encrypted_adk_session_service.py
 tests/scripts/test_eval_one_first_tool.py
+tests/scripts/test_eval_pkm_structure_agent.py
+tests/scripts/test_eval_pkm_latency.py
+tests/scripts/test_eval_kai_adk_synthetic.py
 tests/scripts/test_measure_agent_chat_latency.py
 tests/test_evalsets_are_valid.py
 tests/test_conformance_harness.py
+tests/test_nav_conformance.py
 
 # Gemini generation contract: the two-release catalog policy, the measured
 # thinking_level matrix, the fleet switch, the manifest thinking_level field,

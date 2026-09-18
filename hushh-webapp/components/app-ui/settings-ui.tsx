@@ -10,7 +10,6 @@ import {
   useState,
 } from "react";
 import type { ReactElement, ReactNode } from "react";
-import type { LucideIcon } from "lucide-react";
 import { ChevronRight, X } from "lucide-react";
 import { Slot } from "radix-ui";
 
@@ -391,7 +390,7 @@ export function SettingsRow({
 }: {
   asChild?: boolean;
   children?: ReactNode;
-  icon?: LucideIcon;
+  icon?: React.ComponentType<any>;
   leading?: ReactNode;
   title: ReactNode;
   description?: ReactNode;

@@ -24,14 +24,9 @@ from email.utils import getaddresses
 from typing import Any
 
 import httpx
-from google.genai import types as genai_types
 
 from db.connection import get_pool
-from hushh_mcp.runtime_providers import (
-    build_generate_content_config,
-    build_managed_runtime_client,
-    default_model_for_provider,
-)
+from hushh_mcp.agents.email.runtime import EMAIL_DRAFT_SCHEMA, run_email_gene
 from hushh_mcp.runtime_settings import get_core_security_settings
 from hushh_mcp.services.gmail_owner_html import sanitize_gmail_owner_html
 from hushh_mcp.services.gmail_receipts_service import (
@@ -276,24 +271,20 @@ class GmailDeliveryService:
             "outcome_unknown": _text(row.get("state")) == "outcome_unknown",
         }
 
-    async def draft_from_instruction(self, *, instruction: str) -> dict[str, Any]:
+    async def draft_from_instruction(
+        self, *, instruction: str, user_id: str, consent_token: str
+    ) -> dict[str, Any]:
         """Generate a structured draft only; provider output cannot send mail."""
 
         instruction = _text(instruction)
         if not instruction:
             raise GmailDeliveryError("MISSING_INSTRUCTION", "Tell One what email to draft.")
-        response_schema = {
-            "type": "OBJECT",
-            "properties": {
-                "to": {"type": "ARRAY", "items": {"type": "STRING"}},
-                "cc": {"type": "ARRAY", "items": {"type": "STRING"}},
-                "bcc": {"type": "ARRAY", "items": {"type": "STRING"}},
-                "subject": {"type": "STRING"},
-                "body": {"type": "STRING"},
-                "missing_details": {"type": "ARRAY", "items": {"type": "STRING"}},
-            },
-            "required": ["to", "cc", "bcc", "subject", "body", "missing_details"],
-        }
+        if not _text(user_id) or not _text(consent_token):
+            raise GmailDeliveryError(
+                "OWNER_AUTHORITY_REQUIRED",
+                "Email drafting requires the current vault owner's authorization.",
+                status_code=403,
+            )
         prompt = (
             "Draft an email from only the explicit user instruction below. Return JSON only. "
             "Never claim an email was sent, never invent recipient addresses, and list missing details. "
@@ -304,25 +295,14 @@ class GmailDeliveryService:
             f"Instruction:\n{instruction}"
         )
         try:
-            client = build_managed_runtime_client("gemini")
-            model = os.getenv("GMAIL_EMAIL_DRAFT_MODEL") or default_model_for_provider("gemini")
-            config = build_generate_content_config(
-                genai_types,
-                model,
-                temperature=0.2,
-                max_output_tokens=1200,
-                response_mime_type="application/json",
-                response_schema=response_schema,
-                automatic_function_calling=genai_types.AutomaticFunctionCallingConfig(disable=True),
+            value = await run_email_gene(
+                gene_id="agent_email_draft",
+                prompt=prompt,
+                user_id=_text(user_id),
+                consent_token=_text(consent_token),
+                output_schema=EMAIL_DRAFT_SCHEMA,
+                timeout_seconds=float(os.getenv("GMAIL_EMAIL_DRAFT_TIMEOUT_SECONDS") or 30),
             )
-            response = await client.aio.models.generate_content(
-                model=model,
-                contents=prompt,
-                config=config,
-            )
-            value = getattr(response, "parsed", None)
-            if not isinstance(value, dict):
-                value = json.loads(str(getattr(response, "text", "") or "{}"))
         except GmailDeliveryError:
             raise
         except Exception as exc:

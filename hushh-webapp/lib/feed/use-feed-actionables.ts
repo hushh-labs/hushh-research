@@ -804,7 +804,7 @@ export function useFeedActionables(): UseFeedActionablesResult {
           label !== "Someone"
             ? {
                 displayName: label,
-                photoUrl: null,
+                photoUrl: request.counterpartPhotoUrl ?? null,
               }
             : null,
         title: label,

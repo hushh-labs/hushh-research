@@ -252,12 +252,11 @@ export function buildProfileRoute(params?: {
   }
 
   if (panel === "security") {
+    // Trusted devices is intentionally pane-only. Route-level callers fall
+    // back to the security parent instead of generating the retired page URL;
+    // the recursive sheet uses buildProfilePaneHref for the detail itself.
     if (detail === "trusted-devices") {
-      return appendQuery(
-        ROUTES.PROFILE_SECURITY_DEVICES,
-        {},
-        params?.searchParams,
-      );
+      return appendQuery(ROUTES.PROFILE_SECURITY, {}, params?.searchParams);
     }
     if (detail === "vault") {
       return appendQuery(

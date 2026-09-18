@@ -1,0 +1,6 @@
+description: conformance case active
+agent: hushh_mcp.agents.nav.agent.build_nav_agent
+initial_state:
+  hussh:timezone: UTC
+user_messages:
+  - text: Who can see my location right now?

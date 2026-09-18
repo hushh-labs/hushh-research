@@ -43,7 +43,9 @@ DEFAULT_LOCATION = "global"
 THINKING_LEVELS: tuple[str, ...] = ("LOW", "MEDIUM", "HIGH", "MINIMAL")
 PROBE_TEMPERATURE = 0.2
 MAX_OUTPUT_TOKENS = 32
-QUOTA_RETRY_ATTEMPTS = 4
+# Contract probes are diagnostic and should not amplify a provider quota
+# outage. Keep one initial request plus two spaced retries per cell.
+QUOTA_RETRY_ATTEMPTS = 3
 CALL_GAP_SECONDS = 1.5
 HTTP_TIMEOUT_MS = 60_000
 ERROR_HEAD_CHARS = 160

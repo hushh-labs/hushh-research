@@ -379,6 +379,7 @@ async def gmail_receipts_memory_preview(
         return await _receipt_memory_service().build_preview(
             user_id=payload.user_id,
             force_refresh=payload.force_refresh,
+            consent_token=str(token_data.get("token") or ""),
         )
     except Exception as exc:
         logger.exception("kai.gmail.receipts_memory_preview_failed user_id=%s", payload.user_id)

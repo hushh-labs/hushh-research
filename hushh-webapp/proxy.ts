@@ -24,6 +24,7 @@ const LEGACY_PROFILE_ROOT = "/profile";
 const LEGACY_CONNECT_ROOT = "/connect";
 
 const LEGACY_ROUTE_REDIRECTS: Record<string, string> = {
+  "/chat": ROUTES.HOME,
   [ROUTES.LEGACY_AGENT]: ROUTES.HOME,
   [ROUTES.LEGACY_KAI_HOME]: ROUTES.KAI_HOME,
   [ROUTES.LEGACY_ONE_KAI_MARKET]: ROUTES.KAI_HOME,
@@ -66,8 +67,9 @@ export function proxy(request: NextRequest) {
   // Next can receive a trailing-slash variant before its own canonicalization
   // runs. Keep the retired Agent entrypoint compatible in both forms so it
   // never falls through to a missing page.
-  const legacyRedirectPath =
-    pathname === `${ROUTES.LEGACY_AGENT}/` ? ROUTES.LEGACY_AGENT : pathname;
+  const legacyRedirectPath = pathname.endsWith("/")
+    ? pathname.slice(0, -1)
+    : pathname;
   const legacyRedirectTarget = LEGACY_ROUTE_REDIRECTS[legacyRedirectPath];
   if (legacyRedirectTarget) {
     const url = request.nextUrl.clone();

@@ -50,23 +50,23 @@ vendor. Three things hold it up:
 
 ### What is NOT on-device yet
 
-**The agent hierarchy.** `consent-protocol/hushh_mcp/agents/` holds **21 agent
+**The agent hierarchy.** `consent-protocol/hushh_mcp/agents/` holds **20 runtime
 packages** — calendar, connected_systems, connections, email, financial_guard,
-gmail, kai, kyc, location, memory_intent, memory_merge, memory_segmentation,
-nav, onboarding, one, orchestrator, personal_information, pkm_structure,
-portfolio_import — all extending
-`HushhAgent(LlmAgent)` in `base_agent.py`, with a dedicated `orchestrator/`.
+kai, kyc, location, memory_intent, memory_merge, memory_segmentation, nav,
+onboarding, one, orchestrator, personal_information, pkm_structure,
+portfolio_import, realtime_bench, and wallet. Several now use manifest-owned
+ADK paths, but the full hierarchy still does not run end-to-end inside Hermes.
 
-Do not describe this as a "five-agent chain". Five of those twenty-one
+Do not describe this as a "five-agent chain". Five of those twenty runtime
 (`financial_guard → memory_intent → memory_merge → pkm_structure`, plus
 `memory_segmentation`) are the sub-chain that
 `pkm_agent_lab_service.py:_run_agent_contract` invokes for PKM structuring
 specifically. Calling the sub-chain the system makes a large port look small.
 
-They call Gemini directly with Gemini-only `ThinkingConfig` and
-`response_schema`. `model_override` swaps the model id, never the provider, so
-moving the hierarchy on-device needs a provider abstraction behind
-`_run_agent_contract` and an OpenAI-compatible structured-output path.
+The remaining PKM sub-chain still calls Gemini directly with Gemini-only
+`ThinkingConfig` and `response_schema`. `model_override` swaps the model id, never
+the provider, so moving that sub-chain on-device needs a provider abstraction
+behind `_run_agent_contract` and an OpenAI-compatible structured-output path.
 
 The goal is that this hierarchy runs **natively inside Hermes**, reusing the
 same image structure as the pods that run on the user's own cloud, so the same

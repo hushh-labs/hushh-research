@@ -999,9 +999,11 @@ async function switchLocationTab(
   expectedHeading: string,
 ) {
   fireEvent.click(screen.getByRole("button", { name }));
-  expect(
-    await screen.findByRole("heading", { name: expectedHeading }),
-  ).toBeTruthy();
+  if (name === "People") {
+    expect(await screen.findByTestId("one-location-people-search")).toBeTruthy();
+  } else {
+    expect(await screen.findByRole("heading", { name: expectedHeading })).toBeTruthy();
+  }
 }
 
 async function openSharePersonStep() {
@@ -1862,11 +1864,6 @@ describe("OneLocationAgentPage", () => {
     expect(headerActions.className).toContain("ml-auto");
     expect(headerActions.className).toContain("items-center");
     expect(headerActions.className).toContain("justify-center");
-    expect(headerActions.className).toContain("w-[104px]");
-    expect(headerActions.className).toContain("max-w-[45vw]");
-    expect(headerActions.className).toContain("min-[400px]:w-auto");
-    expect(headerActions.className).toContain("min-[400px]:flex-row-reverse");
-    expect(headerActions.className).toContain("sm:ml-0");
     // The actions column owns the switch and its compact visible status.
     const status = screen.getByTestId("one-location-header-status");
     expect(headerActions.contains(status)).toBe(true);
@@ -1875,18 +1872,8 @@ describe("OneLocationAgentPage", () => {
     expect(headerRowForStatus, "the status escaped the toggle group").toBe(
       headerActions.closest('[data-slot="page-header-row"]'),
     );
-    expect(status).toHaveClass(
-      "mt-1",
-      "block",
-      "max-w-full",
-      "whitespace-nowrap",
-      "text-center",
-      "text-[12px]",
-      "leading-4",
-      "font-normal",
-      "min-[400px]:mt-0",
-    );
-    expect(status.textContent).toBe("Off");
+    expect(status).toHaveClass("block", "whitespace-nowrap", "text-center");
+    expect(status.textContent).toBe("Location off");
     // Still the switch's description wherever it renders.
     expect(
       screen
@@ -1903,18 +1890,6 @@ describe("OneLocationAgentPage", () => {
     expect(headerRow).toHaveClass("flex", "justify-between");
     expect(screen.getByTestId("page-header").className).toContain(
       "[&_[data-slot=page-header-row]]:!items-center",
-    );
-    expect(screen.getByTestId("page-header").className).toContain(
-      "sm:[&_[data-slot=page-header-row]]:!justify-start",
-    );
-    expect(screen.getByTestId("page-header").className).toContain(
-      "sm:[&_[data-slot=page-header-actions]]:!ml-5",
-    );
-    expect(screen.getByTestId("page-header").className).toContain(
-      "lg:[&_[data-slot=page-header-row]]:!justify-between",
-    );
-    expect(screen.getByTestId("page-header").className).toContain(
-      "lg:[&_[data-slot=page-header-actions]]:!ml-auto",
     );
     expect(heading).toHaveClass("ui-text-agent-title");
     expect(screen.getByTestId("one-location-header-icon")).toBeTruthy();
@@ -1938,12 +1913,12 @@ describe("OneLocationAgentPage", () => {
     // This used to be two breakpoint spans: the full string from `sm` up and a
     // one-word form on phones, because the full string in the actions column
     // wrapped the 28px title at 320-390px. That fit, and it cost iOS the
-    // meaning — the device showed a bare green switch over the word "On". The
+    // meaning — the device showed a bare green switch over the word "Location on". The
     // status now stays directly under the switch as one compact caption, so it
     // keeps meaning visible without wrapping the title.
     expect(locationStatus.querySelector(".sm\\:hidden")).toBeNull();
     expect(locationStatus.querySelector(".hidden.sm\\:inline")).toBeNull();
-    expect(locationStatus.textContent).toBe("Off");
+    expect(locationStatus.textContent).toBe("Location off");
     expect(locationStatus).not.toHaveAttribute("aria-hidden");
     expect(
       screen.getByRole("switch", { name: "Turn location on" }),
@@ -1962,7 +1937,7 @@ describe("OneLocationAgentPage", () => {
       name: "Turn location off",
     });
     expect(locationOnSwitch).toHaveAttribute("aria-checked", "true");
-    expect(screen.getByText("On")).toBeTruthy();
+    expect(screen.getByText("Location on")).toBeTruthy();
 
     fireEvent.click(locationOnSwitch);
     await waitFor(() =>
@@ -1970,7 +1945,7 @@ describe("OneLocationAgentPage", () => {
         screen.getByRole("switch", { name: "Turn location on" }),
       ).toHaveAttribute("aria-checked", "false"),
     );
-    expect(screen.getByText("Off")).toBeTruthy();
+    expect(screen.getByText("Location off")).toBeTruthy();
     expect(mockRevokeGrant).not.toHaveBeenCalled();
 
     // The caption is a separate, explicit action target. It must call the
@@ -2425,7 +2400,7 @@ describe("OneLocationAgentPage", () => {
     fireEvent.click(
       await screen.findByRole("switch", { name: "Turn location off" }),
     );
-    await waitFor(() => expect(screen.getByText("Off")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("Location off")).toBeTruthy());
 
     await act(async () => {
       resolveApproval?.({
@@ -2509,7 +2484,7 @@ describe("OneLocationAgentPage", () => {
     await act(async () => {
       releaseFix();
     });
-    await waitFor(() => expect(screen.getByText("On")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("Location on")).toBeTruthy());
   });
 
   it("does not let a late fix undo a pause made while it was in flight", async () => {
@@ -2526,7 +2501,7 @@ describe("OneLocationAgentPage", () => {
       name: "Turn location off",
     });
     fireEvent.click(onSwitch);
-    await waitFor(() => expect(screen.getByText("Off")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("Location off")).toBeTruthy());
 
     // The fix belongs to an intent the person has already replaced. Applying it
     // would silently turn location back on after they turned it off.
@@ -2536,7 +2511,7 @@ describe("OneLocationAgentPage", () => {
     expect(
       screen.getByRole("switch", { name: "Turn location on" }),
     ).toHaveAttribute("aria-checked", "false");
-    expect(screen.getByText("Off")).toBeTruthy();
+    expect(screen.getByText("Location off")).toBeTruthy();
   });
 
   it("does not settle a command resume successfully after a newer pause", async () => {
@@ -2651,7 +2626,7 @@ describe("OneLocationAgentPage", () => {
 
     fireEvent.click(onSwitch);
 
-    await waitFor(() => expect(screen.getByText("Off")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("Location off")).toBeTruthy());
     await waitFor(() => expect(mockCheckoutNearby).toHaveBeenCalledTimes(1));
     // Still in flight while the device already reads as paused.
     expect(releaseCheckout).not.toBeNull();
@@ -4722,7 +4697,7 @@ describe("OneLocationAgentPage", () => {
     // The header agrees with what the person just did.
     await waitFor(() =>
       expect(screen.getByTestId("one-location-header-status").textContent).toBe(
-        "On",
+        "Location on",
       ),
     );
     expect(
@@ -7347,6 +7322,7 @@ describe("OneLocationAgentPage", () => {
     ).filter(
       (el) =>
         el !== search &&
+        el !== screen.getByRole("button", { name: /Add or manage people/i }) &&
         !el.contains(person) &&
         search.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING &&
         person.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_PRECEDING,
@@ -7363,7 +7339,7 @@ describe("OneLocationAgentPage", () => {
     });
     expect(addPeople).toBeTruthy();
     expect(
-      addPeople.compareDocumentPosition(search) &
+      search.compareDocumentPosition(addPeople) &
         Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
     openDropdownMenu(addPeople);
@@ -7410,7 +7386,7 @@ describe("OneLocationAgentPage", () => {
       });
 
       expect(
-        addPeople.compareDocumentPosition(search) &
+        search.compareDocumentPosition(addPeople) &
           Node.DOCUMENT_POSITION_FOLLOWING,
       ).toBeTruthy();
       openDropdownMenu(addPeople);

@@ -319,7 +319,7 @@ function resolveTopShellBreadcrumbInner(
   }
 
   // Welcome's tabs are peers, just like Finance and Location. The shared back
-  // affordance exits the workspace to One; the tab strip and swipe pager own
+  // affordance exits to the public root; the tab strip and swipe pager own
   // movement between Research, Blog, and Developers.
   if (pathname === ROUTES.WELCOME) {
     const tabSet = resolvePublicKnowledgeTopShellTabSet(
@@ -328,7 +328,7 @@ function resolveTopShellBreadcrumbInner(
     if (!tabSet) return null;
 
     return {
-      backHref: ROUTES.ONE_HOME,
+      backHref: ROUTES.HOME,
       width: "content",
       align: "center",
       hideBack: false,
@@ -1236,18 +1236,6 @@ function resolveTopShellBreadcrumbInner(
         { label: "One", href: ROUTES.ONE_HOME },
         { label: "Gmail", href: ROUTES.GMAIL },
         { label: "Legacy receipts" },
-      ],
-    };
-  }
-
-  if (pathname === ROUTES.PROFILE_SECURITY_DEVICES) {
-    return {
-      backHref: ROUTES.PROFILE,
-      width: "profile",
-      align: "center",
-      items: [
-        { label: "Profile", href: ROUTES.PROFILE },
-        { label: "Trusted devices" },
       ],
     };
   }

@@ -178,6 +178,8 @@ async def _resolve_schema_mapping(
     system_id: str,
     object_type: str | None,
     force_refresh: bool = False,
+    user_id: str = "",
+    consent_token: str = "",
 ) -> tuple[dict[str, Any], dict[str, str]]:
     """Fetch public schema then resolve its private-agent mapping.
 
@@ -194,6 +196,8 @@ async def _resolve_schema_mapping(
         crm_id=_schema_mapping_crm_id(service=service, system_id=system_id),
         schema=schema,
         force_refresh=force_refresh,
+        user_id=user_id,
+        consent_token=consent_token,
     )
     return schema, resolved.mapping
 
@@ -218,14 +222,22 @@ def _schema_catalogue_only(schema: dict[str, Any]) -> dict[str, Any]:
 
 
 async def _require_schema_mapping(
-    *, service: Any, system_id: str, object_type: str | None, force_refresh: bool = False
+    *,
+    service: Any,
+    system_id: str,
+    object_type: str | None,
+    force_refresh: bool = False,
+    token_data: dict | None = None,
 ) -> dict[str, str]:
+    token_data = token_data or {}
     try:
         _schema, mapping = await _resolve_schema_mapping(
             service=service,
             system_id=system_id,
             object_type=object_type,
             force_refresh=force_refresh,
+            user_id=_user_id(token_data),
+            consent_token=str(token_data.get("token") or ""),
         )
         return mapping
     except CrmSchemaMappingError as error:
@@ -298,7 +310,7 @@ async def get_connected_system_schema(
     force_refresh: bool = Query(default=False, alias="forceRefresh"),
     token_data: dict = Depends(require_vault_owner_token),
 ):
-    _ = _user_id(token_data)
+    user_id = _user_id(token_data)
     service = get_connected_systems_service()
     try:
         # Fetch the remote catalogue once. Mapping failure must not issue a
@@ -313,6 +325,8 @@ async def get_connected_system_schema(
                 crm_id=_schema_mapping_crm_id(service=service, system_id=system_id),
                 schema=schema,
                 force_refresh=force_refresh,
+                user_id=user_id,
+                consent_token=str(token_data.get("token") or ""),
             )
             mapping = resolved.mapping
         except CrmSchemaMappingError:
@@ -338,7 +352,10 @@ async def read_connected_system_record(
             service=service, system_id=system_id, operation="read"
         )
         await _require_schema_mapping(
-            service=service, system_id=system_id, object_type=read_object_type
+            service=service,
+            system_id=system_id,
+            object_type=read_object_type,
+            token_data=token_data,
         )
         # A direct record read is binding-only. Browser lookup fields are not
         # forwarded, so an authenticated user cannot turn this endpoint into an
@@ -400,7 +417,10 @@ async def read_connected_system_record_encrypted_fields(
             service=service, system_id=system_id, operation="read"
         )
         await _require_schema_mapping(
-            service=service, system_id=system_id, object_type=read_object_type
+            service=service,
+            system_id=system_id,
+            object_type=read_object_type,
+            token_data=token_data,
         )
         return await service.read_bound_record_encrypted_fields(
             user_id=_user_id(token_data),
@@ -425,7 +445,10 @@ async def update_connected_system_record_intent_encrypted_fields(
             service=service, system_id=system_id, operation="update"
         )
         mapping = await _require_schema_mapping(
-            service=service, system_id=system_id, object_type=update_object_type
+            service=service,
+            system_id=system_id,
+            object_type=update_object_type,
+            token_data=token_data,
         )
         return await service.create_encrypted_fields_update_intent(
             user_id=_user_id(token_data),
@@ -472,7 +495,10 @@ async def search_connected_system_record(
             service=service, system_id=system_id, operation="read"
         )
         await _require_schema_mapping(
-            service=service, system_id=system_id, object_type=read_object_type
+            service=service,
+            system_id=system_id,
+            object_type=read_object_type,
+            token_data=token_data,
         )
         # Lookup is strictly derived from the authenticated user's server-side
         # verified email and phone claim. The public request contains no
@@ -500,7 +526,10 @@ async def create_connected_system_record_intent(
             service=service, system_id=system_id, operation="create"
         )
         mapping = await _require_schema_mapping(
-            service=service, system_id=system_id, object_type=create_object_type
+            service=service,
+            system_id=system_id,
+            object_type=create_object_type,
+            token_data=token_data,
         )
         # Initial records contain only server-side verified identity values
         # mapped to this CRM's active schema. Client supplied values cannot
@@ -531,6 +560,7 @@ async def create_connected_system_record_intent(
                 system_id=system_id,
                 object_type=create_object_type,
                 force_refresh=True,
+                token_data=token_data,
             )
             return await service.create_record_intent_for_verified_user(
                 user_id=_user_id(token_data),
@@ -554,7 +584,10 @@ async def update_connected_system_record_intent(
             service=service, system_id=system_id, operation="update"
         )
         mapping = await _require_schema_mapping(
-            service=service, system_id=system_id, object_type=update_object_type
+            service=service,
+            system_id=system_id,
+            object_type=update_object_type,
+            token_data=token_data,
         )
         return await service.update_record_intent_from_fields(
             user_id=_user_id(token_data),
@@ -587,7 +620,10 @@ async def delete_connected_system_record(
             service=service, system_id=system_id, operation="delete"
         )
         await _require_schema_mapping(
-            service=service, system_id=system_id, object_type=delete_object_type
+            service=service,
+            system_id=system_id,
+            object_type=delete_object_type,
+            token_data=token_data,
         )
         # Compatibility route: delete is now a pending intent. Keeping this
         # URL prevents older clients from issuing an immediate destructive call.
@@ -613,7 +649,10 @@ async def create_connected_system_delete_intent(
             service=service, system_id=system_id, operation="delete"
         )
         await _require_schema_mapping(
-            service=service, system_id=system_id, object_type=delete_object_type
+            service=service,
+            system_id=system_id,
+            object_type=delete_object_type,
+            token_data=token_data,
         )
         return service.create_delete_intent(
             user_id=_user_id(token_data),
@@ -633,7 +672,12 @@ async def approve_connected_system_intent(
 ):
     service = get_connected_systems_service()
     try:
-        await _require_schema_mapping(service=service, system_id=system_id, object_type=None)
+        await _require_schema_mapping(
+            service=service,
+            system_id=system_id,
+            object_type=None,
+            token_data=token_data,
+        )
         return await service.approve_intent(
             user_id=_user_id(token_data),
             system_id=system_id,

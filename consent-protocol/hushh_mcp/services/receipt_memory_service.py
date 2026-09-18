@@ -6,7 +6,6 @@ receipt rows without storing raw email payloads in PKM.
 
 from __future__ import annotations
 
-import asyncio
 import hashlib
 import json
 import logging
@@ -18,8 +17,12 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from db.db_client import DatabaseExecutionError, get_db
-from hushh_mcp.constants import GEMINI_MODEL
-from hushh_mcp.runtime_providers import build_managed_runtime_client
+from hushh_mcp.agents.email.runtime import (
+    EMAIL_RECEIPT_MEMORY_SCHEMA,
+    load_email_gene,
+    run_email_gene,
+)
+from hushh_mcp.runtime_providers.gemini_config import resolve_fleet_model_name
 from hushh_mcp.services.gmail_cache_retention import (
     GMAIL_PREVIEW_RETENTION_DAYS,
 )
@@ -713,7 +716,9 @@ class ReceiptMemoryEnrichmentService:
         return raw not in {"0", "false", "off", "disabled", "no"}
 
     def _model(self) -> str:
-        return str(GEMINI_MODEL)
+        return resolve_fleet_model_name(
+            str(load_email_gene("agent_email_receipt_memory_enrichment").model.name)
+        )
 
     def _timeout_seconds(self) -> float:
         raw = _clean_text(os.getenv("KAI_RECEIPT_MEMORY_LLM_TIMEOUT_SECONDS"), "8")
@@ -730,12 +735,16 @@ class ReceiptMemoryEnrichmentService:
             return "deterministic-only"
         return f"gemini:{self._model()}:v{RECEIPT_MEMORY_ENRICHMENT_SCHEMA_VERSION}"
 
-    async def enrich(self, projection: dict[str, Any]) -> dict[str, Any] | None:
+    async def enrich(
+        self,
+        projection: dict[str, Any],
+        *,
+        user_id: str = "",
+        consent_token: str = "",
+    ) -> dict[str, Any] | None:
         if self.enrichment_cache_key() == "deterministic-only":
             return None
-        try:
-            from google.genai import types as genai_types  # type: ignore
-        except Exception:
+        if not str(user_id or "").strip() or not str(consent_token or "").strip():
             return None
 
         digest = {
@@ -760,25 +769,14 @@ class ReceiptMemoryEnrichmentService:
         )
 
         try:
-            client = build_managed_runtime_client("gemini")
-            response = await asyncio.wait_for(
-                client.aio.models.generate_content(
-                    model=self._model(),
-                    contents=prompt,
-                    config=genai_types.GenerateContentConfig(temperature=0),
-                ),
-                timeout=self._timeout_seconds(),
+            parsed = await run_email_gene(
+                gene_id="agent_email_receipt_memory_enrichment",
+                prompt=prompt,
+                user_id=str(user_id),
+                consent_token=str(consent_token),
+                output_schema=EMAIL_RECEIPT_MEMORY_SCHEMA,
+                timeout_seconds=self._timeout_seconds(),
             )
-            text = _clean_text(getattr(response, "text", ""))
-            if not text:
-                return None
-            start = text.find("{")
-            end = text.rfind("}")
-            if start < 0 or end <= start:
-                return None
-            parsed = json.loads(text[start : end + 1])
-            if not isinstance(parsed, dict):
-                return None
             readable_summary = _json_object(parsed.get("readable_summary"))
             summary_text = _clip_text(
                 _clean_text(readable_summary.get("text")),
@@ -1355,6 +1353,7 @@ class ReceiptMemoryPreviewService:
         *,
         user_id: str,
         force_refresh: bool = False,
+        consent_token: str = "",
     ) -> dict[str, Any]:
         projection = await self.projection_service.build_projection(user_id=user_id)
         source = _json_object(projection.get("source"))
@@ -1380,7 +1379,16 @@ class ReceiptMemoryPreviewService:
 
         enrichment: dict[str, Any] | None = None
         try:
-            enrichment = await self.enrichment_service.enrich(projection)
+            if str(consent_token or "").strip():
+                enrichment = await self.enrichment_service.enrich(
+                    projection,
+                    user_id=user_id,
+                    consent_token=consent_token,
+                )
+            else:
+                # Preserve deterministic-only callers and test doubles that do
+                # not participate in the protected model path.
+                enrichment = await self.enrichment_service.enrich(projection)
         except Exception as exc:
             logger.warning("receipt_memory.preview_enrichment_failed reason=%s", exc)
             enrichment = None

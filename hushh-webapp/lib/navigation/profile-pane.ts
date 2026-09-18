@@ -259,6 +259,13 @@ export function popProfilePaneLocation(
     | undefined,
 ): void {
   if (typeof window === "undefined") return;
+  const current = resolveProfilePaneUrlState(searchParams);
+  // A resumed or directly linked child may be the first pane entry. Browser
+  // Back would leave the sheet, whereas its own Back must visit the parent.
+  if (canGoBackProfilePane(current.location) && getProfilePaneHistoryDepth() <= 1) {
+    replaceProfilePaneLocation(pathname, searchParams, profilePaneParentLocation(current.location));
+    return;
+  }
   if (getProfilePaneHistoryDepth() > 0) {
     window.history.back();
     return;

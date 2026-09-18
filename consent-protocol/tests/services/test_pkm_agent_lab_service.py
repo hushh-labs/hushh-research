@@ -1,4 +1,5 @@
 import asyncio
+import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -2032,3 +2033,70 @@ class TestSensitiveSecretRejection:
         assert preview["structure_decision"]["action"] == "reject_sensitive_secret"
         assert preview["validation_hints"] == ["sensitive_card_number_rejected"]
         assert preview["candidate_payload"] == {}
+
+
+async def test_compact_ontology_preserves_late_and_owner_defined_domains():
+    service = PKMAgentLabService()
+    choices = await service._load_domain_registry_choices(
+        current_domains=["z_owner_hobby"],
+        override=None,
+    )
+    keys = service._compact_registry_choices(choices)
+    expected_keys = [
+        row["domain_key"]
+        for row in choices
+        if row["domain_key"] not in {"runtime_secrets", "source_library", "wallet"}
+    ]
+    assert len(keys) > 8
+    assert keys == expected_keys
+    assert {"social", "shopping", "travel", "z_owner_hobby"}.issubset(keys)
+    financial_guard = {"routing_decision": "non_financial_or_ephemeral"}
+    memory_intent_prompt = service._build_memory_intent_prompt(
+        message="I trust a familiar brand for everyday basics.",
+        current_domains=[],
+        registry_choices=choices,
+        financial_guard=financial_guard,
+        simulated_state=None,
+        strict_small_model=True,
+    )
+    structure_prompt = service._build_structure_prompt(
+        message="I trust a familiar brand for everyday basics.",
+        current_domains=[],
+        registry_choices=choices,
+        intent_frame={},
+        merge_decision={},
+        financial_guard=financial_guard,
+        simulated_state=None,
+        strict_small_model=True,
+    )
+    financial_guard_prompt = service._build_financial_guard_prompt(
+        message="I trust a familiar brand for everyday basics.",
+        current_domains=[],
+        registry_choices=choices,
+        simulated_state=None,
+        strict_small_model=True,
+    )
+
+    encoded_keys = json.dumps(keys)
+    assert f"Soft ontology domain keys: {encoded_keys}" in memory_intent_prompt
+    assert f"Soft ontology domain keys: {encoded_keys}" in structure_prompt
+    assert f"Registry domain keys: {encoded_keys}" in financial_guard_prompt
+
+
+def test_compact_ontology_removes_nonselectable_and_duplicate_domains():
+    keys = PKMAgentLabService._compact_registry_choices(
+        [
+            {"domain_key": "social"},
+            {"domain_key": "general"},
+            {"domain_key": "runtime_secrets"},
+            {"domain_key": "source_library"},
+            {"domain_key": "wallet"},
+            {"domain_key": "__quarantine_v1"},
+            {"domain_key": "x" * 65},
+            {"domain_key": "social"},
+            {"domain_key": ""},
+            {},
+            {"domain_key": "shopping"},
+        ]
+    )
+    assert keys == ["social", "shopping"]

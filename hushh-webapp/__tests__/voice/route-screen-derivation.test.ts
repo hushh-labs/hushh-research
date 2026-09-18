@@ -145,10 +145,6 @@ describe("deriveVoiceRouteScreen", () => {
       screen: "profile_security_panel",
       subview: "vault",
     });
-    expect(deriveVoiceRouteScreen("/one/profile/security/devices")).toEqual({
-      screen: "profile_security_devices",
-      subview: null,
-    });
     expect(
       deriveVoiceRouteScreen("/one/profile/security/devices/authorize"),
     ).toEqual({

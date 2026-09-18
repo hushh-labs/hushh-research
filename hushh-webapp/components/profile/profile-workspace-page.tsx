@@ -10,35 +10,35 @@ import {
 } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
-  AlertTriangle,
-  BriefcaseBusiness,
-  CodeXml,
-  ContactRound,
-  ExternalLink,
+  Warning as AlertTriangle,
+  Briefcase as BriefcaseBusiness,
+  Code as CodeXml,
+  AddressBook as ContactRound,
+  ArrowSquareOut as ExternalLink,
   Fingerprint,
-  Folder,
-  KeyRound,
-  Loader2,
-  LogOut,
-  Mail,
+  FolderSimple as Folder,
+  Key as KeyRound,
+  SpinnerGap as Loader2,
+  SignOut as LogOut,
+  EnvelopeSimple as Mail,
   MapPin,
-  Mic,
-  MessageCircleQuestion,
-  Users,
-  Monitor,
+  Microphone as Mic,
+  Question as MessageCircleQuestion,
+  UsersThree as Users,
+  Desktop as Monitor,
   Laptop,
   Phone,
   Palette,
-  RefreshCw,
-  Share2,
-  SendHorizontal,
+  ArrowsClockwise as RefreshCw,
+  ShareNetwork as Share2,
+  PaperPlaneRight as SendHorizontal,
   ShieldCheck,
   SlidersHorizontal,
-  Trash2,
-  User,
-  UserRound,
+  Trash as Trash2,
+  UserCircle as User,
+  User as UserRound,
   Wallet,
-} from "lucide-react";
+} from "@phosphor-icons/react";
 import { toast } from "sonner";
 
 import {
@@ -4411,7 +4411,7 @@ function ProfilePageContent({
         key: "detail:trusted-devices",
         title: "Trusted devices",
         description: "Devices connected to your private agent.",
-        content: <TrustedDevicesPage presentation="pane" />,
+        content: <TrustedDevicesPage />,
       });
     }
   } else if (!routeBlockedByVault && activePanel === "gmail") {
@@ -4453,7 +4453,12 @@ function ProfilePageContent({
   }
 
   const profileRootContent = (
-    <div className="profile-home-screen">
+    <div
+      className={cn(
+        "profile-home-screen",
+        isPanePresentation && "profile-home-screen--pane",
+      )}
+    >
       <AppPageHeaderRegion>
         <header
           className="profile-home-hero flex w-full min-w-0 items-center gap-3 px-0 text-left"

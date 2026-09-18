@@ -69,7 +69,7 @@ describe("AgentTurnStreamPanel", () => {
   });
 
   it("shows provider reasoning to the owner", () => {
-    render(
+    const { rerender } = render(
       <AgentTurnStreamPanel
         streamEvents={[]}
         responseText=""
@@ -84,8 +84,26 @@ describe("AgentTurnStreamPanel", () => {
     expect(
       screen.getByText((content) => content.includes("Comparing the active settings.")),
     ).toBeInTheDocument();
+    expect(screen.queryByText("**Checking context**")).not.toBeInTheDocument();
+    expect(screen.getByRole("log", { name: "Thinking details" })).toHaveClass(
+      "max-h-44",
+      "overflow-y-auto",
+    );
     expect(screen.getByRole("status")).toHaveTextContent("One is preparing your response.");
     expect(screen.queryByText("Waiting for response tokens.")).not.toBeInTheDocument();
+
+    rerender(
+      <AgentTurnStreamPanel
+        streamEvents={[]}
+        responseText="The settings are ready."
+        thinkingText="**Checking context**\n\nComparing the active settings."
+        isStreaming
+      />,
+    );
+    expect(screen.getByRole("button", { name: /One is thinking/i })).toHaveAttribute(
+      "data-state",
+      "closed",
+    );
   });
 
   it("presents consulted specialists as bounded provenance without internal ids or request text", async () => {

@@ -10,14 +10,14 @@
     "cache_reference": "../docs/reference/architecture/cache-coherence.md"
   },
   "summary": {
-    "total_screens": 139,
-    "physical_page_count": 138,
-    "route_contract_count": 139,
-    "surface_map_count": 139,
+    "total_screens": 138,
+    "physical_page_count": 137,
+    "route_contract_count": 138,
+    "surface_map_count": 138,
     "class_counts": {
       "public/auth-split": 1,
       "redirect/alias": 46,
-      "vault-backed": 53,
+      "vault-backed": 52,
       "hidden flow": 17,
       "auth/pre-vault": 6,
       "RIA/provider": 9,
@@ -4282,51 +4282,6 @@
       ]
     },
     {
-      "route": "/one/profile/security/devices",
-      "page_file": "app/one/profile/security/devices/page.tsx",
-      "route_contract_mode": "standard",
-      "screen_class": "vault-backed",
-      "cache_policy": "memory-only",
-      "cache_keys": [
-        "TRUSTED_DEVICES"
-      ],
-      "resource_classes": [
-        "unknown"
-      ],
-      "sensitivity_class": "app-metadata",
-      "ttl_class": "CACHE_TTL.MEDIUM",
-      "warm_source": "Route-local resource loader",
-      "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
-      "mutation_invalidator": "CacheSyncService user/session invalidation",
-      "best_available_ux_path": [
-        "fresh memory",
-        "cold loader"
-      ],
-      "readiness_kpis": [
-        "route_readiness_completed",
-        "cache_resource_resolved",
-        "route_refresh_completed"
-      ],
-      "realtime_policy": "not realtime",
-      "reviewer_fixture": "/login?redirect=%2Fone%2Fprofile%2Fsecurity%2Fdevices",
-      "surface_map_present": true,
-      "route_contract_present": true,
-      "evidence": {
-        "cache_service": false,
-        "use_stale_resource": true,
-        "device_cache": false,
-        "secure_cache": false,
-        "cache_sync": false,
-        "resource_wrapper": false,
-        "direct_fetch": false,
-        "api_service": true,
-        "hushh_loader": false,
-        "sse_or_streaming": false,
-        "native_beacon": false
-      },
-      "findings": []
-    },
-    {
       "route": "/one/profile/security/devices/authorize",
       "page_file": "app/one/profile/security/devices/authorize/page.tsx",
       "route_contract_mode": "hidden",
@@ -6252,5 +6207,5 @@
       ]
     }
   ],
-  "content_sha256": "f4fe7c001ae444b34fb66173cf580ef6b0c14d21f6e6004885eb697f0cf0f2f7"
+  "content_sha256": "135c79bc47e6742c2a1d971bfcc8ee64758cc6a769739227d99d99f686c47f7b"
 }

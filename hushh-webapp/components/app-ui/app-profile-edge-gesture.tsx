@@ -28,16 +28,11 @@ type ProfileBodyGesture = {
 };
 
 function isOneSurfaceRoute(pathname: string): boolean {
-  if (
-    pathname === ROUTES.PROFILE ||
-    pathname.startsWith(`${ROUTES.PROFILE}/`)
-  ) {
-    return false;
-  }
-  return (
-    pathname === ROUTES.ONE_HOME ||
-    pathname.startsWith(`${ROUTES.ONE_HOME}/`)
-  );
+  // The body gesture belongs to the dashboard surface only. Profile remains
+  // available from the top-shell affordance on other authenticated routes,
+  // but a finance/location/connect surface must retain ownership of its own
+  // horizontal gestures and tab pagers.
+  return pathname === ROUTES.ONE_HOME;
 }
 
 function hasHorizontalScrollParent(target: HTMLElement | null): boolean {

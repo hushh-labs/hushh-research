@@ -150,6 +150,9 @@ describe("navigation routes", () => {
     ).toBe(
       "/one/profile/security?unlock_vault=1&return_to=%2Fone%2Flocation%2Finvite%2Ftoken_123",
     );
+    expect(
+      buildProfileRoute({ panel: "security", detail: "trusted-devices" }),
+    ).toBe("/one/profile/security");
   });
 
   it("resolves nested and legacy profile route state through the same contract", () => {
@@ -187,6 +190,9 @@ describe("navigation routes", () => {
       panel: null,
       detail: null,
     });
+    expect(
+      resolveProfileRouteState("/one/profile/security/devices"),
+    ).toEqual({ panel: null, detail: null });
     expect(
       buildCanonicalProfileRouteFromLegacyQuery(
         "/one/profile",

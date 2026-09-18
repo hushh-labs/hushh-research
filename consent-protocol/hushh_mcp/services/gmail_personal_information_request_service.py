@@ -15,7 +15,6 @@ import hashlib
 import hmac
 import json
 import logging
-import os
 import re
 import time
 import uuid
@@ -26,16 +25,14 @@ from pathlib import Path
 from typing import Any, Iterable
 
 import asyncpg
-from google.genai import types as genai_types
 
 from db.connection import get_pool
+from hushh_mcp.agents.email.runtime import (
+    EMAIL_REQUEST_CLASSIFIER_SCHEMA,
+    run_email_gene,
+)
 from hushh_mcp.consent.pkm_scope_policy import is_private_pkm_export_scope
 from hushh_mcp.consent.scope_generator import get_scope_generator
-from hushh_mcp.runtime_providers import (
-    build_generate_content_config,
-    build_managed_runtime_client,
-    default_model_for_provider,
-)
 from hushh_mcp.runtime_settings import get_core_security_settings
 from hushh_mcp.services.gmail_delivery_service import (
     GmailDeliveryService,
@@ -59,21 +56,6 @@ _BACKGROUND_USER_CONCURRENCY = 4
 _BACKGROUND_SCAN_TIMEOUT_SECONDS = 35
 _CLASSIFIER_CONCURRENCY = 3
 _MONITOR_LEASE_SECONDS = 4 * 60
-_CLASSIFIER_SCHEMA = {
-    "type": "OBJECT",
-    "properties": {
-        "is_information_request": {"type": "BOOLEAN"},
-        "confidence": {"type": "NUMBER"},
-        "requested_field_labels": {"type": "ARRAY", "items": {"type": "STRING"}},
-        "requested_domains": {"type": "ARRAY", "items": {"type": "STRING"}},
-    },
-    "required": [
-        "is_information_request",
-        "confidence",
-        "requested_field_labels",
-        "requested_domains",
-    ],
-}
 _KYC_IDENTITY_PROFILE_CONTRACT_PATH = (
     Path(__file__).resolve().parents[3] / "config" / "pkm" / "kyc-identity-profile.v1.json"
 )
@@ -1552,27 +1534,14 @@ class PersonalGmailInformationRequestService:
             f"Message: {body}"
         )
         try:
-            client = build_managed_runtime_client("gemini")
-            model = os.getenv(
-                "GMAIL_INFORMATION_REQUEST_CLASSIFIER_MODEL"
-            ) or default_model_for_provider("gemini")
-            config = build_generate_content_config(
-                genai_types,
-                model,
-                temperature=0,
-                max_output_tokens=300,
-                response_mime_type="application/json",
-                response_schema=_CLASSIFIER_SCHEMA,
-                automatic_function_calling=genai_types.AutomaticFunctionCallingConfig(disable=True),
+            parsed = await run_email_gene(
+                gene_id="agent_email_request_classifier",
+                prompt=prompt,
+                user_id="gmail-personal-information-monitor",
+                consent_token="gmail-personal-information-monitor",  # noqa: S106 - turn-local sentinel
+                output_schema=EMAIL_REQUEST_CLASSIFIER_SCHEMA,
+                timeout_seconds=15.0,
             )
-            response = await client.aio.models.generate_content(
-                model=model,
-                contents=prompt,
-                config=config,
-            )
-            parsed = getattr(response, "parsed", None)
-            if not isinstance(parsed, dict):
-                parsed = json.loads(_text(getattr(response, "text", "")) or "{}")
         except Exception as exc:  # classifier errors fail closed without persisting email content
             raise PersonalGmailInformationRequestError(
                 "Personal Gmail classification is temporarily unavailable.",

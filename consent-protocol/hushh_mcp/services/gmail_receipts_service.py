@@ -33,8 +33,10 @@ from google.oauth2 import id_token as google_id_token
 
 from db.connection import get_pool
 from db.db_client import get_db
-from hushh_mcp.constants import GEMINI_MODEL
-from hushh_mcp.runtime_providers import build_managed_runtime_client
+from hushh_mcp.agents.email.runtime import (
+    EMAIL_RECEIPT_EXTRACTOR_SCHEMA,
+    run_email_gene,
+)
 from hushh_mcp.runtime_settings import (
     APP_SIGNING_KEY_ENV,
     GMAIL_OAUTH_TOKEN_KEY_ENV,
@@ -905,9 +907,6 @@ class GmailReceiptsService:
 
     def _llm_fallback_enabled(self) -> bool:
         return _to_bool(os.getenv("GMAIL_RECEIPT_LLM_FALLBACK_ENABLED"), False)
-
-    def _llm_model(self) -> str:
-        return str(GEMINI_MODEL)
 
     def _build_state_token(
         self,
@@ -2879,13 +2878,10 @@ class GmailReceiptsService:
             "reasons": reasons,
         }
 
-    async def _llm_extract_candidate(self, candidate: ReceiptCandidate) -> dict[str, Any] | None:
+    async def _llm_extract_candidate(
+        self, candidate: ReceiptCandidate, *, user_id: str = ""
+    ) -> dict[str, Any] | None:
         if not self._llm_fallback_enabled():
-            return None
-
-        try:
-            from google.genai import types as genai_types  # type: ignore
-        except Exception:
             return None
 
         prompt = (
@@ -2899,20 +2895,14 @@ class GmailReceiptsService:
         )
 
         try:
-            client = build_managed_runtime_client("gemini")
-            response = await client.aio.models.generate_content(
-                model=self._llm_model(),
-                contents=prompt,
-                config=genai_types.GenerateContentConfig(temperature=0),
+            parsed = await run_email_gene(
+                gene_id="agent_email_receipt_extractor",
+                prompt=prompt,
+                user_id=user_id or "gmail-receipt-sync",
+                consent_token="gmail-receipt-sync",  # noqa: S106 - turn-local sentinel
+                output_schema=EMAIL_RECEIPT_EXTRACTOR_SCHEMA,
+                timeout_seconds=15.0,
             )
-            text = _clean_text(getattr(response, "text", ""))
-            if not text:
-                return None
-            start = text.find("{")
-            end = text.rfind("}")
-            if start < 0 or end <= start:
-                return None
-            parsed = json.loads(text[start : end + 1])
             if not isinstance(parsed, dict):
                 return None
             is_receipt = _to_bool(parsed.get("is_receipt"), False)
@@ -3835,7 +3825,7 @@ class GmailReceiptsService:
                     classification = det
 
                     if not det["is_receipt"] and det.get("needs_llm"):
-                        llm_payload = await self._llm_extract_candidate(candidate)
+                        llm_payload = await self._llm_extract_candidate(candidate, user_id=user_id)
                         if llm_payload and _to_bool(llm_payload.get("is_receipt"), False):
                             classification = {
                                 "is_receipt": True,

@@ -42,54 +42,25 @@ describe("Navbar bottom chrome contract", () => {
     expect(searchBar).not.toContain("kai-bottom-agent-action");
     expect(searchBar).not.toContain('aria-label="Open Agent"');
 
-    // The command bar remains the global typed-search surface, while the
-    // persistent Agent dock exposes Voice and Chat as two sibling actions.
-    expect(agentBar).toContain('data-testid="one-agent-chat-open"');
-    expect(agentBar).toContain('data-agent-action="chat"');
-    expect(agentBar).toContain("onClick={openAgentChat}");
-    expect(agentBar).toContain("aria-label={`Chat with One. ${hint}`}");
-    expect(agentBar).toContain('data-testid="one-agent-chat-label"');
-    expect(agentBar).not.toContain("openSearchAndChat");
+    // Command capture owns voice; Chat is a distinct navigation destination.
+    expect(navbar).toContain('label: "Chat"');
+    expect(navbar).toContain('dataTourId: "nav-chat"');
+    expect(agentBar).not.toContain('data-agent-action="chat"');
     expect(agentBar).not.toContain("openKaiCommandBar");
-    expect(agentBar).toContain("Talk to One. Hold to speak, or tap to start and finish.");
+    expect(agentBar).toContain("useLocationCommand()");
     expect(agentBar).toContain('data-native-voice-control-id="one_voice_agent_bar_start"');
     expect(agentBar).toContain('data-agent-action="voice"');
-    expect(agentBar).toContain(
-      "isFoundationPublicRoute(pathname) && pathname !== ROUTES.HOME",
-    );
-    expect(agentBar).toContain('data-agent-action="voice"');
-    expect(agentBar).toContain("onClick={handleVoiceStartClick}");
-    expect(agentBar).toContain(
-      "aria-label={`Start a voice conversation. ${hint}`}",
-    );
-    // The native control is the complete visible voice pill. The separate
-    // Agent Chat button is a labeled sibling action, so the dock never reads
-    // like one giant input with a hidden second function.
-    expect(agentBar).toContain("agent-bar-voice-launcher press-scale");
-    expect(agentBar).toContain("flex h-11 min-w-0 flex-1 items-center");
-    expect(agentBar).toContain("hover:bg-current/[0.09]");
+    expect(agentBar).toContain("Talk to One. Hold to speak, or tap to start and finish.");
+    expect(agentBar).toContain("onPointerDown=");
+    expect(agentBar).toContain("onPointerUp=");
+    expect(agentBar).toContain("onPointerCancel=");
+    expect(agentBar).toContain("finishCapture() : startCapture()");
+    expect(agentBar).toContain("cancelCapture()");
     expect(agentBar).toContain("focus-visible:ring-inset");
-    expect(agentBar).toContain(
-      'className="pointer-events-none absolute inset-0 z-0 overflow-hidden rounded-full"',
-    );
-    expect(agentBar).toContain("min-w-[88px]");
-    expect(agentBar).toContain("MessageCircle");
-    expect(agentBar).toContain("loading: authLoading");
-    expect(agentBar).toContain("!agentPopover ||\n    authLoading ||");
-    expect(agentBar).not.toContain("isRiaChrome");
     expect(agentBar).toContain('layout = "fixed"');
-    expect(agentBar).not.toContain("useKaiBottomChromeElementTranslation");
     expect(agentBar).toContain("bottom: noNavbar");
+    expect(agentBar).not.toContain("useKaiBottomChromeElementTranslation");
     expect(agentBar).not.toContain("useKaiBottomChromeVisibility");
-    expect(agentBar).not.toContain(
-      "calc(var(--bottom-chrome-progress, 0) * var(--agent-bar-hide-distance))",
-    );
-    const bottomChromeMotion = read(
-      "lib/navigation/kai-bottom-chrome-visibility.ts",
-    );
-    expect(bottomChromeMotion).toContain("follow the thumb directly");
-    expect(agentBar).not.toContain('aria-label="Talk to your agent"');
-    expect(agentBar).not.toContain("<Mic");
 
     // The AgentBar is mounted above the route shell, so it cannot inherit
     // route-shell variables. The provider must mirror the nav's geometry to
@@ -130,12 +101,12 @@ describe("Navbar bottom chrome contract", () => {
     expect(bottomShell).toContain("items-center gap-1.5");
     expect(agentBar).toContain('data-agent-dock="one-agent-dock"');
     expect(agentBar).toContain('role="group"');
-    expect(agentBar).toContain('aria-label="One assistant"');
+    expect(agentBar).toContain('aria-label="One private agent"');
     const dockClass = agentBar.match(
       /data-testid="one-voice-agent-bar"[\s\S]*?className=\{cn\((?<classes>[\s\S]*?)\)\}/,
     )?.groups?.classes;
     expect(dockClass).toBeDefined();
-    expect(dockClass).not.toContain("bottom-chrome-surface");
+    expect(dockClass).toContain("bottom-chrome-surface");
     expect(dockClass).not.toContain("backdrop-blur");
     expect(agentBar).not.toContain('? "h-11 rounded-[22px] px-2.5"');
     expect(agentBar).toContain("var(--app-agent-bar-max-width)");

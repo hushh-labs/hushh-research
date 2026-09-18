@@ -56,16 +56,19 @@ must not recreate shell chrome, safe-area math, an icon well, or a list row.
    separates a label from its control, and `--app-form-section-gap` separates
    a primary action from related methods. A low-emphasis recovery path may be
    a text link with a 44px hit area; it must not look like a second primary CTA.
-   Related-method groups keep their descriptor on one line and a centered
-   action row on the next inside a capped form measure. When a hard-gate escape
-   group is also present, the two groups use centered columns with one
-   vertically centered divider; when only one group exists, omit the divider
-   and keep that group centered. Keep visible link text close to its descriptor
-   while preserving the transparent hit area; do not use incidental padding or
-   a left-anchored action row to create the rhythm.
-   When a credential flow offers a sign-out escape, recovery belongs in that
-   same quiet escape group, with one shared link treatment and clear separation
-   from the primary action.
+   Credential fallback groups keep the “Can’t get in?” descriptor on one
+   centered line and every available quiet action on the next centered row
+   inside a capped form measure. Separate multiple actions with middle-dot
+   separators; do not create a second primary CTA, pill, column, or vertical
+   divider. If only one action is available, keep it as the single centered
+   element without a separator. Use `--app-form-section-gap` to create the
+   larger pause after the primary unlock action and
+   `--app-form-related-gap` to keep the descriptor close to its action row.
+   Keep visible link text close to its descriptor while preserving the
+   transparent 44px hit area; do not use incidental padding or a left-anchored
+   action row to create the rhythm. When a credential flow offers a sign-out
+   escape, recovery and the alternate unlock method belong in that same quiet
+   action row.
 
 ## Unified Mobile Header Guidelines
 

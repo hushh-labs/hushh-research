@@ -103,4 +103,28 @@ describe("Profile pane touch navigation", () => {
     expect(opened).not.toHaveBeenCalled();
     window.removeEventListener(PROFILE_PANE_OPEN_EVENT, opened);
   });
+
+  it("leaves Finance and other One descendants to their own swipe surfaces", () => {
+    navigation.pathname = "/one/finance";
+    const opened = vi.fn();
+    window.addEventListener(PROFILE_PANE_OPEN_EVENT, opened);
+    const view = render(<AppProfileEdgeGesture enabled />);
+
+    fireEvent.touchStart(document, {
+      touches: [{ identifier: 5, clientX: 320, clientY: 160 }],
+      timeStamp: 0,
+    });
+    fireEvent.touchMove(document, {
+      touches: [{ identifier: 5, clientX: 160, clientY: 164 }],
+      timeStamp: 80,
+    });
+    fireEvent.touchEnd(document, {
+      changedTouches: [{ identifier: 5, clientX: 120, clientY: 164 }],
+      timeStamp: 120,
+    });
+
+    expect(opened).not.toHaveBeenCalled();
+    view.unmount();
+    window.removeEventListener(PROFILE_PANE_OPEN_EVENT, opened);
+  });
 });

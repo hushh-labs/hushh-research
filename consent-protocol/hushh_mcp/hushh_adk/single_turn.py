@@ -13,6 +13,7 @@ from typing import Any
 
 from google.adk.agents import LlmAgent
 from google.genai import types
+from jsonschema import Draft202012Validator
 from pydantic import BaseModel
 
 from hushh_mcp.hushh_adk.manifest import AgentManifestV2, AgentModelConfig, AgentSubagentConfig
@@ -23,8 +24,6 @@ from hushh_mcp.runtime_providers.gemini_config import (
     resolve_fleet_model_name,
     thinking_config_for,
 )
-
-_SCHEMAS: dict[int, Any] = {}
 
 
 def _manifest_config(
@@ -81,7 +80,6 @@ def build_single_turn_agent(
             thinking_config=thinking_config_for(model_name, config.thinking_level, types),
         ),
     )
-    _SCHEMAS[id(agent)] = output_schema
     return agent
 
 
@@ -100,6 +98,28 @@ def _prompt_text(prompt_parts: str | Sequence[Any]) -> str:
     return prompt
 
 
+def _json_schema(schema: dict[str, Any]) -> dict[str, Any]:
+    """Normalize Gemini schema types without touching example/default payloads."""
+    result = dict(schema)
+    kind = result.get("type")
+    if isinstance(kind, str):
+        result["type"] = kind.lower()
+    elif isinstance(kind, list):
+        result["type"] = [value.lower() for value in kind]
+    if result.pop("nullable", False):
+        result = {"anyOf": [result, {"type": "null"}]}
+    for key in ("properties", "$defs", "definitions", "patternProperties"):
+        if isinstance(result.get(key), dict):
+            result[key] = {name: _json_schema(value) for name, value in result[key].items()}
+    for key in ("items", "additionalProperties", "not"):
+        if isinstance(result.get(key), dict):
+            result[key] = _json_schema(result[key])
+    for key in ("anyOf", "oneOf", "allOf", "prefixItems"):
+        if isinstance(result.get(key), list):
+            result[key] = [_json_schema(value) for value in result[key]]
+    return result
+
+
 def _decode(text: str, schema: Any) -> Any:
     try:
         value = json.loads(text)
@@ -109,6 +129,12 @@ def _decode(text: str, schema: Any) -> Any:
         return schema.model_validate(value)
     if not isinstance(value, dict):
         raise ValueError("single-turn agent returned a non-object response")
+    if isinstance(schema, types.Schema):
+        schema = schema.model_dump(exclude_none=True, by_alias=True)
+    if isinstance(schema, dict):
+        validator = Draft202012Validator(_json_schema(schema))
+        if not validator.is_valid(value):
+            raise ValueError("single-turn response does not match output schema")
     return value
 
 
@@ -130,13 +156,13 @@ async def run_single_turn(
     """
 
     _ = thinking_level
-    schema = _SCHEMAS.get(id(agent))
+    schema = agent.output_schema
     if schema is None:
-        raise ValueError("agent was not built by build_single_turn_agent")
+        raise ValueError("single-turn agent requires an output schema")
     total_timeout = 90.0 if timeout_seconds is None else float(timeout_seconds)
     if total_timeout <= 0:
         raise ValueError("single-turn timeout must be positive")
-    event_timeout = min(30.0, total_timeout)
+    event_timeout = total_timeout
     if message_content is not None:
         if not isinstance(message_content, types.Content) or not message_content.parts:
             raise ValueError("single-turn message_content must contain parts")

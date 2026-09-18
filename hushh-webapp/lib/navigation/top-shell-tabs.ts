@@ -304,14 +304,11 @@ export function resolvePublicKnowledgeTopShellTabSet(
     normalizedPathname === ROUTES.WELCOME &&
     definition.tabs.some((tab) => tab.value === requestedHomeTab)
       ? requestedHomeTab
-      : normalizedPathname === ROUTES.RESEARCH ||
-          normalizedPathname.startsWith(`${ROUTES.RESEARCH}/`)
+      : normalizedPathname === ROUTES.RESEARCH
         ? "research"
-        : normalizedPathname === ROUTES.BLOG ||
-            normalizedPathname.startsWith(`${ROUTES.BLOG}/`)
+        : normalizedPathname === ROUTES.BLOG
           ? "blog"
-          : normalizedPathname === ROUTES.DEVELOPERS ||
-              normalizedPathname.startsWith(`${ROUTES.DEVELOPERS}/`)
+          : normalizedPathname === ROUTES.DEVELOPERS
             ? "developers"
             : null;
 
