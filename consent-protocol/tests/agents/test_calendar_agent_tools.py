@@ -302,7 +302,9 @@ def test_calendar_propose_directive_carries_structured_event_fields(monkeypatch)
     assert payload["proposalId"] == "gcal_example"
 
 
-def test_calendar_cancel_directive_reads_structured_fields_from_the_fetched_event(monkeypatch) -> None:  # noqa: ANN001
+def test_calendar_cancel_directive_reads_structured_fields_from_the_fetched_event(
+    monkeypatch,
+) -> None:  # noqa: ANN001
     # A cancel proposal's input payload only ever has event_id + send_updates
     # -- the real title/time/attendees live under plan["current_event"], the
     # event GoogleCalendarService.propose() fetched from Google. The
@@ -323,9 +325,7 @@ def test_calendar_cancel_directive_reads_structured_fields_from_the_fetched_even
                     "start": {"dateTime": "2026-08-11T10:00:00+05:30"},
                     "end": {"dateTime": "2026-08-11T10:30:00+05:30"},
                     "location": "Room 4",
-                    "attendees": [
-                        {"email": "person@example.com", "response_status": "accepted"}
-                    ],
+                    "attendees": [{"email": "person@example.com", "response_status": "accepted"}],
                 },
             },
         }
