@@ -47,13 +47,29 @@ function webAssetDir() {
   return "out";
 }
 
+function ensureWebAssetDirEnvironment() {
+  const assetDir = webAssetDir();
+  // `prepareNativeTestArtifacts` runs in the parent process while `cap sync`
+  // runs afterward as a child. Keep Capacitor pointed at the same directory
+  // that received the manifest and runner instead of silently falling back to
+  // the stale default `out/`.
+  if (!process.env.NEXT_DIST_DIR) {
+    process.env.NEXT_DIST_DIR = assetDir;
+  }
+  return assetDir;
+}
+
 export function writeNativeUiFlowsManifest({
   repoRoot: root = repoRoot,
   flowFilter = "",
   routeFilter = "",
 } = {}) {
   const flows = filterUiFlows({ flowFilter, routeFilter });
-  const flowsPublicPath = path.join(root, webAssetDir(), "native-ui-flows.json");
+  const flowsPublicPath = path.join(
+    root,
+    ensureWebAssetDirEnvironment(),
+    "native-ui-flows.json",
+  );
   const nativeAuditManifest = createNativeUiAuditManifest(flows);
   fs.mkdirSync(path.dirname(flowsPublicPath), { recursive: true });
   fs.writeFileSync(
@@ -90,7 +106,11 @@ export function copyNativeImportE2eAsset({
   }
 
   const relativeAssetPath = KAI_IMPORT_E2E_ASSET_PATH.replace(/^\/+/, "");
-  const destination = path.join(root, webAssetDir(), relativeAssetPath);
+  const destination = path.join(
+    root,
+    ensureWebAssetDirEnvironment(),
+    relativeAssetPath,
+  );
   fs.mkdirSync(path.dirname(destination), { recursive: true });
   fs.copyFileSync(source, destination);
   console.log(
@@ -101,7 +121,11 @@ export function copyNativeImportE2eAsset({
 
 export function syncNativeUiTestRunner({ repoRoot: root = repoRoot } = {}) {
   const sourcePath = path.join(root, "scripts/native/native-ui-test-runner-source.js");
-  const publicRunnerPath = path.join(root, webAssetDir(), "native-ui-test-runner.js");
+  const publicRunnerPath = path.join(
+    root,
+    ensureWebAssetDirEnvironment(),
+    "native-ui-test-runner.js",
+  );
   fs.mkdirSync(path.dirname(publicRunnerPath), { recursive: true });
   fs.copyFileSync(sourcePath, publicRunnerPath);
 

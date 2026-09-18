@@ -2,7 +2,7 @@
 
 import React from "react";
 import { useIconWeight } from "./icon-theme-context";
-import { type IconWeight } from "@phosphor-icons/react";
+import { type IconWeight } from "@/components/icons";
 
 // Utility component that automatically applies the global icon weight
 export const IconWrapper: React.FC<{

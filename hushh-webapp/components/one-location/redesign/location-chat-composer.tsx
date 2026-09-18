@@ -1,7 +1,7 @@
 "use client";
 
 import type { Ref } from "react";
-import { SendHorizontal } from "lucide-react";
+import { SendHorizontal } from "@/components/icons";
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";

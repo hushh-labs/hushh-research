@@ -11,7 +11,7 @@ import {
 } from "react";
 import { useTheme } from "next-themes";
 import { GoogleMap } from "@capacitor/google-maps";
-import { Check, Crosshair, Loader2, MapPin, X } from "lucide-react";
+import { Check, Crosshair, Loader2, MapPin, X } from "@/components/icons";
 
 import {
   useGoogleMaps,
@@ -752,7 +752,7 @@ export function LocationPickerMap({
                 {/* Ground shadow under the tip */}
                 <span
                   className={cn(
-                    "mt-[1px] rounded-full bg-black/45 blur-[2px] transition-all duration-150",
+                    "mt-[1px] rounded-full bg-black/45 blur-[2px] transition-[background-color,filter,opacity] duration-150",
                     dragging
                       ? "h-[5px] w-[10px] opacity-35"
                       : "h-[6px] w-[14px] opacity-55",

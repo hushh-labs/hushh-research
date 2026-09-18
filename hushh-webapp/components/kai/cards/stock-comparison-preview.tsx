@@ -1,6 +1,6 @@
 "use client";
 
-import { BarChart3, GitCompareArrows, Loader2, Search, SearchCheck } from "lucide-react";
+import { BarChart3, GitCompareArrows, Loader2, Search, SearchCheck } from "@/components/icons";
 
 import { SectionHeader } from "@/components/app-ui/page-sections";
 import {

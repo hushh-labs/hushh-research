@@ -108,6 +108,16 @@ textarea {
   touch-action: manipulation;
 }
 
+/* The shared --app-input-radius capsule clamps to half the control's own
+   height. Single-line fields stay a clean pill at that height; a multi-line
+   Textarea (min-h-36+, resizable) clamps to a much larger radius whose
+   corner curve reaches past the text padding and overlaps the first
+   character of each wrapped line. Bound it to the compact card radius so
+   Textarea keeps a legible, non-clipping corner at any height. */
+[data-slot="textarea"] {
+  --app-input-radius: var(--app-radius-lg);
+}
+
 [data-app-scroll-root="true"][data-app-scroll-mode="hidden-shell"] {
   overflow-y: auto;
   overflow-x: hidden;
@@ -120,7 +130,9 @@ textarea {
 @theme inline {
   --radius: 1.5rem;
   --spacing: 0.25rem;
-  --transition-duration-normal: 600ms;
+  --transition-duration-fast: 75ms;
+  --transition-duration-normal: 120ms;
+  --transition-duration-slow: 150ms;
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --font-sans: var(--font-app-body);
@@ -623,8 +635,6 @@ textarea {
   /* Frosted chrome baseline (sub-nav / sticky-bar grade backdrop filter). */
   --app-blur-frosted: saturate(180%) blur(20px);
 
-  /* Lucide defaults (see docs/reference/quality/design-system.md): change once to update all icons. */
-  --lucide-stroke-width: 1.6;
   /* Safe area and fixed-bottom UI spacing tokens (single source of truth). */
   --app-safe-area-bottom: env(safe-area-inset-bottom, 0px);
   /* On-screen keyboard height, published by KeyboardInsetManager (native +
@@ -888,12 +898,12 @@ textarea {
    * Retune this only after the passkey coupling is understood. Shipping a
    * duplicate passkey prompt to make screens feel quicker is not a trade worth
    * making. */
-  --motion-duration-xs: 120ms;
-  --motion-duration-sm: 180ms;
-  --motion-duration-md: 240ms;
-  --motion-duration-lg: 320ms;
-  --motion-duration-xl: 450ms;
-  --motion-duration-xxl: 600ms;
+  --motion-duration-xs: 75ms;
+  --motion-duration-sm: 100ms;
+  --motion-duration-md: 125ms;
+  --motion-duration-lg: 140ms;
+  --motion-duration-xl: 150ms;
+  --motion-duration-xxl: 150ms;
 
   --motion-ease-standard: cubic-bezier(0.2, 0, 0, 1);
   --motion-ease-accelerate: cubic-bezier(0.3, 0, 1, 1);
@@ -903,27 +913,24 @@ textarea {
   /* Press physics: the system-wide active/pressed state is a uniform scale
      shrink layered over the md-ripple. One value everywhere so every control
      carries the same tactile weight; consumed by the .press-scale utility. */
-  --motion-press-scale: 0.95;
-  --motion-press-duration: var(--motion-duration-xs);
+  --motion-press-scale: 0.97;
+  --motion-press-duration: 80ms;
 
   --motion-page-enter-duration: var(--motion-duration-xl);
   --motion-deck-duration: var(--motion-duration-xl);
 
-  /* Overlay (dialog/popover/sheet/menu/tooltip) motion. Open uses a slightly
-   * longer, decelerating curve so surfaces settle in; close is a touch quicker
-   * with a gentle accelerate so dismissal feels responsive yet never snaps.
-   * Tuned for a uniform 60fps frame across every Radix overlay. */
-  --motion-overlay-enter-duration: var(--motion-duration-md); /* 240ms */
-  --motion-overlay-exit-duration: 200ms;
+  /* Overlay (dialog/popover/sheet/menu/tooltip) motion: hard-capped at <=150ms.
+   * Open uses a snappy decelerating curve; close accelerates cleanly out.
+   * Tuned for a uniform 60-120fps frame rate without layout thrashing. */
+  --motion-overlay-enter-duration: 150ms;
+  --motion-overlay-exit-duration: 100ms;
   --motion-overlay-enter-ease: var(--motion-ease-decelerate);
   --motion-overlay-exit-ease: var(--motion-ease-accelerate);
 
-  /* Route transition (full-page crossfade) motion. Deliberately longer and
-   * gentler than overlays so navigation feels graceful, not abrupt. The exit
-   * eases out softly and the enter glides in with a long decelerate. Keep the
-   * JS beats in use-route-transition.ts in sync with these values. */
-  --motion-route-exit-duration: 120ms;
-  --motion-route-enter-duration: 160ms;
+  /* Route transition (full-page crossfade) motion: hard-capped at <=150ms. */
+  /* The complete route envelope is 150ms: 60ms exit + 90ms enter, with no delay. */
+  --motion-route-exit-duration: 60ms;
+  --motion-route-enter-duration: 90ms;
   --motion-route-exit-ease: cubic-bezier(0.4, 0, 0.2, 1);
   --motion-route-enter-ease: cubic-bezier(0.16, 0.84, 0.28, 1);
 
@@ -2108,6 +2115,7 @@ body:has(.profile-account-content)
 
 .agent-chat-workspace {
   --agent-chat-header-safe-top: var(--app-safe-area-top-effective);
+  --agent-chat-header-height: calc(3.75rem + var(--agent-chat-header-safe-top));
   /* Mobile browsers already shrink this full-screen workspace through `dvh`.
    * Capacitor keeps its WebView frame stable, so it opts into the additional
    * keyboard inset below. */
@@ -2122,6 +2130,22 @@ body:has(.profile-account-content)
   );
 }
 
+@media (min-width: 640px) {
+  .agent-chat-workspace {
+    --agent-chat-header-height: calc(4rem + var(--agent-chat-header-safe-top));
+  }
+}
+
+/* A compact 36px control keeps an uncluttered silhouette and a 44px hit area. */
+.agent-chat-workspace [data-chat-new-button] {
+  position: relative;
+}
+.agent-chat-workspace [data-chat-new-button]::after {
+  content: "";
+  position: absolute;
+  inset: -4px 0;
+}
+
 /* The canonical root Chat surface owns the text composer, so it does not
  * need the larger separation used by embedded agent surfaces above a voice
  * launcher. Keep a small, safe-area-aware breathing space before the shared
@@ -2134,30 +2158,41 @@ body:has(.profile-account-content)
     0px
   );
   --agent-chat-composer-bottom: max(
-    calc(0.5rem + var(--app-safe-area-bottom-effective)),
+    calc(var(--app-bottom-shell-height, 4.5rem) + 0.5rem),
     calc(var(--agent-chat-keyboard-inset) + 0.5rem)
   );
   --agent-chat-composer-focused-bottom: max(
-    calc(0.75rem + var(--app-safe-area-bottom-effective)),
+    calc(var(--app-bottom-shell-height, 4.5rem) + 0.75rem),
     calc(var(--agent-chat-keyboard-inset) + 0.5rem)
   );
 }
 
-/* Chat's text composer remains always visible in the viewport. It adapts
- * position smoothly relative to the bottom chrome without ever translating
- * out of the viewport (var(--bottom-nav-travel, 0px) travel is bounded). */
+/* Chat's text composer moves down relatively with the bottom chrome navigation. */
 .agent-chat-workspace[data-agent-chat-route="root"]
   [data-agent-chat-composer-form="root"] {
-  transform: none;
+  transform: translate3d(
+    0,
+    calc(var(--bottom-chrome-progress, 0) * var(--bottom-nav-travel, 0px)),
+    0
+  );
+  transition: transform var(--motion-duration-lg) cubic-bezier(0.16, 1, 0.3, 1);
+  will-change: transform;
 }
 
 @media (prefers-reduced-motion: reduce) {
   .agent-chat-workspace[data-agent-chat-route="root"]
     [data-agent-chat-composer-form="root"] {
     transform: none;
+    transition: none;
   }
 }
 
+/* When the chat history drawer is open, elevate the chat workspace above the bottom navigation bar */
+body:has([data-agent-history-drawer-open="true"]) [data-app-scroll-root] {
+  z-index: 550 !important;
+}
+
+html.kb-open .agent-chat-workspace,
 html.native-keyboard-inset .agent-chat-workspace {
   --agent-chat-keyboard-inset: var(--kb-height, 0px);
 }
@@ -2165,11 +2200,11 @@ html.native-keyboard-inset .agent-chat-workspace {
 html.native-ios .agent-chat-workspace[data-agent-chat-workspace="page"] {
   --agent-chat-header-safe-top: max(64px, var(--app-safe-area-top-effective));
   --agent-chat-composer-bottom: max(
-    calc(1rem + var(--app-safe-area-bottom-effective)),
+    calc(var(--app-bottom-shell-height, 4.5rem) + 0.5rem),
     calc(var(--agent-chat-keyboard-inset) + 0.5rem)
   );
   --agent-chat-composer-focused-bottom: max(
-    calc(1.75rem + var(--app-safe-area-bottom-effective)),
+    calc(var(--app-bottom-shell-height, 4.5rem) + 0.75rem),
     calc(var(--agent-chat-keyboard-inset) + 0.5rem)
   );
 }
@@ -3549,9 +3584,9 @@ body:has([data-testid="one-location-onboarding"])
     0 1px 0 rgba(255, 255, 255, 0.6) inset,
     0 14px 30px -18px rgba(58, 38, 12, 0.32);
   transition:
-    transform var(--motion-duration-m, 240ms) var(--motion-ease-decelerate),
-    box-shadow var(--motion-duration-m, 240ms) var(--motion-ease-decelerate),
-    border-color var(--motion-duration-m, 240ms) var(--motion-ease-decelerate);
+    transform var(--motion-duration-md, 125ms) var(--motion-ease-decelerate),
+    box-shadow var(--motion-duration-md, 125ms) var(--motion-ease-decelerate),
+    border-color var(--motion-duration-md, 125ms) var(--motion-ease-decelerate);
 }
 .one-glyph-tile::before {
   content: "";
@@ -4209,16 +4244,6 @@ body:has([data-testid="one-location-onboarding"])
   .font-black,
   .font-extrabold {
     font-weight: 700 !important;
-  }
-
-  /* Global Lucide icon stroke thickness (lucide-react adds `.lucide` on the SVG). */
-  .lucide {
-    stroke-width: var(--lucide-stroke-width);
-  }
-
-  /* Keep strokes consistent when icons are scaled via `size`/CSS. */
-  .lucide * {
-    vector-effect: non-scaling-stroke;
   }
 
   /* Global cursor-pointer for all interactive elements. Disabled controls
@@ -5094,16 +5119,16 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
 
 /* 
  * MORPHY TRANSITION SYSTEM
- * Standardized 200ms duration for all interactive transitions
+ * Standardized 150ms duration for all finite interactive transitions
  * Theme transitions handled separately to avoid jitter
  */
 
 /* Theme transition class - apply to containers for smooth theme switching */
 .theme-transition {
   transition:
-    background-color 200ms ease-in-out,
-    border-color 200ms ease-in-out,
-    color 200ms ease-in-out;
+    background-color 125ms ease-in-out,
+    border-color 125ms ease-in-out,
+    color 125ms ease-in-out;
 }
 
 /* Theme toggle motion stays local to the control instead of forcing
@@ -5114,13 +5139,13 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
 .theme-switching [data-theme-control] *::after {
   transition-property:
     color, background-color, border-color, transform, opacity !important;
-  transition-duration: 180ms !important;
+  transition-duration: 125ms !important;
   transition-timing-function: var(--motion-ease-standard) !important;
 }
 
 .theme-switching [data-theme-control] [data-segment-indicator] {
   transition-property: transform, background-color, border-color !important;
-  transition-duration: 200ms !important;
+  transition-duration: 140ms !important;
   transition-timing-function: var(--motion-ease-emphasized) !important;
 }
 
@@ -5143,31 +5168,42 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
      transform; each consumer keeps `transform` in its own transition list so
      color/opacity fades are never clobbered. GPU-composited; stands down
      under prefers-reduced-motion. */
+  .press-scale {
+    transition-property: transform;
+    transition-duration: var(--motion-press-duration, 80ms);
+    transition-timing-function: var(--motion-ease-emphasized, cubic-bezier(0.2, 0, 0, 1));
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+  }
   .press-scale:active:not(:disabled) {
-    transform: scale(var(--motion-press-scale));
+    transform: scale(var(--motion-press-scale, 0.97));
+    transition-duration: 50ms;
   }
   @media (prefers-reduced-motion: reduce) {
+    .press-scale,
     .press-scale:active:not(:disabled) {
       transform: none;
+      transition: none;
     }
   }
 
   .morphy-transition {
-    transition: all 200ms ease-in-out;
+    transition: transform 120ms cubic-bezier(0.2, 0, 0, 1),
+      opacity 120ms cubic-bezier(0.2, 0, 0, 1);
   }
   .morphy-transition-colors {
     transition:
-      background-color 200ms ease-in-out,
-      border-color 200ms ease-in-out,
-      color 200ms ease-in-out,
-      fill 200ms ease-in-out,
-      stroke 200ms ease-in-out;
+      background-color 100ms cubic-bezier(0.2, 0, 0, 1),
+      border-color 100ms cubic-bezier(0.2, 0, 0, 1),
+      color 100ms cubic-bezier(0.2, 0, 0, 1),
+      fill 100ms cubic-bezier(0.2, 0, 0, 1),
+      stroke 100ms cubic-bezier(0.2, 0, 0, 1);
   }
   .morphy-transition-shadow {
-    transition: box-shadow 200ms ease-in-out;
+    transition: box-shadow 120ms cubic-bezier(0.2, 0, 0, 1);
   }
   .morphy-transition-transform {
-    transition: transform 200ms ease-in-out;
+    transition: transform 100ms cubic-bezier(0.2, 0, 0, 1);
   }
 
   /* Fade carousel edges so adjacent slides "tease" into view without hard clipping. */
@@ -5208,7 +5244,7 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
 }
 
 .animate-ripple {
-  animation: ripple 600ms cubic-bezier(0.2, 0, 0.1, 1) forwards;
+  animation: ripple 150ms cubic-bezier(0.2, 0, 0.1, 1) forwards;
   will-change: transform, opacity;
   backface-visibility: hidden;
   pointer-events: none;
@@ -5294,8 +5330,8 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
   opacity: 1;
   visibility: visible;
   transition:
-    opacity 0.3s ease-in-out,
-    visibility 0.3s ease-in-out;
+    opacity 150ms ease-in-out,
+    visibility 150ms ease-in-out;
 }
 
 .fade-exit {
@@ -5307,8 +5343,8 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
   opacity: 0;
   visibility: hidden;
   transition:
-    opacity 0.3s ease-in-out,
-    visibility 0.3s ease-in-out;
+    opacity 150ms ease-in-out,
+    visibility 150ms ease-in-out;
 }
 
 /* Ripple Animation for Morphy UI */
@@ -5324,7 +5360,17 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
 }
 
 .animate-ripple {
-  animation: ripple 0.6s linear;
+  animation: ripple 150ms ease-out;
+}
+
+/* Canonical registry icons are glyphs, never their own surfaces. This keeps
+ * Phosphor duotone artwork from painting a faint secondary fill behind utility
+ * controls such as loading, refresh, search, close, and navigation icons. Any
+ * intentional icon well remains owned by its surrounding button/tile. */
+svg[data-canonical-icon="true"] {
+  background-color: transparent !important;
+  background-image: none !important;
+  box-shadow: none !important;
 }
 
 /* iOS-like radius utilities */
@@ -5389,7 +5435,7 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
 }
 
 .animate-token-in {
-  animation: token-fade-in 200ms cubic-bezier(0.2, 0, 0, 1) forwards;
+  animation: token-fade-in 125ms cubic-bezier(0.2, 0, 0, 1) forwards;
 }
 
 /* Smooth scroll behavior for streaming containers */
@@ -6303,6 +6349,12 @@ body[data-persona-surface="ria"] {
 /* Important declarations in the base layer outrank unlayered important rules.
    Keep density overrides in that same layer so the compact contract can win. */
 @layer base {
+  .app-page-shell[data-app-density="compact"] .ui-text-section-label-compact {
+    font-size: var(--type-section-label-compact-size) !important;
+    font-weight: var(--type-section-label-compact-weight) !important;
+    line-height: var(--type-section-label-compact-line) !important;
+  }
+
   .app-page-shell[data-app-density="compact"]
     [data-settings-density="compact"]
     .ui-text-row-label-compact,
@@ -6656,12 +6708,12 @@ body[data-persona-surface="ria"] {
 }
 
 .one-voice-panel-enter {
-  animation: one-voice-panel-enter var(--motion-duration-md, 240ms)
+  animation: one-voice-panel-enter var(--motion-duration-md, 125ms)
     var(--motion-ease-decelerate, cubic-bezier(0, 0, 0.2, 1)) both;
 }
 
 .one-voice-level-fill {
-  transition: width var(--motion-duration-xs, 120ms)
+  transition: transform var(--motion-duration-xs, 120ms)
     var(--motion-ease-standard, cubic-bezier(0.2, 0, 0, 1));
 }
 

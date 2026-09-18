@@ -1,7 +1,7 @@
 "use client";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/lib/morphy-ux/card";
-import { TrendingUp, ShieldAlert, Crown } from "lucide-react";
+import { TrendingUp, ShieldAlert, Crown } from "@/components/icons";
 import { cn } from "@/lib/utils";
 import { Icon } from "@/lib/morphy-ux/ui";
 

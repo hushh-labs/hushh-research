@@ -45,7 +45,7 @@ import {
   UsersRound,
   ChevronRight,
   X,
-} from "lucide-react";
+} from "@/components/icons";
 
 import {
   requestRecipientStatus,
@@ -158,9 +158,8 @@ import {
 import {
   SHARE_CONFIRM_ACTIONS_CLASSNAME,
   SHARE_CONFIRM_PRIMARY_CTA_CLASSNAME,
+  PUBLIC_LINK_CONTROLS_CLASSNAME,
 } from "./location-cta-layout";
-import {
-} from "./location-header-layout";
 import {
   CHANGE_TIME_DURATION_LADDER,
   REQUEST_DURATION_LADDER,
@@ -2367,7 +2366,7 @@ function LocationActionGrid({ items }: { items: LocationActionGridItem[] }) {
             data-voice-label={item.ariaLabel}
             aria-label={item.ariaLabel}
             onClick={item.onClick}
-          className="group flex h-[76px] min-h-[76px] min-w-0 flex-col items-center justify-center gap-1.5 rounded-[14px] bg-[color:var(--app-primary-surface)] px-3 py-2.5 text-center shadow-none ring-1 ring-inset ring-[color:var(--app-separator)] transition-[background-color,transform] [-webkit-tap-highlight-color:transparent] hover:bg-[color:var(--app-secondary-surface)] active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]"
+          className="group flex h-[88px] min-h-[88px] min-w-0 flex-col items-center justify-center gap-1.5 rounded-[14px] bg-[color:var(--app-primary-surface)] px-3 py-3 text-center shadow-none ring-1 ring-inset ring-[color:var(--app-separator)] transition-[background-color,transform] [-webkit-tap-highlight-color:transparent] hover:bg-[color:var(--app-secondary-surface)] active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]"
           >
             <span
               aria-hidden
@@ -3099,7 +3098,7 @@ function LocationToggle({
         onChange(!checked);
       }}
       className={cn(
-        "relative h-[31px] w-[51px] shrink-0 rounded-full transition-colors duration-200",
+        "relative h-[31px] w-[51px] shrink-0 rounded-full transition-colors duration-150",
         // Same tokens as the shared `Switch size="ios"`, not private literals.
         // This used to be `bg-[#34c759]` / `bg-black/15 dark:bg-white/20`, which
         // held the light-mode green in dark mode (where the system value is
@@ -3115,7 +3114,7 @@ function LocationToggle({
     >
       <span
         className={cn(
-          "absolute top-[2px] h-[27px] w-[27px] rounded-full bg-[color:var(--switch-thumb)] shadow-[0_1px_3px_rgba(0,0,0,0.15)] transition-[left] duration-200",
+          "absolute top-[2px] h-[27px] w-[27px] rounded-full bg-[color:var(--switch-thumb)] shadow-[0_1px_3px_rgba(0,0,0,0.15)] transition-[left] duration-150",
           checked ? "left-[22px]" : "left-[2px]",
         )}
       />
@@ -4294,13 +4293,18 @@ export function PeopleHub({
   const pendingRequestByOwnerId = useMemo(() => {
     const byUserId = new globalThis.Map<string, OneLocationAccessRequest>();
     for (const request of vm.requestedByMe) {
-      if (request.status !== "pending" || request.extendsGrantId) continue;
+      if (
+        !isLocationRequestPending(request, vm.nowMs) ||
+        request.extendsGrantId
+      ) {
+        continue;
+      }
       if (!byUserId.has(request.ownerUserId)) {
         byUserId.set(request.ownerUserId, request);
       }
     }
     return byUserId;
-  }, [vm.requestedByMe]);
+  }, [vm.nowMs, vm.requestedByMe]);
 
   const selectedPerson = useMemo(() => {
     if (!selectedPersonId) return null;
@@ -4439,10 +4443,9 @@ export function PeopleHub({
 
   return (
     <div className="pt-4 sm:pt-5" data-testid="one-location-people-hub">
-      {/* Same measure as the hub root (Now | People | Links tabs): the body
-          used to sit in a narrower 640px column, which read as shrinked
-          against the full-width tab strip on desktop. */}
-      <div className="mx-auto w-full max-w-[820px] space-y-4">
+      {/* Full-bleed body: same measure as the hub root (Now | People | Links
+          tabs), so it is never a narrower shrinked column on desktop. */}
+      <div className="w-full space-y-4 sm:space-y-5">
         {!hasSearch ? (
           <CircleSummaryGroup
             circles={vm.circles}
@@ -4457,9 +4460,14 @@ export function PeopleHub({
           className="space-y-2"
           data-testid="one-location-people-connections"
         >
-          <span id="one-location-people-heading" className="sr-only">
+          <SectionLabel
+            as="h2"
+            compact
+            id="one-location-people-heading"
+            className="sr-only"
+          >
             People
-          </span>
+          </SectionLabel>
 
           <div className="flex items-center gap-2">
             <div
@@ -4592,7 +4600,7 @@ export function PeopleHub({
           }}
           onCancelRequest={() => {
             if (selectedPendingRequest) {
-              vm.onWithdrawRequest(selectedPendingRequest.id);
+              void vm.onWithdrawRequest(selectedPendingRequest.id);
             }
           }}
         />
@@ -4820,14 +4828,16 @@ function LinksHub({ vm }: { vm: LocationHubViewModel }) {
                   </span>
                 }
               />
-              <PublicLinkActionRows
-                onCopy={vm.onCopyPublicInvite}
-                onShare={vm.onSharePublicInvite}
-                onRevoke={() => {
-                  if (temp) vm.onRevokePublicInvite(temp);
-                }}
-                revokeBusy={vm.busy === "publicRevoke" || !temp}
-              />
+              <div className={PUBLIC_LINK_CONTROLS_CLASSNAME}>
+                <PublicLinkActionRows
+                  onCopy={vm.onCopyPublicInvite}
+                  onShare={vm.onSharePublicInvite}
+                  onRevoke={() => {
+                    if (temp) vm.onRevokePublicInvite(temp);
+                  }}
+                  revokeBusy={vm.busy === "publicRevoke" || !temp}
+                />
+              </div>
             </>
           ) : (
             <>
@@ -4868,6 +4878,7 @@ function LinksHub({ vm }: { vm: LocationHubViewModel }) {
                 options={PUBLIC_LINK_DURATION_OPTIONS.map((option) => option)}
                 label="Duration"
                 presentation="buttons"
+                equalWidthButtons
                 maxWidthClassName={null}
                 activeClassName="border-[color:var(--app-accent-tint)] bg-[color:var(--app-accent-tint)] text-[color:var(--app-accent)]"
               />
@@ -4875,7 +4886,7 @@ function LinksHub({ vm }: { vm: LocationHubViewModel }) {
                 onClick={vm.onCreatePublicInvite}
                 isLoading={vm.busy === "publicInvite"}
                 data-voice-control-id="one-location-action-temp-link"
-                className="mx-auto block h-11 min-h-11 w-[76%] min-w-0 rounded-[14px] px-5 text-[15px] font-semibold leading-5"
+                className="h-[52px] w-full min-w-0 rounded-full px-5 text-[17px] font-semibold leading-[22px]"
               >
                 {vm.busy === "publicInvite"
                   ? "Creating link…"

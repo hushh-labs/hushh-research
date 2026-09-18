@@ -2,7 +2,7 @@
 
 import React from "react";
 import { useEffect, useState } from "react";
-import { Check, ExternalLink, ShieldCheck, ShieldOff, X } from "lucide-react";
+import { Check, ExternalLink, ShieldCheck, ShieldOff, X } from "@/components/icons";
 
 import { Button } from "@/components/ui/button";
 import { ClarificationCard } from "@/components/one-location/redesign/clarification-card";

@@ -27,7 +27,7 @@ import {
   MapPin,
   Users,
   X,
-} from "lucide-react";
+} from "@/components/icons";
 
 import { LiveMap } from "@/components/one-location/live-map";
 import { Button } from "@/components/ui/button";

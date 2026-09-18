@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Building2 } from "lucide-react";
+import { Building2 } from "@/components/icons";
 
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { InsuranceAgentDetailSurface } from "@/components/connect/insurance-agent-detail-surface";

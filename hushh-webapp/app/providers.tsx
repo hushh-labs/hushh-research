@@ -382,7 +382,9 @@ function AppShellFrame({ children }: ProvidersProps) {
   const pinnedBottomChrome = isRiaRoute(pathname) || foundationVoiceOnlyChrome;
   const bottomShellModel = {
     ambientEnabled:
-      ambientChromeEnabled && !isFullscreenTopFlow && !bottomChromeHidden,
+      ambientChromeEnabled &&
+      !isFullscreenTopFlow &&
+      !bottomChromeHidden,
     navigationHidden: hideBottomNavigation,
     // The canonical Chat route already exposes its text composer. Keep the
     // idle voice launcher out of that route's visual hierarchy while allowing

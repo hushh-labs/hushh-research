@@ -2,7 +2,7 @@
 
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ChevronLeft, LogOut, MoreHorizontal } from "lucide-react";
+import { ChevronLeft, LogOut, MoreHorizontal } from "@/components/icons";
 import { toast } from "sonner";
 
 import { Dialog, DialogContent, DialogTitle, DialogTrigger } from "@/components/ui/dialog";

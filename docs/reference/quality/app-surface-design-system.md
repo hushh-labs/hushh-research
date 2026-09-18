@@ -792,20 +792,20 @@ Use the `Subtle Apple` depth model:
 
 Rules:
 
-1. Use Lucide icons with meaning-first selection.
+1. Use the canonical Phosphor icon registry with meaning-first selection.
 2. Choose icons for what they depict, not for a vague use case:
-   - use `Target`, `BarChart3`, `Building2`, `Newspaper`, `UserRound`, `Shield`, `Wallet`, etc. when they describe the surface directly
+   - use the registry's `Target`, `ChartBar`, `Buildings`, `Newspaper`, `UserCircle`, `Shield`, `Wallet`, etc. exports when they describe the surface directly
    - do not use generic `Sparkles` as a fallback for AI, optimize, onboarding, or premium semantics
-3. For static app surfaces, import icons directly from `lucide-react` so tree-shaking keeps bundles tight. Do not use dynamic icon loading for normal page chrome.
+3. For application-owned surfaces, import icons from `@/components/icons`. The registry owns official Phosphor geometry, native viewBoxes, and default weight so that shell, route, and Profile treatments stay visually aligned. Do not use dynamic icon loading for normal page chrome.
 4. Icon emphasis must match text emphasis in active and highlighted states.
 5. Prefer relative icons that describe the section or action directly.
-6. When building custom icon wells or icon-bearing surfaces, preserve Lucide’s visual assumptions:
-   - 2px stroke language
+6. When building custom icon wells or icon-bearing surfaces, preserve the canonical Phosphor assumptions:
+   - native `viewBox="0 0 256 256"` and the registry's duotone geometry
    - visually centered composition
    - similar optical weight across sibling headers and actions
 7. Refer to:
-   - `https://lucide.dev/guide/packages/lucide-react`
-   - `https://lucide.dev/guide/design/icon-design-guide`
+   - `skills/hushh-icon-theme/SKILL.md`
+   - `docs/ui-migration/iconography-and-motion-audit.md`
 
 ## Market-Specific Rules
 

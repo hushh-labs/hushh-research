@@ -1,7 +1,10 @@
 "use client";
 
 import { useMemo } from "react";
-import { ChevronLeft, Loader2 } from "lucide-react";
+import {
+  ChevronLeftIcon as ChevronLeft,
+  SpinnerGapIcon as Loader2,
+} from "@/components/icons";
 
 import { PkmMemoryRow } from "@/components/profile/pkm-memory-row";
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";

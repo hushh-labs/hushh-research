@@ -6,9 +6,9 @@ import {
   CheckCircleIcon,
   InfoIcon,
   WarningIcon,
-  WarningCircleIcon,
+  AlertCircleIcon as WarningCircleIcon,
   SparkleIcon,
-} from "@phosphor-icons/react";
+} from "@/components/icons";
 import { useIconWeight } from "./icon-theme-context";
 import { cn } from "@/lib/utils";
 

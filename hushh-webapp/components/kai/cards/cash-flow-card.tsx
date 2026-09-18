@@ -12,7 +12,7 @@
 
 "use client";
 
-import { Banknote, ArrowDownLeft, ArrowUpRight, TrendingUp, TrendingDown } from "lucide-react";
+import { Banknote, ArrowDownLeft, ArrowUpRight, TrendingUp, TrendingDown } from "@/components/icons";
 import { cn } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/lib/morphy-ux/card";
 import { Icon } from "@/lib/morphy-ux/ui";

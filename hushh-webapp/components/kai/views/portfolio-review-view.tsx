@@ -28,7 +28,7 @@ import {
   TrendingDown,
   PieChart,
   Wallet,
-} from "lucide-react";
+} from "@/components/icons";
 import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
 import { cn } from "@/lib/utils";
 import { Icon, SegmentedTabs } from "@/lib/morphy-ux/ui";
@@ -1974,7 +1974,7 @@ export function PortfolioReviewView({
     <div className={cn("relative w-full", className)}>
 
 
-      <div className="w-full space-y-8 pb-6 pt-4 transition-all duration-500 ease-in-out md:pt-6">
+      <div className="w-full space-y-8 pb-6 pt-4 transition-[opacity,transform] duration-150 ease-out md:pt-6">
 
 
 

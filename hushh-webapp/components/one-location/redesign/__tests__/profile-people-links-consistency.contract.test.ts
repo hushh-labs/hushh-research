@@ -37,7 +37,7 @@ describe("Profile, Location People, and Location Links consistency contract", ()
     );
 
     expect(source).toContain('return "Finding you\\u2026";');
-    expect(source).toContain("return locationStatusLabel({");
+    expect(source).toContain("const status = locationStatusLabel({");
     expect(source).toContain("accuracyLimited: vm.locationAccuracyLimited");
   });
 
@@ -53,8 +53,8 @@ describe("Profile, Location People, and Location Links consistency contract", ()
       /<SectionLabel\s+as="div"\s+compact\s+role="heading"\s+aria-level=\{2\}/,
     );
     expect(hubSource).toContain('id="one-location-people-heading"');
-    expect(hubSource).toContain(
-      '<SectionLabel\n                as="h2"\n                compact\n                id="one-location-people-heading"',
+    expect(hubSource).toMatch(
+      /<SectionLabel\s+as="h2"\s+compact\s+id="one-location-people-heading"/,
     );
     expect(hubSource).toContain('title="Temporary link"');
     expect(hubSource).not.toContain('<SectionTitle as="h2">Temporary link');

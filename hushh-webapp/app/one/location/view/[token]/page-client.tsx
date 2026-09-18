@@ -9,7 +9,7 @@ import {
   RefreshCw,
   Route,
   ShieldCheck,
-} from "lucide-react";
+} from "@/components/icons";
 
 
 import { driveEtaText } from "@/app/one/location/drive-eta";

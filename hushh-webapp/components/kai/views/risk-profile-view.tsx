@@ -11,7 +11,7 @@
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from "@/lib/morphy-ux/card";
 import { Button as MorphyButton } from "@/lib/morphy-ux/button";
 
-import { Shield, Scale, TrendingUp } from "lucide-react";
+import { Shield, Scale, TrendingUp } from "@/components/icons";
 import { cn } from "@/lib/utils";
 
 
@@ -86,7 +86,7 @@ export function RiskProfileView({
               effect="glass"
               onClick={() => onSelect(id)}
               className={cn(
-                "w-full text-left h-auto p-4 rounded-xl border transition-all flex items-center gap-4 group cursor-pointer",
+                "w-full text-left h-auto p-4 rounded-xl border transition-[background-color,border-color,box-shadow,transform] duration-150 flex items-center gap-4 group cursor-pointer",
                 currentProfile === id
                   ? "border-primary bg-primary/10"
                   : "border-border hover:border-primary/50 hover:bg-primary/5"

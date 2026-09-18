@@ -11,12 +11,14 @@ import { useVoiceToolEffects } from "@/lib/one-voice/session-store";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Capacitor } from "@capacitor/core";
-import { CheckCircle2, Copy, Eye, EyeOff, LockKeyhole } from "lucide-react";
+import { CheckCircle2, Copy, Grid2x2, List, LockKeyhole, Search, X } from "@/components/icons";
 import { toast } from "sonner";
 
 import { AppPageShell } from "@/components/app-ui/app-page-shell";
 import { PageHeader } from "@/components/app-ui/page-sections";
+import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { Button } from "@/lib/morphy-ux/button";
+import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/use-auth";
 import { useVault } from "@/lib/vault/vault-context";
 import { OneKycClientZkService } from "@/lib/services/one-kyc-client-zk-service";
@@ -35,6 +37,8 @@ import {
 } from "@/lib/morphy-ux/ui/surface-primitives";
 import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
 import { ConsentScopeNestedList } from "@/components/consent/consent-scope-nested-list";
+import { DecryptedGrantCard } from "@/components/connections/decrypted-grant-card";
+import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
 import { scopeItemsFromRequestable } from "@/lib/consent/consent-scope-items";
 import {
   PersonProfileService,
@@ -94,13 +98,19 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
   // /connect and the agent's discovery card land here with ?request=1: bring
   // the requestable catalog into view instead of the identity header.
   const requestIntent = searchParams?.get("request") === "1";
+  const sharedIntent = searchParams?.get("section") === "shared";
   const availableSectionRef = useRef<HTMLElement | null>(null);
+  const sharedSectionRef = useRef<HTMLElement | null>(null);
+  const [showUnlockDialog, setShowUnlockDialog] = useState(false);
   const [requesting, setRequesting] = useState(false);
   const [relationshipBusy, setRelationshipBusy] = useState(false);
   const [decryptedByRequest, setDecryptedByRequest] = useState<Record<string, Record<string, unknown>>>({});
-  const [revealedRequests, setRevealedRequests] = useState<Set<string>>(new Set());
   const [decryptingRequestId, setDecryptingRequestId] = useState<string | null>(null);
   const [cancellingBundleId, setCancellingBundleId] = useState<string | null>(null);
+  const [sharedSearchQuery, setSharedSearchQuery] = useState("");
+  const [sharedActiveDomain, setSharedActiveDomain] = useState("all");
+  const [sharedViewMode, setSharedViewMode] = useState<"cards" | "list">("cards");
+  const [expandedRowId, setExpandedRowId] = useState<string | null>(null);
 
   useEffect(() => {
     if (profile) return;
@@ -168,13 +178,11 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
     setDurationHours(DEFAULT_REQUEST_DURATION_HOURS);
     setBundleDetails({});
     setDecryptedByRequest({});
-    setRevealedRequests(new Set());
   }, [resolvedPersonRef]);
 
   useEffect(() => {
     if (isVaultUnlocked) return;
     setDecryptedByRequest({});
-    setRevealedRequests(new Set());
   }, [isVaultUnlocked]);
 
   useEffect(() => {
@@ -185,7 +193,28 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
     }
   }, [requestIntent, viewerProfile]);
 
+  useEffect(() => {
+    if (!sharedIntent || !viewerProfile) return;
+    const node = sharedSectionRef.current;
+    if (node && typeof node.scrollIntoView === "function") {
+      node.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+    if (!isVaultUnlocked) {
+      setShowUnlockDialog(true);
+    }
+  }, [sharedIntent, viewerProfile, isVaultUnlocked]);
+
   const allScopes = useMemo(() => viewerProfile?.requestableScopes || [], [viewerProfile]);
+
+  const grantedScopeRefs = useMemo(
+    () =>
+      new Set(
+        (viewerProfile?.grants || [])
+          .map((grant) => grant.scopeRef)
+          .filter((ref): ref is string => Boolean(ref)),
+      ),
+    [viewerProfile?.grants],
+  );
 
   /**
    * The catalogue in the one shape every scope surface reads.
@@ -198,8 +227,14 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
   const scopeItems = useMemo(() => scopeItemsFromRequestable(allScopes), [allScopes]);
 
   const selectedScopes = useMemo(
-    () => (viewerProfile?.requestableScopes || []).filter((scope) => selectedScopeRefs.has(scope.scopeRef)),
-    [selectedScopeRefs, viewerProfile],
+    () =>
+      allScopes.filter(
+        (scope) =>
+          scope.scopeRef &&
+          selectedScopeRefs.has(scope.scopeRef) &&
+          !grantedScopeRefs.has(scope.scopeRef),
+      ),
+    [allScopes, selectedScopeRefs, grantedScopeRefs],
   );
 
   const submitRequest = async () => {
@@ -294,50 +329,124 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
     }
   };
 
-  const revealGrant = async (requestId: string | null) => {
-    if (!requestId || !user || !vaultKey || !vaultOwnerToken || !isVaultUnlocked || !viewerProfile) {
-      toast.error("Unlock your vault to view this grant.");
+  const revealGrant = useCallback(
+    async (requestId: string | null) => {
+      if (!requestId || !user || !vaultKey || !vaultOwnerToken || !isVaultUnlocked || !viewerProfile) {
+        toast.error("Unlock your vault to view this grant.");
+        return;
+      }
+      if (decryptedByRequest[requestId]) return;
+      const history = viewerProfile.requestHistory.find((item) => item.requestId === requestId);
+      if (!history) {
+        toast.error("This shared information is not available right now.");
+        return;
+      }
+      setDecryptingRequestId(requestId);
+      try {
+        const connector = await OneKycClientZkService.ensureConnector({
+          userId: user.uid,
+          vaultKey,
+          vaultOwnerToken,
+        });
+        const exports = await PersonProfileService.getInformationRequestExports({
+          bundleId: history.bundleId,
+          vaultOwnerToken,
+        });
+        const exact = exports.find((item) => item.requestId === requestId);
+        if (!exact) throw new Error("This shared information is not available right now.");
+        const payload = await OneKycClientZkService.decryptScopedExport({
+          exportPackage: exact.encryptedExport,
+          connector,
+        });
+        setDecryptedByRequest((current) => ({ ...current, [requestId]: payload }));
+      } catch (reason) {
+        toast.error(oneLocationErrorMessage(reason, "This shared information could not be opened."));
+      } finally {
+        setDecryptingRequestId(null);
+      }
+    },
+    [
+      decryptedByRequest,
+      isVaultUnlocked,
+      user,
+      vaultKey,
+      vaultOwnerToken,
+      viewerProfile,
+    ],
+  );
+
+  const allGrants = useMemo(() => viewerProfile?.grants || [], [viewerProfile?.grants]);
+
+  const domainCounts = useMemo(() => {
+    const counts: Record<string, number> = { all: allGrants.length };
+    for (const grant of allGrants) {
+      const d = String(grant.domain || "other").toLowerCase();
+      counts[d] = (counts[d] || 0) + 1;
+    }
+    return counts;
+  }, [allGrants]);
+
+  const availableDomains = useMemo(() => {
+    const set = new Set<string>();
+    for (const grant of allGrants) {
+      if (grant.domain) set.add(grant.domain.toLowerCase());
+    }
+    return Array.from(set).sort();
+  }, [allGrants]);
+
+  const filteredGrants = useMemo(() => {
+    const q = sharedSearchQuery.trim().toLowerCase();
+    return allGrants.filter((grant) => {
+      if (sharedActiveDomain !== "all") {
+        const d = String(grant.domain || "other").toLowerCase();
+        if (d !== sharedActiveDomain) return false;
+      }
+      if (q) {
+        const label = String(grant.label || "").toLowerCase();
+        const domain = String(grant.domain || "").toLowerCase();
+        const scopeRef = String(grant.scopeRef || "").toLowerCase();
+        const decrypted = grant.requestId ? decryptedByRequest[grant.requestId] : null;
+        const decryptedText = decrypted ? JSON.stringify(decrypted).toLowerCase() : "";
+        return (
+          label.includes(q) ||
+          domain.includes(q) ||
+          scopeRef.includes(q) ||
+          decryptedText.includes(q)
+        );
+      }
+      return true;
+    });
+  }, [allGrants, sharedActiveDomain, sharedSearchQuery, decryptedByRequest]);
+
+  useEffect(() => {
+    if (!isVaultUnlocked || !vaultKey || !vaultOwnerToken || !allGrants.length || !user) return;
+    if (decryptingRequestId) return;
+    // Prioritize visible / filtered grants first (on-demand viewport scaling)
+    const pendingFiltered = filteredGrants.filter(
+      (grant) => grant.requestId && !decryptedByRequest[grant.requestId] && decryptingRequestId !== grant.requestId
+    );
+    if (pendingFiltered.length && pendingFiltered[0]?.requestId) {
+      void revealGrant(pendingFiltered[0].requestId);
       return;
     }
-    if (decryptedByRequest[requestId]) {
-      setRevealedRequests((current) => {
-        const next = new Set(current);
-        if (next.has(requestId)) next.delete(requestId);
-        else next.add(requestId);
-        return next;
-      });
-      return;
+    // Lazy background decryption for off-screen/unfiltered items
+    const pendingAll = allGrants.filter(
+      (grant) => grant.requestId && !decryptedByRequest[grant.requestId] && decryptingRequestId !== grant.requestId
+    );
+    if (pendingAll.length && pendingAll[0]?.requestId) {
+      void revealGrant(pendingAll[0].requestId);
     }
-    const history = viewerProfile.requestHistory.find((item) => item.requestId === requestId);
-    if (!history) {
-      toast.error("This shared information is not available right now.");
-      return;
-    }
-    setDecryptingRequestId(requestId);
-    try {
-      const connector = await OneKycClientZkService.ensureConnector({
-        userId: user.uid,
-        vaultKey,
-        vaultOwnerToken,
-      });
-      const exports = await PersonProfileService.getInformationRequestExports({
-        bundleId: history.bundleId,
-        vaultOwnerToken,
-      });
-      const exact = exports.find((item) => item.requestId === requestId);
-      if (!exact) throw new Error("This shared information is not available right now.");
-      const payload = await OneKycClientZkService.decryptScopedExport({
-        exportPackage: exact.encryptedExport,
-        connector,
-      });
-      setDecryptedByRequest((current) => ({ ...current, [requestId]: payload }));
-      setRevealedRequests((current) => new Set(current).add(requestId));
-    } catch (reason) {
-      toast.error(oneLocationErrorMessage(reason, "This shared information could not be opened."));
-    } finally {
-      setDecryptingRequestId(null);
-    }
-  };
+  }, [
+    isVaultUnlocked,
+    vaultKey,
+    vaultOwnerToken,
+    allGrants,
+    filteredGrants,
+    user,
+    decryptedByRequest,
+    decryptingRequestId,
+    revealGrant,
+  ]);
 
   const cancelInformationRequest = async (bundleId: string) => {
     if (!user || !vaultOwnerToken) {
@@ -607,70 +716,187 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
 
         {viewerProfile ? (
           <>
-            <section aria-labelledby="shared-with-you" className="space-y-3">
-              <PageHeader
-                title="Shared with you"
-                description="Information this person has granted to your account. Values stay encrypted until you unlock your vault."
-              />
-              {viewerProfile.grants.length ? (
-                <div className="grid gap-3 sm:grid-cols-2">
-                  {viewerProfile.grants.map((grant, index) => (
-                    <SectionCard key={`${grant.scopeRef || grant.requestId}-${index}`}>
-                      <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <h3 className="font-semibold">{grant.label}</h3>
-                          <p className="mt-1 text-sm text-muted-foreground">
-                            {grant.domain || "Consented information"}
-                          </p>
-                        </div>
-                        <LockKeyhole className="h-4 w-4 text-muted-foreground" />
-                      </div>
-                      {grant.requestId && revealedRequests.has(grant.requestId) && decryptedByRequest[grant.requestId] ? (
-                        <pre
-                          className="mt-3 max-h-56 overflow-auto whitespace-pre-wrap break-words rounded-xl bg-muted/40 p-3 text-xs"
-                          data-testid="person-profile-grant-value"
-                        >
-                          {JSON.stringify(decryptedByRequest[grant.requestId], null, 2)}
-                        </pre>
-                      ) : (
-                        <p className="mt-3 text-sm text-muted-foreground">
-                          {isVaultUnlocked ? "Value hidden until you reveal it." : "Unlock to view."}
-                        </p>
+            <section
+              id="shared-with-you"
+              aria-labelledby="shared-with-you"
+              className="space-y-4"
+              ref={sharedSectionRef}
+            >
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <PageHeader
+                  title="Shared with you"
+                  description="Information this person has granted to your account. Values stay encrypted until you unlock your vault."
+                />
+
+                {allGrants.length > 1 ? (
+                  <div className="flex items-center gap-1 self-start sm:self-auto rounded-xl bg-muted/60 p-1 border border-border/40 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => setSharedViewMode("cards")}
+                      className={cn(
+                        "flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-medium transition-[background-color,color,box-shadow] duration-150",
+                        sharedViewMode === "cards"
+                          ? "bg-background text-foreground shadow-2xs font-semibold"
+                          : "text-muted-foreground hover:text-foreground"
                       )}
-                      <div className="mt-3 flex flex-wrap gap-2">
-                        <Button
+                      title="Cards View"
+                    >
+                      <Grid2x2 className="h-3.5 w-3.5" />
+                      <span>Cards</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSharedViewMode("list")}
+                      className={cn(
+                        "flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-medium transition-[background-color,color,box-shadow] duration-150",
+                        sharedViewMode === "list"
+                          ? "bg-background text-foreground shadow-2xs font-semibold"
+                          : "text-muted-foreground hover:text-foreground"
+                      )}
+                      title="Compact List View"
+                    >
+                      <List className="h-3.5 w-3.5" />
+                      <span>List</span>
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+
+              {allGrants.length > 0 ? (
+                <div className="space-y-3">
+                  {/* Spotlight Search Bar */}
+                  {allGrants.length > 1 ? (
+                    <div className="relative">
+                      <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground/60" />
+                      <input
+                        type="text"
+                        value={sharedSearchQuery}
+                        onChange={(e) => setSharedSearchQuery(e.target.value)}
+                        placeholder={`Search ${allGrants.length} shared records, skills, holdings...`}
+                        className="w-full rounded-2xl border border-border/60 bg-muted/20 px-9 py-2 text-xs sm:text-sm text-foreground placeholder:text-muted-foreground outline-none transition-[background-color,border-color,box-shadow] duration-150 focus:border-primary/40 focus:bg-background focus:ring-2 focus:ring-primary/10"
+                      />
+                      {sharedSearchQuery ? (
+                        <button
                           type="button"
-                          variant="none"
-                          effect="fade"
-                          disabled={decryptingRequestId === grant.requestId}
-                          data-testid="person-profile-grant-reveal"
-                          onClick={() => void revealGrant(grant.requestId)}
+                          onClick={() => setSharedSearchQuery("")}
+                          className="absolute right-3.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                          title="Clear search"
                         >
-                          {grant.requestId && revealedRequests.has(grant.requestId) ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                          {decryptingRequestId === grant.requestId
-                            ? "Opening…"
-                            : grant.requestId && revealedRequests.has(grant.requestId)
-                              ? "Hide"
-                              : "Reveal"}
-                        </Button>
-                        {grant.requestId && revealedRequests.has(grant.requestId) && decryptedByRequest[grant.requestId] ? (
-                          <Button
-                            type="button"
-                            variant="none"
-                            effect="fade"
-                            onClick={() => {
-                              void navigator.clipboard.writeText(JSON.stringify(decryptedByRequest[grant.requestId!]));
-                              toast.success("Copied.");
-                            }}
-                          >
-                            <Copy className="h-4 w-4" />
-                            Copy
-                          </Button>
-                        ) : null}
-                      </div>
-                    </SectionCard>
-                  ))}
+                          <X className="h-3.5 w-3.5" />
+                        </button>
+                      ) : null}
+                    </div>
+                  ) : null}
+
+                  {/* Faceted Domain Pills Rail */}
+                  {availableDomains.length > 1 ? (
+                    <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
+                      <button
+                        type="button"
+                        onClick={() => setSharedActiveDomain("all")}
+                        className={cn(
+                          "inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition-[background-color,color,box-shadow] duration-150 whitespace-nowrap",
+                          sharedActiveDomain === "all"
+                            ? "bg-foreground text-background font-semibold shadow-xs"
+                            : "bg-muted/60 text-muted-foreground hover:bg-muted hover:text-foreground"
+                        )}
+                      >
+                        All
+                        <span className="text-[10px] opacity-70">({allGrants.length})</span>
+                      </button>
+                      {availableDomains.map((dom) => (
+                        <button
+                          key={dom}
+                          type="button"
+                          onClick={() => setSharedActiveDomain(dom)}
+                          className={cn(
+                            "inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium capitalize transition-[background-color,color,box-shadow] duration-150 whitespace-nowrap",
+                            sharedActiveDomain === dom
+                              ? "bg-foreground text-background font-semibold shadow-xs"
+                              : "bg-muted/60 text-muted-foreground hover:bg-muted hover:text-foreground"
+                          )}
+                        >
+                          {dom}
+                          <span className="text-[10px] opacity-70">({domainCounts[dom] || 0})</span>
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
                 </div>
+              ) : null}
+
+              {filteredGrants.length ? (
+                sharedViewMode === "cards" ? (
+                  <div className="grid gap-4 w-full">
+                    {filteredGrants.map((grant, index) => (
+                      <DecryptedGrantCard
+                        key={`${grant.scopeRef || grant.requestId}-${index}`}
+                        grant={grant}
+                        decryptedData={grant.requestId ? decryptedByRequest[grant.requestId] || null : null}
+                        isVaultUnlocked={isVaultUnlocked}
+                        isDecrypting={grant.requestId ? decryptingRequestId === grant.requestId : false}
+                        onUnlockVault={() => setShowUnlockDialog(true)}
+                        onRevealManual={grant.requestId ? () => void revealGrant(grant.requestId) : undefined}
+                      />
+                    ))}
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <SettingsGroup density="comfortable">
+                      {filteredGrants.map((grant, index) => {
+                        const isExpanded = expandedRowId === (grant.requestId || grant.scopeRef);
+                        const decrypted = grant.requestId ? decryptedByRequest[grant.requestId] : null;
+                        return (
+                          <div key={`${grant.scopeRef || grant.requestId}-${index}`}>
+                            <SettingsRow
+                              title={grant.label}
+                              description={grant.domain || "Shared record"}
+                              trailing={
+                                <div className="flex items-center gap-2">
+                                  <span className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
+                                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                                    Active
+                                  </span>
+                                </div>
+                              }
+                              onClick={() =>
+                                setExpandedRowId(isExpanded ? null : grant.requestId || grant.scopeRef || null)
+                              }
+                            />
+                            {isExpanded ? (
+                              <div className="border-t border-border/40 bg-muted/20 p-4">
+                                <DecryptedGrantCard
+                                  grant={grant}
+                                  decryptedData={decrypted}
+                                  isVaultUnlocked={isVaultUnlocked}
+                                  isDecrypting={grant.requestId ? decryptingRequestId === grant.requestId : false}
+                                  onUnlockVault={() => setShowUnlockDialog(true)}
+                                  onRevealManual={grant.requestId ? () => void revealGrant(grant.requestId) : undefined}
+                                />
+                              </div>
+                            ) : null}
+                          </div>
+                        );
+                      })}
+                    </SettingsGroup>
+                  </div>
+                )
+              ) : allGrants.length > 0 ? (
+                <SectionCard className="py-6 text-center">
+                  <p className="text-sm font-medium text-muted-foreground">
+                    No shared records match &ldquo;{sharedSearchQuery}&rdquo;
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSharedSearchQuery("");
+                      setSharedActiveDomain("all");
+                    }}
+                    className="mt-2 text-xs font-semibold text-primary hover:underline"
+                  >
+                    Reset filters
+                  </button>
+                </SectionCard>
               ) : (
                 <SectionCard className="py-8 text-center">
                   <div className="flex flex-col items-center justify-center space-y-2">
@@ -722,6 +948,7 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
                     setSelectedScopeRefs((current) => {
                       const next = new Set(current);
                       for (const id of ids) {
+                        if (grantedScopeRefs.has(id)) continue;
                         if (select) next.add(id);
                         else next.delete(id);
                       }
@@ -735,7 +962,7 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
                     type="button"
                     variant="blue-gradient"
                     effect="fill"
-                    disabled={!selectedScopeRefs.size}
+                    disabled={!selectedScopes.length}
                     onClick={() => {
                       if (!isVaultUnlocked) {
                         toast.error("Unlock your vault before requesting information.");
@@ -745,7 +972,7 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
                     }}
                     data-voice-control-id="person-profile-review-information"
                   >
-                    Review request{selectedScopeRefs.size ? ` (${selectedScopeRefs.size})` : ""}
+                    Review request{selectedScopes.length ? ` (${selectedScopes.length})` : ""}
                   </Button>
                 </div>
               ) : null}
@@ -878,6 +1105,16 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      {user ? (
+        <VaultUnlockDialog
+          user={user}
+          open={showUnlockDialog}
+          onOpenChange={setShowUnlockDialog}
+          onSuccess={() => setShowUnlockDialog(false)}
+          title="Unlock your vault"
+          description="Unlock your private agent to reveal information shared with you."
+        />
+      ) : null}
     </AppPageShell>
   );
 }

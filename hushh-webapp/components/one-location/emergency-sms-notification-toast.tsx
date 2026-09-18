@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronRight, MapPin, Siren } from "lucide-react";
+import { ChevronRight, MapPin, Siren } from "@/components/icons";
 
 import { Icon } from "@/lib/morphy-ux/ui";
 

@@ -16,30 +16,31 @@ import {
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   Check,
-  CaretRight as ChevronRight,
+  ChevronRight,
   Copy,
   FileText,
-  Key as KeyRound,
+  KeyRound,
   Laptop,
-  SignIn as LogIn,
-  List as Menu,
-  ArrowsOut as Maximize2,
-  Microphone as Mic,
-  ArrowsIn as Minimize2,
-  PencilSimple as Pencil,
-  ArrowCounterClockwise as RotateCcw,
-  PaperPlaneRight as Send,
+  LogIn,
+  Maximize2,
+  Mic,
+  Minimize2,
+  Pencil,
+  RotateCcw,
+  Send,
   ThumbsDown,
   ThumbsUp,
-  Trash as Trash2,
+  Trash2,
   User,
   X,
-} from "@phosphor-icons/react";
+} from "@/components/icons";
 
+import { usePuppyConversations } from "@/lib/agent/puppy-conversations";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { requestProfilePaneOpen } from "@/lib/navigation/profile-pane";
 import { Button } from "@/components/ui/button";
 import { AgentHistorySidebar } from "@/components/agent/agent-history-sidebar";
+import { ConnectorsPanel } from "@/components/agent/connectors-panel";
 import { SegmentedControl } from "@/lib/morphy-ux/ui/segmented-control";
 import {
   mergeScopeItems,
@@ -59,6 +60,7 @@ import {
 } from "@/components/agent/email-delivery-history-card";
 import { bucketEmailDeliveryTimelineItems } from "@/lib/agent/agent-chat-email-delivery-timeline";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
+import { AnimatedMenuCrossIcon } from "@/components/agent/animated-menu-cross-icon";
 import { loadPkmAgentLabContext } from "@/lib/profile/pkm-agent-lab-capture";
 import { AgentPkmContextStore } from "@/lib/agent/agent-pkm-context-store";
 import { SecureCardAddForm } from "@/components/wallet/secure-card-add-form";
@@ -89,8 +91,6 @@ import {
   type SpecialistPendingConsentRequestItem,
 } from "@/components/agent/specialist-directive-card";
 import { copyTextToClipboard } from "@/components/agent/chat-markdown-link";
-import { AgentCalendarEventCard } from "@/components/agent/agent-calendar-event-card";
-import { AgentCalendarProposalCard } from "@/components/agent/agent-calendar-proposal-card";
 import { AgentConnectAccessCard } from "@/components/agent/agent-connect-access-card";
 import { AgentGmailNudgeCard } from "@/components/agent/agent-gmail-nudge-card";
 import { AgentMarkdown } from "@/components/agent/agent-markdown";
@@ -155,7 +155,10 @@ import {
   requestAgentConversation,
   requestAgentConversationStop,
 } from "@/lib/agent/agent-voice-settings";
-import { onScroll as onKaiBottomChromeScroll } from "@/lib/navigation/kai-bottom-chrome-visibility";
+import {
+  onScroll as onKaiBottomChromeScroll,
+  snapKaiBottomChromeVisible,
+} from "@/lib/navigation/kai-bottom-chrome-visibility";
 import {
   deleteAgentChatConversation,
   renameAgentChatConversation,
@@ -232,8 +235,6 @@ import { GmailInformationRequestsService } from "@/lib/services/gmail-informatio
 import { GmailReceiptsService } from "@/lib/services/gmail-receipts-service";
 import { useGmailNudges } from "@/lib/gmail/use-gmail-nudges";
 import { useGmailConnectorStatus } from "@/lib/profile/gmail-connector-store";
-import { useCalendarConnectionStatus } from "@/lib/calendar/use-calendar-connection-status";
-import { useCalendarUpcomingEvents } from "@/lib/calendar/use-calendar-upcoming-events";
 
 type AgentMessage = {
   id: string;
@@ -413,69 +414,6 @@ function gmailKycRequestSummary(request: GmailInformationRequestHandoff): string
   return labels.length ? labels.join(", ") : "KYC details";
 }
 
-/** Google's `{dateTime|date}` shape or a plain ISO string, normalized to one flat string. */
-function flatIsoValue(value: unknown): string | null {
-  if (value && typeof value === "object") {
-    const record = value as Record<string, unknown>;
-    value = record.dateTime ?? record.date;
-  }
-  const text = typeof value === "string" ? value.trim() : "";
-  return text || null;
-}
-
-/**
- * Mirrors `_directive_event_fields` in `hushh_mcp/agents/calendar/tools.py`:
- * a cancel proposal's plan only ever has `event_id`/`send_updates`, so its
- * real title/time/attendees come from `plan.current_event` (the event the
- * backend fetched from Google before staging the proposal), not from the
- * top-level plan fields create/reschedule use.
- */
-function calendarEventFieldsFromPlan(
-  action: "create" | "reschedule" | "cancel",
-  plan: Record<string, unknown>,
-): {
-  title: string | null;
-  startAt: string | null;
-  endAt: string | null;
-  attendees: string[];
-  location: string | null;
-} {
-  if (action === "cancel") {
-    const current =
-      plan.current_event && typeof plan.current_event === "object"
-        ? (plan.current_event as Record<string, unknown>)
-        : {};
-    const attendees = Array.isArray(current.attendees)
-      ? (current.attendees as unknown[])
-          .map((item) =>
-            item && typeof item === "object"
-              ? (item as Record<string, unknown>).email
-              : null,
-          )
-          .filter((email): email is string => typeof email === "string" && email.length > 0)
-      : [];
-    return {
-      title: typeof current.title === "string" ? current.title : null,
-      startAt: flatIsoValue(current.start),
-      endAt: flatIsoValue(current.end),
-      attendees,
-      location: typeof current.location === "string" ? current.location : null,
-    };
-  }
-  const attendees = Array.isArray(plan.attendees)
-    ? (plan.attendees as unknown[]).filter(
-        (item): item is string => typeof item === "string" && item.length > 0,
-      )
-    : [];
-  return {
-    title: typeof plan.title === "string" ? plan.title : null,
-    startAt: flatIsoValue(plan.start_at),
-    endAt: flatIsoValue(plan.end_at),
-    attendees,
-    location: typeof plan.location === "string" ? plan.location : null,
-  };
-}
-
 export function getCalendarDirectiveFromToolEvent(
   event: AgentChatToolEvent | null,
 ): SpecialistDirectiveEvent | null {
@@ -541,7 +479,6 @@ export function getCalendarDirectiveFromToolEvent(
     const confirmLabel = conflicts.length > 0 ? `${verb} anyway` : verb;
     const title = String(plan.title || plan.event_id || "event");
     const summary = `${verb} '${title}'`;
-    const eventFields = calendarEventFieldsFromPlan(action, plan);
 
     return {
       delegateAgentId: "agent_calendar",
@@ -554,22 +491,6 @@ export function getCalendarDirectiveFromToolEvent(
           summary,
           confirmLabel,
           expiresAt: String(parsed.expires_at || ""),
-          eventId: typeof plan.event_id === "string" ? plan.event_id : null,
-          title: eventFields.title,
-          startAt: eventFields.startAt,
-          endAt: eventFields.endAt,
-          attendees: eventFields.attendees,
-          location: eventFields.location,
-          sendUpdates: Boolean(plan.send_updates),
-          conflicts: conflicts
-            .filter(
-              (item): item is Record<string, unknown> =>
-                Boolean(item) && typeof item === "object",
-            )
-            .map((item) => ({
-              title: typeof item.title === "string" ? item.title : null,
-              startAt: flatIsoValue(item.start),
-            })),
         },
       },
       message: String(parsed.message || summary),
@@ -599,28 +520,6 @@ export function getCalendarDirectiveFromToolEvent(
   }
 
   return null;
-}
-
-type CalendarDirectivePayload = {
-  type?: string;
-  accessLevel?: string;
-  action?: "create" | "reschedule" | "cancel";
-  title?: string | null;
-  startAt?: string | null;
-  endAt?: string | null;
-  attendees?: string[];
-  location?: string | null;
-  sendUpdates?: boolean;
-  conflicts?: { title: string | null; startAt: string | null }[];
-  confirmLabel?: string;
-  summary?: string;
-};
-
-/** Typed view of an `agent_calendar` directive's payload for the JSX below. */
-function getCalendarPayload(
-  event: SpecialistDirectiveEvent,
-): CalendarDirectivePayload {
-  return event.directive.payload as unknown as CalendarDirectivePayload;
 }
 
 function getConsentActionsPayload(
@@ -1078,20 +977,19 @@ function AgentPromptSuggestions({
       )}
     >
       {prompts.map((prompt) => (
-        <ShellActionSurface
+        <button
           key={prompt}
           type="button"
-          variant="pill"
           disabled={disabled}
           onClick={() => onPromptSelect(prompt)}
-          className="!h-auto !min-h-11 max-w-full !justify-between gap-2.5 !rounded-2xl !px-4 !py-2.5 text-left text-sm font-medium"
+          className="group relative inline-flex !h-auto !min-h-11 max-w-full items-center !justify-between gap-2.5 !rounded-2xl border border-[color:var(--app-glass-border)] bg-[color:var(--app-glass-surface)] !px-4 !py-2.5 text-left text-sm font-medium text-foreground shadow-[var(--app-glass-shadow)] transition-colors duration-150 hover:bg-[color:var(--app-shell-surface-bg-hover)] active:opacity-90 disabled:pointer-events-none disabled:opacity-60"
         >
           <span className="min-w-0 whitespace-normal leading-5">{prompt}</span>
           <ChevronRight
             className="h-4 w-4 shrink-0 text-[color:var(--app-accent-deep)]"
             aria-hidden
           />
-        </ShellActionSurface>
+        </button>
       ))}
     </div>
   );
@@ -1764,6 +1662,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const [conversations, setConversations] = useState<AgentChatConversation[]>(
     [],
   );
+  const puppyHistory = usePuppyConversations(user?.uid ?? null);
+  const { conversations: puppyConversations, activeId: puppyConversationId } = puppyHistory;
   const [messages, setMessages] = useState<AgentMessage[]>(() => [
     createGreetingMessage(),
   ]);
@@ -1784,7 +1684,21 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const [isChatLoading, setIsChatLoading] = useState(false);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const [isHistoryDrawerOpen, setIsHistoryDrawerOpen] = useState(false);
-  const [isHistoryCollapsed, setIsHistoryCollapsed] = useState(false);
+  const [connectorsPanelOpen, setConnectorsPanelOpen] = useState(false);
+  useEffect(() => {
+    // `?panel=connectors` is the connector OAuth-return flow's landing signal
+    // -- connectors live in this sidebar panel now, not a dedicated route, so
+    // completing a connect has to reopen it here instead of navigating to one.
+    if (searchParams?.get("panel") !== "connectors") return;
+    setConnectorsPanelOpen(true);
+    const next = new URLSearchParams(searchParams.toString());
+    next.delete("panel");
+    const query = next.toString();
+    router.replace(query ? `${pathname}?${query}` : pathname, {
+      scroll: false,
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
   const [historyActionPendingId, setHistoryActionPendingId] = useState<
     string | null
   >(null);
@@ -2054,51 +1968,6 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       setGmailConnectBusy(false);
     }
   }, [user]);
-  // Proactive Calendar connect/event cards: same page-variant-only, gated
-  // shape as Gmail's above. A separate idTokenProvider on purpose -- reusing
-  // gmailIdTokenProvider under its Gmail-specific name here would read as
-  // confusing, not as sharing.
-  const calendarIdTokenProvider = useCallback(
-    () => (user?.getIdToken ? user.getIdToken() : Promise.resolve("")),
-    [user],
-  );
-  const calendarConnectionStatus = useCalendarConnectionStatus({
-    userId: user?.uid || null,
-    idTokenProvider: user?.getIdToken ? calendarIdTokenProvider : null,
-    enabled: !isPopover && hasChatAccess,
-  });
-  const calendarEvents = useCalendarUpcomingEvents({
-    userId: user?.uid || null,
-    vaultOwnerToken: vaultOwnerToken || null,
-    isConnected: calendarConnectionStatus.connected,
-  });
-  const [calendarConnectCardDismissed, setCalendarConnectCardDismissed] = useState(false);
-  const [calendarEventCardDismissed, setCalendarEventCardDismissed] = useState(false);
-  const [calendarConnectBusy, setCalendarConnectBusy] = useState(false);
-  const handleConnectCalendar = useCallback(async () => {
-    if (!user?.uid || !user?.getIdToken) return;
-    setCalendarConnectBusy(true);
-    try {
-      const idToken = await user.getIdToken();
-      const start = await GoogleCalendarService.startConnect({
-        idToken,
-        userId: user.uid,
-        accessLevel: "read",
-      });
-      window.location.assign(start.authorize_url);
-    } catch {
-      setCalendarConnectBusy(false);
-    }
-  }, [user]);
-  // One proactive card at a time (reference video shows a single card, not
-  // a wall of them). Gmail's connect/nudge slot takes priority since it
-  // shipped first; Calendar's cards only occupy the region when Gmail's
-  // isn't showing.
-  const gmailCardShowing =
-    (gmailConnectorStatus.status?.connected === false && !gmailConnectCardDismissed) ||
-    (gmailConnectorStatus.status?.connected === true &&
-      !gmailNudgeCardDismissed &&
-      gmailNudges.nudges.length > 0);
   const availablePersonas = useMemo(() => {
     const personas = new Set<typeof activePersona>([activePersona]);
     personas.add("investor");
@@ -2304,6 +2173,12 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   ]);
 
   useEffect(() => {
+    if (isCanonicalChatRoute) {
+      snapKaiBottomChromeVisible();
+    }
+  }, [isCanonicalChatRoute]);
+
+  useEffect(() => {
     const transcript = transcriptRef.current;
     const messagesEnd = messagesEndRef.current;
     if (!transcript || !messagesEnd || isPuppySurface) return;
@@ -2323,7 +2198,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       Math.max(0, transcript.scrollHeight - transcript.clientHeight),
     );
     messagesEnd.scrollIntoView({
-      behavior: "smooth",
+      behavior: "auto",
       block: "end",
     });
   }, [
@@ -2429,10 +2304,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     if (!textarea || voiceActive) return;
     textarea.style.height = "0px";
     const nextHeight = textarea.scrollHeight;
-    // `scrollHeight` includes soft-wrapped text, which is the visual behavior
-    // people notice. Reveal the larger editor after roughly four rendered rows.
-    const long = input.trim().length > 0 && nextHeight > 96;
-    if (!long) setComposerExpanded(false);
+    if (!input.trim()) setComposerExpanded(false);
     // The expanded writing surface owns its fixed, spacious height. The compact
     // pill grows only to its CSS ceiling and then scrolls internally.
     textarea.style.height = composerExpanded ? "" : `${nextHeight}px`;
@@ -3376,23 +3248,36 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     ],
   );
 
-  // The sidebar lists One's conversations only; Puppy One keeps its transcript
-  // on the owner's machine and contributes no rows to it. Acting on one of
-  // those rows therefore means "show me One", and returning to that transcript
-  // is what makes the click do something visible.
+  const handleCreateNewPuppyChat = puppyHistory.create;
+  const handleSelectPuppyConversation = puppyHistory.select;
+  const handleRenamePuppyConversation = (id: string, title: string) => {
+    puppyHistory.rename(id, title);
+  };
+  const handleDeletePuppyConversation = (id: string) => {
+    puppyHistory.remove(id);
+  };
+
   const handleSidebarCreateNewChat = useCallback(() => {
     setIsHistoryDrawerOpen(false);
+    if (isPuppySurface) {
+      handleCreateNewPuppyChat();
+      return;
+    }
     setAgentSurface("one");
     handleCreateNewChat();
-  }, [handleCreateNewChat]);
+  }, [handleCreateNewChat, handleCreateNewPuppyChat, isPuppySurface]);
 
   const handleSidebarSelectConversation = useCallback(
     (nextConversationId: string) => {
       setIsHistoryDrawerOpen(false);
+      if (isPuppySurface) {
+        handleSelectPuppyConversation(nextConversationId);
+        return;
+      }
       setAgentSurface("one");
       void handleSelectConversation(nextConversationId);
     },
-    [handleSelectConversation],
+    [handleSelectConversation, handleSelectPuppyConversation, isPuppySurface],
   );
 
   const handleRenameConversation = useCallback(
@@ -5370,14 +5255,18 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     setInput(prompt);
     window.setTimeout(() => composerTextareaRef.current?.focus(), 0);
   }, []);
-  const openHistoryDrawer = useCallback(() => {
-    historyDrawerReturnFocusRef.current =
-      document.activeElement instanceof HTMLElement
-        ? document.activeElement
-        : null;
-    setIsHistoryDrawerOpen(true);
-    void loadConversationList().catch(() => undefined);
-  }, [loadConversationList]);
+  const toggleHistoryDrawer = useCallback(() => {
+    setIsHistoryDrawerOpen((prev) => {
+      if (!prev) {
+        historyDrawerReturnFocusRef.current =
+          document.activeElement instanceof HTMLElement
+            ? document.activeElement
+            : null;
+        if (!isPuppySurface) void loadConversationList().catch(() => undefined);
+      }
+      return !prev;
+    });
+  }, [isPuppySurface, loadConversationList]);
   const handleHistoryDrawerKeyDown = useCallback(
     (event: ReactKeyboardEvent) => {
       if (event.key === "Escape") {
@@ -5396,21 +5285,23 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     mode: "desktop" | "mobile" = "desktop",
   ) => (
     <AgentHistorySidebar
-      conversations={conversations}
-      activeConversationId={conversationId}
-      loading={isLoadingHistory && conversations.length === 0}
-      disabled={!hasChatAccess || historyInteractionDisabled}
+      conversations={isPuppySurface ? puppyConversations : conversations}
+      activeConversationId={isPuppySurface ? puppyConversationId : conversationId}
+      loading={isPuppySurface ? false : (isLoadingHistory && conversations.length === 0)}
+      disabled={isPuppySurface ? false : (!hasChatAccess || historyInteractionDisabled)}
       actionPendingId={historyActionPendingId}
       className={sidebarClassName}
       collapsed={collapsed}
       mode={mode}
+      hideCloseButton={true}
       surface={agentSurface}
       onClose={onClose}
-      onToggleCollapsed={() => setIsHistoryCollapsed((current) => !current)}
+      onToggleCollapsed={toggleHistoryDrawer}
+      onOpenConnectors={() => setConnectorsPanelOpen(true)}
       onCreateNew={handleSidebarCreateNewChat}
       onSelectConversation={handleSidebarSelectConversation}
-      onRenameConversation={handleRenameConversation}
-      onDeleteConversation={handleDeleteConversation}
+      onRenameConversation={isPuppySurface ? handleRenamePuppyConversation : handleRenameConversation}
+      onDeleteConversation={isPuppySurface ? handleDeletePuppyConversation : handleDeleteConversation}
     />
   );
   const getEmailDeliveryAuth = async () => {
@@ -5459,12 +5350,20 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         // height and manages its internal scroll streams and composer clearance.
         "min-h-[420px] overflow-hidden bg-background",
         isCanonicalChatRoute
-          ? "agent-chat-workspace--root h-full min-h-0 flex-1"
+          ? // The persistent bottom nav is `position: fixed`, so a flex-1/h-full
+            // ancestor has no way to know it needs to leave room above it. Without
+            // this subtraction the composer's own small `--agent-chat-composer-bottom`
+            // padding (by design just a safe-area gap, not full nav clearance --
+            // see the `[data-agent-chat-route="root"]` rule in globals.css) put the
+            // composer's text field directly underneath the fixed nav instead of
+            // above it.
+            "agent-chat-workspace--root h-[calc(100%-var(--app-bottom-shell-height,0px))] min-h-0 flex-1"
           : "h-[calc(100dvh-var(--app-top-content-offset,0px)-var(--app-bottom-shell-height,calc(var(--app-bottom-fixed-ui,0px)+var(--app-safe-area-bottom-effective,0px))))]",
         className,
       )}
       data-agent-chat-workspace="page"
       data-agent-chat-route={isCanonicalChatRoute ? "root" : "embedded"}
+      data-agent-history-drawer-open={isHistoryDrawerOpen ? "true" : undefined}
     >
       <div
         className={cn(
@@ -5474,12 +5373,9 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           "overflow-hidden",
         )}
       >
-        <div className="hidden h-full lg:flex">
-          {renderHistorySidebar("h-full", undefined, isHistoryCollapsed)}
-        </div>
         <div
           className={cn(
-            "fixed inset-0 z-[520] bg-black/35 backdrop-blur-sm transition-opacity duration-200 dark:bg-black/55 lg:hidden",
+            "fixed inset-0 z-[520] bg-black/35 transition-opacity duration-150 motion-reduce:transition-none dark:bg-black/55",
             isHistoryDrawerOpen
               ? "opacity-100"
               : "pointer-events-none opacity-0",
@@ -5490,7 +5386,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         <div
           ref={historyDrawerRef}
           className={cn(
-            "fixed bottom-0 left-0 top-[var(--top-shell-reserved-height,var(--app-safe-area-top-effective,0px))] z-[530] w-[min(88vw,320px)] transform transition-transform duration-200 ease-out lg:hidden",
+            "absolute bottom-0 left-0 top-[var(--agent-chat-header-height)] z-[530] w-[min(88vw,320px)] transform transition-transform duration-150 motion-reduce:transition-none ease-out",
             isHistoryDrawerOpen ? "translate-x-0" : "-translate-x-full",
           )}
           role="dialog"
@@ -5512,23 +5408,22 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           className={cn(
             "relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-[radial-gradient(circle_at_78%_8%,color-mix(in_srgb,var(--app-accent-soft)_42%,transparent),transparent_34%),var(--background)]",
           )}
-          inert={isHistoryDrawerOpen}
         >
           <div
             className={cn(
-              "agent-chat-header flex shrink-0 touch-pan-y items-center justify-between gap-3 bg-background/90 px-4 pt-[var(--agent-chat-header-safe-top)] backdrop-blur-2xl sm:px-5",
-              "min-h-[calc(3.75rem+var(--agent-chat-header-safe-top))] sm:min-h-[calc(4rem+var(--app-safe-area-top-effective,0px))] sm:pt-[var(--app-safe-area-top-effective,0px)] lg:px-6",
+              "agent-chat-header relative z-[540] flex shrink-0 touch-pan-y items-center justify-between gap-3 bg-background/90 px-4 pt-[var(--agent-chat-header-safe-top)] backdrop-blur-2xl sm:px-5",
+              "h-[var(--agent-chat-header-height)] lg:px-6",
             )}
           >
             <div className="flex min-w-0 items-center gap-3">
               <ShellActionSurface
                 variant="icon"
-                className="lg:hidden"
-                onClick={openHistoryDrawer}
-                aria-label="Open chat history"
-                title="Open chat history"
+                onClick={toggleHistoryDrawer}
+                aria-label={isHistoryDrawerOpen ? "Close chat history" : "Open chat history"}
+                title={isHistoryDrawerOpen ? "Close chat history" : "Open chat history"}
+                className="relative z-[540]"
               >
-                <Menu className="h-4 w-4" />
+                <AnimatedMenuCrossIcon isOpen={isHistoryDrawerOpen} />
               </ShellActionSurface>
               <div className="grid h-9 w-9 shrink-0 place-items-center overflow-hidden rounded-[13px] bg-[color:var(--app-accent-soft)] shadow-[0_10px_28px_-20px_var(--app-accent-deep)]">
                 {isPuppySurface ? (
@@ -5673,7 +5568,12 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                       ).replace(/^Gemini\s+/i, "")}
                     </span>
                   </SelectTrigger>
-                  <SelectContent align="end">
+                  <SelectContent
+                    position="popper"
+                    align="end"
+                    sideOffset={6}
+                    className="z-[560] min-w-[12rem]"
+                  >
                     {modelPreference.choices.map((choice) => (
                       <SelectItem key={choice.model_id} value={choice.model_id}>
                         {choice.label}
@@ -5738,57 +5638,88 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
               the two: no message, no history row. */}
           {puppyEverOpened ? (
             <PuppyOneSurface
+              key={user?.uid ?? "signed-out"}
               active={isPuppySurface}
+              conversations={puppyConversations}
+              activeConversationId={puppyConversationId}
+              onCreateConversation={handleCreateNewPuppyChat}
               className={cn(!isPuppySurface && "hidden", "lg:px-8")}
             />
           ) : null}
 
           <div
-            ref={transcriptRef}
-            onScroll={(event) => {
-              // A display:none element fires no scroll events, so this only
-              // ever records One's own position; the guard is belt and braces.
-              if (!isPuppySurface) {
-                const transcript = event.currentTarget;
-                const scrollTop = transcript.scrollTop;
-                oneScrollTopRef.current = scrollTop;
-                if (transcriptProgrammaticScrollRef.current) {
-                  const target = transcriptProgrammaticTargetRef.current;
+            className="relative min-h-0 flex-1 overflow-hidden"
+            inert={isHistoryDrawerOpen}
+          >
+            <div
+              ref={transcriptRef}
+              onScroll={(event) => {
+                // A display:none element fires no scroll events, so this only
+                // ever records One's own position; the guard is belt and braces.
+                if (!isPuppySurface) {
+                  const transcript = event.currentTarget;
+                  const scrollTop = transcript.scrollTop;
+                  const previousScrollTop = oneScrollTopRef.current;
+                  oneScrollTopRef.current = scrollTop;
+
                   const maxScrollTop = Math.max(
                     0,
                     transcript.scrollHeight - transcript.clientHeight,
                   );
-                  if (
-                    target === null ||
-                    Math.abs(scrollTop - Math.min(target, maxScrollTop)) <= 3
-                  ) {
+                  const distanceFromBottom = maxScrollTop - scrollTop;
+
+                  // When the reader scrolls up or moves noticeably away from the bottom,
+                  // immediately clear any programmatic lock and mark active reader control.
+                  if (scrollTop < previousScrollTop - 2 || distanceFromBottom > 64) {
                     clearTranscriptProgrammaticScroll();
+                    transcriptUserScrollRef.current = true;
+                  } else if (distanceFromBottom <= 16) {
+                    // Re-enable following when the reader returns to the latest message
+                    transcriptUserScrollRef.current = false;
                   }
-                  return;
+
+                  if (transcriptProgrammaticScrollRef.current) {
+                    const target = transcriptProgrammaticTargetRef.current;
+                    if (
+                      target === null ||
+                      Math.abs(scrollTop - Math.min(target, maxScrollTop)) <= 3
+                    ) {
+                      clearTranscriptProgrammaticScroll();
+                    }
+                    return;
+                  }
+                  // Any unclassified scroll event after the programmatic guard
+                  // is a real reader movement (wheel, keyboard, or touch). Once
+                  // that happens, message updates must respect the reader's
+                  // position instead of repeatedly snapping to the end.
+                  transcriptUserScrollRef.current = true;
+                  // Chat owns an inner transcript scroller inside the shared
+                  // route shell. Feed its committed movement into the same
+                  // bottom-chrome visibility state used by every other route so
+                  // scrolling Chat up/down hides or reveals nav consistently,
+                  // without a React render on each frame.
+                  if (isCanonicalChatRoute) {
+                    onKaiBottomChromeScroll(scrollTop);
+                  }
                 }
-                // Any unclassified scroll event after the programmatic guard
-                // is a real reader movement (wheel, keyboard, or touch). Once
-                // that happens, message updates must respect the reader's
-                // position instead of repeatedly snapping to the end.
+              }}
+              onWheelCapture={() => {
+                clearTranscriptProgrammaticScroll();
                 transcriptUserScrollRef.current = true;
-                // Chat owns an inner transcript scroller inside the shared
-                // route shell. Feed its committed movement into the same
-                // bottom-chrome visibility state used by every other route so
-                // scrolling Chat up/down hides or reveals nav consistently,
-                // without a React render on each frame.
-                if (isCanonicalChatRoute) {
-                  onKaiBottomChromeScroll(scrollTop);
-                }
-              }
-            }}
-            onWheelCapture={clearTranscriptProgrammaticScroll}
-            onTouchStartCapture={clearTranscriptProgrammaticScroll}
-            className={cn(
-              "min-h-0 flex-1 overflow-y-auto scroll-smooth px-4 pt-5 scrollbar-thin scrollbar-thumb-muted scrollbar-track-transparent sm:px-6",
-              "pb-6 lg:px-8",
-              isPuppySurface && "hidden",
-            )}
-          >
+              }}
+              onTouchStartCapture={() => {
+                clearTranscriptProgrammaticScroll();
+                transcriptUserScrollRef.current = true;
+              }}
+              className={cn(
+                "h-full w-full overflow-y-auto px-4 pt-5 scrollbar-thin scrollbar-thumb-muted scrollbar-track-transparent sm:px-6",
+                "pb-[calc(var(--agent-chat-composer-bottom,5rem)+5.5rem)] lg:px-8",
+                isPuppySurface && "hidden",
+              )}
+              tabIndex={0}
+              role="region"
+              aria-label="Agent conversation history"
+            >
             <div className="mx-auto flex min-h-full w-full max-w-4xl flex-col gap-6">
               {accessMessage ? (
                 <div className="flex flex-col gap-3 rounded-[20px] bg-foreground/[0.045] px-4 py-4 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
@@ -5839,40 +5770,6 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                 <AgentGmailNudgeCard
                   nudges={gmailNudges.nudges}
                   onDismiss={() => setGmailNudgeCardDismissed(true)}
-                />
-              ) : null}
-
-              {!isPopover &&
-              hasChatAccess &&
-              !hasStartedConversation &&
-              !calendarConnectCardDismissed &&
-              calendarConnectionStatus.connected === false &&
-              !gmailCardShowing ? (
-                <AgentConnectAccessCard
-                  title="See what's coming up"
-                  bullets={[
-                    "Reads your calendar for what's coming up next",
-                    "Shows event titles and times — nothing more",
-                    "Never shares or sells your data",
-                    "Never acts without your yes",
-                  ]}
-                  ctaLabel="Connect Calendar & continue"
-                  busy={calendarConnectBusy}
-                  onConnect={() => void handleConnectCalendar()}
-                  onDismiss={() => setCalendarConnectCardDismissed(true)}
-                />
-              ) : null}
-
-              {!isPopover &&
-              hasChatAccess &&
-              !hasStartedConversation &&
-              !calendarEventCardDismissed &&
-              calendarConnectionStatus.connected === true &&
-              calendarEvents.events.length > 0 &&
-              !gmailCardShowing ? (
-                <AgentCalendarEventCard
-                  events={calendarEvents.events}
-                  onDismiss={() => setCalendarEventCardDismissed(true)}
                 />
               ) : null}
 
@@ -6409,122 +6306,72 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                     }}
                   />
                 ) : pendingSpecialistDirective.delegateAgentId ===
-                    "agent_calendar" &&
-                  getCalendarPayload(pendingSpecialistDirective).type ===
-                    "calendar.connect" ? (
-                  <AgentConnectAccessCard
-                    title={
-                      getCalendarPayload(pendingSpecialistDirective)
-                        .accessLevel === "manage"
-                        ? "Allow Calendar scheduling"
-                        : "See what's coming up"
-                    }
-                    bullets={
-                      getCalendarPayload(pendingSpecialistDirective)
-                        .accessLevel === "manage"
-                        ? [
-                            "Reads your calendar to check availability",
-                            "Creates, reschedules, or cancels events only after you confirm each one",
-                            "Never shares or sells your data",
-                          ]
-                        : [
-                            "Reads your calendar for what's coming up next",
-                            "Shows event titles and times — nothing more",
-                            "Never shares or sells your data",
-                            "Never acts without your yes",
-                          ]
-                    }
-                    ctaLabel={
-                      getCalendarPayload(pendingSpecialistDirective)
-                        .confirmLabel ?? "Connect Calendar"
-                    }
-                    busy={specialistBusy}
-                    onConnect={async () => {
-                      const payload = getCalendarPayload(
-                        pendingSpecialistDirective,
-                      );
-                      if (!user?.uid) {
-                        addErrorMessage(
-                          "Sign in again before connecting Google Calendar.",
-                        );
-                        return;
-                      }
-                      setSpecialistBusy(true);
-                      try {
-                        const accessLevel =
-                          payload.accessLevel === "manage"
-                            ? "manage"
-                            : "read";
-                        clearCalendarSetupOAuthReturn();
-                        const start =
-                          await GoogleCalendarService.startConnect({
-                            idToken: await user.getIdToken(),
-                            userId: user.uid,
-                            accessLevel,
-                          });
-                        setPendingSpecialistDirective(null);
-                        window.location.assign(start.authorize_url);
-                      } catch (error) {
-                        addErrorMessage(
-                          error instanceof Error
-                            ? error.message
-                            : "Unable to request Google Calendar permission.",
-                        );
-                      } finally {
-                        setSpecialistBusy(false);
-                      }
-                    }}
-                    onDismiss={() => {
-                      setPendingSpecialistDirective(null);
-                      toast.info(
-                        "Calendar change cancelled. Nothing was changed.",
-                      );
-                    }}
-                  />
-                ) : pendingSpecialistDirective.delegateAgentId ===
-                    "agent_calendar" &&
-                  getCalendarPayload(pendingSpecialistDirective).type ===
-                    "calendar.execute_proposal" ? (
-                  <AgentCalendarProposalCard
-                    action={
-                      getCalendarPayload(pendingSpecialistDirective).action ??
-                      "create"
-                    }
-                    title={
-                      getCalendarPayload(pendingSpecialistDirective).title ??
-                      null
-                    }
-                    startAt={
-                      getCalendarPayload(pendingSpecialistDirective)
-                        .startAt ?? null
-                    }
-                    endAt={
-                      getCalendarPayload(pendingSpecialistDirective).endAt ??
-                      null
-                    }
-                    attendees={
-                      getCalendarPayload(pendingSpecialistDirective)
-                        .attendees ?? []
-                    }
-                    location={
-                      getCalendarPayload(pendingSpecialistDirective)
-                        .location ?? null
-                    }
-                    sendUpdates={Boolean(
-                      getCalendarPayload(pendingSpecialistDirective)
-                        .sendUpdates,
+                  "agent_calendar" ? (
+                  <SpecialistDirectiveCard
+                    summary={String(
+                      (
+                        pendingSpecialistDirective.directive.payload as Record<
+                          string,
+                          unknown
+                        >
+                      ).summary ?? pendingSpecialistDirective.message,
                     )}
-                    conflicts={
-                      getCalendarPayload(pendingSpecialistDirective)
-                        .conflicts ?? []
-                    }
-                    confirmLabel={
-                      getCalendarPayload(pendingSpecialistDirective)
-                        .confirmLabel ?? "Continue"
-                    }
+                    confirmLabel={String(
+                      (
+                        pendingSpecialistDirective.directive.payload as Record<
+                          string,
+                          unknown
+                        >
+                      ).confirmLabel ?? "Continue",
+                    )}
                     busy={specialistBusy}
                     onConfirm={async () => {
                       const directive = pendingSpecialistDirective;
+                      const payload = directive.directive.payload as Record<
+                        string,
+                        unknown
+                      >;
+                      const type = String(payload.type ?? "");
+                      if (type === "calendar.connect") {
+                        if (!user?.uid) {
+                          addErrorMessage(
+                            "Sign in again before connecting Google Calendar.",
+                          );
+                          return;
+                        }
+                        setSpecialistBusy(true);
+                        try {
+                          const accessLevel =
+                            payload.accessLevel === "manage"
+                              ? "manage"
+                              : "read";
+                          clearCalendarSetupOAuthReturn();
+                          const start =
+                            await GoogleCalendarService.startConnect({
+                              idToken: await user.getIdToken(),
+                              userId: user.uid,
+                              accessLevel,
+                            });
+                          setPendingSpecialistDirective(null);
+                          window.location.assign(start.authorize_url);
+                        } catch (error) {
+                          addErrorMessage(
+                            error instanceof Error
+                              ? error.message
+                              : "Unable to request Google Calendar permission.",
+                          );
+                        } finally {
+                          setSpecialistBusy(false);
+                        }
+                        return;
+                      }
+                      if (type !== "calendar.execute_proposal") {
+                        setPendingSpecialistDirective(null);
+                        addErrorMessage(
+                          "That Calendar action is no longer available.",
+                        );
+                        return;
+                      }
                       const token = getVaultOwnerToken();
                       if (!token || !user?.uid) {
                         addErrorMessage(
@@ -6778,6 +6625,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
 
           <form
             onSubmit={handleSubmit}
+            inert={isHistoryDrawerOpen}
             data-agent-chat-composer-form={
               isCanonicalChatRoute ? "root" : "embedded"
             }
@@ -6785,10 +6633,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
               // CSS-only focus-within drives the padding shift in lockstep with
               // the native keyboard resize (no React state/rerender round-trip
               // in the path, which was the source of the visible lag on iOS).
-              "shrink-0 px-3 pt-3 transition-[padding-bottom,transform] duration-[var(--motion-duration-sm)] ease-[var(--motion-ease-standard)] motion-reduce:transition-none sm:px-5",
-              !isCanonicalChatRoute &&
-                "bg-gradient-to-t from-background via-background/96 to-transparent backdrop-blur",
-              "pb-[var(--agent-chat-composer-bottom)] focus-within:pb-[var(--agent-chat-composer-focused-bottom)]",
+              "pointer-events-none absolute inset-x-0 bottom-0 z-10 px-3 pt-3 sm:px-5",
+              "bg-transparent pb-[var(--agent-chat-composer-bottom)] focus-within:pb-[var(--agent-chat-composer-focused-bottom)]",
               // Puppy One has its own composer. Leaving One's on screen would
               // let a message meant for the on-device agent be sent to the
               // cloud one, which is exactly the confusion this mode prevents.
@@ -6797,7 +6643,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           >
             <div
               className={cn(
-                "mx-auto w-full",
+                "pointer-events-auto mx-auto w-full",
                 isCanonicalChatRoute
                   ? "max-w-[var(--app-bottom-shell-max-width)]"
                   : "max-w-4xl",
@@ -7018,19 +6864,24 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                     <div
                       data-testid="agent-chat-composer"
                       className={cn(
-                        "flex min-h-16 items-center gap-2 px-3 py-2 transition-[background-color,box-shadow] focus-within:bg-background/96 focus-within:shadow-[0_20px_60px_-38px_var(--app-accent-deep)] focus-within:ring-[color:var(--app-accent-ring)]",
+                        "flex min-h-14 items-center gap-2 rounded-[var(--app-input-radius)] border-[1.5px] border-black/10 px-4 transition-[border-color,box-shadow,background-color] dark:border-white/15 focus-within:border-[color:var(--app-accent)] focus-within:ring-4 focus-within:ring-[color:var(--app-accent-ring)]",
                         isCanonicalChatRoute
-                          ? "bottom-chrome-surface min-h-[68px] rounded-[28px]"
-                          : "rounded-[24px] bg-foreground/[0.045] shadow-[0_18px_55px_-42px_rgba(0,0,0,0.55)] ring-1 ring-inset ring-foreground/[0.045]",
+                          ? "bottom-chrome-surface min-h-14 rounded-[var(--app-input-radius)]"
+                          : "bg-foreground/[0.045] shadow-[0_18px_55px_-42px_rgba(0,0,0,0.55)]",
                       )}
                     >
-                      <div className="relative min-w-0 flex-1">
+                      <div className="relative flex min-h-0 min-w-0 flex-1 items-center">
                         <textarea
                           ref={composerTextareaRef}
                           data-testid="agent-chat-composer-textarea"
                           aria-label="Message One"
                           value={input}
                           onChange={(event) => setInput(event.target.value)}
+                          onFocus={() => {
+                            if (isCanonicalChatRoute) {
+                              snapKaiBottomChromeVisible();
+                            }
+                          }}
                           onPaste={handleComposerPaste}
                           onKeyDown={(event) => {
                             if (
@@ -7058,26 +6909,28 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                               : "Message One..."
                           }
                           rows={1}
-                          className="block min-h-10 max-h-28 w-full resize-none overscroll-contain overflow-y-auto bg-transparent px-7 py-3 pr-14 text-[16px] leading-6 text-foreground outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-60 sm:max-h-36 sm:px-8 sm:pr-14 sm:text-sm"
+                          className="h-auto max-h-28 min-h-0 min-w-0 flex-1 resize-none overscroll-contain overflow-y-auto border-0 bg-transparent px-0 py-2.5 text-[15px] leading-snug text-foreground caret-[color:var(--app-accent)] outline-none shadow-none focus-visible:border-transparent focus-visible:ring-0 placeholder:text-muted-foreground/60 disabled:cursor-not-allowed disabled:opacity-60 sm:max-h-36 sm:text-sm"
                         />
-                        {/* Always top-right. It used to appear only once the
-                            message grew past a threshold, so the control the
-                            owner reaches for arrived late and moved the moment
-                            it did. */}
                         <Button
                           type="button"
                           variant="ghost"
                           size="icon"
                           data-testid="agent-chat-composer-expand"
-                          className="absolute right-1 top-1.5 h-9 w-9 rounded-xl text-muted-foreground"
+                          className="h-8 w-8 shrink-0 rounded-lg text-muted-foreground hover:bg-foreground/[0.06] hover:text-foreground disabled:pointer-events-none disabled:opacity-30"
                           aria-label="Expand message editor"
                           title="Expand"
+                          disabled={
+                            !input.trim() ||
+                            isVoiceConnecting ||
+                            emailDraftOpen ||
+                            isGmailKycSaving
+                          }
                           onClick={() => setComposerExpanded(true)}
                         >
                           <Maximize2 className="h-4 w-4" />
                         </Button>
                       </div>
-                      <div className="flex shrink-0 items-center gap-2">
+                      <div className="flex shrink-0 items-center gap-1.5">
                         {composerActionRail}
                       </div>
                     </div>
@@ -7086,6 +6939,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
               )}
             </div>
           </form>
+        </div>
         </section>
       </div>
       {user ? (
@@ -7098,6 +6952,10 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           onSuccess={() => setVaultDialogOpen(false)}
         />
       ) : null}
+      <ConnectorsPanel
+        open={connectorsPanelOpen}
+        onOpenChange={setConnectorsPanelOpen}
+      />
     </div>
   );
 }

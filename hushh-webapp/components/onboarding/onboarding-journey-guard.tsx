@@ -9,6 +9,7 @@ import { SessionVerificationRecovery } from "@/components/auth/session-verificat
 import { useAuth } from "@/hooks/use-auth";
 import {
   buildOneSetupRoute,
+  isOneSetupCapabilityRoute,
   isCapabilityOnboardingRoute,
   isOnboardingAdmissionExemptRoute,
   isOneSetupRoute,
@@ -144,7 +145,10 @@ export function OnboardingJourneyGuard({
     normalizedGuardPathname === ROUTES.ONE_SETUP_FINANCE ||
     normalizedGuardPathname === ROUTES.ONE_SETUP_FINANCE_IMPORT;
   const shouldEjectSetupSurface = Boolean(
-    setupSurface && setupDismissed && !isPostRootFinanceSetup,
+    setupSurface &&
+      setupDismissed &&
+      !isPostRootFinanceSetup &&
+      !isOneSetupCapabilityRoute(pathname),
   );
 
   useEffect(() => {
@@ -168,10 +172,11 @@ export function OnboardingJourneyGuard({
         return;
       }
       if (setupSurface) {
-        // First onboarding is admitted. A dismissed user who reaches a setup
-        // surface (browser/OS back, history, direct URL, or stale navigation)
-        // is ejected to home — this is the one place that catches every arrival
-        // path after the one-time gate resolves.
+        // First onboarding and known capability handoffs are admitted. A
+        // dismissed user who reaches the setup hub (browser/OS back, history,
+        // direct URL, or stale navigation) is ejected to the canonical root;
+        // capability routes must remain reachable so their own coordinators can
+        // resolve completed entries to the capability workspace.
         if (shouldEjectSetupSurface) {
           if (redirectTargetRef.current !== ROUTES.HOME) {
             redirectTargetRef.current = ROUTES.HOME;

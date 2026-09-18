@@ -26,7 +26,7 @@ import {
   UsersRound,
   WifiOff,
   X,
-} from "lucide-react";
+} from "@/components/icons";
 import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 
@@ -3313,14 +3313,14 @@ export function LocationImmersiveMap({
             onClick={() => setTrayExpanded((current) => !current)}
           >
             <span
-              className={`absolute left-1/2 top-1.5 h-1 w-10 -translate-x-1/2 rounded-full bg-[var(--app-accent-border)] transition-[opacity,transform,background-color] duration-300 group-hover:bg-[var(--app-accent)] ${
+              className={`absolute left-1/2 top-1.5 h-1 w-10 -translate-x-1/2 rounded-full bg-[var(--app-accent-border)] transition-[opacity,transform,background-color] duration-150 group-hover:bg-[var(--app-accent)] ${
                 trayExpanded
                   ? "scale-x-100 opacity-100"
                   : "scale-x-75 opacity-0"
               }`}
             />
             <span
-              className={`absolute inset-0 grid place-items-center transition-[opacity,transform] duration-300 ${
+              className={`absolute inset-0 grid place-items-center transition-[opacity,transform] duration-150 ${
                 trayExpanded
                   ? "pointer-events-none scale-75 opacity-0"
                   : "scale-100 opacity-100"
@@ -3335,7 +3335,7 @@ export function LocationImmersiveMap({
               ) : null}
             </span>
             <span
-              className={`mt-2 flex min-w-0 flex-1 items-center gap-3 transition-[opacity,transform] duration-300 ${
+              className={`mt-2 flex min-w-0 flex-1 items-center gap-3 transition-[opacity,transform] duration-150 ${
                 trayExpanded
                   ? "translate-y-0 opacity-100"
                   : "pointer-events-none translate-y-2 opacity-0"

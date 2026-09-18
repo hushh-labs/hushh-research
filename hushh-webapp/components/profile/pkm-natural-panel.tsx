@@ -2,7 +2,11 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Loader2, Lock, ShieldAlert } from "lucide-react";
+import {
+  SpinnerGapIcon as Loader2,
+  LockIcon as Lock,
+  ShieldWarningIcon as ShieldAlert,
+} from "@/components/icons";
 import { SearchClearButton } from "@/components/app-ui/search-clear-button";
 
 import { PkmMemoryRow } from "@/components/profile/pkm-memory-row";

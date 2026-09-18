@@ -116,6 +116,8 @@ export const ROUTES = {
   PROFILE_ACCESS: "/one/profile/access",
   PROFILE_ACCESS_CONNECTION: "/one/profile/access/connection",
   PROFILE_CONNECTED_SYSTEMS: "/one/profile/connected-systems",
+  PROFILE_CONNECTORS: "/one/profile/connectors",
+  PROFILE_CONNECTOR_OAUTH_RETURN: "/one/profile/connectors/oauth/return",
   PROFILE_GMAIL: "/one/profile/gmail",
   PROFILE_GMAIL_CONNECTION: "/one/profile/gmail/connection",
   PROFILE_GMAIL_ACTIONS: "/one/profile/gmail/actions",

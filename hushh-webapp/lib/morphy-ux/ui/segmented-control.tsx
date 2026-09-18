@@ -80,21 +80,21 @@ export function SegmentedControl({
   // Size configurations
   const sizeConfig = {
     sm: {
-      container: "h-8 p-0.5",
-      segment: "px-2 py-1 text-xs",
+      container: "h-8 p-[3px] rounded-full",
+      segment: "px-3 py-1 text-xs",
       icon: "w-3.5 h-3.5",
       expandedWidth: "min-w-[70px]",
       collapsedWidth: "min-w-[32px]",
     },
     default: {
-      container: "h-10 p-1",
-      segment: "px-3 py-1.5 text-sm",
+      container: "h-9 p-[3px] rounded-full",
+      segment: "px-3.5 py-1.5 text-sm",
       icon: "w-4 h-4",
       expandedWidth: "min-w-[90px]",
       collapsedWidth: "min-w-[36px]",
     },
     lg: {
-      container: "h-12 p-1",
+      container: "h-11 p-1 rounded-full",
       segment: "px-4 py-2 text-base",
       icon: "w-5 h-5",
       expandedWidth: "min-w-[110px]",
@@ -157,10 +157,10 @@ export function SegmentedControl({
       role="radiogroup"
       aria-label={ariaLabel}
       className={cn(
-        "inline-flex items-center rounded-lg",
-        "bg-muted/80 backdrop-blur-xl",
-        "border border-white/10 dark:border-white/5",
-        "shadow-lg ring-1 ring-black/5",
+        "inline-flex items-center rounded-full",
+        "bg-black/[0.04] dark:bg-white/[0.06] backdrop-blur-md",
+        "border border-black/[0.06] dark:border-white/[0.08]",
+        "shadow-[inset_0_1px_2px_rgba(0,0,0,0.02)]",
         config.container,
         className
       )}
@@ -186,27 +186,27 @@ export function SegmentedControl({
             onClick={() => onValueChange(option.value)}
             className={cn(
               // Base styles
-              "press-scale relative flex items-center justify-center gap-2 rounded-md",
+              "press-scale relative flex items-center justify-center gap-1.5 rounded-full select-none",
               // `transform` stays in the list, and the duration comes off the
-              // motion scale. `transition-all` at 500ms covered the transform
+              // motion scale. `transition-[transform]` at 150ms covered the transform
               // that `.press-scale` drives on :active, so the button sagged
               // for half a second under the thumb against a 120ms press token,
               // and 500ms is off the scale entirely.
               "transition-[color,background-color,box-shadow,transform] duration-[var(--motion-duration-sm)] ease-[var(--motion-ease-standard)]",
               "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
-              "overflow-hidden",
+              "overflow-hidden font-normal tracking-tight",
               config.segment,
 
               // Active state
               isActive && [
-                "bg-background text-foreground shadow-sm",
-                "ring-1 ring-black/5",
+                "bg-white text-neutral-900 font-semibold shadow-[0_1px_3px_rgba(0,0,0,0.08),0_1px_2px_rgba(0,0,0,0.04)]",
+                "dark:bg-white/[0.16] dark:text-white dark:shadow-[0_1px_2px_rgba(0,0,0,0.25)]",
               ],
 
               // Inactive state
               !isActive && [
-                "text-muted-foreground",
-                "hover:text-foreground hover:bg-muted/50",
+                "text-muted-foreground/75",
+                "hover:text-foreground",
               ],
 
               // Width handling for expanding variant
@@ -232,7 +232,7 @@ export function SegmentedControl({
             {isExpanding ? (
               <div
                 className={cn(
-                  "overflow-hidden transition-all duration-[var(--motion-duration-sm)] ease-[var(--motion-ease-standard)] flex items-center",
+                  "overflow-hidden transition-[opacity,transform] duration-[var(--motion-duration-sm)] ease-[var(--motion-ease-standard)] flex items-center",
                   isActive
                     ? "w-auto max-w-[100px] opacity-100 ml-0.5"
                     : "w-0 max-w-0 opacity-0"

@@ -13,7 +13,7 @@ import {
   ShieldCheck,
   ShoppingBag,
   Trash2,
-} from "lucide-react";
+} from "@/components/icons";
 import { toast } from "sonner";
 
 import {
@@ -1768,22 +1768,24 @@ export default function GmailReceiptsPage({
       as="div"
       width="reading"
       className="pb-[calc(var(--app-bottom-fixed-ui,96px)+1.5rem)]"
-      nativeTest={
-        journeyVariant === "workspace"
-          ? {
-              routeId: ROUTES.GMAIL,
-              marker: "native-route-gmail",
-              authState: user ? "authenticated" : "pending",
-              dataState: loadingReceipts
-                ? "loading"
-                : !isConnected
-                  ? "unavailable-valid"
-                  : receipts.length > 0
-                    ? "loaded"
-                    : "empty-valid",
-            }
-          : undefined
-      }
+      nativeTest={{
+        routeId:
+          journeyVariant === "workspace"
+            ? ROUTES.GMAIL
+            : ROUTES.ONE_SETUP_GMAIL,
+        marker:
+          journeyVariant === "workspace"
+            ? "native-route-gmail"
+            : "native-route-one-setup-gmail",
+        authState: user ? "authenticated" : loading ? "pending" : "anonymous",
+        dataState: loadingReceipts
+          ? "loading"
+          : !isConnected
+            ? "unavailable-valid"
+            : receipts.length > 0
+              ? "loaded"
+              : "empty-valid",
+      }}
     >
       <AppPageHeaderRegion>
         <PageHeader

@@ -1,6 +1,6 @@
 "use client";
 
-import { Clock3 } from "lucide-react";
+import { Clock3 } from "@/components/icons";
 import { useEffect, useMemo, useState } from "react";
 
 type StaleCacheTimestampProps = {

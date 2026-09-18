@@ -130,7 +130,7 @@ export function OnboardingStepper({
               <span
                 aria-hidden="true"
                 className={cn(
-                  "block h-1 rounded-full transition-colors duration-200",
+                  "block h-1 rounded-full transition-colors duration-150",
                   isActive || isComplete
                     ? inverse
                       ? "bg-white"

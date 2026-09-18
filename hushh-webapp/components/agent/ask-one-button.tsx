@@ -1,7 +1,7 @@
 "use client";
 
 import type { ComponentPropsWithoutRef } from "react";
-import { MessageCircle } from "lucide-react";
+import { MessageCircle } from "@/components/icons";
 
 import { Button } from "@/lib/morphy-ux/button";
 import { cn } from "@/lib/utils";

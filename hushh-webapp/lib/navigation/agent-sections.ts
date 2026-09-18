@@ -1,4 +1,4 @@
-import { Laptop, LayoutDashboard } from "lucide-react";
+import { Laptop, LayoutDashboard } from "@/components/icons";
 
 import {
   ONE_CAPABILITIES,

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Capacitor } from "@capacitor/core";
-import { Fingerprint, KeyRound } from "lucide-react";
+import { Fingerprint, KeyRound } from "@/components/icons";
 import { usePathname } from "next/navigation";
 
 import { useAuth } from "@/hooks/use-auth";

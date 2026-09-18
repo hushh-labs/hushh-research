@@ -17,15 +17,10 @@
  * Capacitor.isNativePlatform() checks — env(safe-area-inset-top)
  * evaluates correctly in both environments.
  */
-
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  ArrowLeft,
   BriefcaseBusiness,
   ChartNoAxesCombined,
-  Check,
-  ChevronDown,
-  ChevronRight,
   Code2,
   Database,
   FileCheck2,
@@ -36,12 +31,17 @@ import {
   Loader2,
   LogOut,
   Mail,
-  MoreHorizontal,
-  Search,
   Shield,
-  Trash2,
   UserRound,
-} from "lucide-react";
+} from "@/components/icons";
+import {
+  ArrowLeftIcon as ArrowLeft,
+  CaretDownIcon as ChevronDown,
+  CaretRightIcon as ChevronRight,
+  CheckIcon as Check,
+  DotsThreeIcon as MoreHorizontal,
+  TrashIcon as Trash2,
+} from "@/components/icons";
 import { cn } from "@/lib/utils";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
@@ -119,7 +119,6 @@ import {
   trackGrowthFunnelStepCompleted,
 } from "@/lib/observability/growth";
 import { requestInternalAppNavigation } from "@/lib/utils/browser-navigation";
-import { openKaiCommandBar } from "@/lib/navigation/kai-command-bar-events";
 import {
   resolveInitialTopChromeProgress,
   resolveTopChromeScrollProgress,
@@ -1224,19 +1223,6 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
                             <KeyRound className="h-5 w-5 text-amber-600 dark:text-amber-300" />
                           </ShellActionSurface>
                         ) : null}
-
-                        <ShellActionSurface
-                          variant="pill"
-                          aria-label="Search"
-                          onClick={() => openKaiCommandBar()}
-                        >
-                          <Icon
-                            icon={Search}
-                            size="sm"
-                            className="shrink-0 text-current"
-                          />
-                          <span className="truncate">Search</span>
-                        </ShellActionSurface>
 
                         <ShellActionSurface
                           variant="icon"

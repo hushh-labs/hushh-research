@@ -9,7 +9,7 @@ import {
   ChevronDown,
   Loader2,
   type LucideIcon,
-} from "lucide-react";
+} from "@/components/icons";
 
 import {
   Collapsible,

@@ -1,6 +1,11 @@
 "use client";
 
-import { ChevronDown, ChevronRight, Folder, FolderOpen } from "lucide-react";
+import {
+  ChevronDownIcon as ChevronDown,
+  ChevronRightIcon as ChevronRight,
+  FolderSimpleIcon as Folder,
+  FolderOpenIcon as FolderOpen,
+} from "@/components/icons";
 import { useState, type ReactNode } from "react";
 
 import type { PkmMemoryCard } from "@/lib/pkm/pkm-memory-cards";
@@ -22,10 +27,13 @@ export function PkmMemoryBrowser({
     const open = openPaths.has(node.id);
     if (!hasChildren && node.card) return <div key={node.id}>{renderCard(node.card)}</div>;
     return (
-      <div key={node.id} className="border-b border-[color:var(--app-card-border-standard)] last:border-b-0">
+      <div
+        key={node.id}
+        className="group/pkm-memory-node border-b border-[color:var(--app-card-border-standard)] transition-colors last:border-b-0 [@media(hover:hover)]:hover:bg-muted/50"
+      >
         <button
           type="button"
-          className="flex min-h-11 w-full items-center gap-2 py-2 text-left text-sm font-medium text-foreground"
+          className="relative z-10 flex min-h-11 w-full items-center gap-2 bg-transparent py-2 text-left text-sm font-medium text-foreground hover:bg-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
           style={{ paddingLeft: `${Math.min(depth, 4) * 0.85}rem` }}
           aria-expanded={open}
           onClick={() =>

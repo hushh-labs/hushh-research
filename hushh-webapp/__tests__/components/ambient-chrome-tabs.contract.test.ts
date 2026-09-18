@@ -136,7 +136,7 @@ describe("tabbed ambient chrome contract", () => {
     expect(styles).toContain("--ambient-chrome-material-fg: var(--foreground)");
     expect(styles).not.toContain("color: var(--ambient-chrome-top-fg");
     expect(styles).not.toContain("ambient-chrome-bottom-base");
-    expect(styles).toContain("--lucide-stroke-width: 1.6");
+    expect(styles).not.toContain("--lucide-stroke-width");
   });
 
   it("keeps both chrome edges on the one live token contract", () => {

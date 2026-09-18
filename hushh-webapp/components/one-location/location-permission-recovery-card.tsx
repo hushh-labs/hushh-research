@@ -1,6 +1,6 @@
 "use client";
 
-import { Loader2, MapPinOff } from "lucide-react";
+import { Loader2, MapPinOff } from "@/components/icons";
 import { useCallback, useMemo } from "react";
 
 import { Button } from "@/components/ui/button";

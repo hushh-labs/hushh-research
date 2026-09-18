@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ArrowLeft, CheckCircle2, Lock, Share2, Wallet } from "lucide-react";
+import { ArrowLeft, CheckCircle2, Lock, Share2, Wallet } from "@/components/icons";
 import { toast } from "sonner";
 
 import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";

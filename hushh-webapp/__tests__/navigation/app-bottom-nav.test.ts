@@ -116,6 +116,7 @@ describe("app bottom navigation", () => {
         "dashboard",
         "connect",
         "feed",
+        "search",
       ]);
     }
   });

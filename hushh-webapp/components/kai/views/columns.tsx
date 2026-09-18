@@ -12,7 +12,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { MoreHorizontal, ArrowRight, Trash2 } from "lucide-react";
+import { MoreHorizontal, ArrowRight, Trash2 } from "@/components/icons";
 import { cn } from "@/lib/utils";
 import { format, isValid, parseISO } from "date-fns";
 import { Icon } from "@/lib/morphy-ux/ui";

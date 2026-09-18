@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { usePathname } from "next/navigation";
-import { AudioLines, X, ChevronUp } from "lucide-react";
+import { AudioLines, X, ChevronUp } from "@/components/icons";
 import { AgentVoiceWaveform } from "@/components/agent/agent-voice-waveform";
 import { LocationCommandCard } from "./location-command-card";
 import { useLocationCommand } from "./location-command-provider";

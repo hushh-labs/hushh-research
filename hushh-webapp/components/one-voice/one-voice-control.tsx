@@ -29,7 +29,7 @@ import {
   type FormEvent,
 } from "react";
 import { usePathname } from "next/navigation";
-import { AudioLines, Keyboard, Send, X } from "lucide-react";
+import { AudioLines, Keyboard, Send, X } from "@/components/icons";
 
 import { useVoiceSession } from "@/components/one-voice/voice-session-provider";
 import { useAuth } from "@/hooks/use-auth";

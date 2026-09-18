@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { AskOneButton } from "@/components/agent/ask-one-button";
-import { ChevronDown, ChevronUp, Pencil, ShieldCheck } from "lucide-react";
+import { ChevronDown, ChevronUp, Pencil, ShieldCheck } from "@/components/icons";
 import { cn } from "@/lib/utils";
 import { RiaChip } from "@/components/ria/ui/ria-primitives";
 

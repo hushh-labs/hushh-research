@@ -11,7 +11,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Check, Mic, Volume2 } from "lucide-react";
+import { Check, Mic, Volume2 } from "@/components/icons";
 
 import { Button } from "@/components/ui/button";
 import { roleClasses } from "@/lib/morphy-ux/tokens/semantic-roles";
@@ -294,7 +294,7 @@ export function VoiceMicrophoneCheck({
         >
           <span
             className="one-voice-level-fill absolute inset-y-0 left-0 rounded-full bg-[color:var(--app-accent)]"
-            style={{ width: `${percent}%` }}
+            style={{ width: "100%", transform: `scaleX(${percent / 100})`, transformOrigin: "left" }}
           />
         </div>
       ) : null}

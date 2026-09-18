@@ -1,6 +1,6 @@
 "use client";
 
-import { type IconWeight } from "@phosphor-icons/react";
+import { type IconWeight } from "@/components/icons";
 
 export function useIconWeight(): IconWeight {
   return "regular" as IconWeight;

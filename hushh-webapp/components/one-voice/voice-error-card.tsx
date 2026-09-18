@@ -9,7 +9,7 @@
  * something broken and stays until the person reads it and closes it.
  */
 
-import { AlertTriangle, MicOff, Settings, X } from "lucide-react";
+import { AlertTriangle, MicOff, Settings, X } from "@/components/icons";
 
 import { Button } from "@/components/ui/button";
 import { roleClasses } from "@/lib/morphy-ux/tokens/semantic-roles";
