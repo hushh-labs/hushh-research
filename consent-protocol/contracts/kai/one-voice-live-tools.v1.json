@@ -2517,6 +2517,7 @@
       "person_args": [],
       "policy": "confirm_tap",
       "result_statuses": [
+        "committed_sync_pending",
         "invalid",
         "unavailable",
         "updated"

@@ -188,7 +188,10 @@ class UpdateDisplayNameInput(ToolInput):
 
 
 class UpdateDisplayNameResult(ToolResult):
-    status: Literal["updated", "invalid", "unavailable"]
+    # ``committed_sync_pending``: the identity provider holds the new name but
+    # the identity shadow has not caught up yet. That is a committed change
+    # with a refresh pending, never "not changed".
+    status: Literal["updated", "committed_sync_pending", "invalid", "unavailable"]
     display_name: str | None = None
 
 
@@ -218,6 +221,16 @@ async def update_display_name(ctx: ToolContext, args: UpdateDisplayNameInput) ->
             status="unavailable",
             reason_code="identity_not_stored",
             spoken_facts=["The name change didn't save. Your name wasn't changed."],
+        )
+    if str((updated or {}).get("shadow_sync") or "synced") == "pending":
+        return UpdateDisplayNameResult(
+            status="committed_sync_pending",
+            display_name=stored,
+            reason_code="identity_shadow_sync_pending",
+            spoken_facts=[
+                f"Your name is now {stored} with your sign-in provider. "
+                "It's still syncing here, so it may take a moment to show everywhere."
+            ],
         )
     return UpdateDisplayNameResult(
         status="updated",

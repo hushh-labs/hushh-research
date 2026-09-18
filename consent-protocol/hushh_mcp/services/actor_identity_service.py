@@ -1384,20 +1384,39 @@ class ActorIdentityService:
             display_name=value,
             app=firebase_app,
         )
-        updated = await self.sync_from_firebase(normalized_user_id, force=True)
-        if updated is None:
-            # The provider accepted the change; never report the old name back.
-            updated = await self.upsert_identity(
-                user_id=normalized_user_id,
-                display_name=value,
-                email=None,
-                phone_number=None,
-                photo_url=None,
-                email_verified=None,
-                phone_verified=None,
-                source="firebase_auth",
+        # From here the provider holds the new name. Nothing below may turn
+        # that committed write into "your name wasn't changed": a shadow that
+        # fails to catch up is reported as pending, never as a failure.
+        try:
+            updated = await self.sync_from_firebase(normalized_user_id, force=True)
+            if updated is None:
+                # The provider accepted the change; never report the old name back.
+                updated = await self.upsert_identity(
+                    user_id=normalized_user_id,
+                    display_name=value,
+                    email=None,
+                    phone_number=None,
+                    photo_url=None,
+                    email_verified=None,
+                    phone_verified=None,
+                    source="firebase_auth",
+                )
+        except Exception as exc:  # noqa: BLE001 - post-commit shadow errors are opaque
+            logger.warning(
+                "identity.display_name.shadow_sync_pending error=%s",
+                type(exc).__name__,
             )
-        return updated
+            return {
+                "user_id": normalized_user_id,
+                "display_name": value,
+                "shadow_sync": "pending",
+            }
+        result = dict(updated or {})
+        result.setdefault("user_id", normalized_user_id)
+        if not str(result.get("display_name") or "").strip():
+            result["display_name"] = value
+        result["shadow_sync"] = "synced"
+        return result
 
     async def ensure_many(self, user_ids: Iterable[str]) -> dict[str, dict[str, Any]]:
         normalized_ids = [str(user_id or "").strip() for user_id in user_ids]
