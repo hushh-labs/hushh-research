@@ -1151,3 +1151,96 @@ async def test_app_context_rejects_a_malformed_active_circle_id():
     assert session.ctx.screen.active_circle_id is None
     assert transport.frames("error"), "a malformed frame is refused, not silently accepted"
     await _finish(transport, task)
+
+
+# --- tap confirmation proves the actor before the row is confirmed -------------
+
+
+async def test_tap_on_a_firebase_plane_card_verifies_the_proof_before_confirming():
+    from hushh_mcp.one_voice.tools.base import PersonRef as _PersonRef
+
+    class InviteInput(ToolInput):
+        person: _PersonRef
+
+    class InviteResult(ToolResult):
+        status: Literal["sent"]
+
+    async def invite(ctx, args):
+        return InviteResult(status="sent", spoken_facts=["sent"])
+
+    spec = ToolSpec(
+        name="invite_thing",
+        gateway_action_id="people.profile.connect",
+        policy=ToolPolicy.confirm_voice,
+        input_model=InviteInput,
+        output_model=InviteResult,
+        description="Invite.",
+        handler=invite,
+        person_args=("person",),
+        firebase_plane=True,
+        summarize=lambda ctx, a: "send a connection request",
+    )
+    by_name = {t.name: t for t in (*TEST_TOOLS, spec)}
+    import pytest as _pytest
+
+    mp = _pytest.MonkeyPatch()
+    mp.setattr(registry, "get_tool", lambda name: by_name.get(str(name or "")))
+    proofs: list[tuple[str | None, str]] = []
+
+    async def prove(token, expected_user_id):
+        proofs.append((token, expected_user_id))
+        return {"fresh": "ok", "stale": "invalid", "other": "mismatch"}.get(
+            str(token or ""), "missing"
+        )
+
+    try:
+        pending = MemoryPendingStore()
+        transport = FakeTransport([AUTH])
+        fake = FakeLive([LiveEvent(kind="setup_complete")])
+        session = VoiceSession(
+            transport=transport,
+            config=CONFIG,
+            claims=CLAIMS,
+            verify_auth=_ok_auth,
+            live_factory=live_factory_for(fake),
+            executor=ToolExecutor(pending_store=pending, actor_proof=prove),
+            conversations=MemoryConversationStore(),
+            pending=pending,
+        )
+        task = asyncio.create_task(session.run())
+        await asyncio.sleep(0.2)
+        session.ctx.entities.remember_person(
+            ConfirmedPerson(user_id="u-priya", display_name="Priya", confirmed_at=now_iso())
+        )
+        outcome = await session.executor.call(
+            session.ctx, "invite_thing", {"person": {"user_id": "u-priya"}}
+        )
+        row_id = outcome.pending.id
+
+        for token, code in (
+            (None, "firebase_proof_required"),
+            ("stale", "firebase_proof_invalid"),
+            ("other", "firebase_proof_invalid"),
+        ):
+            transport.push(
+                {"type": "confirm_action", "pending_action_id": row_id, "firebase_id_token": token}
+            )
+            await asyncio.sleep(0.15)
+            errors = transport.frames("error")
+            assert errors and errors[-1]["code"] == code, (token, errors)
+            assert (await pending.get(user_id=USER, pending_action_id=row_id)).status == "pending"
+        assert [p[1] for p in proofs] == [USER, USER, USER]
+
+        transport.push(
+            {"type": "confirm_action", "pending_action_id": row_id, "firebase_id_token": "fresh"}
+        )
+        await asyncio.sleep(0.2)
+        assert (await pending.get(user_id=USER, pending_action_id=row_id)).status == "executed"
+        resolved = [
+            f for f in transport.frames("pending_action.resolved") if f["status"] == "executed"
+        ]
+        assert resolved and resolved[-1]["pending_action_id"] == row_id
+        assert session.ctx.firebase_id_token == "fresh"  # noqa: S105
+        await _finish(transport, task)
+    finally:
+        mp.undo()

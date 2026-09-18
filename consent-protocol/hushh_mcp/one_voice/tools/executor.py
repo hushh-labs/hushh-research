@@ -15,11 +15,12 @@ narrates. It returns typed results the model has to read back.
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from pydantic import ValidationError
 
+from hushh_mcp.one_voice.actor_proof import ActorProof, ProofOutcome, verify_firebase_actor
 from hushh_mcp.one_voice.pending_actions import (
     PendingAction,
     PendingActionConflict,
@@ -37,6 +38,13 @@ from hushh_mcp.one_voice.tools.base import (
 logger = logging.getLogger(__name__)
 
 
+# Tools that start a new lookup. While one of these runs, an open card that
+# targets a person or circle is a proposal about the *previous* target: a
+# correction ("no, Priya Sharma") must not leave a card whose spoken yes would
+# still act on the old one.
+LOOKUP_TOOLS = frozenset({"resolve_person", "resolve_circle"})
+
+
 @dataclass
 class ToolCallOutcome:
     result: ToolResult
@@ -45,15 +53,38 @@ class ToolCallOutcome:
     receipt_token: str | None = None
     # The parsed input, exposed so the relay can render an entity card.
     parsed: Any = None
+    # Open pending actions this call superseded (a newer proposal replaced
+    # them, or a new lookup made their target stale). The relay tells the
+    # client and the model so no card outlives its meaning.
+    superseded: list[PendingAction] = field(default_factory=list)
 
     @property
     def public(self) -> dict[str, Any]:
         return self.result.public()
 
 
+# Result status when a firebase-plane confirmation arrives without a proof
+# that names the signed-in user. Never success; the card stays pending so a
+# tap (which carries a fresh proof) can still complete it.
+FIREBASE_PROOF_REQUIRED = "firebase_proof_required"
+
+
 class ToolExecutor:
-    def __init__(self, *, pending_store: PendingActionStore | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        pending_store: PendingActionStore | None = None,
+        actor_proof: ActorProof | None = None,
+    ) -> None:
         self._pending = pending_store
+        self._actor_proof = actor_proof or verify_firebase_actor
+
+    async def prove_actor(self, ctx: ToolContext, spec: ToolSpec | None) -> ProofOutcome:
+        """For a firebase-plane tool, verify the context's Firebase proof names
+        the signed-in user. Other tools need no proof beyond the session."""
+        if spec is None or not spec.firebase_plane:
+            return "ok"
+        return await self._actor_proof(ctx.firebase_id_token, ctx.user_id)
 
     @property
     def pending(self) -> PendingActionStore:
@@ -116,8 +147,14 @@ class ToolExecutor:
         problem = self._entity_problem(spec, ctx, parsed)
         if problem is not None:
             return ToolCallOutcome(result=problem, spec=spec, parsed=parsed)
+        superseded: list[PendingAction] = []
+        if spec.name in LOOKUP_TOOLS:
+            superseded = await self._supersede_targeted(ctx)
         if spec.policy.needs_confirmation:
             summary = spec.summarize(ctx, parsed) if spec.summarize else spec.description
+            superseded = await self.pending.list_open(
+                user_id=ctx.user_id, conversation_id=ctx.conversation_id
+            )
             row, receipt = await self.pending.create(
                 user_id=ctx.user_id,
                 conversation_id=ctx.conversation_id,
@@ -144,6 +181,7 @@ class ToolExecutor:
                 pending=row,
                 receipt_token=receipt,
                 parsed=parsed,
+                superseded=[item for item in superseded if item.id != row.id],
             )
         try:
             result = await spec.handler(ctx, parsed)
@@ -159,7 +197,21 @@ class ToolExecutor:
             )
         if spec.ui_refresh and result.status not in {"rejected", "unsupported"}:
             result.ui_refresh = sorted(set(result.ui_refresh) | set(spec.ui_refresh))
-        return ToolCallOutcome(result=result, spec=spec, parsed=parsed)
+        return ToolCallOutcome(result=result, spec=spec, parsed=parsed, superseded=superseded)
+
+    async def _supersede_targeted(self, ctx: ToolContext) -> list[PendingAction]:
+        """Cancel open pending actions whose args name a person or circle."""
+        cancelled: list[PendingAction] = []
+        for row in await self.pending.list_open(
+            user_id=ctx.user_id, conversation_id=ctx.conversation_id
+        ):
+            spec = registry.get_tool(row.tool_name)
+            if spec is None or not (spec.person_args or spec.circle_args):
+                continue
+            done = await self.pending.cancel(user_id=ctx.user_id, pending_action_id=row.id)
+            if done is not None:
+                cancelled.append(done)
+        return cancelled
 
     async def execute_pending(self, ctx: ToolContext, pending: PendingAction) -> ToolCallOutcome:
         """Run the handler for a *confirmed* pending action and record the result."""
@@ -177,12 +229,17 @@ class ToolExecutor:
                 user_id=ctx.user_id,
                 pending_action_id=pending.id,
                 status="failed",
-                result={"error_class": type(exc).__name__},
+                result={"error_class": type(exc).__name__, "outcome": "unknown"},
             )
+            # The handler died somewhere between "not started" and "committed":
+            # "nothing changed" would be a claim, not a fact.
             return ToolCallOutcome(
                 result=Rejected(
                     reason_code="execution_failed",
-                    spoken_facts=["That didn't go through. Nothing was changed."],
+                    spoken_facts=[
+                        "That didn't go through, and I can't confirm whether anything "
+                        "changed. Check before trying again."
+                    ],
                 ),
                 spec=spec,
                 pending=pending,
@@ -238,6 +295,22 @@ class ToolExecutor:
                 pending=cancelled,
             )
         # confirm_pending_action (voice tier only)
+        current = await self.pending.get(user_id=ctx.user_id, pending_action_id=pending_id)
+        if current is not None and current.status == "pending":
+            proof = await self.prove_actor(ctx, registry.get_tool(current.tool_name))
+            if proof != "ok":
+                # The row stays pending: a tap carries a fresh proof.
+                return ToolCallOutcome(
+                    result=ToolResult(
+                        status=FIREBASE_PROOF_REQUIRED,
+                        reason_code=f"firebase_proof_{proof}",
+                        needs="confirmation",
+                        spoken_facts=[
+                            "I need you to tap Confirm on the card for this one, to prove it's you."
+                        ],
+                    ),
+                    pending=current,
+                )
         try:
             row = await self.pending.confirm(
                 user_id=ctx.user_id, pending_action_id=pending_id, source="voice"

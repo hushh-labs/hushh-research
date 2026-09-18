@@ -49,11 +49,14 @@ _NOT_SUCCESS = {
     "confirmation_required",
     "tap_required",
     "card_not_shown",
+    "firebase_proof_required",
 }
-# A device-executed step is still outstanding: neither a receipt nor a
+# A client-executed step is still outstanding: neither a receipt nor a
 # rejection. It never counts as ok (so the turn cannot read "complete") and
 # never bumps the rejected counter; the settled result does one or the other.
-_AWAITING_DEVICE = frozenset({protocol.LOCATION_UPDATES_PENDING})
+# ``scope_review_required`` is the same shape for a confirmed accept: the
+# review screen is open and nothing has been accepted yet.
+_AWAITING_DEVICE = frozenset({protocol.LOCATION_UPDATES_PENDING, "scope_review_required"})
 
 
 class Transport(Protocol):
@@ -477,13 +480,24 @@ class VoiceSession:
         )
         if row is not None:
             spec = registry.get_tool(row.tool_name)
-        if spec is not None and spec.firebase_plane and not frame.firebase_id_token:
-            await self._send(
-                protocol.error(
-                    "firebase_proof_required", "Sign-in proof is required for this action."
+        if spec is not None and spec.firebase_plane:
+            # The tap's proof is verified here, not merely present: signature,
+            # expiry, revocation, and that it names this session's user. The
+            # row stays pending on refusal so the client can tap again with a
+            # fresh proof.
+            proof = await self.executor._actor_proof(frame.firebase_id_token, self.ctx.user_id)
+            if proof != "ok":
+                await self._send(
+                    protocol.error(
+                        "firebase_proof_required"
+                        if proof == "missing"
+                        else "firebase_proof_invalid",
+                        "Sign-in proof is required for this action."
+                        if proof == "missing"
+                        else "Sign-in proof is invalid or names another account.",
+                    )
                 )
-            )
-            return
+                return
         if frame.firebase_id_token:
             self.ctx.firebase_id_token = frame.firebase_id_token
         try:
@@ -554,8 +568,12 @@ class VoiceSession:
         """
         public = outcome.result.public()
         pending_id = outcome.pending.id if outcome.pending else None
+        awaiting = outcome.result.status in _AWAITING_DEVICE
         executed = ok if ok is not None else outcome.result.status not in _NOT_SUCCESS
-        status = "executed" if executed else "failed"
+        # An outstanding client step: the confirmed action ran (the card is
+        # settled), but the outcome is not in yet, so it is neither ok nor a
+        # rejection until the step reports back.
+        status = "executed" if (executed or awaiting) else "failed"
         if pending_id:
             self.pending_receipts.pop(pending_id, None)
             await self._send(
@@ -568,13 +586,14 @@ class VoiceSession:
                 call_id=call_id,
                 tool=outcome.spec.name if outcome.spec else "",
                 result_public=public,
-                ok=ok,
+                ok=False if awaiting else ok,
             )
         )
-        self._bump(
-            tool_results_ok=1 if status == "executed" else 0,
-            tool_results_rejected=0 if status == "executed" else 1,
-        )
+        if not awaiting:
+            self._bump(
+                tool_results_ok=1 if status == "executed" else 0,
+                tool_results_rejected=0 if status == "executed" else 1,
+            )
         await self._emit_side_effects(outcome)
         await self._persist_entities()
         await self._inject_event(
@@ -784,6 +803,19 @@ class VoiceSession:
         public = outcome.result.public()
         if outcome.result.status == "rejected" and outcome.result.reason_code == "unknown_tool":
             self._bump(unknown_tool_calls=1)
+        for stale in outcome.superseded:
+            # A card the client is still showing no longer means anything: a
+            # newer proposal replaced it, or a fresh lookup made its target
+            # stale. Say so to both sides rather than letting it expire quietly.
+            self.pending_receipts.pop(stale.id, None)
+            await self._send(
+                protocol.pending_resolved(
+                    pending_action_id=stale.id, status="cancelled", result_public=None
+                )
+            )
+            self._bump(pending_cancelled=1)
+        if outcome.superseded:
+            public = dict(public, superseded_pending_action_ids=[s.id for s in outcome.superseded])
         if outcome.pending is not None:
             if outcome.receipt_token:
                 self.pending_receipts[outcome.pending.id] = outcome.receipt_token
