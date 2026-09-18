@@ -4870,7 +4870,7 @@ function LinksHub({ vm }: { vm: LocationHubViewModel }) {
                 onClick={vm.onCreatePublicInvite}
                 isLoading={vm.busy === "publicInvite"}
                 data-voice-control-id="one-location-action-temp-link"
-                className="mx-auto block h-11 min-h-11 w-[76%] min-w-0 rounded-[14px] px-5 text-[15px] font-semibold leading-5"
+                className="h-[52px] w-full min-w-0 rounded-full px-5 text-[17px] font-semibold leading-[22px]"
               >
                 {vm.busy === "publicInvite"
                   ? "Creating link…"
