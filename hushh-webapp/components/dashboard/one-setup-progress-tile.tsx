@@ -48,18 +48,24 @@ export function OneSetupProgressTile({
       ? Math.round((progress.completed / progress.total) * 100)
       : 100;
 
-  const nextUp = progress.remainingIds
-    .slice(0, 2)
-    .map(
-      (id) => CAPABILITY_SETUP_COPY.find((copy) => copy.id === id)?.title ?? id,
+  const capabilityTitle = (id: string) =>
+    CAPABILITY_SETUP_COPY.find((copy) => copy.id === id)?.title ?? id;
+
+  const subtitleParts: string[] = [];
+  if (progress.completedIds.length > 0) {
+    subtitleParts.push(
+      `${progress.completedIds.map(capabilityTitle).join(", ")} connected`,
     );
-  const remainderCount = progress.remainingIds.length - nextUp.length;
-  const subtitle =
-    nextUp.length === 0
-      ? "Everything left is dismissed"
-      : remainderCount > 0
-        ? `${nextUp.join(", ")}, and ${remainderCount} more`
-        : nextUp.join(" and ");
+  }
+  if (progress.dismissedIds.length > 0) {
+    subtitleParts.push(
+      `${progress.dismissedIds.map(capabilityTitle).join(", ")} dismissed`,
+    );
+  }
+  if (progress.remainingIds.length > 0) {
+    subtitleParts.push(`${progress.remainingIds.length} left to decide`);
+  }
+  const subtitle = subtitleParts.join(" · ");
 
   return (
     <Link
