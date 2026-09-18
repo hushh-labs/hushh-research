@@ -2139,7 +2139,7 @@ function NowHub({
           {
             title: "Ask for location",
             ariaLabel: "Ask for location",
-            icon: <LocationMenuGlyph name="ask" size={21} />,
+            icon: <LocationMenuGlyph name="ask" size={22} />,
             tone: "blue",
             onClick: onRequestLocation,
             controlId: "one-location-action-ask",
@@ -2149,7 +2149,7 @@ function NowHub({
           {
             title: "Check In",
             ariaLabel: "Check In",
-            icon: <LocationMenuGlyph name="checkIn" size={21} />,
+            icon: <LocationMenuGlyph name="checkIn" size={22} />,
             tone: "blue",
             onClick: onCheckIn,
             controlId: "one-location-action-check-in",
@@ -2390,7 +2390,7 @@ function LocationActionGrid({ items }: { items: LocationActionGridItem[] }) {
             <span
               aria-hidden
               data-one-location-action-icon=""
-              className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[color:var(--app-accent-tint)] text-[color:var(--app-accent)] transition-colors"
+              className="inline-flex shrink-0 items-center justify-center text-[color:var(--app-accent)] transition-colors [&_svg]:h-[22px] [&_svg]:w-[22px] sm:[&_svg]:h-6 sm:[&_svg]:w-6"
             >
               {item.icon}
             </span>
@@ -4897,26 +4897,31 @@ function LinksHub({ vm }: { vm: LocationHubViewModel }) {
               description="Anyone with this link can see your location until it expires."
             />
             <div className="space-y-4 px-4 pb-4 pt-2">
+              {/* Content-sized chips, not three full-width slabs: the option
+                  set is short and the labels are small, so equal thirds
+                  stretched the row into a congested band. */}
               <DurationSelector
                 value={vm.publicLinkDurationHours}
                 onChange={vm.setPublicLinkDurationHours}
                 options={PUBLIC_LINK_DURATION_OPTIONS.map((option) => option)}
                 label="Duration"
                 presentation="buttons"
-                equalWidthButtons
                 maxWidthClassName={null}
                 activeClassName="border-[color:var(--app-accent-tint)] bg-[color:var(--app-accent-tint)] text-[color:var(--app-accent)]"
               />
-              <Button
-                onClick={vm.onCreatePublicInvite}
-                isLoading={vm.busy === "publicInvite"}
-                data-voice-control-id="one-location-action-temp-link"
-                className="h-[52px] w-full min-w-0 rounded-full px-5 text-[17px] font-semibold leading-[22px]"
-              >
-                {vm.busy === "publicInvite"
-                  ? "Creating link…"
-                  : "Create link"}
-              </Button>
+              {/* Centered and capped: a full-width 52px slab dominated the
+                  card. 280px matches the public-link controls idiom; below
+                  that the button still fills its (narrow phone) row. */}
+              <div className="flex justify-center">
+                <Button
+                  onClick={vm.onCreatePublicInvite}
+                  isLoading={vm.busy === "publicInvite"}
+                  data-voice-control-id="one-location-action-temp-link"
+                  className="h-[52px] w-full max-w-[280px] min-w-0 rounded-full px-5 text-[17px] font-semibold leading-[22px]"
+                >
+                  {vm.busy === "publicInvite" ? "Creating link…" : "Create link"}
+                </Button>
+              </div>
             </div>
           </>
         )}

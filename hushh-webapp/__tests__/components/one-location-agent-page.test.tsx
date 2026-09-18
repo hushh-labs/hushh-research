@@ -1832,18 +1832,19 @@ describe("OneLocationAgentPage", () => {
     expect(regularActionIconClassName).toContain(
       "text-[color:var(--app-accent)]",
     );
-    // Was a bare 24px glyph with no chip -- inconsistent with the emergency
-    // cell's own 30px filled circle right below it in the same grid.
-    expect(regularActionIconClassName).toContain("rounded-full");
-    expect(regularActionIconClassName).toContain(
+    // Bare glyphs, no disc: the product owner wants only the icons, a touch
+    // larger on desktop (22px phones, 24px sm+).
+    expect(regularActionIconClassName).not.toContain("rounded-full");
+    expect(regularActionIconClassName).not.toContain(
       "bg-[color:var(--app-accent-tint)]",
     );
+    expect(regularActionIconClassName).toContain("sm:[&_svg]:h-6");
     expect(
       actionGrid?.querySelector('[data-location-menu-icon="ask"]'),
-    ).toHaveAttribute("width", "21");
+    ).toHaveAttribute("width", "22");
     expect(
       actionGrid?.querySelector('[data-location-menu-icon="checkIn"]'),
-    ).toHaveAttribute("width", "21");
+    ).toHaveAttribute("width", "22");
     expect(
       actionGrid?.querySelectorAll("[data-one-location-action-icon] svg"),
     ).toHaveLength(2);
