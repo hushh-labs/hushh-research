@@ -5144,9 +5144,7 @@
       "route_mode": "redirect",
       "semantic_routes": [],
       "voice": {
-        "action_ids": [
-          "route.ria_home"
-        ],
+        "action_ids": [],
         "delegate_agent_ids": [],
         "playbook_id": "route.ria"
       }
@@ -5508,9 +5506,9 @@
     "data_plane": "6c29df84a4077029db5866a57b43c750ac677369e9d741a4f9e3f85631b0f8e6",
     "in_process_dispatch": "022c40c305a11e06510f2688041a96c1523cae5b5c03d7876fd122ce027e98c3",
     "one_specialist_tools": "a8f007720a7f9b4565e1715ac0fbda4ab54dc3e82bf0cded7f527cbf02222dd2",
-    "route_index": "21f5c01773c9a66d01b294cf84dcbe74981694171659a5f06385a666efed1632",
-    "route_layout": "d1b8ade24248bca68504e3feec06cbf8427ff461f2b95c7c16cc961c27412187",
-    "surface_map": "6f05e85bda9c45a4795ae6cfadac3ebe92f3f7d10dd786c4e37b11c5bd891ba0",
+    "route_index": "58a28d80672d0d4f5b4b5277b710e76c4b578ba2a43235bc6336c9f2b1b48400",
+    "route_layout": "6a34025695cc7dcbcaaac22593b2fa07db540e08a9dd7225db34c70b4bd44daa",
+    "surface_map": "4e309a7065d296cabee136a9bb1afce9cc3a90305aa25d37c86220e063237435",
     "topology_contract": "604960e855be06af77bd75d21f3eace0e2ea5647b344d08f0acd2b8c35d4f4e9",
     "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"
   },
