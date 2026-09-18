@@ -4793,6 +4793,7 @@ function LinksHub({ vm }: { vm: LocationHubViewModel }) {
       <SettingsGroup
         title="Temporary link"
         separatorInset
+        density="compact"
         shellClassName={LOCATION_GROUP_SHELL_CLASSNAME}
         className="[&>div:first-child]:mt-0"
         testId="one-location-links-temporary-link"
