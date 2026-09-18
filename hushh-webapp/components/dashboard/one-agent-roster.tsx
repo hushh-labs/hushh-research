@@ -51,7 +51,12 @@ type OneAgentMode = {
   href: string;
   icon: OneCapabilityIcon;
   statusTone: CapabilityStatusTone;
-  /** Full color once genuinely set up; greyscale otherwise -- see isCapabilityOnboarded. */
+  /**
+   * Computed but not currently rendered -- greyscale-until-onboarded icons
+   * were reverted (icons stay full color regardless of setup state) pending
+   * further product direction. Kept so the icon treatment is a one-line
+   * change to bring back, not a rebuild.
+   */
   isOnboarded: boolean;
   primaryMetric: {
     value: string;
@@ -611,7 +616,9 @@ function AgentGridItem({
         icon={mode.icon}
         tone={mode.tone}
         paletteIndex={mode.paletteIndex}
-        isActive={mode.isOnboarded}
+        // Greyscale-until-onboarded is reverted for now -- see isOnboarded's
+        // own comment. Icons stay full color regardless of setup state.
+        isActive
         size="roster-lg"
         treatment="profile"
         glyphContrast="default"
@@ -652,7 +659,7 @@ function AgentListRow({ mode }: { mode: OneAgentMode }) {
           icon={mode.icon}
           tone={mode.tone}
           paletteIndex={mode.paletteIndex}
-          isActive={mode.isOnboarded}
+          isActive
           size="roster"
           treatment="profile"
           glyphContrast="default"

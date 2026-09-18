@@ -140,15 +140,14 @@ describe("OneDashboardPage", () => {
       expect(icon.querySelector("svg")).toBeTruthy();
     }
     const financeIcon = screen.getAllByTestId("one-agent-icon-finance")[0];
-    // finance is "not-started" in this fixture, so under
-    // isCapabilityOnboarded() it renders greyscale (no palette color) --
-    // see the dedicated palette-color coverage below with an all-completed
-    // fixture, where these same capabilities are actually onboarded.
+    // Greyscale-until-onboarded is reverted for now: icons stay full color
+    // regardless of setup state, so "finance" ("not-started" in this
+    // fixture) still carries its palette color -- see the dedicated
+    // palette-color coverage below with an all-completed fixture.
     //
     // Palette slots are assigned by roster position regardless of active
     // state, so this list must still track ONE_CAPABILITIES order: the
-    // palette exists to keep adjacent rows distinguishable, and that
-    // property is preserved even while greyed out.
+    // palette exists to keep adjacent rows distinguishable.
     const rosterPaletteOrder = [
       "finance",
       "wallet",
@@ -176,7 +175,7 @@ describe("OneDashboardPage", () => {
       "7",
       "8",
     ]);
-    expect(financeIcon.querySelector("svg")?.className.baseVal).toContain(
+    expect(financeIcon.querySelector("svg")?.className.baseVal).not.toContain(
       "grayscale",
     );
     expect(financeIcon.querySelector(".backdrop-blur-\\[8px\\]")).toBeNull();
@@ -249,11 +248,9 @@ describe("OneDashboardPage", () => {
     expect(screen.getByRole("heading", { name: "Agents (9)" })).toBeTruthy();
     expect(screen.queryByText("Finish setup")).toBeNull();
 
-    // Every tracked capability here is genuinely completed (plus Wallet/PKM/
-    // Consent, which are never tracked and so are always "onboarded"), so
-    // isCapabilityOnboarded() is true everywhere and each icon keeps its full
-    // per-position mineral palette color -- this is the real assignment-by-
-    // position coverage the greyscale fixture above can no longer carry.
+    // Icons stay full color regardless of setup state (see the mixed-state
+    // fixture above), so this is the palette assignment-by-position coverage:
+    // every capability keeps its own per-position mineral palette color.
     const financeIcon = screen.getAllByTestId("one-agent-icon-finance")[0];
     expect(financeIcon).toHaveStyle({
       "--agent-icon-profile-bg": "#D1FAE5",
