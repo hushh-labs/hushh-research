@@ -183,6 +183,7 @@ import {
 } from "@/lib/agent/specialist-directive-runtime";
 import { useKaiSession } from "@/lib/stores/kai-session-store";
 import { ROUTES } from "@/lib/navigation/routes";
+import { ExternalConnectorService } from "@/lib/services/external-connector-service";
 import { GoogleCalendarService } from "@/lib/services/google-calendar-service";
 import { cn } from "@/lib/utils";
 import {
@@ -625,6 +626,22 @@ function getCalendarPayload(
   event: SpecialistDirectiveEvent,
 ): CalendarDirectivePayload {
   return event.directive.payload as unknown as CalendarDirectivePayload;
+}
+
+type ExternalConnectorDirectivePayload = {
+  type?: string;
+  connectorId?: string;
+  connectorDisplayName?: string;
+  authStyle?: "api_key" | "oauth";
+  summary?: string;
+  confirmLabel?: string;
+};
+
+/** Typed view of an `agent_external_connector` directive's payload. */
+function getExternalConnectorPayload(
+  event: SpecialistDirectiveEvent,
+): ExternalConnectorDirectivePayload {
+  return event.directive.payload as unknown as ExternalConnectorDirectivePayload;
 }
 
 function getConsentActionsPayload(
@@ -6597,6 +6614,74 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                       toast.info(
                         "Calendar change cancelled. Nothing was changed.",
                       );
+                    }}
+                  />
+                ) : pendingSpecialistDirective.delegateAgentId ===
+                    "agent_external_connector" &&
+                  getExternalConnectorPayload(pendingSpecialistDirective)
+                    .type === "connector.connect" ? (
+                  <AgentConnectAccessCard
+                    title={
+                      getExternalConnectorPayload(pendingSpecialistDirective)
+                        .summary ??
+                      `Connect ${
+                        getExternalConnectorPayload(pendingSpecialistDirective)
+                          .connectorDisplayName ?? "this connector"
+                      }`
+                    }
+                    bullets={[
+                      "Reads your data from this connector to answer you",
+                      "Never shares or sells your data",
+                      "Disconnect any time from Profile → Connectors",
+                    ]}
+                    ctaLabel={
+                      getExternalConnectorPayload(pendingSpecialistDirective)
+                        .confirmLabel ?? "Connect"
+                    }
+                    busy={specialistBusy}
+                    onConnect={async () => {
+                      const payload = getExternalConnectorPayload(
+                        pendingSpecialistDirective,
+                      );
+                      const token = getVaultOwnerToken();
+                      if (!token || !payload.connectorId) {
+                        addErrorMessage(
+                          "Vault access expired. Unlock again to continue.",
+                        );
+                        return;
+                      }
+                      if (payload.authStyle !== "oauth") {
+                        // API-key connectors collect the key in a form, not
+                        // inline in chat -- send the owner to the one place
+                        // that flow lives instead of duplicating it here.
+                        setPendingSpecialistDirective(null);
+                        router.push(ROUTES.PROFILE_CONNECTORS);
+                        return;
+                      }
+                      setSpecialistBusy(true);
+                      try {
+                        const redirectUri = `${window.location.origin}${ROUTES.PROFILE_CONNECTOR_OAUTH_RETURN}`;
+                        const start =
+                          await ExternalConnectorService.startOAuthConnect({
+                            vaultOwnerToken: token,
+                            connectorId: payload.connectorId,
+                            redirectUri,
+                          });
+                        setPendingSpecialistDirective(null);
+                        window.location.assign(start.authorizeUrl);
+                      } catch (error) {
+                        addErrorMessage(
+                          error instanceof Error
+                            ? error.message
+                            : "Unable to start that connection.",
+                        );
+                      } finally {
+                        setSpecialistBusy(false);
+                      }
+                    }}
+                    onDismiss={() => {
+                      setPendingSpecialistDirective(null);
+                      toast.info("No problem, I won't connect that for now.");
                     }}
                   />
                 ) : localCrmEnabled && pendingSpecialistDirective.delegateAgentId ===

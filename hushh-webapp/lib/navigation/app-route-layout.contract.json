@@ -3461,6 +3461,66 @@
     }
   },
   {
+    "route": "/one/profile/connectors",
+    "mode": "standard",
+    "shellVerification": {
+      "file": "app/one/profile/connectors/page.tsx",
+      "includes": [
+        "AppPageShell",
+        "AppPageContentRegion"
+      ]
+    },
+    "voicePlaybook": {
+      "playbookId": "route.profile.connectors",
+      "purpose": "Help the person connect and manage external MCP connectors (Notion, HubSpot, ...) so Kai can use their own data from them.",
+      "screen": "profile_connectors",
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain the current guard and retain the goal.",
+        "cancelled": "Respect the cancellation and retain a safe next step.",
+        "failed": "Acknowledge the failure without claiming completion.",
+        "timeout": "Retain the goal and offer one safe retry.",
+        "callbackError": "Return to the verified callback recovery path without claiming success.",
+        "routeMismatch": "Use the verified current route and its generated actions only."
+      },
+      "completionBoundary": "Completion is shown only after the correlated browser settlement succeeds.",
+      "nextRoute": null,
+      "returnPolicy": "stay",
+      "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    }
+  },
+  {
+    "route": "/one/profile/connectors/oauth/return",
+    "mode": "redirect",
+    "exemptionReason": "OAuth callback completes an external connector's authorization and returns to the connectors manage page.",
+    "voicePlaybook": {
+      "playbookId": "route.profile.connectors.oauth.return",
+      "purpose": "Finish the verified external connector authorization callback without exposing credentials.",
+      "screen": "profile_connectors",
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain the current guard and retain the goal.",
+        "cancelled": "Respect the cancellation and retain a safe next step.",
+        "failed": "Return to Connectors and explain that the connection was not completed.",
+        "timeout": "Retain the goal and offer one safe retry.",
+        "callbackError": "Return to the verified callback recovery path without claiming success.",
+        "routeMismatch": "Use the verified current route and its generated actions only."
+      },
+      "completionBoundary": "Completion is shown only after the correlated browser settlement succeeds.",
+      "nextRoute": "/one/profile/connectors",
+      "returnPolicy": "navigate",
+      "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    }
+  },
+  {
     "route": "/one/profile/gmail",
     "mode": "redirect",
     "exemptionReason": "Compatibility redirect route forwards to canonical /one/gmail.",

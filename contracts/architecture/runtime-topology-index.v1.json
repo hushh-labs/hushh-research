@@ -766,6 +766,36 @@
     {
       "data_class": "workflow_state",
       "exact_tables": [
+        "external_connector_oauth_attempts"
+      ],
+      "id": "external_mcp_connector_oauth_attempts",
+      "lifecycle_status": "customer0",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "Short-lived PKCE attempt state for an oauth-style external connector's start()/complete() round trip, via external_connector_oauth_service.py"
+    },
+    {
+      "data_class": "reference",
+      "exact_tables": [
+        "external_mcp_connectors"
+      ],
+      "id": "external_mcp_connector_registry",
+      "lifecycle_status": "customer0",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "Operator-curated catalog of external MCP servers (Notion, HubSpot, ...) a user can connect from chat or the connectors manage page, resolved via external_connector_registry_service.py"
+    },
+    {
+      "data_class": "personal_encrypted",
+      "exact_tables": [
+        "user_external_connector_connections"
+      ],
+      "id": "external_mcp_connector_user_credentials",
+      "lifecycle_status": "customer0",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "Per-user connect/disconnect status and encrypted credential envelope for one external MCP connector, via external_connector_credentials_service.py"
+    },
+    {
+      "data_class": "workflow_state",
+      "exact_tables": [
         "feed_events",
         "feed_event_counterparts"
       ],
@@ -3789,6 +3819,52 @@
       "alias": null,
       "api_dependencies": [],
       "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": null,
+      "page_file": "app/one/profile/connectors/page.tsx",
+      "pathname": "/one/profile/connectors",
+      "route_mode": "standard",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.profile.connectors"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "none",
+        "refresh_trigger": "none",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": null,
+      "page_file": "app/one/profile/connectors/oauth/return/page.tsx",
+      "pathname": "/one/profile/connectors/oauth/return",
+      "route_mode": "redirect",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.profile.connectors.oauth.return"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
         "policy": "none",
         "refresh_trigger": "none",
         "resource_classes": [
@@ -5502,13 +5578,13 @@
     "a2a_scope_map": "7379039859448ff3db422aa5ee50124bbcadcecc8c9c49e3c1471791f54208c1",
     "action_gateway": "ecab0cb538dfc8dfcff911d801132d29065da4665bd4aee79e95df238c07cf7d",
     "agent_registry": "b865a980c4ff47ff91b316a238af7c70cfe01a3a79459199603791428b46a7d4",
-    "cache_manifest": "7d1d92e4a51c68125ae357a27af1f7a715df75911813e019a786b53222f09f8e",
-    "data_plane": "6c29df84a4077029db5866a57b43c750ac677369e9d741a4f9e3f85631b0f8e6",
+    "cache_manifest": "7e90d16a4309814d40813953ae4ab28935dd2fee79e752d85d3b6b55fabd5b16",
+    "data_plane": "c9c094dd78bef3121d468eba93e0fbefb5275c5aab7a2bfd6be6e46cab4f9184",
     "in_process_dispatch": "022c40c305a11e06510f2688041a96c1523cae5b5c03d7876fd122ce027e98c3",
     "one_specialist_tools": "a8f007720a7f9b4565e1715ac0fbda4ab54dc3e82bf0cded7f527cbf02222dd2",
-    "route_index": "58a28d80672d0d4f5b4b5277b710e76c4b578ba2a43235bc6336c9f2b1b48400",
-    "route_layout": "6a34025695cc7dcbcaaac22593b2fa07db540e08a9dd7225db34c70b4bd44daa",
-    "surface_map": "4e309a7065d296cabee136a9bb1afce9cc3a90305aa25d37c86220e063237435",
+    "route_index": "88ebf51c6176affbae43d8e1bb6a49f075f5cfa77e93a4df566a1f10f20a9f3d",
+    "route_layout": "a2e3ef0939fac7302308a6593195d0dc2bdd3029e9c4a6d28629da9b810ffac9",
+    "surface_map": "b41feed59ef425a687efc1d37b9d220112aa969c848b1e81a2abfd4f1590ee39",
     "topology_contract": "604960e855be06af77bd75d21f3eace0e2ea5647b344d08f0acd2b8c35d4f4e9",
     "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"
   },
@@ -5520,8 +5596,8 @@
     "decision_required": 2,
     "in_process_specialists": 3,
     "one_specialist_tools": 6,
-    "physical_routes": 139,
+    "physical_routes": 141,
     "semantic_routes": 14,
-    "table_families": 64
+    "table_families": 67
   }
 }

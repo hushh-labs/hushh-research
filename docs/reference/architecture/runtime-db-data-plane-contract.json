@@ -939,6 +939,51 @@
       "expected_row_growth": "low_ttl_cache"
     },
     {
+      "id": "external_mcp_connector_registry",
+      "owner": "iam-consent-governance",
+      "data_class": "reference",
+      "lifecycle_status": "customer0",
+      "exact_tables": [
+        "external_mcp_connectors"
+      ],
+      "primary_access_path": "Operator-curated catalog of external MCP servers (Notion, HubSpot, ...) a user can connect from chat or the connectors manage page, resolved via external_connector_registry_service.py",
+      "retention_policy": "Retain active connector definitions while offered; deactivate rather than delete so historical per-user connections remain explainable.",
+      "deletion_behavior": "Operator-managed reference config, registered via scripts/ops/configure_external_mcp_connector.py; not user-delete scoped.",
+      "trust_boundary": "Connector endpoint, auth style, and OAuth client-id/secret ENV VAR NAMES only -- never the credential values themselves, which stay in process env config.",
+      "plaintext_posture": "config_and_endpoint_urls_plaintext_no_secrets",
+      "expected_row_growth": "low_reference"
+    },
+    {
+      "id": "external_mcp_connector_user_credentials",
+      "owner": "iam-consent-governance",
+      "data_class": "personal_encrypted",
+      "lifecycle_status": "customer0",
+      "exact_tables": [
+        "user_external_connector_connections"
+      ],
+      "primary_access_path": "Per-user connect/disconnect status and encrypted credential envelope for one external MCP connector, via external_connector_credentials_service.py",
+      "retention_policy": "Retain the encrypted credential while the connection is active; clear the ciphertext immediately on disconnect and keep only the revoked status row.",
+      "deletion_behavior": "Cascade-delete on account deletion; disconnect clears credential_ciphertext/credential_iv immediately rather than waiting for a bounded window.",
+      "trust_boundary": "AES-256-GCM ciphertext AAD-bound to (user_id, connector_id) via EXTERNAL_CONNECTOR_CREDENTIAL_KEY -- a distinct trust domain from both google_provider_connections and the operator-level enterprise_crm_registry secret scheme. No plaintext API key or OAuth token at rest.",
+      "plaintext_posture": "encrypted_credential_no_plaintext_at_rest",
+      "expected_row_growth": "low_per_user"
+    },
+    {
+      "id": "external_mcp_connector_oauth_attempts",
+      "owner": "iam-consent-governance",
+      "data_class": "workflow_state",
+      "lifecycle_status": "customer0",
+      "exact_tables": [
+        "external_connector_oauth_attempts"
+      ],
+      "primary_access_path": "Short-lived PKCE attempt state for an oauth-style external connector's start()/complete() round trip, via external_connector_oauth_service.py",
+      "retention_policy": "10-minute expiry per attempt; consumed or expired rows are not durable user memory.",
+      "deletion_behavior": "Not directly user-delete scoped; rows expire and are superseded by new attempts. Cascade-delete with account deletion for completeness.",
+      "trust_boundary": "PKCE code verifier is AES-256-GCM encrypted, AAD-bound to the attempt id. No client secret, access token, or refresh token is ever stored in this table.",
+      "plaintext_posture": "encrypted_verifier_no_plaintext_secret_at_rest",
+      "expected_row_growth": "low_ttl_workflow"
+    },
+    {
       "id": "hushh_tech_client_identity_state",
       "owner": "iam-consent-governance",
       "data_class": "personal_metadata",
