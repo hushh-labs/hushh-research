@@ -11,10 +11,7 @@ import {
   AppPageShell,
 } from "@/components/app-ui/app-page-shell";
 import { PageHeader } from "@/components/app-ui/page-sections";
-import {
-  CapabilitySetupTile,
-  SetupNavigationTile,
-} from "@/components/onboarding/setup/capability-setup-tile";
+import { SetupNavigationTile } from "@/components/onboarding/setup/capability-setup-tile";
 import { SetupCompletionFooter } from "@/components/onboarding/setup/setup-completion-footer";
 import { SettingsGroup } from "@/components/app-ui/settings-ui";
 import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
@@ -28,25 +25,9 @@ import {
   ROUTES,
 } from "@/lib/navigation/routes";
 import { acknowledgeOneSetupExit } from "@/lib/services/one-setup-exit-service";
-import {
-  CAPABILITY_SETUP_COPY,
-  type CapabilitySetupCopy,
-} from "@/lib/onboarding/capability-setup-copy";
-import {
-  getOneSetupCapability,
-  lucideCapabilityIcon,
-  type OneCapabilityIcon,
-  type OneCapabilityTone,
-} from "@/lib/onboarding/one-capabilities";
+import { lucideCapabilityIcon } from "@/lib/onboarding/one-capabilities";
 import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 import { useLocalOnboardingActionHandler } from "@/lib/agent/local-onboarding-actions";
-import { useCapabilitySetupStates } from "@/lib/onboarding/use-capability-setup-states";
-import { groupSetupCapabilities } from "@/lib/onboarding/setup-capability-order";
-import {
-  isCapabilitySetupComplete,
-  type CapabilityStatus,
-} from "@/lib/services/capability-setup-state-service";
-import { getCapabilityStatusDisplay } from "@/lib/onboarding/capability-status-display";
 import { PreVaultUserStateService } from "@/lib/services/pre-vault-user-state-service";
 import { PreVaultSensitiveDraftService } from "@/lib/services/pre-vault-sensitive-draft-service";
 import { FinanceSetupDraftService } from "@/lib/services/finance-setup-draft-service";
@@ -57,15 +38,15 @@ import { useOneConversationSession } from "@/lib/agent/one-conversation-session"
 /**
  * OneSetupHub: the `/one/setup` hub screen.
  *
- * It is the calm home for "what's left to set up". It opts into the expensive
- * resolver enrichment (`enrichVault` + `enrichOauth`) so every tile shows an
- * honest state (Ready, Set up, N to review) or an honest blocked reason
- * ("Set up vault", "Connect to set up") instead of guessing.
+ * The only mandatory step is choosing an AI (managed vs. bring-your-own) and
+ * setting a vault lock. Capability setup (Gmail, Calendar, Location, etc.) is
+ * no longer listed here — each capability's own connect/setup screen shows up
+ * the first time someone actually reaches for it, from its real page or from
+ * chat. That keeps this hub a single screen instead of an upfront checklist.
  *
  * LAYOUT (Card Depth Model + recompose-by-breakpoint)
  * - Lives inside the normal app shell (`standard` chrome) so a person who has
  *   finished onboarding can still browse here without being trapped in a flow.
- * - Remaining and Complete inset lists preserve the authored product order.
  *   The shell itself owns the scroll; the header region stays put.
  * - One owns the voice: "Set up One", plain language, no system nouns.
  */
@@ -77,11 +58,6 @@ export function OneSetupHub() {
   const queueEntryWelcome = useOneConversationSession(
     (state) => state.queueEntryWelcome,
   );
-  const { byId, isLoading, isEnriching } = useCapabilitySetupStates({
-    enrichVault: true,
-    enrichOauth: true,
-    enrichRia: true,
-  });
   const [dismissing, setDismissing] = useState(false);
   const [finalizationError, setFinalizationError] = useState<string | null>(null);
   const [vaultInvitationOpen, setVaultInvitationOpen] = useState(false);
@@ -144,28 +120,10 @@ export function OneSetupHub() {
     };
   }, [user?.uid]);
 
-  const items = useMemo(() => buildSetupItems(byId), [byId]);
-  const groupedItems = groupSetupCapabilities(items, (item) =>
-    isCapabilitySetupComplete(item.status),
-  );
-  const remainingItems = groupedItems.remaining;
-  const completeItems = groupedItems.complete;
-  const visibleItems = groupedItems.visible;
-
   const runtimeChoiceComplete = runtimeChoiceState === "complete";
-  // "Ready" counts only GENUINELY set-up capabilities (completed/skipped). A
-  // tile that still needs a connection or an unlock (blocked/unknown) is NOT
-  // ready, even though it is not directly tappable-into-setup — so we never
-  // count it as done. AI access is also a real, mandatory setup step and is
-  // rendered alongside these capability rows, so it must participate in the
-  // same progress projection instead of being omitted from the denominator.
-  const progressSteps = [
-    { id: "connections", complete: runtimeChoiceComplete },
-    ...items.map((item) => ({
-      id: item.id,
-      complete: isCapabilitySetupComplete(item.status),
-    })),
-  ];
+  // The only mandatory step left in the hub is the AI-access choice, so the
+  // progress projection is just that one step.
+  const progressSteps = [{ id: "connections", complete: runtimeChoiceComplete }];
   const total = progressSteps.length;
   const done = progressSteps.filter((step) => step.complete).length;
   const remaining = total - done;
@@ -174,8 +132,7 @@ export function OneSetupHub() {
   // therefore the only exit from the hub and always leads to vault setup when
   // the vault is not already unlocked.
   const masterActionLabel = "Finish setup";
-  const hubStateLoading =
-    isLoading || isEnriching || runtimeChoiceState === "loading";
+  const hubStateLoading = runtimeChoiceState === "loading";
 
   // Publish screen context so the onboarding guide can describe the hub and
   // navigate the person to any capability they ask for.
@@ -183,31 +140,18 @@ export function OneSetupHub() {
     screenId: "one_setup_hub",
     title: "Set up One",
     purpose:
-      "This is your setup home. Each tile is one thing One can do for you. Set up the ones you want and skip the rest.",
-    actions: hubStateLoading
-      ? []
-      : [
-          ...visibleItems.map((item) => ({
-            id: item.id,
-            actionId: getOneSetupCapability(item.id)?.setupActionId,
-            label: item.copy.setupTitle,
-            purpose: `${item.copy.setupBlurb} ${
-              isCapabilitySetupComplete(item.status)
-                ? "This setup is complete."
-                : "This setup is still remaining."
-            }`,
-          })),
-          ...(dismissing || !runtimeChoiceComplete
-            ? []
-            : [
-                {
-                  id: "master_ack",
-                  actionId: "setup.hub_master_ack",
-                  label: masterActionLabel,
-                  purpose: "Finish setup and protect what you save.",
-                },
-              ]),
-        ],
+      "This is your setup home. Choose your AI and set a lock. You can connect Gmail, Calendar, and other capabilities any time from their own screens.",
+    actions:
+      hubStateLoading || dismissing || !runtimeChoiceComplete
+        ? []
+        : [
+            {
+              id: "master_ack",
+              actionId: "setup.hub_master_ack",
+              label: masterActionLabel,
+              purpose: "Finish setup and protect what you save.",
+            },
+          ],
   });
 
   const completeSetupAfterVault = useCallback(async (): Promise<void> => {
@@ -495,25 +439,8 @@ export function OneSetupHub() {
                     isCurrent
                   />
                 ) : null}
-                {remainingItems.map((item) => (
-                  <CapabilitySetupTile
-                    key={item.id}
-                    capabilityId={item.id}
-                    title={item.copy.setupTitle}
-                    description={item.copy.setupBlurb}
-                    actionLabel={item.copy.actionLabel}
-                    resumeActionLabel={item.copy.resumeActionLabel}
-                    href={item.copy.href}
-                    voiceControlId={item.voiceControlId}
-                    icon={item.icon}
-                    tone={item.tone}
-                    status={item.status}
-                    isExploreOnly={item.isExploreOnly}
-                    isCurrent={item.isCurrent}
-                  />
-                ))}
               </SettingsGroup>
-              {completeItems.length > 0 || runtimeChoiceComplete ? (
+              {runtimeChoiceComplete ? (
                 <SettingsGroup
                   title="Complete"
                   testId="one-setup-capabilities-complete"
@@ -532,23 +459,6 @@ export function OneSetupHub() {
                       isComplete
                     />
                   ) : null}
-                  {completeItems.map((item) => (
-                    <CapabilitySetupTile
-                      key={item.id}
-                      capabilityId={item.id}
-                      title={item.copy.setupTitle}
-                      description={item.copy.setupBlurb}
-                      actionLabel={item.copy.actionLabel}
-                      resumeActionLabel={item.copy.resumeActionLabel}
-                      href={item.copy.href}
-                      voiceControlId={item.voiceControlId}
-                      icon={item.icon}
-                      tone={item.tone}
-                      status={item.status}
-                      isExploreOnly={item.isExploreOnly}
-                      isCurrent={false}
-                    />
-                  ))}
                 </SettingsGroup>
               ) : null}
             </div>
@@ -623,56 +533,4 @@ function SetupHubLoadingState() {
       Checking your setup…
     </div>
   );
-}
-
-interface SetupItem {
-  id: string;
-  copy: CapabilitySetupCopy;
-  status: CapabilityStatus;
-  icon: OneCapabilityIcon;
-  tone: OneCapabilityTone;
-  voiceControlId: string;
-  isActionable: boolean;
-  isExploreOnly: boolean;
-  isCurrent: boolean;
-}
-
-function buildSetupItems(byId: Record<string, CapabilityStatus>): SetupItem[] {
-  // Preserve product order inside each state section. A completed item moves
-  // once from Remaining to Complete, then remains stable there; this keeps the
-  // visual list and the published voice-action order correlated.
-  const enriched = CAPABILITY_SETUP_COPY.flatMap((copy) => {
-    const capability = getOneSetupCapability(copy.id);
-    if (!capability) return [];
-    const status: CapabilityStatus = byId[copy.id] ?? {
-      id: copy.id,
-      state: "unknown",
-      pendingCount: 0,
-      prerequisite: null,
-      requiresUnlock: false,
-    };
-    return [
-      {
-        id: copy.id,
-        copy,
-        status,
-        icon: capability.icon,
-        tone: capability.tone,
-        voiceControlId: capability.setupControlId,
-        isActionable: getCapabilityStatusDisplay(status, {
-          actionLabel: copy.actionLabel,
-          resumeActionLabel: copy.resumeActionLabel,
-        }).isActionable,
-        isExploreOnly: capability.isExploreOnly === true,
-      },
-    ];
-  });
-
-  const firstActionableId =
-    enriched.find((item) => item.isActionable)?.id ?? null;
-
-  return enriched.map((item) => ({
-    ...item,
-    isCurrent: item.id === firstActionableId,
-  }));
 }

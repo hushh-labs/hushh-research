@@ -90,6 +90,8 @@ import {
   type SpecialistPendingConsentRequestItem,
 } from "@/components/agent/specialist-directive-card";
 import { copyTextToClipboard } from "@/components/agent/chat-markdown-link";
+import { AgentCalendarEventCard } from "@/components/agent/agent-calendar-event-card";
+import { AgentCalendarProposalCard } from "@/components/agent/agent-calendar-proposal-card";
 import { AgentConnectAccessCard } from "@/components/agent/agent-connect-access-card";
 import { AgentGmailNudgeCard } from "@/components/agent/agent-gmail-nudge-card";
 import { AgentMarkdown } from "@/components/agent/agent-markdown";
@@ -234,6 +236,8 @@ import { GmailInformationRequestsService } from "@/lib/services/gmail-informatio
 import { GmailReceiptsService } from "@/lib/services/gmail-receipts-service";
 import { useGmailNudges } from "@/lib/gmail/use-gmail-nudges";
 import { useGmailConnectorStatus } from "@/lib/profile/gmail-connector-store";
+import { useCalendarConnectionStatus } from "@/lib/calendar/use-calendar-connection-status";
+import { useCalendarUpcomingEvents } from "@/lib/calendar/use-calendar-upcoming-events";
 
 type AgentMessage = {
   id: string;
@@ -413,6 +417,69 @@ function gmailKycRequestSummary(request: GmailInformationRequestHandoff): string
   return labels.length ? labels.join(", ") : "KYC details";
 }
 
+/** Google's `{dateTime|date}` shape or a plain ISO string, normalized to one flat string. */
+function flatIsoValue(value: unknown): string | null {
+  if (value && typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    value = record.dateTime ?? record.date;
+  }
+  const text = typeof value === "string" ? value.trim() : "";
+  return text || null;
+}
+
+/**
+ * Mirrors `_directive_event_fields` in `hushh_mcp/agents/calendar/tools.py`:
+ * a cancel proposal's plan only ever has `event_id`/`send_updates`, so its
+ * real title/time/attendees come from `plan.current_event` (the event the
+ * backend fetched from Google before staging the proposal), not from the
+ * top-level plan fields create/reschedule use.
+ */
+function calendarEventFieldsFromPlan(
+  action: "create" | "reschedule" | "cancel",
+  plan: Record<string, unknown>,
+): {
+  title: string | null;
+  startAt: string | null;
+  endAt: string | null;
+  attendees: string[];
+  location: string | null;
+} {
+  if (action === "cancel") {
+    const current =
+      plan.current_event && typeof plan.current_event === "object"
+        ? (plan.current_event as Record<string, unknown>)
+        : {};
+    const attendees = Array.isArray(current.attendees)
+      ? (current.attendees as unknown[])
+          .map((item) =>
+            item && typeof item === "object"
+              ? (item as Record<string, unknown>).email
+              : null,
+          )
+          .filter((email): email is string => typeof email === "string" && email.length > 0)
+      : [];
+    return {
+      title: typeof current.title === "string" ? current.title : null,
+      startAt: flatIsoValue(current.start),
+      endAt: flatIsoValue(current.end),
+      attendees,
+      location: typeof current.location === "string" ? current.location : null,
+    };
+  }
+  const attendees = Array.isArray(plan.attendees)
+    ? (plan.attendees as unknown[]).filter(
+        (item): item is string => typeof item === "string" && item.length > 0,
+      )
+    : [];
+  return {
+    title: typeof plan.title === "string" ? plan.title : null,
+    startAt: flatIsoValue(plan.start_at),
+    endAt: flatIsoValue(plan.end_at),
+    attendees,
+    location: typeof plan.location === "string" ? plan.location : null,
+  };
+}
+
 export function getCalendarDirectiveFromToolEvent(
   event: AgentChatToolEvent | null,
 ): SpecialistDirectiveEvent | null {
@@ -478,6 +545,7 @@ export function getCalendarDirectiveFromToolEvent(
     const confirmLabel = conflicts.length > 0 ? `${verb} anyway` : verb;
     const title = String(plan.title || plan.event_id || "event");
     const summary = `${verb} '${title}'`;
+    const eventFields = calendarEventFieldsFromPlan(action, plan);
 
     return {
       delegateAgentId: "agent_calendar",
@@ -490,6 +558,22 @@ export function getCalendarDirectiveFromToolEvent(
           summary,
           confirmLabel,
           expiresAt: String(parsed.expires_at || ""),
+          eventId: typeof plan.event_id === "string" ? plan.event_id : null,
+          title: eventFields.title,
+          startAt: eventFields.startAt,
+          endAt: eventFields.endAt,
+          attendees: eventFields.attendees,
+          location: eventFields.location,
+          sendUpdates: Boolean(plan.send_updates),
+          conflicts: conflicts
+            .filter(
+              (item): item is Record<string, unknown> =>
+                Boolean(item) && typeof item === "object",
+            )
+            .map((item) => ({
+              title: typeof item.title === "string" ? item.title : null,
+              startAt: flatIsoValue(item.start),
+            })),
         },
       },
       message: String(parsed.message || summary),
@@ -519,6 +603,28 @@ export function getCalendarDirectiveFromToolEvent(
   }
 
   return null;
+}
+
+type CalendarDirectivePayload = {
+  type?: string;
+  accessLevel?: string;
+  action?: "create" | "reschedule" | "cancel";
+  title?: string | null;
+  startAt?: string | null;
+  endAt?: string | null;
+  attendees?: string[];
+  location?: string | null;
+  sendUpdates?: boolean;
+  conflicts?: { title: string | null; startAt: string | null }[];
+  confirmLabel?: string;
+  summary?: string;
+};
+
+/** Typed view of an `agent_calendar` directive's payload for the JSX below. */
+function getCalendarPayload(
+  event: SpecialistDirectiveEvent,
+): CalendarDirectivePayload {
+  return event.directive.payload as unknown as CalendarDirectivePayload;
 }
 
 function getConsentActionsPayload(
@@ -1952,6 +2058,51 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       setGmailConnectBusy(false);
     }
   }, [user]);
+  // Proactive Calendar connect/event cards: same page-variant-only, gated
+  // shape as Gmail's above. A separate idTokenProvider on purpose -- reusing
+  // gmailIdTokenProvider under its Gmail-specific name here would read as
+  // confusing, not as sharing.
+  const calendarIdTokenProvider = useCallback(
+    () => (user?.getIdToken ? user.getIdToken() : Promise.resolve("")),
+    [user],
+  );
+  const calendarConnectionStatus = useCalendarConnectionStatus({
+    userId: user?.uid || null,
+    idTokenProvider: user?.getIdToken ? calendarIdTokenProvider : null,
+    enabled: !isPopover && hasChatAccess,
+  });
+  const calendarEvents = useCalendarUpcomingEvents({
+    userId: user?.uid || null,
+    vaultOwnerToken: vaultOwnerToken || null,
+    isConnected: calendarConnectionStatus.connected,
+  });
+  const [calendarConnectCardDismissed, setCalendarConnectCardDismissed] = useState(false);
+  const [calendarEventCardDismissed, setCalendarEventCardDismissed] = useState(false);
+  const [calendarConnectBusy, setCalendarConnectBusy] = useState(false);
+  const handleConnectCalendar = useCallback(async () => {
+    if (!user?.uid || !user?.getIdToken) return;
+    setCalendarConnectBusy(true);
+    try {
+      const idToken = await user.getIdToken();
+      const start = await GoogleCalendarService.startConnect({
+        idToken,
+        userId: user.uid,
+        accessLevel: "read",
+      });
+      window.location.assign(start.authorize_url);
+    } catch {
+      setCalendarConnectBusy(false);
+    }
+  }, [user]);
+  // One proactive card at a time (reference video shows a single card, not
+  // a wall of them). Gmail's connect/nudge slot takes priority since it
+  // shipped first; Calendar's cards only occupy the region when Gmail's
+  // isn't showing.
+  const gmailCardShowing =
+    (gmailConnectorStatus.status?.connected === false && !gmailConnectCardDismissed) ||
+    (gmailConnectorStatus.status?.connected === true &&
+      !gmailNudgeCardDismissed &&
+      gmailNudges.nudges.length > 0);
   const availablePersonas = useMemo(() => {
     const personas = new Set<typeof activePersona>([activePersona]);
     personas.add("investor");
@@ -5749,6 +5900,40 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                 />
               ) : null}
 
+              {!isPopover &&
+              hasChatAccess &&
+              !hasStartedConversation &&
+              !calendarConnectCardDismissed &&
+              calendarConnectionStatus.connected === false &&
+              !gmailCardShowing ? (
+                <AgentConnectAccessCard
+                  title="See what's coming up"
+                  bullets={[
+                    "Reads your calendar for what's coming up next",
+                    "Shows event titles and times — nothing more",
+                    "Never shares or sells your data",
+                    "Never acts without your yes",
+                  ]}
+                  ctaLabel="Connect Calendar & continue"
+                  busy={calendarConnectBusy}
+                  onConnect={() => void handleConnectCalendar()}
+                  onDismiss={() => setCalendarConnectCardDismissed(true)}
+                />
+              ) : null}
+
+              {!isPopover &&
+              hasChatAccess &&
+              !hasStartedConversation &&
+              !calendarEventCardDismissed &&
+              calendarConnectionStatus.connected === true &&
+              calendarEvents.events.length > 0 &&
+              !gmailCardShowing ? (
+                <AgentCalendarEventCard
+                  events={calendarEvents.events}
+                  onDismiss={() => setCalendarEventCardDismissed(true)}
+                />
+              ) : null}
+
               {postSetupWelcomeContext ? (
                 <PostSetupWelcomeCard
                   name={displayName}
@@ -6282,72 +6467,122 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                     }}
                   />
                 ) : pendingSpecialistDirective.delegateAgentId ===
-                  "agent_calendar" ? (
-                  <SpecialistDirectiveCard
-                    summary={String(
-                      (
-                        pendingSpecialistDirective.directive.payload as Record<
-                          string,
-                          unknown
-                        >
-                      ).summary ?? pendingSpecialistDirective.message,
-                    )}
-                    confirmLabel={String(
-                      (
-                        pendingSpecialistDirective.directive.payload as Record<
-                          string,
-                          unknown
-                        >
-                      ).confirmLabel ?? "Continue",
-                    )}
+                    "agent_calendar" &&
+                  getCalendarPayload(pendingSpecialistDirective).type ===
+                    "calendar.connect" ? (
+                  <AgentConnectAccessCard
+                    title={
+                      getCalendarPayload(pendingSpecialistDirective)
+                        .accessLevel === "manage"
+                        ? "Allow Calendar scheduling"
+                        : "See what's coming up"
+                    }
+                    bullets={
+                      getCalendarPayload(pendingSpecialistDirective)
+                        .accessLevel === "manage"
+                        ? [
+                            "Reads your calendar to check availability",
+                            "Creates, reschedules, or cancels events only after you confirm each one",
+                            "Never shares or sells your data",
+                          ]
+                        : [
+                            "Reads your calendar for what's coming up next",
+                            "Shows event titles and times — nothing more",
+                            "Never shares or sells your data",
+                            "Never acts without your yes",
+                          ]
+                    }
+                    ctaLabel={
+                      getCalendarPayload(pendingSpecialistDirective)
+                        .confirmLabel ?? "Connect Calendar"
+                    }
                     busy={specialistBusy}
-                    onConfirm={async () => {
-                      const directive = pendingSpecialistDirective;
-                      const payload = directive.directive.payload as Record<
-                        string,
-                        unknown
-                      >;
-                      const type = String(payload.type ?? "");
-                      if (type === "calendar.connect") {
-                        if (!user?.uid) {
-                          addErrorMessage(
-                            "Sign in again before connecting Google Calendar.",
-                          );
-                          return;
-                        }
-                        setSpecialistBusy(true);
-                        try {
-                          const accessLevel =
-                            payload.accessLevel === "manage"
-                              ? "manage"
-                              : "read";
-                          clearCalendarSetupOAuthReturn();
-                          const start =
-                            await GoogleCalendarService.startConnect({
-                              idToken: await user.getIdToken(),
-                              userId: user.uid,
-                              accessLevel,
-                            });
-                          setPendingSpecialistDirective(null);
-                          window.location.assign(start.authorize_url);
-                        } catch (error) {
-                          addErrorMessage(
-                            error instanceof Error
-                              ? error.message
-                              : "Unable to request Google Calendar permission.",
-                          );
-                        } finally {
-                          setSpecialistBusy(false);
-                        }
-                        return;
-                      }
-                      if (type !== "calendar.execute_proposal") {
-                        setPendingSpecialistDirective(null);
+                    onConnect={async () => {
+                      const payload = getCalendarPayload(
+                        pendingSpecialistDirective,
+                      );
+                      if (!user?.uid) {
                         addErrorMessage(
-                          "That Calendar action is no longer available.",
+                          "Sign in again before connecting Google Calendar.",
                         );
                         return;
                       }
+                      setSpecialistBusy(true);
+                      try {
+                        const accessLevel =
+                          payload.accessLevel === "manage"
+                            ? "manage"
+                            : "read";
+                        clearCalendarSetupOAuthReturn();
+                        const start =
+                          await GoogleCalendarService.startConnect({
+                            idToken: await user.getIdToken(),
+                            userId: user.uid,
+                            accessLevel,
+                          });
+                        setPendingSpecialistDirective(null);
+                        window.location.assign(start.authorize_url);
+                      } catch (error) {
+                        addErrorMessage(
+                          error instanceof Error
+                            ? error.message
+                            : "Unable to request Google Calendar permission.",
+                        );
+                      } finally {
+                        setSpecialistBusy(false);
+                      }
+                    }}
+                    onDismiss={() => {
+                      setPendingSpecialistDirective(null);
+                      toast.info(
+                        "Calendar change cancelled. Nothing was changed.",
+                      );
+                    }}
+                  />
+                ) : pendingSpecialistDirective.delegateAgentId ===
+                    "agent_calendar" &&
+                  getCalendarPayload(pendingSpecialistDirective).type ===
+                    "calendar.execute_proposal" ? (
+                  <AgentCalendarProposalCard
+                    action={
+                      getCalendarPayload(pendingSpecialistDirective).action ??
+                      "create"
+                    }
+                    title={
+                      getCalendarPayload(pendingSpecialistDirective).title ??
+                      null
+                    }
+                    startAt={
+                      getCalendarPayload(pendingSpecialistDirective)
+                        .startAt ?? null
+                    }
+                    endAt={
+                      getCalendarPayload(pendingSpecialistDirective).endAt ??
+                      null
+                    }
+                    attendees={
+                      getCalendarPayload(pendingSpecialistDirective)
+                        .attendees ?? []
+                    }
+                    location={
+                      getCalendarPayload(pendingSpecialistDirective)
+                        .location ?? null
+                    }
+                    sendUpdates={Boolean(
+                      getCalendarPayload(pendingSpecialistDirective)
+                        .sendUpdates,
+                    )}
+                    conflicts={
+                      getCalendarPayload(pendingSpecialistDirective)
+                        .conflicts ?? []
+                    }
+                    confirmLabel={
+                      getCalendarPayload(pendingSpecialistDirective)
+                        .confirmLabel ?? "Continue"
+                    }
+                    busy={specialistBusy}
+                    onConfirm={async () => {
+                      const directive = pendingSpecialistDirective;
                       const token = getVaultOwnerToken();
                       if (!token || !user?.uid) {
                         addErrorMessage(

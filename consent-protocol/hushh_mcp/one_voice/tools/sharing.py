@@ -1289,9 +1289,10 @@ TOOLS: tuple[ToolSpec, ...] = (
         input_model=ListRequestsInput,
         output_model=ListRequestsResult,
         description=(
-            "Read location requests: incoming (people asking for your location) and outgoing "
-            "(requests you sent), with real statuses pending, approved, denied, cancelled or "
-            "expired. Read this before approving, declining or withdrawing."
+            "Read LOCATION requests only: incoming (people asking for your location) and "
+            "outgoing (location requests you sent), with real statuses pending, approved, "
+            "denied, cancelled or expired. Not connection requests: those are in list_people. "
+            "Read this before approving, declining or withdrawing a location request."
         ),
         handler=list_requests,
     ),

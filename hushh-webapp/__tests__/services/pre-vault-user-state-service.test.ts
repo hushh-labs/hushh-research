@@ -270,6 +270,41 @@ describe("PreVaultUserStateService.bootstrapState", () => {
       oneRuntimeSetupChoice: "byok_pending_vault",
     });
   });
+
+  it("mirrors an explicit decline to the durable store, distinct from completion", async () => {
+    const userId = "bootstrap-declined-capability-user";
+    getIdTokenMock.mockResolvedValue("firebase-token");
+    apiJsonMock.mockResolvedValueOnce({
+      userId,
+      setupCompleted: false,
+      setupCapabilityIds: [],
+      setupCapabilityDeclinedIds: ["gmail"],
+    });
+
+    const state = await PreVaultUserStateService.syncDeclinedCapabilities(
+      userId,
+      ["gmail"],
+    );
+
+    expect(PreVaultUserStateService.hasDeclinedCapability(state, "gmail")).toBe(
+      true,
+    );
+    expect(
+      PreVaultUserStateService.hasDeclinedCapability(state, "calendar"),
+    ).toBe(false);
+    expect(state.setupCapabilityIds).toEqual([]);
+    const updateOptions = apiJsonMock.mock.calls[0]?.[1] as RequestInit;
+    expect(JSON.parse(String(updateOptions.body))).toEqual({
+      userId,
+      setupCapabilityDeclinedIds: ["gmail"],
+    });
+  });
+
+  it("treats a missing or empty declined-capability state as not declined", () => {
+    expect(PreVaultUserStateService.hasDeclinedCapability(null, "gmail")).toBe(
+      false,
+    );
+  });
 });
 
 /**

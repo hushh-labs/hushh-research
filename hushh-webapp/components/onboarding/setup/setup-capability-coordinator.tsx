@@ -433,6 +433,18 @@ export function useSetupCapabilityCoordinator({
               completed,
             );
             await CapabilityTourService.markExplored(userId, capabilityId);
+          } else {
+            // Reopening this capability's setup post-root-setup (e.g. from
+            // Profile) and explicitly skipping it is a real decision, not a
+            // no-op -- record it durably so a future JIT connect prompt
+            // knows not to re-ask.
+            const declined = Array.from(
+              new Set([...journey.setupCapabilityDeclinedIds, capabilityId]),
+            ).sort();
+            await PreVaultUserStateService.syncDeclinedCapabilities(
+              userId,
+              declined,
+            );
           }
         } else if (kind === "finish") {
           const completed = Array.from(

@@ -3021,7 +3021,8 @@
       "utterance": "is my request to Dev still pending?",
       "expected_tools": [
         "list_people",
-        "resolve_person"
+        "resolve_person",
+        "list_requests"
       ],
       "forbidden_tools": [
         "accept_connection_request",
@@ -3186,7 +3187,8 @@
       "history": [],
       "utterance": "show me my pending requests",
       "expected_tools": [
-        "list_people"
+        "list_people",
+        "list_requests"
       ],
       "forbidden_tools": [
         "accept_connection_request",
@@ -3464,7 +3466,8 @@
       "history": [],
       "utterance": "do I have any requests waiting for a reply?",
       "expected_tools": [
-        "list_people"
+        "list_people",
+        "list_requests"
       ],
       "forbidden_tools": [
         "accept_connection_request",
@@ -3630,7 +3633,8 @@
       "history": [],
       "utterance": "what requests have I sent out that are still open?",
       "expected_tools": [
-        "list_people"
+        "list_people",
+        "list_requests"
       ],
       "forbidden_tools": [
         "accept_connection_request",
@@ -4020,7 +4024,8 @@
       "utterance": "what's going on with Rahul's request?",
       "expected_tools": [
         "list_people",
-        "resolve_person"
+        "resolve_person",
+        "list_requests"
       ],
       "forbidden_tools": [
         "accept_connection_request",
@@ -4076,7 +4081,8 @@
       "utterance": "check whether Dev has responded to my request",
       "expected_tools": [
         "list_people",
-        "resolve_person"
+        "resolve_person",
+        "list_requests"
       ],
       "forbidden_tools": [
         "accept_connection_request",
@@ -4353,7 +4359,8 @@
       "utterance": "kya Dev Patel ne meri request accept ki?",
       "expected_tools": [
         "list_people",
-        "resolve_person"
+        "resolve_person",
+        "list_requests"
       ],
       "forbidden_tools": [
         "accept_connection_request",
@@ -5344,7 +5351,8 @@
       "utterance": "accept Rahul's request",
       "expected_tools": [
         "list_people",
-        "resolve_person"
+        "resolve_person",
+        "list_requests"
       ],
       "forbidden_tools": [
         "add_circle_member",
@@ -5542,7 +5550,8 @@
       "utterance": "allow Rahul's request",
       "expected_tools": [
         "list_people",
-        "resolve_person"
+        "resolve_person",
+        "list_requests"
       ],
       "forbidden_tools": [
         "add_circle_member",
@@ -5652,7 +5661,8 @@
       "utterance": "Rahul ki request accept kar do",
       "expected_tools": [
         "list_people",
-        "resolve_person"
+        "resolve_person",
+        "list_requests"
       ],
       "forbidden_tools": [
         "add_circle_member",
@@ -5696,7 +5706,8 @@
       "utterance": "decline Rahul's request",
       "expected_tools": [
         "list_people",
-        "resolve_person"
+        "resolve_person",
+        "list_requests"
       ],
       "forbidden_tools": [
         "accept_connection_request",
@@ -5784,7 +5795,8 @@
       "utterance": "refuse the request from Rahul",
       "expected_tools": [
         "list_people",
-        "resolve_person"
+        "resolve_person",
+        "list_requests"
       ],
       "forbidden_tools": [
         "accept_connection_request",
@@ -5806,7 +5818,8 @@
       "utterance": "pass on Rahul Verma's request",
       "expected_tools": [
         "list_people",
-        "resolve_person"
+        "resolve_person",
+        "list_requests"
       ],
       "forbidden_tools": [
         "accept_connection_request",
@@ -5872,7 +5885,8 @@
       "utterance": "don't accept Rahul Verma's request, decline it instead",
       "expected_tools": [
         "list_people",
-        "resolve_person"
+        "resolve_person",
+        "list_requests"
       ],
       "forbidden_tools": [
         "accept_connection_request",
@@ -5960,7 +5974,8 @@
       "utterance": "Rahul ki request decline kar do",
       "expected_tools": [
         "list_people",
-        "resolve_person"
+        "resolve_person",
+        "list_requests"
       ],
       "forbidden_tools": [
         "accept_connection_request",
@@ -6004,7 +6019,8 @@
       "utterance": "cancel my request to Dev",
       "expected_tools": [
         "list_people",
-        "resolve_person"
+        "resolve_person",
+        "list_requests"
       ],
       "forbidden_tools": [
         "accept_connection_request",
@@ -6026,7 +6042,8 @@
       "utterance": "withdraw the request I sent Dev Patel",
       "expected_tools": [
         "list_people",
-        "resolve_person"
+        "resolve_person",
+        "list_requests"
       ],
       "forbidden_tools": [
         "accept_connection_request",
@@ -6070,7 +6087,8 @@
       "utterance": "I changed my mind about Dev Patel, pull my request",
       "expected_tools": [
         "list_people",
-        "resolve_person"
+        "resolve_person",
+        "list_requests"
       ],
       "forbidden_tools": [
         "accept_connection_request",
@@ -6092,7 +6110,8 @@
       "utterance": "un-send my request to Dev",
       "expected_tools": [
         "list_people",
-        "resolve_person"
+        "resolve_person",
+        "list_requests"
       ],
       "forbidden_tools": [
         "accept_connection_request",
@@ -6114,7 +6133,8 @@
       "utterance": "call off the request to Dev Patel",
       "expected_tools": [
         "list_people",
-        "resolve_person"
+        "resolve_person",
+        "list_requests"
       ],
       "forbidden_tools": [
         "accept_connection_request",
@@ -6158,7 +6178,8 @@
       "utterance": "stop the pending request to Dev Patel",
       "expected_tools": [
         "list_people",
-        "resolve_person"
+        "resolve_person",
+        "list_requests"
       ],
       "forbidden_tools": [
         "accept_connection_request",
@@ -6180,7 +6201,8 @@
       "utterance": "never mind Dev, cancel that request",
       "expected_tools": [
         "list_people",
-        "resolve_person"
+        "resolve_person",
+        "list_requests"
       ],
       "forbidden_tools": [
         "accept_connection_request",
@@ -6202,7 +6224,8 @@
       "utterance": "the request to Dev Patel, cancel it",
       "expected_tools": [
         "list_people",
-        "resolve_person"
+        "resolve_person",
+        "list_requests"
       ],
       "forbidden_tools": [
         "accept_connection_request",
@@ -6224,7 +6247,8 @@
       "utterance": "drop my request to Dev",
       "expected_tools": [
         "list_people",
-        "resolve_person"
+        "resolve_person",
+        "list_requests"
       ],
       "forbidden_tools": [
         "accept_connection_request",
@@ -6268,7 +6292,8 @@
       "utterance": "Dev ko bheji hui request cancel kar do",
       "expected_tools": [
         "list_people",
-        "resolve_person"
+        "resolve_person",
+        "list_requests"
       ],
       "forbidden_tools": [
         "accept_connection_request",
@@ -7615,12 +7640,12 @@
       "utterance": "no, the other Priya",
       "expected_tools": [
         "confirm_person",
-        "resolve_person"
+        "resolve_person",
+        "invite_person"
       ],
       "forbidden_tools": [
         "add_circle_member",
         "confirm_pending_action",
-        "invite_person",
         "share_with"
       ],
       "note": "correction between two Priyas: pick the other offered candidate or re-resolve, never send to the first"
@@ -7635,12 +7660,12 @@
       "utterance": "not Nair, I meant Priya Sharma",
       "expected_tools": [
         "confirm_person",
-        "resolve_person"
+        "resolve_person",
+        "invite_person"
       ],
       "forbidden_tools": [
         "add_circle_member",
         "confirm_pending_action",
-        "invite_person",
         "share_with"
       ],
       "note": "surname correction; the earlier Priya Nair candidate must not be sent to"
@@ -8084,12 +8109,12 @@
       "utterance": "nahi, doosri wali Priya",
       "expected_tools": [
         "confirm_person",
-        "resolve_person"
+        "resolve_person",
+        "invite_person"
       ],
       "forbidden_tools": [
         "add_circle_member",
         "confirm_pending_action",
-        "invite_person",
         "share_with"
       ],
       "note": "Hinglish correction to the other Priya; the first candidate must not be sent to"
@@ -8118,7 +8143,8 @@
       "history": [],
       "utterance": "send requests to Meera and Kushal",
       "expected_tools": [
-        "resolve_person"
+        "resolve_person",
+        "list_requests"
       ],
       "forbidden_tools": [
         "accept_connection_request",
@@ -8186,7 +8212,8 @@
       "history": [],
       "utterance": "send a request to Rohan, Preeti, Kushal, the whole gang",
       "expected_tools": [
-        "resolve_person"
+        "resolve_person",
+        "list_requests"
       ],
       "forbidden_tools": [
         "accept_connection_request",
@@ -8222,7 +8249,8 @@
       "history": [],
       "utterance": "accept all my pending requests",
       "expected_tools": [
-        "list_people"
+        "list_people",
+        "list_requests"
       ],
       "forbidden_tools": [
         "add_circle_member",
@@ -8278,7 +8306,8 @@
       "history": [],
       "utterance": "cancel every request I've sent out",
       "expected_tools": [
-        "list_people"
+        "list_people",
+        "list_requests"
       ],
       "forbidden_tools": [
         "add_circle_member",
@@ -8316,7 +8345,8 @@
       "history": [],
       "utterance": "Meera aur Kushal dono ko request bhej do",
       "expected_tools": [
-        "resolve_person"
+        "resolve_person",
+        "list_requests"
       ],
       "forbidden_tools": [
         "accept_connection_request",
@@ -8333,7 +8363,8 @@
       "history": [],
       "utterance": "jitne bhi logon ne mujhe request bheji hai sab accept kar do",
       "expected_tools": [
-        "list_people"
+        "list_people",
+        "list_requests"
       ],
       "forbidden_tools": [
         "add_circle_member",
