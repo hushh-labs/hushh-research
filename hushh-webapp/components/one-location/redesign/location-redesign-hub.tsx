@@ -733,6 +733,13 @@ export type LocationHubViewModel = {
   recipientLabel: (r: OneLocationRecipient) => string;
   recipientSubtitle: (r: OneLocationRecipient) => string;
   isRecipientShareReady: (r: OneLocationRecipient) => boolean;
+  /**
+   * Save My Soul readiness: ordinary sharing needs a location key; the SMS
+   * lane also needs a verified phone. The SOS panel counts and enables from
+   * this so what it offers is exactly what the trigger accepts. Falls back to
+   * `isRecipientShareReady` for callers that do not distinguish.
+   */
+  isSosRecipientShareReady?: (r: OneLocationRecipient) => boolean;
   requestOwnerLabel: (r: OneLocationAccessRequest) => string;
   requesterLabel: (r: OneLocationAccessRequest) => string;
   grantRecipientLabel: (g: OneLocationGrant) => string;
@@ -1642,7 +1649,11 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
             onRemove={vm.onRemoveSmsContact}
             recipientLabel={vm.recipientLabel}
             recipientSubtitle={vm.recipientSubtitle}
-            isRecipientShareReady={vm.isRecipientShareReady}
+            // The roster editor and the SOS panel must agree on who is ready:
+            // the SMS lane needs a verified phone as well as a key.
+            isRecipientShareReady={
+              vm.isSosRecipientShareReady ?? vm.isRecipientShareReady
+            }
           />
         ) : flow === "create-circle" ? (
           <CreateCircleFlow
@@ -4969,7 +4980,9 @@ function SosFlow({
         onClose={onClose}
         onEditContacts={onEditContacts}
         recipientLabel={vm.recipientLabel}
-        isRecipientShareReady={vm.isRecipientShareReady}
+        isRecipientShareReady={
+          vm.isSosRecipientShareReady ?? vm.isRecipientShareReady
+        }
         emergency={lookupStartedForMount ? vm.sosEmergency : null}
         emergencyStatus={lookupStartedForMount ? vm.sosEmergencyStatus : "idle"}
         onResolveEmergencyNumber={onResolveSosLocation}

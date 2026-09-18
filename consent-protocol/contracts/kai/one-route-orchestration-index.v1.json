@@ -2975,6 +2975,7 @@
         "location.stop_share",
         "location.stop_sos",
         "location.trigger_sos",
+        "location.verify_sos_delivery",
         "route.one_location"
       ],
       "action_coverage": "inherited",
