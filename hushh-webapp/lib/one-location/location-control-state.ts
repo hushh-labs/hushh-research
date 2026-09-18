@@ -126,6 +126,28 @@ export function readOneLocationControlState(
   };
 }
 
+/**
+ * The header switch's own on/off truth -- the only derivation of it. Shared by
+ * the Location page (what the switch renders) and by voice (the observed
+ * state it reports after running the same handler a tap runs), so the two can
+ * never disagree. Permission is deliberately not part of it: a blocked device
+ * still reads "on" here and "Location blocked" in the status text.
+ */
+export function deriveLocationEnabled(
+  control: Pick<
+    OneLocationControlState,
+    "paused" | "selfPreviewEnabled" | "nearbyPresenceActive"
+  >,
+  ownerGrants: readonly { status: string }[],
+): boolean {
+  return (
+    !control.paused &&
+    (control.selfPreviewEnabled ||
+      control.nearbyPresenceActive ||
+      ownerGrants.some((grant) => grant.status === "active"))
+  );
+}
+
 export function updateOneLocationControlState(
   userId: string | null | undefined,
   updater: (current: OneLocationControlState) => OneLocationControlState,

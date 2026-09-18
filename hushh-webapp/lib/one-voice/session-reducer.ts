@@ -492,10 +492,15 @@ function reduceServerFrame(
     case "tool.result": {
       const ok = frame.ok === true;
       const result = frame.result_public;
+      // A device-settled result reuses the originating call id; it replaces
+      // the interim `location_updates_pending` entry rather than adding one.
       const index = frame.call_id
         ? findLastIndex(
             state.toolTimeline,
-            (item) => item.callId === frame.call_id && !item.result,
+            (item) =>
+              item.callId === frame.call_id &&
+              (!item.result ||
+                item.result.status === "location_updates_pending"),
           )
         : -1;
       let timeline: ToolTimelineItem[];

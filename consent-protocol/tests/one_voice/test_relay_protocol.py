@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from contextlib import asynccontextmanager
 from typing import Literal
 
 import pytest
@@ -13,7 +14,7 @@ from hushh_mcp.one_voice.config import OneVoiceLiveConfig
 from hushh_mcp.one_voice.live_client import LiveEvent
 from hushh_mcp.one_voice.session import AuthResult, VoiceSession
 from hushh_mcp.one_voice.tickets import TicketClaims
-from hushh_mcp.one_voice.tools import registry
+from hushh_mcp.one_voice.tools import location_state, registry
 from hushh_mcp.one_voice.tools.base import (
     ConfirmedPerson,
     PersonRef,
@@ -111,6 +112,12 @@ async def share(ctx, args):
     )
 
 
+RESUME = "resume_device_location_updates"
+PAUSE = "pause_device_location_updates"
+# The two device-switch tools are the real specs: their handlers and the
+# settlement they feed are what this relay binds a client step to.
+DEVICE_TOOLS = tuple(t for t in location_state.TOOLS if t.name in {RESUME, PAUSE})
+
 TEST_TOOLS = (
     ToolSpec(
         name="echo",
@@ -155,6 +162,7 @@ TEST_TOOLS = (
         person_args=("person",),
         summarize=lambda ctx, a: "share your location",
     ),
+    *DEVICE_TOOLS,
 )
 
 
@@ -718,3 +726,377 @@ async def test_narration_guard_counts_a_turn_that_only_had_rejected_tool_calls()
     assert conversations.counters["narration_without_receipt"] == 1
     # the UI never got a success: the only tool.result is a rejection
     assert all(f["ok"] is False for f in transport.frames("tool.result"))
+
+
+# --- device Location updates steps -----------------------------------------
+
+
+COORDINATE_WORDS = ("latitude", "longitude", '"lat"', '"lng"', "coordinates", "12.97", "77.59")
+
+
+class ForbiddenService:
+    """A service the device-switch path must never reach: any use is a defect."""
+
+    def __init__(self, name: str, calls: list[tuple[str, str]]) -> None:
+        self.name = name
+        self.calls = calls
+
+    def __getattr__(self, attr: str):
+        self.calls.append((self.name, attr))
+        raise AssertionError(f"{self.name}.{attr} must not be called by the device switch path")
+
+
+def _device_session(transport, fake_live, *, conversations=None, clock=None):
+    """A session whose location services raise if touched. The services are
+    injected the moment the provider opens, before any scripted tool call."""
+    calls: list[tuple[str, str]] = []
+    inner = live_factory_for(fake_live)
+
+    @asynccontextmanager
+    async def _factory(model, live_config):
+        session.ctx.services["location_settings"] = ForbiddenService("location_settings", calls)
+        session.ctx.services["location"] = ForbiddenService("location", calls)
+        async with inner(model, live_config) as live:
+            yield live
+
+    pending = MemoryPendingStore()
+    kwargs = {"clock": clock} if clock is not None else {}
+    session = VoiceSession(
+        transport=transport,
+        config=CONFIG,
+        claims=CLAIMS,
+        verify_auth=_ok_auth,
+        live_factory=_factory,
+        executor=ToolExecutor(pending_store=pending),
+        conversations=conversations or MemoryConversationStore(),
+        pending=pending,
+        **kwargs,
+    )
+    return session, calls
+
+
+def _device_call(call_id: str, name: str) -> LiveEvent:
+    return LiveEvent(kind="tool_call", function_calls=[{"id": call_id, "name": name, "args": {}}])
+
+
+def _report(step: dict, outcome: str, observed: str, **extra) -> dict:
+    payload = {
+        "gateway_action_id": step["payload"]["gateway_action_id"],
+        "desired_state": step["payload"]["desired_state"],
+        "outcome": outcome,
+        "observed_state": observed,
+        "navigated": True,
+    }
+    payload.update(extra)
+    return payload
+
+
+def _step_result(step_id: str, status: str, payload: dict) -> dict:
+    return {"type": "client_step.result", "step_id": step_id, "status": status, "payload": payload}
+
+
+def _last_event(fake: FakeLive) -> dict:
+    return json.loads(fake.events_sent[-1].removeprefix("[ONE_EVENT] "))
+
+
+async def _start_device_session(script, *, conversations=None, clock=None):
+    transport = FakeTransport([AUTH])
+    fake = FakeLive(script)
+    session, calls = _device_session(transport, fake, conversations=conversations, clock=clock)
+    task = asyncio.create_task(session.run())
+    await asyncio.sleep(0.3)
+    return transport, fake, session, calls, task
+
+
+async def _finish(transport, task):
+    transport.push({"type": "end"})
+    await asyncio.wait_for(task, 3)
+
+
+async def test_device_tool_pending_is_not_ok_and_requests_the_client_step_first():
+    conversations = MemoryConversationStore()
+    transport, fake, session, calls, task = await _start_device_session(
+        [_device_call("c1", RESUME), None], conversations=conversations
+    )
+
+    assert transport.frames("tool.started")[0]["tool"] == RESUME
+    step = transport.frames("client_step.request")[0]
+    assert step["kind"] == "set_location_updates"
+    assert step["timeout_s"] == 45
+    assert step["payload"] == {
+        "desired_state": "on",
+        "gateway_action_id": "location.resume_updates",
+        "timeout_s": 45,
+    }
+    result = transport.frames("tool.result")[0]
+    assert result["call_id"] == "c1" and result["tool"] == RESUME
+    assert result["ok"] is False
+    assert result["status"] == "location_updates_pending"
+    assert result["result_public"]["needs"] == "client_step"
+    # The device is asked before the model or the UI hears "pending".
+    assert transport.sent.index(step) < transport.sent.index(result)
+    assert "complete" not in [f["state"] for f in transport.frames("state")]
+    assert session.turn.ok_results == 0 and session.turn.not_ok_results == 1
+    assert session._counters.get("tool_results_ok", 0) == 0
+    assert session._counters.get("tool_results_rejected", 0) == 0
+    assert fake.tool_responses[0]["id"] == "c1"
+    assert fake.tool_responses[0]["response"]["status"] == "location_updates_pending"
+    record = session.client_steps[step["step_id"]]
+    assert record["tool"] == RESUME and record["call_id"] == "c1"
+    assert record["spec"] is DEVICE_TOOLS[0]
+    assert record["expires_at"] == pytest.approx(record["requested_at"] + 45 + 5)
+    assert calls == []
+
+    await _finish(transport, task)
+    assert conversations.counters.get("tool_results_ok", 0) == 0
+    assert conversations.counters.get("tool_results_rejected", 0) == 0
+    assert conversations.counters["tool_calls"] == 1
+
+
+async def test_device_step_settles_on_as_the_originating_call_and_narrates_only_the_fact():
+    conversations = MemoryConversationStore()
+    transport, fake, session, calls, task = await _start_device_session(
+        [_device_call("c1", RESUME), None], conversations=conversations
+    )
+    step = transport.frames("client_step.request")[0]
+    events_before = len(fake.events_sent)
+
+    transport.push(_step_result(step["step_id"], "ok", _report(step, "on", "on")))
+    await asyncio.sleep(0.1)
+
+    results = transport.frames("tool.result")
+    assert [r["status"] for r in results] == ["location_updates_pending", "on"]
+    settled = results[-1]
+    assert settled["call_id"] == "c1" and settled["tool"] == RESUME
+    assert settled["ok"] is True
+    assert settled["result_public"]["spoken_facts"] == ["Location is on."]
+    assert settled["result_public"]["observed_state"] == "on"
+    assert settled["result_public"]["changed"] is True
+    assert len(fake.events_sent) == events_before + 1
+    event = _last_event(fake)
+    assert event["kind"] == "tool_result" and event["tool"] == RESUME
+    assert event["confirmation_source"] == "device"
+    assert event["result"]["status"] == "on"
+    assert "payload" not in event and "verification" not in event
+    wire = json.dumps(fake.events_sent) + json.dumps(transport.sent)
+    assert not any(word in wire for word in COORDINATE_WORDS)
+    assert [f["state"] for f in transport.frames("state")][-1] == "complete"
+    assert session._counters["tool_results_ok"] == 1
+    assert session._counters.get("tool_results_rejected", 0) == 0
+    assert session.turn.ok_results == 1
+    assert session.client_steps == {}
+    assert transport.frames("error") == []
+    assert calls == []
+
+    await _finish(transport, task)
+    assert conversations.counters["tool_results_ok"] == 1
+    assert conversations.counters.get("tool_results_rejected", 0) == 0
+
+
+@pytest.mark.parametrize(
+    ("label", "status", "build", "reason_code"),
+    [
+        (
+            "tampered_gateway_id",
+            "ok",
+            lambda s: _report(s, "on", "on", gateway_action_id="location.set_sharing_enabled"),
+            "inconsistent_step_payload",
+        ),
+        ("failed_plus_on", "failed", lambda s: _report(s, "on", "on"), "inconsistent_step_payload"),
+        (
+            "observed_differs_from_desired",
+            "ok",
+            lambda s: _report(s, "on", "off"),
+            "inconsistent_step_payload",
+        ),
+        (
+            "coordinates_in_payload",
+            "ok",
+            lambda s: _report(s, "on", "on", latitude=12.97, longitude=77.59),
+            "invalid_step_payload",
+        ),
+        (
+            "provider_no_handler",
+            "failed",
+            lambda s: {"reason": "no_handler"},
+            "handler_unavailable",
+        ),
+        ("provider_timed_out", "failed", lambda s: {"reason": "timed_out"}, "timed_out"),
+    ],
+)
+async def test_device_step_rejections_settle_not_ok_and_return_to_listening(
+    label, status, build, reason_code
+):
+    conversations = MemoryConversationStore()
+    transport, fake, session, calls, task = await _start_device_session(
+        [_device_call("c1", RESUME), None], conversations=conversations
+    )
+    step = transport.frames("client_step.request")[0]
+
+    transport.push(_step_result(step["step_id"], status, build(step)))
+    await asyncio.sleep(0.1)
+
+    settled = transport.frames("tool.result")[-1]
+    assert settled["call_id"] == "c1" and settled["tool"] == RESUME
+    assert settled["ok"] is False
+    assert settled["status"] == "rejected"
+    assert settled["result_public"]["reason_code"] == reason_code
+    assert settled["result_public"]["spoken_facts"] != ["Location is on."]
+    assert [f["state"] for f in transport.frames("state")][-1] == "listening"
+    event = _last_event(fake)
+    assert event["kind"] == "tool_result" and event["result"]["reason_code"] == reason_code
+    wire = json.dumps(fake.events_sent) + json.dumps(transport.sent)
+    assert not any(word in wire for word in COORDINATE_WORDS)
+    assert session._counters.get("tool_results_ok", 0) == 0
+    assert session._counters["tool_results_rejected"] == 1
+    assert session.turn.ok_results == 0
+    assert session.client_steps == {}
+    assert calls == []
+
+    await _finish(transport, task)
+    assert conversations.counters.get("tool_results_ok", 0) == 0
+    assert conversations.counters["tool_results_rejected"] == 1
+
+
+async def test_device_step_report_after_the_deadline_is_step_expired():
+    clock = {"t": 1_000.0}
+    transport, fake, session, calls, task = await _start_device_session(
+        [_device_call("c1", PAUSE), None], clock=lambda: clock["t"]
+    )
+    step = transport.frames("client_step.request")[0]
+    record = session.client_steps[step["step_id"]]
+    assert record["expires_at"] == 1_000.0 + 45 + 5
+
+    clock["t"] = record["expires_at"] + 0.5
+    transport.push(_step_result(step["step_id"], "ok", _report(step, "off", "off")))
+    await asyncio.sleep(0.1)
+
+    settled = transport.frames("tool.result")[-1]
+    assert settled["call_id"] == "c1" and settled["ok"] is False
+    assert settled["status"] == "rejected"
+    assert settled["result_public"]["reason_code"] == "step_expired"
+    assert settled["result_public"]["spoken_facts"] != ["Location is off."]
+    assert [f["state"] for f in transport.frames("state")][-1] == "listening"
+    assert session.client_steps == {}
+    assert calls == []
+    await _finish(transport, task)
+
+
+async def test_duplicate_device_step_report_settles_once_then_is_unknown():
+    transport, fake, session, calls, task = await _start_device_session(
+        [_device_call("c1", RESUME), None]
+    )
+    step = transport.frames("client_step.request")[0]
+    report = _step_result(step["step_id"], "ok", _report(step, "on", "on"))
+
+    transport.push(report)
+    await asyncio.sleep(0.05)
+    transport.push(report)
+    await asyncio.sleep(0.1)
+
+    settled = [
+        r for r in transport.frames("tool.result") if r["status"] != "location_updates_pending"
+    ]
+    assert len(settled) == 1 and settled[0]["status"] == "on" and settled[0]["call_id"] == "c1"
+    errors = transport.frames("error")
+    assert len(errors) == 1 and errors[0]["message"] == "unknown_client_step"
+    assert session._counters["tool_results_ok"] == 1
+    assert sum('"kind":"tool_result"' in e for e in fake.events_sent) == 1
+    assert calls == []
+    await _finish(transport, task)
+
+
+async def test_device_step_from_another_session_is_unknown_here():
+    transport_a, fake_a, session_a, calls_a, task_a = await _start_device_session(
+        [_device_call("c1", RESUME), None]
+    )
+    transport_b, fake_b, session_b, calls_b, task_b = await _start_device_session(
+        [_device_call("c9", RESUME), None]
+    )
+    foreign = transport_b.frames("client_step.request")[0]
+    own = transport_a.frames("client_step.request")[0]
+    assert foreign["step_id"] != own["step_id"]
+
+    transport_a.push(_step_result(foreign["step_id"], "ok", _report(foreign, "on", "on")))
+    await asyncio.sleep(0.1)
+
+    assert [f["message"] for f in transport_a.frames("error")] == ["unknown_client_step"]
+    assert [r["status"] for r in transport_a.frames("tool.result")] == ["location_updates_pending"]
+    assert set(session_a.client_steps) == {own["step_id"]}
+    # The other session's step is untouched and still settles for its own call.
+    assert set(session_b.client_steps) == {foreign["step_id"]}
+    assert transport_b.frames("error") == []
+    transport_b.push(_step_result(foreign["step_id"], "ok", _report(foreign, "on", "on")))
+    await asyncio.sleep(0.1)
+    assert transport_b.frames("tool.result")[-1]["call_id"] == "c9"
+    assert transport_b.frames("tool.result")[-1]["status"] == "on"
+    assert session_a._counters.get("tool_results_ok", 0) == 0
+    assert calls_a == [] and calls_b == []
+    await _finish(transport_a, task_a)
+    await _finish(transport_b, task_b)
+
+
+async def test_two_device_steps_settle_independently_on_their_own_call_ids():
+    transport, fake, session, calls, task = await _start_device_session(
+        [_device_call("c1", RESUME), None, _device_call("c2", PAUSE), None]
+    )
+    steps = transport.frames("client_step.request")
+    assert [s["payload"]["desired_state"] for s in steps] == ["on", "off"]
+    on_step, off_step = steps
+    assert set(session.client_steps) == {on_step["step_id"], off_step["step_id"]}
+    assert [r["call_id"] for r in transport.frames("tool.result")] == ["c1", "c2"]
+
+    # Reports arrive in the opposite order to the requests: each settles its own call.
+    transport.push(_step_result(off_step["step_id"], "ok", _report(off_step, "off", "off")))
+    await asyncio.sleep(0.05)
+    transport.push(_step_result(on_step["step_id"], "ok", _report(on_step, "on", "on")))
+    await asyncio.sleep(0.1)
+
+    settled = [
+        r for r in transport.frames("tool.result") if r["status"] != "location_updates_pending"
+    ]
+    assert [(r["call_id"], r["tool"], r["status"], r["ok"]) for r in settled] == [
+        ("c2", PAUSE, "off", True),
+        ("c1", RESUME, "on", True),
+    ]
+    assert [r["result_public"]["spoken_facts"] for r in settled] == [
+        ["Location is off."],
+        ["Location is on."],
+    ]
+    events = [json.loads(e.removeprefix("[ONE_EVENT] ")) for e in fake.events_sent]
+    assert [(e["tool"], e["result"]["status"]) for e in events if e["kind"] == "tool_result"] == [
+        (PAUSE, "off"),
+        (RESUME, "on"),
+    ]
+    assert session.client_steps == {}
+    assert session._counters["tool_results_ok"] == 2
+    assert session._counters.get("tool_results_rejected", 0) == 0
+    assert transport.frames("error") == []
+    assert calls == []
+    await _finish(transport, task)
+
+
+async def test_device_tools_are_declared_to_the_provider_from_one_home():
+    from hushh_mcp.one_voice.conversations import Conversation
+
+    conversations = MemoryConversationStore()
+    conversations.rows[CONV] = Conversation(
+        id=CONV,
+        user_id=USER,
+        status="active",
+        screen_context={"screen_id": "one_home", "route": "/one"},
+        model_id="m",
+        model_location="l",
+        session_count=0,
+    )
+    transport = FakeTransport([AUTH, {"type": "end"}])
+    fake = FakeLive([LiveEvent(kind="setup_complete")])
+    session = _session(transport, fake, conversations=conversations)
+    await _run(session)
+
+    assert session.ctx.screen.screen_id == "one_home"
+    declared = {item["name"]: item for item in fake.live_config["tool_declarations"]}
+    for spec in DEVICE_TOOLS:
+        assert declared[spec.name] == spec.declaration()
+    assert "one_home" in fake.live_config["system_instruction"]
+    assert RESUME in fake.live_config["system_instruction"]

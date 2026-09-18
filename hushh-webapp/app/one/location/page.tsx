@@ -278,6 +278,7 @@ import {
   type LocationWorkspaceMemory,
 } from "@/lib/one-location/location-workspace-memory";
 import {
+  deriveLocationEnabled,
   readOneLocationControlState,
   updateOneLocationControlState,
   type AutoApproveScope,
@@ -3683,11 +3684,10 @@ export function OneLocationAgentPageContent({
     };
   }, [activeOwnerGrants, liveShareEntries]);
 
-  const locationEnabled =
-    !locationControl.paused &&
-    (locationControl.selfPreviewEnabled ||
-      locationControl.nearbyPresenceActive ||
-      activeOwnerGrants.length > 0);
+  const locationEnabled = deriveLocationEnabled(
+    locationControl,
+    activeOwnerGrants,
+  );
   // Reduced accuracy remains an internal signal-quality hint, not a separate
   // on/off state or admission gate. The visible switch status stays
   // "Location on" while this tracks the coarse threshold rather than the hard
@@ -10706,6 +10706,7 @@ export function OneLocationAgentPageContent({
       const superseded: LocalOnboardingActionResult = {
         status: "blocked",
         summary: "A newer location change replaced this one.",
+        data: { reason: "superseded" },
       };
       setMyLocationError(null);
 
@@ -10761,7 +10762,16 @@ export function OneLocationAgentPageContent({
               ? LOCATION_COPY.noFix
               : LOCATION_COPY.denied;
           setMyLocationError(message);
-          return { status: "blocked", summary: message };
+          // A typed reason rides with the copy so a caller (voice) can report
+          // the outcome without comparing sentences.
+          return {
+            status: "blocked",
+            summary: message,
+            data: {
+              reason:
+                result.failure === "no-fix" ? "no_fix" : "permission_denied",
+            },
+          };
         }
         setMapViewportResetKey((current) => current + 1);
         toast.success("Your live location preview is ready.");
@@ -10774,12 +10784,15 @@ export function OneLocationAgentPageContent({
         rollbackOptimisticOn();
         // The gate already decided whether this was a refusal; asserting a
         // cause from the error text guessed wrong on every timeout.
-        const message = isLocationPermissionDeniedError(error)
-          ? LOCATION_COPY.denied
-          : LOCATION_COPY.noFix;
+        const denied = isLocationPermissionDeniedError(error);
+        const message = denied ? LOCATION_COPY.denied : LOCATION_COPY.noFix;
         setMyLocationError(message);
         toast.error(message);
-        return { status: "failed", summary: message };
+        return {
+          status: "failed",
+          summary: message,
+          data: { reason: denied ? "permission_denied" : "no_fix" },
+        };
       } finally {
         // A newer intent owns `busy` and will clear it itself; clearing it here
         // would wipe the pending state of work that is still running.
@@ -10812,6 +10825,7 @@ export function OneLocationAgentPageContent({
         return {
           status: "blocked",
           summary: "Sign in to pause your location.",
+          data: { reason: "signed_out" },
         };
       }
 
@@ -10842,7 +10856,11 @@ export function OneLocationAgentPageContent({
         const message =
           "Location updates are paused on this device, but I could not check you out of nearby presence -- unlock One and pause again to finish that.";
         toast.error(message);
-        return { status: "blocked", summary: message };
+        return {
+          status: "blocked",
+          summary: message,
+          data: { reason: "vault_locked" },
+        };
       }
 
       // Checkout is idempotent server-side: it clears an ACTIVE row and reports
@@ -10871,7 +10889,11 @@ export function OneLocationAgentPageContent({
           const message =
             "Location updates are paused on this device, but I could not check you out of nearby presence -- you may still be visible to people around you.";
           toast.error(message);
-          return { status: "blocked", summary: message };
+          return {
+            status: "blocked",
+            summary: message,
+            data: { reason: "nearby_checkout_failed" },
+          };
         }
       }
 
@@ -10882,6 +10904,7 @@ export function OneLocationAgentPageContent({
         return {
           status: "blocked",
           summary: "A newer location change replaced this one.",
+          data: { reason: "superseded" },
         };
       }
       toast.success("Location updates are paused on this device.");

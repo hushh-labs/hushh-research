@@ -696,7 +696,7 @@
     },
     {
       "circle_args": [],
-      "description": "Read the person's own Location status: whether sharing with people is on, off, or not set up; the device location permission (a separate thing from app sharing); how many active shares, people sharing with them, requests waiting, and active links there are; whether Save My Soul is active; and map visibility. Reads only. Use it for 'am I sharing my location', 'who can see me', 'is my location on'.",
+      "description": "Read the person's own Location status: whether sharing with people is on, off, or not set up; the device location permission (a separate thing from app sharing); how many active shares, people sharing with them, requests waiting, and active links there are; whether Save My Soul is active; and map visibility. Reads only. It answers questions about sharing with people; it does not read or change this device's Location updates switch.",
       "firebase_plane": false,
       "gateway_action_id": "location.open_now",
       "name": "get_location_status",
@@ -1179,6 +1179,30 @@
       "policy": "direct",
       "result_statuses": [
         "navigation_dispatched",
+        "rejected"
+      ],
+      "tier": null,
+      "ui_refresh": []
+    },
+    {
+      "circle_args": [],
+      "description": "Ensures One's location preview and device updates are paused on the current device through the same operation as the Location screen's switch. Preserves existing sharing grants and account-level sharing consent. Does not disable the operating system's global Location Services. This is this device's Location switch, not sharing with people (turn_sharing_off, which ends every share and link). Reports already_off when it is already paused. Call it only when the person asks to change this device now -- not for a question, a negation, a report of what someone said, or another person's device. Returns location_updates_pending first; the real result arrives later as a [ONE_EVENT] tool_result -- only then say location is off.",
+      "firebase_plane": false,
+      "gateway_action_id": "location.pause_updates",
+      "name": "pause_device_location_updates",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {},
+        "type": "object"
+      },
+      "person_args": [],
+      "policy": "direct",
+      "result_statuses": [
+        "already_off",
+        "already_on",
+        "location_updates_pending",
+        "off",
+        "on",
         "rejected"
       ],
       "tier": null,
@@ -1737,6 +1761,30 @@
     },
     {
       "circle_args": [],
+      "description": "Ensures One's location preview and device updates are enabled on the current device through the same operation as the Location screen's switch. May require device permission. Does not change account-level sharing consent, create recipients, or create sharing grants. Existing authorized shares may receive updates under the existing rules. This is this device's Location switch, not sharing with people (turn_sharing_on). Reports already_on when it is already enabled. Call it only when the person asks to change this device now -- not for a question, a negation, a report of what someone said, or another person's device. Returns location_updates_pending first; the real result arrives later as a [ONE_EVENT] tool_result -- only then say location is on.",
+      "firebase_plane": false,
+      "gateway_action_id": "location.resume_updates",
+      "name": "resume_device_location_updates",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {},
+        "type": "object"
+      },
+      "person_args": [],
+      "policy": "direct",
+      "result_statuses": [
+        "already_off",
+        "already_on",
+        "location_updates_pending",
+        "off",
+        "on",
+        "rejected"
+      ],
+      "tier": null,
+      "ui_refresh": []
+    },
+    {
+      "circle_args": [],
       "description": "Revoke a live public location link by its id from list_links, after the person taps Confirm. The link stops opening for everyone.",
       "firebase_plane": false,
       "gateway_action_id": "location.revoke_public_link",
@@ -2127,7 +2175,7 @@
     },
     {
       "circle_args": [],
-      "description": "Turn owner-level location sharing off after the person taps Confirm. This stops every active share and every active link in the same transaction and hides them on the map. An active Save My Soul share blocks it (sos_active) unless include_sos is set because the person explicitly asked to stop SOS too.",
+      "description": "Turn owner-level location sharing off after the person taps Confirm. This stops every active share and every active link in the same transaction and hides them on the map. An active Save My Soul share blocks it (sos_active) unless include_sos is set because the person explicitly asked to stop SOS too. This is account-level sharing with people, not this device's Location updates switch (resume_device_location_updates / pause_device_location_updates).",
       "firebase_plane": false,
       "gateway_action_id": "location.set_sharing_enabled",
       "name": "turn_sharing_off",
@@ -2158,7 +2206,7 @@
     },
     {
       "circle_args": [],
-      "description": "Turn owner-level location sharing on after the person confirms. Needs recorded consent (answers consent_required otherwise) and completed Location setup (answers setup_required otherwise). Turning it on does not start any share; it allows shares again. The device permission is separate and is not changed here.",
+      "description": "Turn owner-level location sharing on after the person confirms. Needs recorded consent (answers consent_required otherwise) and completed Location setup (answers setup_required otherwise). Turning it on does not start any share; it allows shares again. The device permission is separate and is not changed here. This is account-level sharing with people, not this device's Location updates switch (resume_device_location_updates / pause_device_location_updates).",
       "firebase_plane": false,
       "gateway_action_id": "location.set_sharing_enabled",
       "name": "turn_sharing_on",

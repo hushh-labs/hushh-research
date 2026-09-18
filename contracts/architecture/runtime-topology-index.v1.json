@@ -5577,7 +5577,7 @@
   "source_sha256": {
     "a2a_scope_map": "eec9a448fd685fcc615e4e7c5e87274b2f8f7d591111575b7d21394ce57edeb3",
     "action_gateway": "8538f618780d2035cd08ce2252581e54bd9a49d77b0dc1e4ef5c6f58943b8255",
-    "agent_registry": "5a7be256f53be0e55ff670155dc85208498d326bcc458d467a6e3dd812b3cd49",
+    "agent_registry": "2945521a637a9940e38f59ddd2e992a0bec30a36b9e8d4f161c85c28c1bc9f53",
     "cache_manifest": "b4003c6d080d47016823ff0d9bd6cea44b7c71e610e0ee7aeb5f059971bc6a3a",
     "data_plane": "4fb312fa497f050070e42dbb9dae7ab3611c232913060baa9159ef72fda4a525",
     "in_process_dispatch": "12942cdce5a5d635eaec91acf2475554ff53e306ea5a71c4d9d34e76d6afa526",
