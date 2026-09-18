@@ -18,6 +18,21 @@ than the compact skill kernel.
 3. Keep one primary summary card per read and make secondary surfaces additive.
 4. Avoid duplicate headers, stacked framing chrome, repeated title treatment,
    and card-inside-card composition unless it adds semantic separation.
+5. Apply the Restraint Charter (`docs/reference/quality/design.md` Visual
+   Language rule 1) as a hard checklist, in precedence order:
+   - **One title per screen** — a single card under a `PageHeader` must not pass
+     a `SettingsGroup`/section `title` or `description`; that double-headers by
+     construction.
+   - **One primary action** — count primary-variant buttons per screen; there is
+     exactly one. Two buttons calling the same handler collapse into one; the
+     rest demote to ghost or a text link.
+   - **No decorative badge** — a badge that only restates a button's enabled
+     state, or a status the row already shows, is removed.
+   - **Progressive disclosure** — commands, delegated grants, and advanced paths
+     live behind a quiet toggle, not inline as competing blocks.
+   - **Earn every paragraph** — supporting copy that does not change a decision
+     (a footer `supportingText` restating a disabled reason, a rationale for a
+     pre-filled value) is cut.
 5. Rebalance tablet and desktop layouts; wide screens should be recomposed, not
    merely stretched.
 6. Detail surfaces should be narrower and more focused than the page shell

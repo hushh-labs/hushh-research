@@ -18,13 +18,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Install uv map requirements to virtual environment
 RUN pip install uv
 
-# Copy requirements and install Python dependencies using uv with bytecode compilation.
-# The BuildKit cache mount keeps uv's wheel cache OUT of the image layer while still
-# speeding partial re-resolves; the layer itself is cached in the registry (mode=max),
-# so an unchanged requirements.txt makes this whole step a cache hit.
-COPY requirements.txt .
+# Install the locked graph with its explicit CPU-only Torch package source.
+COPY pyproject.toml uv.lock ./
+RUN uv venv /opt/venv
+ENV VIRTUAL_ENV=/opt/venv \
+    PATH=/opt/venv/bin:$PATH
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv pip install --system --compile-bytecode -r requirements.txt
+    uv sync --frozen --no-dev --no-install-project --active
 
 # Stage 2: Production runtime
 FROM python:3.13-slim
@@ -37,12 +37,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy Python dependencies from builder
-COPY --from=builder /usr/local /usr/local
+COPY --from=builder /opt/venv /opt/venv
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 
 # Make sure scripts in .local are usable
-ENV PATH=/usr/local/bin:$PATH
+ENV VIRTUAL_ENV=/opt/venv \
+    PATH=/opt/venv/bin:$PATH
 
 # Copy application code
 COPY . .

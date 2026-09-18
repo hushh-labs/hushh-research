@@ -3,6 +3,11 @@
 __pycache__/
 *.pyc
 venv/
-.env
+.env*
+**/.env*
 .vscode/
 tests/
+
+# GitHub Actions authentication files are never source or image inputs.
+gha-creds-*.json
+**/gha-creds-*.json

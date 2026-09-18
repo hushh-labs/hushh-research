@@ -36,7 +36,6 @@ Founder-language note: this map documents the mobile side of `Separation of Duti
 
 | Area | Why Web-Only | Native Fallback / Equivalent |
 | --- | --- | --- |
-| `HushhDatabase` plugin | IndexedDB-oriented web storage abstraction | Native uses vault/PKM APIs and platform storage plugins |
 | Next.js API route files | App Router proxy layer exists only in web build | Native plugins call backend directly via shared service contract |
 
 ## Parity Verification Commands

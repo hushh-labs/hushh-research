@@ -23,6 +23,7 @@
   ],
   "required_commands": [
     "./bin/hushh codex route-task runtime-topology-maintenance",
+    "python3 scripts/ops/audit_agents_md_alignment.py --json",
     "python3 scripts/ops/generate_runtime_topology_index.py --check",
     "cd hushh-webapp && npm run verify:surface-map && npm run verify:route-orchestration-index && npm run audit:cache-coherence",
     "cd consent-protocol && uv run python scripts/generate_product_agent_registry.py --check",
@@ -32,6 +33,7 @@
     "id": "runtime-topology-maintenance",
     "commands": [
       "python3 scripts/ops/generate_runtime_topology_index.py --check",
+      "python3 scripts/ops/audit_agents_md_alignment.py --self-test",
       "cd hushh-webapp && npm run verify:surface-map && npm run verify:route-orchestration-index && npm run audit:cache-coherence",
       "cd consent-protocol && uv run python scripts/generate_product_agent_registry.py --check",
       "cd consent-protocol && python3 scripts/verify_agent_hierarchy_contract.py",
@@ -49,7 +51,8 @@
     "profile-selected read-only evidence plan",
     "explicit route alias and semantic-route metadata",
     "declared compatibility and destructive-retirement decisions",
-    "current generated product-agent registry"
+    "current generated product-agent registry",
+    "revision-bound drift report with verified, failed, and unverified evidence"
   ],
   "impact_fields": [
     "Route, semantic tab, cache, native, and voice/action coverage",

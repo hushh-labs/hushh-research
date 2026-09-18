@@ -23,11 +23,8 @@ import { shouldSkipAmbientIdentityHydrationForAutomation } from "@/lib/testing/n
 
 function resolveInitialVaultPresence(params: {
   userId: string | null | undefined;
-  hostnameResolved: boolean;
-  localPhoneMandateBypassed: boolean;
 }): boolean | null {
-  if (!params.userId || !params.hostnameResolved) return null;
-  if (params.localPhoneMandateBypassed) return false;
+  if (!params.userId) return null;
   const bootstrap = PreVaultUserStateService.getCachedBootstrapState(
     params.userId,
   );
@@ -37,12 +34,9 @@ function resolveInitialVaultPresence(params: {
 
 function resolveInitialBackendPhoneVerified(params: {
   userId: string | null | undefined;
-  hostnameResolved: boolean;
   firebasePhoneVerified: boolean;
-  localPhoneMandateBypassed: boolean;
 }): boolean | null {
-  if (!params.userId || !params.hostnameResolved) return null;
-  if (params.localPhoneMandateBypassed) return false;
+  if (!params.userId) return null;
   if (params.firebasePhoneVerified) return true;
 
   const bootstrap = PreVaultUserStateService.getCachedBootstrapState(
@@ -79,6 +73,8 @@ export function PhoneMandateGuard({
   useSessionChromeSuppression(loading || sessionVerificationRequired);
   const hostname = useHostname();
   const hostnameResolved = hostname !== null;
+  // Localhost only (never the dev deployment — see the service for the dead-loop
+  // story). Bypassed sessions skip admission fetches entirely.
   const localPhoneMandateBypassed = shouldBypassPhoneMandateForLocalhost(hostname);
   const firebasePhoneVerified = hasVerifiedPhoneNumber(phoneNumber);
   // Hydrate both mandate signals from their shared caches on the first render.
@@ -88,8 +84,6 @@ export function PhoneMandateGuard({
   const [hasVault, setHasVault] = useState<boolean | null>(() =>
     resolveInitialVaultPresence({
       userId: user?.uid,
-      hostnameResolved,
-      localPhoneMandateBypassed,
     }),
   );
   const [backendPhoneVerified, setBackendPhoneVerified] = useState<
@@ -97,9 +91,7 @@ export function PhoneMandateGuard({
   >(() =>
     resolveInitialBackendPhoneVerified({
       userId: user?.uid,
-      hostnameResolved,
       firebasePhoneVerified,
-      localPhoneMandateBypassed,
     }),
   );
   const redirectTargetRef = useRef<string | null>(null);
@@ -123,8 +115,6 @@ export function PhoneMandateGuard({
     const reconcileFromCache = () => {
       const nextVaultPresence = resolveInitialVaultPresence({
         userId,
-        hostnameResolved,
-        localPhoneMandateBypassed,
       });
       if (nextVaultPresence !== null) {
         setHasVault(nextVaultPresence);
@@ -132,9 +122,7 @@ export function PhoneMandateGuard({
 
       const nextPhoneVerified = resolveInitialBackendPhoneVerified({
         userId,
-        hostnameResolved,
         firebasePhoneVerified,
-        localPhoneMandateBypassed,
       });
       if (nextPhoneVerified !== null) {
         setBackendPhoneVerified(nextPhoneVerified);
@@ -168,7 +156,7 @@ export function PhoneMandateGuard({
 
     // useHostname intentionally starts as null to avoid a hydration mismatch.
     // No admission fetch may begin before it resolves: a localhost session is
-    // exempt from phone verification, so treating that first render as a
+    // exempt from the client mandate, so treating that first render as a
     // remote host creates both duplicate reads and a redirect loop.
     if (!hostnameResolved) {
       setHasVault(null);

@@ -234,45 +234,21 @@ Before marking feature as complete:
 Not all features require all three platform implementations. Some features are
 intentionally platform-specific:
 
-### Web-Only Plugins
+### Declaring platform support
 
-| Plugin | Reason | Web Implementation |
-|--------|--------|-------------------|
-| `HushhDatabase` | Uses IndexedDB for client-side storage | `lib/capacitor/plugins/database-web.ts` |
+Use the actual TypeScript registration, native implementation, and service caller as
+proof of support. `hushh-webapp/scripts/native/verify-native-plugin-contracts.mjs`
+checks declarations; device behavior requires separate evidence. Do not document a
+native capability from a web stub or an interface alone.
 
-For web-only plugins:
-- Native apps use alternative storage (e.g., `HushhVault` with SQLCipher)
-- Document the limitation in the plugin file
-- Service layer should gracefully handle missing native implementation
+Vault and PKM operations use the existing `HushhVault` and `PersonalKnowledgeModel`
+contracts. Agent turns use the owning agent service and runtime. Extend those paths
+instead of introducing a second storage or agent bridge.
 
-### Native-Only Features
-
-| Plugin | Reason | Native Implementation |
-|--------|--------|----------------------|
-| `HushhAgent` | On-device ML inference requires native APIs | iOS: `HushhAgentPlugin.swift`, Android: `HushhAgentPlugin.kt` |
-
-For native-only features:
-- Web implementation should be a stub that returns appropriate fallback
-- Document clearly that feature is not available on web
-- Consider showing UI message when feature is unavailable
-
-### Implementation Pattern for Platform-Specific Features
-
-```typescript
-// Service for native-only feature
-static async runLocalInference(input: string): Promise<Result> {
-  if (Capacitor.isNativePlatform()) {
-    return await HushhAgent.inference({ input });
-  }
-  
-  // Web fallback - feature not available
-  console.warn("Local inference is only available on native platforms");
-  return {
-    available: false,
-    message: "This feature requires the mobile app"
-  };
-}
-```
+For a platform-specific feature, return a typed unavailable result where unsupported
+and ensure the service/UI handles it. Background location sharing uses native
+publishers on iOS and Android; web reports an unavailable result.
+Keep the supported-platform statement and behavioral verification explicit.
 
 ## BYOK Security Checklist
 

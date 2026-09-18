@@ -50,6 +50,7 @@ Non-owned surfaces:
 
 1. Resolve the issue and project-item state dynamically instead of assuming cached IDs.
 2. Create the GitHub issue first, then attach and update the board item.
+   For Action Items, intake starts in `Inbox`; use the selected board reference for acceptance, ownership, and scheduling rules.
 3. Re-read the issue and board state after editing to confirm the change stuck.
 4. When reporting work back to the user, always use the stable task shape `#<number> <title>`.
 5. When the user asks for labels, treat labels as a first-class part of the task update instead of leaving them implicit.

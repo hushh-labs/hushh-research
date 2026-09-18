@@ -88,11 +88,38 @@ describe("reviewer route bootstrap contract", () => {
     );
 
     expect(source).toContain('page.locator("#unlock-passphrase")');
-    expect(source).toContain("unlock with passphrase");
     expect(source).toContain("unlockInput.fill(reviewerPassphrase)");
     expect(source).toContain("bootstrapErrorClass");
     expect(source).toContain("userMatches");
     expect(source).toContain("const maxAttempts = 3");
     expect(source).toContain("await context.close().catch(() => undefined)");
+  });
+
+  it("drives an unlock control the vault actually renders", () => {
+    // This test used to pin the literal "unlock with passphrase", a phrase that
+    // appears NOWHERE in the product. The harness matched it by accessible name,
+    // so the locator resolved to nothing, `isEnabled()` threw, the surrounding
+    // `.catch(() => false)` swallowed it, and the manual-unlock fallback could
+    // never run -- while this test stayed green on the broken string. Pinning a
+    // selector without checking the product renders it is a test that cannot fail.
+    const harness = readFileSync(
+      resolve(
+        process.cwd(),
+        "../.codex/skills/reviewer-app-testing/scripts/reviewer-session-harness.mjs",
+      ),
+      "utf8",
+    );
+    const vaultFlow = readFileSync(
+      resolve(process.cwd(), "components/vault/vault-flow.tsx"),
+      "utf8",
+    );
+
+    expect(harness).not.toContain("unlock with passphrase");
+    // The submit button renders "Unlock" (and "Unlocking..." while busy).
+    expect(harness).toContain('getByRole("button", { name: /^unlock/i })');
+    expect(vaultFlow).toContain('"Unlock"');
+    // The passphrase fallback is addressed by a stable testid, which the vault renders.
+    expect(harness).toContain('[data-testid="vault-use-passphrase-instead"]');
+    expect(vaultFlow).toContain('data-testid="vault-use-passphrase-instead"');
   });
 });

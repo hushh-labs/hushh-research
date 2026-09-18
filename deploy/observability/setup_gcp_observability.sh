@@ -361,6 +361,11 @@ main() {
   upsert_alert_policy "${ALERTS_DIR}/backend-latency-policy.json.in" "${channels_json}"
   upsert_alert_policy "${ALERTS_DIR}/unexpected-errors-policy.json.in" "${channels_json}"
   upsert_alert_policy "${ALERTS_DIR}/data-health-anomaly-policy.json.in" "${channels_json}"
+  # The per-user pod fleet. Selects on the `app=hussh-one-pod` service label rather
+  # than a service name, because pods are named `one-pod-<hushh-id>` and every other
+  # policy above filters `service_name="consent-protocol"` -- so until this line no
+  # alert in this project could ever match a pod.
+  upsert_alert_policy "${ALERTS_DIR}/pod-fleet-5xx-policy.json.in" "${channels_json}"
 
   ensure_scheduler_sa
   set_data_health_job

@@ -118,7 +118,10 @@ struct NativeTestConfiguration {
     let uiFlowRunId: String?
     let showStatusOverlay: Bool
 
-    init(arguments: [String] = ProcessInfo.processInfo.arguments) {
+    init(
+        arguments: [String] = ProcessInfo.processInfo.arguments,
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) {
         #if DEBUG
         let testModeEnabled = arguments.contains("-UITestMode")
         #else
@@ -131,8 +134,8 @@ struct NativeTestConfiguration {
             NativeTestConfiguration.value(for: "-UITestExpectedRoute", in: arguments)
             ?? NativeTestConfiguration.deriveExpectedRoute(from: initialRoute)
         autoReviewerLogin = testModeEnabled && NativeTestConfiguration.boolValue(for: "-UITestAutoReviewerLogin", in: arguments)
-        vaultPassphrase = testModeEnabled ? NativeTestConfiguration.value(for: "-UITestVaultPassphrase", in: arguments) : nil
-        expectedUserId = testModeEnabled ? NativeTestConfiguration.value(for: "-UITestExpectedUserId", in: arguments) : nil
+        vaultPassphrase = testModeEnabled ? environment["HUSHH_UI_TEST_REVIEWER_VAULT_PASSPHRASE"] : nil
+        expectedUserId = testModeEnabled ? environment["HUSHH_UI_TEST_REVIEWER_UID"] : nil
         resetAppState = NativeTestConfiguration.boolValue(
             for: "-UITestResetAppState",
             in: arguments,

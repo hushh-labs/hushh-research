@@ -194,6 +194,11 @@ async def run_specialist_adk_turn(
                 ),
             )
     budget = _CallBudget(max_llm_calls)
+    # ADK 2.9 requires an LlmAgent used as the Runner root to be in chat mode;
+    # task mode remains valid for delegated child semantics. Normalize only the
+    # invocation-local root so authored manifests keep their declared mode.
+    if getattr(agent, "mode", None) == "task":
+        agent = agent.model_copy(update={"mode": "chat"})
     runner = Runner(
         app=App(name=app_name, root_agent=agent, plugins=[budget]), session_service=store
     )

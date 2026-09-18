@@ -16,13 +16,16 @@ import { FeedService } from "@/lib/services/feed-service";
  * unknown, never as zero: zero is a meaningful statement that Feed has no
  * unread items.
  */
-export function useFeedUnreadCount(): number | null {
+export function useFeedUnreadCount(options?: { enabled?: boolean }): number | null {
   const { user } = useAuth();
   const currentUserId = user?.uid ?? null;
   // Object identity distinguishes separate sessions even when an A -> B -> A
   // account cycle returns to the same uid. State from the first A session is
   // never considered current for the second.
   const session = useMemo(() => ({ userId: currentUserId }), [currentUserId]);
+  // Same reason as the consent badge: a hidden badge that still fetches spends a
+  // connection from a pool of four while a first-run person waits on the gate.
+  const enabled = options?.enabled ?? true;
   const [countState, setCountState] = useState<{
     session: typeof session;
     count: number | null;
@@ -83,18 +86,20 @@ export function useFeedUnreadCount(): number | null {
     requestSequenceRef.current += 1;
     inFlightRef.current = null;
     setCountState({ session, count: null });
-    if (!user?.uid) {
+    // A hidden badge does not fetch: the reset above already cleared the count,
+    // so a disabled consumer simply reads null without spending a connection.
+    if (!user?.uid || !enabled) {
       return;
     }
     void load();
-  }, [user, load, session]);
+  }, [user, load, session, enabled]);
 
   // Shares the Feed's live signal rather than keeping a private timer, so the
   // badge and the Feed list re-check on the same tick and cannot drift into
   // saying different things about the same unread rows.
   useFeedLiveRefresh(
     useCallback(() => void load(true), [load]),
-    Boolean(user?.uid),
+    Boolean(user?.uid) && enabled,
   );
 
   // The badge additionally recounts on a read-only change — that shared signal

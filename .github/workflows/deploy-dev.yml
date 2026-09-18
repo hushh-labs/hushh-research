@@ -245,7 +245,7 @@ jobs:
             --remote-mcp-enabled "true" \
             --cors-allowed-origins "${{ env.APP_FRONTEND_ORIGIN }}" \
             --obs-data-stale-ratio-threshold "0.25" \
-            --passkey-allowed-rp-ids "localhost,127.0.0.1,dev.one.hushh.ai" \
+            --passkey-allowed-rp-ids "localhost,127.0.0.1,one.hushh.ai,dev.one.hushh.ai" \
             --plaid-env "production" \
             --plaid-client-name "Hushh Kai" \
             --plaid-country-codes "US" \
@@ -353,8 +353,12 @@ jobs:
         run: |
           set -euo pipefail
           started_at="$(date +%s)"
-          SUBSTITUTIONS="_BACKEND_SERVICE=${{ env.BACKEND_SERVICE }}##_REGION=${{ env.GCP_REGION }}##_CLOUDSQL_INSTANCES=${{ env.DEV_CLOUDSQL_INSTANCE }}##_PLAID_CLIENT_ID_SECRET=PLAID_CLIENT_ID##_PLAID_SECRET_SECRET=PLAID_SECRET##_PLAID_ACCESS_TOKEN_KEY_SECRET=PLAID_ACCESS_TOKEN_KEY##_FINNHUB_API_KEY_SECRET=FINNHUB_API_KEY##_PMP_API_KEY_SECRET=PMP_API_KEY##_NEWSAPI_KEY_SECRET=NEWSAPI_KEY##_GMAIL_OAUTH_CLIENT_ID_SECRET=GMAIL_OAUTH_CLIENT_ID##_GMAIL_OAUTH_CLIENT_SECRET_SECRET=GMAIL_OAUTH_CLIENT_SECRET##_GMAIL_OAUTH_REDIRECT_URI_SECRET=GMAIL_OAUTH_REDIRECT_URI##_GMAIL_OAUTH_TOKEN_KEY_SECRET=GMAIL_OAUTH_TOKEN_KEY##_GOOGLE_OAUTH_CLIENT_ID_SECRET=GOOGLE_OAUTH_CLIENT_ID##_GOOGLE_OAUTH_CLIENT_SECRET_SECRET=GOOGLE_OAUTH_CLIENT_SECRET##_GOOGLE_OAUTH_REDIRECT_URI_SECRET=GOOGLE_OAUTH_REDIRECT_URI##_GOOGLE_OAUTH_TOKEN_KEY_SECRET=GOOGLE_OAUTH_TOKEN_KEY##_OPENAI_API_KEY_SECRET=OPENAI_API_KEY##_GOOGLE_MAPS_API_KEY_SECRET=GOOGLE_MAPS_API_KEY##_HUSHH_DEVELOPER_TOKEN_SECRET=HUSHH_DEVELOPER_TOKEN##_HUSHH_UAT_PHONE_TEST_NUMBERS_SECRET=HUSHH_UAT_PHONE_TEST_NUMBERS##_HUSHH_UAT_PHONE_TEST_CODE_SECRET=HUSHH_UAT_PHONE_TEST_CODE##_REVIEWER_UID_SECRET=REVIEWER_UID##_REVIEWER_VAULT_PASSPHRASE_SECRET=REVIEWER_VAULT_PASSPHRASE##_RIA_INTELLIGENCE_VERIFY_BASE_URL_SECRET=RIA_INTELLIGENCE_VERIFY_BASE_URL##_ONE_EMAIL_WATCH_RENEW_TOKEN_SECRET=ONE_EMAIL_WATCH_RENEW_TOKEN##_ONE_EMAIL_ADDRESS=one@hushh.ai##_ONE_EMAIL_DELEGATED_USER=one@hushh.ai##_ONE_EMAIL_PUBSUB_TOPIC=${{ env.DEV_ONE_EMAIL_PUBSUB_TOPIC }}##_ONE_EMAIL_WEBHOOK_AUDIENCE=${{ env.DEV_ONE_EMAIL_WEBHOOK_AUDIENCE }}##_ONE_EMAIL_WEBHOOK_SERVICE_ACCOUNT_EMAIL=one-email-pubsub-push@hushh-pda.iam.gserviceaccount.com##_ONE_EMAIL_WEBHOOK_AUTH_ENABLED=true##_ONE_EMAIL_WATCH_RENEW_AUTH_ENABLED=true##_ONE_EMAIL_KYC_DEFAULT_SCOPE=attr.identity.*##_ONE_EMAIL_KYC_STRICT_CLIENT_ZK_ENABLED=true##_APP_REVIEW_MODE=true##_HUSSH_GEMINI_TEXT_MODEL=gemini-3.8-flash##_ONE_VOICE_LIVE_ENABLED=true##_VERTEX_LIVE_MODEL_ID=gemini-live-2.5-flash-native-audio##_VERTEX_LIVE_LOCATION=us-central1##_DB_POOL_MIN_SIZE=1##_DB_POOL_MAX_SIZE=4##_DB_SQLALCHEMY_POOL_SIZE=2##_DB_SQLALCHEMY_MAX_OVERFLOW=2##_CLOUD_RUN_MIN_INSTANCES=1##_CLOUD_RUN_MAX_INSTANCES=3##_CLOUD_RUN_NO_TRAFFIC=true##_RUNTIME_ENVIRONMENT=dev##_IMAGE_TAG=dev-${{ steps.resolve-sha.outputs.sha }}##_DEPLOY_ENV=dev##_DEPLOY_SOURCE=deploy-dev##_DEPLOY_SHA=${{ steps.resolve-sha.outputs.sha }}##_GITHUB_RUN_ID=${{ github.run_id }}"
+          SUBSTITUTIONS="_BACKEND_SERVICE=${{ env.BACKEND_SERVICE }}##_REGION=${{ env.GCP_REGION }}##_CLOUDSQL_INSTANCES=${{ env.DEV_CLOUDSQL_INSTANCE }}##_PLAID_CLIENT_ID_SECRET=PLAID_CLIENT_ID##_PLAID_SECRET_SECRET=PLAID_SECRET##_PLAID_ACCESS_TOKEN_KEY_SECRET=PLAID_ACCESS_TOKEN_KEY##_FINNHUB_API_KEY_SECRET=FINNHUB_API_KEY##_PMP_API_KEY_SECRET=PMP_API_KEY##_NEWSAPI_KEY_SECRET=NEWSAPI_KEY##_GMAIL_OAUTH_CLIENT_ID_SECRET=GMAIL_OAUTH_CLIENT_ID##_GMAIL_OAUTH_CLIENT_SECRET_SECRET=GMAIL_OAUTH_CLIENT_SECRET##_GMAIL_OAUTH_REDIRECT_URI_SECRET=GMAIL_OAUTH_REDIRECT_URI##_GMAIL_OAUTH_TOKEN_KEY_SECRET=GMAIL_OAUTH_TOKEN_KEY##_OPENAI_API_KEY_SECRET=OPENAI_API_KEY##_GOOGLE_MAPS_API_KEY_SECRET=GOOGLE_MAPS_API_KEY##_HUSHH_DEVELOPER_TOKEN_SECRET=HUSHH_DEVELOPER_TOKEN##_HUSHH_UAT_PHONE_TEST_NUMBERS_SECRET=HUSHH_UAT_PHONE_TEST_NUMBERS##_HUSHH_UAT_PHONE_TEST_CODE_SECRET=HUSHH_UAT_PHONE_TEST_CODE##_REVIEWER_UID_SECRET=REVIEWER_UID##_REVIEWER_VAULT_PASSPHRASE_SECRET=REVIEWER_VAULT_PASSPHRASE##_RIA_INTELLIGENCE_VERIFY_BASE_URL_SECRET=RIA_INTELLIGENCE_VERIFY_BASE_URL##_ONE_EMAIL_WATCH_RENEW_TOKEN_SECRET=ONE_EMAIL_WATCH_RENEW_TOKEN##_ONE_EMAIL_ADDRESS=one@hushh.ai##_ONE_EMAIL_DELEGATED_USER=one@hushh.ai##_ONE_EMAIL_PUBSUB_TOPIC=${{ env.DEV_ONE_EMAIL_PUBSUB_TOPIC }}##_ONE_EMAIL_WEBHOOK_AUDIENCE=${{ env.DEV_ONE_EMAIL_WEBHOOK_AUDIENCE }}##_ONE_EMAIL_WEBHOOK_SERVICE_ACCOUNT_EMAIL=one-email-pubsub-push@hushh-pda.iam.gserviceaccount.com##_ONE_EMAIL_WEBHOOK_AUTH_ENABLED=true##_ONE_EMAIL_WATCH_RENEW_AUTH_ENABLED=true##_ONE_EMAIL_KYC_DEFAULT_SCOPE=attr.identity.*##_ONE_EMAIL_KYC_STRICT_CLIENT_ZK_ENABLED=true##_ONE_EMAIL_KYC_STRICT_CLIENT_ZK_ENABLED=true##_APP_REVIEW_MODE=true##_HUSSH_GEMINI_TEXT_MODEL=gemini-3.8-flash##_ONE_VOICE_LIVE_ENABLED=true##_VERTEX_LIVE_MODEL_ID=gemini-live-2.5-flash-native-audio##_VERTEX_LIVE_LOCATION=us-central1##_DB_POOL_MIN_SIZE=1##_DB_POOL_MAX_SIZE=4##_DB_SQLALCHEMY_POOL_SIZE=2##_DB_SQLALCHEMY_MAX_OVERFLOW=2##_CLOUD_RUN_MIN_INSTANCES=1##_CLOUD_RUN_MAX_INSTANCES=3##_CLOUD_RUN_NO_TRAFFIC=true##_RUNTIME_ENVIRONMENT=dev##_IMAGE_TAG=dev-${{ steps.resolve-sha.outputs.sha }}##_DEPLOY_ENV=dev##_DEPLOY_SOURCE=deploy-dev##_DEPLOY_SHA=${{ steps.resolve-sha.outputs.sha }}##_GITHUB_RUN_ID=${{ github.run_id }}"
           SUBSTITUTIONS="${SUBSTITUTIONS}##_RUNTIME_SERVICE_ACCOUNT=${{ env.RUNTIME_SERVICE_ACCOUNT }}"
+          # Google connections use the normalized OAuth secret names. Keep the
+          # dev lane aligned with backend.cloudbuild.yaml so these optional
+          # credentials cannot silently disappear from the service.
+          SUBSTITUTIONS="${SUBSTITUTIONS}##_GOOGLE_OAUTH_CLIENT_ID_SECRET=GOOGLE_OAUTH_CLIENT_ID##_GOOGLE_OAUTH_CLIENT_SECRET_SECRET=GOOGLE_OAUTH_CLIENT_SECRET##_GOOGLE_OAUTH_REDIRECT_URI_SECRET=GOOGLE_OAUTH_REDIRECT_URI##_GOOGLE_OAUTH_TOKEN_KEY_SECRET=GOOGLE_OAUTH_TOKEN_KEY"
           # Skew guard (same class as #4399/#4401/#4402): the workflow file
           # (from main) may pass substitutions the train SHA's cloudbuild
           # template doesn't declare — gcloud rejects unmatched keys. Filter
@@ -524,8 +528,8 @@ jobs:
             --require-plaid \
             --require-market-data \
             --require-gmail \
-            --require-calendar \
             --require-one-email \
+            --require-voice \
             --require-reviewer-smoke \
             --assert-runtime-env-contract \
             --report-path /tmp/dev-runtime-parity-attempt-1.json
@@ -546,8 +550,8 @@ jobs:
             --require-plaid \
             --require-market-data \
             --require-gmail \
-            --require-calendar \
             --require-one-email \
+            --require-voice \
             --require-reviewer-smoke \
             --assert-runtime-env-contract \
             --report-path /tmp/dev-runtime-parity-attempt-2.json
@@ -743,7 +747,7 @@ jobs:
               required.get("backend", [])
               + required.get("gmail", [])
               + required.get("one_email", [])
-              + required.get("calendar", [])
+              + required.get("voice", [])
               + required.get("plaid", [])
               + required.get("market", [])
           )
@@ -754,8 +758,8 @@ jobs:
           backend_runtime_entries = (
               (runtime_contract.get("backend") or [])
               + (runtime_contract.get("backend_gmail") or [])
-              + (runtime_contract.get("backend_calendar") or [])
               + (runtime_contract.get("backend_one_email") or [])
+              + (runtime_contract.get("backend_voice") or [])
           )
 
           if not parity_success:
@@ -783,6 +787,7 @@ jobs:
               frontend_failure = True
 
           semantic_failures = set(semantic_report.get("failures") or [])
+          semantic_degraded = sorted(semantic_report.get("degraded") or [])
           advisory_semantic_failures = sorted(
               item for item in semantic_failures if item.startswith("signed_in_routes:")
           )
@@ -796,7 +801,7 @@ jobs:
                   append_unique(blocking, ["runtime_behavior_failed"])
               if "smoke_auth" in blocking_semantic_failures:
                   append_unique(blocking, ["smoke_overlay_dependency_leak"])
-              if blocking_semantic_failures & {"backend_health", "smoke_auth", "gmail_status", "location_command_recovery"}:
+              if blocking_semantic_failures & {"backend_health", "smoke_auth", "gmail_status", "voice_capability", "voice_realtime_session", "voice_relay_session", "location_command_recovery"}:
                   backend_failure = True
               if "frontend_login" in blocking_semantic_failures:
                   frontend_failure = True
@@ -842,6 +847,17 @@ jobs:
               },
               "db_contract": {
                   "outcome": db_outcome,
+              },
+              "dependency_health": {
+                  # A dev release can be simultaneously correct and not fully
+                  # functional, and this lane had no way to say so: it read only
+                  # `failures`, so a capability the verifier deliberately marked
+                  # degraded left no trace in the summary at all. That matters
+                  # more here than on UAT, because the smoke account has no
+                  # provisioned pod, so private voice is degraded on EVERY dev
+                  # release. An amber nobody can see is the same as green.
+                  "degraded": bool(semantic_degraded),
+                  "degraded_capabilities": semantic_degraded,
               },
           }
 
@@ -1041,6 +1057,19 @@ jobs:
             echo "- Frontend deployed SHA before run: \`${{ steps.predeploy-state.outputs.frontend_sha || 'unknown' }}\`"
             echo "- Status: \`$(python3 -c "import json; from pathlib import Path; print(json.loads(Path('/tmp/dev-release-status.json').read_text(encoding='utf-8'))['status'])")\`"
             echo "- Blocking classifications: \`${{ steps.classify-dev-release.outputs.blocking_classifications || 'none' }}\`"
+            # Degradation beside the status, not buried in an artifact. A dev
+            # release that deployed correctly while a capability is unavailable
+            # must read as exactly that, and not as a clean success.
+            degraded_capabilities="$(python3 -c "import json; from pathlib import Path; print(','.join(json.loads(Path('/tmp/dev-release-classification.json').read_text(encoding='utf-8')).get('dependency_health', {}).get('degraded_capabilities') or []))" 2>/dev/null || true)"
+            if [[ -n "${degraded_capabilities}" ]]; then
+              echo "- **Dependency health: DEGRADED**"
+              echo "- Degraded capabilities: \`${degraded_capabilities}\`"
+              echo "  > The application deployed correctly. These capabilities"
+              echo "  > are unavailable to the smoke account, most often because"
+              echo "  > it has no provisioned pod. This is not a code defect."
+            else
+              echo "- Dependency health: \`healthy\`"
+            fi
             echo "- Backend URL: \`${{ steps.final-state.outputs.backend_url }}\`"
             echo "- Frontend URL: \`${{ env.APP_FRONTEND_ORIGIN }}\`"
             echo "- Backend revision: \`${{ steps.final-state.outputs.backend_revision }}\`"

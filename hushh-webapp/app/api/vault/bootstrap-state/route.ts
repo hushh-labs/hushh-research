@@ -7,7 +7,7 @@ import {
   withRequestIdJson,
 } from "@/app/api/_utils/request-id";
 import { validateFirebaseToken } from "@/lib/auth/validate";
-import { isDevelopment } from "@/lib/config";
+import { devAuthBypassAllowed } from "@/lib/config";
 import {
   isRequestTimeoutError,
   resolveSlowRequestTimeoutMs,
@@ -26,7 +26,7 @@ export async function POST(request: NextRequest) {
     const body = (await request.json().catch(() => ({}))) as { userId?: string };
     const authHeader = request.headers.get("Authorization");
 
-    if (!authHeader && !isDevelopment()) {
+    if (!authHeader && !devAuthBypassAllowed()) {
       return withRequestIdJson(
         requestId,
         { error: "Authorization required", code: "AUTH_REQUIRED" },
@@ -36,7 +36,7 @@ export async function POST(request: NextRequest) {
 
     if (authHeader) {
       const validation = await validateFirebaseToken(authHeader);
-      if (!validation.valid && !isDevelopment()) {
+      if (!validation.valid && !devAuthBypassAllowed()) {
         return withRequestIdJson(
           requestId,
           { error: `Authentication failed: ${validation.error}`, code: "AUTH_INVALID" },

@@ -13,8 +13,10 @@ MAX_LOG_STRING_LENGTH = 160
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 _PHONE_RE = re.compile(r"^\+?[0-9][0-9 .()\-]{6,}$")
 _UID_LIKE_RE = re.compile(r"^(?=.*[A-Za-z])(?=.*[-_])[A-Za-z0-9_-]{24,128}$")
-_TOKEN_PREFIXES = ("HCT:", "Bearer ")
-_TOKEN_VALUE_RE = re.compile(r"\b(?:Bearer\s+|HCT:)[A-Za-z0-9._~+/=-]+")
+# `pst1.` is the owner-pod session bearer (pod_session_authority); it opens a turn
+# without a hub token and must never reach a retained log any more than an HCT.
+_TOKEN_PREFIXES = ("HCT:", "Bearer ", "pst1.")
+_TOKEN_VALUE_RE = re.compile(r"\b(?:Bearer\s+|HCT:|pst1\.)[A-Za-z0-9._~+/=-]+")
 _QUERY_SECRET_RE = re.compile(
     r"([?&](?:access_token|api[_-]?key|apikey|auth|client_secret|key|"
     r"private_key|refresh_token|secret|signature|token|"
@@ -43,10 +45,16 @@ _SENSITIVE_EXACT_KEYS = {
     "encrypted_data",
     "export_key",
     "id_token",
+    "nonce",
     "phone",
     "private_key",
+    "proof",
     "public_key",
     "refresh_token",
+    "relay_ticket",
+    "session",
+    "signing_payload",
+    "ticket",
     "user_id",
     "user_identifier",
     "wrapped_export_key",
@@ -64,10 +72,16 @@ _SENSITIVE_KEY_TERMS = (
     "encrypted_data",
     "export_key",
     "firebase_uid",
+    "nonce",
     "phone",
+    "pod_session",
     "private_key",
+    "proof",
+    "relay_ticket",
     "secret",
+    "session_token",
     "signature",
+    "ticket",
     "token",
     "user_id",
     "user_identifier",

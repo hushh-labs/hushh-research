@@ -23,6 +23,7 @@ from hushh_mcp.consent.scope_helpers import get_scope_description
 from hushh_mcp.consent.token import validate_token_with_db
 from hushh_mcp.constants import ConsentScope
 from hushh_mcp.hushh_adk.manifest import ManifestLoader
+from hushh_mcp.runtime_settings import a2a_agent_card_enabled
 from hushh_mcp.services.actor_identity_service import ActorIdentityService
 from hushh_mcp.services.consent_db import ConsentDBService
 from hushh_mcp.services.consent_request_links import build_consent_request_url
@@ -72,6 +73,59 @@ class AgentOneA2AMessageResponse(BaseModel):
 
 def _absolute_url(request: Request, path: str) -> str:
     return f"{str(request.base_url).rstrip('/')}{path}"
+
+
+A2A_PROTOCOL_VERSION = "0.3.0"
+
+
+@well_known_router.get("/.well-known/agent-card.json", include_in_schema=False)
+async def agent_card_well_known(request: Request) -> dict[str, Any]:
+    """Public A2A discovery card. Flag-gated; 404 (today's contract) until enabled."""
+    if not a2a_agent_card_enabled():
+        raise HTTPException(status_code=404)
+    return _well_known_agent_card(request)
+
+
+def _well_known_agent_card(request: Request) -> dict[str, Any]:
+    """Conformant A2A v1 AgentCard for /.well-known/agent-card.json discovery.
+
+    Re-projects the invocation-preview card (``_agent_card``) into the A2A AgentCard
+    shape. It is a valid DISCOVERY document; it honestly declares the current
+    transport/contract (HTTP+JSON invocation-preview, not full A2A v1 Tasks) via a
+    declared capability extension, so we never overclaim conformance.
+    """
+    base = _agent_card(request)
+    return {
+        "protocolVersion": A2A_PROTOCOL_VERSION,
+        "name": base["name"],
+        "description": base["description"],
+        "version": base["version"],
+        "url": _absolute_url(request, "/api/one/a2a/message"),
+        "preferredTransport": "HTTP+JSON",
+        "provider": base["provider"],
+        "documentationUrl": _absolute_url(request, "/api/one/a2a/card"),
+        "capabilities": {
+            "streaming": False,
+            "pushNotifications": False,
+            "stateTransitionHistory": False,
+            "extensions": [
+                {
+                    "uri": "https://hushh.ai/a2a/ext/invocation-preview/v1",
+                    "description": base["releaseBlocker"],
+                    "required": False,
+                    "params": {
+                        "contract": base["contract"],
+                        "officialA2A": base["officialA2A"],
+                    },
+                }
+            ],
+        },
+        "defaultInputModes": base["defaultInputModes"],
+        "defaultOutputModes": base["defaultOutputModes"],
+        "skills": base["skills"],
+        "securitySchemes": base["securitySchemes"],
+        "security": base["security"],
+    }
 
 
 def _agent_card(request: Request) -> dict[str, Any]:

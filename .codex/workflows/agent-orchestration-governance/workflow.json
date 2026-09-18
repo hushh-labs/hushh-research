@@ -6,7 +6,7 @@
   "default_spoke": null,
   "task_type": "agent-orchestration-governance",
   "affected_surfaces": [
-    ".codex/agents",
+    "agents",
     ".codex/config.toml",
     ".codex/skills/agent-orchestration-governance",
     ".codex/workflows/agent-orchestration-governance",

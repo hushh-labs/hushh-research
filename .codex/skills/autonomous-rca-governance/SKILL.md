@@ -33,7 +33,8 @@ Non-owned surfaces:
 
 ## Do Use
 
-1. Distinguishing `secret_missing` vs `runtime_mount_legacy` vs `runtime_behavior_failed`.
+1. Distinguishing `secret_missing` vs `runtime_mount_legacy` vs `runtime_behavior_failed`,
+   and any of those from `check_unevaluable` (the check never ran, so nothing is known).
 2. Running repeated RCA for UAT, core runtime, or CI failures with machine-readable artifacts.
 3. Tightening the repo-local RCA taxonomy, resume artifacts, or canonical RCA command surface.
 
@@ -53,18 +54,43 @@ Non-owned surfaces:
 ## Workflow
 
 1. Start with `./bin/hushh codex rca --surface <uat|runtime|ci>` and preserve the generated report.
-2. Classify failures before editing anything:
+2. Classify failures before editing anything. Domain classes, each meaning
+   "a check RAN and found this":
    - `secret_missing`
    - `runtime_mount_missing`
    - `runtime_mount_legacy`
    - `runtime_behavior_failed`
+   - `semantic_verifier_failed`
    - `smoke_overlay_dependency_leak`
    - `db_contract_drift`
-3. Apply the smallest safe remediation for the highest-signal blocking class first.
-4. Rerun the authoritative checks twice after the remediation instead of trusting the first green pass.
-5. Do not call the RCA task complete while a relevant core run for the touched SHA is still `queued`, `in_progress`, or `requested`; keep monitoring until GitHub reaches a terminal state.
-6. Stop only when the blocking classifications are empty and the relevant core run chain is terminal green, or a real permissions/product boundary is explicit.
-7. Advisory doc/skill drift should be recorded, but it must not block the loop unless it masks a core runtime failure.
+   - `runtime_contract_drift`
+   - `core_ci_failed`
+3. Read `unevaluable_checks` FIRST, before any of the above. It is reported
+   separately and is deliberately **not** a domain class: `check_unevaluable`
+   means this runner could not ask the question, so nothing was verified either
+   way. Each entry names the check, the reason, and the domain class it would
+   otherwise have been blamed for.
+   - Status is three-state: `healthy`, `blocked`, `unevaluable`. Exit codes are
+     `0`, `1`, `2` respectively. `can_push_branch` is false for the last two,
+     because in neither case has anything been verified.
+   - **Never remediate a domain class that came from an unevaluable check.** On
+     2026-08-29 the uat surface reported `db_contract_drift` and "Resolve DB
+     release-contract drift before treating the surface as deployable" because
+     `verify_runtime_db_contract.sh` died at `import asyncpg`. The contract was
+     fine. In the same run the semantic verifier died at `import dotenv` and
+     produced *no* classification at all, so a crashed release check read as a
+     clean one. Two opposite lies, six lines apart in one function.
+   - The deploy gates model this correctly and always did:
+     `.github/workflows/deploy-uat.yml` separates `semantic_verifier_failed`
+     from `runtime_behavior_failed` and tests `db_outcome == "failure"` rather
+     than `!= "success"`, so a skipped step never becomes drift. Keep the local
+     runner and the gate in agreement; the divergence is what let the local one
+     lie.
+4. Apply the smallest safe remediation for the highest-signal blocking class first.
+5. Rerun the authoritative checks twice after the remediation instead of trusting the first green pass.
+6. Do not call the RCA task complete while a relevant core run for the touched SHA is still `queued`, `in_progress`, or `requested`; keep monitoring until GitHub reaches a terminal state.
+7. Stop only when the blocking classifications are empty and the relevant core run chain is terminal green, or a real permissions/product boundary is explicit.
+8. Advisory doc/skill drift should be recorded, but it must not block the loop unless it masks a core runtime failure.
 
 ## Handoff Rules
 

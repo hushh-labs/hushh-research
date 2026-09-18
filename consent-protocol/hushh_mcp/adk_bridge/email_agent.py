@@ -11,7 +11,7 @@ the A2A consent token against AGENT_ONE_ORCHESTRATE before dispatch.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Awaitable, Callable
 
 from hushh_mcp.adk_bridge.contract import (
     A2ATask,
@@ -24,7 +24,13 @@ DELEGATED_MODEL = "one+email"
 
 
 class EmailAgentA2A:
-    def __init__(self, service: Any = None) -> None:
+    def __init__(
+        self,
+        service: Any = None,
+        *,
+        require_read: Callable[[A2ATask], Awaitable[None]] | None = None,
+    ) -> None:
+        self._require_read = require_read
         if service is not None:
             self._service = service
         else:
@@ -33,13 +39,17 @@ class EmailAgentA2A:
             self._service = EmailChatService()
 
     async def handle(self, task: A2ATask) -> SpecialistTurnResult:
-        require_attenuated_authority(task, information=True)
+        require_attenuated_authority(task, information=self._require_read is None)
+        if self._require_read is not None:
+            await self._require_read(task)
         out: dict = await self._service.handle_turn(
             user_id=task.user_id,
             message=task.message,
             consent_token=task.consent_token,
             conversation_id=task.conversation_id,
         )
+        if self._require_read is not None:
+            await self._require_read(task)
         return SpecialistTurnResult(
             conversation_id=str(out.get("conversationId") or task.conversation_id or ""),
             text=str(out.get("response") or ""),

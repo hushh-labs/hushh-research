@@ -82,3 +82,45 @@ To avoid washed-out milky gray tones (`#1c1c1e` / `rgb(28, 28, 30)`), dark mode 
    - Center: Agent / Puppy mode switcher
    - Right: Model selector, status indicator, and Profile avatar button (`profile-open-button`)
 3. **Always-Visible Composer**: The chat text input bar never translates offscreen on scroll (`transform: none`, permanently visible and accessible).
+
+---
+
+## 6. Universal UI Icon Registry & Replacement Map
+
+To preserve the design language across every route and sheet, all generic UI icons must come from `@/components/icons` and use official Phosphor duotone vector geometry. Direct ad-hoc `lucide-react` imports with mismatched stroke widths (1.5, 1.8, 2, 2.5) are strictly prohibited on modernized surfaces.
+
+### UI Replacement Index
+
+| Legacy Lucide Icon | Canonical Phosphor Component | Export Name in `@/components/icons` | Default Weight |
+|---|---|---|---|
+| `Search` | `MagnifyingGlass` | `SearchIcon` | `duotone` |
+| `Grid` / `LayoutGrid` | `SquaresFour` | `GridIcon` | `duotone` |
+| `List` / `Menu` | `List` | `ListIcon`, `MenuIcon` | `duotone` |
+| `ChevronRight` | `CaretRight` | `CaretRightIcon`, `ChevronRightIcon` | `duotone` |
+| `ChevronDown` | `CaretDown` | `CaretDownIcon`, `ChevronDownIcon` | `duotone` |
+| `ChevronLeft` | `CaretLeft` | `CaretLeftIcon`, `ChevronLeftIcon` | `duotone` |
+| `ChevronUp` | `CaretUp` | `CaretUpIcon`, `ChevronUpIcon` | `duotone` |
+| `ArrowLeft` | `ArrowLeft` | `ArrowLeftIcon` | `duotone` |
+| `ArrowRight` | `ArrowRight` | `ArrowRightIcon` | `duotone` |
+| `Plus` | `Plus` | `PlusIcon` | `duotone` |
+| `X` | `X` | `XIcon`, `CloseIcon` | `duotone` |
+| `Check` | `Check` | `CheckIcon` | `duotone` |
+| `Trash` / `Trash2` | `Trash` | `TrashIcon` | `duotone` |
+| `Pencil` / `Edit` | `PencilSimple` | `PencilIcon` | `duotone` |
+| `Copy` | `Copy` | `CopyIcon` | `duotone` |
+| `Send` | `PaperPlaneRight` | `SendIcon` | `duotone` |
+| `Mic` / `Microphone` | `Microphone` | `MicrophoneIcon` | `duotone` |
+| `Sparkles` | `Sparkle` | `SparkleIcon` | `duotone` |
+| `Settings` / `Gear` | `GearSix` | `GearIcon`, `SettingsIcon` | `duotone` |
+| `Sliders` | `Sliders` | `SlidersIcon` | `duotone` |
+| `MoreHorizontal` | `DotsThree` | `DotsThreeIcon`, `MoreHorizontalIcon` | `duotone` |
+| `ExternalLink` | `ArrowSquareOut` | `ExternalLinkIcon` | `duotone` |
+| `Sidebar` | `SidebarSimple` | `PanelLeftCloseIcon`, `PanelLeftOpenIcon` | `duotone` |
+| `Shield` | `ShieldCheck` | `ShieldIcon` | `duotone` |
+| `Lock` | `LockKey` | `LockIcon` | `duotone` |
+| `User` | `User` | `UserIcon` | `duotone` |
+| `Laptop` | `Laptop` | `LaptopIcon` | `duotone` |
+| `Key` | `Key` | `KeyIcon` | `duotone` |
+| `Mail` | `EnvelopeSimple` | `MailIcon` | `duotone` |
+| `LogOut` | `SignOut` | `LogOutIcon` | `duotone` |
+

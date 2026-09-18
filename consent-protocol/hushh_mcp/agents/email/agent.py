@@ -25,6 +25,7 @@ class EmailAgent(HushhAgent):
         super().__init__(
             name=manifest.name,
             model=model if model is not None else manifest.model,
+            tools=selected_tools,
             system_prompt=manifest.system_instruction,
             required_scopes=manifest.required_scopes,
             mode=manifest.runtime.adk_mode,

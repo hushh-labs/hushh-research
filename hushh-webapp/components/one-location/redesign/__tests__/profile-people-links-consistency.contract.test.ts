@@ -50,7 +50,7 @@ describe("Profile, Location People, and Location Links consistency contract", ()
     );
 
     expect(circleSource).toMatch(
-      /<SectionLabel\s+as="div"\s+compact\s+role="heading"\s+aria-level=\{2\}/,
+      /<SectionLabel\s+as="div"\s+compact\s+role="heading"\s+aria-level=\{2\}\s+id=\{CIRCLE_MEMBERS_HEADING_ID\}/,
     );
     expect(hubSource).toContain('id="one-location-people-heading"');
     expect(hubSource).toContain(

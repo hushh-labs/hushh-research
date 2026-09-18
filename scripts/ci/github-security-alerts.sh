@@ -224,3 +224,8 @@ fi
 if [ "$DEPENDABOT_COUNT" -gt 0 ] && [ "$STRICT_DEPENDABOT_ALERTS" != "1" ]; then
   echo "GitHub security alert parity advisory: open Dependabot alerts remain but are non-blocking in this lane."
 fi
+
+# Explicit success. Without this the script's status is whatever the trailing `if`
+# happens to leave -- which evaluates to 0 today, but only incidentally, and it puts
+# a load-bearing exit code at the mercy of whichever statement is edited in last.
+exit 0

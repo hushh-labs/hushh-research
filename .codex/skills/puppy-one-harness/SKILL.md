@@ -24,7 +24,7 @@ a perfectly shaped `save_to_pkm` call that files a dietary restriction under
 
 Owned repo surfaces:
 
-1. `.codex/agents/local_model_judge.toml`
+1. `agents/local_model_judge.toml`
 2. `.codex/skills/puppy-one-harness/references/judging-contract.md`
 
 Non-owned surfaces:
@@ -50,16 +50,16 @@ Non-owned surfaces:
 ## Read First
 
 1. `.codex/skills/puppy-one-harness/references/judging-contract.md`
-2. `.codex/agents/local_model_judge.toml`
+2. `agents/local_model_judge.toml`
 
 ## Workflow
 
 1. Collect outputs from the local model, then write a review queue. Controls are
-   planted, shuffled per run, and unmarked; their answers live in the manifest.
+   planted, shuffled per run, and unmarked; scoring reads them from the seal.
 2. Grade in a session that did **not** write the queue. This cannot be enforced
    from a script, so it is a discipline the report states rather than assumes.
-3. Never open `run-manifest.json` while grading. It holds the control positions,
-   and reading it destroys the only property that makes a pass meaningful.
+3. The answer key is the seal (rows, rules, seed) and `memory_judge_controls` in
+   the harness. Never open or hunt for either; the manifest locates no control.
 4. Every `wrong` verdict cites the offending value verbatim. Ingest checks the
    citation against the output and discards it if absent, because an uncited
    failure is indistinguishable from a hallucinated one.

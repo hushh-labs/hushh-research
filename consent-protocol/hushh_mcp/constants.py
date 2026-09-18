@@ -100,6 +100,35 @@ class ConsentScope(str, Enum):
     # the consent surface renders a sentence rather than title-casing the raw
     # handle into "Cap Contact Discovery".
 
+    # ==================== POD DATA DOOR READ CAPABILITIES ====================
+    # Read-only capability scopes that let a KEYLESS per-person pod READ a
+    # DB-backed specialist THROUGH the hub broker (the pod data door, see
+    # hushh_mcp/services/pod_data_door.py). Each is the narrow, owner-revocable,
+    # Nav-narrated scope the relay mints per turn with a short TTL and couriers to
+    # the pod; the broker re-validates it and runs one fixed read-only read. They
+    # are deliberately distinct from vault.owner (which the relay never hands a
+    # pod) and from the write/action capabilities: a VIEW scope can only read a
+    # fail-closed projection, never mutate. `cap.location.live.view` was the first
+    # such door; these open the next ones named in the north-star's staged
+    # door-by-door plan (email, calendar) plus finance CONNECTION STATUS (never the
+    # vault-gated portfolio itself, which no hub-run read can decrypt).
+    CAP_EMAIL_INBOX_VIEW = "cap.email.inbox.view"
+    CAP_CALENDAR_EVENTS_VIEW = "cap.calendar.events.view"
+    CAP_FINANCE_CONNECTIONS_VIEW = "cap.finance.connections.view"
+
+    # Owner-approved inference over the linked Puppy One device relay. This
+    # authorizes model inference only; it never grants vault, shell, or tool
+    # execution authority.
+    CAP_PUPPY_INFERENCE = "cap.puppy.inference"
+
+    # Owner consent for the person's OWN provider (Vertex Memory Bank in their
+    # project) to process agent memory: generate from a turn, retrieve on recall.
+    # Provider-derived memory has its own processing boundary (AGENTS.md doctrine
+    # 1); a sealed log under pod custody does not imply the provider may read it.
+    # Without a recorded consent the pod never calls memories:generate or
+    # memories:retrieve. Never a vault, PKM or action authority.
+    CAP_MEMORY_PROVIDER_PROCESS = "cap.memory.provider.process"
+
     # ============ MARKETPLACE / PERSONAL INFORMATION AGENT CAPABILITIES ============
     # Capability scopes for the One Personal Information Agent — the marketplace
     # chatbot that lets an owner query, publish, and manage their own PKM data
@@ -107,6 +136,13 @@ class ConsentScope(str, Enum):
     # read-only; MANAGE gates owner-confirmed publication and access changes.
     CAP_PKM_MARKETPLACE_VIEW = "cap.pkm.marketplace.view"
     CAP_PKM_MARKETPLACE_MANAGE = "cap.pkm.marketplace.manage"
+
+    # ==================== INTERNAL AGENT-RUNTIME CAPABILITIES ====================
+    # Control-plane capability a Hushh-operated agent runtime (pod) uses to fetch
+    # its own system prompt at runtime (prompt-sync). INTERNAL ONLY: never
+    # external-requestable and never a data authority, so it can never read PKM or
+    # a user's data. Listed in INTERNAL_ONLY_SCOPE_VALUES below.
+    CAP_AGENT_PROMPT_SYNC = "cap.agent.prompt.sync"
 
     @classmethod
     def list(cls):
@@ -283,6 +319,11 @@ class ConsentScope(str, Enum):
             cls.CAP_LOCATION_PLACE_RATING_REVOKE,
             cls.CAP_PKM_MARKETPLACE_VIEW,
             cls.CAP_PKM_MARKETPLACE_MANAGE,
+            cls.CAP_EMAIL_INBOX_VIEW,
+            cls.CAP_CALENDAR_EVENTS_VIEW,
+            cls.CAP_FINANCE_CONNECTIONS_VIEW,
+            cls.CAP_PUPPY_INFERENCE,
+            cls.CAP_MEMORY_PROVIDER_PROCESS,
         ]
 
     @classmethod
@@ -315,6 +356,7 @@ INTERNAL_ONLY_SCOPE_VALUES: frozenset[str] = frozenset(
         ConsentScope.VAULT_OWNER.value,
         ConsentScope.PKM_READ.value,
         ConsentScope.PKM_WRITE.value,
+        ConsentScope.CAP_AGENT_PROMPT_SYNC.value,
     }
 )
 EXTERNAL_REQUESTABLE_RESERVED_SCOPE_VALUES: frozenset[str] = frozenset(

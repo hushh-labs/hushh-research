@@ -49,9 +49,14 @@ from hushh_mcp.services.action_gateway import get_action_gateway_action
 
 logger = logging.getLogger(__name__)
 
-OneTextEventKind = Literal["token", "thought", "source", "directive", "boundary"]
+OneTextEventKind = Literal[
+    "token", "thought", "source", "directive", "specialist", "boundary", "memory"
+]
 _FIRST_EVENT_TIMEOUT_SECONDS = 20.0
 _BETWEEN_EVENT_TIMEOUT_SECONDS = 30.0
+# Compatibility name retained for pod timeout contracts and older callers.
+_PUPPY_BETWEEN_EVENT_TIMEOUT_SECONDS = 70.0
+_PUPPY_TOTAL_TURN_TIMEOUT_SECONDS = 150.0
 _TOTAL_TURN_TIMEOUT_SECONDS = 90.0
 
 
@@ -72,15 +77,48 @@ class OneTextSource:
 
 
 @dataclass(frozen=True)
+class OneTextSpecialistOutcome:
+    """The specialist that ran and its typed result status.
+
+    Dependency fields remain metadata only: they expose whether a pod specialist
+    used an owner-scoped hub door without exposing provider arguments or private
+    information.
+    """
+
+    agent_id: str
+    status: str
+    execution: str = ""
+    information_source: str = ""
+    hub_reads: int = 0
+    reason: str = ""
+
+
+@dataclass(frozen=True)
 class OneTextStreamEvent:
     kind: OneTextEventKind
     text: str = ""
     directive: OneTextDirective | None = None
     source: OneTextSource | None = None
+    specialist: OneTextSpecialistOutcome | None = None
+    model_version: str = ""
+    memory: dict[str, Any] | None = None
 
 
 class OneTextEmptyResponseError(RuntimeError):
     """Raised when the model turn produces neither user-visible text nor a directive."""
+
+
+def _resolve_pod_memory_service() -> Any:
+    """Resolve the pod memory adapter without making memory a turn prerequisite."""
+    try:
+        from hushh_mcp.services.pod_memory_service import (  # noqa: PLC0415
+            resolve_pod_memory_service,
+        )
+
+        return resolve_pod_memory_service()
+    except Exception:  # noqa: BLE001 - a missing adapter must not block a turn
+        logger.exception("one_text.pod_memory_unavailable")
+        return None
 
 
 async def _bounded_adk_events(source: Any) -> AsyncGenerator[Any, None]:
@@ -218,6 +256,47 @@ def _event_sources(event: Any) -> list[OneTextSource]:
             reason = str(args.get("request") or args.get("query") or "").strip()[:160]
         sources.append(OneTextSource(agent_id=agent_id, label=label, reason=reason))
     return sources
+
+
+def _event_specialists(event: Any) -> list[OneTextSpecialistOutcome]:
+    """Read specialist outcomes from One's function-response events."""
+    if str(getattr(event, "author", "") or "") != "one":
+        return []
+    get_responses = getattr(event, "get_function_responses", None)
+    if not callable(get_responses):
+        return []
+    outcomes: list[OneTextSpecialistOutcome] = []
+    for reply in get_responses() or []:
+        response = getattr(reply, "response", None)
+        if not isinstance(response, dict):
+            continue
+        status = str(response.get("status") or "").strip()
+        if not status:
+            continue
+        availability = response.get("availability")
+        agent_id = ""
+        if isinstance(availability, dict):
+            agent_id = str(availability.get("specialist_id") or "").strip()
+        if not agent_id:
+            mapped = _SPECIALIST_TOOL_SOURCES.get(str(getattr(reply, "name", "") or ""))
+            agent_id = mapped[0] if mapped else ""
+        if not agent_id:
+            continue
+        dependency = response.get("dependency")
+        if not isinstance(dependency, dict):
+            dependency = {}
+        hub_reads = dependency.get("hub_reads")
+        outcomes.append(
+            OneTextSpecialistOutcome(
+                agent_id=agent_id,
+                status=status,
+                execution=str(dependency.get("execution") or ""),
+                information_source=str(dependency.get("information_source") or ""),
+                hub_reads=hub_reads if isinstance(hub_reads, int) and hub_reads >= 0 else 0,
+                reason=str(dependency.get("reason") or response.get("reason") or ""),
+            )
+        )
+    return outcomes
 
 
 def _directive_from_value(value: Any) -> OneTextDirective | None:

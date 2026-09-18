@@ -31,7 +31,7 @@ Define the current boundary between consent tokens, encrypted scoped exports, Tr
 
 This is an implementation contract, not a roadmap. It exists because Hussh has more than one delegated-agent path and those paths must not be treated as interchangeable.
 
-Durable principles behind this contract live in the Project-Wide Agent Architecture Doctrine in `AGENTS.md` (dumb agents by default, delegation as a wrapped function of current behavior, per-hop scoped encrypted exports, one routing authority per surface).
+Durable principles behind this contract live in the Project-Wide Agent Architecture Doctrine in `AGENTS.md` (statefulness decided by runtime topology — the shared hub dumb by default, a per-user pod an intelligent private agent with its own encrypted memory — delegation as a wrapped function of current behavior, per-hop scoped encrypted exports, one routing authority per surface).
 
 ## Runtime Authority Types
 

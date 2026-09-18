@@ -58,6 +58,7 @@ export function syncNativeFirebaseConfigs({
   appRoot = resolveAppRoot(),
   monorepoRoot = path.resolve(appRoot, ".."),
   platform = "all",
+  expectedProjectId = process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
 } = {}) {
   if (!["all", "ios", "android"].includes(platform)) {
     throw new Error(`Unsupported native Firebase platform: ${platform}`);
@@ -98,6 +99,20 @@ export function syncNativeFirebaseConfigs({
     throw new Error(
       "Android Firebase config does not contain package_name com.hussh.app."
     );
+  }
+
+  if (expectedProjectId) {
+    let matches = false;
+    try {
+      const iosProject = includeIos
+        ? fs.readFileSync(iosSource, "utf8").match(/<key>PROJECT_ID<\/key>\s*<string>([^<]+)<\/string>/)?.[1]
+        : expectedProjectId;
+      const androidProject = includeAndroid
+        ? readJson(androidSource).project_info?.project_id
+        : expectedProjectId;
+      matches = iosProject === expectedProjectId && androidProject === expectedProjectId;
+    } catch { /* Malformed configuration fails without printing its contents. */ }
+    if (!matches) throw new Error("Native Firebase configuration does not match the selected project.");
   }
 
   const iosDestination = path.join(

@@ -1356,3 +1356,15 @@ describe("ApiService.apiFetch", () => {
     expect(payload.identity?.source).toBe("uat_test_phone_claim");
   });
 });
+
+
+describe("retired One Live relay", () => {
+  it("fails closed and directs callers to typed Talk to One commands", async () => {
+    const relayFetch = vi.spyOn(ApiService, "apiFetch");
+
+    await expect(ApiService.createOneAdkRelaySession()).rejects.toThrow(
+      "ONE_LIVE_RETIRED: use Talk to One commands.",
+    );
+    expect(relayFetch).not.toHaveBeenCalled();
+  });
+});

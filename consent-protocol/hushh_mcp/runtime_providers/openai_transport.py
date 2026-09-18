@@ -22,9 +22,35 @@ def _messages(request: NeutralRequest) -> list[dict[str, Any]]:
     if request.system_instruction:
         messages.append({"role": "system", "content": request.system_instruction})
     for m in request.messages:
-        if not m.text:
-            continue
-        messages.append({"role": m.role, "content": m.text})
+        if m.tool_name and m.role == "assistant":
+            messages.append(
+                {
+                    "role": "assistant",
+                    "content": m.text or None,
+                    "tool_calls": [
+                        {
+                            "id": m.tool_call_id or f"call_{m.tool_name}",
+                            "type": "function",
+                            "function": {
+                                "name": m.tool_name,
+                                "arguments": json.dumps(
+                                    m.tool_arguments or {}, separators=(",", ":")
+                                ),
+                            },
+                        }
+                    ],
+                }
+            )
+        elif m.role == "tool" and (m.tool_name or m.tool_call_id):
+            messages.append(
+                {
+                    "role": "tool",
+                    "tool_call_id": m.tool_call_id,
+                    "content": json.dumps(m.tool_result, separators=(",", ":")),
+                }
+            )
+        elif m.text:
+            messages.append({"role": m.role, "content": m.text})
     return messages
 
 

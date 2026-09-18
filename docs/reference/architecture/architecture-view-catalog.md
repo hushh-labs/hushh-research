@@ -52,6 +52,7 @@ TOGAF and ArchiMate terms are supporting enterprise vocabulary only. In this rep
 ## Current-State Contract
 
 - Current: One Voice product surface, Kai finance-specialist runtime, Consent Protocol, Developer API, hosted MCP, `@hushh/mcp`, PKM/vault, consent/export, Cloud Run deploy lanes, Firebase identity, Cloud SQL/Postgres data plane, RIA Intelligence provider lane, and governed UAT/production deploy workflows.
+- Current in the `hushh-pda-dev` lane only: the **per-user Private Agent One pod** — one Cloud Run service per person, provisioned after that person's AI connection verifies, plus the fleet control plane that provisions, hears heartbeats, and reconciles it. Draw it as current in dev and as approved direction in UAT/production; it is deployed and serving in dev and has not been promoted.
 - Approved direction with checked-in manifests but not default app runtime everywhere: One, Nav, KYC, delegated specialist handoffs, and memory-agent structure.
 - Future-state only: Salesforce, MuleSoft, Agentforce, Flex Gateway, OpenClaw/local MCP, full One/Nav default runtime, and broad BYOA/on-device private-compute lanes.
 - Partner systems must not be drawn as canonical PKM, vault, key, or durable-memory stores. They may appear only as workflow endpoints that receive consent/audit metadata and narrow approved fields.
@@ -161,7 +162,7 @@ View metadata:
 | Stakeholders | frontend, backend, platform, security |
 | Concern | Runtime containers, stores, providers, and external transport lanes |
 | Model kind | C4 container view |
-| Source anchors | `consent-protocol/README.md`, `docs/project_context_map.md`, `docs/reference/architecture/api-contracts.md`, `packages/hushh-mcp/README.md`, `docs/guides/mobile.md` |
+| Source anchors | `consent-protocol/README.md`, `docs/project_context_map.md`, `docs/reference/architecture/api-contracts.md`, `packages/hushh-mcp/README.md`, `docs/guides/mobile.md`, `consent-protocol/hushh_mcp/services/gcp_backend.py`, `consent-protocol/pod_server.py` |
 
 ```mermaid
 flowchart TB
@@ -172,12 +173,19 @@ flowchart TB
     devClient["Developer API connector"]
   end
 
-  subgraph backend["Consent Protocol runtime"]
+  subgraph backend["Consent Protocol runtime — the hub"]
     nextProxy["Next.js API proxy routes"]
     fastapi["FastAPI backend<br/>consent-protocol"]
     mcpServer["MCP server<br/>hosted remote or @hushh/mcp bridge"]
     domainServices["Domain services<br/>IAM, consent, PKM, Kai, RIA, One Email KYC"]
     agents["Agent runtime<br/>agents, tools, operons"]
+    fleet["Pod fleet control plane<br/>provision, heartbeat, reconcile, teardown"]
+    relay["Pod turn relay<br/>owner-authorized hub to pod"]
+  end
+
+  subgraph pods["Per-user compute — one container per person (dev lane)"]
+    podA["one-pod-&lt;HusshID&gt;<br/>Cloud Run, internal ingress, no allUsers"]
+    podB["one-pod-&lt;HusshID&gt;<br/>...one per person"]
   end
 
   subgraph data["Storage and provider containers"]
@@ -200,9 +208,18 @@ flowchart TB
   domainServices --> cache
   fastapi --> firebase
   fastapi --> secrets
+
+  domainServices --> fleet
+  fleet -->|"create / delete service"| podA
+  fleet --> podB
+  fastapi --> relay
+  relay -->|"ID token, roles/run.invoker"| podA
+  podA -->|"heartbeat, consent verify, prompt fetch<br/>ID token, audience-checked"| fastapi
 ```
 
 Container rule: clients call service/proxy boundaries; they do not become policy authorities or memory stores.
+
+Pod container rule: a pod is a **runtime container with no data-plane credential**. It holds no Postgres connection string and no vault data key, so every record it needs travels pod → hub → Postgres over the one door `HUSSH_HUB_BASE_URL`. Do not draw an arrow from a pod to any store. Reachability is two independent controls, both required: `internal` ingress decides *where* a caller may come from, and a `roles/run.invoker` binding for exactly `HUSSH_POD_INVOKER_MEMBER` decides *who* they must be. `allUsers` is refused in code, not merely omitted from the diagram.
 
 ## Component View
 
@@ -419,6 +436,61 @@ sequenceDiagram
   Client->>PKM: Write structured approved facts through PKM path
 ```
 
+## Dynamic View: Private Agent One Pod Provisioning and First Turn
+
+View metadata:
+
+| Field | Value |
+| --- | --- |
+| Stakeholders | platform, security, backend, frontend, operations |
+| Concern | How a person's own compute comes into existence, proves itself, and serves a grounded turn |
+| Model kind | C4 dynamic / sequence diagram |
+| Source anchors | `consent-protocol/hushh_mcp/services/ai_connection_gate.py`, `consent-protocol/api/routes/one/runtime.py`, `consent-protocol/hushh_mcp/services/gcp_backend.py`, `consent-protocol/api/routes/one/pod_heartbeat.py`, `consent-protocol/api/routes/one/pod_relay.py`, `consent-protocol/hushh_mcp/services/personal_agent_grant_service.py` |
+
+```mermaid
+sequenceDiagram
+  participant User as User
+  participant Web as hushh-webapp
+  participant Hub as Consent Protocol hub
+  participant Run as Cloud Run Admin API
+  participant Pod as one-pod-&lt;HusshID&gt;
+  participant DB as Postgres
+
+  User->>Web: Connect an AI key
+  Web->>Hub: Validate the connection
+  Hub->>Hub: Verify the key against the provider
+  Note over Hub: Provisioning starts only AFTER the key verifies.<br/>An unverified key produces no pod and no cost.
+  Hub->>DB: Registry row -> connecting
+  Hub->>Run: Create service, internal ingress, zero-role SA
+  Hub->>Run: Bind roles/run.invoker to the hub identity only
+  Run-->>Pod: Start container
+
+  Pod->>Pod: Generate the pod keypair in memory
+  Pod->>Hub: Heartbeat with ID token
+  Note over Hub,Pod: The hub PULLS the public key; the pod never pushes it.<br/>A fleet-shared SA proves "a hussh pod", never WHICH pod,<br/>so a pushed key could be registered against another owner.
+  Hub->>Pod: Fetch the public key
+  Hub->>DB: Registry row -> provisioned
+
+  User->>Web: Ask the agent something
+  Web->>Hub: Turn request
+  Hub->>Hub: Issue or reuse the standing pkm.read grant
+  Hub->>Pod: Relay the turn: owner-scoped consent token + the owner's own AI key
+  Pod->>Pod: Verify the token with the PUBLIC half only
+  Pod->>Hub: Read the records the grant allows
+  Hub->>DB: Read on the pod's behalf
+  DB-->>Hub: Records
+  Hub-->>Pod: Records
+  Pod-->>Hub: Streamed answer
+  Hub-->>Web: Streamed answer
+```
+
+Pod journey rules:
+
+- **The AI connection is the gate.** No pod is created for an account whose key has not verified — the compute is not speculative, and a person who never connects a key never costs anything.
+- **The pod thinks on the owner's key.** BYOK per turn is what keeps the pod's service account at zero roles: a managed model would need an ambient identity, and that identity would be shared across the fleet.
+- **The pod verifies consent, it cannot mint it.** It carries `CONSENT_ED25519_PUBLIC_KEYS`, the verifying half only, so it can check a token at its own door while holding nothing that could forge one.
+- **Silence means different things at different tiers.** A `warm` pod (minScale ≥ 1) that stops heart-beating is a fault; an `economy` pod (minScale 0) that goes quiet is healthy and scaled to zero. Never draw one liveness rule for both.
+
 KYC rule: backend orchestrates workflow metadata and mail/send surfaces; strict client-side zero-knowledge behavior must not turn the backend into a plaintext review-draft store.
 
 ## Deployment / Network / Physical View
@@ -430,11 +502,11 @@ View metadata:
 | Stakeholders | platform, operations, security, release owners |
 | Concern | Runtime environments, deploy authority, service topology, and external communication paths |
 | Model kind | C4 deployment view with UML deployment vocabulary |
-| Source anchors | `deploy/README.md`, `.github/workflows/deploy-uat.yml`, `.github/workflows/deploy-production.yml`, `docs/guides/environment-model.md`, `docs/reference/operations/env-and-secrets.md`, `docs/reference/operations/branch-governance.md`, `docs/reference/architecture/crd-scraping-api.md` |
+| Source anchors | `deploy/README.md`, `.github/workflows/deploy-dev.yml`, `.github/workflows/deploy-uat.yml`, `.github/workflows/deploy-production.yml`, `docs/guides/environment-model.md`, `docs/reference/operations/env-and-secrets.md`, `docs/reference/operations/branch-governance.md`, `docs/reference/operations/dev-fast-lane.md`, `docs/reference/architecture/crd-scraping-api.md` |
 
 ```mermaid
 flowchart TB
-  subgraph dev["Local development"]
+  subgraph local["Local development"]
     localWeb["Next.js dev server<br/>localhost:3000"]
     localBackend["Consent Protocol local backend<br/>development profile"]
     localMcp["Local @hushh/mcp stdio bridge<br/>when host needs local process"]
@@ -443,10 +515,23 @@ flowchart TB
 
   subgraph github["GitHub authority plane"]
     pr["Pull request / merge queue"]
+    ciGate["CI Status Gate"]
     main["main"]
     smoke["Main Post-Merge Smoke Gate"]
+    devWorkflow["Deploy to Dev<br/>any CI-green ref, never promotes"]
     uatWorkflow["Deploy to UAT<br/>manual exact green main SHA"]
     prodWorkflow["Deploy to Production<br/>governed exact green main SHA"]
+  end
+
+  subgraph devEnv["Dev hosted runtime — shared integration lane"]
+    devProject["GCP project<br/>hushh-pda-dev"]
+    devRegion["Region<br/>us-central1"]
+    devFrontend["Cloud Run service<br/>hushh-webapp"]
+    devBackend["Cloud Run service<br/>consent-protocol (the hub)"]
+    devApp["App origin<br/>https://dev.one.hushh.ai"]
+    devDb["Dev Cloud SQL / Postgres<br/>hushh-pda-dev:us-central1:hushh-dev-pg"]
+    devPods["Per-user pod fleet<br/>one-pod-&lt;HusshID&gt;, app=hussh-one-pod<br/>internal ingress, zero-role SA, 500m/1Gi"]
+    devPodSa["Pod runtime identity<br/>hussh-one-pod@hushh-pda-dev<br/>no project roles"]
   end
 
   subgraph uat["UAT hosted runtime"]
@@ -485,16 +570,33 @@ flowchart TB
   localEnv --> localWeb
   localEnv --> localBackend
 
+  pr --> ciGate
+  ciGate --> devWorkflow
   pr --> main --> smoke
   smoke --> uatWorkflow
   smoke --> prodWorkflow
 
+  devWorkflow --> cloudBuild
   uatWorkflow --> cloudBuild
   prodWorkflow --> cloudBuild
+  cloudBuild --> devFrontend
+  cloudBuild --> devBackend
   cloudBuild --> uatFrontend
   cloudBuild --> uatBackend
   cloudBuild --> prodFrontend
   cloudBuild --> prodBackend
+
+  devProject --> devRegion
+  devRegion --> devFrontend
+  devRegion --> devBackend
+  devRegion --> devPods
+  devFrontend --> devApp
+  devBackend --> devDb
+  devBackend -->|"Cloud Run Admin API<br/>create / bind invoker / delete"| devPods
+  devPods --> devPodSa
+  devPods -->|"all data-plane reads"| devBackend
+  devBackend --> secretManager
+  devBackend --> firebase
 
   uatProject --> uatRegion
   uatRegion --> uatFrontend
@@ -533,6 +635,14 @@ Topology limits:
 - It intentionally does not invent VPC, subnet, firewall, load-balancer, or private service-connect details that are not documented in the repo.
 - UAT exposes Developer API and remote MCP; production defaults keep developer API and remote MCP disabled unless a later approved deploy contract changes that.
 
+Dev lane rules:
+
+- **Dev is the only environment the per-user pod fleet exists in.** Do not draw pods under UAT or production until a deploy lane actually provisions them there.
+- Dev accepts **any CI-green ref**, not only `main`, which is what makes it the lane for previewing an unmerged branch. It **never promotes** — a dev deploy is not a step toward UAT.
+- Dev is **shared and costed**. A dispatch replaces whatever was last deployed, and live pods left running spend money, so the fleet is checked before pods are created and torn down after.
+- The dev hub keeps the **UAT runtime identity** (`_RUNTIME_ENVIRONMENT=uat`) so behaviour matches the next lane up. Read the deploy *lane* from `_DEPLOY_ENV`, not from the runtime environment name — they deliberately differ.
+- The pod runtime identity holds **no project roles**. It is shared across the fleet, which is why an ID token from it proves only that a caller is *a* pod and never *which* pod — the reason the hub pulls a pod's key rather than accepting a pushed one.
+
 ## Data Boundary View
 
 View metadata:
@@ -548,7 +658,8 @@ View metadata:
 flowchart LR
   userDevice["User device / first-party client<br/>vault unlock, local keys, temporary plaintext"]
   memory["Process/browser memory<br/>decrypted PKM only while needed"]
-  husshCloud["Hussh cloud runtime<br/>policy, workflow, export metadata"]
+  husshCloud["Hussh cloud runtime — the hub<br/>policy, workflow, export metadata"]
+  pod["Per-user pod<br/>NO database credential, NO vault data key<br/>consent VERIFYING key only, BYOK key per turn"]
   pkmBlobs["pkm_blobs<br/>ciphertext, iv, tag, revisions"]
   pkmManifests["PKM manifests and scope registry<br/>metadata and handles"]
   pkmIndex["pkm_index<br/>discovery-safe projection/cache"]
@@ -566,11 +677,17 @@ flowchart LR
   husshCloud --> providerCache
   husshCloud -->|ciphertext scoped export| connector
   connector -->|local decrypt, explicit partner policy| crm
+
+  husshCloud <-->|"only door: scoped by the standing grant"| pod
+  pod -.->|"never: no credential exists"| pkmBlobs
 ```
 
 Boundary rules:
 
 - Vault keys and decrypted PKM stay memory-only.
+- **A pod holds no data-plane credential.** No Postgres connection string, no vault data key. Every record it reads travels pod → hub → Postgres, scoped by the standing `pkm.read` grant, which is why the dotted arrow above is a prohibition and not a lane. The hub is the only door, and that is what makes the pod's zero-role service account meaningful rather than cosmetic.
+- **A pod verifies consent; it cannot mint it.** It carries `CONSENT_ED25519_PUBLIC_KEYS` — the verifying half only. Signing material reaches a pod by reference (`secretKeyRef`), never as a rendered value, because with HMAC the power to verify is the power to forge.
+- **A BYOK model key is turn-bounded.** It arrives with the request and is isolated by construction from backend ADC and environment keys; it is never rendered into a deploy artifact and never persisted in the pod.
 - `pkm_blobs` stores encrypted private content.
 - PKM manifests and scope registry are authority for structure and exposure handles.
 - `pkm_index` is discovery projection/cache, not canonical private memory.
@@ -593,6 +710,10 @@ Boundary rules:
 | KYC | agent | Identity/KYC workflow specialist manifest | `consent-protocol/hushh_mcp/agents/kyc/agent.yaml` |
 | Portfolio Import Agent | agent | Statement/CSV/PDF/image import specialist | `consent-protocol/hushh_mcp/agents/portfolio_import/agent.yaml` |
 | Memory agents | agents | PKM segmentation, intent, merge, structure, summary reduction | `consent-protocol/hushh_mcp/agents/*/agent.yaml` |
+| Private Agent One pod | container / deployment node | One Cloud Run service per person, `one-pod-<HusshID>`; internal ingress, no `allUsers`, zero-role shared SA, 500m/1Gi, no data-plane credential. Dev lane only. | `consent-protocol/hushh_mcp/services/gcp_backend.py`, `consent-protocol/pod_server.py` |
+| Pod fleet control plane | component | Provisions after the AI connection verifies, pulls the pod key on heartbeat, reconciles stalled rows, tears down on account deletion | `consent-protocol/hushh_mcp/services/personal_agent_registry_repo.py`, `consent-protocol/api/routes/one/pod_heartbeat.py` |
+| Compute backend seam | interface | One contract, many hosts: `gcp` (FedRAMP-High tier, live-wired), `anypoint` (mass tier, plan-mode), `user_gcp` (BYO-Compute), `null` (inert default) | `consent-protocol/hushh_mcp/services/compute_backend.py` |
+| Dev Cloud Run lane | deployment node | `hushh-pda-dev`, `us-central1`, `consent-protocol`, `hushh-webapp`, plus the per-user pod fleet. Any CI-green ref; never promotes. | `.github/workflows/deploy-dev.yml`, `docs/reference/operations/dev-fast-lane.md` |
 | UAT Cloud Run lane | deployment node | `hushh-pda-uat`, `us-central1`, `consent-protocol`, `hushh-webapp` | `.github/workflows/deploy-uat.yml` |
 | Production Cloud Run lane | deployment node | `hushh-pda`, `us-central1`, `consent-protocol`, `hushh-webapp` | `.github/workflows/deploy-production.yml` |
 | RIA Intelligence API | provider/runtime dependency | Standalone CRD and advisor verification provider consumed through `RIA_INTELLIGENCE_*` configuration | `docs/reference/architecture/crd-scraping-api.md` |

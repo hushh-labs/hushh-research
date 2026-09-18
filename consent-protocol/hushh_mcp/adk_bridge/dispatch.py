@@ -56,6 +56,11 @@ def register_specialist(
     _REGISTRY[agent_id] = _Registration(handler, service_handler)
 
 
+def unregister_specialist(agent_id: str) -> None:
+    """Remove an optional specialist from the ambient registry."""
+    _REGISTRY.pop(agent_id, None)
+
+
 def is_wired_specialist(agent_id: str) -> bool:
     return agent_id in _REGISTRY
 

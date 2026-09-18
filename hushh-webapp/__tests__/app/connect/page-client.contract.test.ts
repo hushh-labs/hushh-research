@@ -92,7 +92,11 @@ describe("Connect canonical surface contract", () => {
     expect(tabs).toContain('{ value: "all", label: "Connections"');
     expect(tabs).toContain('value: "circles"');
     expect(tabs).toContain('label: "Circles"');
-    expect(topShellTabs).toContain('tabSet.id === "location" || tabSet.id === "connect"');
+    // Keep the contract semantic: formatting and additional module tab sets
+    // must not make a valid shared-module branch fail this source check.
+    expect(topShellTabs.replace(/\s+/g, " ")).toContain(
+      'tabSet.id === "location" || tabSet.id === "connect"',
+    );
     expect(source).toContain(
       'const CONNECT_DIRECTORY_TABS = (["people", "advisors", "nearby"] as const).map(',
     );
@@ -119,8 +123,10 @@ describe("Connect canonical surface contract", () => {
       "utf8",
     );
 
-    expect(routes).toContain(
-      'export type FocusedConnectCircleAction = "create-circle" | "join-circle";',
+    // Circle detail is a valid focused flow as well; assert the two core
+    // actions without pinning the union's formatting or future additions.
+    expect(routes).toMatch(
+      /export type FocusedConnectCircleAction =(?=[\s\S]*"create-circle")(?=[\s\S]*"join-circle")/,
     );
     expect(source).toContain("const isFocusedCircleTask =");
     expect(source).toContain("{isFocusedCircleTask ? (");

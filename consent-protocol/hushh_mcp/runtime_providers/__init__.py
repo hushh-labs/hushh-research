@@ -33,6 +33,12 @@ from .gemini_config import (
     is_gemini_38_flash,
     is_gemini_flash_v3,
 )
+from .puppy_transport import (
+    PuppyCapabilityUnsupported,
+    PuppyRelayProtocolError,
+    PuppyRelayTransport,
+    PuppyRelayUnavailable,
+)
 from .registry import (
     ModelEntry,
     ProviderId,
@@ -56,6 +62,10 @@ __all__ = [
     "build_managed_live_client",
     "build_managed_runtime_client",
     "build_runtime_client",
+    "PuppyCapabilityUnsupported",
+    "PuppyRelayProtocolError",
+    "PuppyRelayUnavailable",
+    "PuppyRelayTransport",
     "default_model_for_provider",
     "is_known_provider",
     "is_gemini_37_flash",

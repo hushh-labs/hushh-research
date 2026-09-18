@@ -34,6 +34,13 @@ LEGACY_SECRET_FALLBACKS: dict[str, tuple[str, ...]] = {
         "KAI_TEST_PASSPHRASE",
         "HUSHH_REVIEWER_PASSPHRASE",
     ),
+    # Pod durability roots. Both existed on dev ONLY because someone created them
+    # by hand, and `append_optional_secret` skips a missing secret silently -- so
+    # an environment rebuild would lose pod memory durability with no signal.
+    # Syncing them here makes the durable-memory substrate part of the
+    # reproducible environment, not tribal memory.
+    "HUSSH_POD_KEY_MASTER": ("HUSSH_POD_KEY_MASTER",),
+    "HUSSH_POD_DEV_SIGNING_KEY": ("HUSSH_POD_DEV_SIGNING_KEY",),
 }
 
 

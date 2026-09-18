@@ -1,13 +1,63 @@
 #!/bin/sh
 # .githooks/pre-push
-# Wrapper that delegates to consent-protocol's shared monorepo hook logic.
+# Refuses to push an unsigned commit, then delegates to consent-protocol's
+# shared monorepo hook logic.
+#
+# The DCO check already existed in CI (`dco-check` in .github/workflows/ci.yml)
+# and it works. It just fires on `pull_request`, which is AFTER the commits are
+# written -- so the only remedy it can offer is rewriting published history. By
+# the time it spoke, 78 commits on one branch were unsigned and the fix was a
+# 180-commit rewrite. Catching the first one costs `git commit --amend -s`.
+#
+# Scoped to commits NEW in this push (remote_sha..local_sha), deliberately. A
+# check against the whole branch would refuse every future push over history
+# that is already published and cannot be signed without a rewrite -- and a gate
+# that can never go green is a gate people disable.
 
 REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 DELEGATE="$REPO_ROOT/consent-protocol/ops/monorepo/pre-push.sh"
+DCO_CHECK="$REPO_ROOT/scripts/ci/check-dco-signoff.sh"
 
 if [ ! -f "$DELEGATE" ]; then
   echo "[pre-push] Missing delegate script: consent-protocol/ops/monorepo/pre-push.sh"
   exit 1
 fi
 
-exec sh "$DELEGATE" "$@"
+# git feeds the refs being pushed on stdin and the delegate reads them too, so
+# buffer once and hand the same bytes on rather than consuming them here.
+REFS=$(cat)
+
+if [ -f "$DCO_CHECK" ] && [ "${HUSSH_ALLOW_UNSIGNED_PUSH:-0}" != "1" ]; then
+  DCO_FAILED=$(mktemp 2>/dev/null || echo "/tmp/hussh-dco-$$")
+  : >"$DCO_FAILED"
+
+  printf '%s\n' "$REFS" | while read -r local_ref local_sha remote_ref remote_sha; do
+    [ -n "$local_sha" ] || continue
+    # An all-zero local sha is a branch deletion -- there is nothing to sign.
+    case "$local_sha" in *[!0]*) : ;; *) continue ;; esac
+
+    case "$remote_sha" in
+      "" | *[!0]*) base="$remote_sha" ;;
+      # All-zero remote sha means the branch is new on the remote; fall back to
+      # where it left the default branch, which is the range CI will check.
+      *) base="$(git merge-base origin/main "$local_sha" 2>/dev/null || true)" ;;
+    esac
+    [ -n "$base" ] || continue
+
+    if ! bash "$DCO_CHECK" "$base" "$local_sha" >/dev/null 2>&1; then
+      bash "$DCO_CHECK" "$base" "$local_sha" >&2 || true
+      echo "[pre-push] Refusing to push unsigned commits on ${local_ref}." >&2
+      echo "[pre-push] Fix the most recent one with: git commit --amend -s" >&2
+      echo "[pre-push] Override for this push only: HUSSH_ALLOW_UNSIGNED_PUSH=1 git push ..." >&2
+      echo 1 >"$DCO_FAILED"
+    fi
+  done
+
+  if [ -s "$DCO_FAILED" ]; then
+    rm -f "$DCO_FAILED"
+    exit 1
+  fi
+  rm -f "$DCO_FAILED"
+fi
+
+printf '%s\n' "$REFS" | sh "$DELEGATE" "$@"

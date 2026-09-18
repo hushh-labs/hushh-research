@@ -80,6 +80,14 @@ def resolve_scope_to_enum(scope: str) -> ConsentScope:
         "cap.pkm.marketplace.view": ConsentScope.CAP_PKM_MARKETPLACE_VIEW,
         "cap.pkm.marketplace.manage": ConsentScope.CAP_PKM_MARKETPLACE_MANAGE,
         "cap.contact.discovery": ConsentScope.CAP_CONTACT_DISCOVERY,
+        # Pod data-door READ scopes (keyless pod reads a specialist through the
+        # hub broker). Declared here so they resolve; unresolvable-but-listed is
+        # worse than absent, the exact trap the nearby triple hit above.
+        "cap.email.inbox.view": ConsentScope.CAP_EMAIL_INBOX_VIEW,
+        "cap.calendar.events.view": ConsentScope.CAP_CALENDAR_EVENTS_VIEW,
+        "cap.finance.connections.view": ConsentScope.CAP_FINANCE_CONNECTIONS_VIEW,
+        "cap.puppy.inference": ConsentScope.CAP_PUPPY_INFERENCE,
+        "cap.memory.provider.process": ConsentScope.CAP_MEMORY_PROVIDER_PROCESS,
     }
     if scope.startswith("agent."):
         resolved = _AGENT_SCOPE_MAP.get(scope)
@@ -333,6 +341,54 @@ def get_scope_display_metadata(scope: str) -> dict:
                 "Phone numbers are hashed on your device and never stored"
             ),
             "icon_name": "users",
+            "color_hex": "#0F766E",
+        },
+        "cap.email.inbox.view": {
+            "label": "Read Your Email Summary",
+            "description": (
+                "Let your private agent read a summary of your inbox (senders, "
+                "subjects, dates) to answer email questions. Never reads message "
+                "bodies, never sends or changes mail"
+            ),
+            "icon_name": "mail",
+            "color_hex": "#0F766E",
+        },
+        "cap.calendar.events.view": {
+            "label": "Read Your Calendar",
+            "description": (
+                "Let your private agent read your upcoming events (titles and "
+                "times) to answer calendar questions. Never edits, creates, or "
+                "cancels events"
+            ),
+            "icon_name": "calendar",
+            "color_hex": "#0F766E",
+        },
+        "cap.finance.connections.view": {
+            "label": "Read Your Account Connections",
+            "description": (
+                "Let your private agent see which financial accounts are "
+                "connected and their sync status. Never reads balances, holdings, "
+                "or transactions, which stay locked in your vault"
+            ),
+            "icon_name": "link",
+            "color_hex": "#0F766E",
+        },
+        "cap.puppy.inference": {
+            "label": "Puppy One Inference",
+            "description": (
+                "Allow the linked Puppy One device to answer private-agent inference requests"
+            ),
+            "icon_name": "cpu",
+            "color_hex": "#7C3AED",
+        },
+        "cap.memory.provider.process": {
+            "label": "Let Your Cloud Process Agent Memory",
+            "description": (
+                "Allow the memory service in your own cloud project to process what "
+                "your private agent remembers, so it can recall by meaning. Nothing "
+                "leaves your project; withdraw it here at any time"
+            ),
+            "icon_name": "brain",
             "color_hex": "#0F766E",
         },
     }

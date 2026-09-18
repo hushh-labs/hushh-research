@@ -66,7 +66,7 @@ Repo governance baseline:
 - DCO signoff on PR commits
 - `uv` as the canonical backend Python toolchain
 - one required aggregate PR gate: `CI Status Gate`
-- project-scoped custom agents live under `.codex/agents/`; bounded repo defaults for subagent fan-out live in `.codex/config.toml`
+- project-scoped custom agents live under `agents/`; bounded repo defaults for subagent fan-out live in `.codex/config.toml`
 - repo-scoped custom agents inherit the runtime-selected model by default and are enforced through the existing `Governance` lane plus local Codex validation
 
 ## Codex skills
@@ -104,12 +104,22 @@ Use `ci-watch-and-heal` plus `./bin/hushh codex ci-status` when the task depends
 Use `data-model-audit` plus `./bin/hushh codex data-model-audit` when migrations, table ownership, data classes, retention, or legacy memory write drift are in scope.
 Use `github-contribution-governance` when contribution graph visibility, verified author email, PR target branch, or merge eligibility affects the task outcome.
 
+## Portable PDF artifacts
+
+All Codex and Claude PDF work uses the shared [portable PDF artifact skill](../../../skills/pdf-artifact-generation/SKILL.md).
+The existing Codex workflow retains routing metadata under `.codex/skills/founder-brief-curation/`; the
+portable behavior, full-bleed cover contract, semantic directives, and visual acceptance criteria live once
+at `skills/pdf-artifact-generation/SKILL.md`. Do not create a host-local PDF renderer or stylesheet.
+For a calendar-level monthly GitHub report, use its parameterized collector and monthly cadence reference;
+the calendar is an event record, never a timekeeping or performance measure.
+
 ## References
 
 - [Admin merge and release SOP](../../../.codex/skills/repo-operations/references/admin-release-sop.md): canonical queue, Admin PR landing, exact-SHA promotion, environment dispatch, proof, and closeout state machine.
 - [ci.md](./ci.md): local/remote CI parity and required lanes.
+- [pod-completion-judge.md](./pod-completion-judge.md): the completion ledger and the judge that asks "did we finish it" on a cadence. Status is derived from checks, never declared; unevaluable reports UNKNOWN rather than PASS.
 - [cli.md](./cli.md): canonical root command surface for repo-level workflows.
-- [branch-governance.md](./branch-governance.md): branch rules, review gates, and bypass policy.
+- [branch-governance.md](./branch-governance.md): branch rules, review gates, protected surfaces, and **the bypass lane** — the sanctioned maintainer cohort that may land directly on `main` and edit protected pipeline paths. It waives review, never validation: `CI Status Gate`, merge queue validation, and `Main Post-Merge Smoke Gate` still apply to every member. Live membership is `config/ci-governance.json` only — never transcribed into prose.
 - [documentation-architecture-map.md](./documentation-architecture-map.md): canonical docs-home map across root, cross-cutting docs, and package docs.
 - [documentation-recursive-knowledge-model.md](./documentation-recursive-knowledge-model.md): recursive folder contract, rewrite sequence, and long-doc split policy.
 - [docs-governance.md](./docs-governance.md): documentation placement and quality gates.

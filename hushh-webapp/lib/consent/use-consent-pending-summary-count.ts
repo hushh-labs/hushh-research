@@ -22,7 +22,9 @@ import { CACHE_KEYS } from "@/lib/services/cache-service";
  * must treat that as an unknown count, never as zero: zero is a meaningful
  * statement that there are no pending requests.
  */
-export function useConsentPendingSummaryCount(): number | null {
+export function useConsentPendingSummaryCount(
+  options?: { enabled?: boolean },
+): number | null {
   const { user } = useAuth();
   const pathname = usePathname();
   const { activePersona } = usePersonaState();
@@ -59,7 +61,14 @@ export function useConsentPendingSummaryCount(): number | null {
   const summaryResource = useStaleResource({
     cacheKey,
     refreshKey: `${scope}:${mode}:${mutationTick}`,
-    enabled: Boolean(user?.uid),
+    // A NAV BADGE MUST NOT RACE THE SETUP GATE.
+    //
+    // This call is chrome for a nav that is already hidden on every setup
+    // surface, and it was measured at 125,614 ms on a brand-new person's first
+    // paint -- because `useSessionChromeSuppression` hides the chrome with a DOM
+    // attribute while every component under it stays mounted and every fetch
+    // still fires. Hidden was doing no work; only stopping the fetch does.
+    enabled: Boolean(user?.uid) && (options?.enabled ?? true),
     load: async () => {
       const idToken = await user?.getIdToken();
       if (!user?.uid || !idToken) {

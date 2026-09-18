@@ -17,6 +17,19 @@
 # Both remain procedural-only — see the skill.
 
 REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+
+# FIRST, and it BLOCKS. Unlike the advisory heuristic below, this asks a
+# counted question with an exact answer: does this merge still build the
+# per-person pod image? `main` does not build it at all, so a merge that takes
+# main's side of the build file drops the count to zero. That is not a
+# judgement call and there is no false positive available, so it refuses the
+# commit rather than printing a warning somebody reads afterwards. It landed
+# once already, on 2026-09-11.
+POD_ARCH="$REPO_ROOT/scripts/git/check-pod-architecture-survives-merge.sh"
+if [ -f "$POD_ARCH" ] && [ "${HUSHH_ALLOW_POD_ARCHITECTURE_LOSS:-0}" != "1" ]; then
+  bash "$POD_ARCH" --in-merge || exit 1
+fi
+
 CHECKER="$REPO_ROOT/scripts/git/check-merge-regression.sh"
 # git-path, not "$REPO_ROOT/.git" — in a linked worktree (the norm in this
 # repo) .git is a FILE, so that path never resolves and this hook silently

@@ -64,6 +64,19 @@ BACKEND_ONE_EMAIL_RUNTIME_REQUIRED = (
 BACKEND_CONNECTED_SYSTEMS_REQUIRED = (
     "OMNIGATEWAY_CLIENT_ID",
     "OMNIGATEWAY_CLIENT_SECRET",
+    # The external_crm credential profile. Migration 149 forces this profile for
+    # dynamic_registry-mode rows, and its absence is exactly the confirmed
+    # 2026-08-12 UAT 401 (CONNECTED_SYSTEM_MCP_AUTH_FAILED): the deploy attaches
+    # secrets with `append_optional_secret`, which SKIPS a missing one silently,
+    # so without this line an environment can pass every gate and still refuse
+    # every CRM read. Absence must fail loud here instead.
+    #
+    # Carried forward deliberately when this file was taken from `main` on
+    # 2026-09-11 to pick up `--require-calendar`. `main` had dropped these two
+    # while keeping them in `deploy/backend.cloudbuild.yaml`, so the deploy still
+    # attaches them and nothing would have noticed them going missing again.
+    "OMNIGATEWAY_EXT_CRM_CLIENT_ID",
+    "OMNIGATEWAY_EXT_CRM_CLIENT_SECRET",
 )
 
 BACKEND_REVIEWER_SMOKE_REQUIRED = (
@@ -184,6 +197,10 @@ LEGACY_BACKEND_RUNTIME_COMPONENTS = (
     "OBS_DATA_STALE_RATIO_THRESHOLD",
     "PASSKEY_ALLOWED_RP_IDS",
 )
+
+class CloudReadUnavailable(RuntimeError):
+    """Cloud access failed; absence cannot be inferred from this observation."""
+
 
 class CloudReadUnavailable(RuntimeError):
     """Cloud access failed; absence cannot be inferred from this observation."""

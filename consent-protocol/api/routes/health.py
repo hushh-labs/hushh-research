@@ -22,10 +22,6 @@ REVIEWER_VAULT_PASSPHRASE_KEY = "REVIEWER_VAULT_PASSPHRASE"  # noqa: S105
 # Second non-production fixture for two-person proofs. No deprecated aliases.
 REVIEWER_COUNTERPART_UID_KEY = "REVIEWER_COUNTERPART_UID"
 REVIEWER_COUNTERPART_VAULT_PASSPHRASE_KEY = "REVIEWER_COUNTERPART_VAULT_PASSPHRASE"  # noqa: S105
-AGENT_MODEL = {
-    "primary": "one",
-    "specialists": ["kai", "nav", "kyc"],
-}
 DEPRECATED_REVIEWER_UID_KEYS = ("UAT_SMOKE_USER_ID", "KAI_TEST_USER_ID")
 DEPRECATED_REVIEWER_PASSPHRASE_KEYS = (  # noqa: S105
     "UAT_SMOKE_PASSPHRASE",
@@ -143,6 +139,23 @@ def _one_runtime_dependency_evidence() -> dict[str, str | bool | None]:
     return runtime_dependency_evidence()
 
 
+def _agent_roster() -> list[str]:
+    """Report the runtime roster without importing the expensive ADK tree."""
+    from hushh_mcp.runtime_settings import pod_mode, pod_turn_enabled
+
+    if pod_mode():
+        return ["one"] if pod_turn_enabled() else []
+    return ["one", "kai", "nav"]
+
+
+def _agent_model() -> dict[str, object]:
+    roster = _agent_roster()
+    return {
+        "primary": "one" if "one" in roster else None,
+        "specialists": [name for name in roster if name != "one"],
+    }
+
+
 @router.get("/")
 def health_check():
     """Root health check."""
@@ -151,11 +164,11 @@ def health_check():
 
 @router.get("/health")
 def health():
-    """Detailed health check with agent list."""
+    """Detailed health check with the roster this process can actually serve."""
     return {
         "status": "healthy",
-        "agents": ["one", "kai", "nav", "kyc"],
-        "agent_model": AGENT_MODEL,
+        "agents": _agent_roster(),
+        "agent_model": _agent_model(),
         "one_runtime": _one_runtime_dependency_evidence(),
     }
 

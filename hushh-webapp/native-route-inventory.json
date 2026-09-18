@@ -1,8 +1,8 @@
 {
   "generated_at": "2026-09-02",
-  "total_routes": 120,
-  "native_required_routes": 103,
-  "excluded_routes": 17,
+  "total_routes": 122,
+  "native_required_routes": 104,
+  "excluded_routes": 18,
   "routes": [
     {
       "route": "/",
@@ -299,6 +299,11 @@
         "loaded",
         "empty-valid"
       ]
+    },
+    {
+      "route": "/manishhussh",
+      "classification": "excluded-web-only",
+      "reason": "Public marketing and founder profile content. The native shell ships the signed-in product; the public site is web."
     },
     {
       "route": "/oauth/authorize",
@@ -1072,6 +1077,18 @@
       "initialRoute": "/login?redirect=%2Fone%2Fsetup",
       "expectedMarker": "native-route-one-setup",
       "expectedRoute": "/one/setup",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": [
+        "loaded"
+      ]
+    },
+    {
+      "route": "/one/setup/cloud",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fone%2Fsetup%2Fcloud",
+      "expectedMarker": "native-route-one-setup-cloud",
+      "expectedRoute": "/one/setup/cloud",
       "autoReviewerLogin": true,
       "expectedAuth": "authenticated",
       "allowedDataStates": [

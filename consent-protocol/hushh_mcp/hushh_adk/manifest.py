@@ -1280,6 +1280,27 @@ class ManifestLoader:
             raise ValueError(f"Invalid manifest data from '{source}': {exc}") from exc
 
     @staticmethod
+    def index_ids(root: str) -> tuple[dict[str, str], tuple[str, ...]]:
+        """Index every authored manifest by its declared id without validating it."""
+        index: dict[str, str] = {}
+        unreadable: list[str] = []
+        for entry in sorted(os.listdir(root)):
+            path = os.path.join(root, entry, "agent.yaml")
+            if not os.path.exists(path):
+                continue
+            try:
+                with open(path, encoding="utf-8") as manifest_file:
+                    data = yaml.safe_load(manifest_file)
+                declared = str((data or {}).get("id") or "").strip()
+            except (OSError, yaml.YAMLError, AttributeError):
+                declared = ""
+            if not declared:
+                unreadable.append(entry)
+                continue
+            index[declared] = path
+        return index, tuple(unreadable)
+
+    @staticmethod
     def load_location_knowledge_package(path: str) -> LocationKnowledgePackageV1:
         if not os.path.exists(path):
             raise FileNotFoundError(f"Location knowledge package not found at {path}")
