@@ -291,6 +291,27 @@ export const CLOSE_CODES = {
   ended: 1000,
 } as const;
 
+/**
+ * Save My Soul on the wire. `trigger_save_my_soul` can only ARM the alert
+ * (`SOS_GRANTS_CREATED`): the position is encrypted on the device, so what
+ * reached whom is a fact only `report_save_my_soul_delivery` may state, from
+ * the stored envelopes. Nothing in this file, and nothing rendered from these
+ * statuses, may call an armed alert "sent" or "done".
+ */
+export const SOS_TRIGGER_TOOL = "trigger_save_my_soul" as const;
+export const SOS_REPORT_TOOL = "report_save_my_soul_delivery" as const;
+export const SOS_STOP_TOOL = "stop_save_my_soul" as const;
+export const SOS_GRANTS_CREATED = "sos_grants_created" as const;
+export const SOS_PUBLISH_STEP_KIND = "publish_location_envelopes" as const;
+export const SOS_PUBLISH_PURPOSE = "sos" as const;
+/** The verified delivery outcomes, and only these, may say who was reached. */
+export const SOS_REPORT_STATUSES = new Set<string>([
+  "sos_sent",
+  "sos_partial",
+  "sos_not_sent",
+  "sos_unverified",
+]);
+
 /** Statuses that must never render as success. */
 export const NOT_SUCCESS_STATUSES = new Set<string>([
   "rejected",

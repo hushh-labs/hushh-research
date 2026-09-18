@@ -228,6 +228,52 @@ describe("OneVoiceControl", () => {
     );
   });
 
+  it("reopens a collapsed panel on Home while a Save My Soul position is being sent", () => {
+    harness.pathname = "/one";
+    try {
+      render(<OneVoiceControl layout="fixed" />);
+      connect();
+      act(() => {
+        dispatchServerFrame({
+          type: "transcript.input",
+          text: "Send my SOS",
+          final: true,
+          turn_id: "t1",
+        });
+      });
+      fireEvent.click(screen.getByTestId("one-voice-toggle-panel"));
+      expect(screen.queryByTestId("one-voice-panel")).toBeNull();
+
+      act(() => {
+        dispatchServerFrame({
+          type: "client_step.request",
+          step_id: "step_SECRET",
+          kind: "publish_location_envelopes",
+          payload: { purpose: "sos", sos: true, grant_ids: ["g1"] },
+          timeout_s: 25,
+        });
+      });
+      expect(screen.getByTestId("one-voice-agent-bar")).toHaveAttribute(
+        "data-voice-panel",
+        "open",
+      );
+      expect(screen.getByTestId("one-voice-sos-publishing")).toHaveTextContent(
+        "Sending your position…",
+      );
+      expect(document.body.textContent).not.toContain("Done");
+      expect(document.body.textContent).not.toContain("step_SECRET");
+
+      act(() => {
+        useVoiceSessionStore
+          .getState()
+          .dispatch({ type: "client_step_done", stepId: "step_SECRET" });
+      });
+      expect(screen.queryByTestId("one-voice-sos-publishing")).toBeNull();
+    } finally {
+      harness.pathname = "/one/location";
+    }
+  });
+
   it("offers a hidden Type instead affordance that sends through session.sendText", () => {
     render(<OneVoiceControl layout="slot" />);
     connect();

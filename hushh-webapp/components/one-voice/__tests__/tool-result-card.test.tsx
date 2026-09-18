@@ -4,6 +4,8 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   ToolResultCard,
   locationStatusRows,
+  sosHeadline,
+  sosReasonLine,
   toneForResult,
   toolResultFamily,
 } from "@/components/one-voice/tool-result-card";
@@ -258,5 +260,304 @@ describe("ToolResultCard", () => {
     expect(toneForResult({ status: "grant_created" }, true)).toBe("failure");
     expect(toneForResult({ status: "empty" }, true)).toBe("neutral");
     expect(toneForResult({ status: "renamed" }, true)).toBe("success");
+    // The pending tone is scoped to the armed Save My Soul alert only.
+    expect(toneForResult({ status: "sos_grants_created" }, undefined)).toBe(
+      "pending",
+    );
+    expect(toneForResult({ status: "sos_grants_created" }, false)).toBe(
+      "pending",
+    );
+    expect(toneForResult({ status: "check_in_created" }, true)).toBe(
+      "failure",
+    );
+    expect(toolResultFamily("trigger_save_my_soul")).toBe("sos");
+    expect(toolResultFamily("report_save_my_soul_delivery")).toBe("sos");
+    expect(toolResultFamily("stop_save_my_soul")).toBe("sos");
+    // A report that replaced the trigger's timeline entry keeps the family.
+    expect(toolResultFamily("", "sos_partial")).toBe("sos");
+  });
+});
+
+describe("ToolResultCard: Save My Soul", () => {
+  const ARMED: ToolResultPublic = {
+    status: "sos_grants_created",
+    spoken_facts: [
+      "Alert armed for Priya Nair and Rahul Mehta; sending your position now.",
+    ],
+    grant_ids: ["grant_SECRET_a", "grant_SECRET_b"],
+    armed: [
+      {
+        grant_id: "grant_SECRET_a",
+        user_id: "usr_SECRET_priya",
+        display_name: "Priya Nair",
+      },
+      {
+        grant_id: "grant_SECRET_b",
+        user_id: "usr_SECRET_rahul",
+        display_name: "Rahul Mehta",
+      },
+    ],
+    skipped_not_phone_verified: [
+      { user_id: "usr_SECRET_sam", display_name: "Sam Lee" },
+    ],
+    note: "note_SECRET",
+    client_step: {
+      kind: "publish_location_envelopes",
+      purpose: "sos",
+      sos: true,
+      grant_ids: ["grant_SECRET_a", "grant_SECRET_b"],
+    },
+  };
+
+  it("renders sos_grants_created as armed and sending, never as Done and never as a failure", () => {
+    const { container, rerender } = render(
+      <ToolResultCard result={ARMED} tool="trigger_save_my_soul" ok={false} />,
+    );
+    const card = screen.getByTestId("one-voice-tool-result");
+    expect(card).toHaveAttribute("data-tone", "pending");
+    expect(card).toHaveAttribute("role", "status");
+    expect(
+      screen.getByTestId("one-voice-tool-result-headline"),
+    ).toHaveTextContent("Armed · sending your position");
+    expect(container.textContent).not.toContain("Done");
+    expect(container.textContent).not.toContain("didn't go through");
+    expect(container.textContent).not.toContain("Nothing was changed");
+    expect(container.textContent).not.toMatch(/\bSent\b/);
+    expect(screen.getByRole("list", { name: "Alerting" })).toHaveTextContent(
+      "Priya Nair",
+    );
+    expect(screen.getByRole("list", { name: "Alerting" })).toHaveTextContent(
+      "Rahul Mehta",
+    );
+    expect(
+      screen.getByRole("list", { name: "Couldn't include" }),
+    ).toHaveTextContent("Sam Lee");
+    expect(container.textContent).not.toMatch(
+      /grant_SECRET|usr_SECRET|note_SECRET/,
+    );
+
+    // The relay flags the armed frame ok:false; unknown ok reads the same.
+    rerender(<ToolResultCard result={ARMED} tool="trigger_save_my_soul" />);
+    expect(screen.getByTestId("one-voice-tool-result")).toHaveAttribute(
+      "data-tone",
+      "pending",
+    );
+    expect(container.textContent).not.toContain("didn't go through");
+  });
+
+  it("renders the verified delivery report by name: reached, not reached, ended", () => {
+    const partial: ToolResultPublic = {
+      status: "sos_partial",
+      spoken_facts: [
+        "Your position reached Priya Nair.",
+        "Your position has not reached Rahul Mehta; their share is armed but nothing was sent to them.",
+      ],
+      delivered: ["Priya Nair"],
+      not_alerted: ["Rahul Mehta"],
+      delivered_grant_ids: ["grant_SECRET_a"],
+      not_alerted_grant_ids: ["grant_SECRET_b"],
+      ended_grant_ids: ["grant_SECRET_c"],
+      unknown_grant_ids: [],
+      expected_grant_ids: ["grant_SECRET_a", "grant_SECRET_b"],
+      alert_active: true,
+      device_step: { status: "ok", late: false },
+    };
+    const { container, rerender } = render(
+      <ToolResultCard
+        result={partial}
+        tool="report_save_my_soul_delivery"
+        ok
+      />,
+    );
+    expect(screen.getByTestId("one-voice-tool-result")).toHaveAttribute(
+      "data-tone",
+      "neutral",
+    );
+    expect(
+      screen.getByTestId("one-voice-tool-result-headline"),
+    ).toHaveTextContent("Partly sent");
+    expect(screen.getByRole("list", { name: "Reached" })).toHaveTextContent(
+      "Priya Nair",
+    );
+    expect(screen.getByRole("list", { name: "Not reached" })).toHaveTextContent(
+      "Rahul Mehta",
+    );
+    expect(
+      screen.getByRole("list", { name: "Ended shares" }),
+    ).toHaveTextContent("1 share");
+    expect(container.textContent).toContain("still armed");
+    expect(container.textContent).not.toContain("Done");
+    expect(container.textContent).not.toMatch(/grant_SECRET/);
+
+    rerender(
+      <ToolResultCard
+        result={{
+          status: "sos_sent",
+          spoken_facts: ["Your position reached Priya Nair."],
+          delivered: ["Priya Nair"],
+          not_alerted: [],
+          alert_active: true,
+        }}
+        tool="report_save_my_soul_delivery"
+        ok
+      />,
+    );
+    expect(screen.getByTestId("one-voice-tool-result")).toHaveAttribute(
+      "data-tone",
+      "success",
+    );
+    expect(
+      screen.getByTestId("one-voice-tool-result-headline"),
+    ).toHaveTextContent("Sent");
+    expect(screen.queryByText("Done")).toBeNull();
+    expect(container.textContent).not.toContain("still armed");
+
+    rerender(
+      <ToolResultCard
+        result={{
+          status: "sos_not_sent",
+          spoken_facts: ["Your position has not reached Priya Nair."],
+          delivered: [],
+          not_alerted: ["Priya Nair"],
+          alert_active: true,
+        }}
+        tool="report_save_my_soul_delivery"
+        ok={false}
+      />,
+    );
+    expect(screen.getByRole("alert")).toHaveTextContent("Not sent");
+    expect(screen.getByRole("list", { name: "Not reached" })).toHaveTextContent(
+      "Priya Nair",
+    );
+    expect(container.textContent).not.toContain("didn't go through");
+    expect(container.textContent).not.toContain("Nothing was changed");
+
+    rerender(
+      <ToolResultCard
+        result={{
+          status: "sos_unverified",
+          reason_code: "verification_unavailable",
+          spoken_facts: ["I couldn't confirm whether your position was sent."],
+        }}
+        tool="report_save_my_soul_delivery"
+        ok={false}
+      />,
+    );
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Couldn't confirm delivery",
+    );
+    expect(container.textContent).not.toMatch(/\bSent\b/);
+  });
+
+  it("renders a stop by name: stopped and possibly still live", () => {
+    const { container, rerender } = render(
+      <ToolResultCard
+        result={{
+          status: "sos_partially_stopped",
+          reason_code: "sos_partially_stopped",
+          spoken_facts: [
+            "1 location share to Priya Nair ended, but 1 share to Rahul Mehta may still be live.",
+          ],
+          stopped_count: 1,
+          stopped: [
+            {
+              grant_id: "grant_SECRET_a",
+              user_id: "usr_SECRET_priya",
+              display_name: "Priya Nair",
+            },
+          ],
+          unresolved: [
+            {
+              grant_id: "grant_SECRET_b",
+              user_id: "usr_SECRET_rahul",
+              display_name: "Rahul Mehta",
+            },
+          ],
+          unresolved_grant_ids: ["grant_SECRET_b"],
+          failed: [{ grant_id: "grant_SECRET_b", reason_code: "still_active" }],
+        }}
+        tool="stop_save_my_soul"
+        ok
+      />,
+    );
+    expect(
+      screen.getByTestId("one-voice-tool-result-headline"),
+    ).toHaveTextContent("Partly stopped");
+    expect(screen.getByRole("list", { name: "Stopped" })).toHaveTextContent(
+      "Priya Nair",
+    );
+    expect(
+      screen.getByRole("list", { name: "May still be live" }),
+    ).toHaveTextContent("Rahul Mehta");
+    expect(container.textContent).not.toContain("Done");
+    expect(container.textContent).not.toMatch(/grant_SECRET|usr_SECRET/);
+
+    rerender(
+      <ToolResultCard
+        result={{
+          status: "sos_stopped",
+          spoken_facts: ["Save My Soul stopped; 1 location share to Priya Nair ended."],
+          stopped_count: 1,
+          stopped: [{ grant_id: "grant_SECRET_a", user_id: "usr_SECRET_priya", display_name: "Priya Nair" }],
+        }}
+        tool="stop_save_my_soul"
+        ok
+      />,
+    );
+    expect(
+      screen.getByTestId("one-voice-tool-result-headline"),
+    ).toHaveTextContent("Stopped");
+    expect(screen.queryByText("Done")).toBeNull();
+
+    rerender(
+      <ToolResultCard
+        result={{ status: "not_active", spoken_facts: ["Save My Soul isn't on."] }}
+        tool="stop_save_my_soul"
+        ok
+      />,
+    );
+    expect(
+      screen.getByTestId("one-voice-tool-result-headline"),
+    ).toHaveTextContent("Nothing to stop");
+  });
+
+  it("explains an audience-changed refusal in plain words and stays a failure", () => {
+    render(
+      <ToolResultCard
+        result={{
+          status: "rejected",
+          reason_code: "sos_audience_changed",
+          spoken_facts: ["Your emergency contacts changed since I showed the card."],
+        }}
+        tool="trigger_save_my_soul"
+        ok={false}
+      />,
+    );
+    const card = screen.getByRole("alert");
+    expect(card).toHaveTextContent("That didn't go through");
+    expect(card).toHaveTextContent("Nothing was sent");
+    expect(sosReasonLine("sos_audience_changed")).toContain("Nothing was sent");
+    expect(sosReasonLine("roster_full")).toContain("full");
+    expect(sosReasonLine("sos_already_active")).toContain("already on");
+    expect(sosReasonLine("other")).toBeNull();
+  });
+
+  it("writes Sent only for the verified sos_sent success", () => {
+    expect(sosHeadline("sos_grants_created", "pending")).toBe(
+      "Armed · sending your position",
+    );
+    expect(sosHeadline("sos_sent", "success")).toBe("Sent");
+    // A mis-toned sos_sent (ok:false) never says Sent.
+    expect(sosHeadline("sos_sent", "failure")).toBeNull();
+    expect(sosHeadline("sos_partial", "neutral")).toBe("Partly sent");
+    expect(sosHeadline("sos_not_sent", "failure")).toBe("Not sent");
+    expect(sosHeadline("sos_unverified", "failure")).toBe(
+      "Couldn't confirm delivery",
+    );
+    expect(sosHeadline("sos_stopped", "success")).toBe("Stopped");
+    expect(sosHeadline("sos_partially_stopped", "neutral")).toBe(
+      "Partly stopped",
+    );
+    expect(sosHeadline("renamed", "success")).toBeNull();
   });
 });

@@ -25,6 +25,9 @@ MAX_CONTEXT_JSON_CHARS = 48_000
 # Interim status of a device-executed Location updates step (resume/pause
 # tools); defined with the tool contract, re-exported here for the wire.
 LOCATION_UPDATES_PENDING = _LOCATION_UPDATES_PENDING
+# Interim status of an armed Save My Soul alert: grants exist, the device has
+# not published a position yet, and nobody has been reached.
+SOS_GRANTS_CREATED = "sos_grants_created"
 # Statuses whose ``tool.result`` frame carries ``ok: false``.
 NOT_OK_STATUSES = frozenset(
     {
@@ -34,6 +37,7 @@ NOT_OK_STATUSES = frozenset(
         "firebase_proof_required",
         "scope_review_required",
         LOCATION_UPDATES_PENDING,
+        SOS_GRANTS_CREATED,
     }
 )
 

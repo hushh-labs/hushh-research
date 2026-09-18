@@ -1691,13 +1691,12 @@
     {
       "action_id": "location.stop_sos",
       "label": "Stop the active SOS",
-      "meaning": "Ends an SOS that is currently running and revokes every location share it created. It does not tell anyone you are safe.",
+      "meaning": "Ends the Save My Soul alert that is currently running and revokes the live SOS location shares it created. It does not tell anyone you are safe and does not change ordinary location sharing. In One Voice it shows a tap-confirmation card naming the shares it will end; shares that cannot be verified as ended are reported as still possibly live.",
       "aliases": [
         "stop sos",
         "cancel sos",
         "end the emergency",
-        "stop the emergency",
-        "i am safe now"
+        "stop the emergency"
       ],
       "search_keywords": [
         "stop",
@@ -3242,7 +3241,7 @@
     {
       "action_id": "location.trigger_sos",
       "label": "Send an SOS alert",
-      "meaning": "Requests an SOS using the authored Save My Soul review screen. The person must use its genuine send confirmation; this command currently opens that review and cannot report an alert as sent. The owning service reports complete or partial delivery after execution. It does not call emergency services.",
+      "meaning": "Sends a Save My Soul alert to the emergency contacts: one 8-hour precise-location share per contact who can receive it. From a typed command this opens the authored review screen and cannot report an alert as sent. In One Voice it shows a tap-confirmation card naming exactly who will be alerted; the tap arms the shares, the device publishes the encrypted position, and the server verifies delivery before anything is reported as sent. It does not call emergency services.",
       "aliases": [
         "send an sos",
         "trigger sos",
@@ -3312,6 +3311,47 @@
         "review_only": true,
         "review_route": "/one/location?action=sos"
       }
+    },
+    {
+      "action_id": "location.verify_sos_delivery",
+      "label": "Check whether the SOS alert reached your contacts",
+      "meaning": "Reads whether the Save My Soul alert's encrypted position was stored for each emergency contact. It checks the whole armed alert on the server and reports who was reached, who was not, and when the check itself could not run. It never sends or resends an alert.",
+      "aliases": [
+        "did my alert go through",
+        "did the sos reach them",
+        "check sos delivery"
+      ],
+      "search_keywords": [
+        "sos",
+        "alert",
+        "delivery",
+        "reached",
+        "verify"
+      ],
+      "reachability": {
+        "routes": [
+          "/one/location"
+        ],
+        "screens": [
+          "one_location"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "voice_tool",
+        "target": "location.verify_sos_delivery"
+      },
+      "control_ids": [],
+      "state_exposure": [
+        "active sos incident"
+      ]
     },
     {
       "action_id": "location.sos_default",
