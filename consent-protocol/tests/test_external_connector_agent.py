@@ -63,7 +63,9 @@ def _task(*, planned_action: dict | None = None, delegate_result: dict | None = 
 
 @pytest.mark.asyncio
 async def test_missing_authority_fails_closed() -> None:
-    handler = ExternalConnectorAgentA2A(registry=_FakeRegistry(), credentials=_FakeCredentials(None))
+    handler = ExternalConnectorAgentA2A(
+        registry=_FakeRegistry(), credentials=_FakeCredentials(None)
+    )
     task = A2ATask(
         user_id="user_1",
         consent_token="token",  # noqa: S106
@@ -76,7 +78,9 @@ async def test_missing_authority_fails_closed() -> None:
 
 @pytest.mark.asyncio
 async def test_no_connector_id_asks_which_one() -> None:
-    handler = ExternalConnectorAgentA2A(registry=_FakeRegistry(), credentials=_FakeCredentials(None))
+    handler = ExternalConnectorAgentA2A(
+        registry=_FakeRegistry(), credentials=_FakeCredentials(None)
+    )
 
     result = await handler.handle(_task())
 
@@ -99,7 +103,9 @@ async def test_unknown_connector_id_is_reported_not_silently_ignored() -> None:
 
 @pytest.mark.asyncio
 async def test_unconnected_user_gets_a_connect_directive() -> None:
-    handler = ExternalConnectorAgentA2A(registry=_FakeRegistry(), credentials=_FakeCredentials(None))
+    handler = ExternalConnectorAgentA2A(
+        registry=_FakeRegistry(), credentials=_FakeCredentials(None)
+    )
 
     result = await handler.handle(_task(planned_action={"connectorId": "notion"}))
 
@@ -134,9 +140,7 @@ async def test_connected_tool_call_invokes_the_external_mcp_client(monkeypatch) 
         captured["headers"] = headers
         return ExternalMcpToolResult(is_error=False, payload={"pages": []}, truncated=False)
 
-    monkeypatch.setattr(
-        "hushh_mcp.adk_bridge.external_connector_agent.call_tool", fake_call_tool
-    )
+    monkeypatch.setattr("hushh_mcp.adk_bridge.external_connector_agent.call_tool", fake_call_tool)
     handler = ExternalConnectorAgentA2A(
         registry=_FakeRegistry(),
         credentials=_FakeCredentials({"accessToken": "tok"}),
@@ -168,9 +172,7 @@ async def test_api_key_connector_uses_its_declared_header(monkeypatch) -> None: 
         captured["headers"] = headers
         return ExternalMcpToolResult(is_error=False, payload={}, truncated=False)
 
-    monkeypatch.setattr(
-        "hushh_mcp.adk_bridge.external_connector_agent.call_tool", fake_call_tool
-    )
+    monkeypatch.setattr("hushh_mcp.adk_bridge.external_connector_agent.call_tool", fake_call_tool)
     connector = _FakeConnector(
         connector_id="hubspot",
         display_name="HubSpot",
@@ -194,9 +196,7 @@ async def test_external_mcp_error_is_reported_not_raised(monkeypatch) -> None:  
     async def fake_call_tool(*args, **kwargs):
         raise ExternalMcpError("boom", code="EXTERNAL_MCP_CALL_FAILED")
 
-    monkeypatch.setattr(
-        "hushh_mcp.adk_bridge.external_connector_agent.call_tool", fake_call_tool
-    )
+    monkeypatch.setattr("hushh_mcp.adk_bridge.external_connector_agent.call_tool", fake_call_tool)
     handler = ExternalConnectorAgentA2A(
         registry=_FakeRegistry(),
         credentials=_FakeCredentials({"accessToken": "tok"}),
@@ -212,7 +212,9 @@ async def test_external_mcp_error_is_reported_not_raised(monkeypatch) -> None:  
 
 @pytest.mark.asyncio
 async def test_cancel_delegate_result_is_acknowledged() -> None:
-    handler = ExternalConnectorAgentA2A(registry=_FakeRegistry(), credentials=_FakeCredentials(None))
+    handler = ExternalConnectorAgentA2A(
+        registry=_FakeRegistry(), credentials=_FakeCredentials(None)
+    )
 
     result = await handler.handle(_task(delegate_result={"status": "cancelled"}))
 

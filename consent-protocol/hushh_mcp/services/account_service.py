@@ -719,7 +719,25 @@ class AccountService:
             return "ria"
         return "both"
 
+    def _warm_table_exists_cache(self, conn) -> None:
+        if getattr(self, "_tables_warmed", False):
+            return
+        try:
+            rows = conn.execute(
+                text("SELECT tablename FROM pg_tables WHERE schemaname = 'public'")
+            ).fetchall()
+            for r in rows:
+                self._table_exists_cache[r[0]] = True
+            self._tables_warmed = True
+        except Exception as exc:
+            logger.warning("Failed to pre-warm table existence cache: %s", exc)
+
     def _table_exists(self, conn, table_name: str) -> bool:
+        cached = self._table_exists_cache.get(table_name)
+        if cached is not None:
+            return cached
+
+        self._warm_table_exists_cache(conn)
         cached = self._table_exists_cache.get(table_name)
         if cached is not None:
             return cached

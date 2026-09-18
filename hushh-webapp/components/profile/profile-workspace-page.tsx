@@ -109,6 +109,7 @@ import { currentPkmInvalidationEpoch } from "@/lib/cache/pkm-invalidation-epoch"
 import { useConsentPendingSummaryCount } from "@/lib/consent/use-consent-pending-summary-count";
 import { isPkmDeveloperHost } from "@/app/one/pkm/developer-visibility";
 import {
+  AccountDeletionOutcomeUncertainError,
   DELETE_ACCOUNT_DIALOG_DESCRIPTION,
   DELETE_ACCOUNT_DIALOG_TITLE,
   accountDeletionErrorMessage,
@@ -1596,7 +1597,11 @@ function ProfilePageContent({
         skipFcmCleanup: true,
       });
     } catch (error) {
-      console.error("Delete account error:", error);
+      if (error instanceof AccountDeletionOutcomeUncertainError) {
+        console.warn("[ProfilePage] Delete account outcome uncertain:", error);
+      } else {
+        console.error("Delete account error:", error);
+      }
     } finally {
       setIsDeleting(false);
       setShowDeleteConfirm(false);
