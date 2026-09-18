@@ -5357,7 +5357,15 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
             // see the `[data-agent-chat-route="root"]` rule in globals.css) put the
             // composer's text field directly underneath the fixed nav instead of
             // above it.
-            "agent-chat-workspace--root h-[calc(100%-var(--app-bottom-shell-height,0px))] min-h-0 flex-1"
+            //
+            // `flex-1` sets `flex-basis: 0%`, which becomes this item's main-axis
+            // (height, in a flex-col ancestor) size and makes the browser ignore
+            // an explicit `height` utility on the same element entirely -- the
+            // element still grows to fill 100% of the flex column regardless of
+            // what `h-[calc(...)]` says. Dropping `flex-1` lets `flex-basis: auto`
+            // fall back to the `height` property instead, so the calc() actually
+            // governs the rendered size.
+            "agent-chat-workspace--root h-[calc(100%-var(--app-bottom-shell-height,0px))] min-h-0"
           : "h-[calc(100dvh-var(--app-top-content-offset,0px)-var(--app-bottom-shell-height,calc(var(--app-bottom-fixed-ui,0px)+var(--app-safe-area-bottom-effective,0px))))]",
         className,
       )}
