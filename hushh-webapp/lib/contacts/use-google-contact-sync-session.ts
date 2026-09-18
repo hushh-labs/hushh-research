@@ -30,6 +30,12 @@ type SyncOptions = Omit<
 > & {
   routeId: RouteId;
   beginInvites?: () => SyncOptions["onInviteCandidates"];
+  /**
+   * Force the Google account chooser instead of silently reusing the
+   * last-granted account. Opt-in per call: retries after an empty read pass
+   * it, every other caller keeps the silent fast path.
+   */
+  promptAccountPicker?: boolean;
 };
 type Phase =
   "idle" | "authorizing" | "syncing" | "complete" | "cancelled" | "error";
@@ -111,7 +117,12 @@ export function useGoogleContactSyncSession(
         // Invoke GIS in the original tap, before any await or UI transition.
         const onInviteCandidates =
           options.beginInvites?.() ?? options.onInviteCandidates;
-        const pendingToken = requestGoogleContactsToken(abort.signal);
+        const pendingToken = requestGoogleContactsToken(
+          abort.signal,
+          options.promptAccountPicker
+            ? { forceAccountPicker: true }
+            : undefined,
+        );
         setSnapshot({
           phase: "authorizing",
           result: null,
@@ -130,6 +141,7 @@ export function useGoogleContactSyncSession(
         const {
           routeId,
           beginInvites: _beginInvites,
+          promptAccountPicker: _promptAccountPicker,
           ...syncOptions
         } = options;
         const result = await syncOneLocationContactSignals({

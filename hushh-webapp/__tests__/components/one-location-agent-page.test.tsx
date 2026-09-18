@@ -543,7 +543,8 @@ vi.mock("@/lib/contacts/google-contacts-token", async (importOriginal) => ({
     typeof import("@/lib/contacts/google-contacts-token")
   >()),
   preloadGoogleContactsAuth: () => mockPreloadGoogleContactsAuth(),
-  requestGoogleContactsToken: () => mockRequestGoogleContactsToken(),
+  requestGoogleContactsToken: (...args: unknown[]) =>
+    mockRequestGoogleContactsToken(...(args as [])),
 }));
 
 // The device Location switch is a preference over LOCAL state. Its handlers
@@ -1778,8 +1779,10 @@ describe("OneLocationAgentPage", () => {
     expect(
       within(primary).getByRole("button", { name: "Share location" }),
     ).toBeTruthy();
-    expect(within(primary).getByText("Not sharing with anyone")).toBeTruthy();
-    expect(within(primary).queryByText("Choose a Circle or contact.")).toBeNull();
+    expect(within(primary).getByText("You're not sharing")).toBeTruthy();
+    expect(
+      within(primary).getByText("Choose a Circle or contact."),
+    ).toBeTruthy();
 
     const actions = await screen.findByTestId("one-location-now-actions");
     expect(actions.className).toContain("space-y-2.5");
@@ -7903,6 +7906,69 @@ describe("OneLocationAgentPage", () => {
     );
     await waitFor(() =>
       expect(mockSyncOneLocationContactSignals).toHaveBeenCalledTimes(1),
+    );
+  });
+
+  it("forces the Google account chooser when onboarding retries an empty Google read", async () => {
+    // A silent retry re-reads the same (possibly empty) Google account, so an
+    // empty read must offer the chooser. The first run stays silent; only the
+    // explicit switcher run forces `select_account`.
+    mockGoogleAvailability = () => "connectable";
+    const emptyGoogleRead = () =>
+      contactSyncOutcomeFixture({
+        sourcePlatform: "google",
+        matches: [],
+        matchedUserIds: [],
+        totalContacts: 0,
+        readContactCount: 0,
+        checkedContactCount: 0,
+        matchedContactCount: 0,
+        autoConnectedCount: 0,
+        alreadyConnectedCount: 0,
+        suppressedCount: 0,
+      });
+    // Scoped to this test's two runs only: a persistent mock would leak an
+    // empty read into every later test in this file.
+    mockSyncOneLocationContactSignals
+      .mockResolvedValueOnce(emptyGoogleRead())
+      .mockResolvedValueOnce(emptyGoogleRead());
+
+    render(<OneLocationAgentPage />);
+    await leaveLocationFeatureStep();
+    const contactsPanel = await openReadyContactsPanel();
+    fireEvent.click(
+      within(contactsPanel).getByRole("button", { name: "Check my contacts" }),
+    );
+
+    // The takeover results sheet opens over the panel; close it to reach
+    // the inline empty state, the way a person would.
+    const results = await screen.findByRole("dialog", {
+      name: "Contact sync results",
+    });
+    fireEvent.click(
+      within(results).getByRole("button", { name: "Close" }),
+    );
+    expect(
+      await within(contactsPanel).findByText("No eligible contacts matched."),
+    ).toBeTruthy();
+    expect(mockRequestGoogleContactsToken).toHaveBeenNthCalledWith(
+      1,
+      expect.anything(),
+      undefined,
+    );
+
+    fireEvent.click(
+      await within(contactsPanel).findByRole("button", {
+        name: "Check a different Google account",
+      }),
+    );
+    await waitFor(() =>
+      expect(mockRequestGoogleContactsToken).toHaveBeenCalledTimes(2),
+    );
+    expect(mockRequestGoogleContactsToken).toHaveBeenNthCalledWith(
+      2,
+      expect.anything(),
+      { forceAccountPicker: true },
     );
   });
 

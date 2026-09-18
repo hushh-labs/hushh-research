@@ -31,7 +31,9 @@ type TokenResponse = {
   error?: string;
   scope?: string;
 };
-type TokenClient = { requestAccessToken: () => void };
+type TokenClient = {
+  requestAccessToken: (overrideConfig?: { prompt?: string }) => void;
+};
 type GoogleIdentityServices = {
   accounts?: {
     oauth2?: {
@@ -188,9 +190,15 @@ export function isGoogleContactsConsentCancelled(error: unknown): boolean {
  * `lib/calendar/calendar-oauth-journey.ts`, which stores only the literal "1"),
  * and a 401 mid-read means asking again, which is silent once consent is
  * already granted.
+ *
+ * `forceAccountPicker` re-opens the Google account chooser instead of silently
+ * reusing the last-granted account. Retrying an empty read without it just
+ * re-reads the same empty account, which is why a retry that found nothing
+ * must offer the chooser rather than another silent attempt.
  */
 export function requestGoogleContactsToken(
   signal?: AbortSignal,
+  options?: { forceAccountPicker?: boolean },
 ): Promise<string> {
   const clientId = googleContactsClientId();
   if (!clientId) {
@@ -239,6 +247,7 @@ export function requestGoogleContactsToken(
       GOOGLE_CONTACTS_AUTH_TIMEOUT_MS,
     );
     try {
+      const forceAccountPicker = options?.forceAccountPicker === true;
       const client = oauth2.initTokenClient({
         client_id: clientId,
         scope: CONTACTS_SCOPE,
@@ -289,7 +298,12 @@ export function requestGoogleContactsToken(
           finish(failure);
         },
       });
-      client.requestAccessToken();
+      // `prompt: "select_account"` is the documented GIS token-client
+      // override that forces the account chooser. Without it a retry after
+      // an empty read silently reuses the same empty account.
+      client.requestAccessToken(
+        forceAccountPicker ? { prompt: "select_account" } : undefined,
+      );
     } catch {
       finish(new Error("Could not open Google sign-in. Try again."));
     }

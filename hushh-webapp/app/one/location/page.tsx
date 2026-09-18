@@ -2852,6 +2852,14 @@ export function OneLocationAgentPageContent({
     useState<OneLocationContactSignalResult | null>(null);
   const [onboardingContactResult, setOnboardingContactResult] =
     useState<OnboardingContactSyncResult | null>(null);
+  /**
+   * Whether the last Google read on onboarding came back empty. Latched in
+   * page state (not derived from the Google session snapshot) because
+   * dismissing the results sheet clears that snapshot -- deriving from it
+   * would hide the account switcher at exactly the moment the person reaches
+   * the inline empty state it belongs to.
+   */
+  const [onboardingGoogleEmpty, setOnboardingGoogleEmpty] = useState(false);
   const googleContactSync = useGoogleContactSync(contactSyncUserId);
   const { run: runGoogleContactSync, clear: clearGoogleContactSync } = googleContactSync;
   const contactSyncResult = googleContactSync.result ?? deviceContactSyncResult;
@@ -2872,6 +2880,7 @@ export function OneLocationAgentPageContent({
     // in-place auth account replacement.
     setContactSyncResult(null);
     setOnboardingContactResult(null);
+    setOnboardingGoogleEmpty(false);
     setContactSyncResultsOpen(false);
     setContactSignal(INITIAL_CONTACT_SIGNAL_STATE);
   }, [contactSyncUserId, setContactSyncResultsOpen]);
@@ -7309,8 +7318,10 @@ export function OneLocationAgentPageContent({
     }
   }, [googleContactSync.result, contactSyncUserId, reconcileSyncedConnections]);
 
-  const handleSyncOnboardingContacts =
-    useCallback(async (): Promise<OnboardingContactSyncResult> => {
+  const handleSyncOnboardingContacts = useCallback(
+    async (
+      options?: { chooseGoogleAccount?: boolean },
+    ): Promise<OnboardingContactSyncResult> => {
       if (contactSyncInFlightRef.current) return { status: "cancelled" };
       if (!auth.user?.getIdToken) {
         return {
@@ -7325,6 +7336,9 @@ export function OneLocationAgentPageContent({
         // contact pickers depend on after a preference is recorded.
         return { status: "cancelled" };
       }
+      // A new run hides the account switcher until it settles; the Google
+      // branch re-latches below when its read comes back empty.
+      setOnboardingGoogleEmpty(false);
       const initiatingUserId = contactSyncUserId;
       const publishResult = (result: OnboardingContactSyncResult) => {
         if (contactSyncIdentityRef.current.userId === initiatingUserId) {
@@ -7338,14 +7352,26 @@ export function OneLocationAgentPageContent({
           getCurrentIdentity: () => contactSyncIdentityRef.current,
           hydrateAccountPhoneNumber: auth.resolveVerifiedPhoneNumber,
         });
-      if (googleContactsFallback || googleContactSync.phase !== "idle") {
+      if (
+        options?.chooseGoogleAccount ||
+        googleContactsFallback ||
+        googleContactSync.phase !== "idle"
+      ) {
         const result = await runGoogleContactSync({
           routeId: "one_location", resolveIdToken: () => auth.user!.getIdToken(),
           accountEmail: auth.user.email, accountPhoneNumber,
           resolveAccountPhoneNumber: resolveLatestAccountPhoneNumber,
           beginInvites: beginContactInvites,
+          // A retry from an empty Google read re-opens the account chooser
+          // instead of silently re-reading the same (possibly empty) account.
+          ...(options?.chooseGoogleAccount
+            ? { promptAccountPicker: true as const }
+            : {}),
         });
         if (!result) return { status: "cancelled" };
+        // Latch empty Google reads for the inline account switcher. A new
+        // run re-latches below, so a later match clears the offer.
+        setOnboardingGoogleEmpty(result.matches.length === 0);
         return publishResult(googleOnboardingOutcome(result, initiatingUserId));
       }
       // The inline action, named sheet, Settings return, and hub share one
@@ -13852,6 +13878,7 @@ export function OneLocationAgentPageContent({
           onAcceptCircleCode={handleAcceptCircleCode}
           onSyncOnboardingContacts={handleSyncOnboardingContacts}
           contactSyncResult={onboardingContactResult}
+          showGoogleAccountSwitcher={onboardingGoogleEmpty}
           onAddOnboardingContact={handleAddOnboardingContact}
           onOpenContactSettings={(resume) =>
             void openContactSettingsAndWatch(resume)
