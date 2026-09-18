@@ -65,7 +65,7 @@ describe("LiveMap", () => {
   it("creates an interactive map + marker when ready", () => {
     // vitest 4.x requires non-arrow implementations for mocks called with `new`.
     const Marker = vi.fn(function () {
-      return { getPosition: () => null, setPosition: vi.fn(), setMap: vi.fn() };
+      return { getPosition: () => null, setPosition: vi.fn(), setMap: vi.fn(), setIcon: vi.fn() };
     });
     const Map = vi.fn(function () {
       return { panTo: vi.fn() };
@@ -79,11 +79,46 @@ describe("LiveMap", () => {
     expect(Map).toHaveBeenCalledTimes(1);
     expect(Marker).toHaveBeenCalledTimes(1);
     expect(screen.queryByTitle("Live location map preview")).toBeNull();
+    // No avatarUrl -> the stock pin (no icon override) is left in place.
+    expect(Marker).toHaveBeenCalledWith(
+      expect.not.objectContaining({ icon: expect.anything() }),
+    );
+  });
+
+  it("replaces the stock pin with a circular photo marker when an avatar is available", () => {
+    const marker = { getPosition: () => null, setPosition: vi.fn(), setMap: vi.fn(), setIcon: vi.fn() };
+    const Marker = vi.fn(function () {
+      return marker;
+    });
+    const Map = vi.fn(function () {
+      return { panTo: vi.fn() };
+    });
+    const Size = vi.fn(function (width: number, height: number) {
+      return { width, height };
+    });
+    const Point = vi.fn(function (x: number, y: number) {
+      return { x, y };
+    });
+    // @ts-expect-error test global
+    globalThis.google = { maps: { Map, Marker, Size, Point, event: mapsEvent() } };
+    mockStatus.current = "ready";
+
+    render(<LiveMap point={point} avatarUrl="https://example.com/me.jpg" />);
+
+    expect(Marker).toHaveBeenCalledWith(
+      expect.objectContaining({
+        icon: expect.objectContaining({
+          url: expect.stringContaining(
+            encodeURIComponent("https://example.com/me.jpg"),
+          ),
+        }),
+      }),
+    );
   });
 
   it("constructs a quiet preview map with the app theme's color scheme", () => {
     const Marker = vi.fn(function () {
-      return { getPosition: () => null, setPosition: vi.fn(), setMap: vi.fn() };
+      return { getPosition: () => null, setPosition: vi.fn(), setMap: vi.fn(), setIcon: vi.fn() };
     });
     const Map = vi.fn(function () {
       return { panTo: vi.fn() };
@@ -124,6 +159,7 @@ describe("LiveMap", () => {
         }),
         setPosition: markerSetPosition,
         setMap: vi.fn(),
+        setIcon: vi.fn(),
       };
     });
     const Map = vi.fn(function () {
@@ -194,6 +230,7 @@ describe("LiveMap", () => {
               : null,
           setPosition: markerSetPositionSpy,
           setMap: vi.fn(),
+          setIcon: vi.fn(),
         };
       });
 
