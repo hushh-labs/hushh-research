@@ -21,12 +21,14 @@ import {
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 
-import {
-  DURATION_CELL_CLASS,
-  DURATION_CELL_OFF_CLASS,
-  DURATION_CELL_ON_CLASS,
-} from "@/components/one-location/redesign/duration-presets";
 import { StarRatingInput } from "@/components/one-location/nearby-check-in/star-rating-input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -101,17 +103,12 @@ import { cn } from "@/lib/utils";
 const SUCCESS_ROLE = SEMANTIC_ROLE_CLASSES.success;
 
 /**
- * Three lengths, and they have to fit one row.
+ * The three stay lengths, now offered as one dropdown instead of three cells.
  *
- * Reported: "Visible for ke jo times hain inko one row mai dikhao ... looking
- * scattered". They were, and the cause was the shared `DURATION_GRID_CLASS`:
- * two columns on a phone, which lays three cells out as 2 + 1 and leaves a
- * half-empty second row under a heading that reads as a single choice.
- *
- * Abbreviated so the set is consistent rather than to buy width -- "30 min"
- * beside "1 hour" and "2 hours" mixes two registers in one row, and at three
- * across the long forms fit anyway. See CHECK_IN_DURATION_GRID_CLASS for why
- * the grid is local rather than a change to the shared one.
+ * History: they were three cells in one row (after an earlier 2+1 scattered
+ * grid), abbreviated to "30 min" / "1 hour" / "2 hours" for consistency. A
+ * dropdown keeps all three reachable on the narrowest phone with no wrapping
+ * at all, and the labels are unchanged so existing copy still reads.
  */
 const DURATIONS = [
   { value: 30 as const, label: "30 min" },
@@ -119,20 +116,9 @@ const DURATIONS = [
   { value: 120 as const, label: "2 hours" },
 ];
 
-/**
- * Three across on a phone, not the shared ladder's two.
- *
- * `DURATION_GRID_CLASS` is two columns because the ladders that use it carry
- * four cells and land as an even 2x2. This control has three, so the same
- * class strands one on a row of its own. Local rather than a fourth variant in
- * `duration-presets`: the cells themselves stay identical, which is the part
- * that has to agree across the product.
- *
- * At 320px this is ~90px a cell against a widest label of ~64px, so nothing
- * truncates on the narrowest phone the app supports.
- */
-const CHECK_IN_DURATION_GRID_CLASS =
-  "grid grid-cols-3 gap-2 sm:flex sm:flex-wrap";
+function isCheckInDuration(value: number): value is 30 | 60 | 120 {
+  return value === 30 || value === 60 || value === 120;
+}
 
 /**
  * Chip labels only. The `value` on each row is the backend category and is
@@ -2941,33 +2927,42 @@ export function NearbyCheckInSheet({
                     pair, no leading glyph. One of the two section headings
                     carrying an icon and the other not was the only reason
                     they did not read as a pair. */}
-                  <h2 className="font-semibold">Visible for</h2>
-                  {/* Raw <button>, not the morphy <Button>: at `size="default"`
-                    that component carries min-h-[50px] in a different
-                    tailwind-merge group from h-*, and `.ui-text-button-label`
-                    forces 17px !important — so it cannot be made compact from
-                    the outside. These are the same class strings the share
-                    duration ladder uses for the identical role (44px, 15px),
-                    so the two duration controls in this product can no longer
-                    disagree about how big a duration choice is. */}
-                  <div className={cn("mt-3", CHECK_IN_DURATION_GRID_CLASS)}>
-                    {DURATIONS.map((duration) => (
-                      <button
-                        key={duration.value}
-                        type="button"
-                        aria-pressed={durationMinutes === duration.value}
-                        onClick={() => setDurationMinutes(duration.value)}
-                        className={cn(
-                          DURATION_CELL_CLASS,
-                          durationMinutes === duration.value
-                            ? DURATION_CELL_ON_CLASS
-                            : DURATION_CELL_OFF_CLASS,
-                        )}
-                      >
-                        {duration.label}
-                      </button>
-                    ))}
-                  </div>
+                  <h2 className="font-semibold" id="nearby-check-in-duration-label">
+                    Visible for
+                  </h2>
+                  {/* One dropdown instead of three cells: the same three stay
+                    lengths, the same `durationMinutes` state, just no row that
+                    can wrap or crowd the sheet on a narrow phone. */}
+                  <Select
+                    value={String(durationMinutes)}
+                    onValueChange={(next) => {
+                      const parsed = Number(next);
+                      if (isCheckInDuration(parsed)) {
+                        setDurationMinutes(parsed);
+                      }
+                    }}
+                  >
+                    <SelectTrigger
+                      aria-labelledby="nearby-check-in-duration-label"
+                      className="mt-3 h-11 w-full rounded-[14px] border-[color:var(--app-separator)] bg-[color:var(--app-primary-surface)] shadow-none"
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent
+                      align="start"
+                      position="popper"
+                      className="rounded-[14px]"
+                    >
+                      {DURATIONS.map((duration) => (
+                        <SelectItem
+                          key={duration.value}
+                          value={String(duration.value)}
+                        >
+                          {duration.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </section>
 
                 <section>

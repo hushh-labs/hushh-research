@@ -375,18 +375,15 @@ describe("NearbyCheckInSheet", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("puts the three visible-for lengths on one row, abbreviated to match", async () => {
+  it("offers the three visible-for lengths in one dropdown", async () => {
     /**
-     * Reported: "Visible for ke jo times hain inko one row mai dikhao ...
-     * looking scattered."
+     * Reported twice: first "Visible for ke jo times hain inko one row mai
+     * dikhao ... looking scattered" (fixed with a 3-across grid), then that
+     * the row still crowds the sheet -- so the three lengths are now one
+     * dropdown. Same options, same state, no row that can wrap.
      *
-     * They were. The shared `DURATION_GRID_CLASS` is two columns because the
-     * ladders that use it carry FOUR cells and land as an even 2x2. This
-     * control has three, so the same class stranded one on a row of its own,
-     * under a heading that reads as a single choice.
-     *
-     * The labels are abbreviated for consistency rather than for width --
-     * "30 min" beside "1 hour" and "2 hours" mixes two registers in one row.
+     * The labels stay abbreviated ("30 min" / "1 hour" / "2 hours") so the
+     * existing copy still reads.
      */
     render(
       <NearbyCheckInSheet
@@ -400,29 +397,26 @@ describe("NearbyCheckInSheet", () => {
 
     await screen.findByRole("radio", { name: /Stanford University/ });
     const panel = screen.getByTestId("nearby-presence-setup");
-    const heading = within(panel).getByRole("heading", { name: "Visible for" });
-    const ladder = heading.nextElementSibling as HTMLElement;
+    within(panel).getByRole("heading", { name: "Visible for" });
 
+    // No button ladder anymore -- one dropdown trigger carrying the choice.
     expect(
-      within(ladder)
-        .getAllByRole("button")
-        .map((button) => button.textContent?.trim()),
-    ).toEqual(["30 min", "1 hour", "2 hours"]);
+      within(panel).queryByRole("button", { name: "2 hours" }),
+    ).toBeNull();
+    const trigger = within(panel).getByRole("combobox", {
+      name: "Visible for",
+    });
+    // Default stay is an hour, shown on the closed trigger.
+    expect(trigger).toHaveTextContent("1 hour");
 
-    // Three across on a phone, so nothing wraps to a half-empty second row.
-    // Asserted on the class because JSDOM lays nothing out -- the browser
-    // layout spec is where geometry is proved.
-    expect(ladder.className).toContain("grid-cols-3");
-    expect(ladder.className).not.toContain("grid-cols-2");
-
-    // Still a working ladder, not just a tidier one.
-    fireEvent.click(within(ladder).getByRole("button", { name: "2 hours" }));
-    expect(
-      within(ladder).getByRole("button", { name: "2 hours" }),
-    ).toHaveAttribute("aria-pressed", "true");
-    expect(
-      within(ladder).getByRole("button", { name: "1 hour" }),
-    ).toHaveAttribute("aria-pressed", "false");
+    // Still a working control, not just a tidier one.
+    fireEvent.click(trigger);
+    fireEvent.click(await screen.findByRole("option", { name: "2 hours" }));
+    await waitFor(() => {
+      expect(
+        within(panel).getByRole("combobox", { name: "Visible for" }),
+      ).toHaveTextContent("2 hours");
+    });
   });
 
   it("keeps the required consent and connection preference visible", async () => {

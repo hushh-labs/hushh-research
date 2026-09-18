@@ -1849,7 +1849,6 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
               onDismissFocusedInvite={dismissFocusedCircleMemberInvite}
               onStartShare={openShareFlow}
               onStartAsk={openAskFlowForPerson}
-              onOpenCheckIn={() => openFlow("check-in")}
               onOpenActiveShares={() => openFlow("active-shares")}
               onOpenSharedWithMe={() => openFlow("shared-with-me")}
             />
@@ -2134,8 +2133,8 @@ function NowHub({
             testId: "one-location-request-row",
           },
           {
-            title: "Arrival confirm",
-            ariaLabel: "Arrival confirm",
+            title: "Check In",
+            ariaLabel: "Check In",
             icon: <LocationMenuGlyph name="checkIn" size={21} />,
             tone: "blue",
             onClick: onCheckIn,
@@ -3584,7 +3583,6 @@ function PersonRow({
   onOpen,
   onAsk,
   onShare,
-  onCheckIn,
   shareReady = true,
 }: {
   name: string;
@@ -3597,10 +3595,9 @@ function PersonRow({
   onOpen: () => void;
   onAsk?: () => void;
   onShare?: () => void;
-  onCheckIn?: () => void;
   shareReady?: boolean;
 }) {
-  const hasQuickActions = Boolean(onAsk || onShare || onCheckIn);
+  const hasQuickActions = Boolean(onAsk || onShare);
   const ariaLabel = subtitle
     ? `Open Location actions for ${name}. ${subtitle}`
     : `Open Location actions for ${name}`;
@@ -3682,18 +3679,6 @@ function PersonRow({
             >
               <LocationMenuGlyph name="share" size={17} />
               Share
-            </button>
-          ) : null}
-          {onCheckIn ? (
-            <button
-              type="button"
-              onClick={onCheckIn}
-              disabled={!shareReady}
-              className="flex min-h-11 min-w-0 flex-1 items-center justify-center gap-1.5 rounded-full bg-[color:var(--app-neutral-fill)] px-3 text-[13px] font-semibold text-[color:var(--app-primary-label)] transition-colors hover:bg-[color:var(--app-neutral-fill)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)] focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-45"
-              aria-label={`Check in with ${name}`}
-            >
-              <LocationMenuGlyph name="checkIn" size={17} />
-              Check-In
             </button>
           ) : null}
         </div>
@@ -3822,7 +3807,16 @@ function CircleIdentityStack({
 }: {
   circles: readonly OneLocationCircleSummary[];
 }) {
-  const visible = circles.slice(0, 3);
+  // Never render more than two identity boxes: a third 40px tile overflows
+  // the summary row's fixed leading column and reads as collapsed clutter.
+  // The remainder folds into one "+N" badge so "2 created · 1 joined" (3
+  // circles) shows two boxes plus "+1", and so on for any larger count.
+  const MAX_VISIBLE_CIRCLE_IDENTITIES = 2;
+  const visible = circles.slice(0, MAX_VISIBLE_CIRCLE_IDENTITIES);
+  const overflowCount = Math.max(
+    0,
+    circles.length - MAX_VISIBLE_CIRCLE_IDENTITIES,
+  );
   const fallback = visible.length
     ? visible
     : [
@@ -3832,10 +3826,15 @@ function CircleIdentityStack({
           memberCount: 0,
         } as OneLocationCircleSummary,
       ];
+  // One 40px tile plus 16px per additional overlapped tile (40px minus the
+  // 24px overlap), so the column always hugs exactly what it draws.
+  const stackWidthPx =
+    40 + (fallback.length + (overflowCount > 0 ? 1 : 0) - 1) * 16;
   return (
     <span
       aria-hidden="true"
-      className="flex h-11 w-[54px] shrink-0 items-center"
+      className="flex h-11 shrink-0 items-center"
+      style={{ width: `${stackWidthPx}px` }}
     >
       {fallback.map((circle, index) => {
         const isSmsCircle = circle.systemKind === "sms";
@@ -3864,6 +3863,11 @@ function CircleIdentityStack({
           </span>
         );
       })}
+      {overflowCount > 0 ? (
+        <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-[12px] border-2 border-[color:var(--app-primary-surface)] bg-[color:var(--app-accent-tint)] text-[13px] font-semibold text-[color:var(--app-accent)] shadow-sm -ml-6">
+          +{overflowCount}
+        </span>
+      ) : null}
     </span>
   );
 }
@@ -4244,7 +4248,6 @@ export function PeopleHub({
   onDismissFocusedInvite,
   onStartShare,
   onStartAsk,
-  onOpenCheckIn,
   onOpenActiveShares,
   onOpenSharedWithMe,
 }: {
@@ -4256,7 +4259,6 @@ export function PeopleHub({
   onDismissFocusedInvite: () => void;
   onStartShare: (initialRecipientId?: string) => void;
   onStartAsk: (initialRecipientId?: string) => void;
-  onOpenCheckIn: () => void;
   onOpenActiveShares: () => void;
   onOpenSharedWithMe: () => void;
 }) {
@@ -4441,6 +4443,8 @@ export function PeopleHub({
 
   return (
     <div className="pt-4 sm:pt-5" data-testid="one-location-people-hub">
+      {/* Full-bleed body: same measure as the hub root (Now | People | Links
+          tabs), so it is never a narrower shrinked column on desktop. */}
       <div className="w-full space-y-4 sm:space-y-5">
         {!hasSearch ? (
           <CircleSummaryGroup
@@ -4513,7 +4517,6 @@ export function PeopleHub({
                     onOpen={() => setSelectedPersonId(recipient.userId)}
                     onAsk={() => onStartAsk(recipient.userId)}
                     onShare={() => onStartShare(recipient.userId)}
-                    onCheckIn={onOpenCheckIn}
                     shareReady={vm.isRecipientShareReady(recipient)}
                   />
                 );
@@ -4798,6 +4801,7 @@ function LinksHub({ vm }: { vm: LocationHubViewModel }) {
       <SettingsGroup
         title="Temporary link"
         separatorInset
+        density="compact"
         shellClassName={LOCATION_GROUP_SHELL_CLASSNAME}
         className="[&>div:first-child]:mt-0"
         testId="one-location-links-temporary-link"
