@@ -2271,17 +2271,22 @@ function LocationPrimaryShareCard({ onClick }: { onClick: () => void }) {
         data-testid="one-location-share-row"
         className={cn(
           LOCATION_INTERACTIVE_SURFACE,
-          "flex w-full flex-col gap-3 rounded-[18px] px-4 py-4 text-left",
+          "flex w-full flex-col gap-3 rounded-[18px] px-4 py-4 text-left min-[420px]:flex-row min-[420px]:items-center min-[420px]:gap-4",
         )}
       >
-        <div className="flex min-w-0 items-center gap-4">
+        <div className="flex min-w-0 flex-1 items-center gap-4">
           <LocationSharePulseIcon />
-          <CardTitle
-            as="span"
-            className="block !text-[17px] !font-semibold !leading-[22px]"
-          >
-            Not sharing with anyone
-          </CardTitle>
+          <span className="min-w-0">
+            <CardTitle
+              as="span"
+              className="block !text-[17px] !font-semibold !leading-[22px]"
+            >
+              You&apos;re not sharing
+            </CardTitle>
+            <span className="mt-0.5 block truncate text-[13px] font-normal leading-[18px] text-[color:var(--app-secondary-label)]">
+              Choose a Circle or contact.
+            </span>
+          </span>
         </div>
         <button
           type="button"
@@ -2290,7 +2295,7 @@ function LocationPrimaryShareCard({ onClick }: { onClick: () => void }) {
           data-voice-label="Share location"
           aria-label="Share location"
           onClick={onClick}
-          className="mx-auto inline-flex h-11 min-h-11 w-[76%] items-center justify-center rounded-[14px] bg-[color:var(--app-accent)] px-5 !text-[15px] !font-semibold !leading-5 text-[color:var(--app-accent-fg)] transition-[background-color,transform] [-webkit-tap-highlight-color:transparent] hover:bg-[color:var(--app-accent-hover)] active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]"
+          className="inline-flex h-11 min-h-11 w-full shrink-0 items-center justify-center rounded-[14px] bg-[color:var(--app-accent)] px-5 !text-[15px] !font-semibold !leading-5 text-[color:var(--app-accent-fg)] transition-[background-color,transform] [-webkit-tap-highlight-color:transparent] hover:bg-[color:var(--app-accent-hover)] active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)] min-[420px]:w-auto"
         >
           <ButtonLabel
             as="span"
