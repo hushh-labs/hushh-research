@@ -169,7 +169,7 @@
     },
     {
       "circle_args": [],
-      "description": "Add a confirmed person to the emergency contacts who receive a Save My Soul alert. Takes a canonical person id only (resolve and confirm the person first). The person must be a connection with a verified phone who has finished Location setup; otherwise the result says which of those is missing.",
+      "description": "Add a confirmed person to the emergency contacts who receive future Save My Soul alerts. Takes a canonical person id only (resolve and confirm the person first). The person must be a connection with a verified phone who has finished Location setup; otherwise the result says which of those is missing. Adding never sends an alert, and never adds a whole circle.",
       "firebase_plane": false,
       "gateway_action_id": "location.add_emergency_contact",
       "name": "add_emergency_contact",
@@ -207,7 +207,8 @@
         "added",
         "already_contact",
         "not_connected",
-        "not_phone_verified"
+        "not_phone_verified",
+        "roster_full"
       ],
       "tier": "voice",
       "ui_refresh": [
@@ -963,7 +964,7 @@
     },
     {
       "circle_args": [],
-      "description": "Read Save My Soul (SOS) status: the emergency contacts by name, whether each is phone-verified and can receive an encrypted location, whether an SOS is active now and how many live shares it holds, and the person's default for a bare emergency phrase (open the SOS screen, or go straight to the trigger card). Reads only; it never sends an alert.",
+      "description": "Read Save My Soul (SMS) status: the emergency contacts by name, whether each is phone-verified and can receive an encrypted location, whether an alert is active now and how many live shares it holds, and the person's default for a bare emergency phrase. Use it for 'who will get my alert', 'is it active', or before editing emergency contacts (it offers the roster's ids for confirm_person). Reads only; it never sends an alert. To just open the screen, use open_screen.",
       "firebase_plane": false,
       "gateway_action_id": "location.open_sos",
       "name": "get_save_my_soul_status",
@@ -1579,7 +1580,7 @@
     },
     {
       "circle_args": [],
-      "description": "Remove a confirmed person from the emergency contacts, so they no longer receive a Save My Soul alert. Takes a canonical person id only (resolve and confirm the person first). Does not end an SOS share that is already live.",
+      "description": "Remove a confirmed person from the emergency contacts, so they no longer receive future Save My Soul alerts. Takes a canonical person id only, and only after confirm_person: read get_save_my_soul_status, call confirm_person with that contact's user_id, then call this; an id straight from the status read is refused. Does not end an SOS share that is already live; stop_save_my_soul does that.",
       "firebase_plane": false,
       "gateway_action_id": "location.remove_emergency_contact",
       "name": "remove_emergency_contact",
@@ -1676,27 +1677,23 @@
     },
     {
       "circle_args": [],
-      "description": "Verify on the server whether a Save My Soul position actually reached each contact: for the grant ids from trigger_save_my_soul, a contact counts as reached only when an encrypted position envelope is stored on their grant. Call it after the publish_location_envelopes client step finishes. Returns sos_sent, sos_partial, or sos_not_sent with the real names reached and not reached.",
+      "description": "Verify on the server whether the Save My Soul position actually reached each emergency contact: a contact counts as reached only when an encrypted position envelope is stored on their SOS share. It always checks the whole armed alert. Use it for 'did it go through' after an alert; it never sends or resends anything. Returns sos_sent, sos_partial, sos_not_sent, or sos_unverified (the check itself could not run) with the real names reached and not reached.",
       "firebase_plane": false,
-      "gateway_action_id": "location.trigger_sos",
+      "gateway_action_id": "location.verify_sos_delivery",
       "name": "report_save_my_soul_delivery",
       "parameters": {
         "additionalProperties": false,
         "properties": {
           "grant_ids": {
-            "description": "Grant ids returned by trigger_save_my_soul.",
+            "description": "Optional. The report always covers the whole armed alert; ids given here that are not part of it are listed as unknown and never narrow the report.",
             "items": {
               "type": "string"
             },
             "maxItems": 50,
-            "minItems": 1,
             "title": "Grant Ids",
             "type": "array"
           }
         },
-        "required": [
-          "grant_ids"
-        ],
         "type": "object"
       },
       "person_args": [],
@@ -1704,7 +1701,8 @@
       "result_statuses": [
         "sos_not_sent",
         "sos_partial",
-        "sos_sent"
+        "sos_sent",
+        "sos_unverified"
       ],
       "tier": null,
       "ui_refresh": []
@@ -2329,7 +2327,7 @@
     },
     {
       "circle_args": [],
-      "description": "Stop the active Save My Soul: after the person taps Confirm, every live SOS location share is revoked. Reports the real number of shares ended. It does not tell anyone the person is safe.",
+      "description": "Stop the active Save My Soul: shows a card naming the live SOS location shares it will end; only the person's tap revokes them. Reports the shares that verifiably ended and any that may still be live (sos_partially_stopped). It does not tell anyone the person is safe and does not touch ordinary location sharing. Only for an explicit ask to stop or end the alert: not for 'I'm safe now' or 'everything's fine' on its own (say stopping tells nobody and ask), not for 'stop listening' (that is the voice session), and not for cancelling a card that was never confirmed.",
       "firebase_plane": false,
       "gateway_action_id": "location.stop_sos",
       "name": "stop_save_my_soul",
@@ -2342,6 +2340,7 @@
       "policy": "confirm_tap",
       "result_statuses": [
         "not_active",
+        "sos_partially_stopped",
         "sos_stopped"
       ],
       "tier": "tap",
@@ -2386,7 +2385,7 @@
     },
     {
       "circle_args": [],
-      "description": "Arm a Save My Soul alert: after the person taps Confirm, one 8-hour SOS location share is created for every emergency contact who can receive it. The server holds no position, so this only ARMS the alert and returns a client_step (publish_location_envelopes) that the app runs to send the encrypted position. Never say the alert was 'sent' from this result: 'sent' may only be reported after the client publishes and report_save_my_soul_delivery verifies it on the server. It does not call emergency services. Optional note: a short message for the contacts.",
+      "description": "Prepare a Save My Soul alert to the person's emergency contacts. Call it as soon as the person clearly asks to alert their emergency contacts (with or without a note; never ask for a note first; a politely phrased ask, 'could you send it?', is still a request). Not for a single bare word like 'help', 'emergency' or 'SMS' with nothing else: ask one short question or open the screen instead. It shows a card naming exactly who will get their precise location for 8 hours; only the person's tap on that card arms it, and a spoken or typed yes cannot. After the tap it returns sos_grants_created, which means ARMED, not sent: the app then publishes the encrypted position and the server verifies delivery (report_save_my_soul_delivery). Never say 'sent' from this result. It always sends the precise location to the whole emergency roster for 8 hours; it cannot pick one person, shorten the time, send an approximate or rough location, or add someone who is not an emergency contact \u2014 for those, call nothing, explain, and ask. It does not call emergency services.",
       "firebase_plane": false,
       "gateway_action_id": "location.trigger_sos",
       "name": "trigger_save_my_soul",
@@ -2404,7 +2403,7 @@
               }
             ],
             "default": null,
-            "description": "Optional short message shown to the contacts with the alert.",
+            "description": "Optional short message shown to the contacts with the alert. Leave it out unless the person gave one; never ask for it before preparing the alert.",
             "title": "Note"
           }
         },

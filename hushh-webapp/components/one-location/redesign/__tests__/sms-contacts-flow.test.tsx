@@ -7,9 +7,12 @@ import {
   within,
 } from "@testing-library/react";
 
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 
 import { SmsContactsFlow } from "@/components/one-location/redesign/sms-contacts-flow";
+import { isSosShareReadyRecipient } from "@/lib/one-location/sos-trigger";
 import type { CircleRecipientSelection } from "@/lib/one-location/circle-recipient-selection";
 import type {
   OneLocationCircleMember,
@@ -219,6 +222,52 @@ describe("SmsContactsFlow", () => {
     openAllContacts();
     fireEvent.click(screen.getByRole("button", { name: "Add Neelesh" }));
     expect(onAdd).toHaveBeenCalledWith("available");
+  });
+
+  it("with the Save My Soul rule, a keyed contact without a verified phone is not addable", () => {
+    // Save My Soul is the one lane that also needs a verified phone. The
+    // key-only rule the ordinary sharing screens use would offer "Add" here
+    // and the person would then be skipped by the alert.
+    const unverified: OneLocationRecipient = {
+      ...recipients[1],
+      userId: "unverified",
+      displayName: "Rohan",
+      phoneVerified: false,
+    };
+    const props = { ...baseProps, recipients: [...recipients, unverified] };
+    const keyOnly = render(
+      <SmsContactsFlow {...props} isRecipientShareReady={(r) => r.canReceiveLocation} />,
+    );
+    openAllContacts();
+    expect(screen.getByRole("button", { name: "Add Rohan" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Add Rohan" })).toHaveTextContent("Add");
+    keyOnly.unmount();
+
+    render(
+      <SmsContactsFlow
+        {...props}
+        isRecipientShareReady={isSosShareReadyRecipient}
+      />,
+    );
+    openAllContacts();
+    expect(screen.getByRole("button", { name: "Add Rohan" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Add Rohan" })).toHaveTextContent("Setup");
+    expect(screen.getByRole("button", { name: "Add Neelesh" })).toBeEnabled();
+  });
+
+  it("the hub hands this screen the Save My Soul readiness rule, never the key-only one", () => {
+    // The hub is too large to mount here; the wiring is a source contract
+    // beside the behavioural test above.
+    const hub = readFileSync(
+      resolve(__dirname, "../location-redesign-hub.tsx"),
+      "utf8",
+    );
+    const flowStart = hub.indexOf("<SmsContactsFlow");
+    expect(flowStart).toBeGreaterThan(0);
+    const flowProps = hub.slice(flowStart, hub.indexOf("/>", flowStart));
+    expect(flowProps).toContain(
+      "vm.isSosRecipientShareReady ?? vm.isRecipientShareReady",
+    );
   });
 
   it("identifies contact-synced people in the directory and review sheet", async () => {

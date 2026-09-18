@@ -292,6 +292,14 @@ class ToolContext:
     firebase_id_token: str | None = None
     # Services may be injected for tests; handlers fall back to real ones.
     services: dict[str, Any] = field(default_factory=dict)
+    # The prepared-effect snapshot a ``ToolSpec.prepare`` hook computed when
+    # the card was shown; set by the executor only while that card's handler
+    # runs, so the handler can refuse to act on a materially changed effect.
+    prepared: dict[str, Any] | None = None
+    # The Save My Soul alert this session armed: the exact grant set the
+    # delivery report is bound to. Server state stays the authority; this is
+    # the correlation, never a "sent" flag.
+    sos_incident: dict[str, Any] | None = None
 
     def service(self, name: str, factory: Callable[[], Any]) -> Any:
         if name not in self.services:
@@ -300,6 +308,20 @@ class ToolContext:
 
 
 ToolHandler = Callable[[ToolContext, Any], Awaitable[ToolResult]]
+
+
+@dataclass(frozen=True)
+class Prepared:
+    """What a confirm_* tool will do, computed from authorized state when the
+    card is shown. ``summary`` is the card sentence; ``snapshot`` is stored
+    with the pending row and handed back to the handler as ``ctx.prepared``
+    so execution can detect drift instead of silently doing something else."""
+
+    summary: str
+    snapshot: dict[str, Any] = field(default_factory=dict)
+
+
+PrepareHook = Callable[[ToolContext, Any], Awaitable["Prepared | ToolResult"]]
 
 
 @dataclass(frozen=True)
@@ -320,6 +342,15 @@ class ToolSpec:
     firebase_plane: bool = False
     # For confirm_* tools: how the pending card summarizes the action.
     summarize: Callable[[ToolContext, Any], str] | None = None
+    # For confirm_* tools whose effect depends on live state: computes the
+    # exact prepared effect before the card is shown. Returning a ToolResult
+    # instead of a Prepared answers the call without a card (nothing to do,
+    # state unreadable, already active).
+    prepare: PrepareHook | None = None
+    # The result hands the client a device step that only a live session can
+    # run and settle; confirming it over plain HTTP would arm an effect with
+    # no publisher, so that route refuses it.
+    device_step: bool = False
 
     def declaration(self) -> dict[str, Any]:
         """Gemini function declaration (JSON-schema parameters, refs inlined)."""

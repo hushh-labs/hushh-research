@@ -433,6 +433,15 @@ async def confirm_pending_action_http(
     if row is None:
         raise HTTPException(status_code=404, detail={"code": "PENDING_ACTION_NOT_FOUND"})
     spec = registry.get_tool(row.tool_name)
+    if spec is not None and spec.device_step:
+        # The result hands the device a step (publish the encrypted position)
+        # that only the live session can run and verify; confirming here would
+        # arm an effect nobody publishes or reports. The row stays pending so
+        # the session's card can still be tapped.
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "SESSION_CONFIRM_REQUIRED", "tool": row.tool_name},
+        )
     if spec is not None and spec.firebase_plane:
         from hushh_mcp.one_voice.actor_proof import verify_firebase_actor
 

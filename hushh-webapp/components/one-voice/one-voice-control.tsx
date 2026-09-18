@@ -42,7 +42,11 @@ import {
 } from "@/lib/one-voice/session-store";
 import { cn } from "@/lib/utils";
 
-import { OneVoicePanel, panelHasContent } from "./one-voice-panel";
+import {
+  OneVoicePanel,
+  isSosPublishStep,
+  panelHasContent,
+} from "./one-voice-panel";
 import { VoiceStatePill } from "./voice-state-pill";
 import { transcriptStatusLine } from "./voice-transcript";
 
@@ -101,14 +105,17 @@ export function OneVoiceControl({
   );
   const pickerOpen = state.candidatePicker !== null;
   const errorCode = state.error?.code ?? null;
+  // A Save My Soul position on its way is shown wherever the person is.
+  const sosPublishing = isSosPublishStep(state.clientStep);
 
   // Anything that needs an answer opens the panel; a fresh session starts open.
   useEffect(() => {
     if (!active) setCollapsed(false);
   }, [active]);
   useEffect(() => {
-    if (pendingOpen || pickerOpen || errorCode) setCollapsed(false);
-  }, [pendingId, pendingOpen, pickerOpen, errorCode]);
+    if (pendingOpen || pickerOpen || errorCode || sosPublishing)
+      setCollapsed(false);
+  }, [pendingId, pendingOpen, pickerOpen, errorCode, sosPublishing]);
   useEffect(() => {
     if (!active) {
       setTyping(false);

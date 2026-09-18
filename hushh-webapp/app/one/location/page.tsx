@@ -319,6 +319,7 @@ import {
 import {
   clearSosIncident,
   loadSosIncident,
+  mergeSosGrantIds,
   reconcileSosIncident,
   saveSosIncident,
   type SosIncident,
@@ -2668,10 +2669,13 @@ export function OneLocationAgentPageContent({
     promise: Promise<void>;
   } | null>(null);
 
-  // Hydrate the persisted SOS incident once on mount.
+  // Hydrate the persisted SOS incident for the signed-in owner. The record is
+  // owner-scoped, so this waits for the id and re-runs if it changes: another
+  // account's alert is never shown, and a voice-armed alert confirmed on Home
+  // (persisted by the publisher bridge) is picked up here on arrival.
   useEffect(() => {
-    setSosIncident(loadSosIncident());
-  }, [setSosIncident]);
+    setSosIncident(auth.userId ? loadSosIncident(auth.userId) : null);
+  }, [auth.userId, setSosIncident]);
 
   const [locationOnboardingGate, setLocationOnboardingGate] =
     useState<OneLocationOnboardingGate>("checking");
@@ -3583,6 +3587,21 @@ export function OneLocationAgentPageContent({
     [state?.ownerGrants],
   );
   /**
+   * Live Save My Soul shares the server holds for this owner, whichever
+   * device or voice session armed them. The device incident record only knows
+   * what THIS device created; the banner and the stop must cover both.
+   */
+  const activeSosGrants = useMemo(
+    () => activeOwnerGrants.filter(isSmsTriggeredGrant),
+    [activeOwnerGrants],
+  );
+  const activeSosGrantsRef = useRef(activeSosGrants);
+  useEffect(() => {
+    activeSosGrantsRef.current = activeSosGrants;
+  }, [activeSosGrants]);
+  const sosActive =
+    Boolean(sosIncident?.grantIds.length) || activeSosGrants.length > 0;
+  /**
    * The one hands-free ask that has already been told it would cut a live
    * share short, as `recipientIds|duration`.
    *
@@ -3829,17 +3848,25 @@ export function OneLocationAgentPageContent({
   // active (revoked/expired). Clears the banner automatically when the incident ends.
   // Guard: skip until state has loaded so a reload doesn't wipe a just-hydrated
   // incident by reconciling against an empty activeOwnerGrants array.
+  // Freshness: `state` may be the memory-only presentation that outlived an
+  // `invalidate()` (peek() is then null), or a cache written before the alert
+  // was armed by voice from another route. Neither can list the new grants, so
+  // `reconcileSosIncident` is told when the snapshot was loaded and leaves the
+  // record alone until a load made after the incident arrives.
   useEffect(() => {
     if (!state) return;
     const activeIds = activeOwnerGrants.map((grant) => grant.id);
     const current = sosIncidentRef.current;
-    const reconciled = reconcileSosIncident(current, activeIds);
+    const stateLoadedAt = auth.userId
+      ? (OneLocationStateResource.peek(auth.userId)?.timestamp ?? null)
+      : null;
+    const reconciled = reconcileSosIncident(current, activeIds, stateLoadedAt);
     if (reconciled !== current) {
       if (reconciled) saveSosIncident(reconciled);
       else clearSosIncident();
       setSosIncident(reconciled);
     }
-  }, [state, activeOwnerGrants, setSosIncident]);
+  }, [auth.userId, state, activeOwnerGrants, setSosIncident]);
 
   // The focused shared-with-me view keeps every active share live-refreshing when a
   // legacy build previously persisted an "unwatched" id. In the redesigned
@@ -5545,7 +5572,10 @@ export function OneLocationAgentPageContent({
 
   const handleTriggerSos = useCallback(
     async (note?: string | null) => {
-      if (sosIncidentRef.current || !auth.userId) return; // Synchronous incident + operation guards survive React render delays.
+      // Synchronous incident + operation guards survive React render delays.
+      // A live SOS the server holds (armed by voice or another device) blocks
+      // a second batch just like this device's own record does.
+      if (sosIncidentRef.current || activeSosGrantsRef.current.length || !auth.userId) return;
       if (!vaultOwnerToken || locationPermissionBlocksSharing(permission))
         return;
       const readyRecipients = smsActionRecipients.filter(
@@ -5587,6 +5617,7 @@ export function OneLocationAgentPageContent({
         }
         const incident = await runSosPanic({
           vaultOwnerToken,
+          ownerUserId: owner,
           recipients: readyRecipients,
           point,
           note,
@@ -7053,24 +7084,39 @@ export function OneLocationAgentPageContent({
   ]);
 
   const handleStopSos = useCallback(async (signal?: AbortSignal, boundIncident?: SosIncident) => {
-    const incident = boundIncident || sosIncidentRef.current;
+    const recorded = boundIncident || sosIncidentRef.current;
     const owner = auth.userId;
-    if (!vaultOwnerToken || !incident?.grantIds.length) throw new Error("Unlock One and review the active SOS first.");
+    // Everything a stop must end: the ids this device recorded plus every SOS
+    // grant the server still holds (armed by voice on another route, or by
+    // another device). Mirrors the Save My Soul screen's own stop.
+    const grantIds = mergeSosGrantIds(recorded, activeSosGrantsRef.current.map((grant) => grant.id));
+    if (!vaultOwnerToken || !grantIds.length) throw new Error("Unlock One and review the active SOS first.");
     if (!owner) throw new Error("Sign in to review the active SOS.");
     const operation = sosOperations.current.begin(owner);
     if (!operation) throw new Error("An SOS operation is still finishing. Review its result first.");
     setBusy("sos");
     try {
-      const result = await stopSosShares({ grantIds: incident.grantIds, signal,
+      const result = await stopSosShares({ grantIds, signal,
         revoke: (grantId) => OneLocationService.revokeGrant({ vaultOwnerToken, grantId }),
       });
-      if (sosOwnerRef.current !== owner || !sosIncidentRef.current
-        || sosIncidentRef.current.startedAt !== incident.startedAt
-        || sosIncidentRef.current.grantIds.some((id) => !incident.grantIds.includes(id))) return result;
+      if (sosOwnerRef.current !== owner) return result;
+      // A record that changed underneath the stop (another tab, a re-arm) is
+      // left alone; only the record this stop covered is narrowed or cleared.
+      const current = sosIncidentRef.current;
+      if (recorded) {
+        if (!current || current.startedAt !== recorded.startedAt
+          || current.grantIds.some((id) => !grantIds.includes(id))) return result;
+      } else if (current && current.grantIds.some((id) => !grantIds.includes(id))) {
+        return result;
+      }
       // Keep every unresolved share available to the same stop/review control.
       // A failed refresh or notification cannot erase that pending work.
       if (result.unresolved.length) {
-        const remaining = { ...incident, grantIds: result.unresolved };
+        const remaining: SosIncident = {
+          startedAt: recorded?.startedAt ?? new Date().toISOString(),
+          ownerUserId: owner,
+          grantIds: result.unresolved,
+        };
         saveSosIncident(remaining);
         setSosIncident(remaining);
         toast.error(`${result.revoked.length} shares stopped; ${result.unresolved.length} still need review.`);
@@ -10582,7 +10628,7 @@ export function OneLocationAgentPageContent({
         active_share_count: activeOwnerGrants.length,
         live_share_active: Boolean(liveShareStatus),
         shared_with_me_count: visibleReceivedGrants.length,
-        sos_active: Boolean(sosIncident?.grantIds.length),
+        sos_active: sosActive,
         emergency_contact_count: smsContactUserIds.length,
       },
     };
@@ -10609,7 +10655,7 @@ export function OneLocationAgentPageContent({
     locationEnabled,
     liveShareStatus,
     visibleReceivedGrants.length,
-    sosIncident,
+    sosActive,
     smsContactUserIds.length,
   ]);
   usePublishVoiceSurfaceMetadata(locationVoiceSurfaceMetadata);
@@ -12057,17 +12103,24 @@ export function OneLocationAgentPageContent({
     const binding = context?.preparedBinding;
     if (!binding || typeof binding.startedAt !== "string" || !Array.isArray(binding.grantIds))
       return { status: "blocked", summary: "Review this SOS before stopping its shares." };
-    const result = await handleStopSos(context?.signal, { startedAt: binding.startedAt, grantIds: binding.grantIds as string[] });
+    const result = await handleStopSos(
+      context?.signal,
+      // An empty startedAt means no device record: the stop covers the live SOS
+      // grants the server holds, so nothing is bound to a record that is not there.
+      binding.startedAt ? { startedAt: binding.startedAt, grantIds: binding.grantIds as string[] } : undefined,
+    );
     return { status: result.unresolved.length ? "blocked" : "succeeded",
       summary: result.unresolved.length
         ? `Stopped ${result.revoked.length} SOS shares. ${result.unresolved.length} remain unresolved; review the SOS screen.`
         : `SOS stopped. Verified ${result.revoked.length} shares ended.`,
     };
-  }, { prepare: () => !vaultOwnerToken || !sosIncident?.grantIds.length
-    ? { status: "blocked", gate: "input", summary: "There is no active SOS to stop, or One needs to be unlocked." }
-    : { status: "ready", binding: { owner: auth.userId, startedAt: sosIncident.startedAt, grantIds: [...sosIncident.grantIds].sort() },
-        summary: `Stop this SOS and revoke its ${sosIncident.grantIds.length} live location shares.` },
-  });
+  }, { prepare: () => {
+    const grantIds = mergeSosGrantIds(sosIncident, activeSosGrants.map((grant) => grant.id));
+    return !vaultOwnerToken || !grantIds.length
+      ? { status: "blocked", gate: "input", summary: "There is no active SOS to stop, or One needs to be unlocked." }
+      : { status: "ready", binding: { owner: auth.userId, startedAt: sosIncident?.startedAt ?? "", grantIds: [...grantIds].sort() },
+          summary: `Stop this SOS and revoke its ${grantIds.length} live location shares.` };
+  } });
 
   const resolveTriggerSos = useCallback(
     async (): Promise<LocalOnboardingActionResult> => {
@@ -14080,6 +14133,9 @@ export function OneLocationAgentPageContent({
     recipientLabel,
     recipientSubtitle: recipientRecommendationLine,
     isRecipientShareReady: isShareReadyRecipient,
+    // Save My Soul is the one lane that also needs a verified phone; the
+    // panel's count and enabled state must match what handleTriggerSos accepts.
+    isSosRecipientShareReady: isSosShareReadyRecipient,
     requestOwnerLabel: (request) => requestOwnerLabel(request, recipients),
     requesterLabel: requestLabel,
     grantRecipientLabel: grantCounterpartyLabel,
@@ -14118,7 +14174,7 @@ export function OneLocationAgentPageContent({
     smsRecipients: smsActionRecipients,
     smsContactCandidates: sosActionRecipients,
     smsContactUserIds,
-    sosActive: Boolean(sosIncident?.grantIds.length),
+    sosActive,
     sosBusy: busy === "sos",
     sosStartedAtLabel: sosIncident
       ? formatDateTime(sosIncident.startedAt)

@@ -4228,7 +4228,8 @@
         "location.sos_default",
         "location.stop_share",
         "location.stop_sos",
-        "location.trigger_sos"
+        "location.trigger_sos",
+        "location.verify_sos_delivery"
       ],
       "api_dependencies": [
         {
@@ -9575,5 +9576,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "db28a91852d4eeb67d4f147d1a7f189049f834193e96d81e8399fac6c45e469b"
+  "content_sha256": "5068c53ce744128f16260c63aa7f2fb259b2c05aa94aab79ef4929c4c9ba53ac"
 }

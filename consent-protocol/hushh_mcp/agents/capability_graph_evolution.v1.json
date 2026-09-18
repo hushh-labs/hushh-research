@@ -99,14 +99,6 @@
     },
     {
       "schema_version": "one.capability_deprecation.v1",
-      "semantic_id": "actions:location.trigger_sos",
-      "from_revision": "511758965444c3bb",
-      "from_version": 1,
-      "to_version": 1,
-      "active_run_policy": "reject"
-    },
-    {
-      "schema_version": "one.capability_deprecation.v1",
       "semantic_id": "actions:location.accept_circle_invite",
       "from_revision": "511758965444c3bb",
       "from_version": 1,
@@ -357,6 +349,30 @@
       "schema_version": "one.capability_deprecation.v1",
       "semantic_id": "actions:wallet.reveal",
       "from_revision": "aaec9bce8ec29c93",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:location.trigger_sos",
+      "from_revision": "511758965444c3bb",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:location.trigger_sos",
+      "from_revision": "114ef930def0cdbb",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:location.stop_sos",
+      "from_revision": "114ef930def0cdbb",
       "from_version": 1,
       "to_version": 1,
       "active_run_policy": "reject"
