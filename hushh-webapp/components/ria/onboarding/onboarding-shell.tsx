@@ -197,7 +197,7 @@ export function OnboardingShell({
             className={cn(
               "ria-screen-title",
               isHero && "ria-screen-title--hero",
-              isAccent ? (wideTitle ? "max-w-[280px]" : "max-w-[212px]") : "max-w-[18ch]",
+              isAccent ? (wideTitle ? "max-w-[190px]" : "max-w-[212px]") : "max-w-[18ch]",
               "text-3xl font-bold tracking-tight text-foreground sm:text-4xl"
             )}
           >
@@ -206,7 +206,9 @@ export function OnboardingShell({
           <p
             className={cn(
               "text-[16px] leading-[1.5] text-muted-foreground",
-              isAccent ? "max-w-[232px]" : "max-w-[34rem] text-[17px]"
+              isAccent
+                ? wideTitle ? "max-w-[190px]" : "max-w-[232px]"
+                : "max-w-[34rem] text-[17px]"
             )}
           >
             {description}
