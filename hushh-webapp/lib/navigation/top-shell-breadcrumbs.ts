@@ -537,7 +537,7 @@ function resolveTopShellBreadcrumbInner(
         align: "center",
         items: [
           { label: "One", href: ROUTES.ONE_HOME },
-          { label: "RIA", href: ROUTES.RIA_PROFILE },
+          { label: "Advisor", href: ROUTES.RIA_PROFILE },
           { label },
         ],
       };
@@ -553,7 +553,7 @@ function resolveTopShellBreadcrumbInner(
       width: "content",
       align: "center",
       hideBack: false,
-      items: [{ label: "RIA", href: returnHref }, { label: "Claim profile" }],
+      items: [{ label: "Advisor", href: returnHref }, { label: "Claim profile" }],
     };
   }
 
@@ -687,7 +687,7 @@ function resolveTopShellBreadcrumbInner(
         width: "profile",
         align: "center",
         items: [
-          { label: "RIA", href: ROUTES.RIA_PROFILE },
+          { label: "Advisor", href: ROUTES.RIA_PROFILE },
           { label: "Clients", href: ROUTES.RIA_CLIENTS },
           { label: "Workspace" },
         ],
@@ -701,7 +701,7 @@ function resolveTopShellBreadcrumbInner(
         width: "profile",
         align: "center",
         items: [
-          { label: "RIA", href: ROUTES.RIA_PROFILE },
+          { label: "Advisor", href: ROUTES.RIA_PROFILE },
           { label: "Clients", href: ROUTES.RIA_CLIENTS },
           { label: "Workspace", href: primaryWorkspaceHref },
           { label: "Account detail" },
@@ -715,7 +715,7 @@ function resolveTopShellBreadcrumbInner(
         width: "profile",
         align: "center",
         items: [
-          { label: "RIA", href: ROUTES.RIA_PROFILE },
+          { label: "Advisor", href: ROUTES.RIA_PROFILE },
           { label: "Clients", href: ROUTES.RIA_CLIENTS },
           { label: "Workspace", href: primaryWorkspaceHref },
           { label: "Request detail" },

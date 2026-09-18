@@ -2667,7 +2667,7 @@ export default function RiaPicksPage() {
   if (riaCapability === "setup") {
     return (
       <RiaCompatibilityState
-        title="Complete RIA onboarding"
+        title="Complete Advisor onboarding"
         description="Finish onboarding to manage picks."
         nativeTest={{
           routeId: "/ria/picks",
@@ -2681,7 +2681,7 @@ export default function RiaPicksPage() {
 
   return (
     <RiaPageShell
-      title="RIA"
+      title="Advisor"
       titleRole="agent"
       stackClassName="gap-6"
       nativeTest={{

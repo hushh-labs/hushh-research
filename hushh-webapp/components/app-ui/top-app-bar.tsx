@@ -231,7 +231,7 @@ function normalizeTopBarPathname(pathname: string): string {
 }
 
 function roleSwitcherLabel(activePersona: Persona): string {
-  return activePersona === "ria" ? "RIA" : "Investor";
+  return activePersona === "ria" ? "Advisor" : "Investor";
 }
 
 function roleSwitcherIcon(activePersona: Persona): LucideIcon {
@@ -1116,7 +1116,7 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
                               />
                               <span className="truncate">
                                 {switchingPersona
-                                  ? `Switching to ${switchingPersona === "ria" ? "RIA" : "Investor"}`
+                                  ? `Switching to ${switchingPersona === "ria" ? "Advisor" : "Investor"}`
                                   : roleSwitcherLabel(activePersona)}
                               </span>
                               {!switchingPersona && (
@@ -1127,7 +1127,7 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
                                       ? "bg-amber-500"
                                       : "bg-emerald-500",
                                   )}
-                                  aria-label={`Active role: ${activePersona === "ria" ? "RIA" : "Investor"}`}
+                                  aria-label={`Active role: ${activePersona === "ria" ? "Advisor" : "Investor"}`}
                                 />
                               )}
                               <ChevronDown className="h-4 w-4 shrink-0 text-current/70 transition-colors group-hover:text-current" />
@@ -1161,8 +1161,8 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
                                 <BriefcaseBusiness className="h-4 w-4 text-current" />
                                 <span>
                                   {riaCapability === "switch"
-                                    ? "RIA"
-                                    : "Set up RIA"}
+                                    ? "Advisor"
+                                    : "Set up Advisor"}
                                 </span>
                               </div>
                               {switchingPersona === "ria" ? (
@@ -1278,7 +1278,7 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
         className="sr-only"
       >
         {switchingPersona
-          ? `Switching to ${switchingPersona === "ria" ? "RIA" : "Investor"}`
+          ? `Switching to ${switchingPersona === "ria" ? "Advisor" : "Investor"}`
           : ""}
       </span>
       {user && hasVault === true ? (

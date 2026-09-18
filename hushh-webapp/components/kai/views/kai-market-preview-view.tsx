@@ -2070,7 +2070,7 @@ export function KaiMarketPreviewView() {
       {
         id: "pick_source_selector",
         label: "Advisor pick source",
-        purpose: "Switches the active advisor signal source for RIA picks.",
+        purpose: "Switches the active advisor signal source for Advisor picks.",
         actionId: "kai.market.switch_pick_source",
         role: "selector",
         voiceAliases: ["pick source", "advisor source"],

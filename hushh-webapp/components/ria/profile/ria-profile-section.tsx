@@ -8,7 +8,6 @@ import {
   CheckCircle2,
   ClipboardCheck,
   Loader2,
-  MessageCircle,
   Pencil,
   RotateCcw,
   ShieldCheck,
@@ -218,8 +217,6 @@ function RiaRegulatoryProfileSummary({
     <div className="space-y-4">
       <SettingsGroup testId="ria-profile-assistant">
         <SettingsRow
-          icon={MessageCircle}
-          iconTone="blue"
           title="Ask One to update anything"
           description="Open One and describe what should change in this profile."
           onClick={onAskKaiUpdateAnything}
@@ -845,13 +842,13 @@ export function RiaProfileSection({
       return {
         status: "blocked" as const,
         summary:
-          "The RIA profile is busy. Try again when the current update finishes.",
+          "The advisor profile is busy. Try again when the current update finishes.",
       };
     }
     openServicesEdit();
     return {
       status: "succeeded" as const,
-      summary: "The RIA profile editor is open.",
+      summary: "The advisor profile editor is open.",
     };
   }, [deleting, openServicesEdit, saving]);
 
@@ -887,7 +884,7 @@ export function RiaProfileSection({
       }
       await onRefresh(true);
       await refresh({ force: true });
-      toast.success("Official RIA information updated.");
+      toast.success("Official advisor information updated.");
       setShowLicense(false);
     } catch (error) {
       setLicenseMessage(
@@ -952,7 +949,7 @@ export function RiaProfileSection({
       await switchPersona("investor").catch(() => null);
       await refresh({ force: true });
       setShowDeleteConfirm(false);
-      toast.success("RIA profile deleted. Your One account is unchanged.");
+      toast.success("Advisor profile deleted. Your One account is unchanged.");
       router.replace(ROUTES.ONE_HOME);
     } catch {
       toast.error("Could not delete profile");
@@ -1001,7 +998,7 @@ export function RiaProfileSection({
   if (riaCapability === "disabled") {
     return (
       <RiaCompatibilityState
-        title="RIA profile is waiting on the IAM rollout"
+        title="Advisor profile is waiting on the IAM rollout"
         description="IAM setup is required here."
       />
     );
@@ -1087,7 +1084,7 @@ export function RiaProfileSection({
         <RiaEmailVerifyCard onVerified={handleEmailVerified} />
       ) : null}
 
-      <SettingsGroup eyebrow="Manage" title="RIA profile" testId="ria-profile-manage">
+      <SettingsGroup eyebrow="Manage" title="Advisor profile" testId="ria-profile-manage">
         <SettingsRow
           icon={ClipboardCheck}
           iconTone="blue"
@@ -1108,7 +1105,7 @@ export function RiaProfileSection({
         <SettingsRow
           icon={Trash2}
           tone="destructive"
-          title="Delete RIA profile"
+          title="Delete advisor profile"
           description="Remove profile. One stays."
           onClick={() => {
             setDeleteConfirmText("");
@@ -1248,10 +1245,10 @@ export function RiaProfileSection({
           <AlertDialogHeader>
             <AlertDialogTitle className="app-critical-title flex items-center gap-2">
               <AlertTriangle className="h-5 w-5" />
-              Delete your RIA profile?
+              Delete your advisor profile?
             </AlertDialogTitle>
             <AlertDialogDescription>
-              This removes your RIA advisor profile and automatically disconnects
+              This removes your advisor profile and automatically disconnects
               any active clients (their consent is revoked). Your One account and
               investor information is not affected. This can&apos;t be undone.
             </AlertDialogDescription>

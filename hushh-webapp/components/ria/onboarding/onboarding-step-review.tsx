@@ -281,7 +281,7 @@ export function OnboardingStepReview({
         </span>
       </div>
 
-      <AskOneButton onClick={onAskKaiUpdateAnything}>
+      <AskOneButton onClick={onAskKaiUpdateAnything} showIcon={false}>
         Ask One to update anything
       </AskOneButton>
     </div>

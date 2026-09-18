@@ -89,7 +89,7 @@ describe("OneDashboardPage", () => {
 
     const tile = screen.getByTestId("one-setup-progress-tile");
     expect(tile.textContent).toContain(
-      "Email, Calendar connected · RIA dismissed · 3 left to decide",
+      "Email, Calendar connected · Advisor dismissed · 3 left to decide",
     );
   });
 
@@ -180,7 +180,7 @@ describe("OneDashboardPage", () => {
       "grayscale",
     );
     expect(financeIcon.querySelector(".backdrop-blur-\\[8px\\]")).toBeNull();
-    const riaLink = screen.getByRole("link", { name: "Open RIA" });
+    const riaLink = screen.getByRole("link", { name: "Open Advisor" });
     expect(riaLink.getAttribute("href")).toBe(
       buildOneSetupCapabilityRoute("ria"),
     );

@@ -313,7 +313,7 @@ describe("top shell breadcrumbs", () => {
       align: "center",
       hideBack: false,
       items: [
-        { label: "RIA", href: "/ria/onboarding" },
+        { label: "Advisor", href: "/ria/onboarding" },
         { label: "Claim profile" },
       ],
     });
@@ -326,7 +326,7 @@ describe("top shell breadcrumbs", () => {
       width: "content",
       align: "center",
       hideBack: false,
-      items: [{ label: "RIA", href: "/one/setup" }, { label: "Claim profile" }],
+      items: [{ label: "Advisor", href: "/one/setup" }, { label: "Claim profile" }],
     });
   });
 
@@ -961,7 +961,7 @@ describe("top shell breadcrumbs", () => {
       width: "profile",
       align: "center",
       items: [
-        { label: "RIA", href: "/ria/profile" },
+        { label: "Advisor", href: "/ria/profile" },
         { label: "Clients", href: "/ria/clients" },
         { label: "Workspace" },
       ],
@@ -974,7 +974,7 @@ describe("top shell breadcrumbs", () => {
       width: "profile",
       align: "center",
       items: [
-        { label: "RIA", href: "/ria/profile" },
+        { label: "Advisor", href: "/ria/profile" },
         { label: "Clients", href: "/ria/clients" },
         { label: "Workspace", href: "/ria/clients/user_123" },
         { label: "Account detail" },
@@ -988,7 +988,7 @@ describe("top shell breadcrumbs", () => {
       width: "profile",
       align: "center",
       items: [
-        { label: "RIA", href: "/ria/profile" },
+        { label: "Advisor", href: "/ria/profile" },
         { label: "Clients", href: "/ria/clients" },
         { label: "Workspace", href: "/ria/clients/user_123" },
         { label: "Request detail" },

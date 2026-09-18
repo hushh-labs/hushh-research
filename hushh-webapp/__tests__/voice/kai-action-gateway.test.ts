@@ -381,7 +381,7 @@ describe("kai-action-gateway", () => {
 
     expect(availability).toEqual({
       status: "requires_persona_switch",
-      reason: "Switch to RIA workspace first.",
+      reason: "Switch to Advisor workspace first.",
       target_persona: "ria",
       blocked_guidance:
         "Complete or unlock RIA setup before entering the RIA workspace.",
@@ -431,7 +431,7 @@ describe("kai-action-gateway", () => {
 
     expect(availability).toEqual({
       status: "blocked",
-      reason: "RIA actions stay locked until you finish RIA setup.",
+      reason: "Advisor actions stay locked until you finish Advisor setup.",
       target_persona: "ria",
       blocked_guidance:
         "Complete or unlock RIA setup before entering the RIA workspace.",
