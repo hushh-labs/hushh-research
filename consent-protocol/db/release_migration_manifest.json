@@ -195,7 +195,8 @@
     "220_gmail_personal_information_request_initial_inbox_scan.sql",
     "221_one_location_account_settings.sql",
     "222_one_voice_runtime.sql",
-    "223_one_location_setup_progress.sql"
+    "223_one_location_setup_progress.sql",
+    "224_setup_capability_declined_ids.sql"
   ],
   "environment_overlays": {
     "uat": [
@@ -340,7 +341,8 @@
       "220_gmail_personal_information_request_initial_inbox_scan.sql",
       "221_one_location_account_settings.sql",
       "222_one_voice_runtime.sql",
-      "223_one_location_setup_progress.sql"
+      "223_one_location_setup_progress.sql",
+      "224_setup_capability_declined_ids.sql"
     ],
     "pkm": [
       "030_pkm_cutover.sql",
