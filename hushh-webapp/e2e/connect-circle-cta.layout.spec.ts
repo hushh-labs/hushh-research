@@ -29,7 +29,7 @@ import {
   CIRCLE_NAME_ROW_CLASSNAME,
   CIRCLE_NAME_ROW_HEIGHT_PX,
 } from "../components/one-location/redesign/circles/circle-name-row-layout";
-import { buttonVariants } from "../components/ui/button";
+import { buttonVariants } from "../components/ui/button-variants";
 import { INPUT_CLASSNAME } from "../components/ui/input";
 import { cn } from "../lib/utils";
 

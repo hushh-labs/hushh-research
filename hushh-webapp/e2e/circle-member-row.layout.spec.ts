@@ -28,7 +28,7 @@ import {
   CIRCLE_MEMBER_SECONDARY_CLASSNAME,
   CIRCLE_MEMBER_TRAILING_CLASSNAME,
 } from "../components/one-location/redesign/circles/circle-member-row-layout";
-import { buttonVariants } from "../components/ui/button";
+import { buttonVariants } from "../components/ui/button-variants";
 import { cn } from "../lib/utils";
 
 /**
