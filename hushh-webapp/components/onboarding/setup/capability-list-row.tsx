@@ -8,10 +8,7 @@ import { AgentSectionIcon } from "@/components/app-ui/agent-section-icon";
 import { SettingsRow } from "@/components/app-ui/settings-ui";
 import { Button } from "@/components/ui/button";
 import type { CapabilitySetupCopy } from "@/lib/onboarding/capability-setup-copy";
-import {
-  getCapabilityStatusDisplay,
-  isCapabilityOnboarded,
-} from "@/lib/onboarding/capability-status-display";
+import { getCapabilityStatusDisplay } from "@/lib/onboarding/capability-status-display";
 import type { OneSetupCapability } from "@/lib/onboarding/one-capabilities";
 import { ROUTES } from "@/lib/navigation/routes";
 import type { CapabilityStatus } from "@/lib/services/capability-setup-state-service";
@@ -75,7 +72,9 @@ export function CapabilityListRow({
           id={capability.id}
           icon={capability.icon}
           tone={capability.tone}
-          isActive={isCapabilityOnboarded(status)}
+          // Greyscale-until-onboarded is reverted for now -- icons stay full
+          // color regardless of setup state.
+          isActive
           size="setup"
         />
       }
