@@ -49,7 +49,8 @@ test.describe("first post-login Agent Directory visual contract", () => {
       await expect(
         page.getByRole("heading", { name: "Agents (7)" }),
       ).toBeVisible();
-      await expect(page.getByTestId("one-agents-search")).toBeVisible();
+      // Search is switched off for now (SHOW_AGENT_SEARCH = false in
+      // one-agent-roster.tsx) -- no longer rendered.
       await expect(page.getByTestId("one-agents-list")).toBeVisible();
 
       const metrics = await page.evaluate(() => {
@@ -60,10 +61,6 @@ test.describe("first post-login Agent Directory visual contract", () => {
         const title = document
           .querySelector("#one-agents-heading span:first-child");
         const titleStyle = title ? getComputedStyle(title) : null;
-        const search = document.querySelector(
-          '[data-testid="one-agents-search"]',
-        );
-        const searchStyle = search ? getComputedStyle(search) : null;
         const list = document.querySelector('[data-testid="one-agents-list"]');
         const listStyle = list ? getComputedStyle(list) : null;
         const rows = Array.from(
@@ -83,8 +80,6 @@ test.describe("first post-login Agent Directory visual contract", () => {
           titleFontSize: titleStyle?.fontSize,
           titleFontWeight: titleStyle?.fontWeight,
           titleLineHeight: titleStyle?.lineHeight,
-          searchHeight: Math.round(search?.getBoundingClientRect().height ?? 0),
-          searchRadius: searchStyle?.borderRadius,
           listRadius: listStyle?.borderRadius,
           rowCount: rows.length,
           rowHeights,
@@ -96,8 +91,6 @@ test.describe("first post-login Agent Directory visual contract", () => {
       expect(metrics.titleFontSize).toBe("34px");
       expect(metrics.titleFontWeight).toBe("700");
       expect(metrics.titleLineHeight).toBe("41px");
-      expect(metrics.searchHeight).toBe(52);
-      expect(metrics.searchRadius).toBe("16px");
       expect(metrics.listRadius).toBe("22px");
       expect(metrics.rowCount).toBe(7);
       expect(metrics.rowHeights.every((height) => height >= 64)).toBe(true);

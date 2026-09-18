@@ -30,14 +30,16 @@ export function OneDashboardPage({
       }}
     >
       <AppPageContentRegion>
-        <OneSetupProgressTile
-          capabilityStatusById={capabilityStatusById}
-          userId={userId}
-        />
         <OneAgentRoster
           capabilityStatusById={capabilityStatusById}
           displayName={displayName}
           userId={userId}
+          progressSlot={
+            <OneSetupProgressTile
+              capabilityStatusById={capabilityStatusById}
+              userId={userId}
+            />
+          }
         />
       </AppPageContentRegion>
     </AppPageShell>
