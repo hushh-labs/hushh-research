@@ -372,6 +372,29 @@ class FakeConnectionsService:
     def search_directory(self, user_id: str, *, query: str = "", page: int = 1, limit: int = 20):
         return {"items": [], "page": page, "hasMore": False, "audience": "all"}
 
+    def list_connections_page(
+        self,
+        user_id: str,
+        *,
+        query: str = "",
+        page: int = 1,
+        limit: int = 50,
+        audience: str = "all",
+    ):
+        needle = (query or "").lower()
+        rows = [
+            r for r in self.connections if not needle or needle in str(r["displayName"]).lower()
+        ]
+        offset = (page - 1) * limit
+        items = rows[offset : offset + limit]
+        return {
+            "items": [dict(r) for r in items],
+            "page": page,
+            "hasMore": offset + len(items) < len(rows),
+            "totalCount": len(rows),
+            "audience": audience,
+        }
+
 
 class FakeLocationAgentService:
     def list_verified_recipients(self, *, owner_user_id: str, limit: int):

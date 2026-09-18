@@ -139,11 +139,16 @@ class ToolExecutor:
             parsed = spec.input_model.model_validate(args or {})
         except ValidationError as exc:
             missing = sorted({str(err.get("loc", ("?",))[0]) for err in exc.errors()})
+            facts = [f"I'm missing {', '.join(missing) or 'a detail'} for that."]
+            if "circle" in missing and ctx.screen.active_circle_id:
+                # The person is looking at a circle: say where its id comes from
+                # rather than leaving the model to guess one.
+                facts.append(
+                    "Call get_circle_details with no argument to read the circle on screen, "
+                    "then use its circle_id."
+                )
             return ToolCallOutcome(
-                result=Rejected(
-                    reason_code="invalid_arguments",
-                    spoken_facts=[f"I'm missing {', '.join(missing) or 'a detail'} for that."],
-                ),
+                result=Rejected(reason_code="invalid_arguments", spoken_facts=facts),
                 spec=spec,
             )
         problem = self._entity_problem(spec, ctx, parsed)

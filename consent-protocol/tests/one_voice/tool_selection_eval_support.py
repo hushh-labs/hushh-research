@@ -50,6 +50,9 @@ CALL_GAP_S = 1.0
 QUOTA_RETRY_ATTEMPTS = 3
 _TRANSIENT_MARKERS = ("RESOURCE_EXHAUSTED", "429", "DEADLINE_EXCEEDED", "504", "503", "UNAVAILABLE")
 
+# Session reads the model may make before its real first call.
+SESSION_READS = frozenset({"get_pending_action"})
+
 CASE_KEYS = frozenset(
     {"id", "family", "screen", "history", "utterance", "expected_tools", "forbidden_tools", "note"}
 )
@@ -84,6 +87,15 @@ class Observation:
     @property
     def forbidden_hit(self) -> bool:
         return any(name in self.case.forbidden_tools for name in self.all_tools)
+
+    @property
+    def first_real_tool(self) -> str | None:
+        """The first tool that is not a session bookkeeping read: checking for
+        a pending card before acting is never the wrong first move."""
+        for name in self.all_tools:
+            if name not in SESSION_READS:
+                return name
+        return None
 
 
 # A responder answers one function call. ``(tool, args) -> result_public``.
@@ -427,6 +439,9 @@ class FamilyMetrics:
     unintended_mutation: int = 0
     unconfirmed_id_mutation: int = 0
     skipped_confirm: int = 0
+    # A mutation called without its required id (the executor refused it and
+    # the model has to read first): a wasted turn, not a wrong-target proposal.
+    missing_argument_mutation: int = 0
     errors: int = 0
     misses: list[dict[str, Any]] = field(default_factory=list)
 
@@ -439,6 +454,7 @@ class FamilyMetrics:
             "unintended_mutation": self.unintended_mutation,
             "unconfirmed_id_mutation": self.unconfirmed_id_mutation,
             "skipped_confirm": self.skipped_confirm,
+            "missing_argument_mutation": self.missing_argument_mutation,
             "errors": self.errors,
             "misses": self.misses,
         }
