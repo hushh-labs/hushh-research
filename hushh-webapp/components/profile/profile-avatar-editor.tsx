@@ -19,7 +19,7 @@ import {
 } from "@/components/ui/sheet";
 import { useAuth } from "@/hooks/use-auth";
 import { useEffectiveAvatarUrl } from "@/hooks/use-effective-avatar-url";
-import { pickAvatarDataUrl } from "@/lib/profile/avatar-capture";
+import { pickAvatar } from "@/lib/profile/avatar-capture";
 import { AccountIdentityService } from "@/lib/services/account-identity-service";
 import { isNative } from "@/lib/capacitor/platform";
 import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
@@ -56,18 +56,33 @@ export function ProfileAvatarEditor() {
   const handleChange = async () => {
     setSheetOpen(false);
     if (!user || busy) return;
-    let dataUrl: string | null = null;
-    try {
-      dataUrl = await pickAvatarDataUrl();
-    } catch {
-      toast.error("Could not update photo");
+    const picked = await pickAvatar().catch(
+      () => ({ kind: "failed", reason: "plugin" }) as const,
+    );
+    if (picked.kind === "cancelled") return; // the person changed their mind
+    if (picked.kind === "failed") {
+      // Name only what is known: the picker did not produce a photo. Do not
+      // diagnose a permission problem the platform did not report.
+      toast.error(
+        picked.reason === "plugin"
+          ? "Couldn't open your photos. Try again."
+          : "That photo couldn't be read. Try another one.",
+      );
       return;
     }
-    if (!dataUrl) return; // user cancelled
+    const dataUrl = picked.dataUrl;
 
     setPreviewPhoto(dataUrl);
     setBusy(true);
-    const upload = AccountIdentityService.uploadAvatar(user, dataUrl);
+    // "Updated" only on persisted identity evidence. The service resolves
+    // null when there was no session or the server returned no identity;
+    // a resolved promise is not a stored photo.
+    const upload = AccountIdentityService.uploadAvatar(user, dataUrl).then(
+      (identity) => {
+        if (!identity) throw new Error("Photo wasn't saved. Try again.");
+        return identity;
+      },
+    );
     toast.promise(upload, {
       loading: "Updating photo...",
       success: "Profile photo updated.",
@@ -88,7 +103,14 @@ export function ProfileAvatarEditor() {
     setSheetOpen(false);
     if (!user || busy) return;
     setBusy(true);
-    const removal = AccountIdentityService.removeAvatar(user);
+    // Removal clears the custom override only; the provider photo may
+    // reappear, and that is the returned identity, not an error.
+    const removal = AccountIdentityService.removeAvatar(user).then(
+      (identity) => {
+        if (!identity) throw new Error("Photo wasn't removed. Try again.");
+        return identity;
+      },
+    );
     toast.promise(removal, {
       loading: "Removing photo...",
       success: "Profile photo removed.",
