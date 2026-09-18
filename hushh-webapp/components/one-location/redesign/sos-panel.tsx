@@ -11,6 +11,7 @@ import {
 } from "react";
 import { Check, ChevronRight, Loader2, Phone } from "@/components/icons";
 import { toast } from "sonner";
+import { trackEvent } from "@/lib/observability/client";
 
 import {
   AlertDialog,
@@ -210,12 +211,23 @@ export function SosPanel({
     // Captured before the await so the record is of what was sent, not of
     // whatever the picker happens to hold when the request settles.
     setSentMessage(selectedMessage ?? "");
+    try {
+      trackEvent("one_location_sos_triggered", {
+        route_id: "one_location",
+        result: "success",
+        selected_count: readyRecipients.length,
+        reached_count: readyRecipients.length,
+        unreachable_count: 0,
+        emailed_count: 0,
+        has_note: Boolean(selectedMessage),
+      });
+    } catch {}
     void Promise.resolve(onTrigger(selectedMessage)).finally(() => {
       if (observedBusyRef.current) return;
       firedRef.current = false;
       setProgress(0);
     });
-  }, [clearHold, disabled, onTrigger, selectedMessage]);
+  }, [clearHold, disabled, onTrigger, readyRecipients.length, selectedMessage]);
 
   const completeHold = useCallback(() => {
     fireTrigger();

@@ -21,6 +21,8 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { trackEvent } from "@/lib/observability/client";
+import { trackLocationShareConfirmed } from "@/lib/observability/location-events";
 import { useLocalOnboardingActionHandler, canonicalActionBinding, type LocalOnboardingActionContext, type LocalActionPreparation, type LocalActionContinuation } from "@/lib/agent/local-onboarding-actions";
 import { pendingAudienceBinding } from "@/lib/one-location/command-continuation";
 import { privateCheckInDigest, readPrivateCheckInDraft, type PrivateCheckInDraft } from "@/lib/one-location/command-private-check-in";
@@ -489,7 +491,24 @@ export function CheckInFlow({
         setCompletedRecipientIds((current) => [
           ...new Set([...current, ...result.succeededRecipientIds]),
         ]);
+        trackLocationShareConfirmed({
+          route_id: "one_location_check_in",
+          result: "success",
+          selected_count: recipientIds.length,
+          success_count: result.succeededRecipientIds.length,
+          failure_count: result.failedRecipientIds.length,
+          duration_bucket: retained?.duration ?? effectiveDuration,
+          review_required: false,
+        });
       }
+      trackEvent("one_location_check_in_completed", {
+        route_id: "one_location_check_in",
+        result: result.succeededRecipientIds.length > 0 ? "success" : "error",
+        selected_count: recipientIds.length,
+        success_count: result.succeededRecipientIds.length,
+        failure_count: result.failedRecipientIds.length,
+        circle_targeted: Boolean(retained ? retained.sourceCircleId : circleSelection?.circle.id),
+      });
       if (result.failedRecipientIds.length > 0) {
         setCheckedIds(result.failedRecipientIds);
       }

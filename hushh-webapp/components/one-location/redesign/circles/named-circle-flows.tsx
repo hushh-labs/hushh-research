@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { toast } from "sonner";
+import { trackEvent } from "@/lib/observability/client";
 import {
   Check,
   Copy,
@@ -637,6 +638,13 @@ export function CreateCircleFlow({
     submittingRef.current = true;
     try {
       await onSubmit(trimmedName, kind);
+      try {
+        trackEvent("one_location_circle_created", {
+          route_id: "one_location",
+          result: "success",
+          circle_kind: kind,
+        });
+      } catch {}
     } catch (error) {
       submittingRef.current = false;
       toast.error(
