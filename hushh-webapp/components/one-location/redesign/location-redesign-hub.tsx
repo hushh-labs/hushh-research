@@ -3478,8 +3478,11 @@ function AutoApproveScopeOption({
         inset
           ? "border-b border-[color:var(--app-separator)] last:border-b-0"
           : "rounded-[18px] bg-[color:var(--app-card-surface-default-solid)] ring-1 ring-[color:var(--app-separator)]",
-        selected && "bg-[color:var(--app-accent-surface)]",
       )}
+      // No selected-row fill: the accent checkbox/radio + check below is the
+      // whole selection signal (iOS checkmark convention). A full-row
+      // accent-surface wash painted every chosen circle blue and read as an
+      // error/hover state rather than a calm multi-select.
     >
       <span className="min-w-0">
         <MediumRowLabel as="span" className="block truncate">
