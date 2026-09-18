@@ -13,6 +13,7 @@ from typing import Any
 import pytest
 from pydantic import ValidationError
 
+from hushh_mcp.one_voice import protocol
 from hushh_mcp.one_voice.tools import location_state
 from hushh_mcp.one_voice.tools.base import (
     ConfirmedCircle,
@@ -36,6 +37,7 @@ from hushh_mcp.services.one_location_place_rating_service import PlaceRatingErro
 
 OWNER = "owner-1"
 CONVERSATION = "c" * 36
+DEVICE_TOOLS = ("resume_device_location_updates", "pause_device_location_updates")
 FAMILY_ID = str(uuid.uuid4())
 WORK_ID = str(uuid.uuid4())
 STRANGER_ID = str(uuid.uuid4())
@@ -249,12 +251,20 @@ def test_catalog_policies_and_gateway_bindings():
         "show_on_map": (ToolPolicy.confirm_voice, "location.set_ghost_mode"),
         "set_auto_approve": (ToolPolicy.confirm_voice, "location.set_auto_share"),
         "list_my_place_ratings": (ToolPolicy.read, "location.open_ratings"),
+        "resume_device_location_updates": (ToolPolicy.direct, "location.resume_updates"),
+        "pause_device_location_updates": (ToolPolicy.direct, "location.pause_updates"),
     }
     assert {tool.name for tool in location_state.TOOLS} == set(expected)
+    assert len(location_state.TOOLS) == 11
     for tool in location_state.TOOLS:
         policy, action_id = expected[tool.name]
         assert tool.policy is policy, tool.name
         assert tool.gateway_action_id == action_id, tool.name
+        if tool.name in DEVICE_TOOLS:
+            # The device switch is a local_handler action; account-level sharing
+            # (location.set_sharing_enabled) is never bound to it.
+            assert tool.gateway_action_id != "location.set_sharing_enabled", tool.name
+            assert tool.ui_refresh == (), tool.name
         if tool.policy.needs_confirmation:
             assert tool.summarize is not None, f"{tool.name} needs a confirmation summary"
         # Vault-owner plane only: nothing here touches connections or profile.
@@ -990,6 +1000,484 @@ async def test_ratings_admission_defaults_to_the_lifted_predicate(monkeypatch):
 
     assert result.status == "unsupported"
     assert isinstance(ctx.services["feature_admission"], OneLocationFeatureAdmission)
+
+
+# -- resume/pause_device_location_updates ------------------------------------
+
+
+RESUME = "resume_device_location_updates"
+PAUSE = "pause_device_location_updates"
+STEP_EXPIRES_AT = 1_000.0
+ON_OFF_FACTS = {"Location is on.", "Location is off."}
+
+
+class UntouchedSettings(SettingsDouble):
+    """The device switch has no server row: even a read is a defect."""
+
+    def get(self, *, user_id: str) -> AccountSettings:
+        raise AssertionError("location_settings must not be read by the device tools")
+
+
+class UntouchedLocation(LocationDouble):
+    def list_state(self, *, user_id: str) -> dict[str, Any]:
+        raise AssertionError("location state must not be read by the device tools")
+
+    def get_map_preferences(self, *, user_id: str) -> dict[str, Any]:
+        raise AssertionError("map preferences must not be read by the device tools")
+
+
+def _step(desired: str, *, expires_at: float | None = STEP_EXPIRES_AT) -> dict[str, Any]:
+    """The record ``VoiceSession._emit_side_effects`` keeps for a pending step."""
+    action = (
+        location_state.RESUME_UPDATES_ACTION_ID
+        if desired == "on"
+        else location_state.PAUSE_UPDATES_ACTION_ID
+    )
+    record: dict[str, Any] = {
+        "kind": location_state.SET_LOCATION_UPDATES_STEP_KIND,
+        "desired_state": desired,
+        "gateway_action_id": action,
+        "timeout_s": location_state.LOCATION_UPDATES_STEP_TIMEOUT_S,
+        "tool": RESUME if desired == "on" else PAUSE,
+        "call_id": "c1",
+        "requested_at": 0.0,
+    }
+    if expires_at is not None:
+        record["expires_at"] = expires_at
+    return record
+
+
+def _report(step: dict[str, Any], outcome: str, observed: str = "unknown", **extra: Any) -> dict:
+    payload: dict[str, Any] = {
+        "gateway_action_id": step["gateway_action_id"],
+        "desired_state": step["desired_state"],
+        "outcome": outcome,
+        "observed_state": observed,
+    }
+    payload.update(extra)
+    return payload
+
+
+def _settle(step, *, status="ok", payload, now=0.0):
+    return location_state.settle_location_updates_step(
+        step, status=status, payload=payload, now=now
+    )
+
+
+def test_device_tool_descriptions_separate_the_switch_from_account_sharing():
+    status = _tool("get_location_status").description
+    assert "is my location on" not in status.lower()
+    assert "does not read or change this device's Location updates switch" in status
+
+    for name in ("turn_sharing_on", "turn_sharing_off"):
+        description = _tool(name).description
+        assert "account-level sharing with people" in description, name
+        assert "not this device's Location updates switch" in description, name
+        assert RESUME in description and PAUSE in description, name
+    resume = _tool(RESUME).description
+    pause = _tool(PAUSE).description
+    assert "This is this device's Location switch, not sharing with people (turn_sharing_on)" in (
+        resume
+    )
+    assert "This is this device's Location switch, not sharing with people (turn_sharing_off" in (
+        pause
+    )
+    assert "Does not change account-level sharing consent" in resume
+    assert "Preserves existing sharing grants and account-level sharing consent" in pause
+    for description in (resume, pause):
+        assert "Returns location_updates_pending first" in description
+        assert "[ONE_EVENT] tool_result" in description
+    assert "Reports already_on" in resume and "Reports already_off" in pause
+
+
+def test_device_tool_inputs_take_no_arguments():
+    for name in DEVICE_TOOLS:
+        assert _tool(name).input_model.model_fields == {}
+        with pytest.raises(ValidationError):
+            _tool(name).input_model.model_validate({"desired_state": "on"})
+        assert _tool(name).declaration()["parameters_json_schema"] == {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": False,
+        }
+
+
+@pytest.mark.parametrize(
+    ("name", "desired", "action_id"),
+    [
+        (RESUME, "on", "location.resume_updates"),
+        (PAUSE, "off", "location.pause_updates"),
+    ],
+)
+async def test_device_tools_answer_pending_with_a_typed_step_and_touch_no_service(
+    name, desired, action_id
+):
+    settings = UntouchedSettings(_on(sharing_state="off", os_permission_reported="denied"))
+    location = UntouchedLocation()
+    # A denied device permission is deliberately not consulted: only the
+    # device's real capture decides, and the step carries that decision back.
+    ctx = _ctx(
+        services={"location": location, "location_settings": settings},
+        os_permission="denied",
+    )
+
+    result = await _call(name, ctx)
+
+    assert result.status == "location_updates_pending"
+    assert result.needs == "client_step"
+    assert result.desired_state == desired
+    assert result.gateway_action_id == action_id
+    assert result.observed_state == "unknown"
+    assert result.changed is None
+    assert result.reason_code is None
+    assert result.client_step == {
+        "kind": "set_location_updates",
+        "desired_state": desired,
+        "gateway_action_id": action_id,
+        "timeout_s": 45,
+    }
+    assert result.ui_refresh == []
+    assert result.spoken_facts == [f"Switching location updates {desired} for this device now."]
+    assert not ON_OFF_FACTS & set(result.spoken_facts)
+    assert settings.calls == []
+    assert location.calls == []
+    # The pending result is what the relay's tool.result frame reports as ok:false.
+    assert protocol.tool_result(call_id="c1", tool=name, result_public=result.public())["ok"] is (
+        False
+    )
+
+
+@pytest.mark.parametrize(
+    ("desired", "outcome", "status", "changed", "spoken"),
+    [
+        ("on", "on", "on", True, "Location is on."),
+        ("on", "already_on", "already_on", False, "Location is already on."),
+        ("off", "off", "off", True, "Location is off."),
+        ("off", "already_off", "already_off", False, "Location is already off."),
+    ],
+)
+def test_settle_accepts_the_four_ok_outcomes_with_exact_facts(
+    desired, outcome, status, changed, spoken
+):
+    step = _step(desired)
+    result = _settle(step, payload=_report(step, outcome, desired, navigated=True), now=10.0)
+
+    assert result.status == status
+    assert result.reason_code is None
+    assert result.desired_state == desired
+    assert result.gateway_action_id == step["gateway_action_id"]
+    assert result.observed_state == desired
+    assert result.changed is changed
+    assert result.spoken_facts == [spoken]
+    assert result.client_step is None
+    assert result.needs is None
+
+
+def test_settle_at_the_deadline_is_still_in_time():
+    step = _step("on")
+    result = _settle(step, payload=_report(step, "on", "on"), now=STEP_EXPIRES_AT)
+    assert result.status == "on"
+
+
+def _cases():
+    """(label, desired, status, payload-or-builder, expected reason_code)."""
+    return [
+        (
+            "tampered_gateway_action_id",
+            "on",
+            "ok",
+            lambda s: _report(s, "on", "on", gateway_action_id="location.pause_updates"),
+            "inconsistent_step_payload",
+        ),
+        (
+            "tampered_gateway_action_id_account_sharing",
+            "on",
+            "ok",
+            lambda s: _report(s, "on", "on", gateway_action_id="location.set_sharing_enabled"),
+            "inconsistent_step_payload",
+        ),
+        (
+            "tampered_desired_state",
+            "on",
+            "ok",
+            lambda s: _report(s, "off", "off", desired_state="off"),
+            "inconsistent_step_payload",
+        ),
+        (
+            "extra_key_latitude",
+            "on",
+            "ok",
+            lambda s: _report(s, "on", "on", latitude=12.97, longitude=77.59),
+            "invalid_step_payload",
+        ),
+        (
+            "extra_key_free_text",
+            "on",
+            "ok",
+            lambda s: _report(s, "on", "on", spoken_facts=["Location is on."]),
+            "invalid_step_payload",
+        ),
+        (
+            "missing_outcome",
+            "on",
+            "ok",
+            lambda s: {"gateway_action_id": s["gateway_action_id"], "desired_state": "on"},
+            "invalid_step_payload",
+        ),
+        (
+            "unknown_outcome",
+            "on",
+            "ok",
+            lambda s: _report(s, "enabled", "on"),
+            "invalid_step_payload",
+        ),
+        (
+            "failed_status_with_on_outcome",
+            "on",
+            "failed",
+            lambda s: _report(s, "on", "on"),
+            "inconsistent_step_payload",
+        ),
+        (
+            "ok_status_with_failure_outcome",
+            "on",
+            "ok",
+            lambda s: _report(s, "permission_denied", "off"),
+            "inconsistent_step_payload",
+        ),
+        (
+            "wrong_polarity_outcome",
+            "on",
+            "ok",
+            lambda s: _report(s, "off", "off"),
+            "inconsistent_step_payload",
+        ),
+        (
+            "wrong_polarity_already",
+            "off",
+            "ok",
+            lambda s: _report(s, "already_on", "on"),
+            "inconsistent_step_payload",
+        ),
+        (
+            "observed_contradicts_outcome",
+            "on",
+            "ok",
+            lambda s: _report(s, "on", "off"),
+            "inconsistent_step_payload",
+        ),
+        (
+            "observed_unknown_on_success",
+            "on",
+            "ok",
+            lambda s: _report(s, "on", "unknown"),
+            "inconsistent_step_payload",
+        ),
+        (
+            "provider_no_handler",
+            "on",
+            "failed",
+            lambda s: {"reason": "no_handler"},
+            "handler_unavailable",
+        ),
+        (
+            "provider_timed_out",
+            "off",
+            "failed",
+            lambda s: {"reason": "timed_out"},
+            "timed_out",
+        ),
+        (
+            "provider_unknown_reason",
+            "on",
+            "failed",
+            lambda s: {"reason": "exploded"},
+            "invalid_step_payload",
+        ),
+        (
+            "nearby_checkout_failed_on_a_resume_step",
+            "on",
+            "failed",
+            lambda s: _report(s, "nearby_checkout_failed", "off"),
+            "inconsistent_step_payload",
+        ),
+        (
+            "vault_locked_on_a_resume_step",
+            "on",
+            "failed",
+            lambda s: _report(s, "vault_locked", "off"),
+            "inconsistent_step_payload",
+        ),
+        (
+            "permission_denied_on_a_pause_step",
+            "off",
+            "failed",
+            lambda s: _report(s, "permission_denied", "off", os_permission="denied"),
+            "inconsistent_step_payload",
+        ),
+        (
+            "no_fix_on_a_pause_step",
+            "off",
+            "failed",
+            lambda s: _report(s, "no_fix", "off"),
+            "inconsistent_step_payload",
+        ),
+        (
+            "generic_failure",
+            "on",
+            "failed",
+            lambda s: _report(s, "failed", "off"),
+            "failed",
+        ),
+        (
+            "signed_out",
+            "on",
+            "failed",
+            lambda s: _report(s, "signed_out", "unknown"),
+            "signed_out",
+        ),
+    ]
+
+
+@pytest.mark.parametrize(
+    ("desired", "status", "build", "reason_code"),
+    [case[1:] for case in _cases()],
+    ids=[case[0] for case in _cases()],
+)
+def test_settle_refuses_everything_off_the_allowlist(desired, status, build, reason_code):
+    step = _step(desired)
+
+    result = _settle(step, status=status, payload=build(step), now=10.0)
+
+    assert result.status == "rejected"
+    assert result.reason_code == reason_code
+    assert result.desired_state == desired
+    assert result.gateway_action_id == step["gateway_action_id"]
+    assert result.changed is not True
+    assert len(result.spoken_facts) == 1
+    assert not ON_OFF_FACTS & set(result.spoken_facts)
+    assert "already" not in result.spoken_facts[0]
+
+
+@pytest.mark.parametrize("desired", ["on", "off"])
+def test_settle_rejects_a_late_but_otherwise_perfect_report(desired):
+    step = _step(desired)
+    payload = _report(step, desired, desired)
+    assert _settle(step, payload=payload, now=STEP_EXPIRES_AT).status == desired
+
+    late = _settle(step, payload=payload, now=STEP_EXPIRES_AT + 0.001)
+
+    assert late.status == "rejected"
+    assert late.reason_code == "step_expired"
+    assert late.observed_state == "unknown"
+    assert late.changed is None
+    assert late.spoken_facts == [
+        "I couldn't verify the Location switch. Check it on the Location screen."
+    ]
+
+
+def test_settle_provider_sentinels_are_exact_and_carry_no_state():
+    step = _step("on")
+    unavailable = _settle(step, status="failed", payload={"reason": "no_handler"}, now=1.0)
+    assert (unavailable.status, unavailable.reason_code) == ("rejected", "handler_unavailable")
+    assert unavailable.observed_state == "unknown" and unavailable.changed is None
+    assert unavailable.spoken_facts == [
+        "I couldn't open Location on this device. Open Location and try the switch."
+    ]
+
+    timed_out = _settle(step, status="failed", payload={"reason": "timed_out"}, now=1.0)
+    assert (timed_out.status, timed_out.reason_code) == ("rejected", "timed_out")
+    assert timed_out.observed_state == "unknown" and timed_out.changed is None
+    assert timed_out.spoken_facts == [
+        "I couldn't confirm the Location switch in time. Check the switch on the Location screen."
+    ]
+    # The sentinel is exactly one key: a coordinate riding along is not a sentinel.
+    smuggled = _settle(
+        step, status="failed", payload={"reason": "timed_out", "latitude": 1.0}, now=1.0
+    )
+    assert (smuggled.status, smuggled.reason_code) == ("rejected", "invalid_step_payload")
+
+
+def test_settle_partial_pause_states_the_nearby_gap_exactly():
+    step = _step("off")
+
+    result = _settle(
+        step,
+        status="failed",
+        payload=_report(step, "nearby_checkout_failed", "off", navigated=True),
+        now=1.0,
+    )
+
+    assert result.status == "rejected"
+    assert result.reason_code == "nearby_checkout_failed"
+    assert result.observed_state == "off"
+    assert result.changed is None
+    assert result.spoken_facts == [
+        "Location updates are paused on this device, but I couldn't check you out of Nearby -- "
+        "you may still be visible to people around you."
+    ]
+    assert not ON_OFF_FACTS & set(result.spoken_facts)
+
+
+def test_settle_vault_locked_pause_states_the_unlock_ask_exactly():
+    step = _step("off")
+    result = _settle(step, status="failed", payload=_report(step, "vault_locked", "off"), now=1.0)
+    assert (result.status, result.reason_code) == ("rejected", "vault_locked")
+    assert result.spoken_facts == [
+        "Location updates are paused on this device, but One is locked so I couldn't check you "
+        "out of Nearby. Unlock One and ask again."
+    ]
+
+
+def test_settle_permission_denied_and_no_fix_state_the_device_facts_exactly():
+    step = _step("on")
+
+    denied = _settle(
+        step,
+        status="failed",
+        payload=_report(step, "permission_denied", "off", os_permission="denied"),
+        now=1.0,
+    )
+    assert (denied.status, denied.reason_code) == ("rejected", "permission_denied")
+    assert denied.observed_state == "off"
+    assert denied.changed is None
+    assert denied.spoken_facts == [
+        "Location is off for Hussh on this device. Allow location for Hussh in your device "
+        "settings, then ask me again."
+    ]
+
+    no_fix = _settle(step, status="failed", payload=_report(step, "no_fix", "off"), now=1.0)
+    assert (no_fix.status, no_fix.reason_code) == ("rejected", "no_fix")
+    assert no_fix.spoken_facts == [
+        "I couldn't get a position from this device, so Location stayed off. Try again in a moment."
+    ]
+
+
+@pytest.mark.parametrize(
+    ("outcome", "spoken"),
+    [
+        ("superseded", "That request was replaced by a newer Location change."),
+        ("cancelled", "That Location change was cancelled."),
+        (
+            "handler_unavailable",
+            "I couldn't open Location on this device. Open Location and try the switch.",
+        ),
+    ],
+)
+def test_settle_device_reported_abandonment_is_not_a_change(outcome, spoken):
+    step = _step("on")
+    result = _settle(step, status="failed", payload=_report(step, outcome, "unknown"), now=1.0)
+    assert (result.status, result.reason_code) == ("rejected", outcome)
+    assert result.changed is False
+    assert result.spoken_facts == [spoken]
+
+
+def test_settle_without_a_deadline_never_expires_but_still_validates():
+    step = _step("on", expires_at=None)
+    ok = _settle(step, payload=_report(step, "on", "on"), now=10_000.0)
+    assert ok.status == "on"
+    bad = _settle(step, payload=_report(step, "on", "on", latitude=0.0), now=10_000.0)
+    assert (bad.status, bad.reason_code) == ("rejected", "invalid_step_payload")
 
 
 # -- lifted admission predicate ----------------------------------------------

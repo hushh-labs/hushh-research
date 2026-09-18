@@ -134,7 +134,7 @@ export function KycIdentityPreface({ onComplete }: { onComplete: () => void }) {
             </div>
 
             {/* External Agents Import Helper */}
-            <div className="mt-6 text-left rounded-3xl border border-border/40 bg-secondary/20 p-5 space-y-4 shadow-sm relative overflow-hidden">
+            <div className="mt-6 text-left rounded-2xl border border-border/40 bg-secondary/20 p-5 space-y-4 shadow-sm relative overflow-hidden">
               <div className="absolute top-0 right-0 -mr-4 -mt-4 opacity-5 pointer-events-none">
                 <Brain className="w-32 h-32" />
               </div>

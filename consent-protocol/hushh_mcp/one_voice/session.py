@@ -32,7 +32,7 @@ from hushh_mcp.one_voice.pending_actions import (
 )
 from hushh_mcp.one_voice.tickets import TicketClaims
 from hushh_mcp.one_voice.tools import registry
-from hushh_mcp.one_voice.tools.base import EntityContext, ScreenContext, ToolContext
+from hushh_mcp.one_voice.tools.base import EntityContext, ScreenContext, ToolContext, ToolSpec
 from hushh_mcp.one_voice.tools.executor import ToolCallOutcome, ToolExecutor
 from hushh_mcp.one_voice.tools.session import OPENABLE_SCREENS
 
@@ -40,6 +40,8 @@ logger = logging.getLogger(__name__)
 
 AUTH_TIMEOUT_SECONDS = 5.0
 CLIENT_STEP_TIMEOUT_SECONDS = 25
+# Slack past the advertised timeout before a device report is treated as stale.
+CLIENT_STEP_GRACE_SECONDS = 5
 PCM16_16K_BYTES_PER_SECOND = 32_000
 _NOT_SUCCESS = {
     "rejected",
@@ -47,7 +49,14 @@ _NOT_SUCCESS = {
     "confirmation_required",
     "tap_required",
     "card_not_shown",
+    "firebase_proof_required",
 }
+# A client-executed step is still outstanding: neither a receipt nor a
+# rejection. It never counts as ok (so the turn cannot read "complete") and
+# never bumps the rejected counter; the settled result does one or the other.
+# ``scope_review_required`` is the same shape for a confirmed accept: the
+# review screen is open and nothing has been accepted yet.
+_AWAITING_DEVICE = frozenset({protocol.LOCATION_UPDATES_PENDING, "scope_review_required"})
 
 
 class Transport(Protocol):
@@ -297,6 +306,7 @@ class VoiceSession:
             screen_ids=list(OPENABLE_SCREENS),
             screen_id=self.ctx.screen.screen_id,
             display_name=self._display_name,
+            resumed=self.conversation.session_count > 1,
         )
         live_config = {
             "system_instruction": instruction,
@@ -446,6 +456,7 @@ class VoiceSession:
             available_action_ids=list(frame.available_action_ids)[:200],
             screen_state=dict(sanitized.get("screen_state") or {}),
             os_location_permission=frame.os_location_permission,
+            active_circle_id=frame.active_circle_id,
         )
         await self.conversations.save_screen_context(
             user_id=self.ctx.user_id,
@@ -469,13 +480,24 @@ class VoiceSession:
         )
         if row is not None:
             spec = registry.get_tool(row.tool_name)
-        if spec is not None and spec.firebase_plane and not frame.firebase_id_token:
-            await self._send(
-                protocol.error(
-                    "firebase_proof_required", "Sign-in proof is required for this action."
+        if spec is not None and spec.firebase_plane:
+            # The tap's proof is verified here, not merely present: signature,
+            # expiry, revocation, and that it names this session's user. The
+            # row stays pending on refusal so the client can tap again with a
+            # fresh proof.
+            proof = await self.executor._actor_proof(frame.firebase_id_token, self.ctx.user_id)
+            if proof != "ok":
+                await self._send(
+                    protocol.error(
+                        "firebase_proof_required"
+                        if proof == "missing"
+                        else "firebase_proof_invalid",
+                        "Sign-in proof is required for this action."
+                        if proof == "missing"
+                        else "Sign-in proof is invalid or names another account.",
+                    )
                 )
-            )
-            return
+                return
         if frame.firebase_id_token:
             self.ctx.firebase_id_token = frame.firebase_id_token
         try:
@@ -530,11 +552,28 @@ class VoiceSession:
         )
         await self._send(protocol.voice_state("listening"))
 
-    async def _after_execution(self, outcome: ToolCallOutcome, *, source: str) -> None:
-        """Mirror a confirmed action's real outcome to the client and the model."""
+    async def _after_execution(
+        self,
+        outcome: ToolCallOutcome,
+        *,
+        source: str,
+        ok: bool | None = None,
+        call_id: str | None = None,
+    ) -> None:
+        """Mirror a confirmed action's real outcome to the client and the model.
+
+        Also the settle path for a device-executed step: ``ok`` is then decided
+        by the settlement allowlist and ``call_id`` names the originating call
+        so the client can replace its pending entry.
+        """
         public = outcome.result.public()
         pending_id = outcome.pending.id if outcome.pending else None
-        status = "executed" if outcome.result.status not in _NOT_SUCCESS else "failed"
+        awaiting = outcome.result.status in _AWAITING_DEVICE
+        executed = ok if ok is not None else outcome.result.status not in _NOT_SUCCESS
+        # An outstanding client step: the confirmed action ran (the card is
+        # settled), but the outcome is not in yet, so it is neither ok nor a
+        # rejection until the step reports back.
+        status = "executed" if (executed or awaiting) else "failed"
         if pending_id:
             self.pending_receipts.pop(pending_id, None)
             await self._send(
@@ -544,13 +583,17 @@ class VoiceSession:
             )
         await self._send(
             protocol.tool_result(
-                call_id=None, tool=outcome.spec.name if outcome.spec else "", result_public=public
+                call_id=call_id,
+                tool=outcome.spec.name if outcome.spec else "",
+                result_public=public,
+                ok=False if awaiting else ok,
             )
         )
-        self._bump(
-            tool_results_ok=1 if status == "executed" else 0,
-            tool_results_rejected=0 if status == "executed" else 1,
-        )
+        if not awaiting:
+            self._bump(
+                tool_results_ok=1 if status == "executed" else 0,
+                tool_results_rejected=0 if status == "executed" else 1,
+            )
         await self._emit_side_effects(outcome)
         await self._persist_entities()
         await self._inject_event(
@@ -570,6 +613,14 @@ class VoiceSession:
         step = self.client_steps.pop(frame.step_id, None)
         if step is None:
             await self._send(protocol.error("protocol", "unknown_client_step"))
+            return
+        if step.get("kind") == "set_location_updates":
+            # Settled server-side from the typed report; the raw claim is never
+            # handed to the model as a client_step event.
+            await self._settle_location_updates_step(step, frame)
+            return
+        if step.get("kind") == "open_request_review":
+            await self._settle_request_review_step(step, frame)
             return
         event: dict[str, Any] = {
             "kind": "client_step",
@@ -598,6 +649,79 @@ class VoiceSession:
                 list(step.get("grant_ids") or [])
             )
         await self._inject_event(event)
+
+    async def _settle_location_updates_step(
+        self, step: dict[str, Any], frame: protocol.ClientStepResultFrame
+    ) -> None:
+        """Final result for this device's Location updates switch.
+
+        The step record binds the outcome to this session (the record exists only
+        here), the originating tool and call, the gateway action, the desired
+        state, and a deadline; the pure settlement refuses anything that does not
+        match. Success is an allowlist, so nothing interim or contradictory is
+        ever narrated as "on" or "off".
+        """
+        from hushh_mcp.one_voice.tools.location_state import (
+            LOCATION_UPDATES_SETTLED_OK,
+            settle_location_updates_step,
+        )
+
+        result = settle_location_updates_step(
+            step, status=frame.status, payload=frame.payload, now=self.clock()
+        )
+        ok = result.status in LOCATION_UPDATES_SETTLED_OK
+        spec = step.get("spec")
+        outcome = ToolCallOutcome(result=result, spec=spec if isinstance(spec, ToolSpec) else None)
+        await self._after_execution(
+            outcome, source="device", ok=ok, call_id=str(step.get("call_id") or "") or None
+        )
+        if ok:
+            # The narration turn that follows must read as a receipt even if a
+            # turn_complete landed between the tool call and the device report.
+            self.turn.ok_results += 1
+            self._last_turn_ok = True
+
+    async def _settle_request_review_step(
+        self, step: dict[str, Any], frame: protocol.ClientStepResultFrame
+    ) -> None:
+        """Final result for a connection request that needed an on-screen scope
+        review. The client only says the screen closed (or that it never
+        opened); the request and the relationship are re-read here and that
+        re-read is what the model and the card get."""
+        from hushh_mcp.one_voice.tools.people import settle_request_review
+
+        request_id = str(step.get("request_id") or "")
+        user_id = str(step.get("user_id") or "")
+        known = self.ctx.entities.person(user_id) if user_id else None
+        display_name = (
+            str(step.get("display_name") or "")
+            or (known.display_name if known else "")
+            or "that person"
+        )
+        result = await settle_request_review(
+            self.ctx, request_id=request_id, user_id=user_id, display_name=display_name
+        )
+        result = result.model_copy(
+            update={
+                "review_reported": frame.status,
+                "review_payload": {
+                    k: v for k, v in dict(frame.payload or {}).items() if k in {"outcome", "reason"}
+                },
+            }
+        )
+        spec = step.get("spec")
+        if isinstance(spec, ToolSpec) and result.status == "accepted":
+            result.ui_refresh = sorted(set(result.ui_refresh) | set(spec.ui_refresh))
+        outcome = ToolCallOutcome(result=result, spec=spec if isinstance(spec, ToolSpec) else None)
+        # A review that reached a real decision is a settled result even when
+        # the decision was "no": only an open or unreadable request is not.
+        ok = result.status in {"accepted", "declined", "withdrawn"}
+        await self._after_execution(
+            outcome, source="review", ok=ok, call_id=str(step.get("call_id") or "") or None
+        )
+        if ok:
+            self.turn.ok_results += 1
+            self._last_turn_ok = True
 
     async def _verify_grants_published(self, grant_ids: list[str]) -> dict[str, Any]:
         """Server-side check that each grant now has a first envelope."""
@@ -724,6 +848,19 @@ class VoiceSession:
         public = outcome.result.public()
         if outcome.result.status == "rejected" and outcome.result.reason_code == "unknown_tool":
             self._bump(unknown_tool_calls=1)
+        for stale in outcome.superseded:
+            # A card the client is still showing no longer means anything: a
+            # newer proposal replaced it, or a fresh lookup made its target
+            # stale. Say so to both sides rather than letting it expire quietly.
+            self.pending_receipts.pop(stale.id, None)
+            await self._send(
+                protocol.pending_resolved(
+                    pending_action_id=stale.id, status="cancelled", result_public=None
+                )
+            )
+            self._bump(pending_cancelled=1)
+        if outcome.superseded:
+            public = dict(public, superseded_pending_action_ids=[s.id for s in outcome.superseded])
         if outcome.pending is not None:
             if outcome.receipt_token:
                 self.pending_receipts[outcome.pending.id] = outcome.receipt_token
@@ -738,10 +875,13 @@ class VoiceSession:
             await self._send(protocol.voice_state("confirming", turn_id=self.turn.turn_id))
             self._bump(pending_created=1)
         else:
-            await self._emit_side_effects(outcome)
+            await self._emit_side_effects(outcome, call_id=str(call_id or "") or None)
         ok = outcome.result.status not in _NOT_SUCCESS
         if outcome.pending is None:
-            if ok:
+            if outcome.result.status in _AWAITING_DEVICE:
+                # Outstanding device step: no receipt yet, not a rejection.
+                self.turn.not_ok_results += 1
+            elif ok:
                 self.turn.ok_results += 1
                 self._bump(tool_results_ok=1)
             else:
@@ -757,7 +897,9 @@ class VoiceSession:
         await self._persist_entities()
         await self.live.send_tool_response(call_id=call_id, name=name, response=public)
 
-    async def _emit_side_effects(self, outcome: ToolCallOutcome) -> None:
+    async def _emit_side_effects(
+        self, outcome: ToolCallOutcome, *, call_id: str | None = None
+    ) -> None:
         """Turn typed result fields into client directives/steps and entity cards."""
         public = outcome.result.public()
         if public.get("status") == "navigation_dispatched" and public.get("gateway_action_id"):
@@ -777,18 +919,27 @@ class VoiceSession:
         if isinstance(step, dict) and step.get("kind"):
             step_id = uuid.uuid4().hex[:12]
             payload = {k: v for k, v in step.items() if k != "kind"}
+            timeout_s = int(step.get("timeout_s") or CLIENT_STEP_TIMEOUT_SECONDS)
+            requested_at = self.clock()
             self.client_steps[step_id] = {
                 "kind": step["kind"],
                 "purpose": step.get("purpose"),
                 "grant_ids": step.get("grant_ids") or [],
                 **payload,
+                # Binding for a settled step: the originating tool and call, and
+                # a deadline (monotonic) after which a report is stale.
+                "tool": outcome.spec.name if outcome.spec else None,
+                "spec": outcome.spec,
+                "call_id": call_id,
+                "requested_at": requested_at,
+                "expires_at": requested_at + timeout_s + CLIENT_STEP_GRACE_SECONDS,
             }
             await self._send(
                 protocol.client_step_request(
                     step_id=step_id,
                     kind=str(step["kind"]),
                     payload=payload,
-                    timeout_s=int(step.get("timeout_s") or CLIENT_STEP_TIMEOUT_SECONDS),
+                    timeout_s=timeout_s,
                 )
             )
         candidates = public.get("candidates")
@@ -796,6 +947,7 @@ class VoiceSession:
             "multiple",
             "single_likely",
             "low_confidence",
+            "truncated",
         }:
             kind: Literal["person", "circle"] = (
                 "circle" if outcome.spec and "circle" in outcome.spec.name else "person"
@@ -804,7 +956,7 @@ class VoiceSession:
                 protocol.candidate_picker(
                     kind=kind,
                     question="Which one do you mean?"
-                    if public.get("status") == "multiple"
+                    if public.get("status") in {"multiple", "truncated"}
                     else "Is this who you mean?",
                     candidates=[c for c in candidates if isinstance(c, dict)][:5],
                 )

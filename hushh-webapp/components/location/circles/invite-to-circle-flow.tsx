@@ -180,6 +180,9 @@ export function InviteToCircleFlow({
           primaryEntity: overview?.name ?? null,
           actions: VOICE_ACTIONS,
           availableActions: VOICE_ACTIONS.map((action) => action.label),
+          // The one id this surface publishes: lets One resolve "this circle"
+          // through the authorized service. Never in screenState.
+          activeCircleId: circleId,
         }
       : null,
   );

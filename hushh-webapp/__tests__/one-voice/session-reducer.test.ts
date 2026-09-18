@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   CLOSE_CODES,
+  NOT_SUCCESS_STATUSES,
   type ServerFrame,
   type ToolResultFrame,
 } from "@/lib/one-voice/protocol";
@@ -432,6 +433,104 @@ describe("reduceVoiceSession: tools and success", () => {
     );
     expect(toolResultTone("share_created", false)).toBe("failure");
     expect(selectSuccessReceipt(state)).toBeNull();
+  });
+
+  it("device Location switch tones: on/off succeed, already_* are neutral, pending and rejected fail", () => {
+    expect(toolResultTone("on", true)).toBe("success");
+    expect(toolResultTone("off", true)).toBe("success");
+    expect(toolResultTone("already_on", true)).toBe("neutral");
+    expect(toolResultTone("already_off", true)).toBe("neutral");
+    expect(toolResultTone("location_updates_pending", false)).toBe("failure");
+    // Even a mis-flagged ok:true pending frame never reads as done.
+    expect(toolResultTone("location_updates_pending", true)).toBe("failure");
+    expect(toolResultTone("rejected", true)).toBe("failure");
+    expect(toolResultTone("rejected", false)).toBe("failure");
+    expect(NOT_SUCCESS_STATUSES.has("location_updates_pending")).toBe(true);
+    expect(isSuccessStatus("location_updates_pending")).toBe(false);
+    expect(isSuccessStatus("already_on")).toBe(false);
+    expect(isSuccessStatus("on")).toBe(true);
+  });
+
+  it("the settled device result replaces the location_updates_pending timeline item instead of appending", () => {
+    const pending = run(
+      [
+        server({ type: "state", state: "executing" }),
+        server({
+          type: "tool.started",
+          call_id: "c-device",
+          tool: "pause_device_location_updates",
+          args_public: {},
+        }),
+        server(
+          toolResult({
+            call_id: "c-device",
+            tool: "pause_device_location_updates",
+            status: "location_updates_pending",
+            ok: false,
+            result_public: { status: "location_updates_pending" },
+          }),
+        ),
+      ],
+      connected(),
+    );
+    expect(pending.toolTimeline).toHaveLength(1);
+    expect(pending.toolTimeline[0]).toMatchObject({
+      callId: "c-device",
+      ok: false,
+      result: { status: "location_updates_pending" },
+    });
+    expect(pending.lastResult?.status).toBe("location_updates_pending");
+    expect(selectSuccessReceipt(pending)).toBeNull();
+    expect(pending.phase).not.toBe("complete");
+
+    const settled = run(
+      [
+        server(
+          toolResult({
+            call_id: "c-device",
+            tool: "pause_device_location_updates",
+            status: "off",
+            ok: true,
+            result_public: {
+              status: "off",
+              spoken_facts: ["Location is off."],
+            },
+          }),
+        ),
+        server({ type: "state", state: "complete" }),
+      ],
+      pending,
+    );
+    expect(settled.toolTimeline).toHaveLength(1);
+    expect(settled.toolTimeline[0]).toMatchObject({
+      callId: "c-device",
+      tool: "pause_device_location_updates",
+      ok: true,
+      result: { status: "off" },
+    });
+    expect(selectSuccessReceipt(settled)).toMatchObject({
+      source: "tool.result",
+      tool: "pause_device_location_updates",
+      status: "off",
+    });
+
+    // A settled item is final: a later result on the same call id is a new row.
+    const again = run(
+      [
+        server(
+          toolResult({
+            call_id: "c-device",
+            tool: "pause_device_location_updates",
+            status: "already_off",
+            ok: true,
+            result_public: { status: "already_off" },
+          }),
+        ),
+      ],
+      settled,
+    );
+    expect(again.toolTimeline).toHaveLength(2);
+    expect(selectSuccessReceipt(again)).toBeNull();
   });
 
   it("a tool.result ok:true with a success status is the only tool receipt", () => {
