@@ -36,6 +36,10 @@ Do not add a permanent bypass flag or silently bootstrap other owners.
 1. Pause the dev upgrade sweep to avoid competing updates. Record service UID,
    traffic, image, configuration fingerprints, storage identity and recovery
    prerequisites without persisting credentials or decrypted information.
+   Verify the flag on every serving revision, not only the service template:
+   an environment update can create a retired revision while pinned traffic
+   still serves the old revision with its sweep enabled. Explicitly promote the
+   verified hold revision and confirm worker shutdown before image replacement.
 2. Build and verify a versioned image with the handoff routes and their actual
    hub-to-pod authorization path. Preserve service identity, storage, KMS,
    secret bindings and single-writer settings. Do not recreate the service.

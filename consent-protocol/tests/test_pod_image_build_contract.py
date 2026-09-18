@@ -187,7 +187,8 @@ def test_pod_dockerfile_exists(pod_step: dict):
     assert (REPO_ROOT / "consent-protocol" / "Dockerfile.pod").is_file()
 
 
-def test_pod_dependencies_are_locked_and_installed_at_build_time():
+@pytest.mark.parametrize("image_recipe", ["Dockerfile", "Dockerfile.pod"])
+def test_pod_dependencies_are_locked_and_installed_at_build_time(image_recipe):
     """The runtime stage receives a built environment, never a live install.
 
     Project-mode ``uv sync`` is required here because the lockfile carries the
@@ -196,7 +197,7 @@ def test_pod_dependencies_are_locked_and_installed_at_build_time():
     version), and installing at startup would make a pod's behavior depend on
     registry availability after deployment.
     """
-    dockerfile = (REPO_ROOT / "consent-protocol" / "Dockerfile.pod").read_text(encoding="utf-8")
+    dockerfile = (REPO_ROOT / "consent-protocol" / image_recipe).read_text(encoding="utf-8")
 
     assert "COPY pyproject.toml uv.lock" in dockerfile
     assert "uv sync --frozen --no-dev --no-install-project --active" in dockerfile
