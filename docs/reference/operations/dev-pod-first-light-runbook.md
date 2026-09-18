@@ -22,6 +22,18 @@ Verify the running release, readiness and memory/authority continuity before
 reporting success. Keep the automatic sweep disabled until the deployed hub
 enforces owner approval (`PERSONAL_AGENT_UPGRADE_APPROVAL_REQUIRED=true`).
 
+### Model project ownership
+
+The owner pod uses Vertex in its own cloud project through its native runtime
+identity. Keep `GOOGLE_CLOUD_PROJECT` owner-local; do not copy the hub's
+`GENAI_GOOGLE_CLOUD_PROJECT` into pod configuration or grant the pod access to
+the hub's model bridge. Memory Bank, storage and encryption remain owner-local.
+
+The dev hub uses `hushh-vertex-personal54` only for Gemini/Vertex model calls.
+Its native project and billing linkage remain unchanged. Verify model routing
+and prediction access separately for hub and pod; a working hub bridge does not
+prove that the owner's Vertex project is ready.
+
 ### One-time legacy bootstrap exception
 
 An installed release may predate the handoff protocol. Check with the configured

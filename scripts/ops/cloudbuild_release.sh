@@ -358,7 +358,7 @@ if [[ "$DEPLOY_BACKEND" == "true" ]]; then
   SUBS="${SUBS}##_DEPLOY_SHA=${DEPLOY_SHA}##_GITHUB_RUN_ID=${RUN_ID}"
 
   # Preserve the managed-AI billing split in the fallback release path too.
-  if [[ "$TARGET_ENV" == "production" || "$TARGET_ENV" == "uat" ]]; then
+  if [[ "$TARGET_ENV" == "production" || "$TARGET_ENV" == "uat" || "$TARGET_ENV" == "dev" ]]; then
     SUBS="${SUBS}##_GENAI_PROJECT_ID=hushh-vertex-personal54"
   fi
 

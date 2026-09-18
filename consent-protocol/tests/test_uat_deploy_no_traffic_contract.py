@@ -169,17 +169,17 @@ def test_backend_vertex_advisory_probe_parses_pretty_json_verdict() -> None:
     assert 'sed -n \'s/.*"classification":"' not in backend_build
 
 
-def test_cross_project_vertex_fallback_is_dev_or_exact_uat_personal_project_only() -> None:
+def test_cross_project_vertex_fallback_is_exact_personal_bridge_only() -> None:
     backend_build = _read("deploy/backend.cloudbuild.yaml")
     backend_deploy = backend_deploy_surface()
     uat_workflow = _read(".github/workflows/deploy-uat.yml")
     production_workflow = _read(".github/workflows/deploy-production.yml")
 
     assert 'if [[ "${_DEPLOY_ENV}" == "dev" ]]; then' in backend_build
-    assert 'genai_project_id="hushh-pda-uat"' in backend_build
+    assert 'genai_project_id="hushh-vertex-personal54"' in backend_build
     assert backend_build.count('case "${_DEPLOY_ENV}:${genai_project_id}" in') == 1
     assert (
-        "dev:hushh-pda-uat|uat:hushh-vertex-personal54|production:hushh-vertex-personal54)"
+        "dev:hushh-vertex-personal54|uat:hushh-vertex-personal54|production:hushh-vertex-personal54)"
         in backend_build
     )
     assert "Cross-project managed Vertex target is not allowlisted." in backend_build

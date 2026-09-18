@@ -107,7 +107,7 @@ genai_project_id="${_GENAI_PROJECT_ID}"
 if [[ -z "${genai_project_id}" ]]; then
   genai_project_id="$PROJECT_ID"
   if [[ "${_DEPLOY_ENV}" == "dev" ]]; then
-    genai_project_id="hushh-pda-uat"
+    genai_project_id="hushh-vertex-personal54"
   fi
 fi
 append_optional_secret() {
