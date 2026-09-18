@@ -183,7 +183,7 @@ export default function RiaClientsPage() {
   if (riaCapability === "setup") {
     return (
       <RiaPageShell
-        title="RIA"
+        title="Advisor"
         titleRole="agent"
         stackClassName="gap-8"
         nativeTest={{
@@ -203,7 +203,7 @@ export default function RiaClientsPage() {
 
   return (
     <RiaPageShell
-      title="RIA"
+      title="Advisor"
       titleRole="agent"
       stackClassName="gap-8"
       nativeTest={{

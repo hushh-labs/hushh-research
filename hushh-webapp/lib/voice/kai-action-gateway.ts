@@ -983,7 +983,7 @@ export function evaluateKaiActionAvailability(input: {
       if (!canSettleInactivePersona) {
         return {
           status: "requires_persona_switch",
-          reason: `Switch to ${targetPersona.toUpperCase()} workspace first.`,
+          reason: `Switch to ${targetPersona === "ria" ? "Advisor" : targetPersona.toUpperCase()} workspace first.`,
           target_persona: targetPersona,
           blocked_guidance: action.workflow?.blocked_guidance || null,
         };
@@ -995,7 +995,7 @@ export function evaluateKaiActionAvailability(input: {
         reason:
           requiredPersonas.includes("ria") &&
           appRuntimeState?.persona?.ria_setup_available
-            ? "RIA actions stay locked until you finish RIA setup."
+            ? "Advisor actions stay locked until you finish Advisor setup."
             : requiredPersonas.includes("investor")
               ? "Switch to the Investor workspace before using Finance actions."
               : "This action is not available in the active workspace.",
@@ -1004,7 +1004,7 @@ export function evaluateKaiActionAvailability(input: {
           action.workflow?.blocked_guidance ||
           (requiredPersonas.includes("ria") &&
           appRuntimeState?.persona?.ria_setup_available
-            ? "Complete RIA setup to unlock this workspace."
+            ? "Complete Advisor setup to unlock this workspace."
             : requiredPersonas.includes("investor")
               ? "Switch to Investor to use this Finance action."
               : null),
@@ -1099,11 +1099,11 @@ export function evaluateKaiActionAvailability(input: {
     if (guardId === "ria_persona_available" && !availablePersonas.has("ria")) {
       return {
         status: "blocked",
-        reason: "RIA workspace is not available for this account yet.",
+        reason: "Advisor workspace is not available for this account yet.",
         target_persona: "ria",
         blocked_guidance:
           appRuntimeState?.persona?.ria_setup_available === true
-            ? "Complete RIA setup to unlock the workspace."
+            ? "Complete Advisor setup to unlock the workspace."
             : null,
       };
     }
@@ -1120,11 +1120,11 @@ export function evaluateKaiActionAvailability(input: {
     ) {
       return {
         status: "blocked",
-        reason: "Finish RIA verification before using this action.",
+        reason: "Finish Advisor verification before using this action.",
         target_persona: "ria",
         blocked_guidance:
           appRuntimeState?.persona?.ria_setup_available === true
-            ? "Complete RIA setup to unlock this."
+            ? "Complete Advisor setup to unlock this."
             : null,
       };
     }

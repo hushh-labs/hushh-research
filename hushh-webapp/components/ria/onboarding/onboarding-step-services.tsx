@@ -308,7 +308,7 @@ export function OnboardingStepServices({
 
       <div className="space-y-3">
         <SectionLabel htmlFor="ria-bio">Short Bio</SectionLabel>
-        <AskOneButton onClick={onDraftBio}>
+        <AskOneButton onClick={onDraftBio} showIcon={false}>
           Ask One to draft a bio
         </AskOneButton>
         {hasBio && !bioEditing ? (

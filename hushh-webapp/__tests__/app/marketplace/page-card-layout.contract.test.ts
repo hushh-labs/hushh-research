@@ -82,7 +82,7 @@ describe("marketplace client card layout contract", () => {
     expect(source).toContain("setSavedInvestorLeads(savedLeads)");
     expect(source).toContain("removeSavedInvestorLead");
     expect(source).toContain('"pass", { gesture: "remove_saved_lead" }');
-    expect(source).toContain('toast.success("Saved lead removed from the RIA deck.")');
+    expect(source).toContain('toast.success("Saved lead removed from the advisor deck.")');
     expect(source).not.toContain("localStorage.setItem(key, JSON.stringify([...savedInvestorLeads");
   });
 

@@ -132,10 +132,10 @@ describe("RIA shared header regression contract", () => {
     const riaShell = read("components/ria/ria-page-shell.tsx");
 
     expect(riaShell).toContain("icon?: LucideIcon | null");
-    expect(riaShell).toContain('title="RIA"');
+    expect(riaShell).toContain('title="Advisor"');
 
     for (const source of [riaProfile, riaClients, riaPicks]) {
-      expect(source).toContain('title="RIA"');
+      expect(source).toContain('title="Advisor"');
     }
     expect(riaProfile).not.toContain('title="Profile"');
     expect(riaProfile).not.toContain(
