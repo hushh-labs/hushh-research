@@ -27,7 +27,7 @@ import {
   CHECK_IN_STAR_TARGET_CLASSNAME,
   CHECK_OUT_BUTTON_VARIANT,
 } from "../components/one-location/nearby-check-in/check-in-panel-layout";
-import { buttonVariants } from "../components/ui/button-variants";
+import { buttonVariants } from "../lib/ui/button-variants";
 import { cn } from "../lib/utils";
 
 /**
