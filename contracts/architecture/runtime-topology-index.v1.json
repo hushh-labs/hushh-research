@@ -5129,8 +5129,8 @@
       "alias": null,
       "api_dependencies": [],
       "cache": {
-        "policy": "device-resource",
-        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "policy": "none",
+        "refresh_trigger": "none",
         "resource_classes": [
           "ria_workspace",
           "consent_list"
@@ -5504,13 +5504,13 @@
     "a2a_scope_map": "7379039859448ff3db422aa5ee50124bbcadcecc8c9c49e3c1471791f54208c1",
     "action_gateway": "ecab0cb538dfc8dfcff911d801132d29065da4665bd4aee79e95df238c07cf7d",
     "agent_registry": "b865a980c4ff47ff91b316a238af7c70cfe01a3a79459199603791428b46a7d4",
-    "cache_manifest": "f8f438ff99d83b6db04e13943c3ec0089d5e171ddffcc88881b3cb9fbaec5dd3",
+    "cache_manifest": "7d1d92e4a51c68125ae357a27af1f7a715df75911813e019a786b53222f09f8e",
     "data_plane": "6c29df84a4077029db5866a57b43c750ac677369e9d741a4f9e3f85631b0f8e6",
     "in_process_dispatch": "022c40c305a11e06510f2688041a96c1523cae5b5c03d7876fd122ce027e98c3",
     "one_specialist_tools": "a8f007720a7f9b4565e1715ac0fbda4ab54dc3e82bf0cded7f527cbf02222dd2",
     "route_index": "21f5c01773c9a66d01b294cf84dcbe74981694171659a5f06385a666efed1632",
     "route_layout": "d1b8ade24248bca68504e3feec06cbf8427ff461f2b95c7c16cc961c27412187",
-    "surface_map": "e451f04410d9d18b163fcdde10cd44394dd1749787f55c66691e67b58b8bcc21",
+    "surface_map": "6f05e85bda9c45a4795ae6cfadac3ebe92f3f7d10dd786c4e37b11c5bd891ba0",
     "topology_contract": "604960e855be06af77bd75d21f3eace0e2ea5647b344d08f0acd2b8c35d4f4e9",
     "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"
   },
