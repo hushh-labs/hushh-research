@@ -118,6 +118,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { SegmentedTabs } from "@/lib/morphy-ux/ui/segmented-tabs";
 
 import { useRequireAuth } from "@/hooks/use-auth";
+import { useEffectiveAvatarUrl } from "@/hooks/use-effective-avatar-url";
 
 type LocationTab = "compose" | "activity";
 
@@ -1700,12 +1701,20 @@ function LocalMapPreview({
   viewportResetKey,
   staleAction,
   nested = false,
+  avatarUrl,
+  displayName,
 }: {
   point: PlainLocationPoint;
   // Self-location previews do not need Directions/Start - you are already there.
   showNavigation?: boolean;
   viewportResetKey?: string | number;
   staleAction?: ReactNode;
+  /**
+   * Viewer avatar for SELF previews only. Omitted for other people's shares
+   * so their location never wears the viewer's face.
+   */
+  avatarUrl?: string | null;
+  displayName?: string | null;
   /**
    * True when a container already draws the card around this preview.
    *
@@ -1755,7 +1764,12 @@ function LocalMapPreview({
           nested && "rounded-t-[18px] rounded-b-none",
         )}
       >
-        <LiveMap point={point} viewportResetKey={viewportResetKey} />
+        <LiveMap
+          point={point}
+          viewportResetKey={viewportResetKey}
+          avatarUrl={avatarUrl}
+          displayName={displayName}
+        />
         <div className="pointer-events-none absolute left-3 top-3">
           <span
             className={cn(
@@ -2466,6 +2480,11 @@ export function OneLocationAgentPageContent({
     }
   }, [router, searchParams]);
   const auth = useRequireAuth();
+  // Viewer avatar for the SELF location preview only, so the marker is the
+  // owner's face (photo or initials fallback) and never the stock pin.
+  // Previews of other people's shares deliberately get no avatar: stamping
+  // the viewer's face on someone else's location would misattribute it.
+  const selfAvatarUrl = useEffectiveAvatarUrl();
   // The backend identity is authoritative for UAT/native phone verification.
   // Firebase's User object can remain phone-less even after AuthContext has
   // hydrated the verified number, so contact normalization must use both.
@@ -14526,6 +14545,8 @@ export function OneLocationAgentPageContent({
                         point={myLocationPoint}
                         showNavigation={false}
                         viewportResetKey={mapViewportResetKey}
+                        avatarUrl={selfAvatarUrl}
+                        displayName={auth.user?.displayName ?? null}
                       />
                     </div>
                   ) : null}

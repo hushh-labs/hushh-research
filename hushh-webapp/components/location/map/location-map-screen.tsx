@@ -125,7 +125,7 @@ type LoadStatus = "idle" | "loading" | "ready" | "error";
 
 export function LocationMapScreen() {
   const router = useRouter();
-  const { userId } = useAuth();
+  const { userId, user } = useAuth();
   const selfAvatarUrl = useEffectiveAvatarUrl();
   const { vaultOwnerToken } = useVault();
   const device = useCurrentLocation({ auto: false, userId });
@@ -414,6 +414,7 @@ export function LocationMapScreen() {
               point={mapPoint}
               viewportResetKey={viewportResetKey}
               avatarUrl={selfAvatarUrl}
+              displayName={user?.displayName ?? null}
             />
           </div>
         ) : (

@@ -25,6 +25,17 @@ const point: PlainLocationPoint = {
 // clears listeners on both instances, because dropping a ref does not stop a
 // Maps instance from running. A mock without it passes only by omission.
 const mapsEvent = () => ({ clearInstanceListeners: vi.fn() });
+// `google.maps.Size`/`Point` are real API surface too: the self marker always
+// builds an avatar-circle icon (photo or initials fallback, never the stock
+// pin), so a mock without them fails only by omission.
+const mapsSize = () =>
+  vi.fn(function (width: number, height: number) {
+    return { width, height };
+  });
+const mapsPoint = () =>
+  vi.fn(function (x: number, y: number) {
+    return { x, y };
+  });
 
 afterEach(() => {
   mockStatus.current = "loading";
@@ -71,7 +82,9 @@ describe("LiveMap", () => {
       return { panTo: vi.fn() };
     });
     // @ts-expect-error test global
-    globalThis.google = { maps: { Map, Marker, event: mapsEvent() } };
+    globalThis.google = {
+      maps: { Map, Marker, Size: mapsSize(), Point: mapsPoint(), event: mapsEvent() },
+    };
     mockStatus.current = "ready";
 
     render(<LiveMap point={point} />);
@@ -125,7 +138,9 @@ describe("LiveMap", () => {
       return { panTo: vi.fn() };
     });
     // @ts-expect-error test global
-    globalThis.google = { maps: { Map, Marker, event: mapsEvent() } };
+    globalThis.google = {
+      maps: { Map, Marker, Size: mapsSize(), Point: mapsPoint(), event: mapsEvent() },
+    };
     mockStatus.current = "ready";
     mockTheme.current = "dark";
 
@@ -167,7 +182,9 @@ describe("LiveMap", () => {
       return { panTo: mapPanTo, setZoom: mapSetZoom };
     });
     // @ts-expect-error test global
-    globalThis.google = { maps: { Map, Marker, event: mapsEvent() } };
+    globalThis.google = {
+      maps: { Map, Marker, Size: mapsSize(), Point: mapsPoint(), event: mapsEvent() },
+    };
     mockStatus.current = "ready";
 
     const { rerender } = render(
@@ -240,7 +257,9 @@ describe("LiveMap", () => {
       });
 
       // @ts-expect-error test global
-      globalThis.google = { maps: { Map, Marker, event: mapsEvent() } };
+      globalThis.google = {
+        maps: { Map, Marker, Size: mapsSize(), Point: mapsPoint(), event: mapsEvent() },
+      };
       mockStatus.current = "ready";
 
       // Fix performance.now() so `start` is always 0 for deterministic t calculation.
