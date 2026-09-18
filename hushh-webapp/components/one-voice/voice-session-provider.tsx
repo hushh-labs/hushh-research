@@ -461,6 +461,8 @@ export function VoiceSessionProvider({
   // read them only run after commit.
   const depsRef = useRef(deps);
   const latest = useRef({ user, isVaultUnlocked, vaultOwnerToken, enabled });
+  // The Firebase proof fetched for the current connect attempt (see ticket()).
+  const firebaseProofRef = useRef<string | null>(null);
   const runtimeRef = useRef(runtime);
   const pathnameRef = useRef(pathname);
   const osPermission: OsPermission =
@@ -847,6 +849,13 @@ export function VoiceSessionProvider({
       };
       const clientOptions: OneLiveClientOptions = {
         ticket: async () => {
+          // A fresh sign-in proof rides the auth frame so a spoken yes on a
+          // firebase-plane card can be verified without a tap. No proof is
+          // not an error: the relay then asks for a tap, which carries one.
+          firebaseProofRef.current =
+            (await (
+              depsRef.current?.getFirebaseIdToken ?? defaultGetFirebaseIdToken
+            )().catch(() => null)) || null;
           const token = latest.current.vaultOwnerToken;
           if (!token) throw new Error("Unlock to talk to One.");
           const ticket = await mint({
@@ -861,7 +870,7 @@ export function VoiceSessionProvider({
           if (!token) return null;
           return {
             vaultOwnerToken: token,
-            firebaseIdToken: null,
+            firebaseIdToken: firebaseProofRef.current,
             conversationId: input.conversationId,
             client: clientKind,
           };

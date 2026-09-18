@@ -27,7 +27,14 @@ MAX_CONTEXT_JSON_CHARS = 48_000
 LOCATION_UPDATES_PENDING = _LOCATION_UPDATES_PENDING
 # Statuses whose ``tool.result`` frame carries ``ok: false``.
 NOT_OK_STATUSES = frozenset(
-    {"rejected", "unsupported", "confirmation_required", LOCATION_UPDATES_PENDING}
+    {
+        "rejected",
+        "unsupported",
+        "confirmation_required",
+        "firebase_proof_required",
+        "scope_review_required",
+        LOCATION_UPDATES_PENDING,
+    }
 )
 
 

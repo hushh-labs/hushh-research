@@ -123,3 +123,30 @@ def test_rule_ten_separates_circle_membership_from_connection_and_leave_from_del
     declared = {item["name"] for item in registry.declarations()}
     assert {"get_circle_details", "list_circle_members"} <= declared
     assert "- get_circle_details: " in text and "- list_circle_members: " in text
+
+
+def test_rules_three_six_and_eleven_ground_connections_in_real_records_and_results():
+    text = _build()
+    three = _rule(text, 3)
+    assert 'A relative ("my uncle", "my mom") is not a name and there is no family list' in three
+    assert "A phone number or email is not a name either" in three
+    assert (
+        "Low confidence, none, or truncated: ask them to repeat, spell, or give the full name"
+        in three
+    )
+    six = _rule(text, 6)
+    assert "A pending request is not a connection" in six
+    eleven = _rule(text, 11)
+    assert "invite_person sends a plain request and nothing else" in eleven
+    assert '"Sent" means the result says sent with a request id' in eleven
+    assert "accept_connection_request or decline_connection_request" in eleven
+    assert "remove_connection, which ends it everywhere" in eleven
+    assert (
+        "scope_review_required means the review screen is open and nothing was accepted yet"
+        in eleven
+    )
+    assert "firebase_proof_required, ask them to tap Confirm on the card" in eleven
+    assert 'A correction ("no, Priya Sharma") starts over' in eleven
+    declared = {item["name"] for item in registry.declarations()}
+    assert {"accept_connection_request", "decline_connection_request", "invite_person"} <= declared
+    assert "respond_connection_request" not in declared
