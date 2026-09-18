@@ -2134,8 +2134,8 @@ function NowHub({
             testId: "one-location-request-row",
           },
           {
-            title: "Arrival confirm",
-            ariaLabel: "Arrival confirm",
+            title: "Check In",
+            ariaLabel: "Check In",
             icon: <LocationMenuGlyph name="checkIn" size={21} />,
             tone: "blue",
             onClick: onCheckIn,

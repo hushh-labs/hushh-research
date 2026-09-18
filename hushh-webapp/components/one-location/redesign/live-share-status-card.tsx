@@ -37,8 +37,10 @@ import {
   LIVE_SHARE_FOOTER_CLASSNAME,
   LIVE_SHARE_FOOTER_ROW_CLASSNAME,
   LIVE_SHARE_HEADER_CLASSNAME,
+  LIVE_SHARE_PRIMARY_ACTION_CLASSNAME,
   LIVE_SHARE_PROGRESS_FILL_CLASSNAME,
   LIVE_SHARE_PROGRESS_TRACK_CLASSNAME,
+  LIVE_SHARE_SECONDARY_ACTION_CLASSNAME,
   LIVE_SHARE_TITLE_CLASSNAME,
 } from "./live-share-card-layout";
 import { CARD_SURFACE } from "./tokens";
@@ -433,37 +435,45 @@ export function LiveShareStatusCard({
         </div>
       ) : null}
 
-      {onShareMore ? (
-        <Button
-          type="button"
-          onClick={runChildAction(onShareMore)}
-          className="mt-3 h-11 min-h-11 w-full rounded-[14px] bg-[color:var(--app-accent)] px-5 font-[family-name:var(--font-app-body)] !text-[15px] !font-semibold !leading-5 tracking-normal text-white transition-[background-color,transform] hover:bg-[color:var(--app-accent)]/90 active:scale-[0.99]"
-          data-ui-contract="occlusion-sensitive"
-          data-ui-role="control"
-          data-ui-id="location-live-share-more"
-          data-testid="one-location-live-share-more"
-        >
-          Share with more
-        </Button>
-      ) : null}
-
-      {canChangeDuration ? (
+      {onShareMore || canChangeDuration ? (
+        // One left-aligned action row: the primary CTA first, the quieter
+        // duration control beside it. Below 360px they stack full-width so
+        // neither label wraps and both keep a full touch target.
         <div className={LIVE_SHARE_FOOTER_ROW_CLASSNAME}>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={runDurationAction(onChangeDuration)}
-            className={cn(
-              LIVE_SHARE_ACTION_CLASSNAME,
-              "mx-auto text-[color:var(--app-accent)]",
-            )}
-            data-ui-contract="occlusion-sensitive"
-            data-ui-role="control"
-            data-ui-id="location-live-share-duration"
-            data-testid="one-location-live-share-change-time"
-          >
-            {openEnded ? "Set an end time" : "Change end time"}
-          </Button>
+          {onShareMore ? (
+            <Button
+              type="button"
+              onClick={runChildAction(onShareMore)}
+              className={cn(
+                LIVE_SHARE_PRIMARY_ACTION_CLASSNAME,
+                "inline-flex items-center justify-center font-[family-name:var(--font-app-body)] tracking-normal transition-[background-color,transform] active:scale-[0.99]",
+              )}
+              data-ui-contract="occlusion-sensitive"
+              data-ui-role="control"
+              data-ui-id="location-live-share-more"
+              data-testid="one-location-live-share-more"
+            >
+              Share with more
+            </Button>
+          ) : null}
+          {canChangeDuration ? (
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={runDurationAction(onChangeDuration)}
+              className={cn(
+                LIVE_SHARE_ACTION_CLASSNAME,
+                LIVE_SHARE_SECONDARY_ACTION_CLASSNAME,
+                "inline-flex items-center text-[color:var(--app-accent)]",
+              )}
+              data-ui-contract="occlusion-sensitive"
+              data-ui-role="control"
+              data-ui-id="location-live-share-duration"
+              data-testid="one-location-live-share-change-time"
+            >
+              {openEnded ? "Set an end time" : "Change end time"}
+            </Button>
+          ) : null}
         </div>
       ) : null}
     </section>
