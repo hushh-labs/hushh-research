@@ -3105,9 +3105,20 @@ export function LocationImmersiveMap({
               aria-hidden
             />
           </span>
-          <p className="relative text-sm font-medium text-muted-foreground">
-            {isCheckInSurface ? "Preparing check-in…" : "Loading your map…"}
-          </p>
+          {isCheckInSurface ? (
+            <>
+              <p className="relative text-[17px] font-semibold leading-[22px] text-foreground">
+                Checking you in…
+              </p>
+              <p className="relative -mt-1.5 text-sm font-normal leading-5 text-muted-foreground">
+                Getting the map and nearby places ready.
+              </p>
+            </>
+          ) : (
+            <p className="relative text-sm font-medium text-muted-foreground">
+              Loading your map…
+            </p>
+          )}
         </div>
       ) : null}
       {/*

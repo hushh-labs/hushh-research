@@ -1373,6 +1373,29 @@ describe("LocationImmersiveMap demo experience", () => {
     expect(screen.queryByTestId("one-location-map-people-tray")).toBeNull();
   });
 
+  it("shows a check-in loader instead of Your Map's gate while the map starts", async () => {
+    // The old screen flashed "Your Map / Continue" here before the flow
+    // appeared. Check-in now opens behind its own loader until the renderer
+    // reports ready, and the Your Map gate never renders on this route.
+    experienceHarness.demoMode = false;
+    experienceHarness.nearbyAvailable = true;
+    experienceHarness.query = "";
+
+    seedConsentedRenderer();
+    render(<LocationImmersiveMap surface="check-in" />);
+    expect(screen.getByText("Checking you in…")).toBeInTheDocument();
+    expect(
+      screen.getByText("Getting the map and nearby places ready."),
+    ).toBeInTheDocument();
+    expect(screen.queryByTestId("one-location-map-disclosure")).toBeNull();
+    await waitFor(() => {
+      expect(screen.getByTestId("one-location-map")).toHaveAttribute(
+        "data-map-ready",
+        "true",
+      );
+    });
+  });
+
   // The reported bug, in both of its lives: dismissing the sheet on check-in's
   // own route navigated away -- first to the Location hub for everyone, then to
   // whichever screen a `?source=` param claimed had opened the flow. Someone who
