@@ -33,11 +33,7 @@ export type UseCalendarUpcomingEventsResult = {
 
 /**
  * The ONLY function permitted to read GoogleCalendarService.listEvents()'s
- * raw response. Mirrors mcp_modules/tools/gmail_calendar_tools.py's
- * handle_list_upcoming_calendar_events redaction exactly (title/start/end/
- * status only) -- see
- * consent-protocol/tests/test_gmail_calendar_tools.py::test_list_events_redacts_sensitive_fields
- * for the server-side proof of the same contract. raw.description,
+ * raw response. Redacts to title/start/end/status only. raw.description,
  * raw.location, raw.attendees, and raw.html_link must never leave this
  * function.
  */
