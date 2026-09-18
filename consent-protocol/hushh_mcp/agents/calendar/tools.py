@@ -482,6 +482,12 @@ def _display_time(value: object, time_zone: object) -> str:
         parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
         if parsed.tzinfo is None:
             return text
-        return parsed.astimezone(ZoneInfo(zone_name)).strftime("%a, %b %-d at %-I:%M %p %Z")
+        localized = parsed.astimezone(ZoneInfo(zone_name))
+        # %-d/%-I (no-leading-zero) are glibc/BSD strftime extensions that
+        # Windows' C runtime rejects with ValueError, so the day/hour are
+        # stripped of leading zeros by hand instead for cross-platform use.
+        weekday_month = localized.strftime("%a, %b")
+        minute_period_zone = localized.strftime("%M %p %Z")
+        return f"{weekday_month} {localized.day} at {int(localized.strftime('%I'))}:{minute_period_zone}"
     except (ValueError, ZoneInfoNotFoundError):
         return text

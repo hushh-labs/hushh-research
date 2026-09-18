@@ -403,3 +403,19 @@ def test_calendar_write_permission_becomes_an_incremental_oauth_directive(monkey
     assert directive["payload"]["type"] == "calendar.connect"
     assert directive["payload"]["accessLevel"] == "manage"
     assert directive["payload"]["confirmLabel"] == "Allow Calendar scheduling"
+
+
+def test_display_time_does_not_use_platform_specific_strftime_directives() -> None:
+    """Regression: %-d/%-I are glibc/BSD strftime extensions Windows' C
+    runtime raises ValueError on, which crashed every Calendar confirmation
+    message on a Windows-hosted server."""
+
+    rendered = tools._display_time("2026-08-11T09:05:00+05:30", "Asia/Kolkata")
+
+    assert rendered == "Tue, Aug 11 at 9:05 AM IST"
+
+
+def test_display_time_strips_leading_zero_from_single_digit_hour_and_day() -> None:
+    rendered = tools._display_time("2026-01-02T14:30:00+00:00", "UTC")
+
+    assert rendered == "Fri, Jan 2 at 2:30 PM UTC"
