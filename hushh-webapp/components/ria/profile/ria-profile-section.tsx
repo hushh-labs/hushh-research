@@ -1153,24 +1153,17 @@ export function RiaProfileSection({
               onPinZipChange={(value) => updateDraft({ pinZip: value })}
               onDraftBio={handleDraftBio}
             />
-            <button
+            <Button
               type="button"
               disabled={saving}
+              isLoading={saving}
               onClick={handleSaveProfile}
-              className={cn(
-                "ria-cta w-full text-[17px]",
-                saving && "cursor-not-allowed opacity-40",
-              )}
+              size="lg"
+              className="w-full text-[17px]"
             >
-              {saving ? (
-                <Loader2 className="h-5 w-5 animate-spin" />
-              ) : (
-                <>
-                  Save changes
-                  <ArrowRight className="h-4 w-4" />
-                </>
-              )}
-            </button>
+              Save changes
+              <ArrowRight className="h-4 w-4" />
+            </Button>
           </div>
         ) : null}
       </SettingsDetailPanel>
