@@ -1813,7 +1813,7 @@ describe("OneLocationAgentPage", () => {
     actionCells?.forEach((cell) => {
       expect(cell.className).toContain("flex-col");
       expect(cell.className).toContain("text-center");
-      expect(cell.className).toContain("h-[76px]");
+      expect(cell.className).toContain("h-[88px]");
       expect(cell.className).toContain("rounded-[14px]");
     });
     const regularActionIconClassName = actionGrid?.querySelector(
