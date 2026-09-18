@@ -5273,6 +5273,107 @@
       "thread_and_consent_contract": null
     },
     {
+      "route": "/one/profile/connectors",
+      "page_file": "app/one/profile/connectors/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "standard",
+        "exemption_reason": null,
+        "shell_verification_file": "app/one/profile/connectors/page.tsx",
+        "shell_verification_includes": [
+          "AppPageShell",
+          "AppPageContentRegion"
+        ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.profile.connectors",
+          "purpose": "Help the person connect and manage external MCP connectors (Notion, HubSpot, ...) so Kai can use their own data from them.",
+          "screen": "profile_connectors",
+          "entry_cue": "",
+          "proactivity": "ambient",
+          "primary_action_id": null,
+          "happy_path_action_ids": [],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain the current guard and retain the goal.",
+            "cancelled": "Respect the cancellation and retain a safe next step.",
+            "failed": "Acknowledge the failure without claiming completion.",
+            "timeout": "Retain the goal and offer one safe retry.",
+            "callback_error": "Return to the verified callback recovery path without claiming success.",
+            "route_mismatch": "Use the verified current route and its generated actions only."
+          },
+          "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
+          "next_route": null,
+          "return_policy": "stay",
+          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+        }
+      },
+      "native": null,
+      "shell": {
+        "app_page_shell": true,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
+      "route": "/one/profile/connectors/oauth/return",
+      "page_file": "app/one/profile/connectors/oauth/return/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "redirect",
+        "exemption_reason": "OAuth callback completes an external connector's authorization and returns to the connectors manage page.",
+        "shell_verification_file": null,
+        "shell_verification_includes": [],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.profile.connectors.oauth.return",
+          "purpose": "Finish the verified external connector authorization callback without exposing credentials.",
+          "screen": "profile_connectors",
+          "entry_cue": "",
+          "proactivity": "ambient",
+          "primary_action_id": null,
+          "happy_path_action_ids": [],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain the current guard and retain the goal.",
+            "cancelled": "Respect the cancellation and retain a safe next step.",
+            "failed": "Return to Connectors and explain that the connection was not completed.",
+            "timeout": "Retain the goal and offer one safe retry.",
+            "callback_error": "Return to the verified callback recovery path without claiming success.",
+            "route_mismatch": "Use the verified current route and its generated actions only."
+          },
+          "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
+          "next_route": "/one/profile/connectors",
+          "return_policy": "navigate",
+          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+        }
+      },
+      "native": null,
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
       "route": "/one/profile/gmail",
       "page_file": "app/one/profile/gmail/page.tsx",
       "physical_page_exists": true,
@@ -9458,5 +9559,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "b372c0629f24008c4dfa5fdd9d31008100f0baf00b2da85d30460b1f6e6eeee1"
+  "content_sha256": "226d173a72b71167c389f78600a708d615eca13733fc949f2205c47ea5530e1a"
 }
