@@ -19,6 +19,7 @@ export function OnboardingShell({
   hideTerminal = false,
   allowInvalidPress = false,
   heroImage,
+  wideTitle = false,
   onBack,
   onContinue,
   onSkip,
@@ -47,6 +48,11 @@ export function OnboardingShell({
     alt?: string;
     badge?: boolean;
   };
+  // The welcome step's title ("How will you register?") wraps to 3 short
+  // lines at the shared accent-step width; every other accent step's title
+  // already fits in 1-2 lines there, so this widens the title column for
+  // just that one step instead of changing the shared default.
+  wideTitle?: boolean;
   // When true the Continue button stays pressable even if the step gate is not
   // satisfied, so the page can run field-level validation (scroll to the first
   // missing field + inline "fill this to continue") instead of a dead, silently
@@ -191,7 +197,7 @@ export function OnboardingShell({
             className={cn(
               "ria-screen-title",
               isHero && "ria-screen-title--hero",
-              isAccent ? "max-w-[212px]" : "max-w-[18ch]",
+              isAccent ? (wideTitle ? "max-w-[280px]" : "max-w-[212px]") : "max-w-[18ch]",
               "text-3xl font-bold tracking-tight text-foreground sm:text-4xl"
             )}
           >
