@@ -15,9 +15,9 @@ const buttonVariants = cva(
         // reads as red-on-neutral, not a second filled surface competing
         // with the primary for attention.
         default:
-          "bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)] shadow-xs hover:bg-[color:var(--app-accent)]/90",
+          "bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent-hover)]",
         destructive:
-          "bg-[color:var(--app-neutral-fill)] text-[color:var(--app-destructive)] shadow-xs hover:bg-[color:var(--app-neutral-fill-strong)] focus-visible:ring-destructive/20 dark:focus-visible:ring-destructive/40",
+          "bg-[color:var(--app-neutral-fill)] text-[color:var(--app-destructive)] hover:bg-[color:var(--app-neutral-fill-strong)] focus-visible:ring-destructive/20 dark:focus-visible:ring-destructive/40",
         outline:
           "border border-[color:var(--app-separator)] bg-[color:var(--app-neutral-fill)] text-foreground shadow-none hover:bg-[color:var(--app-neutral-fill-strong)] dark:border-[color:var(--app-separator)]",
         secondary:
