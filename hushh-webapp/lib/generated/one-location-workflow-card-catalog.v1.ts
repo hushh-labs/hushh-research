@@ -5,6 +5,7 @@ export const ONE_LOCATION_WORKFLOW_CARD_CATALOG = {
   "graphRevision": "9e646535f50b1afa",
   "compatibleGraphRevisions": [
     "1016f2f0efc0cbd7",
+    "12f82fc1dec40c31",
     "37cb394043f0f125",
     "511758965444c3bb",
     "55a233b9b6e923ea",
