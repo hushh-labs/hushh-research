@@ -108,6 +108,16 @@ textarea {
   touch-action: manipulation;
 }
 
+/* The shared --app-input-radius capsule clamps to half the control's own
+   height. Single-line fields stay a clean pill at that height; a multi-line
+   Textarea (min-h-36+, resizable) clamps to a much larger radius whose
+   corner curve reaches past the text padding and overlaps the first
+   character of each wrapped line. Bound it to the compact card radius so
+   Textarea keeps a legible, non-clipping corner at any height. */
+[data-slot="textarea"] {
+  --app-input-radius: var(--app-radius-lg);
+}
+
 [data-app-scroll-root="true"][data-app-scroll-mode="hidden-shell"] {
   overflow-y: auto;
   overflow-x: hidden;
