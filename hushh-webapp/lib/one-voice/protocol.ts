@@ -298,6 +298,10 @@ export const NOT_SUCCESS_STATUSES = new Set<string>([
   "confirmation_required",
   "tap_required",
   "card_not_shown",
+  // A firebase-plane card that needs a tap with a fresh sign-in proof.
+  "firebase_proof_required",
+  // The scope-review screen is open; nothing has been accepted yet.
+  "scope_review_required",
   "navigation_dispatched",
   "grant_created",
   "check_in_created",

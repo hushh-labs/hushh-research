@@ -54,6 +54,7 @@ const NEUTRAL_STATUSES = new Set<string>([
   "multiple",
   "single_likely",
   "low_confidence",
+  "truncated",
   "unverified",
   "invalid",
   "unavailable",
@@ -270,6 +271,9 @@ export function isLocalCloseReason(reason: string | null | undefined): boolean {
 const INFORMATIONAL_ERROR_CODES = new Set<string>([
   "protocol",
   "firebase_proof_required",
+  // The tap's proof failed verification (expired, revoked, other account);
+  // the card stays pending and a fresh tap can still complete it.
+  "firebase_proof_invalid",
 ]);
 
 function summarizeArgs(

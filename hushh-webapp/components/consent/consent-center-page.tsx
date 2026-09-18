@@ -1909,7 +1909,9 @@ export function ConsentCenterPage() {
     }
     window.dispatchEvent(
       new CustomEvent(CONSENT_ACTION_COMPLETE_EVENT, {
-        detail: { reconcile: true },
+        // Named so a listener waiting on one specific request (the voice
+        // review step) ignores completions for other requests.
+        detail: { reconcile: true, requestId: normalized || undefined },
       }),
     );
   }, []);

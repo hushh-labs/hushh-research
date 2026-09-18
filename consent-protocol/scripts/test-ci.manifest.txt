@@ -333,6 +333,8 @@ tests/one_voice/test_instruction.py
 tests/one_voice/test_live_tool_selection_eval.py
 tests/one_voice/test_alias_independence.py
 tests/one_voice/test_live_circle_tool_selection_eval.py
+tests/one_voice/test_actor_proof.py
+tests/one_voice/test_live_connections_tool_selection_eval.py
 tests/one_voice/test_tools_sharing.py
 tests/one_voice/test_tools_circles.py
 tests/one_voice/test_tools_sos.py
