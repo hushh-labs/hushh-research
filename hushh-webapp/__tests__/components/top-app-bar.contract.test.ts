@@ -212,7 +212,8 @@ describe("Top app bar responsive contract", () => {
     const source = read("components/app-ui/top-app-bar.tsx");
 
     expect(source).toContain('aria-label="Search"');
-    expect(source).toContain("Search 🔍");
+    expect(source).toContain("icon={Search}");
+    expect(source).toContain(">Search</span>");
     expect(source).toContain("openKaiCommandBar()");
     // Left of Profile: the pill's JSX must appear earlier in the actions
     // block than the Profile control it sits beside.
