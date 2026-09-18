@@ -118,13 +118,15 @@ describe("OneDashboardPage", () => {
       expect(icon.querySelector("svg")).toBeTruthy();
     }
     const financeIcon = screen.getAllByTestId("one-agent-icon-finance")[0];
-    expect(financeIcon).toHaveStyle({
-      "--agent-icon-profile-bg": "#D1FAE5",
-      "--agent-icon-profile-fg": "#065F46",
-    });
-    // Palette slots are assigned by roster position, so this list must track
-    // ONE_CAPABILITIES order: the palette exists to keep adjacent rows
-    // distinguishable, and that property is preserved.
+    // finance is "not-started" in this fixture, so under
+    // isCapabilityOnboarded() it renders greyscale (no palette color) --
+    // see the dedicated palette-color coverage below with an all-completed
+    // fixture, where these same capabilities are actually onboarded.
+    //
+    // Palette slots are assigned by roster position regardless of active
+    // state, so this list must still track ONE_CAPABILITIES order: the
+    // palette exists to keep adjacent rows distinguishable, and that
+    // property is preserved even while greyed out.
     const rosterPaletteOrder = [
       "finance",
       "wallet",
@@ -152,34 +154,8 @@ describe("OneDashboardPage", () => {
       "7",
       "8",
     ]);
-    const iconBackgrounds = Object.fromEntries(
-      rosterPaletteOrder.map((id) => [
-        id,
-        screen
-          .getAllByTestId(`one-agent-icon-${id}`)[0]
-          .style.getPropertyValue("--agent-icon-profile-bg"),
-      ]),
-    );
-    expect(iconBackgrounds.finance).toBe("#D1FAE5");
-    expect(iconBackgrounds.wallet).toBe("#FEF3C7");
-    expect(iconBackgrounds.location).toBe("#E0F2FE");
-    expect(iconBackgrounds.ria).toBe("#EDE9FE");
-    expect(iconBackgrounds.gmail).toBe("#FFE4E6");
-    expect(iconBackgrounds.calendar).toBe("#E0F7FA");
-    expect(iconBackgrounds.email).toBe("#FCE7F3");
-    expect(iconBackgrounds.pkm).toBe("#F1F5F9");
-    expect(iconBackgrounds.consent).toBe("#FFEDD5");
-    expect(new Set(Object.values(iconBackgrounds)).size).toBe(
-      rosterPaletteOrder.length,
-    );
-    expect(financeIcon.className).toContain(
-      "dark:bg-[var(--agent-icon-profile-bg-dark)]",
-    );
     expect(financeIcon.querySelector("svg")?.className.baseVal).toContain(
-      "text-current",
-    );
-    expect(financeIcon.querySelector("svg")?.className.baseVal).not.toContain(
-      "dark:!text-[#1d1d1f]",
+      "grayscale",
     );
     expect(financeIcon.querySelector(".backdrop-blur-\\[8px\\]")).toBeNull();
     const riaLink = screen.getByRole("link", { name: "Open RIA" });
@@ -250,6 +226,57 @@ describe("OneDashboardPage", () => {
     expect(countRosterMetrics(container, "0", "actions")).toBe(6);
     expect(screen.getByRole("heading", { name: "Agents (9)" })).toBeTruthy();
     expect(screen.queryByText("Finish setup")).toBeNull();
+
+    // Every tracked capability here is genuinely completed (plus Wallet/PKM/
+    // Consent, which are never tracked and so are always "onboarded"), so
+    // isCapabilityOnboarded() is true everywhere and each icon keeps its full
+    // per-position mineral palette color -- this is the real assignment-by-
+    // position coverage the greyscale fixture above can no longer carry.
+    const financeIcon = screen.getAllByTestId("one-agent-icon-finance")[0];
+    expect(financeIcon).toHaveStyle({
+      "--agent-icon-profile-bg": "#D1FAE5",
+      "--agent-icon-profile-fg": "#065F46",
+    });
+    const rosterPaletteOrder = [
+      "finance",
+      "wallet",
+      "location",
+      "ria",
+      "gmail",
+      "calendar",
+      "email",
+      "pkm",
+      "consent",
+    ] as const;
+    const iconBackgrounds = Object.fromEntries(
+      rosterPaletteOrder.map((id) => [
+        id,
+        screen
+          .getAllByTestId(`one-agent-icon-${id}`)[0]
+          .style.getPropertyValue("--agent-icon-profile-bg"),
+      ]),
+    );
+    expect(iconBackgrounds.finance).toBe("#D1FAE5");
+    expect(iconBackgrounds.wallet).toBe("#FEF3C7");
+    expect(iconBackgrounds.location).toBe("#E0F2FE");
+    expect(iconBackgrounds.ria).toBe("#EDE9FE");
+    expect(iconBackgrounds.gmail).toBe("#FFE4E6");
+    expect(iconBackgrounds.calendar).toBe("#E0F7FA");
+    expect(iconBackgrounds.email).toBe("#FCE7F3");
+    expect(iconBackgrounds.pkm).toBe("#F1F5F9");
+    expect(iconBackgrounds.consent).toBe("#FFEDD5");
+    expect(new Set(Object.values(iconBackgrounds)).size).toBe(
+      rosterPaletteOrder.length,
+    );
+    expect(financeIcon.className).toContain(
+      "dark:bg-[var(--agent-icon-profile-bg-dark)]",
+    );
+    expect(financeIcon.querySelector("svg")?.className.baseVal).toContain(
+      "text-current",
+    );
+    expect(financeIcon.querySelector("svg")?.className.baseVal).not.toContain(
+      "dark:!text-[#1d1d1f]",
+    );
   });
 
   it("renders authored setup actions instead of transient checking states", () => {
@@ -300,19 +327,17 @@ describe("OneDashboardPage", () => {
     );
   });
 
-  it("keeps header, search and view controls mounted while replacing only roster content", () => {
+  it("keeps header and view controls mounted while replacing only roster content", () => {
     window.localStorage.setItem("hushh:one-agent-roster-view", "grid");
     render(<OneDashboardPage displayName="Kushal Trivedi" />);
 
     const heading = screen.getByRole("heading", { name: "Agents (9)" });
-    const search = screen.getByTestId("one-agents-search");
     const gridControl = screen.getByLabelText("Show agent grid view");
     const listControl = screen.getByLabelText("Show agent list view");
     const gridContent = screen.getByTestId("one-agents-view-content");
 
     fireEvent.click(listControl);
     expect(screen.getByRole("heading", { name: "Agents (9)" })).toBe(heading);
-    expect(screen.getByTestId("one-agents-search")).toBe(search);
     expect(screen.getByLabelText("Show agent grid view")).toBe(gridControl);
     expect(screen.getByLabelText("Show agent list view")).toBe(listControl);
     expect(gridContent.isConnected).toBe(false);
@@ -321,12 +346,15 @@ describe("OneDashboardPage", () => {
 
     fireEvent.click(gridControl);
     expect(screen.getByRole("heading", { name: "Agents (9)" })).toBe(heading);
-    expect(screen.getByTestId("one-agents-search")).toBe(search);
     expect(screen.queryByTestId("one-agents-list")).toBeNull();
     expect(screen.getAllByTestId("one-agents-grid")).toHaveLength(1);
   });
 
-  it("filters the local agent roster without opening a second global search surface", () => {
+  // Search is switched off for now (SHOW_AGENT_SEARCH = false in
+  // one-agent-roster.tsx -- 9 agents doesn't need it yet). The filtering
+  // logic itself is untouched; these stay skipped, not deleted, so
+  // flipping the flag back on restores real coverage immediately.
+  it.skip("filters the local agent roster without opening a second global search surface", () => {
     render(<OneDashboardPage displayName="Kushal Trivedi" />);
 
     fireEvent.change(screen.getByTestId("one-agents-search"), {
@@ -337,7 +365,7 @@ describe("OneDashboardPage", () => {
     expect(screen.queryByTestId("one-agent-list-row-finance")).toBeNull();
   });
 
-  it("clears the roster query from the trailing touch affordance", () => {
+  it.skip("clears the roster query from the trailing touch affordance", () => {
     render(<OneDashboardPage displayName="Kushal Trivedi" />);
 
     const search = screen.getByTestId("one-agents-search");
