@@ -776,10 +776,15 @@ class RespondConnectionRequestInput(ToolInput):
 
 
 class RespondConnectionRequestResult(ToolResult):
-    status: Literal["accepted", "rejected"]
+    # Execution outcome. A successful decline is ``declined``, never
+    # ``rejected``: ``rejected`` is the executor's word for "this call was
+    # refused", and a decline that went through is not a refusal.
+    status: Literal["accepted", "declined"]
     request_id: str
     user_id: str
     display_name: str
+    # Domain state of the request row as the service reports it.
+    request_status: Literal["accepted", "rejected"]
     connection_id: str | None = None
 
 
@@ -835,6 +840,7 @@ async def respond_connection_request(
         ctx.entities.remember_person(_confirmed(record))
         return RespondConnectionRequestResult(
             status="accepted",
+            request_status="accepted",
             request_id=args.request_id,
             user_id=request["user_id"],
             display_name=name,
@@ -843,7 +849,8 @@ async def respond_connection_request(
         )
     if status == "rejected":
         return RespondConnectionRequestResult(
-            status="rejected",
+            status="declined",
+            request_status="rejected",
             request_id=args.request_id,
             user_id=request["user_id"],
             display_name=name,

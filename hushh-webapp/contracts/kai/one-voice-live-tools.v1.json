@@ -1810,7 +1810,7 @@
       "policy": "confirm_voice",
       "result_statuses": [
         "accepted",
-        "rejected"
+        "declined"
       ],
       "tier": "voice",
       "ui_refresh": [
