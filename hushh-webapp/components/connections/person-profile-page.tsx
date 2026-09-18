@@ -1,6 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useState, useRef } from "react";
+import { useCallback, useEffect, useMemo, useState, useRef } from "react";
+
+import {
+  isPeopleGraphChange,
+  VoiceRefreshDeduper,
+} from "@/lib/one-voice/people-voice-refresh";
+import type { ToolResultPublic } from "@/lib/one-voice/protocol";
+import { useVoiceToolEffects } from "@/lib/one-voice/session-store";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Capacitor } from "@capacitor/core";
@@ -113,6 +120,7 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
     };
   }, [resolvedPersonRef, profile]);
 
+  const [viewerReloadToken, setViewerReloadToken] = useState(0);
   useEffect(() => {
     if (authLoading || !user) return;
     let active = true;
@@ -131,7 +139,27 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
     return () => {
       active = false;
     };
-  }, [authLoading, resolvedPersonRef, user]);
+  }, [authLoading, resolvedPersonRef, user, viewerReloadToken]);
+
+  // One Voice changed a relationship: re-read this profile's relationship
+  // state from the server rather than trusting the spoken outcome. The two
+  // frames the relay sends for one confirmed action collapse to one reload.
+  const voiceRefreshDedupe = useRef(new VoiceRefreshDeduper());
+  const reloadAfterVoice = useCallback(
+    (tool: string | null, result: ToolResultPublic | null) => {
+      if (!isPeopleGraphChange(tool, result)) return;
+      if (!voiceRefreshDedupe.current.shouldRefresh(result)) return;
+      setViewerReloadToken((token) => token + 1);
+    },
+    [],
+  );
+  useVoiceToolEffects({
+    onToolResult: (tool, result) => reloadAfterVoice(tool, result),
+    onPendingResolved: (_id, status, result) => {
+      if (status !== "executed") return;
+      reloadAfterVoice(null, result);
+    },
+  });
 
   useEffect(() => {
     setSelectedScopeRefs(new Set());

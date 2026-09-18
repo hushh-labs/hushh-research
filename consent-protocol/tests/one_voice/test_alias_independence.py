@@ -129,3 +129,72 @@ def test_projection_carries_no_aliases_for_any_circle_tool():
     for tool in projection["tools"]:
         for key in ALIAS_KEYS:
             assert key not in tool, (tool["name"], key)
+
+
+def test_people_tools_bind_and_run_with_every_alias_emptied(emptied_gateway):
+    """The Connections family: search, confirm, read, send, accept/decline,
+    cancel and remove all resolve, validate and execute with no gateway alias
+    or keyword available anywhere on the path."""
+    from hushh_mcp.one_voice.tools import people
+    from tests.one_voice.test_tools_people import (
+        OWNER,
+        REQ_IN,
+        REQ_OUT,
+        ConnectionsDouble,
+        LocationDouble,
+    )
+
+    assert registry.validate_gateway_binding() == []
+    for tool in people.TOOLS:
+        entry = action_gateway.get_action_gateway_action(tool.gateway_action_id)
+        assert entry is not None
+        assert dict.__getitem__(entry, "aliases") == []
+        assert dict.__getitem__(entry, "search_keywords") == []
+    emptied_gateway.clear()
+
+    from hushh_mcp.one_voice.tools.base import EntityContext, ScreenContext, ToolContext
+
+    async def prove(token, expected_user_id):
+        return "ok"
+
+    ctx = ToolContext(
+        user_id=OWNER,
+        conversation_id="conv-1",
+        entities=EntityContext(),
+        screen=ScreenContext(),
+        vault_owner_token="vault-token",  # noqa: S106 - test double
+        firebase_id_token="proof",  # noqa: S106 - test double
+        services={"connections": ConnectionsDouble(), "location": LocationDouble()},
+    )
+    executor = ToolExecutor(pending_store=MemoryPendingStore(), actor_proof=prove)
+
+    listed = asyncio.run(executor.call(ctx, "list_people", {}))
+    assert listed.result.status == "ok"
+    found = asyncio.run(
+        executor.call(ctx, "resolve_person", {"spoken_name": "Preeti", "pool": "directory"})
+    )
+    assert found.result.status == "single_likely"
+    confirmed = asyncio.run(executor.call(ctx, "confirm_person", {"user_id": "u-preeti"}))
+    assert confirmed.result.status == "confirmed"
+    card = asyncio.run(executor.call(ctx, "invite_person", {"person": {"user_id": "u-preeti"}}))
+    assert card.result.status == "confirmation_required" and card.result.tier == "voice"
+    # A spoken yes counts only once the card was shown (that gate is not an alias either).
+    asyncio.run(executor.pending.mark_shown(user_id=OWNER, pending_action_id=card.pending.id))
+    sent = asyncio.run(
+        executor.call(ctx, "confirm_pending_action", {"pending_action_id": card.pending.id})
+    )
+    assert sent.result.status == "sent"
+    accept = asyncio.run(executor.call(ctx, "accept_connection_request", {"request_id": REQ_IN}))
+    assert accept.result.status == "confirmation_required"
+    cancel = asyncio.run(executor.call(ctx, "cancel_connection_request", {"request_id": REQ_OUT}))
+    assert cancel.result.status == "confirmation_required" and cancel.result.tier == "tap"
+    # Guards are not aliases: a made-up id and a non-name are refused as such.
+    bad = asyncio.run(executor.call(ctx, "remove_connection", {"person": {"user_id": "u-ayesha"}}))
+    assert bad.result.reason_code == "person_not_confirmed"
+    number = asyncio.run(
+        executor.call(
+            ctx, "resolve_person", {"spoken_name": "+91 98765 43210", "pool": "directory"}
+        )
+    )
+    assert number.result.reason_code == "identifier_not_a_name"
+    assert emptied_gateway == [], f"voice path read alias fields: {emptied_gateway}"
