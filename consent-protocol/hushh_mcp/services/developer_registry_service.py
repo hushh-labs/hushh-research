@@ -43,9 +43,6 @@ TOOL_GROUP_CORE_CONSENT = "core_consent"
 TOOL_GROUP_RIA_READ = "ria_read"
 TOOL_GROUP_KAI_VOICE = "kai_voice"
 TOOL_GROUP_HUSHH_TECH_CLIENT = "hushh_tech_client"
-TOOL_GROUP_LOCATION_VOICE = "location_voice"
-TOOL_GROUP_GMAIL_CALENDAR_READ = "gmail_calendar_read"
-TOOL_GROUP_PKM_CONVENIENCE = "pkm_convenience"
 
 HUSHH_TECH_UAT_PROJECT_ID = "hushh-pda-uat"
 HUSHH_TECH_UAT_CLOUDSQL_INSTANCE = UAT_INSTANCE
@@ -56,9 +53,6 @@ KNOWN_TOOL_GROUPS = (
     TOOL_GROUP_RIA_READ,
     TOOL_GROUP_KAI_VOICE,
     TOOL_GROUP_HUSHH_TECH_CLIENT,
-    TOOL_GROUP_LOCATION_VOICE,
-    TOOL_GROUP_GMAIL_CALENDAR_READ,
-    TOOL_GROUP_PKM_CONVENIENCE,
 )
 
 DEFAULT_PUBLIC_TOOL_GROUPS = (TOOL_GROUP_CORE_CONSENT,)
@@ -99,23 +93,6 @@ TOOL_GROUP_TOOL_NAMES = {
         "check_consent_status",
         "get_encrypted_scoped_export",
     ),
-    TOOL_GROUP_LOCATION_VOICE: (
-        "location_open_now",
-        "location_open_people",
-        "location_open_links",
-        "location_open_share",
-        "location_open_ask",
-        "location_open_map",
-        "location_open_settings",
-        "location_open_sos",
-        "location_get_state",
-        "location_list_circles",
-    ),
-    TOOL_GROUP_GMAIL_CALENDAR_READ: (
-        "list_gmail_receipts",
-        "list_upcoming_calendar_events",
-    ),
-    TOOL_GROUP_PKM_CONVENIENCE: ("read_own_pkm_attribute",),
 }
 
 
@@ -281,87 +258,6 @@ TOOL_CATALOG = (
         "group": TOOL_GROUP_KAI_VOICE,
         "compatibility_status": "recommended",
         "description": "Cancel the currently running background analysis.",
-    },
-    # ── Location voice + narrow read entitlements ─────────────────────
-    {
-        "name": "location_open_now",
-        "group": TOOL_GROUP_LOCATION_VOICE,
-        "compatibility_status": "partner_preview",
-        "description": "Navigate to the Location Now tab (sharing status and quick actions).",
-    },
-    {
-        "name": "location_open_people",
-        "group": TOOL_GROUP_LOCATION_VOICE,
-        "compatibility_status": "partner_preview",
-        "description": "Navigate to the Location People tab (people and circles you share with).",
-    },
-    {
-        "name": "location_open_links",
-        "group": TOOL_GROUP_LOCATION_VOICE,
-        "compatibility_status": "partner_preview",
-        "description": "Navigate to the Location Links tab (temporary sharing links you created).",
-    },
-    {
-        "name": "location_open_share",
-        "group": TOOL_GROUP_LOCATION_VOICE,
-        "compatibility_status": "partner_preview",
-        "description": "Open the Location share composer. Nothing is shared until confirmed in-app.",
-    },
-    {
-        "name": "location_open_ask",
-        "group": TOOL_GROUP_LOCATION_VOICE,
-        "compatibility_status": "partner_preview",
-        "description": "Open the Location request composer (ask someone to share their location).",
-    },
-    {
-        "name": "location_open_map",
-        "group": TOOL_GROUP_LOCATION_VOICE,
-        "compatibility_status": "partner_preview",
-        "description": "Open the full-screen Location map.",
-    },
-    {
-        "name": "location_open_settings",
-        "group": TOOL_GROUP_LOCATION_VOICE,
-        "compatibility_status": "partner_preview",
-        "description": "Open Location privacy and precision settings.",
-    },
-    {
-        "name": "location_open_sos",
-        "group": TOOL_GROUP_LOCATION_VOICE,
-        "compatibility_status": "partner_preview",
-        "description": "Open the emergency SOS screen. Opening it never sends an alert.",
-    },
-    {
-        "name": "location_get_state",
-        "group": TOOL_GROUP_LOCATION_VOICE,
-        "compatibility_status": "partner_preview",
-        "description": "Read the caller's own aggregate Location sharing status (grant/request/circle counts only; no coordinates, no other-person contact details).",
-    },
-    {
-        "name": "location_list_circles",
-        "group": TOOL_GROUP_LOCATION_VOICE,
-        "compatibility_status": "partner_preview",
-        "description": "List the caller's own named Location circles (name, kind, role, member count).",
-    },
-    # ── Gmail / Calendar read entitlements ─────────────────────────────
-    {
-        "name": "list_gmail_receipts",
-        "group": TOOL_GROUP_GMAIL_CALENDAR_READ,
-        "compatibility_status": "partner_preview",
-        "description": "List the caller's own pre-synced Gmail purchase-receipt records (merchant, order id, amount, date).",
-    },
-    {
-        "name": "list_upcoming_calendar_events",
-        "group": TOOL_GROUP_GMAIL_CALENDAR_READ,
-        "compatibility_status": "partner_preview",
-        "description": "List the caller's own upcoming Google Calendar events, redacted to title/start/end/status.",
-    },
-    # ── PKM convenience ──────────────────────────────────────────────
-    {
-        "name": "read_own_pkm_attribute",
-        "group": TOOL_GROUP_PKM_CONVENIENCE,
-        "compatibility_status": "partner_preview",
-        "description": "Convenience wrapper collapsing request-consent -> check-consent-status -> get-encrypted-scoped-export into one call for a single narrow attr.<domain>.<leaf>.* PKM read.",
     },
 )
 
