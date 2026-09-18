@@ -428,7 +428,7 @@ describe("Connect — People", () => {
     await screen.findByText("Person 0");
   });
 
-  it("keeps My connections collapsed until its disclosure pill is pressed", async () => {
+  it("keeps My connections open by default and collapses on disclosure press", async () => {
     mocks.listConnections.mockResolvedValue([
       {
         connectionId: "c-disclosure",
@@ -443,7 +443,7 @@ describe("Connect — People", () => {
     const toggle = await screen.findByRole("button", {
       name: "My connections (1)",
     });
-    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
     expect(toggle).toHaveAttribute(
       "aria-controls",
       "connect-my-connections-panel",
@@ -452,13 +452,6 @@ describe("Connect — People", () => {
       "connect-my-connections-panel",
     );
     expect(panel).toBeTruthy();
-    expect(
-      panel?.closest('[data-slot="settings-group-shell"]'),
-    ).toHaveClass("hidden");
-
-    fireEvent.click(toggle);
-
-    expect(toggle).toHaveAttribute("aria-expanded", "true");
     expect(
       panel?.closest('[data-slot="settings-group-shell"]'),
     ).not.toHaveClass("hidden");
@@ -474,6 +467,13 @@ describe("Connect — People", () => {
     expect(
       panel?.closest('[data-slot="settings-group-shell"]'),
     ).toHaveClass("hidden");
+
+    fireEvent.click(toggle);
+
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    expect(
+      panel?.closest('[data-slot="settings-group-shell"]'),
+    ).not.toHaveClass("hidden");
   });
 
   it("discards a late append after a new search starts", async () => {

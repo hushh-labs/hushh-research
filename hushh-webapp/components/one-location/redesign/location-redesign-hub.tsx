@@ -118,7 +118,10 @@ import type {
 import { locationStatusLabel } from "@/lib/one-location/location-readiness";
 import type { CircleRecipientSelection } from "@/lib/one-location/circle-recipient-selection";
 import type { AutoApproveScope } from "@/lib/one-location/location-control-state";
-import { resolveOwnSmsSystemCircleId } from "@/lib/one-location/system-circles";
+import {
+  isForeignSmsSystemCircle,
+  resolveOwnSmsSystemCircleId,
+} from "@/lib/one-location/system-circles";
 
 import {
   Avatar,
@@ -3282,7 +3285,10 @@ function LocationSettingsFlow({
   }, [draftScope, vm]);
 
   return (
-    <div className="mx-auto w-full max-w-[640px] space-y-6 pb-[max(20px,env(safe-area-inset-bottom))]">
+    <div
+      className="mx-auto w-full max-w-[640px] space-y-6 pb-[max(20px,env(safe-area-inset-bottom))]"
+      data-settings-titles="form-label"
+    >
       {/* No header description. Each row below already says what it does, and
           the line that used to sit here ("Control live sharing") describes
           something this screen's first control no longer does. */}
@@ -3676,12 +3682,12 @@ function PersonRow({
         ) : null}
       </button>
       {hasQuickActions ? (
-        <div className="mt-1.5 flex gap-2" role="group" aria-label={`Actions for ${name}`}>
+        <div className="mt-2 flex justify-start gap-2" role="group" aria-label={`Actions for ${name}`}>
           {onAsk ? (
             <button
               type="button"
               onClick={onAsk}
-              className="flex min-h-11 min-w-0 flex-1 items-center justify-center gap-1.5 rounded-full bg-[color:var(--app-accent-tint)] px-3 text-[13px] font-semibold text-[color:var(--app-accent)] transition-colors hover:bg-[color:var(--app-accent-ring)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)] focus-visible:ring-offset-2"
+              className="flex min-h-11 w-[120px] shrink-0 items-center justify-center gap-1.5 rounded-full bg-[color:var(--app-accent-tint)] px-3 text-[13px] font-semibold text-[color:var(--app-accent)] transition-colors hover:bg-[color:var(--app-accent-ring)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)] focus-visible:ring-offset-2"
               aria-label={`Ask ${name} for their location`}
             >
               <LocationMenuGlyph name="ask" size={17} />
@@ -3693,7 +3699,7 @@ function PersonRow({
               type="button"
               onClick={onShare}
               disabled={!shareReady}
-              className="flex min-h-11 min-w-0 flex-1 items-center justify-center gap-1.5 rounded-full bg-[color:var(--app-accent-tint)] px-3 text-[13px] font-semibold text-[color:var(--app-accent)] transition-colors hover:bg-[color:var(--app-accent-ring)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)] focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-45"
+              className="flex min-h-11 w-[120px] shrink-0 items-center justify-center gap-1.5 rounded-full bg-[color:var(--app-accent-tint)] px-3 text-[13px] font-semibold text-[color:var(--app-accent)] transition-colors hover:bg-[color:var(--app-accent-ring)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)] focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-45"
               aria-label={`Share your location with ${name}`}
             >
               <LocationMenuGlyph name="share" size={17} />
@@ -5280,9 +5286,17 @@ function ShareFlow({
     shareNoteLength >= ONE_LOCATION_SHARE_NOTE_MAX_LENGTH - 20 ||
     shareNoteLimitExceeded;
   // Circles stay atomic in the picker. Their recipients are expanded only for
-  // review and encrypted delivery.
+  // review and encrypted delivery. Someone else's SMS Circle is hidden: it
+  // cannot authorize recipients (see `circleCanAuthorizeRecipient`), so
+  // offering it only sets up a refusal. The viewer's own SMS Circle stays
+  // under "Your circles" and remains fully shareable.
   const shareableCircles = useMemo(
-    () => vm.circles.filter((circle) => circle.systemKind !== "trusted"),
+    () =>
+      vm.circles.filter(
+        (circle) =>
+          circle.systemKind !== "trusted" &&
+          !isForeignSmsSystemCircle(circle),
+      ),
     [vm.circles],
   );
   const shareCircleGroups = useMemo(() => {
