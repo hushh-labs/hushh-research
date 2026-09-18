@@ -145,9 +145,16 @@ export const CHECK_IN_RATING_COMPOSER_CLASSNAME = "flex h-[76px] flex-col";
  * the box as you type -- which grows the sheet, which moves the map, every few
  * characters. `text-base` stays: 16px is what stops iOS Safari zooming the
  * viewport on focus.
+ *
+ * `rounded-xl` is load-bearing too: the shared textarea base resolves
+ * `rounded-[var(--app-input-radius)]` to a pill, which on a 76px-tall note
+ * field reads as a semi-circle capsule. A 12px rect keeps the "square with a
+ * slight radius" shape the drawer uses everywhere else (place rows and the
+ * Save button are rects, not pills). tailwind-merge in `ui/textarea.tsx`
+ * keeps this override and drops the pill base.
  */
 export const CHECK_IN_NOTE_TEXTAREA_CLASSNAME =
-  "h-full min-h-0 w-full resize-none field-sizing-fixed text-base md:text-base";
+  "h-full min-h-0 w-full resize-none rounded-xl border-border/60 bg-muted/40 px-3.5 py-2.5 shadow-none field-sizing-fixed text-base leading-6 md:text-base";
 
 export const CHECK_IN_NOTE_MAX_LENGTH = 280;
 
