@@ -42,7 +42,7 @@
       "circle_args": [
         "circle"
       ],
-      "description": "Add a confirmed person to a confirmed circle. Only an existing connection who is eligible for that circle can be added; the result says whether they were added, are already a member, have a pending invitation, or are not connected (then share the circle's invite link instead). Both arguments are canonical ids, never names.",
+      "description": "Add a confirmed person to a confirmed circle. Only an existing connection can be added; the result says exactly what happened: added, already_member, invite_pending, connection_pending_outgoing (your request to them is waiting), connection_pending_incoming (their request to you is waiting), not_eligible, or not_connected. It never sends a connection request: that is invite_person, and only if the person asks. Both arguments are canonical ids, never names.",
       "firebase_plane": false,
       "gateway_action_id": "location.add_to_circle",
       "name": "add_circle_member",
@@ -96,8 +96,11 @@
       "result_statuses": [
         "added",
         "already_member",
+        "connection_pending_incoming",
+        "connection_pending_outgoing",
         "invite_pending",
-        "not_connected"
+        "not_connected",
+        "not_eligible"
       ],
       "tier": "voice",
       "ui_refresh": [
@@ -656,6 +659,51 @@
     },
     {
       "circle_args": [],
+      "description": "Read one circle's current name, kind, member count, whether the person owns it, and what they can do with it (add members, rename, delete, leave). Read only. With no circle argument it reads the circle whose screen is open, so it answers 'this circle'. Use it to answer who manages a circle or what kind it is.",
+      "firebase_plane": false,
+      "gateway_action_id": "location.open_circles",
+      "name": "get_circle_details",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "circle": {
+            "anyOf": [
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "circle_id": {
+                    "description": "Canonical circle id from list_circles/confirm_circle.",
+                    "maxLength": 36,
+                    "minLength": 36,
+                    "title": "Circle Id",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "circle_id"
+                ],
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "A circle id from list_circles, resolve_circle, or confirm_circle. Leave it out to read the circle whose screen the person is looking at."
+          }
+        },
+        "type": "object"
+      },
+      "person_args": [],
+      "policy": "read",
+      "result_statuses": [
+        "ok"
+      ],
+      "tier": null,
+      "ui_refresh": []
+    },
+    {
+      "circle_args": [],
       "description": "Read the person's Location settings: sharing on/off/not set up, sharing precision, map visibility (hidden or visible), and automatic approval of location requests. Reads only.",
       "firebase_plane": false,
       "gateway_action_id": "location.open_settings",
@@ -902,7 +950,7 @@
       "circle_args": [
         "circle"
       ],
-      "description": "Leave a circle the person is a member of but does not own. Ends the sharing that circle gave them, so it needs a tap on the confirmation card.",
+      "description": "Leave a circle the person is a member of but does not own: only their own membership ends, the circle stays for everyone else (that is not delete_circle). Ends the sharing that circle gave them, so it needs a tap on the confirmation card.",
       "firebase_plane": false,
       "gateway_action_id": "location.leave_circle",
       "name": "leave_circle",
@@ -959,6 +1007,74 @@
             ],
             "title": "Direction",
             "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "person_args": [],
+      "policy": "read",
+      "result_statuses": [
+        "none",
+        "ok"
+      ],
+      "tier": null,
+      "ui_refresh": []
+    },
+    {
+      "circle_args": [],
+      "description": "Read who is in a circle: one page of members with each one's canonical id, real name, role, and relationship to the person. Read only. With no circle argument it reads the circle whose screen is open. Use it for 'who is in this group' and to find the member to remove: someone can be in a circle without being a connection, so remove_circle_member needs a member from here confirmed with confirm_person. The result says whether more pages follow; the total is the total, not the page.",
+      "firebase_plane": false,
+      "gateway_action_id": "location.open_circles",
+      "name": "list_circle_members",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "circle": {
+            "anyOf": [
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "circle_id": {
+                    "description": "Canonical circle id from list_circles/confirm_circle.",
+                    "maxLength": 36,
+                    "minLength": 36,
+                    "title": "Circle Id",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "circle_id"
+                ],
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "A circle id from list_circles, resolve_circle, or confirm_circle. Leave it out to read the circle whose screen the person is looking at."
+          },
+          "page": {
+            "default": 1,
+            "description": "Roster page, starting at 1.",
+            "maximum": 50,
+            "minimum": 1,
+            "title": "Page",
+            "type": "integer"
+          },
+          "query": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "A name to look for in the roster. Suggestion only; never an id.",
+            "title": "Query"
           }
         },
         "type": "object"
@@ -1212,7 +1328,7 @@
       "circle_args": [
         "circle"
       ],
-      "description": "Remove a confirmed person from a circle the person owns. Revokes what that circle shared with them, so it needs a tap on the confirmation card.",
+      "description": "Remove a confirmed person from a circle the person owns. Only that circle membership ends: it does not disconnect from them (remove_connection) and does not delete the circle. Revokes what that circle shared with them, so it needs a tap on the confirmation card.",
       "firebase_plane": false,
       "gateway_action_id": "location.remove_from_circle",
       "name": "remove_circle_member",
@@ -1367,7 +1483,7 @@
       "circle_args": [
         "circle"
       ],
-      "description": "Rename a circle the person owns. Takes a confirmed circle id, never a spoken name.",
+      "description": "Rename a circle the person owns. Changes only the name: members, kind, sharing, and ownership stay as they are. Takes a confirmed circle id, never a spoken name.",
       "firebase_plane": false,
       "gateway_action_id": "location.rename_circle",
       "name": "rename_circle",
@@ -1694,7 +1810,7 @@
       "policy": "confirm_voice",
       "result_statuses": [
         "accepted",
-        "rejected"
+        "declined"
       ],
       "tier": "voice",
       "ui_refresh": [
@@ -1882,6 +1998,61 @@
       "tier": "voice",
       "ui_refresh": [
         "location_settings"
+      ]
+    },
+    {
+      "circle_args": [
+        "circle"
+      ],
+      "description": "Change a circle's type to family, friends, or other. Changes only the type: the name, members, sharing, and ownership stay as they are (a new name is rename_circle). Takes a confirmed circle id, never a spoken name.",
+      "firebase_plane": false,
+      "gateway_action_id": "location.set_circle_kind",
+      "name": "set_circle_kind",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "circle": {
+            "additionalProperties": false,
+            "properties": {
+              "circle_id": {
+                "description": "Canonical circle id from list_circles/confirm_circle.",
+                "maxLength": 36,
+                "minLength": 36,
+                "title": "Circle Id",
+                "type": "string"
+              }
+            },
+            "required": [
+              "circle_id"
+            ],
+            "type": "object"
+          },
+          "kind": {
+            "description": "The circle's new type: family, friends, or other.",
+            "enum": [
+              "family",
+              "friends",
+              "other"
+            ],
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "circle",
+          "kind"
+        ],
+        "type": "object"
+      },
+      "person_args": [],
+      "policy": "confirm_voice",
+      "result_statuses": [
+        "already_kind",
+        "kind_changed"
+      ],
+      "tier": "voice",
+      "ui_refresh": [
+        "location_circles"
       ]
     },
     {

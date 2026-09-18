@@ -1100,3 +1100,54 @@ async def test_device_tools_are_declared_to_the_provider_from_one_home():
         assert declared[spec.name] == spec.declaration()
     assert "one_home" in fake.live_config["system_instruction"]
     assert RESUME in fake.live_config["system_instruction"]
+
+
+# --- app_context: the circle on screen is a typed hint, never prompt text ------
+
+
+FAMILY_ID = "11111111-1111-4111-8111-111111111111"
+
+
+async def test_app_context_carries_the_active_circle_id_as_a_typed_field():
+    conversations = MemoryConversationStore()
+    transport = FakeTransport([AUTH])
+    fake = FakeLive([LiveEvent(kind="setup_complete")])
+    session = _session(transport, fake, conversations=conversations)
+    task = asyncio.create_task(session.run())
+    await asyncio.sleep(0.2)
+    transport.push(
+        {
+            "type": "app_context",
+            "screen_id": "one_location_circle",
+            "route": "/one/location",
+            "screen_state": {"member_count": 4},
+            "active_circle_id": FAMILY_ID,
+        }
+    )
+    await asyncio.sleep(0.2)
+    assert session.ctx.screen.active_circle_id == FAMILY_ID
+    assert session.ctx.screen.screen_id == "one_location_circle"
+    # Persisted with the screen context so a resumed conversation keeps it.
+    assert conversations.rows[CONV].screen_context["active_circle_id"] == FAMILY_ID
+    # Not smuggled into screen_state, which is rendered into the prompt.
+    assert "active_circle_id" not in session.ctx.screen.screen_state
+    # A screen without a circle clears the hint rather than keeping a stale one.
+    transport.push({"type": "app_context", "screen_id": "one_home", "route": "/one"})
+    await asyncio.sleep(0.2)
+    assert session.ctx.screen.active_circle_id is None
+    await _finish(transport, task)
+
+
+async def test_app_context_rejects_a_malformed_active_circle_id():
+    transport = FakeTransport([AUTH])
+    fake = FakeLive([LiveEvent(kind="setup_complete")])
+    session = _session(transport, fake)
+    task = asyncio.create_task(session.run())
+    await asyncio.sleep(0.2)
+    transport.push(
+        {"type": "app_context", "screen_id": "one_location_circle", "active_circle_id": "family"}
+    )
+    await asyncio.sleep(0.2)
+    assert session.ctx.screen.active_circle_id is None
+    assert transport.frames("error"), "a malformed frame is refused, not silently accepted"
+    await _finish(transport, task)

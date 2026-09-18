@@ -254,12 +254,57 @@ async def _directory_record(ctx: ToolContext, user_id: str) -> dict[str, Any] | 
     return record
 
 
+async def _roster_record(ctx: ToolContext, user_id: str) -> dict[str, Any] | None:
+    """One person as a current member of the circle whose roster offered them.
+
+    Only consulted when ``resolve``/``list_circle_members`` offered this id
+    from a circle roster: the circle service re-reads the membership, so a
+    member who left since the roster was read is not confirmed.
+    """
+    circle_id = ctx.entities.offered_person_circle_id
+    if not circle_id or user_id not in ctx.entities.offered_person_ids:
+        return None
+    from hushh_mcp.services.one_location_circle_service import (
+        OneLocationCircleError,
+        OneLocationCircleService,
+    )
+
+    service = ctx.service("circles", OneLocationCircleService)
+    try:
+        circle = dict(
+            await asyncio.to_thread(service.get_circle, user_id=ctx.user_id, circle_id=circle_id)
+            or {}
+        )
+    except OneLocationCircleError as err:
+        raise ConnectionsError(str(err.code), str(err.message)) from err
+    for row in circle.get("members") or []:
+        if str(row.get("userId") or "") != user_id:
+            continue
+        record = _blank_record(user_id)
+        key_id = str(row.get("keyId") or "") or None
+        record.update(
+            public_person_ref=row.get("publicPersonRef"),
+            display_name=str(row.get("displayName") or "").strip() or UNNAMED,
+            photo_url=row.get("photoUrl"),
+            relationship=str(row.get("relationship") or "none"),
+            has_location_key=bool(key_id) or bool(row.get("canReceiveLocation")),
+            key_id=key_id,
+            phone_verified=bool(row.get("phoneVerified")),
+            is_ria=bool(row.get("isRia")),
+        )
+        return record
+    return None
+
+
 async def _fresh_record(
     ctx: ToolContext, user_id: str
 ) -> tuple[PeopleSnapshot, dict[str, Any] | None]:
-    """The person's current record: from the people snapshot, else the directory."""
+    """The person's current record: from the people snapshot, else the roster
+    that offered them, else the directory."""
     snapshot = await load_people_snapshot(ctx)
     record = snapshot.people.get(user_id)
+    if record is None:
+        record = await _roster_record(ctx, user_id)
     if record is None:
         record = await _directory_record(ctx, user_id)
     return snapshot, record
@@ -415,7 +460,7 @@ async def _directory_candidates(ctx: ToolContext, target: str) -> list[dict[str,
 async def resolve_person(ctx: ToolContext, args: ResolvePersonInput) -> ToolResult:
     names = split_spoken_names(args.spoken_name)
     if len(names) != 1:
-        ctx.entities.offered_person_ids = []
+        ctx.entities.offer_people([])
         return Rejected(
             reason_code="one_name_at_a_time",
             needs="repeat_name",
@@ -423,7 +468,7 @@ async def resolve_person(ctx: ToolContext, args: ResolvePersonInput) -> ToolResu
         )
     target = normalize_spoken_name(names[0])
     if not target:
-        ctx.entities.offered_person_ids = []
+        ctx.entities.offer_people([])
         return Rejected(reason_code="invalid_arguments", needs="repeat_name")
 
     try:
@@ -431,7 +476,7 @@ async def resolve_person(ctx: ToolContext, args: ResolvePersonInput) -> ToolResu
             snapshot = await load_people_snapshot(ctx)
             pool = list(snapshot.people.values())
             if not pool:
-                ctx.entities.offered_person_ids = []
+                ctx.entities.offer_people([])
                 return ResolvePersonResult(
                     status="no_connections",
                     needs="invite",
@@ -448,11 +493,11 @@ async def resolve_person(ctx: ToolContext, args: ResolvePersonInput) -> ToolResu
                     record["has_location_key"] = known["has_location_key"]
                     record["phone_verified"] = known["phone_verified"]
     except ServiceError as err:
-        ctx.entities.offered_person_ids = []
+        ctx.entities.offer_people([])
         return _rejected(err)
 
     ranked = rank_candidates(target, pool)
-    ctx.entities.offered_person_ids = [item.user_id for item in ranked]
+    ctx.entities.offer_people([item.user_id for item in ranked])
     candidates = [_candidate(item) for item in ranked]
     where = "your connections" if args.pool == "connections" else "the Hussh directory"
     if not ranked:
@@ -731,10 +776,15 @@ class RespondConnectionRequestInput(ToolInput):
 
 
 class RespondConnectionRequestResult(ToolResult):
-    status: Literal["accepted", "rejected"]
+    # Execution outcome. A successful decline is ``declined``, never
+    # ``rejected``: ``rejected`` is the executor's word for "this call was
+    # refused", and a decline that went through is not a refusal.
+    status: Literal["accepted", "declined"]
     request_id: str
     user_id: str
     display_name: str
+    # Domain state of the request row as the service reports it.
+    request_status: Literal["accepted", "rejected"]
     connection_id: str | None = None
 
 
@@ -790,6 +840,7 @@ async def respond_connection_request(
         ctx.entities.remember_person(_confirmed(record))
         return RespondConnectionRequestResult(
             status="accepted",
+            request_status="accepted",
             request_id=args.request_id,
             user_id=request["user_id"],
             display_name=name,
@@ -798,7 +849,8 @@ async def respond_connection_request(
         )
     if status == "rejected":
         return RespondConnectionRequestResult(
-            status="rejected",
+            status="declined",
+            request_status="rejected",
             request_id=args.request_id,
             user_id=request["user_id"],
             display_name=name,

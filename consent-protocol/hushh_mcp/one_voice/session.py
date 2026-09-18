@@ -453,6 +453,7 @@ class VoiceSession:
             available_action_ids=list(frame.available_action_ids)[:200],
             screen_state=dict(sanitized.get("screen_state") or {}),
             os_location_permission=frame.os_location_permission,
+            active_circle_id=frame.active_circle_id,
         )
         await self.conversations.save_screen_context(
             user_id=self.ctx.user_id,

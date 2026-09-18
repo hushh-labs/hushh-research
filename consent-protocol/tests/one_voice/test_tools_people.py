@@ -746,7 +746,10 @@ async def test_respond_declines():
     result = await people.respond_connection_request(
         ctx, people.RespondConnectionRequestInput(request_id=REQ_IN, accept=False)
     )
-    assert result.status == "rejected"
+    # A decline that went through is a success outcome; the request row is
+    # what the service calls "rejected". Never conflate the two.
+    assert result.status == "declined" and result.request_status == "rejected"
+    assert result.public()["status"] not in {"rejected", "unsupported"}
     assert result.spoken_facts == ["Declined the request from Rahul Verma."]
     assert ("reject_request", (OWNER, REQ_IN)) in connections.calls
 
