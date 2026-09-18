@@ -22,6 +22,7 @@ import {
 } from "@/lib/onboarding/one-capabilities";
 import {
   getCapabilityStatusDisplay,
+  isCapabilityOnboarded,
   type CapabilityStatusTone,
 } from "@/lib/onboarding/capability-status-display";
 import { getCapabilitySetupCopy } from "@/lib/onboarding/capability-setup-copy";
@@ -44,6 +45,8 @@ type OneAgentMode = {
   href: string;
   icon: OneCapabilityIcon;
   statusTone: CapabilityStatusTone;
+  /** Full color once genuinely set up; greyscale otherwise -- see isCapabilityOnboarded. */
+  isOnboarded: boolean;
   primaryMetric: {
     value: string;
     label: string;
@@ -409,6 +412,7 @@ function buildModes(
         : capability.href,
       icon: capability.icon,
       statusTone: display.tone,
+      isOnboarded: isCapabilityOnboarded(status),
       primaryMetric,
       paletteIndex,
       tone: capability.tone,
@@ -601,7 +605,7 @@ function AgentGridItem({
         icon={mode.icon}
         tone={mode.tone}
         paletteIndex={mode.paletteIndex}
-        isActive={mode.statusTone !== "muted"}
+        isActive={mode.isOnboarded}
         size="roster-lg"
         treatment="profile"
         glyphContrast="default"
@@ -642,7 +646,7 @@ function AgentListRow({ mode }: { mode: OneAgentMode }) {
           icon={mode.icon}
           tone={mode.tone}
           paletteIndex={mode.paletteIndex}
-          isActive={mode.statusTone !== "muted"}
+          isActive={mode.isOnboarded}
           size="roster"
           treatment="profile"
           glyphContrast="default"
