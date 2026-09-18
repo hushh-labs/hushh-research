@@ -42758,17 +42758,14 @@
     }
   ],
   "semantic_diff": {
-    "added": [
-      "screens:screen:/one/profile/connectors",
-      "screens:screen:/one/profile/connectors/oauth/return"
-    ],
+    "added": [],
     "breaking": [],
     "changed": [
       "screens:screen:/ria"
     ],
     "compatible": [],
     "deprecated": [],
-    "from_revision": "5fe7cf2eaf8964c8",
+    "from_revision": "9195b95c1e25685f",
     "migrated": [],
     "removed": []
   },
@@ -45233,6 +45230,7 @@
           "6448b901792d40a4",
           "6be9b0c2414cdb98",
           "8e37ce83397a3ac7",
+          "9195b95c1e25685f",
           "a4e4c3976f85ab29",
           "aaec9bce8ec29c93",
           "af42538767aa6642",
@@ -45259,6 +45257,7 @@
           "6448b901792d40a4",
           "6be9b0c2414cdb98",
           "8e37ce83397a3ac7",
+          "9195b95c1e25685f",
           "a4e4c3976f85ab29",
           "aaec9bce8ec29c93",
           "af42538767aa6642",
@@ -45285,6 +45284,7 @@
           "6448b901792d40a4",
           "6be9b0c2414cdb98",
           "8e37ce83397a3ac7",
+          "9195b95c1e25685f",
           "a4e4c3976f85ab29",
           "aaec9bce8ec29c93",
           "af42538767aa6642",
@@ -45311,6 +45311,7 @@
           "6448b901792d40a4",
           "6be9b0c2414cdb98",
           "8e37ce83397a3ac7",
+          "9195b95c1e25685f",
           "a4e4c3976f85ab29",
           "aaec9bce8ec29c93",
           "af42538767aa6642",
@@ -45337,6 +45338,7 @@
           "6448b901792d40a4",
           "6be9b0c2414cdb98",
           "8e37ce83397a3ac7",
+          "9195b95c1e25685f",
           "a4e4c3976f85ab29",
           "aaec9bce8ec29c93",
           "af42538767aa6642",
@@ -45363,6 +45365,7 @@
           "6448b901792d40a4",
           "6be9b0c2414cdb98",
           "8e37ce83397a3ac7",
+          "9195b95c1e25685f",
           "a4e4c3976f85ab29",
           "aaec9bce8ec29c93",
           "af42538767aa6642",
@@ -45389,6 +45392,7 @@
           "6448b901792d40a4",
           "6be9b0c2414cdb98",
           "8e37ce83397a3ac7",
+          "9195b95c1e25685f",
           "a4e4c3976f85ab29",
           "aaec9bce8ec29c93",
           "af42538767aa6642",
