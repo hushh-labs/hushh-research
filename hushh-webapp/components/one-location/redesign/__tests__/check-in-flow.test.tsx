@@ -187,6 +187,38 @@ describe("CheckInFlow nearby private-sharing handoff", () => {
     expect(screen.getByRole("button", { name: /Aarav Mehta/ })).toBeEnabled();
   });
 
+  it("hides someone else's SMS Circle from private Check-In", () => {
+    const onCheckIn = vi.fn<LocationHubViewModel["onCheckIn"]>();
+    const vm = viewModel(onCheckIn);
+    vm.circles = [
+      {
+        id: "own-sms-circle",
+        name: "My SMS Circle",
+        kind: "other",
+        role: "owner",
+        memberCount: 2,
+        memberLimit: 100,
+        isSystem: true,
+        systemKind: "sms",
+      },
+      {
+        id: "foreign-sms-circle",
+        name: "Riya's SMS Circle",
+        kind: "other",
+        role: "member",
+        memberCount: 3,
+        memberLimit: 100,
+        isSystem: true,
+        systemKind: "sms",
+      },
+    ];
+
+    render(<CheckInFlow vm={vm} entrySource="nearby" onClose={vi.fn()} />);
+
+    expect(screen.getByText("My SMS Circle")).toBeInTheDocument();
+    expect(screen.queryByText("Riya's SMS Circle")).not.toBeInTheDocument();
+  });
+
   it("recenters a confirmed check-in without capturing location again", async () => {
     const onCheckIn = vi
       .fn<LocationHubViewModel["onCheckIn"]>()

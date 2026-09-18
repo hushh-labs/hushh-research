@@ -1573,11 +1573,16 @@ export function LocationImmersiveMap({
 
   /**
    * The owner's own position is drawn as their avatar in HTML, so the renderer
-   * must not also draw a pin under it — two markers on one coordinate.
+   * must never draw a pin under it -- two markers on one coordinate, and the
+   * generic pin flashes on first paint / for a beat on every cold start while
+   * the camera has not reported yet.
    *
-   * Three flags, none of which changes more than once per screen, so this does
-   * not churn the marker bridge: `rendererReady` is the consent gate,
-   * `cameraReported` is whether anything can be projected at all, and
+   * The self marker stays in `visibleMarkers` (initial framing, people tray,
+   * search index all count it) but is always filtered out of `rendererMarkers`
+   * and `nameLabels` below: before the avatar can project there is briefly NO
+   * self marker rather than the WRONG one. The HTML avatar itself carries the
+   * initials fallback, so it still reads as a face the moment it appears.
+   *
    * Both Your Map and Check-in use the same owner marker. Check-in still keeps
    * its place pin, connector and place-color key; only the generic blue
    * self-location pin is replaced by the owner's avatar.
@@ -1585,20 +1590,13 @@ export function LocationImmersiveMap({
    * Check-in still answers "how far am I from the place I am checking in to?"
    * with the place pin, connector and place-color key. Its owner key is now the
    * avatar itself, so the legend and map agree about the owner's marker.
-   *
-   * Everything else about the self marker is unchanged — it stays in
-   * `visibleMarkers`, so initial framing, the people tray and the search index
-   * still count it.
    */
   const selfPinDrawnAsAvatar = rendererReady && cameraReported;
 
-  /** What the renderer is asked to draw: everything except the owner's own pin. */
+  /** What the renderer is asked to draw: everything except the owner's own pin -- always. */
   const rendererMarkers = useMemo(
-    () =>
-      selfPinDrawnAsAvatar
-        ? visibleMarkers.filter((marker) => marker.kind !== "self")
-        : visibleMarkers,
-    [selfPinDrawnAsAvatar, visibleMarkers],
+    () => visibleMarkers.filter((marker) => marker.kind !== "self"),
+    [visibleMarkers],
   );
 
   /**

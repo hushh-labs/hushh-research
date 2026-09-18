@@ -29,6 +29,7 @@ type MarkerStub = {
   setMap: ReturnType<typeof vi.fn>;
   setPosition: ReturnType<typeof vi.fn>;
   getPosition: ReturnType<typeof vi.fn>;
+  setIcon: ReturnType<typeof vi.fn>;
 };
 
 let createdMaps: object[] = [];
@@ -52,6 +53,7 @@ beforeEach(() => {
   class MarkerStubImpl {
     setMap = vi.fn();
     setPosition = vi.fn();
+    setIcon = vi.fn();
     getPosition = vi.fn(() => null);
     constructor() {
       createdMarkers.push(this as unknown as MarkerStub);
@@ -62,6 +64,20 @@ beforeEach(() => {
     maps: {
       Map: MapStub,
       Marker: MarkerStubImpl,
+      // Real API surface: the self marker always builds an avatar-circle
+      // icon (photo or initials fallback, never the stock pin).
+      Size: class {
+        constructor(
+          public width: number,
+          public height: number,
+        ) {}
+      },
+      Point: class {
+        constructor(
+          public x: number,
+          public y: number,
+        ) {}
+      },
       event: { clearInstanceListeners },
     },
   };

@@ -566,7 +566,10 @@ export default function ConnectPageClient() {
   const [connectionsPage, setConnectionsPage] = useState(1);
   const [connectionsHasMore, setConnectionsHasMore] = useState(false);
   const [connectionsTotalCount, setConnectionsTotalCount] = useState(0);
-  const [connectionsExpanded, setConnectionsExpanded] = useState(false);
+  // Open by default: My connections is the first thing a person opens
+  // Connect to see, and a collapsed panel hid the list (and its only retry
+  // affordance on refresh failure) behind one more tap.
+  const [connectionsExpanded, setConnectionsExpanded] = useState(true);
   const [connectionsLoadingMore, setConnectionsLoadingMore] = useState(false);
   const [connectionsRefreshingFirstPage, setConnectionsRefreshingFirstPage] =
     useState(false);

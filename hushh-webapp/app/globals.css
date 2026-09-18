@@ -6364,6 +6364,18 @@ body[data-persona-surface="ria"] {
     font-weight: var(--type-row-label-compact-weight) !important;
     line-height: var(--type-row-label-compact-line) !important;
   }
+
+  /* Opt-in form-label voice for settings-row titles (15px/600/20px -- the
+     same treatment as the Join screen's "Invite code" label). Scoped to
+     `[data-settings-titles="form-label"]` so the global 17px row-label token
+     used across the app is untouched; only surfaces that explicitly ask get
+     the tighter label voice. Same fixed size on mobile and desktop, exactly
+     like the reference label. */
+  [data-settings-titles="form-label"] [data-slot="settings-row-title"] {
+    font-size: 15px !important;
+    font-weight: 600 !important;
+    line-height: 20px !important;
+  }
 }
 
 :is(.ui-text-medium-row-label, .ui-text-row-label-emphasized) {
