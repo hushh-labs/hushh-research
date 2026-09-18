@@ -500,12 +500,48 @@ describe("runSosPanic", () => {
     expect(partial!.grantIds).toContain("g1");
     expect(partial!.grantIds).toContain("g2");
 
-    // saveSosIncident must have been called with BOTH grant ids (best-effort
-    // persistence for the partial incident).
-    expect(saveSosIncidentMock).toHaveBeenCalledTimes(1);
-    const savedIncident = saveSosIncidentMock.mock.calls[0][0];
+    // The last write is the partial incident with BOTH grant ids (best-effort
+    // persistence); the earlier writes are the per-grant checkpoints.
+    const savedIncident = saveSosIncidentMock.mock.calls.at(-1)![0];
     expect(savedIncident.grantIds).toContain("g1");
     expect(savedIncident.grantIds).toContain("g2");
+    expect(saveSosIncidentMock.mock.calls.map((call) => call[0].grantIds)).toEqual([
+      ["g1"],
+      ["g1", "g2"],
+      ["g1", "g2"],
+    ]);
+  });
+
+  it("createGrant throws on the 2nd recipient: partialIncident keeps the 1st grant id, publish ran once, createGrant twice", async () => {
+    const rA = makeRecipient("userA");
+    const rB = makeRecipient("userB");
+    createGrantMock
+      .mockResolvedValueOnce(makeGrant("g1", "userA"))
+      .mockRejectedValueOnce(new Error("second create failed"));
+    const publish = vi.fn().mockResolvedValue(true);
+
+    const err = await runSosPanic({
+      vaultOwnerToken: "tok",
+      ownerUserId: "owner-1",
+      recipients: [rA, rB],
+      point: makePoint(),
+      publish,
+    }).catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(SosPanicError);
+    expect((err as SosPanicError).message).toBe("second create failed");
+    const partial = (err as SosPanicError).partialIncident;
+    expect(partial).not.toBeNull();
+    expect(partial!.grantIds).toEqual(["g1"]);
+    expect(partial!.ownerUserId).toBe("owner-1");
+    expect(createGrantMock).toHaveBeenCalledTimes(2);
+    expect(publish).toHaveBeenCalledTimes(1);
+    // The checkpoint after g1 and the partial write in the catch carry the
+    // same single id and the same owner; no write ever named g2.
+    expect(saveSosIncidentMock.mock.calls.map((call) => call[0])).toEqual([
+      { grantIds: ["g1"], startedAt: partial!.startedAt, ownerUserId: "owner-1" },
+      { grantIds: ["g1"], startedAt: partial!.startedAt, ownerUserId: "owner-1" },
+    ]);
   });
 
   it("returns an incident with all grant ids and a startedAt ISO string", async () => {
@@ -570,11 +606,11 @@ describe("runSosPanic", () => {
       expect(call[0].shareKind).toBe("sos");
       expect(call[0].reason).toBe("sos_panic");
     }
-    const saved = saveSosIncidentMock.mock.calls[0][0];
+    const saved = saveSosIncidentMock.mock.calls.at(-1)![0];
     expect(saved.grantIds).toEqual(createdIds);
   });
 
-  it("on full success calls saveSosIncident exactly once", async () => {
+  it("on full success persists a checkpoint after each grant and the complete incident last", async () => {
     const rA = makeRecipient("userA");
     const rB = makeRecipient("userB");
     createGrantMock
@@ -589,9 +625,37 @@ describe("runSosPanic", () => {
       publish,
     });
 
-    expect(saveSosIncidentMock).toHaveBeenCalledTimes(1);
-    const saved = saveSosIncidentMock.mock.calls[0][0];
+    // One idempotent overwrite per created grant, then the final record: a
+    // reload between the two creates would still find g1 to stop.
+    expect(saveSosIncidentMock).toHaveBeenCalledTimes(3);
+    expect(saveSosIncidentMock.mock.calls.map((call) => call[0].grantIds)).toEqual([
+      ["g1"],
+      ["g1", "g2"],
+      ["g1", "g2"],
+    ]);
+    const saved = saveSosIncidentMock.mock.calls.at(-1)![0];
     expect(saved.grantIds).toEqual(["g1", "g2"]);
+    // No owner was named, so the record is a legacy, unscoped one.
+    expect(saved.ownerUserId).toBeUndefined();
+  });
+
+  it("stamps the owner on every persisted record when the caller names one", async () => {
+    const rA = makeRecipient("userA");
+    createGrantMock.mockResolvedValueOnce(makeGrant("g1", "userA"));
+    const publish = vi.fn().mockResolvedValue(undefined);
+
+    const incident = await runSosPanic({
+      vaultOwnerToken: "tok",
+      ownerUserId: "owner-1",
+      recipients: [rA],
+      point: makePoint(),
+      publish,
+    });
+
+    expect(incident.ownerUserId).toBe("owner-1");
+    for (const call of saveSosIncidentMock.mock.calls) {
+      expect(call[0].ownerUserId).toBe("owner-1");
+    }
   });
 
   it("does not call saveSosIncident when createGrant throws on the first recipient — throws SosPanicError with null partialIncident", async () => {

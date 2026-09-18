@@ -134,3 +134,31 @@ def test_http_confirm_executes_with_a_verified_proof(app):
     assert response.json()["result"]["status"] == "sent"
     assert proofs == [("fresh", USER)]
     assert store.confirmed == ["http"] and store.row.status == "executed"
+
+
+def test_http_confirm_refuses_a_device_step_tool_and_leaves_the_card_tappable(app, monkeypatch):
+    """A tool whose result hands the device a step (Save My Soul's publish)
+    can only be confirmed inside the live session that runs and verifies it;
+    over HTTP it would arm grants nobody publishes or reports."""
+    from hushh_mcp.one_voice.tools import sos
+
+    application, store, proofs = app
+    trigger = next(t for t in sos.TOOLS if t.name == "trigger_save_my_soul")
+    assert trigger.device_step is True
+    store.row.tool_name = trigger.name
+    store.row.gateway_action_id = trigger.gateway_action_id
+    store.row.tier = "tap"
+    monkeypatch.setattr(
+        registry, "get_tool", lambda name: {trigger.name: trigger}.get(str(name or ""))
+    )
+    response = TestClient(application).post(
+        f"/api/one/voice/pending-actions/{ROW}/confirm",
+        json={"receipt_token": "whatever", "firebase_id_token": "fresh"},
+    )
+    assert response.status_code == 409
+    assert response.json()["detail"] == {
+        "code": "SESSION_CONFIRM_REQUIRED",
+        "tool": "trigger_save_my_soul",
+    }
+    assert proofs == []
+    assert store.confirmed == [] and store.row.status == "pending"

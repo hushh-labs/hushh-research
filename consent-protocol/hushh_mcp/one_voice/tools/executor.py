@@ -45,6 +45,9 @@ logger = logging.getLogger(__name__)
 # a request id), so all open cards are superseded, not only those with typed
 # person/circle arguments.
 LOOKUP_TOOLS = frozenset({"resolve_person", "resolve_circle"})
+# Key under which a card's prepared-effect snapshot rides in the stored args.
+# Stripped before the input model sees the args again at execution.
+PREPARED_KEY = "_prepared"
 
 
 @dataclass
@@ -158,7 +161,39 @@ class ToolExecutor:
         if spec.name in LOOKUP_TOOLS:
             superseded = await self._supersede_targeted(ctx)
         if spec.policy.needs_confirmation:
-            summary = spec.summarize(ctx, parsed) if spec.summarize else spec.description
+            args_json = parsed.model_dump(mode="json")
+            if spec.prepare is not None:
+                # The exact effect is computed from authorized state now, so
+                # the card names what will really happen and execution can
+                # tell when that changed. A ToolResult answers without a card.
+                try:
+                    prepared = await spec.prepare(ctx, parsed)
+                except Exception as exc:  # noqa: BLE001 - no card on an unreadable effect
+                    logger.warning(
+                        "one_voice.tool.prepare_failed tool=%s error=%s",
+                        spec.name,
+                        type(exc).__name__,
+                    )
+                    return ToolCallOutcome(
+                        result=Rejected(
+                            reason_code="prepare_failed",
+                            spoken_facts=[
+                                "I couldn't check what that would do right now, so I "
+                                "haven't prepared it. Nothing was changed."
+                            ],
+                        ),
+                        spec=spec,
+                        parsed=parsed,
+                        superseded=superseded,
+                    )
+                if isinstance(prepared, ToolResult):
+                    return ToolCallOutcome(
+                        result=prepared, spec=spec, parsed=parsed, superseded=superseded
+                    )
+                summary = prepared.summary
+                args_json[PREPARED_KEY] = dict(prepared.snapshot)
+            else:
+                summary = spec.summarize(ctx, parsed) if spec.summarize else spec.description
             superseded = await self.pending.list_open(
                 user_id=ctx.user_id, conversation_id=ctx.conversation_id
             )
@@ -168,7 +203,7 @@ class ToolExecutor:
                 tool_name=spec.name,
                 gateway_action_id=spec.gateway_action_id,
                 tier=spec.policy.tier or "tap",
-                args=parsed.model_dump(mode="json"),
+                args=args_json,
                 summary=summary,
             )
             return ToolCallOutcome(
@@ -227,10 +262,14 @@ class ToolExecutor:
                 result=Rejected(reason_code="pending_not_confirmed"), spec=spec, pending=pending
             )
         result: ToolResult
+        args = dict(pending.args or {})
+        snapshot = args.pop(PREPARED_KEY, None)
+        ctx.prepared = dict(snapshot) if isinstance(snapshot, dict) else None
         try:
-            parsed = spec.input_model.model_validate(pending.args)
+            parsed = spec.input_model.model_validate(args)
             result = await spec.handler(ctx, parsed)
         except Exception as exc:  # noqa: BLE001 - recorded as failed, never as success
+            ctx.prepared = None
             await self.pending.resolve(
                 user_id=ctx.user_id,
                 pending_action_id=pending.id,
@@ -250,6 +289,7 @@ class ToolExecutor:
                 spec=spec,
                 pending=pending,
             )
+        ctx.prepared = None
         if spec.ui_refresh and result.status not in {"rejected", "unsupported"}:
             result.ui_refresh = sorted(set(result.ui_refresh) | set(spec.ui_refresh))
         status = "failed" if result.status in {"rejected", "unsupported"} else "executed"

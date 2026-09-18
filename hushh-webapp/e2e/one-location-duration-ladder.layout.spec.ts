@@ -175,11 +175,9 @@ async function buildFixture(customOpen = false): Promise<string> {
 }
 
 /**
- * The nearby Check-in sheet reuses these exact cell classes for its "Stay
- * visible for" pills. It used to render morphy <Button>s at size="default",
- * which are 50px tall with a 17px label — 6px and 2px more than this app's own
- * duration control, on a sheet the founder asked to make smaller. Measuring
- * them here, against the same constants, is what stops the two drifting again.
+ * The share duration ladder's own cells. (The nearby Check-in sheet's "Stay
+ * visible for" choice used to reuse these classes as pills; it is now one
+ * dropdown, so this spec covers the ladder only.)
  */
 test.describe("Check-in duration pills reuse the ladder cell", () => {
   for (const width of WIDTHS) {

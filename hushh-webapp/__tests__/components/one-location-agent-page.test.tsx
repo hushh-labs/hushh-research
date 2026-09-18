@@ -1799,7 +1799,7 @@ describe("OneLocationAgentPage", () => {
       }),
     ).toBeTruthy();
     expect(within(actions).getByText("Ask for location")).toBeTruthy();
-    expect(within(actions).getByText("Arrival confirm")).toBeTruthy();
+    expect(within(actions).getByText("Check In")).toBeTruthy();
     const retiredActionLabel = ["Their", "Location"].join(" ");
     expect(actions.textContent).not.toContain(retiredActionLabel);
     expect(within(actions).queryByText("Confirm Arrival")).toBeNull();
