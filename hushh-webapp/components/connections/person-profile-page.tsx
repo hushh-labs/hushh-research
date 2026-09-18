@@ -329,41 +329,51 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
     }
   };
 
-  const revealGrant = async (requestId: string | null) => {
-    if (!requestId || !user || !vaultKey || !vaultOwnerToken || !isVaultUnlocked || !viewerProfile) {
-      toast.error("Unlock your vault to view this grant.");
-      return;
-    }
-    if (decryptedByRequest[requestId]) return;
-    const history = viewerProfile.requestHistory.find((item) => item.requestId === requestId);
-    if (!history) {
-      toast.error("This shared information is not available right now.");
-      return;
-    }
-    setDecryptingRequestId(requestId);
-    try {
-      const connector = await OneKycClientZkService.ensureConnector({
-        userId: user.uid,
-        vaultKey,
-        vaultOwnerToken,
-      });
-      const exports = await PersonProfileService.getInformationRequestExports({
-        bundleId: history.bundleId,
-        vaultOwnerToken,
-      });
-      const exact = exports.find((item) => item.requestId === requestId);
-      if (!exact) throw new Error("This shared information is not available right now.");
-      const payload = await OneKycClientZkService.decryptScopedExport({
-        exportPackage: exact.encryptedExport,
-        connector,
-      });
-      setDecryptedByRequest((current) => ({ ...current, [requestId]: payload }));
-    } catch (reason) {
-      toast.error(oneLocationErrorMessage(reason, "This shared information could not be opened."));
-    } finally {
-      setDecryptingRequestId(null);
-    }
-  };
+  const revealGrant = useCallback(
+    async (requestId: string | null) => {
+      if (!requestId || !user || !vaultKey || !vaultOwnerToken || !isVaultUnlocked || !viewerProfile) {
+        toast.error("Unlock your vault to view this grant.");
+        return;
+      }
+      if (decryptedByRequest[requestId]) return;
+      const history = viewerProfile.requestHistory.find((item) => item.requestId === requestId);
+      if (!history) {
+        toast.error("This shared information is not available right now.");
+        return;
+      }
+      setDecryptingRequestId(requestId);
+      try {
+        const connector = await OneKycClientZkService.ensureConnector({
+          userId: user.uid,
+          vaultKey,
+          vaultOwnerToken,
+        });
+        const exports = await PersonProfileService.getInformationRequestExports({
+          bundleId: history.bundleId,
+          vaultOwnerToken,
+        });
+        const exact = exports.find((item) => item.requestId === requestId);
+        if (!exact) throw new Error("This shared information is not available right now.");
+        const payload = await OneKycClientZkService.decryptScopedExport({
+          exportPackage: exact.encryptedExport,
+          connector,
+        });
+        setDecryptedByRequest((current) => ({ ...current, [requestId]: payload }));
+      } catch (reason) {
+        toast.error(oneLocationErrorMessage(reason, "This shared information could not be opened."));
+      } finally {
+        setDecryptingRequestId(null);
+      }
+    },
+    [
+      decryptedByRequest,
+      isVaultUnlocked,
+      user,
+      vaultKey,
+      vaultOwnerToken,
+      viewerProfile,
+    ],
+  );
 
   const allGrants = useMemo(() => viewerProfile?.grants || [], [viewerProfile?.grants]);
 
@@ -426,7 +436,17 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
     if (pendingAll.length && pendingAll[0]?.requestId) {
       void revealGrant(pendingAll[0].requestId);
     }
-  }, [isVaultUnlocked, vaultKey, vaultOwnerToken, allGrants, filteredGrants, user, decryptedByRequest, decryptingRequestId]);
+  }, [
+    isVaultUnlocked,
+    vaultKey,
+    vaultOwnerToken,
+    allGrants,
+    filteredGrants,
+    user,
+    decryptedByRequest,
+    decryptingRequestId,
+    revealGrant,
+  ]);
 
   const cancelInformationRequest = async (bundleId: string) => {
     if (!user || !vaultOwnerToken) {

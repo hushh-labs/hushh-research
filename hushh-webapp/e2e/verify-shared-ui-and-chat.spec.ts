@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test } from "@playwright/test";
 
 const reviewer1PersonRef = "5d6020b2-95f3-4b30-b7a7-e4b60b4a039e";
 const appOrigin = process.env.BASE_URL || "http://localhost:3001";
