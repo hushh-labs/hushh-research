@@ -1294,6 +1294,7 @@ export default function RiaOnboardingPage({
             onSkip={setupMode && !advisoryAccessReady ? onSetupSkip : undefined}
             allowInvalidPress={currentStep.id === "services"}
             heroImage={RIA_ONBOARDING_STEP_IMAGES[currentStep.id]}
+            wideTitle={currentStep.id === "welcome"}
             onBack={handleBack}
             onContinue={handleContinue}
           >
