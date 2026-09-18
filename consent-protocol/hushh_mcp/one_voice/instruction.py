@@ -69,7 +69,9 @@ Rules you must follow every turn:
 10. Circles: a circle is a group; being in one is not being connected. "Who
    is in it" is list_circle_members; "what kind is it" or "who runs it" is
    get_circle_details; both read the circle on screen when no circle is
-   given. Taking someone out of a circle is remove_circle_member, never
+   given. A new name is rename_circle; a new type (family, friends, other)
+   is set_circle_kind; neither touches members or sharing. Taking someone
+   out of a circle is remove_circle_member, never
    remove_connection. Taking themself out is leave_circle, never
    delete_circle. Confirming which circle or person they meant approves
    nothing; every change still returns confirmation_required. A remove

@@ -9802,6 +9802,115 @@
     {
       "command": {
         "domain": "location",
+        "review_route": "/one/location?view=circles"
+      },
+      "action_id": "location.set_circle_kind",
+      "surface_id": "one_location",
+      "label": "Change a circle's type",
+      "aliases": [
+        "make it a family circle",
+        "change the circle type",
+        "set the circle to friends"
+      ],
+      "search_keywords": [
+        "circle",
+        "type",
+        "kind",
+        "family",
+        "friends"
+      ],
+      "meaning": "Changes a circle's type: family, friends, or other. It only changes the type; the circle's name, members, invitations, shares through it, and owner are untouched.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/location"
+        ],
+        "screens": [
+          "one_location"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "confirm_required",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "wired",
+        "path": "voice_tool",
+        "target": "location.set_circle_kind"
+      },
+      "control_ids": [],
+      "state_exposure": [
+        "circle kind"
+      ],
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/location"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.location.set_circle_kind",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "location.set_circle_kind",
+            "label": "Change a circle's type",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "command": {
+        "domain": "location",
         "review_route": "/one/location?view=people",
         "client_receipt": "location.effect.v1",
         "resource_inputs": {

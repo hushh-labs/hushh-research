@@ -748,6 +748,75 @@ def summarize_rename_circle(ctx: ToolContext, args: RenameCircleInput) -> str:
     return f"rename {_circle_label(_circle_name(ctx, args.circle.circle_id))} to {args.name}"
 
 
+# -- set_circle_kind --------------------------------------------------------------
+
+
+class SetCircleKindInput(ToolInput):
+    circle: CircleRef
+    kind: CircleKind = Field(description="The circle's new type: family, friends, or other.")
+
+
+class SetCircleKindResult(ToolResult):
+    status: Literal["kind_changed", "already_kind"]
+    circle: CircleSummary
+    previous_kind: str
+
+
+async def set_circle_kind(ctx: ToolContext, args: SetCircleKindInput) -> ToolResult:
+    """Change only the circle's type. Bound to ``location.set_circle_kind``, its
+    own gateway action: a kind change never rides a rename's approval, and the
+    write passes ``name=None`` so the service's COALESCE leaves the name (and
+    everything else) exactly as it is."""
+    circle_id = args.circle.circle_id
+    service = _service(ctx)
+    try:
+        current = dict(
+            await asyncio.to_thread(
+                service.get_circle_overview, user_id=ctx.user_id, circle_id=circle_id
+            )
+            or {}
+        )
+        previous = str(current.get("kind") or "other")
+        if previous == args.kind:
+            circle = _remember(ctx, current)
+            return SetCircleKindResult(
+                status="already_kind",
+                circle=CircleSummary.from_row(current),
+                previous_kind=previous,
+                spoken_facts=[f"{circle.name} is already a {_kind_word(args.kind)}."],
+            )
+        row = dict(
+            await asyncio.to_thread(
+                service.update_circle,
+                owner_user_id=ctx.user_id,
+                circle_id=circle_id,
+                name=None,
+                kind=args.kind,
+            )
+            or {}
+        )
+    except _SERVICE_ERRORS as exc:
+        return _rejected(exc)
+    circle = _remember(ctx, row)
+    return SetCircleKindResult(
+        status="kind_changed",
+        circle=CircleSummary.from_row(row),
+        previous_kind=previous,
+        spoken_facts=[f"{circle.name} is now a {_kind_word(args.kind)}."],
+    )
+
+
+def _kind_word(kind: str) -> str:
+    return "circle" if kind == "other" else f"{kind} circle"
+
+
+def summarize_set_circle_kind(ctx: ToolContext, args: SetCircleKindInput) -> str:
+    label = _circle_label(_circle_name(ctx, args.circle.circle_id))
+    if args.kind == "other":
+        return f"make {label} a plain circle, neither family nor friends"
+    return f"make {label} a {args.kind} circle"
+
+
 # -- delete_circle ----------------------------------------------------------------
 
 
@@ -1399,6 +1468,22 @@ TOOLS: tuple[ToolSpec, ...] = (
         circle_args=("circle",),
         ui_refresh=REFRESH_CIRCLES,
         summarize=summarize_rename_circle,
+    ),
+    ToolSpec(
+        name="set_circle_kind",
+        gateway_action_id="location.set_circle_kind",
+        policy=ToolPolicy.confirm_voice,
+        input_model=SetCircleKindInput,
+        output_model=SetCircleKindResult,
+        description=(
+            "Change a circle's type to family, friends, or other. Changes only the type: the "
+            "name, members, sharing, and ownership stay as they are (a new name is "
+            "rename_circle). Takes a confirmed circle id, never a spoken name."
+        ),
+        handler=set_circle_kind,
+        circle_args=("circle",),
+        ui_refresh=REFRESH_CIRCLES,
+        summarize=summarize_set_circle_kind,
     ),
     ToolSpec(
         name="delete_circle",

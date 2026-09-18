@@ -2001,6 +2001,61 @@
       ]
     },
     {
+      "circle_args": [
+        "circle"
+      ],
+      "description": "Change a circle's type to family, friends, or other. Changes only the type: the name, members, sharing, and ownership stay as they are (a new name is rename_circle). Takes a confirmed circle id, never a spoken name.",
+      "firebase_plane": false,
+      "gateway_action_id": "location.set_circle_kind",
+      "name": "set_circle_kind",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "circle": {
+            "additionalProperties": false,
+            "properties": {
+              "circle_id": {
+                "description": "Canonical circle id from list_circles/confirm_circle.",
+                "maxLength": 36,
+                "minLength": 36,
+                "title": "Circle Id",
+                "type": "string"
+              }
+            },
+            "required": [
+              "circle_id"
+            ],
+            "type": "object"
+          },
+          "kind": {
+            "description": "The circle's new type: family, friends, or other.",
+            "enum": [
+              "family",
+              "friends",
+              "other"
+            ],
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "circle",
+          "kind"
+        ],
+        "type": "object"
+      },
+      "person_args": [],
+      "policy": "confirm_voice",
+      "result_statuses": [
+        "already_kind",
+        "kind_changed"
+      ],
+      "tier": "voice",
+      "ui_refresh": [
+        "location_circles"
+      ]
+    },
+    {
       "circle_args": [],
       "description": "Turn contact matching on or off after the person taps Confirm. On means people who have their number or email can find and auto-connect with them. Turning it on needs the consent_version of the disclosure they accepted on screen.",
       "firebase_plane": true,

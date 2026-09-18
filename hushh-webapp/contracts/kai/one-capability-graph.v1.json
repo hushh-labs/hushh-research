@@ -11439,6 +11439,156 @@
     },
     {
       "aliases": [
+        "Change a circle's type",
+        "make it a family circle",
+        "change the circle type",
+        "set the circle to friends"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "location.set_circle_kind",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "Changes a circle's type: family, friends, or other. It only changes the type; the circle's name, members, invitations, shares through it, and owner are untouched.",
+      "execution": {
+        "binding_ref": "render:location.set_circle_kind",
+        "executor": {
+          "kind": "typed_render",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "EXECUTE",
+        "target": {
+          "path": "voice_tool",
+          "status": "wired",
+          "target": "location.set_circle_kind"
+        }
+      },
+      "goal_id": "goal.location.set_circle_kind",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Change a circle's type",
+      "navigation": {
+        "fallback": "location.set_circle_kind",
+        "routes": [
+          "/one/location"
+        ],
+        "screens": [
+          "one_location"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "mounted_surface_required": true,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": null,
+      "required_entities": [],
+      "search_keywords": [
+        "circle",
+        "type",
+        "kind",
+        "family",
+        "friends"
+      ],
+      "settlement_proof": "approved_render_acknowledgement",
+      "side_effect": {
+        "classification": "render_or_guidance"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
         "Leave a circle",
         "leave my circle",
         "leave the circle",
@@ -34912,7 +35062,7 @@
   "mcp_compatible": true,
   "model_projections": {
     "location": {
-      "brain_revision": "702fe353a1b7b63e7371aa7f",
+      "brain_revision": "e564ceee874ed264d2268e26",
       "capabilities": [
         {
           "candidate_id": "location.accept_circle_invite",
@@ -35947,6 +36097,21 @@
             }
           ],
           "semantic_boundary": "Controls whether incoming location requests are approved without asking the person each time. Applies only to requests that arrive after it is switched on; requests already waiting still need an explicit answer.",
+          "verified_success_boundary": "navigation_settlement_not_product_success"
+        },
+        {
+          "candidate_id": "location.set_circle_kind",
+          "capability_id": "location.set_circle_kind",
+          "confirmation_class": "none",
+          "disposition": "NAVIGATE",
+          "entity_types": [],
+          "feature_group_id": "circles",
+          "intent": "Change a circle's type",
+          "interaction_class": "navigation",
+          "kind": "action",
+          "outcome": "NAVIGATE",
+          "public_slot_types": [],
+          "semantic_boundary": "Changes a circle's type: family, friends, or other. It only changes the type; the circle's name, members, invitations, shares through it, and owner are untouched.",
           "verified_success_boundary": "navigation_settlement_not_product_success"
         },
         {
@@ -37296,6 +37461,21 @@
           "verified_success_boundary": "navigation_settlement_not_product_success"
         },
         {
+          "candidate_id": "location.set_circle_kind",
+          "capability_id": "location.set_circle_kind",
+          "confirmation_class": "none",
+          "disposition": "NAVIGATE",
+          "entity_types": [],
+          "feature_group_id": "circles",
+          "intent": "Change a circle's type",
+          "interaction_class": "navigation",
+          "kind": "action",
+          "outcome": "NAVIGATE",
+          "public_slot_types": [],
+          "semantic_boundary": "Changes a circle's type: family, friends, or other. It only changes the type; the circle's name, members, invitations, shares through it, and owner are untouched.",
+          "verified_success_boundary": "navigation_settlement_not_product_success"
+        },
+        {
           "candidate_id": "location.set_ghost_mode",
           "capability_id": "location.set_ghost_mode",
           "confirmation_class": "none",
@@ -37663,7 +37843,7 @@
         }
       ],
       "known_unbound_implementation_count": 76,
-      "package_digest": "ffae41f4c4dcea4a5cadfd3529878b50e59436c7a2b5c069a23c4ea11b16c0de",
+      "package_digest": "eb3a29187715c78a1b8f6b82e2cdb1213f284155ab0268ff48d8ed2eeeb8bbb8",
       "package_id": "location.brain",
       "package_version": 2,
       "schema_version": "one.location_brain_catalog.v1",
@@ -37728,7 +37908,7 @@
         }
       ],
       "platform": "ios",
-      "projection_digest": "a96915bd87b706a4475c6c0a842d5c7628a1ebf6c9f8a65c1b3047e790291297",
+      "projection_digest": "1486d4c036fee5ad599a8f44599e3bdc5bb6bf1511ddfafeb73640c4bf38a021",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -37742,12 +37922,12 @@
         "capability_runtime_compiler": "9a0b0b573b4e3ae42d2a49ce15f93a7cce70e5dc4046dea14922d7cd6ace9078",
         "capability_runtime_policy": "d3f4ec0d27231ef298372a48696f8ac238f7560d03d8e72c50c7bcb5b0ffd7a9",
         "location_agent_manifest": "25952f13232f1d1adb7664da7c037b59cef093a1389caeb46af3d2771a12ff07",
-        "location_knowledge_package": "ffae41f4c4dcea4a5cadfd3529878b50e59436c7a2b5c069a23c4ea11b16c0de",
+        "location_knowledge_package": "eb3a29187715c78a1b8f6b82e2cdb1213f284155ab0268ff48d8ed2eeeb8bbb8",
         "location_onboarding_runtime": "cd911f5e2e0f09352aeb89a74180a66fab79553423b126583f181d858459ae62",
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
-        "service_knowledge_packages": "f361804817c649a57c89f25e983445883e767a9c0750a5e07eebc1055315ef60"
+        "service_knowledge_packages": "c22b8a2b79cfd668c5190dea42c93893991d8b252e225578c7d55fbe811d622c"
       },
-      "source_revision": "12f82fc1dec40c31",
+      "source_revision": "5fe7cf2eaf8964c8",
       "supported_entrypoints": [
         "typed",
         "voice",
@@ -39265,7 +39445,7 @@
       ]
     },
     "schema_version": "one.capability_platform_projection.v1",
-    "source_revision": "12f82fc1dec40c31",
+    "source_revision": "5fe7cf2eaf8964c8",
     "web": {
       "actions": [
         {
@@ -39308,7 +39488,7 @@
         }
       ],
       "platform": "web",
-      "projection_digest": "3b1f454ee4d25ec968b15b754e848d820614c5f4a1f092ce5bfcaa0f5b959b98",
+      "projection_digest": "514cc079cc97a4826a94306c255cccf1a375e1f0bc427f10a3b4340aa6c252aa",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -39322,12 +39502,12 @@
         "capability_runtime_compiler": "9a0b0b573b4e3ae42d2a49ce15f93a7cce70e5dc4046dea14922d7cd6ace9078",
         "capability_runtime_policy": "d3f4ec0d27231ef298372a48696f8ac238f7560d03d8e72c50c7bcb5b0ffd7a9",
         "location_agent_manifest": "25952f13232f1d1adb7664da7c037b59cef093a1389caeb46af3d2771a12ff07",
-        "location_knowledge_package": "ffae41f4c4dcea4a5cadfd3529878b50e59436c7a2b5c069a23c4ea11b16c0de",
+        "location_knowledge_package": "eb3a29187715c78a1b8f6b82e2cdb1213f284155ab0268ff48d8ed2eeeb8bbb8",
         "location_onboarding_runtime": "cd911f5e2e0f09352aeb89a74180a66fab79553423b126583f181d858459ae62",
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
-        "service_knowledge_packages": "f361804817c649a57c89f25e983445883e767a9c0750a5e07eebc1055315ef60"
+        "service_knowledge_packages": "c22b8a2b79cfd668c5190dea42c93893991d8b252e225578c7d55fbe811d622c"
       },
-      "source_revision": "12f82fc1dec40c31",
+      "source_revision": "5fe7cf2eaf8964c8",
       "supported_entrypoints": [
         "typed",
         "voice"
@@ -40884,7 +41064,7 @@
       "renderer_key": "one_location_workflow_card"
     }
   ],
-  "revision": "12f82fc1dec40c31",
+  "revision": "5fe7cf2eaf8964c8",
   "schema_version": "one.capability_graph.v1",
   "screens": [
     {
@@ -41633,6 +41813,7 @@
         "location.send_check_in",
         "location.send_request",
         "location.set_auto_share",
+        "location.set_circle_kind",
         "location.set_ghost_mode",
         "location.set_precision",
         "location.set_sharing_enabled",
@@ -42561,12 +42742,21 @@
     }
   ],
   "semantic_diff": {
-    "added": [],
+    "added": [
+      "actions:location.set_circle_kind"
+    ],
     "breaking": [],
-    "changed": [],
-    "compatible": [],
+    "changed": [
+      "brains:location",
+      "screens:screen:/one/location",
+      "services:service.location",
+      "workflows:workflow.setup.location"
+    ],
+    "compatible": [
+      "workflows:workflow.setup.location"
+    ],
     "deprecated": [],
-    "from_revision": "6be9b0c2414cdb98",
+    "from_revision": "12f82fc1dec40c31",
     "migrated": [],
     "removed": []
   },
@@ -43538,6 +43728,7 @@
         "location.send_check_in",
         "location.send_request",
         "location.set_auto_share",
+        "location.set_circle_kind",
         "location.set_ghost_mode",
         "location.set_precision",
         "location.set_sharing_enabled",
@@ -44523,6 +44714,10 @@
           "disposition": "NAVIGATE"
         },
         {
+          "capability_id": "location.set_circle_kind",
+          "disposition": "NAVIGATE"
+        },
+        {
           "capability_id": "location.set_ghost_mode",
           "disposition": "NAVIGATE"
         },
@@ -44599,7 +44794,7 @@
       "catalog_coverage": {
         "all_discovered_capabilities_classified": true,
         "blocked_endpoint_count": 76,
-        "declared_capability_count": 69
+        "declared_capability_count": 70
       },
       "completion": {
         "claim_policy": "verified_persisted_state_only",
@@ -44709,9 +44904,9 @@
       ],
       "kind": "service",
       "knowledge_package": {
-        "brain_revision": "702fe353a1b7b63e7371aa7f",
+        "brain_revision": "e564ceee874ed264d2268e26",
         "catalog_status": "complete_and_compiled",
-        "package_digest": "ffae41f4c4dcea4a5cadfd3529878b50e59436c7a2b5c069a23c4ea11b16c0de",
+        "package_digest": "eb3a29187715c78a1b8f6b82e2cdb1213f284155ab0268ff48d8ed2eeeb8bbb8",
         "package_id": "location.brain",
         "package_version": 2,
         "schema_version": "one.service_knowledge_package.v2"
@@ -45001,23 +45196,24 @@
     "capability_graph_evolution": "9345cefc642be327364b77382ca9019dd68eba4a71d626afd6546d3d8c5a39f8",
     "capability_runtime_compiler": "9a0b0b573b4e3ae42d2a49ce15f93a7cce70e5dc4046dea14922d7cd6ace9078",
     "capability_runtime_policy": "d3f4ec0d27231ef298372a48696f8ac238f7560d03d8e72c50c7bcb5b0ffd7a9",
-    "kai_action_gateway": "a1df2f45b7b142c529e090e6976031f659d7ea03b5fbb41a94517c7c09bf001b",
+    "kai_action_gateway": "ecab0cb538dfc8dfcff911d801132d29065da4665bd4aee79e95df238c07cf7d",
     "location_agent_manifest": "25952f13232f1d1adb7664da7c037b59cef093a1389caeb46af3d2771a12ff07",
-    "location_knowledge_package": "ffae41f4c4dcea4a5cadfd3529878b50e59436c7a2b5c069a23c4ea11b16c0de",
+    "location_knowledge_package": "eb3a29187715c78a1b8f6b82e2cdb1213f284155ab0268ff48d8ed2eeeb8bbb8",
     "location_onboarding_runtime": "cd911f5e2e0f09352aeb89a74180a66fab79553423b126583f181d858459ae62",
     "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
     "product_agent_registry": "b865a980c4ff47ff91b316a238af7c70cfe01a3a79459199603791428b46a7d4",
-    "route_orchestration_index": "c1876bc9ae8b30fa04ba5852b60096ad26b9f99e2ad6d59d09a8fd1c417394d6",
-    "service_knowledge_packages": "f361804817c649a57c89f25e983445883e767a9c0750a5e07eebc1055315ef60"
+    "route_orchestration_index": "21f5c01773c9a66d01b294cf84dcbe74981694171659a5f06385a666efed1632",
+    "service_knowledge_packages": "c22b8a2b79cfd668c5190dea42c93893991d8b252e225578c7d55fbe811d622c"
   },
-  "source_revision": "12f82fc1dec40c31",
+  "source_revision": "5fe7cf2eaf8964c8",
   "workflow_revision_compatibility": {
-    "current_graph_revision": "12f82fc1dec40c31",
+    "current_graph_revision": "5fe7cf2eaf8964c8",
     "schema_version": "one.workflow_revision_compatibility.v1",
     "workflows": [
       {
         "compatible_graph_revisions": [
           "1016f2f0efc0cbd7",
+          "12f82fc1dec40c31",
           "37cb394043f0f125",
           "511758965444c3bb",
           "55a233b9b6e923ea",
@@ -45042,6 +45238,7 @@
       {
         "compatible_graph_revisions": [
           "1016f2f0efc0cbd7",
+          "12f82fc1dec40c31",
           "37cb394043f0f125",
           "511758965444c3bb",
           "55a233b9b6e923ea",
@@ -45066,6 +45263,7 @@
       {
         "compatible_graph_revisions": [
           "1016f2f0efc0cbd7",
+          "12f82fc1dec40c31",
           "37cb394043f0f125",
           "511758965444c3bb",
           "55a233b9b6e923ea",
@@ -45090,6 +45288,7 @@
       {
         "compatible_graph_revisions": [
           "1016f2f0efc0cbd7",
+          "12f82fc1dec40c31",
           "37cb394043f0f125",
           "511758965444c3bb",
           "55a233b9b6e923ea",
@@ -45114,6 +45313,7 @@
       {
         "compatible_graph_revisions": [
           "1016f2f0efc0cbd7",
+          "12f82fc1dec40c31",
           "37cb394043f0f125",
           "511758965444c3bb",
           "55a233b9b6e923ea",
@@ -45138,6 +45338,7 @@
       {
         "compatible_graph_revisions": [
           "1016f2f0efc0cbd7",
+          "12f82fc1dec40c31",
           "37cb394043f0f125",
           "511758965444c3bb",
           "55a233b9b6e923ea",
@@ -45155,13 +45356,14 @@
         ],
         "migration_required_graph_revisions": [],
         "rejected_graph_revisions": [],
-        "workflow_digest": "ec408764d11fe341fd8b58adf5ec8c176ce1bcb1e202c10acaf53335ffba84f7",
+        "workflow_digest": "cca4f9002a1a50ce8b08c98b011e6608b47ccb413f804966d6f6903f469b747f",
         "workflow_id": "workflow.setup.location",
         "workflow_version": 2
       },
       {
         "compatible_graph_revisions": [
           "1016f2f0efc0cbd7",
+          "12f82fc1dec40c31",
           "37cb394043f0f125",
           "511758965444c3bb",
           "55a233b9b6e923ea",
@@ -48733,6 +48935,7 @@
           "location.send_check_in",
           "location.send_request",
           "location.set_auto_share",
+          "location.set_circle_kind",
           "location.set_ghost_mode",
           "location.set_precision",
           "location.set_sharing_enabled",
@@ -48755,7 +48958,7 @@
         "package_id": "location.brain",
         "package_version": 2,
         "schema_version": "one.service_knowledge_package.v2",
-        "source_digest": "ffae41f4c4dcea4a5cadfd3529878b50e59436c7a2b5c069a23c4ea11b16c0de"
+        "source_digest": "eb3a29187715c78a1b8f6b82e2cdb1213f284155ab0268ff48d8ed2eeeb8bbb8"
       },
       "knowledge_projection": {
         "allowed_fact_keys": [
@@ -48978,7 +49181,7 @@
           }
         ],
         "initial_step_id": "location.onboarding.preflight",
-        "knowledge_package_digest": "ffae41f4c4dcea4a5cadfd3529878b50e59436c7a2b5c069a23c4ea11b16c0de",
+        "knowledge_package_digest": "eb3a29187715c78a1b8f6b82e2cdb1213f284155ab0268ff48d8ed2eeeb8bbb8",
         "knowledge_package_id": "location.brain",
         "knowledge_package_version": 2,
         "migrations": [

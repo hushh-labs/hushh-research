@@ -232,9 +232,13 @@ class FakeCircleService:
         self._hit(
             "update_circle", owner_user_id=owner_user_id, circle_id=circle_id, name=name, kind=kind
         )
-        row = self._find(circle_id)
-        row["name"] = name
-        return row
+        stored = self._stored(circle_id)
+        # COALESCE semantics: an absent field keeps its value.
+        if name is not None:
+            stored["name"] = name
+        if kind is not None:
+            stored["kind"] = kind
+        return self._find(circle_id)
 
     def delete_circle(self, *, owner_user_id: str, circle_id: str):
         self._hit("delete_circle", owner_user_id=owner_user_id, circle_id=circle_id)
@@ -458,6 +462,7 @@ def test_catalog_policies_and_gateway_ids():
         "list_circle_members": (ToolPolicy.read, "location.open_circles"),
         "create_circle": (ToolPolicy.confirm_voice, "location.create_circle"),
         "rename_circle": (ToolPolicy.confirm_voice, "location.rename_circle"),
+        "set_circle_kind": (ToolPolicy.confirm_voice, "location.set_circle_kind"),
         "delete_circle": (ToolPolicy.confirm_tap, "location.delete_circle"),
         "add_circle_member": (ToolPolicy.confirm_voice, "location.add_to_circle"),
         "remove_circle_member": (ToolPolicy.confirm_tap, "location.remove_from_circle"),
@@ -1510,3 +1515,65 @@ def test_executor_creates_a_tap_card_for_a_roster_confirmed_removal():
     )
     assert spoken.result.status == "tap_required"
     assert not any(name == "remove_member" for name, _ in service.calls)
+
+
+# -- set_circle_kind: its own action, kind only, never a rename's receipt ----------
+
+
+def test_set_circle_kind_changes_only_the_kind_through_its_own_action():
+    service = FakeCircleService()
+    ctx = make_ctx(service)
+    tool = spec("set_circle_kind")
+    assert tool.gateway_action_id == "location.set_circle_kind"
+    assert tool.policy is ToolPolicy.confirm_voice and tool.circle_args == ("circle",)
+    assert summary("set_circle_kind", ctx, circle={"circle_id": FAMILY}, kind="friends") == (
+        "make the Family circle a friends circle"
+    )
+    assert summary("set_circle_kind", ctx, circle={"circle_id": FAMILY}, kind="other") == (
+        "make the Family circle a plain circle, neither family nor friends"
+    )
+    result = run("set_circle_kind", ctx, circle={"circle_id": FAMILY}, kind="friends")
+    assert result.status == "kind_changed" and result.previous_kind == "family"
+    assert result.spoken_facts == ["Family is now a friends circle."]
+    call = next(c for c in service.calls if c[0] == "update_circle")
+    # name=None: the service's COALESCE leaves the name; nothing else is sent.
+    assert call[1] == {"owner_user_id": USER, "circle_id": FAMILY, "name": None, "kind": "friends"}
+    assert result.circle.name == "Family" and result.circle.kind == "friends"
+    assert ctx.entities.circle(FAMILY).kind == "friends"
+    assert ctx.entities.circle(FAMILY).name == "Family"
+
+
+def test_set_circle_kind_reports_no_change_without_a_write():
+    service = FakeCircleService()
+    ctx = make_ctx(service)
+    result = run("set_circle_kind", ctx, circle={"circle_id": FAMILY}, kind="family")
+    assert result.status == "already_kind" and result.previous_kind == "family"
+    assert result.spoken_facts == ["Family is already a family circle."]
+    assert not any(name == "update_circle" for name, _ in service.calls)
+
+
+def test_set_circle_kind_refuses_an_unsupported_kind_and_maps_owner_errors():
+    with pytest.raises(ValidationError):
+        spec("set_circle_kind").input_model.model_validate(
+            {"circle": {"circle_id": FAMILY}, "kind": "emergency"}
+        )
+    service = FakeCircleService()
+    service.errors["update_circle"] = OneLocationCircleError(
+        "LOCATION_CIRCLE_OWNER_REQUIRED",
+        "Only the Circle owner can make this change.",
+        status_code=403,
+    )
+    result = run("set_circle_kind", make_ctx(service), circle={"circle_id": FAMILY}, kind="other")
+    assert result.status == "rejected" and result.reason_code == "LOCATION_CIRCLE_OWNER_REQUIRED"
+
+
+def test_rename_and_set_kind_are_separate_actions_with_separate_receipts():
+    assert spec("rename_circle").gateway_action_id == "location.rename_circle"
+    assert spec("set_circle_kind").gateway_action_id == "location.set_circle_kind"
+    # rename never sends a kind; set_kind never sends a name.
+    service = FakeCircleService()
+    ctx = make_ctx(service)
+    run("rename_circle", ctx, circle={"circle_id": FAMILY}, name="Fam")
+    run("set_circle_kind", ctx, circle={"circle_id": FAMILY}, kind="friends")
+    updates = [kw for name, kw in service.calls if name == "update_circle"]
+    assert [(u["name"], u["kind"]) for u in updates] == [("Fam", None), (None, "friends")]
