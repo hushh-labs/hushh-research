@@ -1156,7 +1156,30 @@
       "name": "list_people",
       "parameters": {
         "additionalProperties": false,
-        "properties": {},
+        "properties": {
+          "page": {
+            "default": 1,
+            "description": "Connections page, starting at 1.",
+            "maximum": 50,
+            "minimum": 1,
+            "title": "Page",
+            "type": "integer"
+          },
+          "query": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "A name to filter your connections by. Suggestion only; never an id.",
+            "title": "Query"
+          }
+        },
         "type": "object"
       },
       "person_args": [],
@@ -1706,7 +1729,8 @@
         "multiple",
         "no_connections",
         "none",
-        "single_likely"
+        "single_likely",
+        "truncated"
       ],
       "tier": null,
       "ui_refresh": []

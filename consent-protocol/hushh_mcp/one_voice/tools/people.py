@@ -58,6 +58,18 @@ Relationship = Literal["connected", "pending_outgoing", "pending_incoming", "non
 UNNAMED = "Unnamed connection"
 RECIPIENT_LIMIT = 100
 DIRECTORY_LIMIT = 50
+# Bounded additional retrieval: a common prefix can fill page 1, so up to this
+# many directory pages are read before "nobody" or "one likely" is claimed.
+# Past that the result says so instead of scanning the whole directory.
+DIRECTORY_MAX_PAGES = 3
+# One page of connections read back to the model. Counts carry the totals.
+LIST_PAGE_LIMIT = 20
+# How many names are read aloud before "and N more".
+SPOKEN_PEOPLE_LIMIT = 6
+# The connections route's own bound (api/routes/one/connections.py); the
+# person-profile route caps at 500, but that is a different surface. The
+# service and column are unbounded, so this is the cap the voice path keeps.
+MESSAGE_MAX_CHARS = 1000
 PEOPLE_REFRESH: tuple[str, ...] = ("location_people", "connections")
 ServiceError = (ConnectionsError, OneLocationAgentError)
 
@@ -218,6 +230,17 @@ async def load_people_snapshot(ctx: ToolContext) -> PeopleSnapshot:
 
 def _by_name(record: dict[str, Any]) -> tuple[str, str]:
     return (str(record["display_name"]).lower(), str(record["user_id"]))
+
+
+def looks_like_contact_identifier(text: str) -> bool:
+    """A phone number or email is not a searchable name. The directory searches
+    display names only; a number spoken as a name must not be quietly folded
+    into a prefix search that happens to match somebody."""
+    raw = str(text or "")
+    if "@" in raw:
+        return True
+    digits = sum(ch.isdigit() for ch in raw)
+    return digits >= 7
 
 
 async def load_connected_people(ctx: ToolContext) -> list[dict[str, Any]]:
@@ -415,30 +438,51 @@ class ResolvePersonInput(ToolInput):
 
 
 class ResolvePersonResult(ToolResult):
-    status: Literal["single_likely", "multiple", "none", "low_confidence", "no_connections"]
+    status: Literal[
+        "single_likely", "multiple", "none", "low_confidence", "no_connections", "truncated"
+    ]
     spoken_name: str
     pool: Literal["connections", "directory"]
     candidates: list[PersonCandidate] = Field(default_factory=list)
+    # The directory had more pages than were read: what is shown is a sample,
+    # not the whole match set, so nobody here is "the only" match.
+    truncated: bool = False
+    # Which offer these candidates belong to; confirm_person needs the same one.
+    offer_revision: int = 0
 
 
-async def _directory_candidates(ctx: ToolContext, target: str) -> list[dict[str, Any]]:
+async def _directory_candidates(ctx: ToolContext, target: str) -> tuple[list[dict[str, Any]], bool]:
+    """Directory rows for ``target`` across up to ``DIRECTORY_MAX_PAGES`` pages,
+    and whether more pages were left unread. The visibility predicate is the
+    service's; nothing here widens it."""
     connections = _connections(ctx)
-    page = await asyncio.to_thread(
-        connections.search_directory, ctx.user_id, query=target, page=1, limit=DIRECTORY_LIMIT
-    )
-    items = list((page or {}).get("items") or [])
+    items: list[dict[str, Any]] = []
+    truncated = False
+
+    async def _read(query: str) -> bool:
+        nonlocal truncated
+        items.clear()
+        for page_number in range(1, DIRECTORY_MAX_PAGES + 1):
+            page = await asyncio.to_thread(
+                connections.search_directory,
+                ctx.user_id,
+                query=query,
+                page=page_number,
+                limit=DIRECTORY_LIMIT,
+            )
+            rows = list((page or {}).get("items") or [])
+            items.extend(rows)
+            if not (page or {}).get("hasMore"):
+                return bool(items)
+        truncated = True
+        return bool(items)
+
+    found = await _read(target)
     first = target.split(" ")[0]
-    if not items and len(first) >= 2:
+    if not found and len(first) >= 2:
         # The directory is prefix-only in SQL; a short prefix pulls in the
         # near-spellings so the phonetic ranking below can consider them.
-        page = await asyncio.to_thread(
-            connections.search_directory,
-            ctx.user_id,
-            query=first[:2],
-            page=1,
-            limit=DIRECTORY_LIMIT,
-        )
-        items = list((page or {}).get("items") or [])
+        await _read(first[:2])
     records: list[dict[str, Any]] = []
     for row in items:
         uid = str(row.get("userId") or "")
@@ -454,7 +498,7 @@ async def _directory_candidates(ctx: ToolContext, target: str) -> list[dict[str,
         )
         if record["display_name"]:
             records.append(record)
-    return records
+    return records, truncated
 
 
 async def resolve_person(ctx: ToolContext, args: ResolvePersonInput) -> ToolResult:
@@ -466,11 +510,21 @@ async def resolve_person(ctx: ToolContext, args: ResolvePersonInput) -> ToolResu
             needs="repeat_name",
             spoken_facts=["One person at a time, please. Who first?"],
         )
+    if looks_like_contact_identifier(names[0]):
+        ctx.entities.offer_people([])
+        return Rejected(
+            reason_code="identifier_not_a_name",
+            needs="repeat_name",
+            spoken_facts=[
+                "I look people up by name, not by phone number or email. What's their name?"
+            ],
+        )
     target = normalize_spoken_name(names[0])
     if not target:
         ctx.entities.offer_people([])
         return Rejected(reason_code="invalid_arguments", needs="repeat_name")
 
+    truncated = False
     try:
         if args.pool == "connections":
             snapshot = await load_people_snapshot(ctx)
@@ -486,7 +540,7 @@ async def resolve_person(ctx: ToolContext, args: ResolvePersonInput) -> ToolResu
                 )
         else:
             snapshot = await load_people_snapshot(ctx)
-            pool = await _directory_candidates(ctx, target)
+            pool, truncated = await _directory_candidates(ctx, target)
             for record in pool:
                 known = snapshot.people.get(record["user_id"])
                 if known:
@@ -497,24 +551,42 @@ async def resolve_person(ctx: ToolContext, args: ResolvePersonInput) -> ToolResu
         return _rejected(err)
 
     ranked = rank_candidates(target, pool)
-    ctx.entities.offer_people([item.user_id for item in ranked])
+    revision = ctx.entities.offer_people([item.user_id for item in ranked])
     candidates = [_candidate(item) for item in ranked]
     where = "your connections" if args.pool == "connections" else "the Hussh directory"
+    common: dict[str, Any] = {
+        "spoken_name": names[0],
+        "pool": args.pool,
+        "truncated": truncated,
+        "offer_revision": revision,
+    }
     if not ranked:
-        return ResolvePersonResult(
-            status="none",
-            needs="repeat_name",
-            spoken_name=names[0],
-            pool=args.pool,
-            spoken_facts=[f"Nobody in {where} matches that name."],
-        )
+        facts = [f"Nobody in {where} matches that name."]
+        if truncated:
+            facts = [
+                f"Too many people in {where} start like that for me to read them all. "
+                "What's their full name?"
+            ]
+        return ResolvePersonResult(status="none", needs="repeat_name", **common, spoken_facts=facts)
     names_spoken = join_names_for_speech([item.display_name for item in ranked])
+    if truncated:
+        # More pages than were read: the candidates are what was seen, not
+        # the whole match set. Offer them, but never "the one".
+        return ResolvePersonResult(
+            status="truncated",
+            needs="repeat_name",
+            **common,
+            candidates=candidates,
+            spoken_facts=[
+                f"Lots of people in {where} match that; the closest I saw were {names_spoken}. "
+                "Say their full name, or pick one of those."
+            ],
+        )
     if ranked[0].tier >= TIER_PHONETIC:
         return ResolvePersonResult(
             status="low_confidence",
             needs="repeat_name",
-            spoken_name=names[0],
-            pool=args.pool,
+            **common,
             candidates=candidates,
             spoken_facts=[f"The closest in {where} is {names_spoken}."],
         )
@@ -523,16 +595,14 @@ async def resolve_person(ctx: ToolContext, args: ResolvePersonInput) -> ToolResu
         return ResolvePersonResult(
             status="single_likely",
             needs="confirmation",
-            spoken_name=names[0],
-            pool=args.pool,
+            **common,
             candidates=candidates,
             spoken_facts=[f"I found {person.spoken()}."],
         )
     return ResolvePersonResult(
         status="multiple",
         needs="disambiguation",
-        spoken_name=names[0],
-        pool=args.pool,
+        **common,
         candidates=candidates,
         spoken_facts=[f"I found {names_spoken}."],
     )
@@ -555,6 +625,13 @@ class ConfirmPersonResult(ToolResult):
 
 
 async def confirm_person(ctx: ToolContext, args: ConfirmPersonInput) -> ToolResult:
+    if ctx.entities.offered_person_ids and not ctx.entities.offer_is_fresh():
+        ctx.entities.offer_people([])
+        return Rejected(
+            reason_code="offer_expired",
+            needs="repeat_name",
+            spoken_facts=["That list is a while old. Say the name again and I'll look them up."],
+        )
     if args.user_id not in ctx.entities.offered_person_ids:
         return Rejected(
             reason_code="person_not_offered",
@@ -584,12 +661,21 @@ async def confirm_person(ctx: ToolContext, args: ConfirmPersonInput) -> ToolResu
 
 
 class ListPeopleInput(ToolInput):
-    pass
+    query: str | None = Field(
+        default=None,
+        max_length=120,
+        description="A name to filter your connections by. Suggestion only; never an id.",
+    )
+    page: int = Field(default=1, ge=1, le=50, description="Connections page, starting at 1.")
 
 
 class ListPeopleResult(ToolResult):
     status: Literal["ok", "no_connections"]
+    # One page of connections. ``counts.connections`` is the total; the page
+    # is not the total.
     connected: list[PersonCard] = Field(default_factory=list)
+    page: int = 1
+    has_more: bool = False
     ready_for_location: list[PersonCard] = Field(default_factory=list)
     pending_incoming: list[PendingRequest] = Field(default_factory=list)
     pending_outgoing: list[PendingRequest] = Field(default_factory=list)
@@ -600,43 +686,101 @@ def _plural(count: int, singular: str, plural: str | None = None) -> str:
     return f"{count} {singular if count == 1 else (plural or singular + 's')}"
 
 
+def _page_record(row: dict[str, Any], snapshot: PeopleSnapshot) -> dict[str, Any]:
+    uid = str(row.get("userId") or "")
+    known = snapshot.people.get(uid)
+    record = dict(known) if known else _blank_record(uid)
+    record.update(
+        relationship="connected",
+        connection_id=str(row.get("connectionId") or "") or record.get("connection_id"),
+        display_name=_label(row, allow_email_handle=True) or record.get("display_name") or UNNAMED,
+        photo_url=row.get("photoUrl") or record.get("photo_url"),
+        public_person_ref=row.get("publicPersonRef") or record.get("public_person_ref"),
+        connected_from_contacts=bool(row.get("connectedFromContacts")),
+        is_ria=bool(row.get("isRia")),
+    )
+    return record
+
+
 async def list_people(ctx: ToolContext, args: ListPeopleInput) -> ToolResult:
+    """Who the person is connected with, one page at a time, plus pending
+    requests both ways. The page comes from the paged service read (server
+    ordering, at most ``LIST_PAGE_LIMIT``); the totals come from the counts.
+    The unbounded legacy list never becomes model context."""
     try:
         snapshot = await load_people_snapshot(ctx)
+        page = dict(
+            await asyncio.to_thread(
+                _connections(ctx).list_connections_page,
+                ctx.user_id,
+                query=str(args.query or "").strip(),
+                page=args.page,
+                limit=LIST_PAGE_LIMIT,
+            )
+            or {}
+        )
     except ServiceError as err:
         return _rejected(err)
-    connected = sorted(snapshot.connected, key=_by_name)
+    page_records = [
+        _page_record(dict(row), snapshot)
+        for row in (page.get("items") or [])
+        if str(row.get("userId") or "") and str(row.get("userId") or "") != ctx.user_id
+    ]
+    total = int(page.get("totalCount") or 0)
+    has_more = bool(page.get("hasMore"))
     ready = sorted(snapshot.ready_for_location, key=_by_name)
     counts = snapshot.counts()
+    counts["connections"] = total if not args.query else counts["connections"]
     facts: list[str] = []
-    if not connected:
-        facts.append("You don't have anyone connected yet.")
-    elif len(connected) <= 5:
+    names = join_names_for_speech([p["display_name"] for p in page_records[:SPOKEN_PEOPLE_LIMIT]])
+    if args.query:
         facts.append(
-            f"You're connected with {join_names_for_speech([p['display_name'] for p in connected])}."
+            f"{_plural(total, 'connection')} match that name"
+            + (f": {names}." if page_records else ".")
         )
+    elif not page_records and args.page == 1:
+        facts.append("You don't have anyone connected yet.")
+    elif not page_records:
+        facts.append(f"There's nobody on page {args.page}.")
+    elif total <= SPOKEN_PEOPLE_LIMIT and not has_more and args.page == 1:
+        facts.append(f"You're connected with {names}.")
     else:
-        facts.append(f"You have {_plural(len(connected), 'connection')}.")
-    if ready:
+        # "the first N" and "N connections" are different claims; keep both.
+        facts.append(
+            f"You have {_plural(total, 'connection')}. Page {int(page.get('page') or args.page)} "
+            f"has {names}"
+            + (
+                f", and {len(page_records) - SPOKEN_PEOPLE_LIMIT} more"
+                if len(page_records) > SPOKEN_PEOPLE_LIMIT
+                else ""
+            )
+            + "."
+        )
+        if has_more:
+            facts.append("There are more on the next page.")
+    if ready and not args.query:
         facts.append(f"{_plural(len(ready), 'person', 'people')} can receive your location.")
-    if snapshot.pending_incoming:
+    if snapshot.pending_incoming and not args.query:
         facts.append(
             f"{join_names_for_speech([r['display_name'] for r in snapshot.pending_incoming[:5]])} "
             f"asked to connect with you."
         )
-    if snapshot.pending_outgoing:
+    if snapshot.pending_outgoing and not args.query:
         facts.append(
             f"Your request to "
             f"{join_names_for_speech([r['display_name'] for r in snapshot.pending_outgoing[:5]])} "
             f"is still pending."
         )
+    no_connections = total == 0 and not args.query
     return ListPeopleResult(
-        status="ok" if connected else "no_connections",
-        needs=None if connected else "invite",
-        connected=[_card(p) for p in connected],
-        ready_for_location=[_card(p) for p in ready],
-        pending_incoming=[PendingRequest(**r) for r in snapshot.pending_incoming],
-        pending_outgoing=[PendingRequest(**r) for r in snapshot.pending_outgoing],
+        status="no_connections" if no_connections else "ok",
+        needs="invite" if no_connections else None,
+        connected=[_card(p) for p in page_records],
+        page=int(page.get("page") or args.page),
+        has_more=has_more,
+        ready_for_location=[_card(p) for p in ready[:LIST_PAGE_LIMIT]],
+        pending_incoming=[PendingRequest(**r) for r in snapshot.pending_incoming[:LIST_PAGE_LIMIT]],
+        pending_outgoing=[PendingRequest(**r) for r in snapshot.pending_outgoing[:LIST_PAGE_LIMIT]],
         counts=PeopleCounts(**counts),
         spoken_facts=facts,
     )
@@ -1109,4 +1253,5 @@ __all__ = [
     "TOOLS",
     "load_connected_people",
     "load_people_snapshot",
+    "looks_like_contact_identifier",
 ]

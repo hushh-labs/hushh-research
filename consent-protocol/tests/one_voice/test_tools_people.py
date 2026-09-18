@@ -124,6 +124,31 @@ class ConnectionsDouble:
         self.calls.append(("list_connections", user_id))
         return list(self.connections)
 
+    def list_connections_page(
+        self,
+        user_id: str,
+        *,
+        query: str = "",
+        page: int = 1,
+        limit: int = 50,
+        audience: str = "all",
+    ) -> dict[str, Any]:
+        self.calls.append(("list_connections_page", (user_id, query, page, limit)))
+        needle = (query or "").lower()
+        rows = sorted(
+            (r for r in self.connections if not needle or needle in str(r["displayName"]).lower()),
+            key=lambda r: str(r["displayName"]).lower(),
+        )
+        offset = (page - 1) * limit
+        items = rows[offset : offset + limit]
+        return {
+            "items": [dict(r) for r in items],
+            "page": page,
+            "hasMore": offset + len(items) < len(rows),
+            "totalCount": len(rows),
+            "audience": audience,
+        }
+
     def list_requests(self, user_id: str, *, direction: str, include_resolved: bool = False):
         self.calls.append(("list_requests", (user_id, direction)))
         return list(self.incoming if direction == "incoming" else self.outgoing)
@@ -167,6 +192,8 @@ class ConnectionsDouble:
 
     def remove_connection(self, user_id: str, connection_id: str) -> dict[str, Any]:
         self.calls.append(("remove_connection", (user_id, connection_id)))
+        if self.removed and not getattr(self, "removal_leaves_connected", False):
+            self.connections = [c for c in self.connections if c["connectionId"] != connection_id]
         return {"removed": self.removed}
 
 
@@ -883,3 +910,195 @@ async def test_remove_connection_executor_guard_rejects_unconfirmed():
     parsed = people.RemoveConnectionInput(person=PersonRef(user_id=AYESHA))
     problem = ToolExecutor._entity_problem(spec("remove_connection"), ctx, parsed)
     assert problem is not None and problem.reason_code == "person_not_confirmed"
+
+
+# -- recipient grounding: names only, bounded pages, fresh offers -----------------
+
+
+def _directory_of(count: int, prefix: str = "Pri") -> list[dict[str, Any]]:
+    return [
+        {
+            "userId": f"u-{prefix.lower()}-{i:03d}",
+            "publicPersonRef": None,
+            "displayName": f"{prefix}ya Number{i:03d}",
+            "photoUrl": None,
+            "relationship": "none",
+            "isRia": False,
+        }
+        for i in range(count)
+    ]
+
+
+async def test_list_people_pages_and_never_calls_a_page_the_total():
+    connections = ConnectionsDouble()
+    connections.connections = [
+        {
+            "connectionId": f"conn-{i:03d}",
+            "userId": f"u-{i:03d}",
+            "publicPersonRef": None,
+            "displayName": f"Person {i:03d}",
+            "photoUrl": None,
+            "email": None,
+            "createdAt": "2026-01-01T00:00:00+00:00",
+            "isRia": False,
+            "connectedFromContacts": False,
+        }
+        for i in range(1, 46)
+    ]
+    ctx, _, _ = make_ctx(connections=connections)
+    first = await people.list_people(ctx, people.ListPeopleInput())
+    assert len(first.connected) == people.LIST_PAGE_LIMIT
+    assert first.has_more is True and first.counts.connections == 45
+    assert first.spoken_facts[0].startswith("You have 45 connections. Page 1 has ")
+    assert first.spoken_facts[0].endswith(", and 14 more.")
+    assert first.spoken_facts[1] == "There are more on the next page."
+    third = await people.list_people(ctx, people.ListPeopleInput(page=3))
+    assert len(third.connected) == 5 and third.has_more is False
+    fourth = await people.list_people(ctx, people.ListPeopleInput(page=4))
+    assert fourth.connected == [] and fourth.spoken_facts[0] == "There's nobody on page 4."
+    assert fourth.status == "ok"
+    filtered = await people.list_people(ctx, people.ListPeopleInput(query="Person 04"))
+    assert [p.display_name for p in filtered.connected] == [f"Person 04{i}" for i in range(0, 6)]
+    assert filtered.spoken_facts[0].startswith("6 connections match that name: ")
+
+
+async def test_list_people_failed_page_is_a_refusal_not_an_empty_page():
+    connections = ConnectionsDouble()
+
+    def broken(*args: Any, **kwargs: Any):
+        raise ConnectionsError("CONNECTIONS_UNAVAILABLE", "Connections are unavailable.")
+
+    connections.list_connections_page = broken  # type: ignore[method-assign]
+    ctx, _, _ = make_ctx(connections=connections)
+    result = await people.list_people(ctx, people.ListPeopleInput())
+    assert result.status == "rejected" and result.reason_code == "CONNECTIONS_UNAVAILABLE"
+
+
+@pytest.mark.parametrize(
+    "spoken", ["9876543210", "+91 98765 43210", "priya@example.com", "call 98765-43210"]
+)
+async def test_resolve_person_refuses_a_phone_or_email_as_a_name(spoken):
+    ctx, connections, _ = make_ctx()
+    result = await people.resolve_person(
+        ctx, people.ResolvePersonInput(spoken_name=spoken, pool="directory")
+    )
+    assert result.status == "rejected" and result.reason_code == "identifier_not_a_name"
+    assert result.needs == "repeat_name"
+    assert result.spoken_facts == [
+        "I look people up by name, not by phone number or email. What's their name?"
+    ]
+    assert not [c for c in connections.calls if c[0] == "search_directory"]
+    assert ctx.entities.offered_person_ids == []
+
+
+async def test_resolve_person_reads_more_than_one_directory_page_before_claiming_nobody():
+    connections = ConnectionsDouble()
+    # 70 server-side prefix neighbours ("Pri...") fill page 1; the ranker
+    # discards them, and the real Priya Nair sits on page 2.
+    connections.directory = _directory_of(70, prefix="Pritam ") + [
+        {
+            "userId": PRIYA,
+            "publicPersonRef": "ppr-priya",
+            "displayName": "Priya Nair",
+            "photoUrl": None,
+            "relationship": "none",
+            "isRia": False,
+        }
+    ]
+
+    def paged(user_id: str, *, query: str = "", page: int = 1, limit: int = 20):
+        connections.calls.append(("search_directory", (user_id, query, page, limit)))
+        needle = (query or "").lower()[:3]
+        rows = [r for r in connections.directory if r["displayName"].lower().startswith(needle)]
+        offset = (page - 1) * limit
+        items = rows[offset : offset + limit]
+        return {
+            "items": items,
+            "page": page,
+            "hasMore": offset + len(items) < len(rows),
+            "audience": "all",
+        }
+
+    connections.search_directory = paged  # type: ignore[method-assign]
+    ctx, _, _ = make_ctx(connections=connections)
+    result = await people.resolve_person(
+        ctx, people.ResolvePersonInput(spoken_name="Priya Nair", pool="directory")
+    )
+    pages = [c[1][2] for c in connections.calls if c[0] == "search_directory"]
+    assert pages == [1, 2]
+    assert result.status == "single_likely" and result.truncated is False
+    assert result.candidates[0].user_id == PRIYA
+    assert result.offer_revision == 1 and ctx.entities.offer_revision == 1
+
+
+async def test_resolve_person_reports_truncation_instead_of_the_only_match():
+    connections = ConnectionsDouble()
+    connections.directory = _directory_of(400, prefix="Pri")
+
+    def paged(user_id: str, *, query: str = "", page: int = 1, limit: int = 20):
+        connections.calls.append(("search_directory", (user_id, query, page, limit)))
+        offset = (page - 1) * limit
+        items = connections.directory[offset : offset + limit]
+        return {
+            "items": items,
+            "page": page,
+            "hasMore": offset + len(items) < len(connections.directory),
+            "audience": "all",
+        }
+
+    connections.search_directory = paged  # type: ignore[method-assign]
+    ctx, _, _ = make_ctx(connections=connections)
+    result = await people.resolve_person(
+        ctx, people.ResolvePersonInput(spoken_name="Priya Number", pool="directory")
+    )
+    pages = [c[1][2] for c in connections.calls if c[0] == "search_directory"]
+    assert pages == [1, 2, 3]  # bounded: never the whole directory
+    assert result.status == "truncated" and result.truncated is True
+    assert result.needs == "repeat_name"
+    assert result.spoken_facts[0].startswith("Lots of people in the Hussh directory match that")
+    assert result.spoken_facts[0].endswith("Say their full name, or pick one of those.")
+    # What was seen is still offered, so "the second one" can be picked.
+    assert ctx.entities.offered_person_ids and len(ctx.entities.offered_person_ids) == len(
+        result.candidates
+    )
+
+
+async def test_confirm_person_refuses_a_stale_offer_and_a_new_offer_bumps_the_revision():
+    from datetime import UTC, datetime, timedelta
+
+    from hushh_mcp.one_voice.tools.base import OFFER_TTL_SECONDS
+
+    ctx, _, _ = make_ctx()
+    first = await people.resolve_person(
+        ctx, people.ResolvePersonInput(spoken_name="Preeti", pool="directory")
+    )
+    assert first.status == "single_likely" and first.offer_revision == 1
+    ctx.entities.offered_at = (
+        datetime.now(UTC) - timedelta(seconds=OFFER_TTL_SECONDS + 5)
+    ).isoformat()
+    stale = await people.confirm_person(ctx, people.ConfirmPersonInput(user_id="u-preeti"))
+    assert stale.status == "rejected" and stale.reason_code == "offer_expired"
+    assert stale.needs == "repeat_name"
+    assert ctx.entities.offered_person_ids == []
+    again = await people.resolve_person(
+        ctx, people.ResolvePersonInput(spoken_name="Preeti", pool="directory")
+    )
+    assert again.offer_revision > first.offer_revision
+    assert ctx.entities.offer_revision == again.offer_revision
+    fresh = await people.confirm_person(ctx, people.ConfirmPersonInput(user_id="u-preeti"))
+    assert fresh.status == "confirmed"
+
+
+def test_stale_offers_are_dropped_on_prune():
+    from datetime import UTC, datetime, timedelta
+
+    from hushh_mcp.one_voice.tools.base import OFFER_TTL_SECONDS, EntityContext
+
+    entities = EntityContext()
+    entities.offer_people(["u-a", "u-b"], circle_id="11111111-1111-4111-8111-111111111111")
+    assert entities.offer_is_fresh() and entities.offer_revision == 1
+    entities.prune()
+    assert entities.offered_person_ids == ["u-a", "u-b"]
+    entities.offered_at = (datetime.now(UTC) - timedelta(seconds=OFFER_TTL_SECONDS + 1)).isoformat()
+    entities.prune()
+    assert entities.offered_person_ids == [] and entities.offered_person_circle_id is None
