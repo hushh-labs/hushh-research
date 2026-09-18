@@ -2367,7 +2367,7 @@ function LocationActionGrid({ items }: { items: LocationActionGridItem[] }) {
             data-voice-label={item.ariaLabel}
             aria-label={item.ariaLabel}
             onClick={item.onClick}
-          className="group flex h-[76px] min-h-[76px] min-w-0 flex-col items-center justify-center gap-1.5 rounded-[14px] bg-[color:var(--app-primary-surface)] px-3 py-2.5 text-center shadow-none ring-1 ring-inset ring-[color:var(--app-separator)] transition-[background-color,transform] [-webkit-tap-highlight-color:transparent] hover:bg-[color:var(--app-secondary-surface)] active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]"
+          className="group flex h-[88px] min-h-[88px] min-w-0 flex-col items-center justify-center gap-1.5 rounded-[14px] bg-[color:var(--app-primary-surface)] px-3 py-3 text-center shadow-none ring-1 ring-inset ring-[color:var(--app-separator)] transition-[background-color,transform] [-webkit-tap-highlight-color:transparent] hover:bg-[color:var(--app-secondary-surface)] active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]"
           >
             <span
               aria-hidden
@@ -4882,7 +4882,7 @@ function LinksHub({ vm }: { vm: LocationHubViewModel }) {
                 onClick={vm.onCreatePublicInvite}
                 isLoading={vm.busy === "publicInvite"}
                 data-voice-control-id="one-location-action-temp-link"
-                className="mx-auto block h-11 min-h-11 w-[76%] min-w-0 rounded-[14px] px-5 text-[15px] font-semibold leading-5"
+                className="h-[52px] w-full min-w-0 rounded-full px-5 text-[17px] font-semibold leading-[22px]"
               >
                 {vm.busy === "publicInvite"
                   ? "Creating link…"
