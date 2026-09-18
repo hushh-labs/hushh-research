@@ -2275,12 +2275,15 @@ function LocationPrimaryShareCard({ onClick }: { onClick: () => void }) {
           "flex w-full flex-col gap-3 rounded-[18px] px-4 py-4 text-left",
         )}
       >
-        <CardTitle
-          as="span"
-          className="block !text-[17px] !font-semibold !leading-[22px]"
-        >
-          Not sharing with anyone
-        </CardTitle>
+        <div className="flex min-w-0 items-center gap-4">
+          <LocationSharePulseIcon />
+          <CardTitle
+            as="span"
+            className="block !text-[17px] !font-semibold !leading-[22px]"
+          >
+            Not sharing with anyone
+          </CardTitle>
+        </div>
         <button
           type="button"
           data-voice-control-id="one-location-action-share"
@@ -2288,7 +2291,7 @@ function LocationPrimaryShareCard({ onClick }: { onClick: () => void }) {
           data-voice-label="Share location"
           aria-label="Share location"
           onClick={onClick}
-           className="mx-auto inline-flex h-11 min-h-11 w-[76%] items-center justify-center rounded-[14px] bg-[color:var(--app-accent)] px-5 !text-[15px] !font-semibold !leading-5 text-[color:var(--app-accent-fg)] transition-[background-color,transform] [-webkit-tap-highlight-color:transparent] hover:bg-[color:var(--app-accent-hover)] active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]"
+          className="mx-auto inline-flex h-11 min-h-11 w-[76%] items-center justify-center rounded-[14px] bg-[color:var(--app-accent)] px-5 !text-[15px] !font-semibold !leading-5 text-[color:var(--app-accent-fg)] transition-[background-color,transform] [-webkit-tap-highlight-color:transparent] hover:bg-[color:var(--app-accent-hover)] active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]"
         >
           <ButtonLabel
             as="span"
@@ -2299,6 +2302,20 @@ function LocationPrimaryShareCard({ onClick }: { onClick: () => void }) {
         </button>
       </div>
     </section>
+  );
+}
+
+function LocationSharePulseIcon() {
+  return (
+    <span
+      aria-hidden="true"
+      data-location-share-pulse-icon=""
+      className="relative inline-flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-[color:var(--app-accent-tint)] shadow-[inset_0_0_0_1px_rgba(0,122,255,0.025)] dark:shadow-none sm:h-16 sm:w-16"
+    >
+      <span className="absolute inset-[13%] rounded-full bg-[color:var(--app-accent-surface)]" />
+      <span className="absolute inset-[28%] rounded-full bg-[color:var(--app-accent)]/20" />
+      <span className="relative h-[25%] w-[25%] rounded-full bg-[color:var(--app-accent)] shadow-[0_0_0_4px_var(--app-primary-surface),0_8px_16px_rgba(0,122,255,0.18)] dark:shadow-[0_0_0_4px_var(--app-primary-surface)]" />
+    </span>
   );
 }
 
@@ -2351,12 +2368,12 @@ function LocationActionGrid({ items }: { items: LocationActionGridItem[] }) {
             data-voice-label={item.ariaLabel}
             aria-label={item.ariaLabel}
             onClick={item.onClick}
-          className="group flex h-[62px] min-h-[62px] min-w-0 flex-col items-center justify-center gap-1 rounded-[14px] bg-[color:var(--app-primary-surface)] px-3 py-2 text-center shadow-none ring-1 ring-inset ring-[color:var(--app-separator)] transition-[background-color,transform] [-webkit-tap-highlight-color:transparent] hover:bg-[color:var(--app-secondary-surface)] active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]"
+          className="group flex h-[76px] min-h-[76px] min-w-0 flex-col items-center justify-center gap-1.5 rounded-[14px] bg-[color:var(--app-primary-surface)] px-3 py-2.5 text-center shadow-none ring-1 ring-inset ring-[color:var(--app-separator)] transition-[background-color,transform] [-webkit-tap-highlight-color:transparent] hover:bg-[color:var(--app-secondary-surface)] active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]"
           >
             <span
               aria-hidden
               data-one-location-action-icon=""
-              className="inline-flex h-6 w-6 shrink-0 items-center justify-center text-[color:var(--app-accent)] transition-colors"
+              className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[color:var(--app-accent-tint)] text-[color:var(--app-accent)] transition-colors"
             >
               {item.icon}
             </span>
@@ -4014,7 +4031,7 @@ function CircleInvitationsDialog({
                 onOpenChange(false);
                 onDismissFocusedInvite();
               }}
-              className="h-12 w-full rounded-2xl bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)]"
+              className="h-12 w-full rounded-full text-[color:var(--app-accent-fg)]"
             >
               Done
             </Button>
@@ -4847,12 +4864,13 @@ function LinksHub({ vm }: { vm: LocationHubViewModel }) {
                 label="Duration"
                 presentation="buttons"
                 maxWidthClassName={null}
+                activeClassName="border-[color:var(--app-accent-tint)] bg-[color:var(--app-accent-tint)] text-[color:var(--app-accent)]"
               />
               <Button
                 onClick={vm.onCreatePublicInvite}
                 isLoading={vm.busy === "publicInvite"}
                 data-voice-control-id="one-location-action-temp-link"
-                 className="mx-auto block h-11 min-h-11 w-[76%] min-w-0 rounded-[14px] px-5 text-[15px] font-semibold leading-5 text-[color:var(--app-accent-fg)] bg-[color:var(--app-accent)] hover:bg-[color:var(--app-accent)]/90"
+                className="mx-auto block h-11 min-h-11 w-[76%] min-w-0 rounded-[14px] px-5 text-[15px] font-semibold leading-5"
               >
                 {vm.busy === "publicInvite"
                   ? "Creating link…"
@@ -5418,7 +5436,7 @@ function ShareFlow({
           <Button
             variant="ghost"
             onClick={() => onClose()}
-            className="h-11 w-full rounded-2xl bg-transparent text-[17px] font-medium leading-[22px] text-[color:var(--app-accent)] hover:bg-transparent"
+            className="h-11 w-full rounded-full bg-transparent text-[17px] font-medium leading-[22px] text-[color:var(--app-accent)] hover:bg-transparent"
           >
             Cancel
           </Button>
@@ -5592,7 +5610,7 @@ function ShareFlow({
             Boolean(vm.pendingShareCircleIds.length) ||
             vm.shareDeliveryPending
           }
-          className="h-[52px] w-full rounded-2xl bg-[color:var(--app-accent)] text-[17px] font-semibold leading-[22px] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90 disabled:bg-black/10 disabled:text-black/35 disabled:opacity-100 dark:disabled:bg-white/10 dark:disabled:text-white/35"
+          className="h-[52px] w-full rounded-full text-[17px] font-semibold leading-[22px] text-[color:var(--app-accent-fg)] disabled:bg-black/10 disabled:text-black/35 disabled:opacity-100 dark:disabled:bg-white/10 dark:disabled:text-white/35"
         >
           {vm.shareDeliveryPending
             ? "Sharing…"
@@ -5890,7 +5908,7 @@ function RequestRecipientListRow({
               aria-pressed={selected}
               className={cn(
                 "inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full transition-colors touch-manipulation",
-                "hover:bg-[color:var(--app-secondary-system-fill)] focus:outline-none focus:ring-2 focus:ring-[color:var(--app-accent-ring)]",
+                "hover:bg-[color:var(--app-neutral-fill)] focus:outline-none focus:ring-2 focus:ring-[color:var(--app-accent-ring)]",
               )}
             >
               <SelectionDot selected={selected} />
@@ -6275,14 +6293,14 @@ function AskFlow({
             disabled={!isRequestFormValid || sendingRequest}
             aria-disabled={!isRequestFormValid || sendingRequest}
             isLoading={sendingRequest}
-            className="h-[52px] w-full rounded-2xl bg-[color:var(--app-accent)] text-[17px] font-semibold leading-[22px] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90 disabled:pointer-events-none disabled:bg-black/10 disabled:text-black/35 disabled:opacity-100 dark:disabled:bg-white/10 dark:disabled:text-white/35"
+            className="h-[52px] w-full rounded-full text-[17px] font-semibold leading-[22px] text-[color:var(--app-accent-fg)] disabled:pointer-events-none disabled:bg-black/10 disabled:text-black/35 disabled:opacity-100 dark:disabled:bg-white/10 dark:disabled:text-white/35"
           >
             Send request
           </Button>
           <Button
             variant="ghost"
             onClick={() => onClose()}
-            className="h-11 w-full rounded-2xl bg-transparent text-[17px] font-medium leading-[22px] text-[color:var(--app-accent)] hover:bg-transparent"
+            className="h-11 w-full rounded-full bg-transparent text-[17px] font-medium leading-[22px] text-[color:var(--app-accent)] hover:bg-transparent"
           >
             Cancel
           </Button>
@@ -6464,7 +6482,7 @@ function AskFlow({
         <Button
           onClick={() => setStep("details")}
           disabled={!selectedRequestRecipients.length}
-          className="h-[52px] w-full rounded-2xl bg-[color:var(--app-accent)] text-[17px] font-semibold leading-[22px] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90 disabled:bg-black/10 disabled:text-black/35 disabled:opacity-100 dark:disabled:bg-white/10 dark:disabled:text-white/35"
+          className="h-[52px] w-full rounded-full text-[17px] font-semibold leading-[22px] text-[color:var(--app-accent-fg)] disabled:bg-black/10 disabled:text-black/35 disabled:opacity-100 dark:disabled:bg-white/10 dark:disabled:text-white/35"
         >
           Continue
         </Button>
@@ -6689,7 +6707,7 @@ function InviteFlow({
       <Button
         onClick={vm.onCreateCircleInvite}
         isLoading={vm.busy === "circleInvite"}
-        className="h-12 w-full rounded-2xl bg-[color:var(--app-accent)] text-base font-semibold text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90"
+        className="h-12 w-full rounded-full text-base font-semibold text-[color:var(--app-accent-fg)]"
       >
         Create invite
       </Button>

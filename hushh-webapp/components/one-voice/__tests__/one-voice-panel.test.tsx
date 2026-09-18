@@ -326,6 +326,66 @@ describe("OneVoicePanel", () => {
     expect(onDismissError).toHaveBeenCalledTimes(1);
   });
 
+  it("renders no result card for a location_updates_pending result; the settled result gets the card", () => {
+    const pending = replay([
+      ready,
+      { type: "state", state: "executing" },
+      {
+        type: "tool.started",
+        call_id: "c-device",
+        tool: "resume_device_location_updates",
+        args_public: {},
+      },
+      {
+        type: "tool.result",
+        call_id: "c-device",
+        tool: "resume_device_location_updates",
+        status: "location_updates_pending",
+        ok: false,
+        result_public: { status: "location_updates_pending" },
+      },
+    ]);
+    expect(pending.lastResult?.status).toBe("location_updates_pending");
+    expect(
+      isHandoffResult(
+        { status: "location_updates_pending" },
+        { candidatePicker: null },
+      ),
+    ).toBe(true);
+    expect(selectPanelResult(pending)).toBeNull();
+    const { unmount } = render(
+      <OneVoicePanel state={pending} controller={controller()} />,
+    );
+    expect(screen.queryByTestId("one-voice-tool-result")).toBeNull();
+    expect(screen.queryByTestId("one-voice-tool-result-headline")).toBeNull();
+    unmount();
+
+    const settled = replay(
+      [
+        {
+          type: "tool.result",
+          call_id: "c-device",
+          tool: "resume_device_location_updates",
+          status: "on",
+          ok: true,
+          result_public: { status: "on", spoken_facts: ["Location is on."] },
+        },
+        { type: "state", state: "complete" },
+      ],
+      pending,
+    );
+    expect(selectPanelResult(settled)).toMatchObject({
+      tool: "resume_device_location_updates",
+      ok: true,
+      result: { status: "on" },
+    });
+    render(<OneVoicePanel state={settled} controller={controller()} />);
+    expect(
+      screen.getByTestId("one-voice-tool-result-headline"),
+    ).toHaveTextContent("Done");
+    expect(screen.getByText("Location is on.")).toBeInTheDocument();
+  });
+
   it("reports whether there is anything to show and never covers the page", () => {
     expect(panelHasContent(INITIAL_VOICE_SESSION_STATE)).toBe(false);
     const state = replay([

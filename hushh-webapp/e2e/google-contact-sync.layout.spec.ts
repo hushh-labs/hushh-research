@@ -201,7 +201,7 @@ for (const width of [393, 1440]) {
     ).toBeVisible();
     await expect(
       results.getByRole("button", { name: "Choose Google account" }),
-    ).toHaveClass(/bg-\[color:var\(--app-accent\)\]/);
+    ).toHaveClass(/bg-\[[^\]]*var\(--app-accent\)/);
     await expect(
       results.getByRole("button", { name: "Invite contacts" }),
     ).toHaveCount(0);

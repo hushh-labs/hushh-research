@@ -224,4 +224,5 @@ asyncio_mode = "auto"  # Enable pytest-asyncio auto mode
 asyncio_default_fixture_loop_scope = "function"  # Set event loop scope
 markers = [
     "db: DB-backed tests that require the Cloud SQL Auth-Proxy tunnel at 127.0.0.1:6543",
+    "live_model: drives the real configured Live model; skipped unless ONE_VOICE_LIVE_TOOL_EVAL=1 and Vertex ADC resolve",
 ]

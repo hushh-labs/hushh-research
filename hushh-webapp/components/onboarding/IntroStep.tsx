@@ -81,19 +81,16 @@ export function IntroStep({ onLogin }: { onLogin?: () => void }) {
           <FigmaHushhLogo className={styles.brand} />
           <FigmaIllustration variant="intro" className={styles.illustration} />
 
-        {/* ── Typography-led hero. No cards, no fake metrics. ── */}
-        <div className={styles.hero}>
-          <span
-            aria-hidden="true"
-            className={styles.emoji}
-          >
-            🤫
-          </span>
+          <div className={styles.hero}>
+            {/* Figma 145:6108 is a separate emoji, not part of the source image. */}
+            <span aria-hidden="true" className={styles.quietMark}>
+              🤫
+            </span>
 
-          <h1 className={styles.title} aria-label="One">
-            <span className={styles.srOnly}>One</span>
-            <FigmaOneLogo />
-          </h1>
+            <h1 className={styles.title} aria-label="One">
+              <span className={styles.srOnly}>One</span>
+              <FigmaOneLogo />
+            </h1>
 
             <p className={styles.tagline}>
               Your agents. Yours to own.
@@ -105,8 +102,6 @@ export function IntroStep({ onLogin }: { onLogin?: () => void }) {
             <div className={styles.privacy}>
               <FigmaPrivacyNote>
                 You have full control over your data.
-                <br />
-                Your data. Your rules.
               </FigmaPrivacyNote>
             </div>
             <button

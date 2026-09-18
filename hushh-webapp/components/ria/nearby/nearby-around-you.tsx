@@ -550,7 +550,7 @@ function ShortlistedProspects({
         </div>
       ) : entries.length === 0 ? (
         <div className="px-4 py-5">
-          <p className={MUTED_TEXT}>No shortlisted prospects yet.</p>
+          <p className="text-sm text-muted-foreground">No shortlisted prospects yet.</p>
         </div>
       ) : (
         entries.map((entry) => {

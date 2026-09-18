@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   clearOneLocationControlRuntime,
+  deriveLocationEnabled,
   forgetOneLocationControlPreference,
   readOneLocationControlState,
   subscribeOneLocationControlState,
@@ -142,5 +143,52 @@ describe("One Location control state", () => {
     }));
 
     expect(state.nearbyCheckedInAt).toBeNull();
+  });
+});
+
+describe("deriveLocationEnabled", () => {
+  const off = {
+    paused: false,
+    selfPreviewEnabled: false,
+    nearbyPresenceActive: false,
+  };
+  const active = [{ status: "active" }];
+  const expired = [{ status: "expired" }];
+
+  it.each([
+    ["nothing active", off, [], false],
+    ["self preview", { ...off, selfPreviewEnabled: true }, [], true],
+    ["nearby presence", { ...off, nearbyPresenceActive: true }, [], true],
+    ["an active grant only", off, active, true],
+    ["an expired grant only", off, expired, false],
+    ["a revoked grant only", off, [{ status: "revoked" }], false],
+    ["an active grant among expired ones", off, [...expired, ...active], true],
+    ["paused with self preview", { ...off, paused: true, selfPreviewEnabled: true }, [], false],
+    ["paused with nearby presence", { ...off, paused: true, nearbyPresenceActive: true }, [], false],
+    ["paused with an active grant", { ...off, paused: true }, active, false],
+    [
+      "paused with everything",
+      { paused: true, selfPreviewEnabled: true, nearbyPresenceActive: true },
+      active,
+      false,
+    ],
+  ] as const)("%s -> %s", (_label, control, grants, expected) => {
+    expect(deriveLocationEnabled(control, grants)).toBe(expected);
+  });
+
+  it("reads the same truth the runtime state produces after a pause", () => {
+    updateOneLocationControlState(userId, (current) => ({
+      ...current,
+      selfPreviewEnabled: true,
+      nearbyPresenceActive: true,
+    }));
+    expect(deriveLocationEnabled(readOneLocationControlState(userId), [])).toBe(true);
+    updateOneLocationControlState(userId, (current) => ({
+      ...current,
+      paused: true,
+    }));
+    expect(
+      deriveLocationEnabled(readOneLocationControlState(userId), active),
+    ).toBe(false);
   });
 });
