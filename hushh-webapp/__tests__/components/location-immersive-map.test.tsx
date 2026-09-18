@@ -496,6 +496,25 @@ beforeEach(() => {
   });
 });
 
+/**
+ * A returning consented owner opening check-in directly.
+ *
+ * Check-in is its own route and no longer shows Your Map's renderer-consent
+ * gate, so its tests simulate the session that reported the bug: consent
+ * already durable on the server. Seeding `getMapState` with the consent
+ * version keeps `rendererReady` true for the whole test, the way the cached
+ * + authoritative reads do for a real returning owner.
+ */
+function seedConsentedRenderer() {
+  serviceHarness.getMapState.mockResolvedValue({
+    markers: [],
+    preferences: {
+      presenceMode: "ghost",
+      rendererConsentVersion: "google-maps-renderer-v1",
+    },
+  });
+}
+
 afterEach(() => {
   forgetOneLocationControlPreference("test-user");
   forgetCachedRendererConsent("test-user");
@@ -886,10 +905,10 @@ describe("LocationImmersiveMap demo experience", () => {
     // Check-in is its own destination now; the legacy `?action=check-in`
     // entry redirects here instead of opening over Your Map.
 
+    // Returning consented owner: check-in opens directly, no Your Map gate.
+    seedConsentedRenderer();
     render(<LocationImmersiveMap surface="check-in" />);
-    fireEvent.click(
-      screen.getByRole("button", { name: "Continue" }),
-    );
+    expect(screen.queryByTestId("one-location-map-disclosure")).toBeNull();
     await waitFor(() => {
       expect(screen.getByTestId("one-location-map")).toHaveAttribute(
         "data-map-ready",
@@ -955,8 +974,10 @@ describe("LocationImmersiveMap demo experience", () => {
     experienceHarness.demoMode = false;
     experienceHarness.nearbyAvailable = true;
 
+    // Returning consented owner: check-in opens directly, no Your Map gate.
+    seedConsentedRenderer();
     render(<LocationImmersiveMap surface="check-in" />);
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    expect(screen.queryByTestId("one-location-map-disclosure")).toBeNull();
     await waitFor(() => {
       expect(screen.getByTestId("one-location-map")).toHaveAttribute(
         "data-map-ready",
@@ -1001,10 +1022,10 @@ describe("LocationImmersiveMap demo experience", () => {
       removed.push(ids);
     });
 
+    // Returning consented owner: check-in opens directly, no Your Map gate.
+    seedConsentedRenderer();
     render(<LocationImmersiveMap surface="check-in" />);
-    fireEvent.click(
-      screen.getByRole("button", { name: "Continue" }),
-    );
+    expect(screen.queryByTestId("one-location-map-disclosure")).toBeNull();
     await waitFor(() => {
       expect(screen.getByTestId("one-location-map")).toHaveAttribute(
         "data-map-ready",
@@ -1037,10 +1058,10 @@ describe("LocationImmersiveMap demo experience", () => {
     // Check-in is its own destination now; the legacy `?action=check-in`
     // entry redirects here instead of opening over Your Map.
 
+    // Returning consented owner: check-in opens directly, no Your Map gate.
+    seedConsentedRenderer();
     render(<LocationImmersiveMap surface="check-in" />);
-    fireEvent.click(
-      screen.getByRole("button", { name: "Continue" }),
-    );
+    expect(screen.queryByTestId("one-location-map-disclosure")).toBeNull();
     await waitFor(() => {
       expect(screen.getByTestId("one-location-map")).toHaveAttribute(
         "data-map-ready",
@@ -1117,10 +1138,10 @@ describe("LocationImmersiveMap demo experience", () => {
       active: true,
     };
 
+    // Returning consented owner: check-in opens directly, no Your Map gate.
+    seedConsentedRenderer();
     render(<LocationImmersiveMap surface="check-in" />);
-    fireEvent.click(
-      screen.getByRole("button", { name: "Continue" }),
-    );
+    expect(screen.queryByTestId("one-location-map-disclosure")).toBeNull();
     await waitFor(() => {
       expect(screen.getByTestId("one-location-map")).toHaveAttribute(
         "data-map-ready",
@@ -1194,10 +1215,10 @@ describe("LocationImmersiveMap demo experience", () => {
       },
     );
 
+    // Returning consented owner: check-in opens directly, no Your Map gate.
+    seedConsentedRenderer();
     render(<LocationImmersiveMap surface="check-in" />);
-    fireEvent.click(
-      screen.getByRole("button", { name: "Continue" }),
-    );
+    expect(screen.queryByTestId("one-location-map-disclosure")).toBeNull();
     await waitFor(() => {
       expect(screen.getByTestId("one-location-map")).toHaveAttribute(
         "data-map-ready",
@@ -1228,10 +1249,10 @@ describe("LocationImmersiveMap demo experience", () => {
       longitude: 179.999,
     };
 
+    // Returning consented owner: check-in opens directly, no Your Map gate.
+    seedConsentedRenderer();
     render(<LocationImmersiveMap surface="check-in" />);
-    fireEvent.click(
-      screen.getByRole("button", { name: "Continue" }),
-    );
+    expect(screen.queryByTestId("one-location-map-disclosure")).toBeNull();
     await waitFor(() => {
       expect(screen.getByTestId("one-location-map")).toHaveAttribute(
         "data-map-ready",
@@ -1269,10 +1290,10 @@ describe("LocationImmersiveMap demo experience", () => {
       )
       .mockResolvedValue(undefined);
 
+    // Returning consented owner: check-in opens directly, no Your Map gate.
+    seedConsentedRenderer();
     render(<LocationImmersiveMap surface="check-in" />);
-    fireEvent.click(
-      screen.getByRole("button", { name: "Continue" }),
-    );
+    expect(screen.queryByTestId("one-location-map-disclosure")).toBeNull();
     await waitFor(() => {
       expect(screen.getByTestId("one-location-map")).toHaveAttribute(
         "data-map-ready",
@@ -1371,10 +1392,10 @@ describe("LocationImmersiveMap demo experience", () => {
       experienceHarness.nearbyAvailable = true;
       experienceHarness.query = entry.query;
 
+      // Returning consented owner: check-in opens directly, no Your Map gate.
+      seedConsentedRenderer();
       render(<LocationImmersiveMap surface="check-in" />);
-      fireEvent.click(
-        screen.getByRole("button", { name: "Continue" }),
-      );
+      expect(screen.queryByTestId("one-location-map-disclosure")).toBeNull();
       await waitFor(() => {
         expect(
           screen.getByTestId("nearby-check-in-sheet-mock"),
@@ -1405,10 +1426,10 @@ describe("LocationImmersiveMap demo experience", () => {
     experienceHarness.nearbyAvailable = true;
     experienceHarness.query = "source=map";
 
+    // Returning consented owner: check-in opens directly, no Your Map gate.
+    seedConsentedRenderer();
     const view = render(<LocationImmersiveMap surface="check-in" />);
-    fireEvent.click(
-      screen.getByRole("button", { name: "Continue" }),
-    );
+    expect(screen.queryByTestId("one-location-map-disclosure")).toBeNull();
     await waitFor(() => {
       expect(screen.getByTestId("nearby-check-in-sheet-mock")).toHaveAttribute(
         "data-open",
@@ -1435,10 +1456,10 @@ describe("LocationImmersiveMap demo experience", () => {
     experienceHarness.nearbyAvailable = true;
     experienceHarness.query = "source=map";
 
+    // Returning consented owner: check-in opens directly, no Your Map gate.
+    seedConsentedRenderer();
     render(<LocationImmersiveMap surface="check-in" />);
-    fireEvent.click(
-      screen.getByRole("button", { name: "Continue" }),
-    );
+    expect(screen.queryByTestId("one-location-map-disclosure")).toBeNull();
     await waitFor(() => {
       expect(screen.getByTestId("nearby-check-in-sheet-mock")).toHaveAttribute(
         "data-open",
@@ -1486,10 +1507,10 @@ describe("LocationImmersiveMap demo experience", () => {
       ],
     });
 
+    // Returning consented owner: check-in opens directly, no Your Map gate.
+    seedConsentedRenderer();
     render(<LocationImmersiveMap surface="check-in" />);
-    fireEvent.click(
-      screen.getByRole("button", { name: "Continue" }),
-    );
+    expect(screen.queryByTestId("one-location-map-disclosure")).toBeNull();
 
     await waitFor(() => {
       expect(screen.getByTestId("one-location-map")).toHaveAttribute(
@@ -1951,11 +1972,11 @@ describe("LocationImmersiveMap remount triggers", () => {
     experienceHarness.nearbyAvailable = true;
     experienceHarness.query = "";
 
+    // Returning consented owner: check-in opens directly, no Your Map gate.
+    // Renderer consent still gates the marker refresh alike.
+    seedConsentedRenderer();
     render(<LocationImmersiveMap surface="check-in" />);
-    // Renderer consent gates the sheet and the marker refresh alike.
-    fireEvent.click(
-      screen.getByRole("button", { name: "Continue" }),
-    );
+    expect(screen.queryByTestId("one-location-map-disclosure")).toBeNull();
     await waitFor(() => {
       expect(screen.getByTestId("one-location-map")).toHaveAttribute(
         "data-map-ready",
@@ -2023,10 +2044,18 @@ describe("LocationImmersiveMap reported map defects", () => {
   }
 
   async function renderReadyMap(props: { surface?: "map" | "check-in" } = {}) {
+    if (props.surface === "check-in") {
+      // Returning consented owner: check-in opens directly, no Your Map gate.
+      seedConsentedRenderer();
+    }
     render(<LocationImmersiveMap {...props} />);
-    fireEvent.click(
-      screen.getByRole("button", { name: "Continue" }),
-    );
+    if (props.surface === "check-in") {
+      expect(screen.queryByTestId("one-location-map-disclosure")).toBeNull();
+    } else {
+      fireEvent.click(
+        screen.getByRole("button", { name: "Continue" }),
+      );
+    }
     await waitFor(() => {
       expect(screen.getByTestId("one-location-map")).toHaveAttribute(
         "data-map-ready",

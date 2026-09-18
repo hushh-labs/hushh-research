@@ -5,12 +5,12 @@
  *
  * Renders only what the server sent about them -- display name, photo,
  * relationship -- never an id, and never a name that came from speech. The
- * three actions navigate to the flows with `?person=<user_id>` so each flow
+ * two actions navigate to the flows with `?person=<user_id>` so each flow
  * resolves the person again from server state.
  */
 
 import { useEffect, useRef } from "react";
-import { Hand, MapPinned, Navigation } from "lucide-react";
+import { Hand, Navigation } from "lucide-react";
 
 import { StatusPill } from "@/lib/morphy-ux/ui/surface-primitives";
 import { MUTED_TEXT, SUBCARD_SURFACE } from "@/lib/morphy-ux/tokens/surfaces";
@@ -22,7 +22,7 @@ export type PersonRowStatus = {
   tone: "ready" | "pending" | "live" | "neutral";
 };
 
-export type PersonRowAction = "ask" | "share" | "check-in";
+export type PersonRowAction = "ask" | "share";
 
 export type PersonRowProps = {
   userId: string;
@@ -46,8 +46,6 @@ const ACTION_BUTTON =
   "press-scale flex min-h-11 min-w-11 flex-1 items-center justify-center gap-1.5 rounded-full px-3 text-[13px] font-semibold transition-colors disabled:opacity-45 sm:flex-none";
 const ACTION_PRIMARY =
   "bg-[color:var(--app-accent-tint)] text-[color:var(--app-accent)]";
-const ACTION_NEUTRAL =
-  "bg-[color:var(--app-neutral-fill)] text-[color:var(--app-label)]";
 
 export function PersonRow({
   userId,
@@ -136,16 +134,6 @@ export function PersonRow({
         >
           <Navigation className="h-4 w-4" aria-hidden="true" />
           Share
-        </button>
-        <button
-          type="button"
-          className={cn(ACTION_BUTTON, ACTION_NEUTRAL)}
-          onClick={() => onAction("check-in", userId)}
-          disabled={!canReceiveLocation}
-          aria-label={`Check in with ${name}`}
-        >
-          <MapPinned className="h-4 w-4" aria-hidden="true" />
-          Check-In
         </button>
       </div>
     </div>

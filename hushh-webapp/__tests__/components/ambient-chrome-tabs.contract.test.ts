@@ -101,7 +101,7 @@ describe("tabbed ambient chrome contract", () => {
       "backdrop-filter: var(--ambient-chrome-backdrop-filter)",
     );
     expect(styles).toContain(".ambient-chrome-mask--bottom");
-    expect(styles).toContain("--ambient-chrome-fade-solid: 94%");
+    expect(styles).toContain("--ambient-chrome-fade-solid: 100%");
     expect(styles).toContain("--ambient-chrome-fade-dense: 91%");
     expect(styles).toContain("--ambient-chrome-fade-mid: 72%");
     expect(styles).toContain("--ambient-chrome-fade-soft: 38%");

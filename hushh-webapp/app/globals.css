@@ -619,7 +619,7 @@ textarea {
   --blur-light: 4px;
   --blur-standard: 8px;
   --blur-heavy: 16px;
-  --app-shared-chrome-mask-blur: 12px;
+  --app-shared-chrome-mask-blur: 20px;
   /* Frosted chrome baseline (sub-nav / sticky-bar grade backdrop filter). */
   --app-blur-frosted: saturate(180%) blur(20px);
 
@@ -720,7 +720,7 @@ textarea {
   --top-tabs-total: 0px;
   --top-subnav-h: 30px;
   --top-subnav-gap: 12px;
-  --top-fade-active: 8px;
+  --top-fade-active: 22px;
   --top-content-safe-gap: 14px;
   --page-top-body-gap: 18px;
   /* Single visual clearance between the fixed top shell and the first page block.
@@ -2480,7 +2480,7 @@ body:has([data-location-hub]) [data-app-shell-top-spacer="true"] {
   :root {
     --top-bar-h: 64px;
     --top-systembar-row-gap: 0px;
-    --top-fade-active: 12px;
+    --top-fade-active: 22px;
     --app-bottom-shell-max-width: 40rem;
   }
 }
@@ -4405,7 +4405,7 @@ md-ripple.morphy-md-ripple {
   --ambient-chrome-wash: 58%;
   /* One feather profile drives both chrome edges. Edge classes may choose
      geometry, never their own opacity curve. */
-  --ambient-chrome-fade-solid: 94%;
+  --ambient-chrome-fade-solid: 100%;
   --ambient-chrome-fade-dense: 91%;
   --ambient-chrome-fade-mid: 72%;
   --ambient-chrome-fade-soft: 38%;
@@ -4423,14 +4423,14 @@ md-ripple.morphy-md-ripple {
 }
 
 html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
-  --ambient-chrome-wash: 0%;
+  --ambient-chrome-wash: 100%;
 }
 
 .ambient-chrome-mask--top {
   --ambient-chrome-bg: var(--ambient-chrome-material-bg);
-  /* Keep the shell legible without turning the top edge into an opaque slab.
-     The final 12–14px tail is deliberately short, but its eased curve mirrors
-     the bottom dock instead of falling from full opacity inside one hard step. */
+  /* The top edge stays fully opaque across the reserved bar height so scrolled
+     page headings dissolve behind solid chrome instead of slicing through a
+     translucent strip. The eased fade tail below only softens the edge. */
   --ambient-chrome-wash: var(--ambient-chrome-fade-solid);
   --ambient-chrome-top-solid-height: var(--top-shell-mask-solid-height);
   --ambient-chrome-top-visible-height: var(--top-shell-mask-visible-height);
