@@ -89,7 +89,9 @@ class ExternalConnectorCredentialsService:
                 "Connector credential needs reauthorization", status_code=401
             ) from exc
 
-    async def _execute(self, sql: str, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+    async def _execute(
+        self, sql: str, params: dict[str, Any] | None = None
+    ) -> list[dict[str, Any]]:
         result = await asyncio.to_thread(self.db.execute_raw, sql, params)
         return result.data or []
 

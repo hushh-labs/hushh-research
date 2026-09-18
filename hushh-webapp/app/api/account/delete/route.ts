@@ -2,8 +2,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getPythonApiUrl } from "@/app/api/_utils/backend";
 
-const BACKEND_URL = getPythonApiUrl();
-
 export async function DELETE(request: NextRequest) {
   try {
     const authHeader = request.headers.get("authorization") || request.headers.get("Authorization");
@@ -16,7 +14,7 @@ export async function DELETE(request: NextRequest) {
       );
     }
 
-    const backendUrl = `${BACKEND_URL}/api/account/delete`;
+    const backendUrl = `${getPythonApiUrl()}/api/account/delete`;
     console.log(`[API] Proxying account deletion to: ${backendUrl}`);
 
     const response = await fetch(backendUrl, {
@@ -26,6 +24,7 @@ export async function DELETE(request: NextRequest) {
         Authorization: authHeader,
       },
       body: requestBody || undefined,
+      signal: AbortSignal.timeout(180_000),
     });
 
     const responseText = await response.text();

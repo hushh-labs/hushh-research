@@ -67,7 +67,9 @@ class ExternalConnectorRegistryService:
     def __init__(self, db: Any | None = None) -> None:
         self.db = db or get_db()
 
-    async def _execute(self, sql: str, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+    async def _execute(
+        self, sql: str, params: dict[str, Any] | None = None
+    ) -> list[dict[str, Any]]:
         result = await asyncio.to_thread(self.db.execute_raw, sql, params)
         return result.data or []
 

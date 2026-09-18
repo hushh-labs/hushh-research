@@ -61,7 +61,9 @@ class ExternalConnectorOAuthService:
         self._registry = registry or get_external_connector_registry_service()
         self._credentials = credentials or get_external_connector_credentials_service()
 
-    async def _execute(self, sql: str, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+    async def _execute(
+        self, sql: str, params: dict[str, Any] | None = None
+    ) -> list[dict[str, Any]]:
         result = await asyncio.to_thread(self.db.execute_raw, sql, params)
         return result.data or []
 
@@ -93,9 +95,7 @@ class ExternalConnectorOAuthService:
             raise ExternalConnectorOAuthError("OAuth state is invalid")
         return attempt_id
 
-    async def start(
-        self, *, user_id: str, connector_id: str, redirect_uri: str
-    ) -> dict[str, Any]:
+    async def start(self, *, user_id: str, connector_id: str, redirect_uri: str) -> dict[str, Any]:
         connector = await self._registry.get_connector(connector_id)
         if connector is None or connector.auth_style != "oauth":
             raise ExternalConnectorOAuthError("This connector does not support OAuth")

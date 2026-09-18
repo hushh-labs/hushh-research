@@ -72,6 +72,7 @@ import { useEffectiveAvatarUrl } from "@/hooks/use-effective-avatar-url";
 import { useVault } from "@/lib/vault/vault-context";
 import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
 import {
+  AccountDeletionOutcomeUncertainError,
   DELETE_ACCOUNT_DIALOG_DESCRIPTION,
   DELETE_ACCOUNT_DIALOG_TITLE,
   accountDeletionErrorMessage,
@@ -1392,7 +1393,11 @@ function OnboardingRouteActions() {
         skipFcmCleanup: true,
       });
     } catch (error) {
-      console.error("[TopAppBar] Failed to delete account:", error);
+      if (error instanceof AccountDeletionOutcomeUncertainError) {
+        console.warn("[TopAppBar] Delete account outcome uncertain:", error);
+      } else {
+        console.error("[TopAppBar] Failed to delete account:", error);
+      }
     } finally {
       setIsDeleting(false);
       setDeleteConfirmOpen(false);

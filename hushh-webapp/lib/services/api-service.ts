@@ -845,11 +845,12 @@ async function apiFetch(
       // generous ceiling for the RIA scrape routes, a tight one otherwise.
       const isLongRunningRoute =
         path.includes("/ria/onboarding/") ||
-        path.includes("/ria/profile/refresh-license");
-      // 90s ceiling for the RIA scrape routes; a generous 60s otherwise so we
-      // only ever bound a genuinely hung request (native calls were previously
-      // unbounded — keep legitimately-slow uploads/downloads working).
-      const readTimeoutMs = isLongRunningRoute ? 90_000 : 60_000;
+        path.includes("/ria/profile/refresh-license") ||
+        path.includes("/api/account/delete") ||
+        path.includes("/api/account/reset");
+      // 180s ceiling for account erasure, reset, and RIA scrape routes; a generous
+      // 60s otherwise so we only ever bound a genuinely hung request.
+      const readTimeoutMs = isLongRunningRoute ? 180_000 : 60_000;
       const request: {
         url: string;
         method: string;
@@ -958,11 +959,21 @@ async function apiFetch(
       return await settleAuthenticatedResponse(response);
     }
 
-    const response = await fetchWithWebTimeout(url, {
-      ...options,
-      credentials: "include",
-      headers: mergedHeaders,
-    });
+    const isLongRunningRoute =
+      path.includes("/ria/onboarding/") ||
+      path.includes("/ria/profile/refresh-license") ||
+      path.includes("/api/account/delete") ||
+      path.includes("/api/account/reset");
+    const webTimeoutMs = isLongRunningRoute ? 180_000 : WEB_FETCH_TIMEOUT_MS;
+    const response = await fetchWithWebTimeout(
+      url,
+      {
+        ...options,
+        credentials: "include",
+        headers: mergedHeaders,
+      },
+      webTimeoutMs,
+    );
     return await settleAuthenticatedResponse(response);
   } catch (error) {
     recordApiRequestMetric(null);
