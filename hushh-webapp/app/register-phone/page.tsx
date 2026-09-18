@@ -2,7 +2,7 @@
 
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ChevronLeft, LogOut, MoreHorizontal } from "lucide-react";
+import { ChevronLeft, LogOut, MoreHorizontal } from "@/components/icons";
 import { toast } from "sonner";
 
 import { HushhLoader } from "@/components/app-ui/hushh-loader";
@@ -399,6 +399,7 @@ export function PhoneMandatePageContent() {
           }}
         >
           <PhoneVerificationFlow
+            key={user.uid}
             mode="link"
             currentPhoneNumber={phoneNumber}
             startVerification={startPhoneVerification}
@@ -406,9 +407,9 @@ export function PhoneMandatePageContent() {
             onCompleted={continueToNextRoute}
             onContinueExisting={continueToNextRoute}
             onStepChange={setVerificationStep}
-            sendCodeLabel="Send code"
+            sendCodeLabel="Continue"
             confirmLabel="Verify"
-            primaryActionClassName="mx-auto max-w-[21.5rem]"
+            primaryActionClassName={styles.primaryAction}
             className="gap-5"
           />
           <div id="recaptcha-container" className="mt-3 min-h-0" />

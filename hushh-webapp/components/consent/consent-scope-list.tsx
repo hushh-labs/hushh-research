@@ -20,7 +20,7 @@
  */
 
 import { useMemo, useState } from "react";
-import { ChevronDown, Search } from "lucide-react";
+import { ChevronDown, Search } from "@/components/icons";
 
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { Input } from "@/components/ui/input";

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import { HttpAgent } from "@ag-ui/client";
-import { Check, Copy, Laptop, Loader2, Send } from "lucide-react";
+import { Check, Copy, Laptop, Loader2, Send } from "@/components/icons";
 
 import { AgentMarkdown } from "@/components/agent/agent-markdown";
 import { copyTextToClipboard } from "@/components/agent/chat-markdown-link";

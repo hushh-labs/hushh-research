@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { CalendarPlus, Clock3 } from "lucide-react";
+import { CalendarPlus, Clock3 } from "@/components/icons";
 
 import { CalendarAgentPage } from "@/components/calendar/calendar-agent-page";
 import { CapabilityCinematicIntroGate } from "@/components/onboarding/setup/capability-cinematic-intro";

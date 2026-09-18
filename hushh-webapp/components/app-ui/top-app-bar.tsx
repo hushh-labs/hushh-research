@@ -33,7 +33,7 @@ import {
   Mail,
   Shield,
   UserRound,
-} from "lucide-react";
+} from "@/components/icons";
 import {
   ArrowLeftIcon as ArrowLeft,
   CaretDownIcon as ChevronDown,
@@ -1224,14 +1224,6 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
                             <KeyRound className="h-5 w-5 text-amber-600 dark:text-amber-300" />
                           </ShellActionSurface>
                         ) : null}
-
-                        <ShellActionSurface
-                          variant="pill"
-                          aria-label="Search"
-                          onClick={() => openKaiCommandBar()}
-                        >
-                          Search 🔍
-                        </ShellActionSurface>
 
                         <ShellActionSurface
                           variant="icon"

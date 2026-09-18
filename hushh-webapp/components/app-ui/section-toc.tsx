@@ -7,7 +7,7 @@
 // long-form pages (Developers, the PCHP spec, long blog posts) share one
 // TOC implementation instead of each hand-rolling its own sidebar/nav.
 
-import { Menu } from "lucide-react";
+import { Menu } from "@/components/icons";
 
 import { useIsMobile } from "@/hooks/use-mobile";
 import { Button as MorphyButton } from "@/lib/morphy-ux/button";
@@ -134,7 +134,7 @@ export function SectionTocMobileFab({
   return (
     <Drawer open={open} onOpenChange={onOpenChange}>
       <div
-        className="fixed right-4 z-[160] md:hidden transition-all duration-120 ease-out"
+        className="fixed right-4 z-[160] md:hidden transition-[opacity,transform] duration-120 ease-out"
         style={{ 
           bottom: "calc(max(var(--app-safe-area-bottom-effective), 0.75rem) + var(--app-scroll-bottom-pad, 0px) + 0.5rem)" 
         }}

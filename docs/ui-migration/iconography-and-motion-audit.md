@@ -1,6 +1,6 @@
 # 0-to-1 Iconography Architecture & Snappy Motion System Audit
 
-**Status**: Phase 1 Core Implemented · Active Architecture Standard  
+**Status**: Application-wide registry migration implemented · Rendered/native acceptance in progress
 **Governing Skills**: [skills/hushh-icon-theme/SKILL.md](../../skills/hushh-icon-theme/SKILL.md) · [skills/improve-animations/AUDIT.md](../../skills/improve-animations/AUDIT.md)  
 **Target Package**: `hushh-webapp`
 
@@ -21,22 +21,22 @@ To establish visual coherence across the entire application and maintain strict 
 2. **Duotone Depth**: Primary silhouette at 100% opacity; secondary contour/accent path at 20% opacity (`opacity="0.2"`).
 3. **Palette Specialization**:
    - **Capability Icons**: Rendered with single-hue signature tones (Finance `#10B981`, Wallet `#F59E0B`, Location `#EF4444`, RIA `#8B5CF6`, Gmail `#E11D48`, Calendar `#0284C7`, KYC `#2563EB`, Memory `#6366F1`, Consent `#F97316`, Marketplace `#059669`, Connected `#00E5FF`).
-   - **Neutral UI Icons**: Inherit `currentColor` with duotone depth for subtle elevation.
-4. **Single Source of Import**: Components must import from `@/components/icons` rather than ad-hoc `lucide-react` imports.
+   - **Neutral UI Icons**: Inherit `currentColor` with regular geometry. Utility controls never receive a secondary fill that can be mistaken for an icon background; capability icons retain duotone depth.
+4. **Single Source of Import**: Runtime components import from `@/components/icons`. The typed compatibility facade maps legacy names to official Phosphor geometry while callers migrate without changing their public props.
 
 ### UI Replacement Registry
 
 | Legacy Lucide Icon | Canonical Phosphor Component | Export Name in `@/components/icons` | Default Weight | Status |
 |---|---|---|---|---|
-| `Search` | `MagnifyingGlass` | `SearchIcon` | `duotone` | ✅ Migrated |
-| `Grid` / `LayoutGrid` | `SquaresFour` | `GridIcon` | `duotone` | ✅ Migrated |
-| `List` / `Menu` | `List` | `ListIcon`, `MenuIcon` | `duotone` | ✅ Migrated |
-| `ChevronRight` | `CaretRight` | `CaretRightIcon`, `ChevronRightIcon` | `duotone` | ✅ Migrated |
-| `ChevronDown` | `CaretDown` | `CaretDownIcon`, `ChevronDownIcon` | `duotone` | ✅ Migrated |
-| `ChevronLeft` | `CaretLeft` | `CaretLeftIcon`, `ChevronLeftIcon` | `duotone` | ✅ Migrated |
-| `ChevronUp` | `CaretUp` | `CaretUpIcon`, `ChevronUpIcon` | `duotone` | ✅ Migrated |
-| `ArrowLeft` | `ArrowLeft` | `ArrowLeftIcon` | `duotone` | ✅ Migrated |
-| `ArrowRight` | `ArrowRight` | `ArrowRightIcon` | `duotone` | ✅ Migrated |
+| `Search` | `MagnifyingGlass` | `SearchIcon` | `regular` | ✅ Migrated |
+| `Grid` / `LayoutGrid` | `SquaresFour` | `GridIcon` | `regular` | ✅ Migrated |
+| `List` / `Menu` | `List` | `ListIcon`, `MenuIcon` | `regular` | ✅ Migrated |
+| `ChevronRight` | `CaretRight` | `CaretRightIcon`, `ChevronRightIcon` | `regular` | ✅ Migrated |
+| `ChevronDown` | `CaretDown` | `CaretDownIcon`, `ChevronDownIcon` | `regular` | ✅ Migrated |
+| `ChevronLeft` | `CaretLeft` | `CaretLeftIcon`, `ChevronLeftIcon` | `regular` | ✅ Migrated |
+| `ChevronUp` | `CaretUp` | `CaretUpIcon`, `ChevronUpIcon` | `regular` | ✅ Migrated |
+| `ArrowLeft` | `ArrowLeft` | `ArrowLeftIcon` | `regular` | ✅ Migrated |
+| `ArrowRight` | `ArrowRight` | `ArrowRightIcon` | `regular` | ✅ Migrated |
 | `Plus` | `Plus` | `PlusIcon` | `regular` | ✅ Migrated |
 | `X` | `X` | `XIcon`, `CloseIcon` | `regular` | ✅ Migrated |
 | `Check` | `Check` | `CheckIcon` | `duotone` | ✅ Migrated |
@@ -80,8 +80,8 @@ durations.
 
 --motion-overlay-enter-duration: 150ms;
 --motion-overlay-exit-duration: 100ms;
---motion-route-enter-duration: 140ms;
---motion-route-exit-duration: 90ms;
+--motion-route-enter-duration: 90ms;
+--motion-route-exit-duration: 60ms;
 ```
 
 ### Performance & Compositing Mandates
@@ -119,19 +119,20 @@ durations.
 
 ---
 
-## 4. Phased Surface Rollout Plan
+## 4. Application completion ledger
 
-- **Phase 1 (Completed)**:
-  - Centralized Phosphor UI Registry (`components/icons/`)
-  - Motion tokens & <150ms ceiling (`app/globals.css`)
-  - High-traffic surfaces: `top-app-bar.tsx`, `settings-ui.tsx`, `profile-pane.tsx`, `agent-history-sidebar.tsx`, `agent-chat-workspace.tsx`, `/one` launcher
-- **Phase 2 (Queued)**:
-  - Vault unlock & biometrics (`components/vault/`)
-  - Connect & Circles directory (`components/connect/`)
-  - One Voice action cards (`components/one-voice/`)
-  - Onboarding steps (`components/onboarding/`)
-- **Phase 3 (Queued)**:
-  - Secondary developer tools & long-tail debug cards
+| Surface | Source status | Rendered proof | Native proof |
+|---|---|---|---|
+| Shell, `/one`, bottom navigation and top bar | Registry imports | Focused component contracts | Pending device run |
+| Profile pane and nested settings | Registry imports and `/one` capability mappings | Focused Profile rehearsal | Pending device run |
+| Chat, history drawer and Puppy/One controls | Registry imports; sessions remain isolated | Reviewer UI rehearsal | Pending device run |
+| Vault, onboarding, Connect, Finance, Location and voice | Registry imports; branded/diagram SVGs remain owned exceptions | Focused route contracts pending full-suite green | Pending device run |
+| Developer and secondary surfaces | Registry imports | Full-suite and visual audit pending | Pending device run |
+| Inline SVG charts, maps, provider logos and illustrations | Reviewed non-UI-icon exceptions | Owner-specific visual tests | N/A |
+
+The runtime census now reports zero `lucide-react` imports under
+`hushh-webapp/{app,components,lib}`. This is an import-source result, not by itself
+proof of visual equivalence; the rendered and device columns remain release gates.
 
 ## Verification checkpoint — 2026-09-17
 
@@ -229,8 +230,6 @@ rendered button height, shared insets, zero header/drawer gap and the flat Profi
 close control on mobile and desktop. Fixed-label control crops are safe visual
 evidence; entire authenticated pages are not captured.
 
-Earlier migration census: 309 files under `hushh-webapp/{app,components,lib}` still
-import Lucide. Reproduce with
+The previous migration census found 309 files with Lucide imports. The application
+source pass now uses the registry facade across all runtime files; reproduce with
 `rg -l 'from ["\\x27]lucide-react' hushh-webapp/{app,components,lib} | wc -l`.
-Registry availability is not a repository-wide migration claim; Phases 2 and 3
-remain queued.

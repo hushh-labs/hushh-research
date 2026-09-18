@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Capacitor,
   SystemBars,
@@ -8,6 +8,25 @@ import {
   SystemBarType,
 } from "@capacitor/core";
 import { useTheme } from "next-themes";
+import {
+  AMBIENT_CHROME_TOP_SURFACE_ATTR,
+  type AmbientChromeSurfaceTone,
+} from "@/lib/morphy-ux/ambient-chrome";
+
+/**
+ * SystemBarsStyle describes the content foreground, not the bar background.
+ * A dark sampled surface therefore requires `Dark` (light icons and text).
+ */
+export function resolveNativeSystemBarStyle(
+  topSurfaceTone: AmbientChromeSurfaceTone | null,
+  fallbackTheme: string | undefined,
+): SystemBarsStyle {
+  if (topSurfaceTone === "dark") return SystemBarsStyle.Dark;
+  if (topSurfaceTone === "light") return SystemBarsStyle.Light;
+  return fallbackTheme === "dark"
+    ? SystemBarsStyle.Dark
+    : SystemBarsStyle.Light;
+}
 
 /**
  * measureSafeAreaInsetTop
@@ -59,11 +78,39 @@ function measureSafeAreaInsetTop() {
 export function StatusBarManager() {
   const { resolvedTheme, theme } = useTheme();
   const [mounted, setMounted] = useState(false);
+  const [ambientTopSurfaceTone, setAmbientTopSurfaceTone] =
+    useState<AmbientChromeSurfaceTone | null>(null);
+  const isUpdating = useRef(false);
+  const pendingStyleRef = useRef<SystemBarsStyle | null>(null);
+  const appliedStyleRef = useRef<SystemBarsStyle | null>(null);
 
   // Wait for theme to be mounted to avoid hydration mismatch
   useEffect(() => {
     setMounted(true);
   }, []);
+
+  // The ambient chrome engine publishes the same sampled tone used to make
+  // the web controls legible. Native status icons must follow that tone too,
+  // otherwise a dark route can briefly show dark icons during a shell change.
+  useEffect(() => {
+    if (!mounted || typeof document === "undefined") return;
+    const root = document.documentElement;
+    const sync = () => {
+      const value = root.getAttribute(AMBIENT_CHROME_TOP_SURFACE_ATTR);
+      setAmbientTopSurfaceTone(
+        value === "dark" || value === "light" ? value : null,
+      );
+    };
+    const observer = new MutationObserver(sync);
+
+    sync();
+    observer.observe(root, {
+      attributes: true,
+      attributeFilter: [AMBIENT_CHROME_TOP_SURFACE_ATTR],
+    });
+
+    return () => observer.disconnect();
+  }, [mounted]);
 
   // ── Measure env(safe-area-inset-top) and write --app-safe-area-top-probe ──
   useEffect(() => {
@@ -97,30 +144,47 @@ export function StatusBarManager() {
     if (!Capacitor.isNativePlatform() || !mounted) return;
 
     async function updateSystemBars() {
-      try {
-        // Keep bars visible in immersive edge-to-edge mode.
-        await SystemBars.show({});
-        const effectiveTheme = resolvedTheme || theme || "dark";
-        const style =
-          effectiveTheme === "dark"
-            ? SystemBarsStyle.Dark
-            : SystemBarsStyle.Light;
+      const effectiveTheme = resolvedTheme || theme || "dark";
+      const requestedStyle = resolveNativeSystemBarStyle(
+        ambientTopSurfaceTone,
+        effectiveTheme,
+      );
+      if (
+        requestedStyle === appliedStyleRef.current &&
+        !pendingStyleRef.current
+      ) {
+        return;
+      }
+      pendingStyleRef.current = requestedStyle;
+      if (isUpdating.current) return;
+      isUpdating.current = true;
 
-        await SystemBars.setStyle({
-          bar: SystemBarType.StatusBar,
-          style,
-        });
-        await SystemBars.setStyle({
-          bar: SystemBarType.NavigationBar,
-          style,
-        });
+      try {
+        while (pendingStyleRef.current) {
+          const style = pendingStyleRef.current;
+          pendingStyleRef.current = null;
+          await SystemBars.show({});
+          await Promise.all([
+            SystemBars.setStyle({
+              bar: SystemBarType.StatusBar,
+              style,
+            }),
+            SystemBars.setStyle({
+              bar: SystemBarType.NavigationBar,
+              style,
+            }),
+          ]);
+          appliedStyleRef.current = style;
+        }
       } catch (err) {
         console.error("[StatusBarManager] Failed to update system bars:", err);
+      } finally {
+        isUpdating.current = false;
       }
     }
 
     void updateSystemBars();
-  }, [resolvedTheme, theme, mounted]);
+  }, [ambientTopSurfaceTone, resolvedTheme, theme, mounted]);
 
   return null;
 }

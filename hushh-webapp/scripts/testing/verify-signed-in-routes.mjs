@@ -82,7 +82,6 @@ const SAME_SESSION_SHELL_ROUTES = new Set([
   "/one/profile",
   "/one/profile/pkm-agent-lab",
   "/one/kyc",
-  "/ria",
   "/ria/clients",
   "/ria/clients/[userId]",
   "/ria/clients/[userId]/accounts/[accountId]",
@@ -119,6 +118,16 @@ const TRANSIENT_BACKGROUND_RESPONSE_FAILURES = [
   "/api/connected-systems/salesforce-fsc-customer0/schema?objectType=Contact",
   "/api/connected-systems/salesforce-fsc-customer0/records/search",
 ];
+
+const LOCAL_CRM_ROUTE_PREFIXES = [
+  "/one/connected-systems",
+  "/one/profile/connected-systems",
+];
+const localCrmEnabled = ["1", "true", "yes", "on"].includes(
+  String(process.env.NEXT_PUBLIC_HUSHH_LOCAL_CRM_ENABLED || "")
+    .trim()
+    .toLowerCase(),
+);
 const TRANSIENT_BROWSER_CONSOLE_ERRORS = [
   // Next.js still ships styled-jsx, which uses React.useInsertionEffect for
   // stylesheet insertion. React 19 canary can log this dev-only warning without
@@ -143,6 +152,18 @@ const localRiaIdentityUnavailable = !String(
 ).trim();
 
 function isExpectedLocalOptionalResponseFailure(value) {
+  // A profile without a completed RIA dossier is a valid state. The service
+  // contract deliberately uses 404 for that absence and the client treats it
+  // as null rather than an error.
+  if (value.includes("404 GET ") && value.includes("/api/ria/dossier")) {
+    return true;
+  }
+  // Investor/RIA relationship reads fail closed for a reviewer who is not a
+  // verified RIA. Marketplace/profile surfaces intentionally render an empty
+  // relationship state for this 403; the denial itself remains enforced.
+  if (value.includes("403 GET ") && value.includes("/api/ria/clients")) {
+    return true;
+  }
   if (
     !appOrigin.startsWith("http://localhost:") &&
     !appOrigin.startsWith("http://127.0.0.1:")
@@ -212,12 +233,23 @@ const KAI_ONBOARDING_COMPATIBILITY_ROUTE_IDS = [
 ];
 
 const ROUTE_OVERRIDES = {
-  // Gmail remains addressable for compatibility, but the authored capability
-  // registry currently marks it paused. Its client page intentionally settles
-  // on One instead of mounting a disabled workspace.
-  "/one/gmail": {
-    allowedPathnames: ["/one"],
-    allowedRouteIds: ["/one"],
+  // Finance analysis is a compatibility pathname. The live workspace is the
+  // query-tabbed /one/kai surface, so prove the canonical route rather than
+  // repeatedly navigating into a redirect-only page.
+  "/one/kai/analysis": {
+    allowedPathnames: ["/one/kai"],
+    allowedRouteIds: ["/one/kai"],
+  },
+  "/one/kai/portfolio": {
+    allowedPathnames: ["/one/kai"],
+    allowedRouteIds: ["/one/kai"],
+  },
+  // Support compose is canonicalized into the parent panel with `kind` in
+  // the query string when the stack is already mounted; direct entry may
+  // still expose the compatibility pathname while it settles.
+  "/one/profile/support/compose": {
+    allowedPathnames: ["/one/profile/support", "/one/profile/support/compose"],
+    allowedRouteIds: ["/one/profile/support", "/one/profile/support/compose"],
   },
   "/kai/onboarding": {
     allowedPathnames: KAI_ONBOARDING_COMPATIBILITY_PATHNAMES,
@@ -238,6 +270,44 @@ const ROUTE_OVERRIDES = {
 };
 
 const REDIRECT_EXPECTATIONS = {
+  "/ria": {
+    path: "/ria",
+    expectedPathname: "/ria/profile",
+    allowedRouteIds: ["ria-profile"],
+  },
+  "/r/[slug]": {
+    path: "/r/native-test-referral",
+    expectedPathname: "/one",
+    allowedRouteIds: ["/one"],
+  },
+  "/circle/join": {
+    path: "/circle/join",
+    expectedPathname: "/one/connect",
+    expectedQueryIncludes: ["tab=circles", "action=join-circle"],
+    allowedRouteIds: ["/one/connect"],
+  },
+  "/developers": {
+    path: "/developers",
+    expectedPathname: "/welcome",
+    expectedQueryIncludes: ["tab=developers"],
+    allowedRouteIds: ["/welcome"],
+  },
+  "/one/connect/settings": {
+    path: "/one/connect/settings",
+    expectedPathname: "/one/profile/preferences/gemini",
+    allowedRouteIds: ["/one/profile/preferences/gemini"],
+  },
+  "/consents": {
+    path: "/consents",
+    expectedPathname: "/one/consent",
+    allowedRouteIds: ["/one/consent"],
+  },
+  "/one/kai/market": {
+    path: "/one/kai/market",
+    expectedPathname: "/one/kai",
+    expectedQueryIncludes: ["tab=market"],
+    allowedRouteIds: ["/one/kai"],
+  },
   "/agent": {
     path: "/",
     expectedPathname: "/",
@@ -247,7 +317,7 @@ const REDIRECT_EXPECTATIONS = {
   "/one/profile/regulatory": {
     path: "/one/profile/regulatory",
     allowedPathnames: ["/ria/profile", "/ria/onboarding"],
-    allowedRouteIds: ["/ria/profile", "/ria/onboarding"],
+    allowedRouteIds: ["ria-profile", "/ria/onboarding"],
   },
   "/": {
     path: "/",
@@ -281,13 +351,21 @@ const REDIRECT_EXPECTATIONS = {
   },
   "/kai/analysis": {
     path: "/kai/analysis",
-    expectedPathname: "/one/kai/analysis",
-    allowedRouteIds: ["/one/kai/analysis"],
+    expectedPathname: "/one/kai",
+    expectedQueryIncludes: ["tab=analysis"],
+    allowedRouteIds: ["/one/kai"],
+  },
+  "/one/kai/portfolio": {
+    path: "/one/kai/portfolio",
+    expectedPathname: "/one/kai",
+    expectedQueryIncludes: ["tab=portfolio"],
+    allowedRouteIds: ["/one/kai"],
   },
   "/kai/portfolio": {
     path: "/kai/portfolio",
-    expectedPathname: "/one/kai/portfolio",
-    allowedRouteIds: ["/one/kai/portfolio"],
+    expectedPathname: "/one/kai",
+    expectedQueryIncludes: ["tab=portfolio"],
+    allowedRouteIds: ["/one/kai"],
   },
   "/kai/import": {
     path: "/kai/import",
@@ -300,8 +378,20 @@ const REDIRECT_EXPECTATIONS = {
     expectedQueryIncludes: ["tab=portfolio"],
     allowedRouteIds: ["/one/kai"],
   },
+  "/one/kai/investments": {
+    path: "/one/kai/investments",
+    expectedPathname: "/one/kai",
+    expectedQueryIncludes: ["tab=portfolio"],
+    allowedRouteIds: ["/one/kai"],
+  },
   "/kai/funding-trade": {
     path: "/kai/funding-trade",
+    expectedPathname: "/one/kai",
+    expectedQueryIncludes: ["tab=portfolio"],
+    allowedRouteIds: ["/one/kai"],
+  },
+  "/one/kai/funding-trade": {
+    path: "/one/kai/funding-trade",
     expectedPathname: "/one/kai",
     expectedQueryIncludes: ["tab=portfolio"],
     allowedRouteIds: ["/one/kai"],
@@ -316,11 +406,54 @@ const REDIRECT_EXPECTATIONS = {
     allowedPathnames: ["/one/setup/kai", "/one"],
     allowedRouteIds: ["/one/setup/kai", "/one"],
   },
+  "/one/setup/kai": {
+    path: "/one/setup/kai",
+    allowedPathnames: KAI_ONBOARDING_COMPATIBILITY_PATHNAMES,
+    allowedRouteIds: KAI_ONBOARDING_COMPATIBILITY_ROUTE_IDS,
+  },
+  "/one/setup/[capability]": {
+    path: "/one/setup/gmail",
+    expectedPathname: "/one/setup/gmail",
+    allowedRouteIds: ["/one/setup/gmail"],
+  },
   "/kai/optimize": {
     path: "/kai/optimize",
     expectedPathname: "/one/kai",
     expectedQueryIncludes: ["tab=portfolio"],
     allowedRouteIds: ["/one/kai"],
+  },
+  "/one/kai/optimize": {
+    path: "/one/kai/optimize",
+    expectedPathname: "/one/kai",
+    expectedQueryIncludes: ["tab=portfolio"],
+    allowedRouteIds: ["/one/kai"],
+  },
+  "/profile/google/oauth/return": {
+    path: "/profile/google/oauth/return",
+    expectedPathname: "/one/calendar",
+    allowedRouteIds: ["/one/calendar"],
+  },
+  "/one/profile/google/oauth/return": {
+    path: "/one/profile/google/oauth/return",
+    expectedPathname: "/one/calendar",
+    allowedRouteIds: ["/one/calendar"],
+  },
+  "/one/profile/integrations": {
+    path: "/one/profile/integrations",
+    expectedPathname: "/one/calendar",
+    allowedRouteIds: ["/one/calendar"],
+  },
+  "/blog": {
+    path: "/blog",
+    expectedPathname: "/welcome",
+    expectedQueryIncludes: ["tab=blog"],
+    allowedRouteIds: ["/welcome"],
+  },
+  "/research": {
+    path: "/research",
+    expectedPathname: "/welcome",
+    expectedQueryIncludes: ["tab=research"],
+    allowedRouteIds: ["/welcome"],
   },
   "/kai/plaid/oauth/return": {
     path: "/kai/plaid/oauth/return",
@@ -339,8 +472,9 @@ const REDIRECT_EXPECTATIONS = {
   },
   "/kai/dashboard/analysis": {
     path: "/kai/dashboard/analysis",
-    expectedPathname: "/one/kai/analysis",
-    allowedRouteIds: ["/one/kai/analysis"],
+    expectedPathname: "/one/kai",
+    expectedQueryIncludes: ["tab=analysis"],
+    allowedRouteIds: ["/one/kai"],
   },
   "/marketplace/connections": {
     path: "/marketplace/connections",
@@ -367,6 +501,21 @@ const REDIRECT_EXPECTATIONS = {
     expectedPathname: "/one/pkm",
     allowedRouteIds: ["/one/pkm"],
     requiresColdEntry: true,
+  },
+  "/one/profile/gmail": {
+    path: "/one/profile/gmail",
+    expectedPathname: "/one/gmail",
+    allowedRouteIds: ["/one/gmail"],
+  },
+  "/one/profile/gmail/connection": {
+    path: "/one/profile/gmail/connection",
+    expectedPathname: "/one/gmail",
+    allowedRouteIds: ["/one/gmail"],
+  },
+  "/one/profile/gmail/actions": {
+    path: "/one/profile/gmail/actions",
+    expectedPathname: "/one/gmail",
+    allowedRouteIds: ["/one/gmail"],
   },
   "/one/profile/receipts": {
     path: "/one/profile/receipts",
@@ -406,6 +555,18 @@ function loadRouteContract() {
 
 function shouldIncludeRoute(route) {
   if (route.mode === "hidden") return false;
+  // Connected Systems is deliberately a localhost-only development surface.
+  // Keep the default signed-in sweep aligned with the route guard, while a
+  // dedicated run can opt in with NEXT_PUBLIC_HUSHH_LOCAL_CRM_ENABLED=1.
+  if (
+    !localCrmEnabled &&
+    LOCAL_CRM_ROUTE_PREFIXES.some(
+      (prefix) =>
+        route.route === prefix || route.route.startsWith(`${prefix}/`),
+    )
+  ) {
+    return false;
+  }
   if (!routeFilter) return true;
   if (routeFilter.startsWith("=")) return route.route.toLowerCase() === routeFilter.slice(1);
   return route.route.toLowerCase().includes(routeFilter);
@@ -1187,7 +1348,7 @@ async function navigateViaShell(page, spec) {
     case "/one/kai/portfolio":
       await requestNativeTestRoute(
         page,
-        "/one/kai/portfolio",
+        "/one/kai?tab=portfolio",
         spec.allowedRouteIds,
       );
       return true;
@@ -1201,7 +1362,7 @@ async function navigateViaShell(page, spec) {
     case "/one/kai/analysis":
       await requestNativeTestRoute(
         page,
-        "/one/kai/analysis",
+        "/one/kai?tab=analysis",
         spec.allowedRouteIds,
       );
       return true;
@@ -1366,6 +1527,22 @@ function assertNoIssues(route, viewport, issues) {
     if (
       value.includes(
         "Failed to load resource: the server responded with a status of 410",
+      ) &&
+      issues.responseFailures.some(isExpectedLocalOptionalResponseFailure)
+    ) {
+      return false;
+    }
+    if (
+      value.includes(
+        "Failed to load resource: the server responded with a status of 403",
+      ) &&
+      issues.responseFailures.some(isExpectedLocalOptionalResponseFailure)
+    ) {
+      return false;
+    }
+    if (
+      value.includes(
+        "Failed to load resource: the server responded with a status of 404",
       ) &&
       issues.responseFailures.some(isExpectedLocalOptionalResponseFailure)
     ) {

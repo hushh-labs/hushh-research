@@ -55,8 +55,8 @@ export function AddressBookIcon({ weight = "duotone", size = "1em", ...props }: 
   return <AddressBook weight={weight} size={size} {...props} />;
 }
 
-export function ArrowsClockwiseIcon({ weight = "duotone", size = "1em", ...props }: IconProps) {
-  return <ArrowsClockwise weight={weight} size={size} {...props} />;
+export function ArrowsClockwiseIcon({ weight = "regular", size = "1em", ...props }: IconProps) {
+  return <ArrowsClockwise weight={weight} size={size} {...props} data-canonical-icon="true" />;
 }
 
 export function BriefcaseIcon({ weight = "duotone", size = "1em", ...props }: IconProps) {
@@ -147,8 +147,8 @@ export function SlidersHorizontalIcon({ weight = "duotone", size = "1em", ...pro
   return <SlidersHorizontal weight={weight} size={size} {...props} />;
 }
 
-export function SpinnerGapIcon({ weight = "duotone", size = "1em", ...props }: IconProps) {
-  return <SpinnerGap weight={weight} size={size} {...props} />;
+export function SpinnerGapIcon({ weight = "regular", size = "1em", ...props }: IconProps) {
+  return <SpinnerGap weight={weight} size={size} {...props} data-canonical-icon="true" />;
 }
 
 export function TreeStructureIcon({ weight = "duotone", size = "1em", ...props }: IconProps) {

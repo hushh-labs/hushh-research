@@ -16,7 +16,7 @@ import {
   TrendingUp,
   type LucideIcon,
   Zap,
-} from "lucide-react";
+} from "@/components/icons";
 import {
   Bar,
   BarChart,
@@ -592,7 +592,7 @@ function OneMarketIndexStrip({
           type="button"
           onClick={() => onMetricSelect(metric)}
           aria-label={`Open ${metric.label} details`}
-          className="w-[132px] shrink-0 rounded-[var(--app-card-radius-compact)] bg-[color:var(--one-card)] px-[15px] py-[13px] text-left shadow-[var(--app-card-shadow-standard)] transition-transform duration-200 active:scale-[0.985] sm:w-full"
+          className="w-[132px] shrink-0 rounded-[var(--app-card-radius-compact)] bg-[color:var(--one-card)] px-[15px] py-[13px] text-left shadow-[var(--app-card-shadow-standard)] transition-transform duration-150 active:scale-[0.985] sm:w-full"
         >
           <div className="flex items-center gap-1.5">
             <span className="truncate text-[12px] font-medium text-[color:var(--one-fg2)]">
@@ -860,7 +860,7 @@ function OneMarketNewsCards({ rows }: { rows: KaiHomeNewsItem[] }) {
             key={`${row.symbol}-${index}-${row.url}`}
             type="button"
             onClick={() => openOneMarketHref(row.url)}
-            className="group/news flex w-[274px] shrink-0 flex-col overflow-hidden rounded-[var(--app-card-radius-feature)] bg-[color:var(--one-card)] text-left shadow-[var(--app-card-shadow-standard)] transition-transform duration-200 hover:-translate-y-0.5 hover:shadow-[var(--app-card-shadow-feature)] active:scale-[0.985] sm:w-[300px]"
+            className="group/news flex w-[274px] shrink-0 flex-col overflow-hidden rounded-[var(--app-card-radius-feature)] bg-[color:var(--one-card)] text-left shadow-[var(--app-card-shadow-standard)] transition-transform duration-150 hover:-translate-y-0.5 hover:shadow-[var(--app-card-shadow-feature)] active:scale-[0.985] sm:w-[300px]"
           >
             <OneMarketNewsCover row={row} index={index} />
             <div className="flex flex-1 flex-col px-[13px] pb-[13px] pt-[11px]">

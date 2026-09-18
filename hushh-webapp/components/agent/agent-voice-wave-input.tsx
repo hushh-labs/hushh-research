@@ -1,6 +1,6 @@
 "use client";
 
-import { Loader2, Mic, X } from "lucide-react";
+import { Loader2, Mic, X } from "@/components/icons";
 
 import { AgentVoiceWaveform } from "@/components/agent/agent-voice-waveform";
 import { Button } from "@/components/ui/button";

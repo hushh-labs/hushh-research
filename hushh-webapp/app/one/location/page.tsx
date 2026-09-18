@@ -26,7 +26,7 @@ import {
 import { createPortal } from "react-dom";
 import { useRouter, useSearchParams } from "next/navigation";
 
-import type { LucideIcon } from "lucide-react";
+import type { LucideIcon } from "@/components/icons";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -51,7 +51,7 @@ import {
   UserRoundCheck,
   UsersRound,
   X,
-} from "lucide-react";
+} from "@/components/icons";
 import { toast } from "sonner";
 
 import {
@@ -1960,7 +1960,7 @@ function SegmentedModeControl({
           type="button"
           onClick={() => onChange(mode)}
           className={cn(
-            "h-full flex-1 rounded-[7px] text-[13px] capitalize transition-all",
+            "h-full flex-1 rounded-[7px] text-[13px] capitalize transition-[background-color,color,box-shadow] duration-150",
             value === mode
               ? "bg-white font-semibold text-[#1c1c1e] shadow-[0_1px_3px_rgba(0,0,0,0.12),0_1px_2px_rgba(0,0,0,0.04)] dark:bg-[#2c2c2e] dark:text-white"
               : "font-medium text-[#8e8e93] hover:text-[#1c1c1e] dark:text-white/50 dark:hover:text-white",

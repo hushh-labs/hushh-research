@@ -11,7 +11,7 @@ import {
   Share2,
   Trash2,
   Wallet,
-} from "lucide-react";
+} from "@/components/icons";
 
 import { SettingsGroup, SettingsRow } from "@/components/profile/settings-ui";
 import { Button } from "@/lib/morphy-ux/morphy";

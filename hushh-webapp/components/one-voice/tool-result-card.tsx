@@ -14,7 +14,7 @@
  * AND the device permission is granted.
  */
 
-import { AlertCircle, Check, Info } from "lucide-react";
+import { AlertCircle, Check, Info } from "@/components/icons";
 
 import { AvatarBubble } from "@/lib/morphy-ux/ui/surface-primitives";
 import { roleClasses } from "@/lib/morphy-ux/tokens/semantic-roles";

@@ -1,7 +1,7 @@
 "use client";
 
 import { memo } from "react";
-import { UserRound } from "lucide-react";
+import { UserRound } from "@/components/icons";
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
@@ -181,7 +181,7 @@ function MapSelfAvatarMarkerImpl({
       // people tray (z-20) and the top controls (z-30), which are things you
       // press. Later in the DOM than the pills, so it paints over a name that
       // lands on top of it rather than under one.
-      className={`absolute left-0 top-0 z-10 flex touch-manipulation items-center justify-center rounded-full p-0 transition-opacity duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)] focus-visible:ring-offset-2 motion-reduce:transition-none ${
+      className={`absolute left-0 top-0 z-10 flex touch-manipulation items-center justify-center rounded-full p-0 transition-opacity duration-150 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)] focus-visible:ring-offset-2 motion-reduce:transition-none ${
         stalePositions ? "pointer-events-none opacity-0" : "opacity-100"
       }`}
       style={{

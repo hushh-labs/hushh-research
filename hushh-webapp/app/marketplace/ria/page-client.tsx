@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
-import { Building2, ShieldCheck } from "lucide-react";
+import { Building2, ShieldCheck } from "@/components/icons";
 
 import { RiaPageShell, RiaSurface } from "@/components/ria/ria-page-shell";
 import { useAuth } from "@/hooks/use-auth";

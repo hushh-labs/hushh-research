@@ -20,7 +20,7 @@ import {
 } from "libphonenumber-js/core";
 import mobilePhoneMetadata from "libphonenumber-js/mobile/metadata";
 import { resolveContactPhoneRegion } from "@/lib/contacts/phone-normalization";
-import { Loader2, ShieldCheck } from "lucide-react";
+import { Loader2, ShieldCheck } from "@/components/icons";
 import { usePathname } from "next/navigation";
 
 import {

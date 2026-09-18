@@ -1,6 +1,6 @@
 "use client";
 
-import { User, X } from "lucide-react";
+import { User, X } from "@/components/icons";
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 
 import { useAgentVoiceState } from "@/lib/agent/agent-voice-state";

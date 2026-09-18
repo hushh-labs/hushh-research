@@ -18,7 +18,7 @@ import {
   MicOff,
   Wifi,
   X,
-} from "lucide-react";
+} from "@/components/icons";
 
 import { AgentVoiceWaveform } from "@/components/agent/agent-voice-waveform";
 import type { AgentVoiceStatus } from "@/lib/agent/agent-voice-state";

@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { Slot } from "@radix-ui/react-slot";
-import { type IconWeight } from "@phosphor-icons/react";
+import { type IconWeight } from "@/components/icons";
 
 import {
   Card as StockCard,

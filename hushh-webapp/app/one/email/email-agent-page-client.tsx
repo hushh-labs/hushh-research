@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback } from "react";
-import { CheckCircle2, Mail } from "lucide-react";
+import { CheckCircle2, Mail } from "@/components/icons";
 import { useRouter } from "next/navigation";
 
 import { AskOneButton } from "@/components/agent/ask-one-button";

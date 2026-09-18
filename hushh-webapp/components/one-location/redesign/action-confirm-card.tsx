@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertTriangle, Eye, Link as LinkIcon, MapPin, Share2 } from "lucide-react";
+import { AlertTriangle, Eye, Link as LinkIcon, MapPin, Share2 } from "@/components/icons";
 
 import { Button } from "@/components/ui/button";
 import {

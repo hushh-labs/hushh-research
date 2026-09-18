@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { MapPinOff } from "lucide-react";
+import { MapPinOff } from "@/components/icons";
 import { useTheme } from "next-themes";
 
 import { googleMapsLocationEmbedUrl } from "@/lib/one-location/maps-urls";

@@ -16,7 +16,7 @@
  */
 
 import { type MouseEvent, useEffect, useRef } from "react";
-import { Loader2 } from "lucide-react";
+import { Loader2 } from "@/components/icons";
 
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -129,8 +129,10 @@ function LiveShareIdentity({ status }: { status: LiveShareStatus }) {
           .map((displayName) => ({ displayName, photoUrl: null }));
   const names = people.map((person) => person.displayName).filter(Boolean);
   if (status.count > 1 || people.length > 1) {
-    const visiblePeople = people.slice(0, 3);
-    const fallbackCount = Math.min(status.count, 3);
+    // Keep the compact identity cluster legible. Two faces are enough to
+    // identify the relationship; the remaining count carries the rest.
+    const visiblePeople = people.slice(0, 2);
+    const fallbackCount = Math.min(status.count, 2);
     const slots = visiblePeople.length
       ? visiblePeople
       : Array.from({ length: fallbackCount }, (_, index) => ({
@@ -139,10 +141,15 @@ function LiveShareIdentity({ status }: { status: LiveShareStatus }) {
         }));
     const remaining = Math.max(status.count - slots.length, 0);
     return (
-      <span aria-hidden="true" className="flex h-7 w-14 shrink-0 items-center">
+      <span
+        aria-hidden="true"
+        className="flex h-7 w-14 shrink-0 items-center"
+        data-testid="one-location-live-share-identities"
+      >
         {slots.map((person, index) => (
           <span
             key={`${person.displayName}-${index}`}
+            data-live-share-avatar
             className="-ml-2 first:ml-0 inline-flex h-7 w-7 items-center justify-center rounded-full bg-[color:var(--app-secondary-surface)] text-[12px] font-semibold text-[color:var(--app-secondary-label)] ring-2 ring-[color:var(--app-primary-surface)]"
           >
             {person.photoUrl ? (
@@ -158,7 +165,10 @@ function LiveShareIdentity({ status }: { status: LiveShareStatus }) {
           </span>
         ))}
         {remaining > 0 ? (
-          <span className="-ml-2 inline-flex h-7 w-7 items-center justify-center rounded-full bg-[color:var(--app-secondary-surface)] text-[11px] font-semibold text-[color:var(--app-secondary-label)] ring-2 ring-[color:var(--app-primary-surface)]">
+          <span
+            className="-ml-2 inline-flex h-7 w-7 items-center justify-center rounded-full bg-[color:var(--app-secondary-surface)] text-[11px] font-semibold text-[color:var(--app-secondary-label)] ring-2 ring-[color:var(--app-primary-surface)]"
+            data-testid="one-location-live-share-remaining"
+          >
             +{remaining}
           </span>
         ) : null}
@@ -170,6 +180,7 @@ function LiveShareIdentity({ status }: { status: LiveShareStatus }) {
     <span
       aria-hidden="true"
       className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[color:var(--app-secondary-surface)] text-[13px] font-semibold text-[color:var(--app-secondary-label)] ring-1 ring-inset ring-[color:var(--app-separator)]"
+      data-testid="one-location-live-share-identities"
     >
       {people[0]?.photoUrl ? (
         // eslint-disable-next-line @next/next/no-img-element

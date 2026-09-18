@@ -10,7 +10,7 @@ import {
 } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
-import { KeyRound, Plus, ShieldCheck, UsersRound } from "lucide-react";
+import { KeyRound, Plus, ShieldCheck, UsersRound } from "@/components/icons";
 
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import {

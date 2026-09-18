@@ -25,7 +25,7 @@ import {
   UserRoundPlus,
   UsersRound,
   X,
-} from "lucide-react";
+} from "@/components/icons";
 
 import {
   AlertDialog,

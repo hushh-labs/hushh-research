@@ -57,7 +57,7 @@ export function ShieldIcon({ weight = "duotone", ...props }: UiIconProps) {
  */
 export function SearchIcon({
   size = "1em",
-  weight = "duotone",
+  weight = "regular",
   className,
   ...props
 }: UiIconProps) {
@@ -67,6 +67,7 @@ export function SearchIcon({
       weight={weight}
       className={className}
       {...props}
+      data-canonical-icon="true"
     />
   );
 }
@@ -77,7 +78,7 @@ export function SearchIcon({
  */
 export function GridIcon({
   size = "1em",
-  weight = "duotone",
+  weight = "regular",
   className,
   ...props
 }: UiIconProps) {
@@ -87,6 +88,7 @@ export function GridIcon({
       weight={weight}
       className={className}
       {...props}
+      data-canonical-icon="true"
     />
   );
 }
@@ -97,7 +99,7 @@ export function GridIcon({
  */
 export function ListIcon({
   size = "1em",
-  weight = "duotone",
+  weight = "regular",
   className,
   ...props
 }: UiIconProps) {
@@ -107,6 +109,7 @@ export function ListIcon({
       weight={weight}
       className={className}
       {...props}
+      data-canonical-icon="true"
     />
   );
 }
@@ -118,7 +121,7 @@ export { ListIcon as MenuIcon };
  */
 export function CaretRightIcon({
   size = "1em",
-  weight = "duotone",
+  weight = "regular",
   className,
   ...props
 }: UiIconProps) {
@@ -128,6 +131,7 @@ export function CaretRightIcon({
       weight={weight}
       className={className}
       {...props}
+      data-canonical-icon="true"
     />
   );
 }
@@ -135,7 +139,7 @@ export { CaretRightIcon as ChevronRightIcon };
 
 export function CaretDownIcon({
   size = "1em",
-  weight = "duotone",
+  weight = "regular",
   className,
   ...props
 }: UiIconProps) {
@@ -145,6 +149,7 @@ export function CaretDownIcon({
       weight={weight}
       className={className}
       {...props}
+      data-canonical-icon="true"
     />
   );
 }
@@ -152,7 +157,7 @@ export { CaretDownIcon as ChevronDownIcon };
 
 export function CaretLeftIcon({
   size = "1em",
-  weight = "duotone",
+  weight = "regular",
   className,
   ...props
 }: UiIconProps) {
@@ -162,6 +167,7 @@ export function CaretLeftIcon({
       weight={weight}
       className={className}
       {...props}
+      data-canonical-icon="true"
     />
   );
 }
@@ -169,7 +175,7 @@ export { CaretLeftIcon as ChevronLeftIcon };
 
 export function CaretUpIcon({
   size = "1em",
-  weight = "duotone",
+  weight = "regular",
   className,
   ...props
 }: UiIconProps) {
@@ -179,6 +185,7 @@ export function CaretUpIcon({
       weight={weight}
       className={className}
       {...props}
+      data-canonical-icon="true"
     />
   );
 }
@@ -190,7 +197,7 @@ export { CaretUpIcon as ChevronUpIcon };
  */
 export function ArrowLeftIcon({
   size = "1em",
-  weight = "duotone",
+  weight = "regular",
   className,
   ...props
 }: UiIconProps) {
@@ -200,13 +207,14 @@ export function ArrowLeftIcon({
       weight={weight}
       className={className}
       {...props}
+      data-canonical-icon="true"
     />
   );
 }
 
 export function ArrowRightIcon({
   size = "1em",
-  weight = "duotone",
+  weight = "regular",
   className,
   ...props
 }: UiIconProps) {
@@ -216,6 +224,7 @@ export function ArrowRightIcon({
       weight={weight}
       className={className}
       {...props}
+      data-canonical-icon="true"
     />
   );
 }

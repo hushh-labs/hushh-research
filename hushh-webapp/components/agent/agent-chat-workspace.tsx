@@ -16,24 +16,24 @@ import {
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   Check,
-  CaretRight as ChevronRight,
+  ChevronRight,
   Copy,
   FileText,
-  Key as KeyRound,
+  KeyRound,
   Laptop,
-  SignIn as LogIn,
-  ArrowsOut as Maximize2,
-  Microphone as Mic,
-  ArrowsIn as Minimize2,
-  PencilSimple as Pencil,
-  ArrowCounterClockwise as RotateCcw,
-  PaperPlaneRight as Send,
+  LogIn,
+  Maximize2,
+  Mic,
+  Minimize2,
+  Pencil,
+  RotateCcw,
+  Send,
   ThumbsDown,
   ThumbsUp,
-  Trash as Trash2,
+  Trash2,
   User,
   X,
-} from "@phosphor-icons/react";
+} from "@/components/icons";
 
 import { usePuppyConversations } from "@/lib/agent/puppy-conversations";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";

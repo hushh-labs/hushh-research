@@ -65,7 +65,7 @@ export const surfaceDataTableShellClassName = cn(
 export const surfaceInteractiveShellClassName = cn(
   "rounded-[var(--app-card-radius-standard)] border border-transparent",
   "bg-[color:var(--app-card-surface-default-solid)] shadow-[var(--app-card-shadow-standard)]",
-  "transition-[background-color,border-color] duration-200 ease-out",
+  "transition-[background-color,border-color] duration-150 ease-out",
   "hover:bg-[color:var(--app-card-surface-compact)]"
 );
 

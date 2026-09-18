@@ -8,7 +8,7 @@
  * this surface must never look like the kind of thing that would.
  */
 
-import { ExternalLink, Star } from "lucide-react";
+import { ExternalLink, Star } from "@/components/icons";
 
 import { AdaptiveDetailSurface } from "@/components/app-ui/settings-ui";
 import { NearbyEvidencePanel } from "@/components/ria/nearby/nearby-evidence-panel";

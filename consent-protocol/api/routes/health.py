@@ -6,7 +6,9 @@ Health check endpoints.
 import hmac
 import logging
 import os
+from pathlib import Path
 
+from dotenv import dotenv_values
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
 
@@ -22,10 +24,6 @@ REVIEWER_VAULT_PASSPHRASE_KEY = "REVIEWER_VAULT_PASSPHRASE"  # noqa: S105
 # Second non-production fixture for two-person proofs. No deprecated aliases.
 REVIEWER_COUNTERPART_UID_KEY = "REVIEWER_COUNTERPART_UID"
 REVIEWER_COUNTERPART_VAULT_PASSPHRASE_KEY = "REVIEWER_COUNTERPART_VAULT_PASSPHRASE"  # noqa: S105
-AGENT_MODEL = {
-    "primary": "one",
-    "specialists": ["kai", "nav", "kyc"],
-}
 DEPRECATED_REVIEWER_UID_KEYS = ("UAT_SMOKE_USER_ID", "KAI_TEST_USER_ID")
 DEPRECATED_REVIEWER_PASSPHRASE_KEYS = (  # noqa: S105
     "UAT_SMOKE_PASSPHRASE",
@@ -56,6 +54,17 @@ def _first_env(*keys: str) -> str:
         value = str(os.getenv(key, "")).strip()
         if value:
             return value
+    if not _is_production_runtime():
+        try:
+            env_local = Path(__file__).resolve().parents[2] / ".env.local"
+            if env_local.is_file():
+                vals = dotenv_values(str(env_local))
+                for key in keys:
+                    val = str(vals.get(key, "")).strip()
+                    if val:
+                        return val
+        except Exception:
+            pass
     return ""
 
 
@@ -117,7 +126,10 @@ def _resolve_smoke_overlay_identity(smoke_passphrase: str | None) -> tuple[str, 
     return _match_reviewer_identity(provided_passphrase, _configured_reviewer_identities())
 
 
-def _select_review_mode_identity(smoke_passphrase: str | None) -> tuple[str, str]:
+def _select_review_mode_identity(
+    smoke_passphrase: str | None,
+    requested_uid: str | None = None,
+) -> tuple[str, str]:
     """Pick the identity a review-mode session mints.
 
     Returns ``(uid, subject)``. The primary reviewer is minted exactly as
@@ -126,13 +138,20 @@ def _select_review_mode_identity(smoke_passphrase: str | None) -> tuple[str, str
     a backend holding no configured pair (the localhost overlay carries only
     APP_REVIEW_MODE and REVIEWER_UID), and for a passphrase that matches no
     pair. The counterpart pair only adds a second match: a passphrase equal to
-    a configured pair's mints that pair's uid. Values are never logged.
+    a configured pair's mints that pair's uid. In non-production, a requested_uid
+    matching a configured reviewer pair mints that pair directly. Values are never logged.
     """
     primary = (_resolve_reviewer_uid(), "reviewer")
+    configured = _configured_reviewer_identities()
+    if requested_uid and not _is_production_runtime():
+        clean_requested = str(requested_uid).strip()
+        for candidate_uid, _, subject in configured:
+            if candidate_uid == clean_requested:
+                return candidate_uid, subject
     provided_passphrase = str(smoke_passphrase or "").strip()
     if not provided_passphrase or _is_production_runtime():
         return primary
-    matched = _match_reviewer_identity(provided_passphrase, _configured_reviewer_identities())
+    matched = _match_reviewer_identity(provided_passphrase, configured)
     return matched or primary
 
 
@@ -143,6 +162,23 @@ def _one_runtime_dependency_evidence() -> dict[str, str | bool | None]:
     return runtime_dependency_evidence()
 
 
+def _agent_roster() -> list[str]:
+    """Report the runtime roster without importing the expensive ADK tree."""
+    from hushh_mcp.runtime_settings import pod_mode, pod_turn_enabled
+
+    if pod_mode():
+        return ["one"] if pod_turn_enabled() else []
+    return ["one", "kai", "nav"]
+
+
+def _agent_model() -> dict[str, object]:
+    roster = _agent_roster()
+    return {
+        "primary": "one" if "one" in roster else None,
+        "specialists": [name for name in roster if name != "one"],
+    }
+
+
 @router.get("/")
 def health_check():
     """Root health check."""
@@ -151,11 +187,11 @@ def health_check():
 
 @router.get("/health")
 def health():
-    """Detailed health check with agent list."""
+    """Detailed health check with the roster this process can actually serve."""
     return {
         "status": "healthy",
-        "agents": ["one", "kai", "nav", "kyc"],
-        "agent_model": AGENT_MODEL,
+        "agents": _agent_roster(),
+        "agent_model": _agent_model(),
         "one_runtime": _one_runtime_dependency_evidence(),
     }
 
@@ -226,7 +262,8 @@ async def issue_app_review_mode_session(request: Request):
 
     if _is_app_review_mode_enabled():
         reviewer_uid, session_subject = _select_review_mode_identity(
-            payload.get("smoke_passphrase")
+            payload.get("smoke_passphrase"),
+            requested_uid=payload.get("reviewer_uid"),
         )
     else:
         smoke_overlay = _resolve_smoke_overlay_identity(payload.get("smoke_passphrase"))

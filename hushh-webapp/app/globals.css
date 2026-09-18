@@ -625,8 +625,6 @@ textarea {
   /* Frosted chrome baseline (sub-nav / sticky-bar grade backdrop filter). */
   --app-blur-frosted: saturate(180%) blur(20px);
 
-  /* Lucide defaults (see docs/reference/quality/design-system.md): change once to update all icons. */
-  --lucide-stroke-width: 1.6;
   /* Safe area and fixed-bottom UI spacing tokens (single source of truth). */
   --app-safe-area-bottom: env(safe-area-inset-bottom, 0px);
   /* On-screen keyboard height, published by KeyboardInsetManager (native +
@@ -920,8 +918,9 @@ textarea {
   --motion-overlay-exit-ease: var(--motion-ease-accelerate);
 
   /* Route transition (full-page crossfade) motion: hard-capped at <=150ms. */
-  --motion-route-exit-duration: 90ms;
-  --motion-route-enter-duration: 140ms;
+  /* The complete route envelope is 150ms: 60ms exit + 90ms enter, with no delay. */
+  --motion-route-exit-duration: 60ms;
+  --motion-route-enter-duration: 90ms;
   --motion-route-exit-ease: cubic-bezier(0.4, 0, 0.2, 1);
   --motion-route-enter-ease: cubic-bezier(0.16, 0.84, 0.28, 1);
 
@@ -4237,16 +4236,6 @@ body:has([data-testid="one-location-onboarding"])
     font-weight: 700 !important;
   }
 
-  /* Global Lucide icon stroke thickness (lucide-react adds `.lucide` on the SVG). */
-  .lucide {
-    stroke-width: var(--lucide-stroke-width);
-  }
-
-  /* Keep strokes consistent when icons are scaled via `size`/CSS. */
-  .lucide * {
-    vector-effect: non-scaling-stroke;
-  }
-
   /* Global cursor-pointer for all interactive elements. Disabled controls
      opt back out (not-allowed) so unclickable never masquerades as clickable. */
   button,
@@ -5120,7 +5109,7 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
 
 /* 
  * MORPHY TRANSITION SYSTEM
- * Standardized 200ms duration for all interactive transitions
+ * Standardized 150ms duration for all finite interactive transitions
  * Theme transitions handled separately to avoid jitter
  */
 
@@ -5362,6 +5351,16 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
 
 .animate-ripple {
   animation: ripple 150ms ease-out;
+}
+
+/* Canonical registry icons are glyphs, never their own surfaces. This keeps
+ * Phosphor duotone artwork from painting a faint secondary fill behind utility
+ * controls such as loading, refresh, search, close, and navigation icons. Any
+ * intentional icon well remains owned by its surrounding button/tile. */
+svg[data-canonical-icon="true"] {
+  background-color: transparent !important;
+  background-image: none !important;
+  box-shadow: none !important;
 }
 
 /* iOS-like radius utilities */
@@ -6340,6 +6339,12 @@ body[data-persona-surface="ria"] {
 /* Important declarations in the base layer outrank unlayered important rules.
    Keep density overrides in that same layer so the compact contract can win. */
 @layer base {
+  .app-page-shell[data-app-density="compact"] .ui-text-section-label-compact {
+    font-size: var(--type-section-label-compact-size) !important;
+    font-weight: var(--type-section-label-compact-weight) !important;
+    line-height: var(--type-section-label-compact-line) !important;
+  }
+
   .app-page-shell[data-app-density="compact"]
     [data-settings-density="compact"]
     .ui-text-row-label-compact,

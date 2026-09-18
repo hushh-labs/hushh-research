@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import type { LucideIcon } from "lucide-react";
+import type { LucideIcon } from "@/components/icons";
 
 import { cn } from "@/lib/utils";
 import { Icon } from "@/lib/morphy-ux/ui/icon";

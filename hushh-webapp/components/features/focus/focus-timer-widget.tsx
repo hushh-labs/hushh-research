@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
-import { Timer, Play, Pause, RotateCcw, X, Coffee, Brain } from "lucide-react";
+import { Timer, Play, Pause, RotateCcw, X, Coffee, Brain } from "@/components/icons";
 import { useFocusTimer } from "@/lib/hooks/use-focus-timer";
 import { Button } from "@/components/ui/button";
 
@@ -42,7 +42,7 @@ export function FocusTimerWidget() {
     <div className="fixed bottom-6 left-6 z-50 flex flex-col items-start gap-3 pointer-events-none">
       {/* Popover Window */}
       <div 
-        className={`pointer-events-auto origin-bottom-left transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] flex flex-col bg-background/80 backdrop-blur-2xl border shadow-2xl rounded-2xl w-[300px] overflow-hidden ${
+        className={`pointer-events-auto origin-bottom-left transition-[opacity,transform] duration-150 ease-[cubic-bezier(0.16,1,0.3,1)] flex flex-col bg-background/80 backdrop-blur-2xl border shadow-2xl rounded-2xl w-[300px] overflow-hidden ${
           isOpen ? "opacity-100 scale-100 translate-y-0" : "opacity-0 scale-95 translate-y-4 pointer-events-none"
         }`}
         aria-hidden={!isOpen}
@@ -97,7 +97,7 @@ export function FocusTimerWidget() {
                 cx="80"
                 cy="80"
                 r="76"
-                className="stroke-primary fill-none transition-all duration-1000 ease-linear"
+                className="stroke-primary fill-none transition-[stroke-dashoffset] duration-1000 ease-linear"
                 strokeWidth="6"
                 strokeDasharray="477.5"
                 strokeDashoffset={477.5 - (477.5 * progressPercent) / 100}
@@ -145,7 +145,7 @@ export function FocusTimerWidget() {
         variant="secondary"
         size="icon"
         onClick={() => setIsOpen(!isOpen)}
-        className={`pointer-events-auto h-12 w-12 rounded-full shadow-lg border transition-all duration-300 ${isOpen ? "rotate-90 scale-90 opacity-0" : "hover:scale-105"}`}
+        className={`pointer-events-auto h-12 w-12 rounded-full shadow-lg border transition-[opacity,transform] duration-150 ${isOpen ? "rotate-90 scale-90 opacity-0" : "hover:scale-105"}`}
         aria-label="Open Focus Timer"
         aria-hidden={isOpen}
         tabIndex={isOpen ? -1 : 0}

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Check, ChevronDown, Loader2, UsersRound } from "lucide-react";
+import { Check, ChevronDown, Loader2, UsersRound } from "@/components/icons";
 
 import { ContactSourceBadge } from "@/components/connections/contact-source-badge";
 import { ContactAvatar } from "@/components/one-location/redesign/contact-picker/atoms";
@@ -238,7 +238,7 @@ export function CircleMemberPicker({
         </span>
         <ChevronDown
           className={cn(
-            "h-5 w-5 shrink-0 text-muted-foreground transition-transform duration-200 motion-reduce:transition-none",
+            "h-5 w-5 shrink-0 text-muted-foreground transition-transform duration-150 motion-reduce:transition-none",
             expanded && "rotate-180",
           )}
           aria-hidden

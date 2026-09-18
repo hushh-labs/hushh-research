@@ -188,7 +188,7 @@ export function SegmentedControl({
               // Base styles
               "press-scale relative flex items-center justify-center gap-1.5 rounded-full select-none",
               // `transform` stays in the list, and the duration comes off the
-              // motion scale. `transition-all` at 500ms covered the transform
+              // motion scale. `transition-[transform]` at 150ms covered the transform
               // that `.press-scale` drives on :active, so the button sagged
               // for half a second under the thumb against a 120ms press token,
               // and 500ms is off the scale entirely.
@@ -232,7 +232,7 @@ export function SegmentedControl({
             {isExpanding ? (
               <div
                 className={cn(
-                  "overflow-hidden transition-all duration-[var(--motion-duration-sm)] ease-[var(--motion-ease-standard)] flex items-center",
+                  "overflow-hidden transition-[opacity,transform] duration-[var(--motion-duration-sm)] ease-[var(--motion-ease-standard)] flex items-center",
                   isActive
                     ? "w-auto max-w-[100px] opacity-100 ml-0.5"
                     : "w-0 max-w-0 opacity-0"

@@ -11,7 +11,7 @@ import {
   TrendingUp,
   UserRound,
   X,
-} from "lucide-react";
+} from "@/components/icons";
 
 import {
   CommandDialog,
@@ -976,7 +976,7 @@ export function KaiCommandPalette({
   }
 
   const commandItemClass =
-    "rounded-lg border border-transparent transition-all duration-100 ease-out active:scale-[0.98] hover:bg-primary/10 hover:text-foreground data-[selected=true]:border-primary/25 data-[selected=true]:bg-primary/15 data-[selected=true]:text-foreground data-[disabled=true]:pointer-events-none data-[disabled=true]:opacity-45";
+    "rounded-lg border border-transparent transition-[background-color,border-color,color,transform] duration-100 ease-out active:scale-[0.98] hover:bg-primary/10 hover:text-foreground data-[selected=true]:border-primary/25 data-[selected=true]:bg-primary/15 data-[selected=true]:text-foreground data-[disabled=true]:pointer-events-none data-[disabled=true]:opacity-45";
 
   // On small phones search is an input surface, not a command palette. Keep
   // the same gateway-ranked actions, but render them as ordinary buttons so

@@ -24,7 +24,7 @@ export const rippleKeyframes = `
 }
 
 .animate-ripple {
-  animation: ripple 600ms cubic-bezier(0.2, 0, 0.1, 1);
+  animation: ripple 150ms cubic-bezier(0.2, 0, 0.1, 1) forwards;
   will-change: transform, opacity;
   backface-visibility: hidden;
   transform: translateZ(0);
@@ -84,7 +84,7 @@ export const useRipple = () => {
       clearTimerRef.current = window.setTimeout(() => {
         setRipple(null);
         clearTimerRef.current = null;
-      }, 650); // 50ms buffer after 600ms animation
+      }, 200); // 50ms buffer after the 150ms interaction animation
     };
 
     // If a ripple is already active, clear it first, then start a new one next frame

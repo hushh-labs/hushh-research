@@ -18,7 +18,7 @@ import { cn } from "@/lib/morphy-ux";
 import { Card, CardContent, CardHeader, CardTitle } from "@/lib/morphy-ux/card";
 import { Progress } from "@/components/ui/progress";
 import { Button as MorphyButton } from "@/lib/morphy-ux/button";
-import { Activity, CheckCircle2, ChevronDown, ChevronUp, FileChartColumn, X } from "lucide-react";
+import { Activity, CheckCircle2, ChevronDown, ChevronUp, FileChartColumn, X } from "@/components/icons";
 import { Icon } from "@/lib/morphy-ux/ui";
 import { useSmoothStreamProgress } from "@/lib/morphy-ux/hooks/use-smooth-stream-progress";
 import { toInvestorStreamText } from "@/lib/copy/investor-language";
@@ -251,7 +251,7 @@ export function ImportProgressView({
           {hasMeasuredProgress || stage === "complete" || stage === "error" ? (
             <Progress
               value={smoothProgress}
-              className={cn("h-2", isStreaming && "transition-all")}
+              className={cn("h-2", isStreaming && "transition-[width]")}
             />
           ) : (
             <div className="h-2 overflow-hidden rounded-full bg-secondary">

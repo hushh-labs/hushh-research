@@ -13,7 +13,7 @@ import {
   RotateCcw,
   ShieldCheck,
   Trash2,
-} from "lucide-react";
+} from "@/components/icons";
 
 import {
   RiaCompatibilityState,

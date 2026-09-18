@@ -21,7 +21,7 @@ describe("route transition intent ownership", () => {
     vi.advanceTimersByTime(40);
     beginRouteTransition("/one/profile", third, "tap");
 
-    vi.advanceTimersByTime(89);
+    vi.advanceTimersByTime(59);
     expect(first).not.toHaveBeenCalled();
     expect(second).not.toHaveBeenCalled();
     expect(third).not.toHaveBeenCalled();

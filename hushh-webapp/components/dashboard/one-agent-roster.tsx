@@ -63,6 +63,19 @@ type DashboardAgentIconStyle = CSSProperties & {
   "--agent-icon-profile-fg-dark": string;
 };
 
+/**
+ * Returns true only when this person is actively sharing their location.
+ * Received grants describe someone else's share and must not light up the
+ * owner's roster entry as if the owner had an active outbound share.
+ */
+export function hasActiveLocationActivity(
+  location: OneLocationState | null | undefined,
+): boolean {
+  return (location?.ownerGrants ?? []).some(
+    (grant) => /^(active|shared|granted)$/i.test(String(grant.status).trim()),
+  );
+}
+
 const AGENT_ROSTER_VIEW_STORAGE_KEY = "hushh:one-agent-roster-view";
 
 /**
@@ -277,11 +290,8 @@ export function resolveCachedAgentMetrics(
     CACHE_KEYS.ONE_LOCATION_STATE(userId),
   )?.data;
   if (location) {
-    const liveShares = [
-      ...location.ownerGrants,
-      ...location.receivedGrants,
-    ].filter((grant) =>
-      /active|approved|shared|granted/i.test(String(grant.status)),
+    const liveShares = location.ownerGrants.filter((grant) =>
+      /^(active|shared|granted)$/i.test(String(grant.status).trim()),
     ).length;
     metrics.location = {
       value: String(liveShares),
@@ -686,7 +696,7 @@ function AgentRosterViewToggle({
         data-testid="one-agents-view-grid"
         onClick={() => onChange("grid")}
         className={cn(
-          "h-[26px] w-7 rounded-full border-0 transition-all duration-200",
+          "h-[26px] w-7 rounded-full border-0 transition-[background-color,color,box-shadow,transform] duration-150",
           value === "grid"
             ? "bg-white text-neutral-900 shadow-[0_1px_3px_rgba(0,0,0,0.08),0_1px_2px_rgba(0,0,0,0.04)] hover:bg-white dark:bg-white/[0.16] dark:text-white dark:shadow-[0_1px_2px_rgba(0,0,0,0.25)]"
             : "bg-transparent text-muted-foreground/75 shadow-none hover:bg-transparent hover:text-foreground dark:bg-transparent",
@@ -700,7 +710,7 @@ function AgentRosterViewToggle({
         data-testid="one-agents-view-list"
         onClick={() => onChange("list")}
         className={cn(
-          "h-[26px] w-7 rounded-full border-0 transition-all duration-200",
+          "h-[26px] w-7 rounded-full border-0 transition-[background-color,color,box-shadow,transform] duration-150",
           value === "list"
             ? "bg-white text-neutral-900 shadow-[0_1px_3px_rgba(0,0,0,0.08),0_1px_2px_rgba(0,0,0,0.04)] hover:bg-white dark:bg-white/[0.16] dark:text-white dark:shadow-[0_1px_2px_rgba(0,0,0,0.25)]"
             : "bg-transparent text-muted-foreground/75 shadow-none hover:bg-transparent hover:text-foreground dark:bg-transparent",

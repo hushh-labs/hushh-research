@@ -495,7 +495,7 @@ export function AgentHistorySidebar({
                   className="h-9 w-9 rounded-xl bg-[color:var(--app-accent)]/10 text-[color:var(--app-accent)] hover:bg-[color:var(--app-accent)]/20 focus-visible:ring-2 focus-visible:ring-primary/60"
                   onClick={onCreateNew}
                   disabled={disabled}
-                  aria-label="Create new Agent chat"
+                  aria-label="Create new chat"
                   title="New chat"
                 >
                   <Plus className="h-4 w-4" strokeWidth={2.5} aria-hidden="true" />

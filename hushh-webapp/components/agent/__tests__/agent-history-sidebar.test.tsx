@@ -39,7 +39,7 @@ describe("AgentHistorySidebar", () => {
     const sidebar = screen.getByLabelText("Agent chat history");
     expect(sidebar).toHaveClass("chrome-glass-surface");
     expect(screen.getByRole("heading", { name: "Chats" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Create new Agent chat" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Create new chat" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Close chat history" })).toBeInTheDocument();
     expect(screen.getByRole("searchbox", { name: "Search chats" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Collapse chat history" })).not.toBeInTheDocument();
@@ -82,7 +82,7 @@ describe("AgentHistorySidebar", () => {
     expect(sidebar).toHaveAttribute("data-collapsed", "false");
     expect(screen.getByRole("heading", { name: "Chats" })).toBeInTheDocument();
     expect(screen.getByText("1")).toBeInTheDocument(); // Count badge
-    expect(screen.getByRole("button", { name: "Create new Agent chat" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Create new chat" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Collapse chat history" })).toBeInTheDocument();
     expect(screen.getByText("What needs a reply today?")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /^What needs a reply today/i })).toHaveAttribute("aria-current", "page");
@@ -106,7 +106,7 @@ describe("AgentHistorySidebar", () => {
     const sidebar = screen.getByLabelText("Agent chat history");
     expect(sidebar).toHaveAttribute("data-collapsed", "true");
     expect(screen.getByRole("button", { name: "Expand chat history" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Create new Agent chat" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Create new chat" })).toBeInTheDocument();
     expect(screen.queryByRole("searchbox", { name: "Search chats" })).not.toBeInTheDocument();
   });
 

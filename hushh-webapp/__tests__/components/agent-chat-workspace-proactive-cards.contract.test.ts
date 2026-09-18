@@ -24,7 +24,10 @@ describe("Agent One proactive Gmail cards wiring contract", () => {
     expect(source).toContain("function AgentPromptSuggestions(");
     expect(source).toContain('data-testid="agent-chat-suggestions"');
     expect(source).toContain('aria-label="Suggestions"');
-    expect(source).toContain("variant=\"pill\"");
+    const suggestions = source.slice(source.indexOf("function AgentPromptSuggestions("), source.indexOf("function AgentPromptSuggestions(") + 1800);
+    expect(suggestions).toContain('type="button"');
+    expect(suggestions).toContain("disabled={disabled}");
+    expect(suggestions).toContain("!min-h-11");
     expect(source).toContain("onClick={() => onPromptSelect(prompt)}");
     expect(source).toContain("setInput(prompt)");
   });
@@ -33,7 +36,7 @@ describe("Agent One proactive Gmail cards wiring contract", () => {
     expect(source).toContain("setIsLoadingHistory(true);");
     expect(source).toContain("setIsLoadingHistory(false);");
     expect(source).toContain("warmAgentChatHistoryCache({");
-    expect(source).toContain('loading={isLoadingHistory && conversations.length === 0}');
+    expect(source).toContain('loading={isPuppySurface ? false : (isLoadingHistory && conversations.length === 0)}');
   });
 
   it("keeps slow history warming out of the canonical chat interaction path", () => {

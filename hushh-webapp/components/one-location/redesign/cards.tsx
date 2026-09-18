@@ -25,7 +25,7 @@ import {
   Share2,
   ShieldCheck,
   X,
-} from "lucide-react";
+} from "@/components/icons";
 
 import type { ApproveDurationOption } from "@/lib/one-location/approve-duration-options";
 import { cn } from "@/lib/utils";
@@ -681,7 +681,7 @@ export function SharedWithMeCard({
           <button
             type="button"
             className={cn(
-              "ui-text-button-label inline-flex min-h-11 items-center gap-2 rounded-[13px] px-3.5 text-[color:var(--app-accent)] transition-[background-color,color,transform] duration-200 hover:bg-[color:var(--app-accent-surface-strong)] hover:text-[color:var(--app-accent-deep)] active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)] focus-visible:ring-offset-2 disabled:opacity-60 motion-reduce:transition-none",
+              "ui-text-button-label inline-flex min-h-11 items-center gap-2 rounded-[13px] px-3.5 text-[color:var(--app-accent)] transition-[background-color,color,transform] duration-150 hover:bg-[color:var(--app-accent-surface-strong)] hover:text-[color:var(--app-accent-deep)] active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)] focus-visible:ring-offset-2 disabled:opacity-60 motion-reduce:transition-none",
               isPreviewExpanded
                 ? "-ml-2 min-h-10 rounded-full bg-transparent px-2"
                 : "w-full justify-center bg-[color:var(--app-accent-tint)]",
@@ -704,7 +704,7 @@ export function SharedWithMeCard({
             {isPreviewExpanded ? "Hide map" : "View location"}
             <ChevronDown
               className={cn(
-                "h-4 w-4 transition-transform duration-200",
+                "h-4 w-4 transition-transform duration-150",
                 isPreviewExpanded && "rotate-180",
               )}
               aria-hidden="true"

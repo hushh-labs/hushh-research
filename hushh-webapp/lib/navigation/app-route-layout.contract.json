@@ -3896,26 +3896,16 @@
   },
   {
     "route": "/ria",
-    "mode": "standard",
-    "shellVerification": {
-      "file": "components/ria/ria-page-shell.tsx",
-      "includes": [
-        "AppPageShell",
-        "AppPageHeaderRegion",
-        "AppPageContentRegion",
-        "SurfaceStack"
-      ]
-    },
+    "mode": "redirect",
+    "exemptionReason": "Compatibility redirect to the canonical RIA profile at /ria/profile.",
     "voicePlaybook": {
       "playbookId": "route.ria",
       "purpose": "Help the person understand and use the ria screen through its generated controls.",
-      "screen": "ria_home",
-      "entryCue": "You can say \u201cOpen RIA Home\u201d to use the primary control on this screen.",
-      "proactivity": "on_entry",
-      "primaryActionId": "route.ria_home",
-      "happyPathActionIds": [
-        "route.ria_home"
-      ],
+      "screen": "ria_profile",
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
       "requiredInputs": [],
       "recoveries": {
         "blocked": "Explain the current guard and retain the goal.",
@@ -3925,9 +3915,9 @@
         "callbackError": "Return to the verified callback recovery path without claiming success.",
         "routeMismatch": "Use the verified current route and its generated actions only."
       },
-      "completionBoundary": "Completion is shown only after the correlated browser settlement succeeds.",
-      "nextRoute": "/ria",
-      "returnPolicy": "stay",
+      "completionBoundary": "The compatibility route completes only after navigation settles on the canonical RIA profile.",
+      "nextRoute": "/ria/profile",
+      "returnPolicy": "navigate",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
     }
   },

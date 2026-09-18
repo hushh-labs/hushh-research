@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import type { LucideIcon } from "lucide-react";
+import type { LucideIcon } from "@/components/icons";
 import {
   MapPin,
   ShieldCheck,
@@ -10,7 +10,7 @@ import {
   TrendingUp,
   UserRound,
   Users,
-} from "lucide-react";
+} from "@/components/icons";
 
 import { useAuth } from "@/hooks/use-auth";
 import { useVault } from "@/lib/vault/vault-context";

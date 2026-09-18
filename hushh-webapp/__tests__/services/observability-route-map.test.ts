@@ -54,6 +54,7 @@ describe("observability route map", () => {
     ).toBe("connected_systems");
     expect(resolveRouteId("/research")).toBe("research");
     expect(resolveRouteId("/research/protocol")).toBe("research_protocol");
+    expect(resolveRouteId("/manishhussh")).toBe("founder_profile");
     expect(resolveRouteId("/products/hushh-tech/launch")).toBe("hushh_tech_launch");
     expect(resolveRouteId("/blog")).toBe("blog");
     expect(resolveRouteId("/blog/sample")).toBe("blog_post");

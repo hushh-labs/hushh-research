@@ -15,7 +15,7 @@
 
 import { Card, CardContent } from "@/lib/morphy-ux/card";
 import { cn } from "@/lib/utils";
-import { TrendingUp, TrendingDown, Minus } from "lucide-react";
+import { TrendingUp, TrendingDown, Minus } from "@/components/icons";
 
 interface KPICardProps {
   title: string;
@@ -98,7 +98,7 @@ export function KPICard({
       effect="glass"
       showRipple={!!onClick}
       className={cn(
-        "border transition-all duration-200",
+        "border transition-[background-color,border-color,box-shadow,color,transform] duration-150",
         variantStyles[variant],
         onClick && "cursor-pointer hover:scale-[1.02] active:scale-[0.98]",
         className

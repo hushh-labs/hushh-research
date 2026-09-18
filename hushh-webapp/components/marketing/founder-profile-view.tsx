@@ -1,6 +1,6 @@
 import Image from "next/image";
 import Link from "next/link";
-import { ArrowLeft, ExternalLink, Globe, GraduationCap, Linkedin, User } from "lucide-react";
+import { ArrowLeft, ExternalLink, Globe, GraduationCap, Linkedin, User } from "@/components/icons";
 import {
   AppPageShell,
   AppPageHeaderRegion,

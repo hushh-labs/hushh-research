@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState, useRef } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Capacitor } from "@capacitor/core";
-import { CheckCircle2, Copy, Eye, EyeOff, LockKeyhole } from "lucide-react";
+import { CheckCircle2, Copy, Eye, EyeOff, LockKeyhole } from "@/components/icons";
 import { toast } from "sonner";
 
 import { AppPageShell } from "@/components/app-ui/app-page-shell";

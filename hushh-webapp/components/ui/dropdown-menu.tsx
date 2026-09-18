@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { CheckIcon, ChevronRightIcon, CircleIcon } from "lucide-react"
+import { CheckIcon, ChevronRightIcon, CircleIcon } from "@/components/icons"
 import { DropdownMenu as DropdownMenuPrimitive } from "radix-ui"
 
 import { MaterialRipple } from "@/lib/morphy-ux/material-ripple"

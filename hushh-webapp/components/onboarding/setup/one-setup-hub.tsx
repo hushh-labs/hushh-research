@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { PlugZap } from "lucide-react";
+import { PlugZap } from "@/components/icons";
 import { toast } from "sonner";
 
 import {

@@ -12,7 +12,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Loader2, Search, UserPlus } from "lucide-react";
+import { Loader2, Search, UserPlus } from "@/components/icons";
 
 import {
   personInitials,

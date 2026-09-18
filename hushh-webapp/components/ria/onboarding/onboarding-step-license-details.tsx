@@ -1,6 +1,6 @@
 "use client";
 
-import { Pencil, Shield } from "lucide-react";
+import { Pencil, Shield } from "@/components/icons";
 import { cn } from "@/lib/utils";
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 

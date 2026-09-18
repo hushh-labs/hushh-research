@@ -26,8 +26,8 @@
 
 import { useRef, useEffect, useState, useCallback } from "react";
 import * as AccordionPrimitive from "@radix-ui/react-accordion";
-import { ChevronDownIcon, Sparkles, Loader2, Database, CheckCircle2 } from "lucide-react";
-import type { LucideIcon } from "lucide-react";
+import { ChevronDownIcon, Sparkles, Loader2, Database, CheckCircle2 } from "@/components/icons";
+import type { LucideIcon } from "@/components/icons";
 
 import { cn } from "./cn";
 import { StreamingCursor } from "./streaming-cursor";
@@ -430,7 +430,7 @@ export function StreamingAccordion({
             className={cn(
               "flex flex-1 items-center justify-between gap-3",
               surface === "card" ? "px-4 py-3" : "px-0 py-2",
-              "text-left text-sm font-semibold transition-all",
+              "text-left text-sm font-semibold transition-[background-color,color,box-shadow] duration-150",
               "hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
               "[&[data-state=open]>svg.chevron]:rotate-180"
             )}
@@ -457,7 +457,7 @@ export function StreamingAccordion({
             <Icon
               icon={ChevronDownIcon}
               size="sm"
-              className="chevron text-muted-foreground shrink-0 transition-transform duration-200"
+              className="chevron text-muted-foreground shrink-0 transition-transform duration-150"
             />
           </AccordionPrimitive.Trigger>
         </AccordionPrimitive.Header>
@@ -500,7 +500,7 @@ export function StreamingAccordion({
                   "absolute bottom-2 left-1/2 -translate-x-1/2 z-10",
                   "px-3 py-1.5 rounded-full",
                   "bg-primary text-primary-foreground text-xs font-semibold",
-                  "shadow-lg hover:shadow-xl transition-all",
+                  "shadow-lg transition-[opacity,box-shadow,transform] duration-150 hover:shadow-xl",
                   "animate-in fade-in slide-in-from-bottom-2",
                   "flex items-center gap-1.5"
                 )}

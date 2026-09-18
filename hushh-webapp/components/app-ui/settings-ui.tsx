@@ -630,6 +630,7 @@ export function SettingsRow({
             variant="none"
             effect="fade"
             disabled={disabled}
+            disableHover
             className="z-10"
           />
         ) : null,
@@ -681,6 +682,7 @@ export function SettingsRow({
               variant="none"
               effect="fade"
               disabled={disabled}
+              disableHover
               className="z-10"
             />
           </button>
@@ -741,6 +743,7 @@ export function SettingsRow({
             variant="none"
             effect="fade"
             disabled={disabled}
+            disableHover
             className="z-10"
           />
         ) : null}

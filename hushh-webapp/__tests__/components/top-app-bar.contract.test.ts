@@ -208,17 +208,11 @@ describe("Top app bar responsive contract", () => {
     expect(source).not.toContain("<DebateTaskCenter");
   });
 
-  it("keeps a minimal Search pill immediately left of Profile in the top bar", () => {
+  it("keeps Search in the shared bottom navigation instead of the top bar", () => {
     const source = read("components/app-ui/top-app-bar.tsx");
 
-    expect(source).toContain('aria-label="Search"');
-    expect(source).toContain("Search 🔍");
-    expect(source).toContain("openKaiCommandBar()");
-    // Left of Profile: the pill's JSX must appear earlier in the actions
-    // block than the Profile control it sits beside.
-    expect(source.indexOf('aria-label="Search"')).toBeLessThan(
-      source.indexOf('aria-label="Open Profile"'),
-    );
+    expect(source).not.toContain('aria-label="Search"');
+    expect(source).not.toContain("Search 🔍");
   });
 
   it("keeps the rightmost signed-in Profile action in the shared top bar", () => {

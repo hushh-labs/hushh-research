@@ -11,7 +11,7 @@
  * readiness section.
  */
 
-import { Clock, Loader2, Lock, Navigation } from "lucide-react";
+import { Clock, Loader2, Lock, Navigation } from "@/components/icons";
 
 import { LiveMap } from "@/components/one-location/live-map";
 import { roleClasses } from "@/lib/morphy-ux/tokens/semantic-roles";

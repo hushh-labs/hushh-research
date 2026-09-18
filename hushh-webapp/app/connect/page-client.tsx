@@ -14,7 +14,7 @@ import {
   Search as SearchIcon,
   Share2,
   X,
-} from "lucide-react";
+} from "@/components/icons";
 
 import {
   AppPageContentRegion,
@@ -2579,7 +2579,7 @@ export default function ConnectPageClient() {
                                 <ChevronDown
                                   aria-hidden="true"
                                   className={cn(
-                                    "ml-1.5 h-4 w-4 shrink-0 transition-transform duration-200",
+                                    "ml-1.5 h-4 w-4 shrink-0 transition-transform duration-150",
                                     connectionsExpanded && "rotate-180",
                                   )}
                                 />
@@ -3577,7 +3577,7 @@ export default function ConnectPageClient() {
         />
 
         {showLimitBanner && (
-          <div className="fixed top-16 left-1/2 -translate-x-1/2 z-[9999] w-[92%] max-w-md rounded-2xl bg-popover/95 backdrop-blur-md p-3.5 shadow-xl border border-border/50 flex items-center justify-between gap-3 animate-in fade-in slide-in-from-top-3 duration-200">
+          <div className="fixed top-16 left-1/2 -translate-x-1/2 z-[9999] w-[92%] max-w-md rounded-2xl bg-popover/95 backdrop-blur-md p-3.5 shadow-xl border border-border/50 flex items-center justify-between gap-3 animate-in fade-in slide-in-from-top-3 duration-150">
             <span className="text-xs font-medium text-foreground">
               You can connect up to {MAX_BULK_CONNECTION_REQUESTS} at a time.
             </span>

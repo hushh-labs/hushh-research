@@ -104,7 +104,7 @@ export function ThemeToggle({ className }: { className?: string }) {
               selectTheme(option.value);
             }}
             className={cn(
-              "relative flex min-h-10 min-w-0 items-center justify-center gap-1.5 overflow-hidden rounded-full border px-2 py-2 text-center transition-all duration-150",
+              "relative flex min-h-10 min-w-0 items-center justify-center gap-1.5 overflow-hidden rounded-full border px-2 py-2 text-center transition-[background-color,border-color,color,box-shadow,transform] duration-150",
               isDark
                 ? isActive
                   ? "border-white/8 bg-neutral-900 text-white"
@@ -205,7 +205,7 @@ export function ThemeToggleLean({
       <span
         aria-hidden="true"
         className={cn(
-          "pointer-events-none absolute inset-y-[3px] left-[3px] w-[calc((100%-6px)/3)] rounded-full transition-transform duration-200 ease-out",
+          "pointer-events-none absolute inset-y-[3px] left-[3px] w-[calc((100%-6px)/3)] rounded-full transition-transform duration-150 ease-out",
           isDark
             ? "bg-neutral-800 shadow-[0_1px_2px_rgba(0,0,0,0.4)]"
             : "bg-white shadow-[0_1px_2px_rgba(0,0,0,0.12)]"
@@ -267,7 +267,7 @@ export function ThemeToggleCompact({ className }: { className?: string }) {
           type="button"
           aria-label={`Theme: ${activeOption.label}`}
           className={cn(
-            "inline-flex h-10 w-10 items-center justify-center rounded-full border backdrop-blur-xl transition-all duration-150",
+          "inline-flex h-10 w-10 items-center justify-center rounded-full border backdrop-blur-xl transition-[background-color,border-color,color,box-shadow,transform] duration-150",
             isDark
               ? "border-white/8 bg-black/85 text-zinc-100 hover:bg-neutral-900"
               : "border-slate-200 bg-white/85 text-slate-700 hover:bg-white",

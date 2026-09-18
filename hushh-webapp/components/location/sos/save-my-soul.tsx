@@ -28,7 +28,7 @@ import {
   ShieldAlert,
   ShieldCheck,
   UserRoundPlus,
-} from "lucide-react";
+} from "@/components/icons";
 
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";

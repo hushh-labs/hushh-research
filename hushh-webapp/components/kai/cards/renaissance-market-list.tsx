@@ -7,7 +7,7 @@ import {
   SlidersHorizontal,
   TrendingDown,
   TrendingUp,
-} from "lucide-react";
+} from "@/components/icons";
 
 import { KaiControlSurface } from "@/components/app-ui/kai-control-surface";
 import { RenaissanceVerdictCard } from "@/components/kai/cards/renaissance-verdict-card";

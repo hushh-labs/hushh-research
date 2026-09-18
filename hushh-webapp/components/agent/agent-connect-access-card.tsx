@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, ShieldCheck } from "lucide-react";
+import { Check, ShieldCheck } from "@/components/icons";
 
 import { Button } from "@/components/ui/button";
 

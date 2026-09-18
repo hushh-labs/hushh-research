@@ -43,7 +43,7 @@ Across Hushh product surfaces, all interactive feedback, modal presentations, dr
 | Segmented pill crossfade / slide | 100–125ms | `var(--motion-ease-standard)` |
 | Tooltips, dropdowns, popovers | 100–140ms | `var(--motion-ease-decelerate)` |
 | Modals, sheets, history drawer | 125–150ms | `cubic-bezier(0.23, 1, 0.32, 1)` |
-| Route transition crossfade | 140–150ms | `cubic-bezier(0.16, 0.84, 0.28, 1)` |
+| Route transition crossfade | 60ms exit + 90ms enter (150ms total) | `cubic-bezier(0.16, 0.84, 0.28, 1)` |
 
 Hunt for: Any duration $> 150\text{ms}$ on UI surfaces, `ease-in` anywhere, bare `linear` transitions on entrances, and non-composited transitions.
 
@@ -58,7 +58,7 @@ Hunt for: Any duration $> 150\text{ms}$ on UI surfaces, `ease-in` anywhere, bare
 - **Press feedback**: `transform: scale(0.97)` on `:active` with `transition: transform 100ms ease-out`. Keep it subtle (0.95–0.98).
 
 Verify runtime timers as well as CSS: route exit/enter timers must match the
-90ms/140ms CSS tokens, and sheet drag settlement must respect the 150ms ceiling
+60ms/90ms CSS tokens, and sheet drag settlement must respect the 150ms ceiling
 and reduced motion. Token values alone do not prove all consumers comply.
 Continuous loading indicators are not interaction latency; do not accelerate
 their loops to 150ms. Measure dropped frames separately before claiming FPS.
@@ -71,7 +71,10 @@ CSS **transitions** retarget from the current state mid-animation; **keyframes**
 
 - Entry without JS: `@starting-style` (legacy fallback: a `data-mounted` attribute set in `useEffect`).
 - Gesture-driven motion should use springs — they carry velocity when interrupted.
-- Spring configs, Apple-style (recommended): `{ type: "spring", duration: 0.5, bounce: 0.2 }`. Keep bounce subtle (0.1–0.3); reserve visible bounce for drag-to-dismiss and playful moments.
+- Spring configs for finite Hushh UI interactions must settle within the same
+  150ms envelope: `{ type: "spring", duration: 0.12, bounce: 0.15 }`. Keep
+  bounce subtle and reserve it for interruptible gesture feedback; use a plain
+  transform/opacity transition when a spring would obscure the timing contract.
 - **Asymmetric timing**: deliberate phases (press, hold, destructive confirm) animate slower; the system's response snaps. Symmetric timing on press-and-release is a finding.
 
 Hunt for: `@keyframes` on toasts/toggles/rapidly-triggered UI, gesture handlers that tween with fixed-duration keyframes, drags without velocity-based dismissal (dismiss on `Math.abs(distance)/elapsedMs > ~0.11`, not distance thresholds alone), hard stops at drag boundaries instead of rising friction.
@@ -98,7 +101,10 @@ Hunt for: `transition: all`, animated layout properties, Framer Motion shorthand
 }
 ```
 
-Reduced motion means fewer and gentler animations, **not zero** — keep transitions that aid comprehension, remove position changes. In JS: `useReducedMotion()` and branch transform values.
+Reduced motion disables nonessential presentation animation. Keep essential
+state feedback readable (for example opacity or color), remove positional
+movement and decorative sequencing, and never delay access to the next action.
+In JS: `useReducedMotion()` and branch transform values.
 
 Hunt for: movement with no `prefers-reduced-motion` handling, ungated `:hover` motion, reduced-motion implementations that nuke all feedback.
 
@@ -106,7 +112,9 @@ Hunt for: movement with no `prefers-reduced-motion` handling, ungated `:hover` m
 
 - Motion should match the product's personality — playful can be bouncier, a dashboard stays crisp. Mismatched personality across components is a finding.
 - Curves and durations should live as shared tokens. Five hand-typed cubic-beziers that almost match is a consolidation finding.
-- Everything-at-once group entrances where a **30–80ms stagger** belongs. Stagger is decorative — it must never block interaction.
+- Avoid stagger on application chrome and interaction-critical surfaces. Rare
+  first-run decoration may use a small stagger only when the complete sequence
+  still settles within 150ms and the stagger never blocks interaction.
 - A jarring crossfade that shows two overlapping states can be masked with subtle `filter: blur(2px)` during the transition.
 
 Hunt for: duplicated near-identical easings/durations, one bouncy component in a crisp app, list/grid entrances with no stagger, crossfades that visibly double-expose.

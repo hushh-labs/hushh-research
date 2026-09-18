@@ -11,7 +11,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Check, Mic, Volume2 } from "lucide-react";
+import { Check, Mic, Volume2 } from "@/components/icons";
 
 import { Button } from "@/components/ui/button";
 import { roleClasses } from "@/lib/morphy-ux/tokens/semantic-roles";

@@ -22,7 +22,7 @@ import {
   Trash2,
   XCircle,
   type LucideIcon,
-} from "lucide-react";
+} from "@/components/icons";
 
 import {
   AppPageContentRegion,

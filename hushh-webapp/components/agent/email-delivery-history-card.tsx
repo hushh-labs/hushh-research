@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronDown, CircleAlert, Loader2, MailCheck } from "lucide-react";
+import { ChevronDown, CircleAlert, Loader2, MailCheck } from "@/components/icons";
 import Link from "next/link";
 
 import { Button } from "@/components/ui/button";
@@ -79,7 +79,7 @@ export function EmailDeliveryHistoryCard({
             {statusCopy(item)}
           </span>
         </span>
-        <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-200 group-open:rotate-180" aria-hidden />
+        <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-150 group-open:rotate-180" aria-hidden />
       </summary>
 
       <div className="space-y-3 border-t border-border/60 px-4 py-4 text-sm">

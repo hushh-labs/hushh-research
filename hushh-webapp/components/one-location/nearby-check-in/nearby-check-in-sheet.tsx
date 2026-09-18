@@ -17,7 +17,7 @@ import {
   Search,
   Star,
   UsersRound,
-} from "lucide-react";
+} from "@/components/icons";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 

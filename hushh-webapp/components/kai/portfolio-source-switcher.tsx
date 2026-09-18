@@ -25,7 +25,7 @@ import {
   Trash2,
   Upload,
   X,
-} from "lucide-react";
+} from "@/components/icons";
 
 interface PortfolioSourceSwitcherProps {
   activeSource: PortfolioSource;
