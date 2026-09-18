@@ -3819,18 +3819,18 @@
       "alias": null,
       "api_dependencies": [],
       "cache": {
-        "policy": "memory-only",
-        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "policy": "none",
+        "refresh_trigger": "none",
         "resource_classes": [
           "unknown"
         ]
       },
       "implementation_override": null,
       "lifecycle": "canonical",
-      "native_surface_id": null,
+      "native_surface_id": "native-route-profile-connectors",
       "page_file": "app/one/profile/connectors/page.tsx",
       "pathname": "/one/profile/connectors",
-      "route_mode": "standard",
+      "route_mode": "redirect",
       "semantic_routes": [],
       "voice": {
         "action_ids": [],
@@ -5578,13 +5578,13 @@
     "a2a_scope_map": "7379039859448ff3db422aa5ee50124bbcadcecc8c9c49e3c1471791f54208c1",
     "action_gateway": "ecab0cb538dfc8dfcff911d801132d29065da4665bd4aee79e95df238c07cf7d",
     "agent_registry": "b865a980c4ff47ff91b316a238af7c70cfe01a3a79459199603791428b46a7d4",
-    "cache_manifest": "96d92d666969761c4638cd17472c0e029253a2697df43e231b9ae0fd02f1aa25",
+    "cache_manifest": "8bd36924eb214960cd2c617fd80b888852766bdda9cc20a49cd7fd7e0145b67e",
     "data_plane": "c9c094dd78bef3121d468eba93e0fbefb5275c5aab7a2bfd6be6e46cab4f9184",
     "in_process_dispatch": "022c40c305a11e06510f2688041a96c1523cae5b5c03d7876fd122ce027e98c3",
     "one_specialist_tools": "a8f007720a7f9b4565e1715ac0fbda4ab54dc3e82bf0cded7f527cbf02222dd2",
-    "route_index": "88ebf51c6176affbae43d8e1bb6a49f075f5cfa77e93a4df566a1f10f20a9f3d",
-    "route_layout": "a2e3ef0939fac7302308a6593195d0dc2bdd3029e9c4a6d28629da9b810ffac9",
-    "surface_map": "d02bd35dbe54c769d66a02035664072ba4a0d0161e837772747c432f4d48ccbb",
+    "route_index": "190e983f04d96b3bdfee00a374731c0ece41e0deea096d04c3632b99c3b33e6a",
+    "route_layout": "9885ba9528e795307b41856b3219e4d5d61bac688fc08a62adaf39a01d92362b",
+    "surface_map": "bbcb4fbc03ae5f79d1bd547524696bdf74120858632015fa9d794d74ee40a2c7",
     "topology_contract": "604960e855be06af77bd75d21f3eace0e2ea5647b344d08f0acd2b8c35d4f4e9",
     "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"
   },

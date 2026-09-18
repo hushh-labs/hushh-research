@@ -3462,14 +3462,8 @@
   },
   {
     "route": "/one/profile/connectors",
-    "mode": "standard",
-    "shellVerification": {
-      "file": "app/one/profile/connectors/page.tsx",
-      "includes": [
-        "AppPageShell",
-        "AppPageContentRegion"
-      ]
-    },
+    "mode": "redirect",
+    "exemptionReason": "Connectors moved into the chat sidebar's MCP connections panel; this route only forwards to / with ?panel=connectors.",
     "voicePlaybook": {
       "playbookId": "route.profile.connectors",
       "purpose": "Help the person connect and manage external MCP connectors (Notion, HubSpot, ...) so Kai can use their own data from them.",
@@ -3488,15 +3482,15 @@
         "routeMismatch": "Use the verified current route and its generated actions only."
       },
       "completionBoundary": "Completion is shown only after the correlated browser settlement succeeds.",
-      "nextRoute": null,
-      "returnPolicy": "stay",
+      "nextRoute": "/",
+      "returnPolicy": "navigate",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
     }
   },
   {
     "route": "/one/profile/connectors/oauth/return",
     "mode": "redirect",
-    "exemptionReason": "OAuth callback completes an external connector's authorization and returns to the connectors manage page.",
+    "exemptionReason": "OAuth callback completes an external connector's authorization and returns to the chat sidebar's MCP connections panel.",
     "voicePlaybook": {
       "playbookId": "route.profile.connectors.oauth.return",
       "purpose": "Finish the verified external connector authorization callback without exposing credentials.",
@@ -3515,7 +3509,7 @@
         "routeMismatch": "Use the verified current route and its generated actions only."
       },
       "completionBoundary": "Completion is shown only after the correlated browser settlement succeeds.",
-      "nextRoute": "/one/profile/connectors",
+      "nextRoute": "/",
       "returnPolicy": "navigate",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
     }

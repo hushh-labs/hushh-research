@@ -16,8 +16,8 @@
     "surface_map_count": 141,
     "class_counts": {
       "public/auth-split": 1,
-      "redirect/alias": 48,
-      "vault-backed": 54,
+      "redirect/alias": 49,
+      "vault-backed": 53,
       "hidden flow": 17,
       "auth/pre-vault": 6,
       "RIA/provider": 8,
@@ -3414,26 +3414,23 @@
     {
       "route": "/one/profile/connectors",
       "page_file": "app/one/profile/connectors/page.tsx",
-      "route_contract_mode": "standard",
-      "screen_class": "vault-backed",
-      "cache_policy": "memory-only",
+      "route_contract_mode": "redirect",
+      "screen_class": "redirect/alias",
+      "cache_policy": "none",
       "cache_keys": [],
       "resource_classes": [
         "unknown"
       ],
       "sensitivity_class": "app-metadata",
-      "ttl_class": "CACHE_TTL.MEDIUM",
-      "warm_source": "Route-local resource loader",
-      "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
-      "mutation_invalidator": "CacheSyncService user/session invalidation",
+      "ttl_class": "none",
+      "warm_source": "none",
+      "refresh_trigger": "none",
+      "mutation_invalidator": "none",
       "best_available_ux_path": [
-        "fresh memory",
-        "cold loader"
+        "static render"
       ],
       "readiness_kpis": [
-        "route_readiness_completed",
-        "cache_resource_resolved",
-        "route_refresh_completed"
+        "route_readiness_completed"
       ],
       "realtime_policy": "not realtime",
       "reviewer_fixture": "/login?redirect=%2Fone%2Fprofile%2Fconnectors",
@@ -3450,11 +3447,9 @@
         "api_service": false,
         "hushh_loader": false,
         "sse_or_streaming": false,
-        "native_beacon": true
+        "native_beacon": false
       },
-      "findings": [
-        "no local cache primitive detected in page/contract source"
-      ]
+      "findings": []
     },
     {
       "route": "/one/profile/connectors/oauth/return",
@@ -6330,5 +6325,5 @@
       ]
     }
   ],
-  "content_sha256": "9b88bd0b1dae7f965cec355e50c4d59ba44619f3d1b72392a8bb9f8608119b14"
+  "content_sha256": "3e1ff659959bd1ddc1324e48ecb0e27027d96eb9b0c14ec9f34841053ded4c96"
 }

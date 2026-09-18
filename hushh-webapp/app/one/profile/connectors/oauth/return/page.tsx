@@ -22,14 +22,18 @@ function ConnectorOAuthReturnContent() {
     const state = search.get("state");
     const oauthError = search.get("error") || search.get("error_description");
 
+    // Connectors live in the chat sidebar's "MCP connections" panel now, not
+    // a dedicated route -- landing on `?panel=connectors` is what reopens it.
+    const returnHref = `${ROUTES.HOME}?panel=connectors`;
+
     if (oauthError) {
       setMessage("That connection was not completed.");
-      globalThis.setTimeout(() => router.replace(ROUTES.PROFILE_CONNECTORS), 1500);
+      globalThis.setTimeout(() => router.replace(returnHref), 1500);
       return;
     }
     if (!vaultOwnerToken || !code || !state) {
       setMessage("Missing authorization details. Please try again.");
-      globalThis.setTimeout(() => router.replace(ROUTES.PROFILE_CONNECTORS), 1500);
+      globalThis.setTimeout(() => router.replace(returnHref), 1500);
       return;
     }
 
@@ -49,7 +53,7 @@ function ConnectorOAuthReturnContent() {
         );
       })
       .finally(() => {
-        globalThis.setTimeout(() => router.replace(ROUTES.PROFILE_CONNECTORS), 1500);
+        globalThis.setTimeout(() => router.replace(returnHref), 1500);
       });
   }, [router, search, vaultOwnerToken, ownerTokenStatus]);
 

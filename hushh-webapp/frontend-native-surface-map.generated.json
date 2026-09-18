@@ -5289,13 +5289,10 @@
       "page_file": "app/one/profile/connectors/page.tsx",
       "physical_page_exists": true,
       "route_contract": {
-        "mode": "standard",
-        "exemption_reason": null,
-        "shell_verification_file": "app/one/profile/connectors/page.tsx",
-        "shell_verification_includes": [
-          "AppPageShell",
-          "AppPageContentRegion"
-        ],
+        "mode": "redirect",
+        "exemption_reason": "Connectors moved into the chat sidebar's MCP connections panel; this route only forwards to / with ?panel=connectors.",
+        "shell_verification_file": null,
+        "shell_verification_includes": [],
         "interaction_layer_policy": {
           "allowed_families": []
         },
@@ -5317,8 +5314,8 @@
             "route_mismatch": "Use the verified current route and its generated actions only."
           },
           "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
-          "next_route": null,
-          "return_policy": "stay",
+          "next_route": "/",
+          "return_policy": "navigate",
           "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
         }
       },
@@ -5338,10 +5335,10 @@
         ]
       },
       "shell": {
-        "app_page_shell": true,
+        "app_page_shell": false,
         "page_header": false,
         "settings_ui": false,
-        "shared_loader": false,
+        "shared_loader": true,
         "back_button_pattern": "shared-shell"
       },
       "voice_action_contract_file": null,
@@ -5356,7 +5353,7 @@
       "physical_page_exists": true,
       "route_contract": {
         "mode": "redirect",
-        "exemption_reason": "OAuth callback completes an external connector's authorization and returns to the connectors manage page.",
+        "exemption_reason": "OAuth callback completes an external connector's authorization and returns to the chat sidebar's MCP connections panel.",
         "shell_verification_file": null,
         "shell_verification_includes": [],
         "interaction_layer_policy": {
@@ -5380,7 +5377,7 @@
             "route_mismatch": "Use the verified current route and its generated actions only."
           },
           "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
-          "next_route": "/one/profile/connectors",
+          "next_route": "/",
           "return_policy": "navigate",
           "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
         }
@@ -9578,5 +9575,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "1982946372e1b5e791f4317c6cd0de1a88a95edd97db0b16b416286fc848c5ce"
+  "content_sha256": "db28a91852d4eeb67d4f147d1a7f189049f834193e96d81e8399fac6c45e469b"
 }
