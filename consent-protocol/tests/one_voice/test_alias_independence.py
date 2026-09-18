@@ -198,3 +198,92 @@ def test_people_tools_bind_and_run_with_every_alias_emptied(emptied_gateway):
     )
     assert number.result.reason_code == "identifier_not_a_name"
     assert emptied_gateway == [], f"voice path read alias fields: {emptied_gateway}"
+
+
+def test_sos_tools_bind_and_run_with_every_alias_emptied(emptied_gateway):
+    """The Save My Soul family: status, the prepared trigger card and its
+    tap-confirmed execution, the delivery report, the stop card, and the
+    emergency-roster guards all resolve, validate and run with no gateway
+    alias or keyword available anywhere on the path -- including the newest
+    gateway id, read from the catalog rather than spelled here."""
+    from hushh_mcp.one_voice.tools import sos
+    from hushh_mcp.one_voice.tools.base import EntityContext, ScreenContext, ToolContext
+    from tests.one_voice.test_tools_sos import (
+        AYESHA,
+        OWNER,
+        RAVI,
+        FakeLocationService,
+        _recipient,
+    )
+
+    assert registry.validate_gateway_binding() == []
+    delivery_id = next(
+        tool.gateway_action_id for tool in sos.TOOLS if tool.name == "report_save_my_soul_delivery"
+    )
+    assert delivery_id.startswith("location.")
+    for tool in sos.TOOLS:
+        entry = action_gateway.get_action_gateway_action(tool.gateway_action_id)
+        assert entry is not None, tool.gateway_action_id
+        assert dict.__getitem__(entry, "aliases") == []
+        assert dict.__getitem__(entry, "search_keywords") == []
+    emptied_gateway.clear()  # the check above is this test's own read, not the voice path's
+
+    service = FakeLocationService()
+    service.sms_contact_ids = [AYESHA, RAVI]
+    service.recipients = [_recipient(AYESHA, "Ayesha Sharma"), _recipient(RAVI, "Ravi Kumar")]
+
+    async def prove(token, expected_user_id):
+        return "ok"
+
+    ctx = ToolContext(
+        user_id=OWNER,
+        conversation_id="conv-1",
+        entities=EntityContext(),
+        screen=ScreenContext(screen_id="one_location_sos"),
+        vault_owner_token="vault-token",  # noqa: S106 - test double
+        firebase_id_token="proof",  # noqa: S106 - test double
+        services={"location": service},
+    )
+    executor = ToolExecutor(pending_store=MemoryPendingStore(), actor_proof=prove)
+
+    status = asyncio.run(executor.call(ctx, "get_save_my_soul_status", {}))
+    assert status.result.status == "ready"
+    assert [c.display_name for c in status.result.emergency_contacts] == [
+        "Ayesha Sharma",
+        "Ravi Kumar",
+    ]
+    # The trigger card is prepared from the live roster ...
+    card = asyncio.run(executor.call(ctx, "trigger_save_my_soul", {"note": "car broke down"}))
+    assert card.result.status == "confirmation_required" and card.result.tier == "tap"
+    assert "Ayesha Sharma and Ravi Kumar" in card.result.summary
+    assert service.created == []
+    # ... a spoken yes cannot arm it (the store's rule, not an alias) ...
+    spoken = asyncio.run(
+        executor.call(ctx, "confirm_pending_action", {"pending_action_id": card.pending.id})
+    )
+    assert spoken.result.status == "tap_required"
+    # ... and the tap-confirmed execution arms one grant per ready contact.
+    asyncio.run(executor.pending.mark_shown(user_id=OWNER, pending_action_id=card.pending.id))
+    row = asyncio.run(
+        executor.pending.confirm(
+            user_id=OWNER,
+            pending_action_id=card.pending.id,
+            source="tap",
+            receipt_token=card.receipt_token,
+        )
+    )
+    armed = asyncio.run(executor.execute_pending(ctx, row))
+    assert armed.result.status == "sos_grants_created"
+    assert armed.result.needs == "client_step"
+    assert [call["recipient_user_id"] for call in service.created] == [AYESHA, RAVI]
+    assert ctx.sos_incident["grant_ids"] == armed.result.grant_ids
+    # The delivery report and the stop card run over the same path.
+    report = asyncio.run(executor.call(ctx, "report_save_my_soul_delivery", {}))
+    assert report.result.status == "sos_not_sent" and report.result.alert_active is True
+    stop = asyncio.run(executor.call(ctx, "stop_save_my_soul", {}))
+    assert stop.result.status == "confirmation_required" and stop.result.tier == "tap"
+    assert service.revoked == []
+    # Guards are not aliases: an unconfirmed person is refused as such.
+    bad = asyncio.run(executor.call(ctx, "remove_emergency_contact", {"person": {"user_id": RAVI}}))
+    assert bad.result.status == "rejected" and bad.result.reason_code == "person_not_confirmed"
+    assert emptied_gateway == [], f"voice path read alias fields: {emptied_gateway}"
