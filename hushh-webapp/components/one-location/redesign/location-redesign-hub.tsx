@@ -3314,7 +3314,7 @@ function LocationSettingsFlow({
             trailingInteractive
             onClick={openScopeSheet}
             chevron
-            className="[--settings-row-px:16px] [--settings-row-py:14px]"
+            className="[--settings-row-px:16px] [--settings-row-py:10px]"
             testId="one-location-auto-approve-row"
           />
         </SettingsGroup>
@@ -3334,7 +3334,7 @@ function LocationSettingsFlow({
             onClick={onManageSmsContacts}
             chevron
             density="compact"
-            className="[--settings-row-px:16px]"
+            className="[--settings-row-px:16px] [--settings-row-py:10px]"
             testId="one-location-sms-contacts-entry"
           />
         </SettingsGroup>
