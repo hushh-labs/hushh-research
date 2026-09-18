@@ -1,8 +1,6 @@
 "use client";
 
-import dynamic from "next/dynamic";
 import { LocationImmersiveMap } from "@/components/one-location/location-immersive-map";
-import { useOneVoiceLiveEnabled } from "@/lib/one-voice/readiness";
 import { useRequireAuth } from "@/hooks/use-auth";
 import { deriveLocationVoiceActions } from "@/lib/voice/location-voice-actions";
 import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
@@ -13,21 +11,11 @@ import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metada
 // Your Map, a direct link, plain navigation) left voice with zero
 // proactively-offered actions even though NearbyCheckInSheet's handlers are
 // live on this screen exactly as they are on the hub.
-const LOCATION_MAP_VOICE_ACTIONS =
-  deriveLocationVoiceActions("one_location_map");
-
-const LocationMapScreen = dynamic(
-  () =>
-    import("@/components/location/map/location-map-screen").then(
-      (module) => module.LocationMapScreen,
-    ),
-  { ssr: false },
-);
+const LOCATION_MAP_VOICE_ACTIONS = deriveLocationVoiceActions("one_location_map");
 
 /** Private, immersive Map. It owns no persistent app chrome or route-local map state. */
 export default function OneLocationMapPage() {
   const auth = useRequireAuth();
-  const live = useOneVoiceLiveEnabled();
 
   usePublishVoiceSurfaceMetadata(
     !auth.loading && auth.isAuthenticated
@@ -38,9 +26,7 @@ export default function OneLocationMapPage() {
             "Shows where people who share location with you are right now, and lets you check in nearby.",
           spokenSubject: "Location, Your Map",
           actions: LOCATION_MAP_VOICE_ACTIONS,
-          availableActions: LOCATION_MAP_VOICE_ACTIONS.map(
-            (action) => action.label,
-          ),
+          availableActions: LOCATION_MAP_VOICE_ACTIONS.map((action) => action.label),
         }
       : null,
   );
@@ -48,6 +34,5 @@ export default function OneLocationMapPage() {
   // Every map state value is owner-scoped: renderer consent, decrypted markers,
   // nearby attendees, and pending location work must never survive an account
   // switch. A user-id key enforces that boundary before passive effects run.
-  if (live) return <LocationMapScreen key={auth.userId ?? "anonymous"} />;
   return <LocationImmersiveMap key={auth.userId ?? "anonymous"} />;
 }
