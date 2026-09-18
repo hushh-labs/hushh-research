@@ -475,7 +475,7 @@ export function RiaClientWorkspace({
   if (riaCapability === "setup") {
     return (
       <RiaCompatibilityState
-        title="Complete RIA onboarding"
+        title="Complete Advisor onboarding"
         description="Finish onboarding before opening dedicated client workspaces."
         nativeTest={{
           routeId: "/ria/clients/[userId]",

@@ -114,7 +114,7 @@ const BOTTOM_NAV_OPTION_META: Record<
   },
   "ria-home": {
     value: "ria-home",
-    label: "RIA",
+    label: "Advisor",
     icon: Briefcase,
     dataTourId: "nav-ria-home",
   },

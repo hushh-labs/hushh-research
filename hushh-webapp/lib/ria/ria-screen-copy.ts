@@ -13,7 +13,7 @@
 
 export const RIA_COPY = {
   home: {
-    eyebrow: "RIA Home",
+    eyebrow: "Advisor Home",
     title: "Trusted advisor ops",
     description: "See what's ready and what needs you.",
     verification: {
@@ -64,7 +64,7 @@ export const RIA_COPY = {
       open: "Open",
     },
     iam: {
-      title: "RIA home needs the IAM rollout",
+      title: "Advisor home needs the IAM rollout",
       description: "This environment needs the IAM schema first.",
     },
   },
@@ -81,7 +81,7 @@ export const RIA_COPY = {
     empty: "No connected investors yet.",
     browse: "Browse the marketplace",
     setupGate: {
-      title: "Complete RIA onboarding",
+      title: "Complete Advisor onboarding",
       description: "Finish onboarding to open the roster.",
     },
     verifyGate: {
