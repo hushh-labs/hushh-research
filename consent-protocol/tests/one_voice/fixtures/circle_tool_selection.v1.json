@@ -388,7 +388,8 @@
       "utterance": "who's in my Family circle?",
       "expected_tools": [
         "resolve_circle",
-        "list_circles"
+        "list_circles",
+        "resolve_person"
       ],
       "forbidden_tools": [
         "add_circle_member",
@@ -410,7 +411,8 @@
       "utterance": "which people are in Weekend Crew?",
       "expected_tools": [
         "resolve_circle",
-        "list_circles"
+        "list_circles",
+        "resolve_person"
       ],
       "forbidden_tools": [
         "add_circle_member",
@@ -432,7 +434,8 @@
       "utterance": "list the members of Work Friends",
       "expected_tools": [
         "resolve_circle",
-        "list_circles"
+        "list_circles",
+        "resolve_person"
       ],
       "forbidden_tools": [
         "add_circle_member",
@@ -454,7 +457,8 @@
       "utterance": "tell me who belongs to Family",
       "expected_tools": [
         "resolve_circle",
-        "list_circles"
+        "list_circles",
+        "resolve_person"
       ],
       "forbidden_tools": [
         "add_circle_member",
@@ -476,7 +480,8 @@
       "utterance": "Family circle mein kaun kaun hai?",
       "expected_tools": [
         "resolve_circle",
-        "list_circles"
+        "list_circles",
+        "resolve_person"
       ],
       "forbidden_tools": [
         "add_circle_member",
@@ -498,7 +503,8 @@
       "utterance": "is Priya part of Weekend Crew?",
       "expected_tools": [
         "resolve_circle",
-        "list_circles"
+        "list_circles",
+        "resolve_person"
       ],
       "forbidden_tools": [
         "add_circle_member",
@@ -520,7 +526,9 @@
       "utterance": "how many people are in Family right now?",
       "expected_tools": [
         "resolve_circle",
-        "list_circles"
+        "list_circles",
+        "resolve_person",
+        "get_circle_details"
       ],
       "forbidden_tools": [
         "add_circle_member",
@@ -542,7 +550,8 @@
       "utterance": "read me the Weekend Crew roster",
       "expected_tools": [
         "resolve_circle",
-        "list_circles"
+        "list_circles",
+        "resolve_person"
       ],
       "forbidden_tools": [
         "add_circle_member",
@@ -564,7 +573,8 @@
       "utterance": "does Rohan belong to my Work Friends circle?",
       "expected_tools": [
         "resolve_circle",
-        "list_circles"
+        "list_circles",
+        "resolve_person"
       ],
       "forbidden_tools": [
         "add_circle_member",
@@ -669,7 +679,8 @@
       "history": [],
       "utterance": "how many members does this one have?",
       "expected_tools": [
-        "list_circle_members"
+        "list_circle_members",
+        "get_circle_details"
       ],
       "forbidden_tools": [
         "add_circle_member",
@@ -2104,7 +2115,8 @@
       "expected_tools": [
         "resolve_circle",
         "list_circles",
-        "list_circle_members"
+        "list_circle_members",
+        "resolve_person"
       ],
       "forbidden_tools": [
         "add_circle_member",
@@ -2127,7 +2139,8 @@
       "expected_tools": [
         "resolve_circle",
         "list_circles",
-        "list_circle_members"
+        "list_circle_members",
+        "resolve_person"
       ],
       "forbidden_tools": [
         "add_circle_member",
@@ -2150,7 +2163,8 @@
       "expected_tools": [
         "resolve_circle",
         "list_circles",
-        "list_circle_members"
+        "list_circle_members",
+        "resolve_person"
       ],
       "forbidden_tools": [
         "add_circle_member",
@@ -2173,7 +2187,8 @@
       "expected_tools": [
         "resolve_circle",
         "list_circles",
-        "list_circle_members"
+        "list_circle_members",
+        "resolve_person"
       ],
       "forbidden_tools": [
         "add_circle_member",
@@ -2196,7 +2211,8 @@
       "expected_tools": [
         "resolve_circle",
         "list_circles",
-        "list_circle_members"
+        "list_circle_members",
+        "resolve_person"
       ],
       "forbidden_tools": [
         "add_circle_member",
@@ -2219,7 +2235,8 @@
       "expected_tools": [
         "resolve_circle",
         "list_circles",
-        "list_circle_members"
+        "list_circle_members",
+        "resolve_person"
       ],
       "forbidden_tools": [
         "add_circle_member",
@@ -2242,7 +2259,8 @@
       "expected_tools": [
         "resolve_circle",
         "list_circles",
-        "list_circle_members"
+        "list_circle_members",
+        "resolve_person"
       ],
       "forbidden_tools": [
         "add_circle_member",
@@ -2265,7 +2283,8 @@
       "expected_tools": [
         "resolve_circle",
         "list_circles",
-        "list_circle_members"
+        "list_circle_members",
+        "resolve_person"
       ],
       "forbidden_tools": [
         "add_circle_member",
@@ -2288,7 +2307,8 @@
       "expected_tools": [
         "resolve_circle",
         "list_circles",
-        "list_circle_members"
+        "list_circle_members",
+        "resolve_person"
       ],
       "forbidden_tools": [
         "add_circle_member",
@@ -2311,7 +2331,8 @@
       "expected_tools": [
         "resolve_circle",
         "list_circles",
-        "list_circle_members"
+        "list_circle_members",
+        "resolve_person"
       ],
       "forbidden_tools": [
         "add_circle_member",
@@ -2333,7 +2354,8 @@
       "utterance": "take Rohan out of this circle",
       "expected_tools": [
         "list_circle_members",
-        "get_circle_details"
+        "get_circle_details",
+        "resolve_person"
       ],
       "forbidden_tools": [
         "add_circle_member",
@@ -2355,7 +2377,8 @@
       "utterance": "remove Priya from here",
       "expected_tools": [
         "list_circle_members",
-        "get_circle_details"
+        "get_circle_details",
+        "resolve_person"
       ],
       "forbidden_tools": [
         "add_circle_member",
@@ -2377,7 +2400,8 @@
       "utterance": "Rohan ko is circle se hata do",
       "expected_tools": [
         "list_circle_members",
-        "get_circle_details"
+        "get_circle_details",
+        "resolve_person"
       ],
       "forbidden_tools": [
         "add_circle_member",
@@ -2399,7 +2423,8 @@
       "utterance": "get Priya off this one",
       "expected_tools": [
         "list_circle_members",
-        "get_circle_details"
+        "get_circle_details",
+        "resolve_person"
       ],
       "forbidden_tools": [
         "add_circle_member",
@@ -2421,7 +2446,8 @@
       "utterance": "drop Rohan from this group",
       "expected_tools": [
         "list_circle_members",
-        "get_circle_details"
+        "get_circle_details",
+        "resolve_person"
       ],
       "forbidden_tools": [
         "add_circle_member",
@@ -2443,7 +2469,8 @@
       "utterance": "can you remove Priya from this circle?",
       "expected_tools": [
         "list_circle_members",
-        "get_circle_details"
+        "get_circle_details",
+        "resolve_person"
       ],
       "forbidden_tools": [
         "add_circle_member",
@@ -2465,7 +2492,8 @@
       "utterance": "Priya doesn't need to be in here, remove her",
       "expected_tools": [
         "list_circle_members",
-        "get_circle_details"
+        "get_circle_details",
+        "resolve_person"
       ],
       "forbidden_tools": [
         "add_circle_member",
@@ -2487,7 +2515,8 @@
       "utterance": "kick Rohan out of here",
       "expected_tools": [
         "list_circle_members",
-        "get_circle_details"
+        "get_circle_details",
+        "resolve_person"
       ],
       "forbidden_tools": [
         "add_circle_member",
@@ -3286,7 +3315,8 @@
       "utterance": "say yes to the request from Meera",
       "expected_tools": [
         "list_people",
-        "resolve_person"
+        "resolve_person",
+        "list_requests"
       ],
       "forbidden_tools": [
         "add_circle_member",
@@ -3308,7 +3338,8 @@
       "utterance": "Meera ki request accept karo",
       "expected_tools": [
         "list_people",
-        "resolve_person"
+        "resolve_person",
+        "list_requests"
       ],
       "forbidden_tools": [
         "add_circle_member",
@@ -3330,7 +3361,8 @@
       "utterance": "decline the request Meera sent me",
       "expected_tools": [
         "list_people",
-        "resolve_person"
+        "resolve_person",
+        "list_requests"
       ],
       "forbidden_tools": [
         "add_circle_member",
@@ -3374,7 +3406,8 @@
       "utterance": "cancel my request to Kushal",
       "expected_tools": [
         "list_people",
-        "resolve_person"
+        "resolve_person",
+        "list_requests"
       ],
       "forbidden_tools": [
         "accept_connection_request",
@@ -3420,7 +3453,8 @@
       "utterance": "Kushal wali request cancel kar do",
       "expected_tools": [
         "list_people",
-        "resolve_person"
+        "resolve_person",
+        "list_requests"
       ],
       "forbidden_tools": [
         "accept_connection_request",
@@ -3443,7 +3477,8 @@
       "utterance": "take back my request to Kushal",
       "expected_tools": [
         "list_people",
-        "resolve_person"
+        "resolve_person",
+        "list_requests"
       ],
       "forbidden_tools": [
         "accept_connection_request",
@@ -3466,7 +3501,8 @@
       "utterance": "is my request to Kushal still pending?",
       "expected_tools": [
         "list_people",
-        "resolve_person"
+        "resolve_person",
+        "list_requests"
       ],
       "forbidden_tools": [
         "accept_connection_request",

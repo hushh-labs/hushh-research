@@ -90,7 +90,8 @@ WRONG_EFFECT = {
 # id used before confirm_* is a different, softer miss: the executor refuses
 # it with *_not_confirmed and the model recovers by confirming; that count is
 # reported as ``skipped_confirm`` but not gated.
-UNCONFIRMED_ID_CODES = frozenset({"circle_not_offered", "person_not_offered", "invalid_arguments"})
+UNCONFIRMED_ID_CODES = frozenset({"circle_not_offered", "person_not_offered"})
+MISSING_ARGUMENT_CODES = frozenset({"invalid_arguments"})
 SKIPPED_CONFIRM_CODES = frozenset({"person_not_confirmed", "circle_not_confirmed"})
 
 # --- the fake world -------------------------------------------------------
@@ -353,6 +354,14 @@ def _summarise(observations: list[Observation]) -> dict[str, FamilyMetrics]:
         )
         block.unintended_mutation += int(unintended)
         block.unconfirmed_id_mutation += int(_unconfirmed_id_mutation(obs, mutations))
+        block.missing_argument_mutation += int(
+            any(
+                name in mutations
+                and result.get("status") == "rejected"
+                and result.get("reason_code") in MISSING_ARGUMENT_CODES
+                for name, _, result in obs.calls
+            )
+        )
         block.skipped_confirm += int(
             any(
                 name in mutations
