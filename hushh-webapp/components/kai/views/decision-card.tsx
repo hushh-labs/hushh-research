@@ -23,7 +23,7 @@ import {
   Star,
   Trophy,
   Medal,
-} from "lucide-react";
+} from "@/components/icons";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
@@ -915,7 +915,7 @@ export function DecisionCard({ result }: { result: DecisionResult }) {
             
             {/* Renaissance Badge - Positioned prominently if exists */}
             {rawCard?.renaissance_tier && (
-                <div className="animate-in fade-in slide-in-from-top-2  delay-100">
+                <div className="animate-in fade-in slide-in-from-top-2">
                     <RenaissanceBadge tier={rawCard.renaissance_tier} score={rawCard.renaissance_score} />
                 </div>
             )}
@@ -923,7 +923,7 @@ export function DecisionCard({ result }: { result: DecisionResult }) {
             {/* Main Decision Pill */}
             <div
                 className={cn(
-                "px-10 py-5 rounded-2xl border-2 text-2xl font-semibold uppercase tracking-normal shadow-xl backdrop-blur-md transform transition-all duration-300 hover:scale-[1.02]",
+                "px-10 py-5 rounded-2xl border-2 text-2xl font-semibold uppercase tracking-normal shadow-xl backdrop-blur-md transform transition-[background-color,border-color,color,box-shadow,transform] duration-150 hover:scale-[1.02]",
                 isBuy
                     ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-500 shadow-emerald-500/10"
                     : isReduce

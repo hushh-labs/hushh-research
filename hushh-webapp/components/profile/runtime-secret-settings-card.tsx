@@ -1,7 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Eye, EyeOff, KeyRound, Loader2, Trash2 } from "lucide-react";
+import {
+  EyeIcon as Eye,
+  EyeSlashIcon as EyeOff,
+  KeyIcon as KeyRound,
+  SpinnerGapIcon as Loader2,
+  TrashIcon as Trash2,
+} from "@/components/icons";
 import { toast } from "sonner";
 
 import { SettingsGroup } from "@/components/profile/settings-ui";

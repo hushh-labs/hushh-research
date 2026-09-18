@@ -14,13 +14,25 @@
  */
 
 import { useEffect, useRef, useState } from "react";
-import { AlertTriangle, Check, Clock, ShieldCheck, X } from "lucide-react";
+import {
+  AlertTriangle,
+  Check,
+  Clock,
+  Loader2,
+  ShieldCheck,
+  X,
+} from "@/components/icons";
 
 import { Button } from "@/components/ui/button";
 import {
   roleClasses,
   type SemanticRole,
 } from "@/lib/morphy-ux/tokens/semantic-roles";
+import { SOS_GRANTS_CREATED } from "@/lib/one-voice/protocol";
+import {
+  isNeutralStatus,
+  isPendingStatus,
+} from "@/lib/one-voice/session-reducer";
 import type { PendingActionView } from "@/lib/one-voice/session-types";
 import { cn } from "@/lib/utils";
 
@@ -92,6 +104,90 @@ export const RESOLVED_LABEL: Record<
   not_pending: "No longer waiting",
 };
 
+/**
+ * Save My Soul labels by the RESULT status, not the resolution. The trigger
+ * card resolves twice: first `executed` with `sos_grants_created`, which only
+ * means the shares exist and the device is sending the position, and again
+ * with the server-verified delivery report. "Done" is never written for an
+ * armed alert; "Sent" only when the server saw every envelope.
+ */
+const SOS_RESOLVED_LABEL: Record<string, string> = {
+  [SOS_GRANTS_CREATED]: "Armed · sending your position",
+  sos_sent: "Sent",
+  sos_partial: "Partly sent",
+  sos_not_sent: "Not sent",
+  // The check itself could not run: not a verdict either way.
+  sos_unverified: "Couldn't confirm delivery",
+  sos_stopped: "Stopped",
+  sos_partially_stopped: "Partly stopped",
+};
+
+/**
+ * Emergency-contact cards by RESULT status. The action executed, but
+ * `roster_full`, `not_phone_verified`, `not_connected`, `already_contact` and
+ * `not_a_contact` changed nothing, so they never earn the success check.
+ */
+const EMERGENCY_CONTACT_LABEL: Record<
+  string,
+  Record<string, { label: string; kind: ResolvedLabelKind }>
+> = {
+  add_emergency_contact: {
+    added: { label: "Added", kind: "success" },
+    already_contact: { label: "Not added", kind: "neutral" },
+    not_phone_verified: { label: "Not added", kind: "neutral" },
+    not_connected: { label: "Not added", kind: "neutral" },
+    roster_full: { label: "Not added", kind: "neutral" },
+  },
+  remove_emergency_contact: {
+    removed: { label: "Removed", kind: "success" },
+    not_a_contact: { label: "No change", kind: "neutral" },
+  },
+};
+
+export type ResolvedLabelKind = "success" | "pending" | "neutral";
+
+/**
+ * The line under the summary once the card has resolved. Derived from the
+ * result status when it names an outcome of its own (Save My Soul, the
+ * emergency roster), otherwise from the resolution. An executed action whose
+ * result is a truthful "nothing changed" (a neutral status) reads "No change",
+ * never "Done".
+ */
+export function resolvedLabel(
+  action: Pick<PendingActionView, "resolvedStatus" | "resolvedResult"> &
+    Partial<Pick<PendingActionView, "tool">>,
+): { label: string; kind: ResolvedLabelKind } | null {
+  const resolved = action.resolvedStatus;
+  if (resolved === null) return null;
+  const status = String(action.resolvedResult?.status || "").trim();
+  const sos = SOS_RESOLVED_LABEL[status];
+  if (sos) {
+    return {
+      label: sos,
+      kind: isPendingStatus(status)
+        ? "pending"
+        : resolved === "executed" &&
+            (status === "sos_sent" || status === "sos_stopped")
+          ? "success"
+          : "neutral",
+    };
+  }
+  const byTool = EMERGENCY_CONTACT_LABEL[String(action.tool || "").trim()];
+  const contact = byTool?.[status];
+  if (contact) {
+    return resolved === "executed"
+      ? contact
+      : { label: RESOLVED_LABEL[resolved], kind: "neutral" };
+  }
+  if (resolved === "executed" && status && isNeutralStatus(status)) {
+    return { label: "No change", kind: "neutral" };
+  }
+  return {
+    label: RESOLVED_LABEL[resolved],
+    kind: resolved === "executed" ? "success" : "neutral",
+  };
+}
+
 /** Milliseconds until `expires_at`, clamped at zero; null when there is none. */
 export function remainingMs(
   expiresAt: string | null | undefined,
@@ -134,6 +230,7 @@ export function PendingActionCard({
   const cardRef = useRef<HTMLDivElement | null>(null);
   const resolved = action.resolvedStatus;
   const open = resolved === null;
+  const outcome = resolvedLabel(action);
   const remaining = useCountdown(action.expires_at, open);
   const expired = open && remaining !== null && remaining <= 0;
   const role = pendingActionRole(action);
@@ -153,12 +250,13 @@ export function PendingActionCard({
       aria-label={
         open
           ? "Confirm this action"
-          : `Action ${RESOLVED_LABEL[resolved].toLowerCase()}`
+          : `Action ${(outcome?.label ?? RESOLVED_LABEL[resolved]).toLowerCase()}`
       }
       data-testid="one-voice-pending-action"
       data-pending-action-id={action.pending_action_id}
       data-tier={action.tier}
       data-resolved={resolved ?? undefined}
+      data-outcome={outcome?.kind}
       className={cn(
         "rounded-[var(--app-card-radius-standard,24px)] border bg-[color:var(--app-primary-surface)] p-4 shadow-[var(--app-card-shadow-standard)] outline-none dark:shadow-none",
         "focus-visible:ring-2 focus-visible:ring-[color:var(--app-focus-ring)]",
@@ -194,15 +292,22 @@ export function PendingActionCard({
               data-testid="one-voice-pending-resolved"
               className={cn(
                 "mt-0.5 inline-flex items-center gap-1 text-[13px] font-medium leading-[18px]",
-                resolved === "executed"
+                outcome?.kind === "success"
                   ? roleClasses("success").glyph
-                  : "text-[color:var(--app-secondary-label)]",
+                  : outcome?.kind === "pending"
+                    ? roleClasses("action").glyph
+                    : "text-[color:var(--app-secondary-label)]",
               )}
             >
-              {resolved === "executed" ? (
+              {outcome?.kind === "success" ? (
                 <Check className="h-3.5 w-3.5" aria-hidden />
+              ) : outcome?.kind === "pending" ? (
+                <Loader2
+                  className="h-3.5 w-3.5 animate-spin motion-reduce:animate-none"
+                  aria-hidden
+                />
               ) : null}
-              {RESOLVED_LABEL[resolved]}
+              {outcome?.label ?? RESOLVED_LABEL[resolved]}
             </p>
           )}
         </div>

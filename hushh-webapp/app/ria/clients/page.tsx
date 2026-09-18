@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronRight, Loader2, UserRound } from "lucide-react";
+import { ChevronRight, Loader2, UserRound } from "@/components/icons";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 

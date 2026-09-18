@@ -1,6 +1,6 @@
 "use client";
 
-import { CheckCircle2, CircleDashed, Loader2, X, XCircle } from "lucide-react";
+import { CheckCircle2, CircleDashed, Loader2, X, XCircle } from "@/components/icons";
 import { useEffect, useState } from "react";
 
 import {

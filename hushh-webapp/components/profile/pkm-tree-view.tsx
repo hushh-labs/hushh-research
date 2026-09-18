@@ -1,12 +1,20 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { ChevronDown, ChevronRight } from "lucide-react";
+import {
+  ChevronDownIcon as ChevronDown,
+  ChevronRightIcon as ChevronRight,
+} from "@/components/icons";
 
 import { Badge } from "@/components/ui/badge";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { type PathDescriptor } from "@/lib/personal-knowledge-model/manifest";
 import { cn } from "@/lib/utils";
+
+const TREE_NODE_SURFACE_CLASSNAME =
+  "rounded-xl border bg-background/70 transition-colors duration-150 [@media(hover:hover)]:hover:bg-muted/50";
+const TREE_NODE_TRIGGER_CLASSNAME =
+  "relative z-10 flex w-full items-center justify-between gap-3 bg-transparent px-3 py-2 text-left hover:bg-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring";
 
 type ManifestTreeNode = {
   key: string;
@@ -94,8 +102,8 @@ function JsonNode({
 
   return (
     <Collapsible open={open} onOpenChange={setOpen}>
-      <div className="rounded-xl border bg-background/70">
-        <CollapsibleTrigger className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left">
+      <div className={TREE_NODE_SURFACE_CLASSNAME}>
+        <CollapsibleTrigger className={TREE_NODE_TRIGGER_CLASSNAME}>
           <div className="min-w-0">
             <p className="font-medium text-foreground">{label}</p>
             <p className="text-xs text-muted-foreground">
@@ -157,8 +165,8 @@ function ManifestNode({
 
   return (
     <Collapsible open={open} onOpenChange={setOpen}>
-      <div className="rounded-xl border bg-background/70">
-        <CollapsibleTrigger className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left">
+      <div className={TREE_NODE_SURFACE_CLASSNAME}>
+        <CollapsibleTrigger className={TREE_NODE_TRIGGER_CLASSNAME}>
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
               <span className="font-medium text-foreground">{node.key}</span>

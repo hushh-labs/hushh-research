@@ -14,7 +14,7 @@
 "use client";
 
 import { useState } from "react";
-import { ArrowLeft, TrendingUp, TrendingDown, Minus, Search, AlertTriangle } from "lucide-react";
+import { ArrowLeft, TrendingUp, TrendingDown, Minus, Search, AlertTriangle } from "@/components/icons";
 import { cn } from "@/lib/utils";
 import { APP_MEASURE_STYLES } from "@/components/app-ui/app-page-shell";
 import { Button as MorphyButton } from "@/lib/morphy-ux/button";

@@ -29,6 +29,7 @@ vi.mock("@capacitor/core", () => ({
     getPlatform: () => mocks.platform,
     isNativePlatform: () => mocks.native,
   },
+  registerPlugin: () => ({}),
 }));
 
 vi.mock("@/hooks/use-auth", () => ({
@@ -186,6 +187,8 @@ describe("PersonProfilePage native profile route", () => {
     mocks.platform = "ios";
     mocks.user = null;
     mocks.authLoading = false;
+    mocks.vaultKey = null;
+    mocks.vaultOwnerToken = null;
     mocks.isVaultUnlocked = true;
   });
 
@@ -499,16 +502,12 @@ describe("PersonProfilePage request catalog tools", () => {
 
       render(<PersonProfilePage personRef="actual-public-ref" initialProfile={null} />);
 
-      const reveal = await screen.findByTestId("person-profile-grant-reveal");
-      expect(screen.queryByTestId("person-profile-grant-value")).toBeNull();
-      fireEvent.click(reveal);
-
       const value = await screen.findByTestId("person-profile-grant-value");
       expect(value).toHaveTextContent("Pune");
 
       fireEvent.click(screen.getByRole("button", { name: "Copy" }));
-      expect(writeText).toHaveBeenCalledWith(JSON.stringify({ city: "Pune" }));
-      expect(toast.success).toHaveBeenCalledWith("Copied.");
+      expect(writeText).toHaveBeenCalledWith(JSON.stringify({ city: "Pune" }, null, 2));
+      expect(toast.success).toHaveBeenCalledWith("Record copied to clipboard.");
     } finally {
       // Put the stub back so it cannot leak into a later test in this file.
       if (clipboardBefore) {

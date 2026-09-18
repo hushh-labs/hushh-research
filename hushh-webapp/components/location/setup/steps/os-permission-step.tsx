@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertTriangle, MapPinned, Settings2 } from "lucide-react";
+import { AlertTriangle, MapPinned, Settings2 } from "@/components/icons";
 
 import {
   HelperText,

@@ -13,7 +13,7 @@ import {
   Link2,
   ShieldCheck,
   UserRound,
-} from "lucide-react";
+} from "@/components/icons";
 
 import { Button as MorphyButton } from "@/lib/morphy-ux/button";
 import type {

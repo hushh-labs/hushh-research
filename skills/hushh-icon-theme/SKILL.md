@@ -27,7 +27,7 @@ Hushh interfaces demand an aesthetic of **quiet luxury, high-contrast clarity, a
    - **Consent**: Safety Orange (`#F97316`)
    - **Marketplace**: Forest Emerald (`#059669`)
    - **Connected Systems**: Electric Cyan (`#00E5FF`)
-4. **Zero ViewBox Clipping**: Always preserve Phosphor's native `viewBox="0 0 256 256"`. Never crop the viewBox. Scale cleanly via container CSS dimensions (`classes.lucide`).
+4. **Zero ViewBox Clipping**: Always preserve Phosphor's native `viewBox="0 0 256 256"`. Never crop the viewBox. Scale cleanly via container CSS dimensions (`classes.glyph`).
 5. **Clean Transparent Canvas**: Custom capability icons sit on transparent backdrops without artificial colored squircle box backgrounds (`!bg-transparent !shadow-none !ring-0`).
 6. **Muted & Loading States**: Muted states preserve the exact same flat duotone geometry with `currentColor` / muted opacity without falling back to solid gray boxes or inconsistent geometry.
 
@@ -38,7 +38,7 @@ Hushh interfaces demand an aesthetic of **quiet luxury, high-contrast clarity, a
 - **Coordinate Canvas**: Uniform native `viewBox="0 0 256 256"`.
 - **Weight**: Phosphor `weight="duotone"` (or `weight="fill"`).
 - **Styling**: `color` prop sets the primary hue; secondary path renders at `opacity="0.2"`.
-- **Container Sizing**: `classes.lucide` controls physical display dimensions with balanced padding inside the tile.
+- **Container Sizing**: `classes.glyph` controls physical display dimensions with balanced padding inside the tile.
 
 ---
 
@@ -82,3 +82,56 @@ To avoid washed-out milky gray tones (`#1c1c1e` / `rgb(28, 28, 30)`), dark mode 
    - Center: Agent / Puppy mode switcher
    - Right: Model selector, status indicator, and Profile avatar button (`profile-open-button`)
 3. **Always-Visible Composer**: The chat text input bar never translates offscreen on scroll (`transform: none`, permanently visible and accessible).
+
+---
+
+## 6. Universal UI Icon Registry & Replacement Map
+
+To preserve the design language across every route and sheet, all generic UI icons must come from `@/components/icons` and use official Phosphor geometry. Capability glyphs use duotone; neutral utility controls (search, navigation, refresh, loading, plus, close) use regular so secondary fills never read as a background. Direct imports from any other icon library, hand-drawn utility SVGs, and per-surface stroke-width overrides are prohibited on application-owned modernized surfaces. Reviewed exceptions are limited to vendor code, branded provider artwork, and non-icon diagrams.
+
+Close and add controls are deliberate exceptions: `XIcon`/`CloseIcon` and
+`PlusIcon` default to Phosphor `regular`. Their duotone artwork contains a
+square backing that reads as a second surface inside a button. Preserve the
+official regular paths and native viewBox; do not hide SVG paths with CSS or
+hand-draw substitutes. Animated menu/close controls crossfade registry icons.
+Capabilities retain duotone. Verify rendered glyphs, not just import names.
+
+Codex discovers this portable skill through `.agents/skills/hushh-icon-theme/`;
+Claude uses `.claude/skills/hushh-icon-theme/`. Both bridges copy only this
+frontmatter and point here. Governed owner skills remain in `.codex/skills/`;
+host-specific adapters are not a second copy of portable behavior.
+
+### UI Replacement Index
+
+| Legacy Lucide Icon | Canonical Phosphor Component | Export Name in `@/components/icons` | Default Weight |
+|---|---|---|---|
+| `Search` | `MagnifyingGlass` | `SearchIcon` | `regular` |
+| `Grid` / `LayoutGrid` | `SquaresFour` | `GridIcon` | `regular` |
+| `List` / `Menu` | `List` | `ListIcon`, `MenuIcon` | `regular` |
+| `ChevronRight` | `CaretRight` | `CaretRightIcon`, `ChevronRightIcon` | `regular` |
+| `ChevronDown` | `CaretDown` | `CaretDownIcon`, `ChevronDownIcon` | `regular` |
+| `ChevronLeft` | `CaretLeft` | `CaretLeftIcon`, `ChevronLeftIcon` | `regular` |
+| `ChevronUp` | `CaretUp` | `CaretUpIcon`, `ChevronUpIcon` | `regular` |
+| `ArrowLeft` | `ArrowLeft` | `ArrowLeftIcon` | `regular` |
+| `ArrowRight` | `ArrowRight` | `ArrowRightIcon` | `regular` |
+| `Plus` | `Plus` | `PlusIcon` | `regular` |
+| `X` | `X` | `XIcon`, `CloseIcon` | `regular` |
+| `Check` | `Check` | `CheckIcon` | `duotone` |
+| `Trash` / `Trash2` | `Trash` | `TrashIcon` | `duotone` |
+| `Pencil` / `Edit` | `PencilSimple` | `PencilIcon` | `duotone` |
+| `Copy` | `Copy` | `CopyIcon` | `duotone` |
+| `Send` | `PaperPlaneRight` | `SendIcon` | `duotone` |
+| `Mic` / `Microphone` | `Microphone` | `MicrophoneIcon` | `duotone` |
+| `Sparkles` | `Sparkle` | `SparkleIcon` | `duotone` |
+| `Settings` / `Gear` | `GearSix` | `GearIcon`, `SettingsIcon` | `duotone` |
+| `Sliders` | `Sliders` | `SlidersIcon` | `duotone` |
+| `MoreHorizontal` | `DotsThree` | `DotsThreeIcon`, `MoreHorizontalIcon` | `duotone` |
+| `ExternalLink` | `ArrowSquareOut` | `ExternalLinkIcon` | `duotone` |
+| `Sidebar` | `SidebarSimple` | `PanelLeftCloseIcon`, `PanelLeftOpenIcon` | `duotone` |
+| `Shield` | `ShieldCheck` | `ShieldIcon` | `duotone` |
+| `Lock` | `LockKey` | `LockIcon` | `duotone` |
+| `User` | `User` | `UserIcon` | `duotone` |
+| `Laptop` | `Laptop` | `LaptopIcon` | `duotone` |
+| `Key` | `Key` | `KeyIcon` | `duotone` |
+| `Mail` | `EnvelopeSimple` | `MailIcon` | `duotone` |
+| `LogOut` | `SignOut` | `LogOutIcon` | `duotone` |

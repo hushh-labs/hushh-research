@@ -195,7 +195,9 @@
     "220_gmail_personal_information_request_initial_inbox_scan.sql",
     "221_one_location_account_settings.sql",
     "222_one_voice_runtime.sql",
-    "223_one_location_setup_progress.sql"
+    "223_one_location_setup_progress.sql",
+    "224_setup_capability_declined_ids.sql",
+    "225_external_mcp_connectors.sql"
   ],
   "environment_overlays": {
     "uat": [
@@ -340,7 +342,8 @@
       "220_gmail_personal_information_request_initial_inbox_scan.sql",
       "221_one_location_account_settings.sql",
       "222_one_voice_runtime.sql",
-      "223_one_location_setup_progress.sql"
+      "223_one_location_setup_progress.sql",
+      "224_setup_capability_declined_ids.sql"
     ],
     "pkm": [
       "030_pkm_cutover.sql",
@@ -379,7 +382,8 @@
       "106_agentforce_uat_profile.sql",
       "108_canonical_mcp_credentials.sql",
       "109_oauth_client_credentials_consent_execution.sql",
-      "142_source_library_scope_retirement.sql"
+      "142_source_library_scope_retirement.sql",
+      "225_external_mcp_connectors.sql"
     ]
   },
   "rollback_migrations": {

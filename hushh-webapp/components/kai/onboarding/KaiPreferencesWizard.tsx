@@ -2,7 +2,7 @@
 
 import { useState, type ReactNode } from "react";
 import * as RadioGroupPrimitive from "@radix-ui/react-radio-group";
-import { ArrowLeft, Check } from "lucide-react";
+import { ArrowLeftIcon as ArrowLeft, CheckIcon as Check } from "@/components/icons";
 
 import { OnboardingStepper } from "@/components/app-ui/onboarding-stepper";
 import { RadioGroup } from "@/components/ui/radio-group";

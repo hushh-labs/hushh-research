@@ -3,7 +3,7 @@
 import { Component, createRef, type ErrorInfo, type ReactNode } from "react";
 import { Button } from "@/lib/morphy-ux/button";
 import { Card } from "@/lib/morphy-ux/card";
-import { AlertTriangle } from "lucide-react";
+import { AlertTriangle } from "@/components/icons";
 import { requestInternalAppNavigation } from "@/lib/utils/browser-navigation";
 
 interface Props {

@@ -9,10 +9,14 @@ import {
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import fs from "node:fs";
+import path from "node:path";
+
 import {
   isWindowsDesktopEmCallUnsupported,
   SosPanel,
 } from "@/components/one-location/redesign/sos-panel";
+import { isSosShareReadyRecipient } from "@/lib/one-location/sos-trigger";
 import type { OneLocationRecipient } from "@/lib/one-location/types";
 import { toast } from "sonner";
 
@@ -593,5 +597,54 @@ describe("SosPanel — no editing while the alert is live", () => {
       screen.getByRole("button", { name: "Come get me" }),
     ).not.toBeDisabled();
     expect(screen.queryByTestId("sos-sent-message")).toBeNull();
+  });
+});
+
+describe("SosPanel — readiness predicate", () => {
+  // The hub's ordinary predicate ignores the phone claim; the trigger refuses
+  // a contact without one. The panel must count and enable from the same rule
+  // the trigger applies, or it offers a hold that reaches nobody.
+  const keyed = recipient({
+    userId: "u2",
+    displayName: "Dev",
+    phoneVerified: false,
+    keyId: "k2",
+    publicKeyJwk: { kty: "EC" },
+    canReceiveLocation: true,
+  });
+
+  it("fails closed for a keyed contact whose phone is not verified when given the SOS rule", () => {
+    const onTrigger = vi.fn();
+    render(
+      <SosPanel
+        {...baseProps}
+        recipients={[keyed]}
+        isRecipientShareReady={isSosShareReadyRecipient}
+        onTrigger={onTrigger}
+      />,
+    );
+    expect(
+      screen.queryByRole("button", { name: /press and hold for two seconds/i }),
+    ).toBeNull();
+    act(() => vi.advanceTimersByTime(3_000));
+    expect(onTrigger).not.toHaveBeenCalled();
+  });
+
+  it("the Location page hands the SOS rule to the panel through the hub", () => {
+    const page = fs.readFileSync(
+      path.resolve(__dirname, "../../../../app/one/location/page.tsx"),
+      "utf8",
+    );
+    const hub = fs.readFileSync(
+      path.resolve(__dirname, "../location-redesign-hub.tsx"),
+      "utf8",
+    );
+    expect(page).toContain(
+      "isSosRecipientShareReady: isSosShareReadyRecipient",
+    );
+    const panelProps = hub.slice(hub.indexOf("<SosPanel"));
+    expect(panelProps).toContain(
+      "vm.isSosRecipientShareReady ?? vm.isRecipientShareReady",
+    );
   });
 });

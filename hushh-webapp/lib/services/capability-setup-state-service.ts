@@ -339,6 +339,19 @@ export function resolveCapabilitySetupState(
     return simple(id, "completed");
   }
 
+  // A person who explicitly declined this capability (e.g. dismissed a
+  // connect prompt) has made a real, durable decision -- report it as
+  // `skipped`, not `not-started`, so it reads as done rather than
+  // outstanding and a proactive prompt knows not to re-ask. Checked before
+  // any capability-specific resolver so no branch below can silently
+  // override an explicit decline with a guessed live status.
+  if (
+    TERMINAL_SETUP_IDS.has(id) &&
+    inputs.preVaultState?.setupCapabilityDeclinedIds.includes(id)
+  ) {
+    return simple(id, "skipped");
+  }
+
   if (id === "finance") return resolveFinance(inputs);
   if (id === "consent") return resolveConsent(inputs);
   if (id === "location") return resolveLocation(inputs);

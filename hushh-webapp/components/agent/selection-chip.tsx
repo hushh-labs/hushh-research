@@ -1,6 +1,6 @@
 "use client";
 
-import { Check } from "lucide-react";
+import { Check } from "@/components/icons";
 
 /**
  * Right-aligned user-side chip summarizing a card selection, styled to match the

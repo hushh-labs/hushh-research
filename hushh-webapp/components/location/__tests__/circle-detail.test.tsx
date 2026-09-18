@@ -53,8 +53,9 @@ vi.mock("@/lib/vault/vault-context", () => ({
 }));
 vi.mock("@/lib/one-location/service", () => ({ OneLocationService: service }));
 vi.mock("@/lib/morphy-ux/morphy", () => ({ morphyToast: toast }));
+const publishSurface = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/voice/voice-surface-metadata", () => ({
-  usePublishVoiceSurfaceMetadata: vi.fn(),
+  usePublishVoiceSurfaceMetadata: publishSurface,
 }));
 vi.mock("@/lib/voice/location-voice-actions", () => ({
   deriveLocationVoiceActions: () => [],
@@ -150,6 +151,21 @@ describe("CircleDetail", () => {
     expect(
       screen.getByRole("link", { name: /Invite people/ }).getAttribute("href"),
     ).toBe(`/one/location?action=invite-circle&circle=${CIRCLE_ID}`);
+  });
+
+  it("publishes this circle's id to voice as a typed field, never as screen state", async () => {
+    render(<CircleDetail circleId={CIRCLE_ID} />);
+    await screen.findByTestId("circle-name");
+    const published = publishSurface.mock.calls
+      .map((call) => call[0])
+      .filter((meta): meta is Record<string, unknown> => Boolean(meta));
+    expect(published.length).toBeGreaterThan(0);
+    for (const meta of published) {
+      expect(meta.screenId).toBe("one_location_circle");
+      expect(meta.activeCircleId).toBe(CIRCLE_ID);
+      // The id rides its own field; screenState is prompt text and carries none.
+      expect(JSON.stringify(meta.screenState ?? {})).not.toContain(CIRCLE_ID);
+    }
   });
 
   it("hides owner tools when the server's capabilities say so", async () => {

@@ -2,7 +2,7 @@
 
 import { Card } from "@/lib/morphy-ux/card";
 import { Icon } from "@/lib/morphy-ux/ui";
-import { Check, Home, Landmark, User, Zap } from "lucide-react";
+import { Check, Home, Landmark, User, Zap } from "@/components/icons";
 
 type KycDisplayItem = {
   label: string;

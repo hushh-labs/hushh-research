@@ -2,8 +2,10 @@
 
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ChevronLeft, LogOut, MoreHorizontal } from "lucide-react";
+import { ChevronLeft, LogOut, MoreHorizontal } from "@/components/icons";
 import { toast } from "sonner";
+
+import { Dialog, DialogContent, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 
 import { HushhLoader } from "@/components/app-ui/hushh-loader";
 import { NativeRouteMarker } from "@/components/app-ui/native-route-marker";
@@ -371,48 +373,69 @@ export function PhoneMandatePageContent() {
               <div className={styles.existingBurst}><OneArcIllustration /></div>
             )}
             <span className={styles.hushhVisual} aria-hidden="true">🤫</span>
+
+            <h1
+              role="heading"
+              aria-level={1}
+              aria-label={
+                verificationStep === "code"
+                  ? "Enter your code"
+                  : verificationStep === "phone"
+                    ? "Welcome to One"
+                    : "Verify your phone number"
+              }
+              className={cn("whitespace-nowrap font-bold text-[25px] sm:text-[27px] leading-[32px] tracking-[-0.5px] text-[#17130C] dark:text-[#F2F2F7]", styles.flowTitle)}
+            >
+              {verificationStep === "code"
+                ? "Enter your code"
+                : verificationStep === "phone"
+                  ? "Welcome to One"
+                  : "Verify your phone number"}
+            </h1>
           </div>
 
-        {/* Verification is a focused task, not a hero. Keep the heading tight
-            so the active field row can clear the native keyboard. */}
-        <div className="px-6 pb-2 pt-7 text-center">
-          <h1
-            role="heading"
-            aria-level={1}
-            aria-label="Verify your phone number"
-            className="font-[family-name:var(--font-app-display)] text-[28px] font-extrabold leading-[1.1] tracking-[-0.9px] text-[#17130C] dark:text-[#FAF6EE]"
+          <div
+            data-phone-mandate-input-region="true"
+            className="relative mx-auto w-full max-w-[344px] text-left"
           >
-            Verify your phone number
-          </h1>
-        </div>
-
-        {/* The active field group owns the keyboard clearance. The keyboard
-            plugin leaves the WebView frame stable, so padding—not a `dvh`
-            resize—keeps both the number and OTP fields visibly above iOS and
-            Android keyboards. Tiny screens may scroll this one form region. */}
-        <div
-          data-phone-mandate-input-region="true"
-          className="relative mt-3 max-h-[calc(100dvh-7rem)] overflow-y-auto overscroll-contain px-6 pt-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-          style={{
-            paddingBottom:
-              "max(calc(1rem + var(--app-safe-area-bottom-effective, 0px)), calc(1rem + var(--kb-height, 0px)))",
-          }}
-        >
-          <PhoneVerificationFlow
-            mode="link"
-            currentPhoneNumber={phoneNumber}
-            startVerification={startPhoneVerification}
-            confirmVerification={confirmPhoneVerification}
-            onCompleted={continueToNextRoute}
-            onContinueExisting={continueToNextRoute}
-            onStepChange={setVerificationStep}
-            sendCodeLabel="Send code"
-            confirmLabel="Verify"
-            primaryActionClassName="mx-auto max-w-[21.5rem]"
-            className="gap-5"
-          />
-          <div id="recaptcha-container" className="mt-3 min-h-0" />
-        </div>
+            <PhoneVerificationFlow
+              key={user.uid}
+              mode="link"
+              currentPhoneNumber={phoneNumber}
+              startVerification={startPhoneVerification}
+              confirmVerification={confirmPhoneVerification}
+              onCompleted={continueToNextRoute}
+              onContinueExisting={continueToNextRoute}
+              onStepChange={setVerificationStep}
+              sendCodeLabel="Continue"
+              phonePresentation="compact"
+              confirmLabel="Confirm"
+              codePresentation="onboarding"
+              primaryActionClassName={styles.primaryAction}
+              className={styles.phoneForm}
+              helperText={
+                <>
+                  By using your mobile number, you may receive SMS notifications
+                  from us.{" "}
+                  <Dialog modal>
+                    <DialogTrigger asChild>
+                      <button type="button" className={styles.learnMore}>
+                        Learn more
+                      </button>
+                    </DialogTrigger>
+                    <DialogContent srDescription="How your mobile number is used">
+                      <DialogTitle>About SMS notifications</DialogTitle>
+                      <p>
+                        We’ll send a verification code to confirm your mobile
+                        number. You may also receive SMS notifications from Hushh.
+                      </p>
+                    </DialogContent>
+                  </Dialog>
+                </>
+              }
+            />
+            <div id="recaptcha-container" className={cn("mt-3 min-h-0", styles.recaptcha)} />
+          </div>
         </div>
       </div>
     </main>

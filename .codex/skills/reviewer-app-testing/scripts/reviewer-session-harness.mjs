@@ -23,6 +23,9 @@ const READ_ONLY_SAFE_POST_PATHS = new Set([
   "/api/app-config/review-mode/session",
   "/api/vault/bootstrap-state",
   "/api/vault/pre-vault-state",
+  // Authenticated metadata read; POST keeps consent tokens out of URLs.
+  // db_proxy.get_vault_status only selects pkm_index.domain_summaries.
+  "/api/vault/status",
   "/api/consent/vault-owner-token",
   // Next.js dev-server source-map lookups for console traces; dev-only tooling.
   "/__nextjs_original-stack-frames",

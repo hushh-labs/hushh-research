@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { BookOpenText, FileText, ArrowRight } from "lucide-react";
+import { BookOpenText, FileText, ArrowRight } from "@/components/icons";
 import {
   AppPageShell,
   AppPageHeaderRegion,

@@ -13,7 +13,7 @@
 
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Loader2 } from "lucide-react";
+import { Loader2 } from "@/components/icons";
 
 import { Button } from "@/components/ui/button";
 import { INPUT_CLASSNAME } from "@/components/ui/input";

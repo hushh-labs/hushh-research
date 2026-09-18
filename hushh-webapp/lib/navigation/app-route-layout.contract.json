@@ -144,6 +144,41 @@
     }
   },
   {
+    "route": "/one/setup/capabilities",
+    "mode": "standard",
+    "shellVerification": {
+      "file": "components/onboarding/setup/one-setup-capabilities-screen.tsx",
+      "includes": [
+        "AppPageShell",
+        "AppPageHeaderRegion",
+        "AppPageContentRegion",
+        "PageHeader"
+      ]
+    },
+    "voicePlaybook": {
+      "playbookId": "route.one.setup.capabilities",
+      "purpose": "Help the person connect or dismiss any of the optional One capabilities, opened from the dashboard's setup tile.",
+      "screen": "one_setup_capabilities",
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain the current guard and retain the goal.",
+        "cancelled": "Respect the cancellation and retain a safe next step.",
+        "failed": "Acknowledge the failure without claiming completion.",
+        "timeout": "Retain the goal and offer one safe retry.",
+        "callbackError": "Return to the verified callback recovery path without claiming success.",
+        "routeMismatch": "Use the verified current route and its generated actions only."
+      },
+      "completionBoundary": "This screen has no separate completion of its own -- each capability's own setup or dismiss is what changes state.",
+      "nextRoute": "/one",
+      "returnPolicy": "navigate",
+      "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    }
+  },
+  {
     "route": "/welcome",
     "mode": "standard",
     "exemptionReason": "Foundation public route owns the unified public knowledge workspace and its route-backed tabs.",
@@ -3461,6 +3496,60 @@
     }
   },
   {
+    "route": "/one/profile/connectors",
+    "mode": "redirect",
+    "exemptionReason": "Connectors moved into the chat sidebar's MCP connections panel; this route only forwards to / with ?panel=connectors.",
+    "voicePlaybook": {
+      "playbookId": "route.profile.connectors",
+      "purpose": "Help the person connect and manage external MCP connectors (Notion, HubSpot, ...) so Kai can use their own data from them.",
+      "screen": "profile_connectors",
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain the current guard and retain the goal.",
+        "cancelled": "Respect the cancellation and retain a safe next step.",
+        "failed": "Acknowledge the failure without claiming completion.",
+        "timeout": "Retain the goal and offer one safe retry.",
+        "callbackError": "Return to the verified callback recovery path without claiming success.",
+        "routeMismatch": "Use the verified current route and its generated actions only."
+      },
+      "completionBoundary": "Completion is shown only after the correlated browser settlement succeeds.",
+      "nextRoute": "/",
+      "returnPolicy": "navigate",
+      "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    }
+  },
+  {
+    "route": "/one/profile/connectors/oauth/return",
+    "mode": "redirect",
+    "exemptionReason": "OAuth callback completes an external connector's authorization and returns to the chat sidebar's MCP connections panel.",
+    "voicePlaybook": {
+      "playbookId": "route.profile.connectors.oauth.return",
+      "purpose": "Finish the verified external connector authorization callback without exposing credentials.",
+      "screen": "profile_connectors",
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain the current guard and retain the goal.",
+        "cancelled": "Respect the cancellation and retain a safe next step.",
+        "failed": "Return to Connectors and explain that the connection was not completed.",
+        "timeout": "Retain the goal and offer one safe retry.",
+        "callbackError": "Return to the verified callback recovery path without claiming success.",
+        "routeMismatch": "Use the verified current route and its generated actions only."
+      },
+      "completionBoundary": "Completion is shown only after the correlated browser settlement succeeds.",
+      "nextRoute": "/",
+      "returnPolicy": "navigate",
+      "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    }
+  },
+  {
     "route": "/one/profile/gmail",
     "mode": "redirect",
     "exemptionReason": "Compatibility redirect route forwards to canonical /one/gmail.",
@@ -3896,26 +3985,16 @@
   },
   {
     "route": "/ria",
-    "mode": "standard",
-    "shellVerification": {
-      "file": "components/ria/ria-page-shell.tsx",
-      "includes": [
-        "AppPageShell",
-        "AppPageHeaderRegion",
-        "AppPageContentRegion",
-        "SurfaceStack"
-      ]
-    },
+    "mode": "redirect",
+    "exemptionReason": "Compatibility redirect to the canonical RIA profile at /ria/profile.",
     "voicePlaybook": {
       "playbookId": "route.ria",
-      "purpose": "Help the person understand and use the ria screen through its generated controls.",
-      "screen": "ria_home",
-      "entryCue": "You can say \u201cOpen RIA Home\u201d to use the primary control on this screen.",
-      "proactivity": "on_entry",
-      "primaryActionId": "route.ria_home",
-      "happyPathActionIds": [
-        "route.ria_home"
-      ],
+      "purpose": "Forward the compatibility route to the canonical RIA profile without rendering an interactive workspace.",
+      "screen": "compatibility_redirect",
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
       "requiredInputs": [],
       "recoveries": {
         "blocked": "Explain the current guard and retain the goal.",
@@ -3925,10 +4004,10 @@
         "callbackError": "Return to the verified callback recovery path without claiming success.",
         "routeMismatch": "Use the verified current route and its generated actions only."
       },
-      "completionBoundary": "Completion is shown only after the correlated browser settlement succeeds.",
-      "nextRoute": "/ria",
-      "returnPolicy": "stay",
-      "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+      "completionBoundary": "The compatibility route completes only after navigation settles on the canonical RIA profile.",
+      "nextRoute": "/ria/profile",
+      "returnPolicy": "navigate",
+      "outOfScopeBehavior": "Do not render the retired RIA home surface or invent controls on this compatibility route."
     }
   },
   {
@@ -4356,6 +4435,33 @@
     "voicePlaybook": {
       "playbookId": "route.research.protocol",
       "purpose": "Help the person understand and use the protocol screen through its generated controls.",
+      "screen": "app",
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain the current guard and retain the goal.",
+        "cancelled": "Respect the cancellation and retain a safe next step.",
+        "failed": "Acknowledge the failure without claiming completion.",
+        "timeout": "Retain the goal and offer one safe retry.",
+        "callbackError": "Return to the verified callback recovery path without claiming success.",
+        "routeMismatch": "Use the verified current route and its generated actions only."
+      },
+      "completionBoundary": "Completion is shown only after the correlated browser settlement succeeds.",
+      "nextRoute": null,
+      "returnPolicy": "navigate",
+      "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    }
+  },
+  {
+    "route": "/manishhussh",
+    "mode": "standard",
+    "exemptionReason": "Foundation public route intentionally uses the shared ambient public canvas outside the signed-in shell.",
+    "voicePlaybook": {
+      "playbookId": "route.manishhussh",
+      "purpose": "Help the person understand and use the manishhussh screen through its generated controls.",
       "screen": "app",
       "entryCue": "",
       "proactivity": "ambient",

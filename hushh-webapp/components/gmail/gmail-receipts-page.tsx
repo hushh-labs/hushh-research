@@ -8,12 +8,12 @@ import {
   Loader2,
   Lock,
   Mail,
+  PenLine,
   RefreshCw,
   ShieldCheck,
   ShoppingBag,
-  Sparkles,
   Trash2,
-} from "lucide-react";
+} from "@/components/icons";
 import { toast } from "sonner";
 
 import {
@@ -1768,22 +1768,24 @@ export default function GmailReceiptsPage({
       as="div"
       width="reading"
       className="pb-[calc(var(--app-bottom-fixed-ui,96px)+1.5rem)]"
-      nativeTest={
-        journeyVariant === "workspace"
-          ? {
-              routeId: ROUTES.GMAIL,
-              marker: "native-route-gmail",
-              authState: user ? "authenticated" : "pending",
-              dataState: loadingReceipts
-                ? "loading"
-                : !isConnected
-                  ? "unavailable-valid"
-                  : receipts.length > 0
-                    ? "loaded"
-                    : "empty-valid",
-            }
-          : undefined
-      }
+      nativeTest={{
+        routeId:
+          journeyVariant === "workspace"
+            ? ROUTES.GMAIL
+            : ROUTES.ONE_SETUP_GMAIL,
+        marker:
+          journeyVariant === "workspace"
+            ? "native-route-gmail"
+            : "native-route-one-setup-gmail",
+        authState: user ? "authenticated" : loading ? "pending" : "anonymous",
+        dataState: loadingReceipts
+          ? "loading"
+          : !isConnected
+            ? "unavailable-valid"
+            : receipts.length > 0
+              ? "loaded"
+              : "empty-valid",
+      }}
     >
       <AppPageHeaderRegion>
         <PageHeader
@@ -2047,7 +2049,7 @@ export default function GmailReceiptsPage({
             <SurfaceInset className="space-y-3 px-4 py-4 text-sm sm:px-5 sm:py-5">
               <div className="flex items-start gap-3">
                 <div className="rounded-xl bg-primary/10 p-2 text-primary">
-                  <Sparkles className="h-5 w-5" />
+                  <PenLine className="h-5 w-5" />
                 </div>
                 <div className="space-y-1">
                   <p className="font-medium text-foreground">Draft with One</p>
@@ -2057,7 +2059,7 @@ export default function GmailReceiptsPage({
                   </p>
                 </div>
               </div>
-              <AskOneButton onClick={handleOpenOneChat}>
+              <AskOneButton onClick={handleOpenOneChat} showIcon={false}>
                 Open One Chat
               </AskOneButton>
             </SurfaceInset>

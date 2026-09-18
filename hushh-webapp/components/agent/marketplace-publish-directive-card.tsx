@@ -1,6 +1,6 @@
 "use client";
 
-import { Store } from "lucide-react";
+import { Store } from "@/components/icons";
 
 import { Button } from "@/lib/morphy-ux/morphy";
 import { formatCents } from "@/lib/services/slice-pricing-service";

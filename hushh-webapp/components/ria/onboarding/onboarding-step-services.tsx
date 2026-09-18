@@ -8,8 +8,8 @@ import {
   Landmark,
   MapPin,
   ScrollText,
-} from "lucide-react";
-import type { LucideIcon } from "lucide-react";
+} from "@/components/icons";
+import type { LucideIcon } from "@/components/icons";
 import { SettingsGroup } from "@/components/app-ui/settings-ui";
 import { SectionLabel as AppSectionLabel } from "@/components/app-ui/typography";
 import { Checkbox } from "@/components/ui/checkbox";

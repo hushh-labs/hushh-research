@@ -16,7 +16,7 @@
 
 import type { ReactNode } from "react";
 import Image from "next/image";
-import { AlertTriangle, ChevronRight, ShieldCheck } from "lucide-react";
+import { AlertTriangle, ChevronRight, ShieldCheck } from "@/components/icons";
 
 import { cn } from "@/lib/utils";
 import {

@@ -4,20 +4,6 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 describe("One setup hub terminal action contract", () => {
-  it("routes completed rows through their canonical setup entry", () => {
-    const source = readFileSync(
-      join(process.cwd(), "components/onboarding/setup/one-setup-hub.tsx"),
-      "utf8",
-    );
-
-    expect(source.match(/href=\{item\.copy\.href\}/g)).toHaveLength(2);
-    // The route coordinator owns durable completion. The hub must not invent a
-    // second target that would diverge for taps, voice navigation, or deep links.
-    expect(source).not.toContain(
-      "resolveCompletedSetupCapabilityEntry(item.id)",
-    );
-  });
-
   it("always finishes root setup through the required vault boundary", () => {
     const source = readFileSync(
       join(process.cwd(), "components/onboarding/setup/one-setup-hub.tsx"),
@@ -25,7 +11,6 @@ describe("One setup hub terminal action contract", () => {
     );
 
     expect(source).toContain('const masterActionLabel = "Finish setup"');
-    expect(source).toContain("isCapabilitySetupComplete(item.status)");
     expect(source).toContain('actionId="setup.hub_master_ack"');
     expect(source).toContain('variant="blue-gradient"');
     expect(source).toContain('effect="fill"');
@@ -80,7 +65,7 @@ describe("One setup hub terminal action contract", () => {
     expect(source).toContain('voiceControlId="one_setup_tile_connections"');
     expect(source).not.toContain("Private configuration");
     expect(source.indexOf('title="Choose your AI"')).toBeLessThan(
-      source.indexOf("remainingItems.map"),
+      source.indexOf('title="Complete"'),
     );
   });
 
@@ -123,8 +108,8 @@ describe("One setup hub terminal action contract", () => {
     expect(tile).toContain("AgentSectionIcon");
     expect(tile).toContain('size="setup"');
     expect(icon).toContain("setup: {");
-    expect(icon).toContain('lucideSurface: "h-9 w-9 rounded-[10px]"');
-    expect(icon).toContain('lucide: "h-[19px] w-[19px]"');
+    expect(icon).toContain('glyphSurface: "h-9 w-9 rounded-[10px]"');
+    expect(icon).toContain('glyph: "h-[22px] w-[22px]"');
   });
 
   it("counts the mandatory AI access choice in the same progress projection as capability rows", () => {
@@ -158,25 +143,21 @@ describe("One setup hub terminal action contract", () => {
     expect(source).not.toContain("const total = items.length");
   });
 
-  it("does not publish coarse setup sections before bootstrap and enrichment settle", () => {
+  it("does not publish the master action before the AI-access choice settles", () => {
     const source = readFileSync(
       join(process.cwd(), "components/onboarding/setup/one-setup-hub.tsx"),
       "utf8",
     );
-    const stateHook = readFileSync(
-      join(process.cwd(), "lib/onboarding/use-capability-setup-states.ts"),
-      "utf8",
-    );
 
-    expect(source).toContain("const hubStateLoading =");
-    expect(source).toContain("isLoading || isEnriching");
+    expect(source).toContain(
+      'const hubStateLoading = runtimeChoiceState === "loading"',
+    );
     expect(source).toContain("<SetupHubLoadingState />");
     expect(source).not.toContain("<Skeleton");
     expect(source).toContain("Checking your setup…");
-    expect(source).toMatch(/actions:\s*hubStateLoading\s*\?\s*\[\]\s*:/);
-    expect(stateHook).toContain("useState(enrichVault)");
-    expect(stateHook).toContain("useState(enrichOauth)");
-    expect(stateHook).toContain("useState(enrichRia)");
+    expect(source).toContain(
+      "hubStateLoading || dismissing || !runtimeChoiceComplete",
+    );
   });
 
   it("spends the accent only on a finish that can actually go through", () => {

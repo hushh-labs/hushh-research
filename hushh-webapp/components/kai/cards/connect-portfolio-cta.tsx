@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowRight } from "lucide-react";
+import { ArrowRight } from "@/components/icons";
 import Link from "next/link";
 
 import { SurfaceCard, SurfaceCardContent } from "@/components/app-ui/surfaces";

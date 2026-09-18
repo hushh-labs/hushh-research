@@ -2,7 +2,7 @@
 
 import { Card } from "@/lib/morphy-ux/card";
 import { Icon } from "@/lib/morphy-ux/ui";
-import { Check, ShieldCheck, X } from "lucide-react";
+import { Check, ShieldCheck, X } from "@/components/icons";
 
 type ConsentRow = {
   app: string;

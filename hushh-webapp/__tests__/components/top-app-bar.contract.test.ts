@@ -208,6 +208,13 @@ describe("Top app bar responsive contract", () => {
     expect(source).not.toContain("<DebateTaskCenter");
   });
 
+  it("keeps Search in the shared bottom navigation instead of the top bar", () => {
+    const source = read("components/app-ui/top-app-bar.tsx");
+
+    expect(source).not.toContain('aria-label="Search"');
+    expect(source).not.toContain("Search 🔍");
+  });
+
   it("keeps the rightmost signed-in Profile action in the shared top bar", () => {
     const source = read("components/app-ui/top-app-bar.tsx");
 

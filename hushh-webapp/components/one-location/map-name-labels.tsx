@@ -37,7 +37,7 @@ function MapNameLabelsImpl({ labels, stalePositions }: MapNameLabelsProps) {
       // z-10 keeps the pills above the map surface and below every control:
       // the top chrome (z-30) and the people tray (z-20) are things you press,
       // and a name is not allowed to sit over one of them.
-      className={`pointer-events-none absolute inset-0 z-10 overflow-hidden transition-opacity duration-200 ease-out motion-reduce:transition-none ${
+      className={`pointer-events-none absolute inset-0 z-10 overflow-hidden transition-opacity duration-150 ease-out motion-reduce:transition-none ${
         stalePositions ? "opacity-0" : "opacity-100"
       }`}
     >

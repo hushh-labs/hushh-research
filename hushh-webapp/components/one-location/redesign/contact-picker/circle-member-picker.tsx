@@ -1,7 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { Check, ChevronDown, Loader2, UsersRound } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Check, ChevronDown, Loader2, UsersRound } from "@/components/icons";
 
 import { ContactSourceBadge } from "@/components/connections/contact-source-badge";
 import { ContactAvatar } from "@/components/one-location/redesign/contact-picker/atoms";
@@ -98,10 +98,20 @@ export function CircleMemberPicker({
 
   // Resolved on expand, not on mount. A hub with ten Circles would otherwise
   // fire ten roster requests just to draw ten collapsed rows.
+  //
+  // Re-resolved on every collapse->expand transition, not just the first one.
+  // This row survives collapsing (only its inner panel unmounts, `map()`
+  // keeps the same component instance by `circle.id`), so gating solely on
+  // `!selection` left every re-expand -- after the roster changed elsewhere,
+  // e.g. a new member joining via the People tab -- showing the first load's
+  // now-stale snapshot for as long as the picker stayed on screen.
+  const wasExpandedRef = useRef(false);
   useEffect(() => {
-    if (!expanded || selection || loading || loadError) return;
+    const wasExpanded = wasExpandedRef.current;
+    wasExpandedRef.current = expanded;
+    if (!expanded || wasExpanded || loading) return;
     void load();
-  }, [expanded, load, loadError, loading, selection]);
+  }, [expanded, load, loading]);
 
   const readyRows = useMemo<MemberRow[]>(() => {
     if (!selection) return [];
@@ -228,7 +238,7 @@ export function CircleMemberPicker({
         </span>
         <ChevronDown
           className={cn(
-            "h-5 w-5 shrink-0 text-muted-foreground transition-transform duration-200 motion-reduce:transition-none",
+            "h-5 w-5 shrink-0 text-muted-foreground transition-transform duration-150 motion-reduce:transition-none",
             expanded && "rotate-180",
           )}
           aria-hidden

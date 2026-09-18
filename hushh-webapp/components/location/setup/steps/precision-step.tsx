@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, Crosshair, Grid2x2 } from "lucide-react";
+import { Check, Crosshair, Grid2x2 } from "@/components/icons";
 
 import {
   HelperText,

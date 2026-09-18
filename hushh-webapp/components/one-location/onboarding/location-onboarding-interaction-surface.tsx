@@ -11,7 +11,7 @@ import {
   type MutableRefObject,
   type ReactNode,
 } from "react";
-import { Loader2, MapPin, X } from "lucide-react";
+import { Loader2, MapPin, X } from "@/components/icons";
 import { Capacitor } from "@capacitor/core";
 
 import { LocationCircleNameInputCard } from "@/components/agent/location-circle-name-input-card";

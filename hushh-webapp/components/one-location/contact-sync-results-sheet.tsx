@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Check, Loader2, RefreshCw, Send, ShieldAlert } from "lucide-react";
+import { Check, Loader2, RefreshCw, Send, ShieldAlert } from "@/components/icons";
 import { toast } from "sonner";
 
 import { ContactSourceBadge } from "@/components/connections/contact-source-badge";

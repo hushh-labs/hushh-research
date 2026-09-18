@@ -11,7 +11,7 @@
 
 "use client";
 
-import { Loader2 } from "lucide-react";
+import { Loader2 } from "@/components/icons";
 import { cn } from "./cn";
 
 export interface ThinkingIndicatorProps {
@@ -132,7 +132,7 @@ export function StreamingStageIndicator({
           <div
             key={stage}
             className={cn(
-              "flex-1 h-1 rounded-full transition-all duration-300",
+              "flex-1 h-1 rounded-full transition-[background-color,opacity] duration-100",
               i < currentStage
                 ? "bg-[var(--morphy-primary-start)]"
                 : i === currentStage

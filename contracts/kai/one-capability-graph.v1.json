@@ -9890,8 +9890,7 @@
         "stop sos",
         "cancel sos",
         "end the emergency",
-        "stop the emergency",
-        "i am safe now"
+        "stop the emergency"
       ],
       "authorization": {
         "guard_ids": [
@@ -9918,7 +9917,7 @@
         "requires_trusted_tap": false,
         "surface": null
       },
-      "description": "Ends an SOS that is currently running and revokes every location share it created. It does not tell anyone you are safe.",
+      "description": "Ends the Save My Soul alert that is currently running and revokes the live SOS location shares it created. It does not tell anyone you are safe and does not change ordinary location sharing. In One Voice it shows a tap-confirmation card naming the shares it will end; shares that cannot be verified as ended are reported as still possibly live.",
       "execution": {
         "binding_ref": "semantic_action:location.stop_sos",
         "executor": {
@@ -11418,6 +11417,156 @@
       "settlement_proof": "directive_ledger_settlement",
       "side_effect": {
         "classification": "client_semantic_action"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
+        "Change a circle's type",
+        "make it a family circle",
+        "change the circle type",
+        "set the circle to friends"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "location.set_circle_kind",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "Changes a circle's type: family, friends, or other. It only changes the type; the circle's name, members, invitations, shares through it, and owner are untouched.",
+      "execution": {
+        "binding_ref": "render:location.set_circle_kind",
+        "executor": {
+          "kind": "typed_render",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "EXECUTE",
+        "target": {
+          "path": "voice_tool",
+          "status": "wired",
+          "target": "location.set_circle_kind"
+        }
+      },
+      "goal_id": "goal.location.set_circle_kind",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Change a circle's type",
+      "navigation": {
+        "fallback": "location.set_circle_kind",
+        "routes": [
+          "/one/location"
+        ],
+        "screens": [
+          "one_location"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "mounted_surface_required": true,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": null,
+      "required_entities": [],
+      "search_keywords": [
+        "circle",
+        "type",
+        "kind",
+        "family",
+        "friends"
+      ],
+      "settlement_proof": "approved_render_acknowledgement",
+      "side_effect": {
+        "classification": "render_or_guidance"
       },
       "supported_entrypoints": [
         "voice",
@@ -13155,7 +13304,7 @@
         "requires_trusted_tap": false,
         "surface": null
       },
-      "description": "Requests an SOS using the authored Save My Soul review screen. The person must use its genuine send confirmation; this command currently opens that review and cannot report an alert as sent. The owning service reports complete or partial delivery after execution. It does not call emergency services.",
+      "description": "Sends a Save My Soul alert to the emergency contacts: one 8-hour precise-location share per contact who can receive it. From a typed command this opens the authored review screen and cannot report an alert as sent. In One Voice it shows a tap-confirmation card naming exactly who will be alerted; the tap arms the shares, the device publishes the encrypted position, and the server verifies delivery before anything is reported as sent. It does not call emergency services.",
       "execution": {
         "binding_ref": "semantic_action:location.trigger_sos",
         "executor": {
@@ -13266,6 +13415,156 @@
       "settlement_proof": "directive_ledger_settlement",
       "side_effect": {
         "classification": "client_semantic_action"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
+        "Check whether the SOS alert reached your contacts",
+        "did my alert go through",
+        "did the sos reach them",
+        "check sos delivery"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "location.verify_sos_delivery",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "Reads whether the Save My Soul alert's encrypted position was stored for each emergency contact. It checks the whole armed alert on the server and reports who was reached, who was not, and when the check itself could not run. It never sends or resends an alert.",
+      "execution": {
+        "binding_ref": "render:location.verify_sos_delivery",
+        "executor": {
+          "kind": "typed_render",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "EXECUTE",
+        "target": {
+          "path": "voice_tool",
+          "status": "wired",
+          "target": "location.verify_sos_delivery"
+        }
+      },
+      "goal_id": "goal.location.verify_sos_delivery",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Check whether the SOS alert reached your contacts",
+      "navigation": {
+        "fallback": "location.verify_sos_delivery",
+        "routes": [
+          "/one/location"
+        ],
+        "screens": [
+          "one_location"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "mounted_surface_required": true,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": null,
+      "required_entities": [],
+      "search_keywords": [
+        "sos",
+        "alert",
+        "delivery",
+        "reached",
+        "verify"
+      ],
+      "settlement_proof": "approved_render_acknowledgement",
+      "side_effect": {
+        "classification": "render_or_guidance"
       },
       "supported_entrypoints": [
         "voice",
@@ -34912,7 +35211,7 @@
   "mcp_compatible": true,
   "model_projections": {
     "location": {
-      "brain_revision": "702fe353a1b7b63e7371aa7f",
+      "brain_revision": "2c1174613b73df57ca42a993",
       "capabilities": [
         {
           "candidate_id": "location.accept_circle_invite",
@@ -35950,6 +36249,21 @@
           "verified_success_boundary": "navigation_settlement_not_product_success"
         },
         {
+          "candidate_id": "location.set_circle_kind",
+          "capability_id": "location.set_circle_kind",
+          "confirmation_class": "none",
+          "disposition": "NAVIGATE",
+          "entity_types": [],
+          "feature_group_id": "circles",
+          "intent": "Change a circle's type",
+          "interaction_class": "navigation",
+          "kind": "action",
+          "outcome": "NAVIGATE",
+          "public_slot_types": [],
+          "semantic_boundary": "Changes a circle's type: family, friends, or other. It only changes the type; the circle's name, members, invitations, shares through it, and owner are untouched.",
+          "verified_success_boundary": "navigation_settlement_not_product_success"
+        },
+        {
           "candidate_id": "location.set_ghost_mode",
           "capability_id": "location.set_ghost_mode",
           "confirmation_class": "none",
@@ -36159,7 +36473,7 @@
           "kind": "action",
           "outcome": "NAVIGATE",
           "public_slot_types": [],
-          "semantic_boundary": "Ends an SOS that is currently running and revokes every location share it created. It does not tell anyone you are safe.",
+          "semantic_boundary": "Ends the Save My Soul alert that is currently running and revokes the live SOS location shares it created. It does not tell anyone you are safe and does not change ordinary location sharing. In One Voice it shows a tap-confirmation card naming the shares it will end; shares that cannot be verified as ended are reported as still possibly live.",
           "verified_success_boundary": "navigation_settlement_not_product_success"
         },
         {
@@ -36180,7 +36494,22 @@
               "type": "string"
             }
           ],
-          "semantic_boundary": "Requests an SOS using the authored Save My Soul review screen. The person must use its genuine send confirmation; this command currently opens that review and cannot report an alert as sent. The owning service reports complete or partial delivery after execution. It does not call emergency services.",
+          "semantic_boundary": "Sends a Save My Soul alert to the emergency contacts: one 8-hour precise-location share per contact who can receive it. From a typed command this opens the authored review screen and cannot report an alert as sent. In One Voice it shows a tap-confirmation card naming exactly who will be alerted; the tap arms the shares, the device publishes the encrypted position, and the server verifies delivery before anything is reported as sent. It does not call emergency services.",
+          "verified_success_boundary": "navigation_settlement_not_product_success"
+        },
+        {
+          "candidate_id": "location.verify_sos_delivery",
+          "capability_id": "location.verify_sos_delivery",
+          "confirmation_class": "none",
+          "disposition": "NAVIGATE",
+          "entity_types": [],
+          "feature_group_id": "safety",
+          "intent": "Check whether the SOS alert reached your contacts",
+          "interaction_class": "navigation",
+          "kind": "action",
+          "outcome": "NAVIGATE",
+          "public_slot_types": [],
+          "semantic_boundary": "Reads whether the Save My Soul alert's encrypted position was stored for each emergency contact. It checks the whole armed alert on the server and reports who was reached, who was not, and when the check itself could not run. It never sends or resends an alert.",
           "verified_success_boundary": "navigation_settlement_not_product_success"
         },
         {
@@ -37296,6 +37625,21 @@
           "verified_success_boundary": "navigation_settlement_not_product_success"
         },
         {
+          "candidate_id": "location.set_circle_kind",
+          "capability_id": "location.set_circle_kind",
+          "confirmation_class": "none",
+          "disposition": "NAVIGATE",
+          "entity_types": [],
+          "feature_group_id": "circles",
+          "intent": "Change a circle's type",
+          "interaction_class": "navigation",
+          "kind": "action",
+          "outcome": "NAVIGATE",
+          "public_slot_types": [],
+          "semantic_boundary": "Changes a circle's type: family, friends, or other. It only changes the type; the circle's name, members, invitations, shares through it, and owner are untouched.",
+          "verified_success_boundary": "navigation_settlement_not_product_success"
+        },
+        {
           "candidate_id": "location.set_ghost_mode",
           "capability_id": "location.set_ghost_mode",
           "confirmation_class": "none",
@@ -37505,7 +37849,7 @@
           "kind": "action",
           "outcome": "NAVIGATE",
           "public_slot_types": [],
-          "semantic_boundary": "Ends an SOS that is currently running and revokes every location share it created. It does not tell anyone you are safe.",
+          "semantic_boundary": "Ends the Save My Soul alert that is currently running and revokes the live SOS location shares it created. It does not tell anyone you are safe and does not change ordinary location sharing. In One Voice it shows a tap-confirmation card naming the shares it will end; shares that cannot be verified as ended are reported as still possibly live.",
           "verified_success_boundary": "navigation_settlement_not_product_success"
         },
         {
@@ -37526,7 +37870,22 @@
               "type": "string"
             }
           ],
-          "semantic_boundary": "Requests an SOS using the authored Save My Soul review screen. The person must use its genuine send confirmation; this command currently opens that review and cannot report an alert as sent. The owning service reports complete or partial delivery after execution. It does not call emergency services.",
+          "semantic_boundary": "Sends a Save My Soul alert to the emergency contacts: one 8-hour precise-location share per contact who can receive it. From a typed command this opens the authored review screen and cannot report an alert as sent. In One Voice it shows a tap-confirmation card naming exactly who will be alerted; the tap arms the shares, the device publishes the encrypted position, and the server verifies delivery before anything is reported as sent. It does not call emergency services.",
+          "verified_success_boundary": "navigation_settlement_not_product_success"
+        },
+        {
+          "candidate_id": "location.verify_sos_delivery",
+          "capability_id": "location.verify_sos_delivery",
+          "confirmation_class": "none",
+          "disposition": "NAVIGATE",
+          "entity_types": [],
+          "feature_group_id": "safety",
+          "intent": "Check whether the SOS alert reached your contacts",
+          "interaction_class": "navigation",
+          "kind": "action",
+          "outcome": "NAVIGATE",
+          "public_slot_types": [],
+          "semantic_boundary": "Reads whether the Save My Soul alert's encrypted position was stored for each emergency contact. It checks the whole armed alert on the server and reports who was reached, who was not, and when the check itself could not run. It never sends or resends an alert.",
           "verified_success_boundary": "navigation_settlement_not_product_success"
         },
         {
@@ -37663,7 +38022,7 @@
         }
       ],
       "known_unbound_implementation_count": 76,
-      "package_digest": "ffae41f4c4dcea4a5cadfd3529878b50e59436c7a2b5c069a23c4ea11b16c0de",
+      "package_digest": "054141b4aaf04ef13ce9bd139a1044287be8703c1e65015cc338a970d4fa51ed",
       "package_id": "location.brain",
       "package_version": 2,
       "schema_version": "one.location_brain_catalog.v1",
@@ -37728,7 +38087,7 @@
         }
       ],
       "platform": "ios",
-      "projection_digest": "79a1abfb264d024237389082d924f0bdab2384e2543e23bcbbbb108fecbe9d98",
+      "projection_digest": "91d283aaa96a4b3b1923a9ae0884987d28e6ac829dcb4978a4d701e685c9b660",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -37738,16 +38097,16 @@
       ],
       "schema_version": "one.capability_platform_projection.v1",
       "source_digests": {
-        "capability_graph_evolution": "9345cefc642be327364b77382ca9019dd68eba4a71d626afd6546d3d8c5a39f8",
+        "capability_graph_evolution": "3e3740965e1f0de9dd2ca865d2da654766e134479354c17fe562955831a95aaa",
         "capability_runtime_compiler": "9a0b0b573b4e3ae42d2a49ce15f93a7cce70e5dc4046dea14922d7cd6ace9078",
         "capability_runtime_policy": "d3f4ec0d27231ef298372a48696f8ac238f7560d03d8e72c50c7bcb5b0ffd7a9",
         "location_agent_manifest": "25952f13232f1d1adb7664da7c037b59cef093a1389caeb46af3d2771a12ff07",
-        "location_knowledge_package": "ffae41f4c4dcea4a5cadfd3529878b50e59436c7a2b5c069a23c4ea11b16c0de",
+        "location_knowledge_package": "054141b4aaf04ef13ce9bd139a1044287be8703c1e65015cc338a970d4fa51ed",
         "location_onboarding_runtime": "cd911f5e2e0f09352aeb89a74180a66fab79553423b126583f181d858459ae62",
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
-        "service_knowledge_packages": "f361804817c649a57c89f25e983445883e767a9c0750a5e07eebc1055315ef60"
+        "service_knowledge_packages": "fc844f2d3e1b73763155fb0708676c62639bbf7115be9f5405553580f01894ba"
       },
-      "source_revision": "d3e820220dacdce1",
+      "source_revision": "e957417b1eacbe4b",
       "supported_entrypoints": [
         "typed",
         "voice",
@@ -39265,7 +39624,7 @@
       ]
     },
     "schema_version": "one.capability_platform_projection.v1",
-    "source_revision": "d3e820220dacdce1",
+    "source_revision": "e957417b1eacbe4b",
     "web": {
       "actions": [
         {
@@ -39308,7 +39667,7 @@
         }
       ],
       "platform": "web",
-      "projection_digest": "c3980262ae1747191492ffd0c11ed94f388faf4ff4ce3a37b8e1b0c704088f32",
+      "projection_digest": "3e83b209c3c813b7e6c1c4db9145681992b7f39c66ce0168c1e585692a9ca1fe",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -39318,16 +39677,16 @@
       ],
       "schema_version": "one.capability_platform_projection.v1",
       "source_digests": {
-        "capability_graph_evolution": "9345cefc642be327364b77382ca9019dd68eba4a71d626afd6546d3d8c5a39f8",
+        "capability_graph_evolution": "3e3740965e1f0de9dd2ca865d2da654766e134479354c17fe562955831a95aaa",
         "capability_runtime_compiler": "9a0b0b573b4e3ae42d2a49ce15f93a7cce70e5dc4046dea14922d7cd6ace9078",
         "capability_runtime_policy": "d3f4ec0d27231ef298372a48696f8ac238f7560d03d8e72c50c7bcb5b0ffd7a9",
         "location_agent_manifest": "25952f13232f1d1adb7664da7c037b59cef093a1389caeb46af3d2771a12ff07",
-        "location_knowledge_package": "ffae41f4c4dcea4a5cadfd3529878b50e59436c7a2b5c069a23c4ea11b16c0de",
+        "location_knowledge_package": "054141b4aaf04ef13ce9bd139a1044287be8703c1e65015cc338a970d4fa51ed",
         "location_onboarding_runtime": "cd911f5e2e0f09352aeb89a74180a66fab79553423b126583f181d858459ae62",
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
-        "service_knowledge_packages": "f361804817c649a57c89f25e983445883e767a9c0750a5e07eebc1055315ef60"
+        "service_knowledge_packages": "fc844f2d3e1b73763155fb0708676c62639bbf7115be9f5405553580f01894ba"
       },
-      "source_revision": "d3e820220dacdce1",
+      "source_revision": "e957417b1eacbe4b",
       "supported_entrypoints": [
         "typed",
         "voice"
@@ -40884,7 +41243,7 @@
       "renderer_key": "one_location_workflow_card"
     }
   ],
-  "revision": "d3e820220dacdce1",
+  "revision": "e957417b1eacbe4b",
   "schema_version": "one.capability_graph.v1",
   "screens": [
     {
@@ -41135,6 +41494,15 @@
       "kind": "screen",
       "label": "logout",
       "route_pattern": "/logout",
+      "telemetry_event": "app_intelligence.navigation",
+      "version": 1
+    },
+    {
+      "action_ids": [],
+      "capability_id": "screen:/manishhussh",
+      "kind": "screen",
+      "label": "app",
+      "route_pattern": "/manishhussh",
       "telemetry_event": "app_intelligence.navigation",
       "version": 1
     },
@@ -41624,6 +41992,7 @@
         "location.send_check_in",
         "location.send_request",
         "location.set_auto_share",
+        "location.set_circle_kind",
         "location.set_ghost_mode",
         "location.set_precision",
         "location.set_sharing_enabled",
@@ -41637,6 +42006,7 @@
         "location.stop_share",
         "location.stop_sos",
         "location.trigger_sos",
+        "location.verify_sos_delivery",
         "route.one_location"
       ],
       "capability_id": "screen:/one/location",
@@ -41847,6 +42217,24 @@
       "kind": "screen",
       "label": "connected_systems",
       "route_pattern": "/one/profile/connected-systems",
+      "telemetry_event": "app_intelligence.navigation",
+      "version": 1
+    },
+    {
+      "action_ids": [],
+      "capability_id": "screen:/one/profile/connectors",
+      "kind": "screen",
+      "label": "profile_connectors",
+      "route_pattern": "/one/profile/connectors",
+      "telemetry_event": "app_intelligence.navigation",
+      "version": 1
+    },
+    {
+      "action_ids": [],
+      "capability_id": "screen:/one/profile/connectors/oauth/return",
+      "kind": "screen",
+      "label": "profile_connectors",
+      "route_pattern": "/one/profile/connectors/oauth/return",
       "telemetry_event": "app_intelligence.navigation",
       "version": 1
     },
@@ -42179,6 +42567,15 @@
       "version": 1
     },
     {
+      "action_ids": [],
+      "capability_id": "screen:/one/setup/capabilities",
+      "kind": "screen",
+      "label": "one_setup_capabilities",
+      "route_pattern": "/one/setup/capabilities",
+      "telemetry_event": "app_intelligence.navigation",
+      "version": 1
+    },
+    {
       "action_ids": [
         "setup.finish_connected_systems",
         "setup.skip_connected_systems"
@@ -42403,12 +42800,10 @@
       "version": 1
     },
     {
-      "action_ids": [
-        "route.ria_home"
-      ],
+      "action_ids": [],
       "capability_id": "screen:/ria",
       "kind": "screen",
-      "label": "ria_home",
+      "label": "compatibility_redirect",
       "route_pattern": "/ria",
       "telemetry_event": "app_intelligence.navigation",
       "version": 1
@@ -42552,16 +42947,16 @@
     }
   ],
   "semantic_diff": {
-    "added": [],
+    "added": [
+      "screens:screen:/one/setup/capabilities"
+    ],
     "breaking": [],
     "changed": [],
     "compatible": [],
     "deprecated": [],
-    "from_revision": "37cb394043f0f125",
+    "from_revision": "82e741080f6a22ff",
     "migrated": [],
-    "removed": [
-      "screens:screen:/one/profile/security/devices"
-    ]
+    "removed": []
   },
   "services": [
     {
@@ -43531,6 +43926,7 @@
         "location.send_check_in",
         "location.send_request",
         "location.set_auto_share",
+        "location.set_circle_kind",
         "location.set_ghost_mode",
         "location.set_precision",
         "location.set_sharing_enabled",
@@ -43544,6 +43940,7 @@
         "location.stop_share",
         "location.stop_sos",
         "location.trigger_sos",
+        "location.verify_sos_delivery",
         "setup.finish_location",
         "setup.open_location",
         "setup.skip_location"
@@ -44516,6 +44913,10 @@
           "disposition": "NAVIGATE"
         },
         {
+          "capability_id": "location.set_circle_kind",
+          "disposition": "NAVIGATE"
+        },
+        {
           "capability_id": "location.set_ghost_mode",
           "disposition": "NAVIGATE"
         },
@@ -44568,6 +44969,10 @@
           "disposition": "NAVIGATE"
         },
         {
+          "capability_id": "location.verify_sos_delivery",
+          "disposition": "NAVIGATE"
+        },
+        {
           "capability_id": "native.request_device_location_permission",
           "disposition": "RENDER_INTERACTION"
         },
@@ -44592,7 +44997,7 @@
       "catalog_coverage": {
         "all_discovered_capabilities_classified": true,
         "blocked_endpoint_count": 76,
-        "declared_capability_count": 69
+        "declared_capability_count": 71
       },
       "completion": {
         "claim_policy": "verified_persisted_state_only",
@@ -44702,9 +45107,9 @@
       ],
       "kind": "service",
       "knowledge_package": {
-        "brain_revision": "702fe353a1b7b63e7371aa7f",
+        "brain_revision": "2c1174613b73df57ca42a993",
         "catalog_status": "complete_and_compiled",
-        "package_digest": "ffae41f4c4dcea4a5cadfd3529878b50e59436c7a2b5c069a23c4ea11b16c0de",
+        "package_digest": "054141b4aaf04ef13ce9bd139a1044287be8703c1e65015cc338a970d4fa51ed",
         "package_id": "location.brain",
         "package_version": 2,
         "schema_version": "one.service_knowledge_package.v2"
@@ -44991,36 +45396,44 @@
     }
   ],
   "source_digests": {
-    "capability_graph_evolution": "9345cefc642be327364b77382ca9019dd68eba4a71d626afd6546d3d8c5a39f8",
+    "capability_graph_evolution": "3e3740965e1f0de9dd2ca865d2da654766e134479354c17fe562955831a95aaa",
     "capability_runtime_compiler": "9a0b0b573b4e3ae42d2a49ce15f93a7cce70e5dc4046dea14922d7cd6ace9078",
     "capability_runtime_policy": "d3f4ec0d27231ef298372a48696f8ac238f7560d03d8e72c50c7bcb5b0ffd7a9",
-    "kai_action_gateway": "a1df2f45b7b142c529e090e6976031f659d7ea03b5fbb41a94517c7c09bf001b",
+    "kai_action_gateway": "5adaa2adcc83601a993e3b29a4e61dc337fb30b4002b116a66b7108eae8146cb",
     "location_agent_manifest": "25952f13232f1d1adb7664da7c037b59cef093a1389caeb46af3d2771a12ff07",
-    "location_knowledge_package": "ffae41f4c4dcea4a5cadfd3529878b50e59436c7a2b5c069a23c4ea11b16c0de",
+    "location_knowledge_package": "054141b4aaf04ef13ce9bd139a1044287be8703c1e65015cc338a970d4fa51ed",
     "location_onboarding_runtime": "cd911f5e2e0f09352aeb89a74180a66fab79553423b126583f181d858459ae62",
     "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
-    "product_agent_registry": "a29ac8ac4a0ff9fe6388b83fd883f8f7739b31ede5ef2bf426a9e41d59c7db0e",
-    "route_orchestration_index": "a9ff58d8cc61e8717bdbf3ba0aa65719f7683000d143accf52296526831b381c",
-    "service_knowledge_packages": "f361804817c649a57c89f25e983445883e767a9c0750a5e07eebc1055315ef60"
+    "product_agent_registry": "b865a980c4ff47ff91b316a238af7c70cfe01a3a79459199603791428b46a7d4",
+    "route_orchestration_index": "6e0dff7827ef2259df6786c39c5caa5c9df0c8a27d58ff1eff9047824e06fdd3",
+    "service_knowledge_packages": "fc844f2d3e1b73763155fb0708676c62639bbf7115be9f5405553580f01894ba"
   },
-  "source_revision": "d3e820220dacdce1",
+  "source_revision": "e957417b1eacbe4b",
   "workflow_revision_compatibility": {
-    "current_graph_revision": "d3e820220dacdce1",
+    "current_graph_revision": "e957417b1eacbe4b",
     "schema_version": "one.workflow_revision_compatibility.v1",
     "workflows": [
       {
         "compatible_graph_revisions": [
           "1016f2f0efc0cbd7",
+          "114ef930def0cdbb",
+          "12f82fc1dec40c31",
           "37cb394043f0f125",
           "511758965444c3bb",
           "55a233b9b6e923ea",
+          "5fe7cf2eaf8964c8",
           "6448b901792d40a4",
+          "6be9b0c2414cdb98",
+          "82e741080f6a22ff",
           "8e37ce83397a3ac7",
+          "9195b95c1e25685f",
           "a4e4c3976f85ab29",
           "aaec9bce8ec29c93",
           "af42538767aa6642",
           "af57e85f060b7a4e",
+          "cb4b4f653c99fc16",
           "cf08fb61503832fb",
+          "d3e820220dacdce1",
           "f0d84e300bb39de3",
           "f159d8b097f5456c"
         ],
@@ -45033,16 +45446,24 @@
       {
         "compatible_graph_revisions": [
           "1016f2f0efc0cbd7",
+          "114ef930def0cdbb",
+          "12f82fc1dec40c31",
           "37cb394043f0f125",
           "511758965444c3bb",
           "55a233b9b6e923ea",
+          "5fe7cf2eaf8964c8",
           "6448b901792d40a4",
+          "6be9b0c2414cdb98",
+          "82e741080f6a22ff",
           "8e37ce83397a3ac7",
+          "9195b95c1e25685f",
           "a4e4c3976f85ab29",
           "aaec9bce8ec29c93",
           "af42538767aa6642",
           "af57e85f060b7a4e",
+          "cb4b4f653c99fc16",
           "cf08fb61503832fb",
+          "d3e820220dacdce1",
           "f0d84e300bb39de3",
           "f159d8b097f5456c"
         ],
@@ -45055,16 +45476,24 @@
       {
         "compatible_graph_revisions": [
           "1016f2f0efc0cbd7",
+          "114ef930def0cdbb",
+          "12f82fc1dec40c31",
           "37cb394043f0f125",
           "511758965444c3bb",
           "55a233b9b6e923ea",
+          "5fe7cf2eaf8964c8",
           "6448b901792d40a4",
+          "6be9b0c2414cdb98",
+          "82e741080f6a22ff",
           "8e37ce83397a3ac7",
+          "9195b95c1e25685f",
           "a4e4c3976f85ab29",
           "aaec9bce8ec29c93",
           "af42538767aa6642",
           "af57e85f060b7a4e",
+          "cb4b4f653c99fc16",
           "cf08fb61503832fb",
+          "d3e820220dacdce1",
           "f0d84e300bb39de3",
           "f159d8b097f5456c"
         ],
@@ -45077,16 +45506,24 @@
       {
         "compatible_graph_revisions": [
           "1016f2f0efc0cbd7",
+          "114ef930def0cdbb",
+          "12f82fc1dec40c31",
           "37cb394043f0f125",
           "511758965444c3bb",
           "55a233b9b6e923ea",
+          "5fe7cf2eaf8964c8",
           "6448b901792d40a4",
+          "6be9b0c2414cdb98",
+          "82e741080f6a22ff",
           "8e37ce83397a3ac7",
+          "9195b95c1e25685f",
           "a4e4c3976f85ab29",
           "aaec9bce8ec29c93",
           "af42538767aa6642",
           "af57e85f060b7a4e",
+          "cb4b4f653c99fc16",
           "cf08fb61503832fb",
+          "d3e820220dacdce1",
           "f0d84e300bb39de3",
           "f159d8b097f5456c"
         ],
@@ -45099,16 +45536,24 @@
       {
         "compatible_graph_revisions": [
           "1016f2f0efc0cbd7",
+          "114ef930def0cdbb",
+          "12f82fc1dec40c31",
           "37cb394043f0f125",
           "511758965444c3bb",
           "55a233b9b6e923ea",
+          "5fe7cf2eaf8964c8",
           "6448b901792d40a4",
+          "6be9b0c2414cdb98",
+          "82e741080f6a22ff",
           "8e37ce83397a3ac7",
+          "9195b95c1e25685f",
           "a4e4c3976f85ab29",
           "aaec9bce8ec29c93",
           "af42538767aa6642",
           "af57e85f060b7a4e",
+          "cb4b4f653c99fc16",
           "cf08fb61503832fb",
+          "d3e820220dacdce1",
           "f0d84e300bb39de3",
           "f159d8b097f5456c"
         ],
@@ -45121,38 +45566,54 @@
       {
         "compatible_graph_revisions": [
           "1016f2f0efc0cbd7",
+          "114ef930def0cdbb",
+          "12f82fc1dec40c31",
           "37cb394043f0f125",
           "511758965444c3bb",
           "55a233b9b6e923ea",
+          "5fe7cf2eaf8964c8",
           "6448b901792d40a4",
+          "6be9b0c2414cdb98",
+          "82e741080f6a22ff",
           "8e37ce83397a3ac7",
+          "9195b95c1e25685f",
           "a4e4c3976f85ab29",
           "aaec9bce8ec29c93",
           "af42538767aa6642",
           "af57e85f060b7a4e",
+          "cb4b4f653c99fc16",
           "cf08fb61503832fb",
+          "d3e820220dacdce1",
           "f0d84e300bb39de3",
           "f159d8b097f5456c"
         ],
         "migration_required_graph_revisions": [],
         "rejected_graph_revisions": [],
-        "workflow_digest": "ec408764d11fe341fd8b58adf5ec8c176ce1bcb1e202c10acaf53335ffba84f7",
+        "workflow_digest": "9e24ef41412fd9c4bd4026e746dcd614688e4cb8621672e303bf1cbdba8e11cd",
         "workflow_id": "workflow.setup.location",
         "workflow_version": 2
       },
       {
         "compatible_graph_revisions": [
           "1016f2f0efc0cbd7",
+          "114ef930def0cdbb",
+          "12f82fc1dec40c31",
           "37cb394043f0f125",
           "511758965444c3bb",
           "55a233b9b6e923ea",
+          "5fe7cf2eaf8964c8",
           "6448b901792d40a4",
+          "6be9b0c2414cdb98",
+          "82e741080f6a22ff",
           "8e37ce83397a3ac7",
+          "9195b95c1e25685f",
           "a4e4c3976f85ab29",
           "aaec9bce8ec29c93",
           "af42538767aa6642",
           "af57e85f060b7a4e",
+          "cb4b4f653c99fc16",
           "cf08fb61503832fb",
+          "d3e820220dacdce1",
           "f0d84e300bb39de3",
           "f159d8b097f5456c"
         ],
@@ -48712,6 +49173,7 @@
           "location.send_check_in",
           "location.send_request",
           "location.set_auto_share",
+          "location.set_circle_kind",
           "location.set_ghost_mode",
           "location.set_precision",
           "location.set_sharing_enabled",
@@ -48725,6 +49187,7 @@
           "location.stop_share",
           "location.stop_sos",
           "location.trigger_sos",
+          "location.verify_sos_delivery",
           "native.request_device_location_permission",
           "setup.finish_location",
           "setup.open_location",
@@ -48734,7 +49197,7 @@
         "package_id": "location.brain",
         "package_version": 2,
         "schema_version": "one.service_knowledge_package.v2",
-        "source_digest": "ffae41f4c4dcea4a5cadfd3529878b50e59436c7a2b5c069a23c4ea11b16c0de"
+        "source_digest": "054141b4aaf04ef13ce9bd139a1044287be8703c1e65015cc338a970d4fa51ed"
       },
       "knowledge_projection": {
         "allowed_fact_keys": [
@@ -48957,7 +49420,7 @@
           }
         ],
         "initial_step_id": "location.onboarding.preflight",
-        "knowledge_package_digest": "ffae41f4c4dcea4a5cadfd3529878b50e59436c7a2b5c069a23c4ea11b16c0de",
+        "knowledge_package_digest": "054141b4aaf04ef13ce9bd139a1044287be8703c1e65015cc338a970d4fa51ed",
         "knowledge_package_id": "location.brain",
         "knowledge_package_version": 2,
         "migrations": [

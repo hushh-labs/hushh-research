@@ -11,7 +11,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { ArrowLeft, RefreshCw, Clock } from "lucide-react";
+import { ArrowLeft, RefreshCw, Clock } from "@/components/icons";
 import { APP_MEASURE_STYLES } from "@/components/app-ui/app-page-shell";
 import { Card, CardContent } from "@/lib/morphy-ux/card";
 import { Button } from "@/lib/morphy-ux/button";
@@ -296,7 +296,7 @@ export function HistoryDetailView({
 
       {/* Debate Transcript (Static Replay) */}
       {entry.debate_transcript && (
-        <div className="pt-6 space-y-4 animate-in fade-in slide-in-from-bottom-4  delay-200">
+        <div className="pt-6 space-y-4 animate-in fade-in slide-in-from-bottom-4">
            <div className="flex items-center gap-2 px-1">
               <h3 className="text-xs font-bold uppercase tracking-widest text-muted-foreground/70">Debate Transcript</h3>
               <div className="h-px bg-border/50 flex-1" />

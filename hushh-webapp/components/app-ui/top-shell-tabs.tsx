@@ -301,7 +301,7 @@ export function TopShellTabs({
               // second animation chasing the first, retargeted every frame.
               tabSwipeState.pagerOwned
                 ? "transition-none"
-                : "transition-transform duration-[240ms] ease-[cubic-bezier(0.32,0.72,0,1)]",
+                : "transition-transform duration-[150ms] ease-[cubic-bezier(0.32,0.72,0,1)]",
             )}
             style={{
               transform: indicatorTransform,

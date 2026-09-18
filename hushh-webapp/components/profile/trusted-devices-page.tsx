@@ -1,7 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { Laptop, Loader2, Trash2 } from "lucide-react";
+import {
+  LaptopIcon as Laptop,
+  SpinnerGapIcon as Loader2,
+  TrashIcon as Trash2,
+} from "@/components/icons";
 
 import {
   AppPageContentRegion,

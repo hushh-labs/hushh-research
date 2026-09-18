@@ -17,7 +17,7 @@
 
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Loader2 } from "lucide-react";
+import { Loader2 } from "@/components/icons";
 
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { SectionLabel, TrailingValue } from "@/components/app-ui/typography";

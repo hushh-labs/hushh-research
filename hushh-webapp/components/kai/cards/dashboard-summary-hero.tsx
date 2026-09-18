@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowUpRight, ArrowDownRight } from "lucide-react";
+import { ArrowUpRight, ArrowDownRight } from "@/components/icons";
 
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/lib/morphy-ux/card";

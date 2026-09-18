@@ -145,7 +145,7 @@ export const SegmentedPill = React.forwardRef<
         <div
           aria-hidden
           data-segment-indicator
-          className="pointer-events-none absolute left-2 top-2 bottom-2 overflow-hidden rounded-full bg-transparent shadow-none transition-transform duration-[300ms] ease-[cubic-bezier(0.2,0.8,0.2,1)]"
+          className="pointer-events-none absolute left-2 top-2 bottom-2 overflow-hidden rounded-full bg-transparent shadow-none transition-transform duration-[140ms] ease-[cubic-bezier(0.16,1,0.3,1)]"
           style={{
             width: `calc((100% - 1rem) / ${resolvedSlotCount})`,
             transform: `translateX(calc(${activeIndex * 100}% + var(--segment-drag-x, 0px)))`,
@@ -184,7 +184,7 @@ export const SegmentedPill = React.forwardRef<
                 onValueChange(option.value);
               }}
               className={cn(
-                "press-scale relative z-10 flex min-w-0 items-center justify-center overflow-hidden rounded-full text-center transition-[color,opacity,transform] duration-200 ease-[cubic-bezier(0.2,0,0,1)] disabled:cursor-not-allowed",
+                "press-scale relative z-10 flex min-w-0 items-center justify-center overflow-hidden rounded-full text-center transition-[color,opacity,transform] duration-100 ease-[cubic-bezier(0.2,0,0,1)] disabled:cursor-not-allowed",
                 "pointer-events-auto",
                 hitArea === "content"
                   ? "w-fit flex-none self-center"

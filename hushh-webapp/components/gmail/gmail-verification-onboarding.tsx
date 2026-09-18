@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Check, Copy, ShieldCheck } from "lucide-react";
+import { Check, Copy, ShieldCheck } from "@/components/icons";
 import { toast } from "sonner";
 
 import { SurfaceInset } from "@/components/app-ui/surfaces";

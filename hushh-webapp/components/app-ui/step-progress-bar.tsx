@@ -65,7 +65,7 @@ export function StepProgressBar() {
     <div
       className={cn(
         "fixed left-0 right-0 top-0 flex justify-center pointer-events-none transform-gpu",
-        "z-[100] transition-opacity duration-300 ease-in-out",
+        "z-[100] transition-opacity duration-150 ease-in-out",
         visible ? "opacity-100" : "opacity-0"
       )}
       style={{

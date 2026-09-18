@@ -30,6 +30,19 @@ describe("profile security deletion contract", () => {
     expect(profilePageSource).not.toContain("Create vault to delete account");
   });
 
+  it("keeps the delete row interactive when the vault probe fails", () => {
+    expect(profilePageSource).toContain(
+      'testId="profile-account-delete-row"',
+    );
+    expect(profilePageSource).toContain(
+      'onClick={() => void handleDeleteClick()}',
+    );
+    expect(profilePageSource).toContain(
+      'setHasVault(true);\n        nextHasVault = true;',
+    );
+    expect(profilePageSource).toContain('requestVaultUnlock("delete_account")');
+  });
+
   it("keeps the One account delete confirmation button mobile-safe", () => {
     expect(profilePageSource).toContain('"Delete account"');
     expect(profilePageSource).toContain('variant="destructive"');

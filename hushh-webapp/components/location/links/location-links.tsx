@@ -15,7 +15,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Copy, Link2, Loader2, Share2 } from "lucide-react";
+import { Copy, Link2, Loader2, Share2 } from "@/components/icons";
 
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/use-auth";

@@ -104,12 +104,7 @@ for (const dark of [false, true]) {
         for (const heading of await page
           .locator('[data-slot="settings-group-heading"]')
           .all()) {
-          // Shared level-two headings use the responsive title3 scale (20–22px).
-          const headingSize = await heading.evaluate((element) =>
-            parseFloat(getComputedStyle(element).fontSize),
-          );
-          expect(headingSize).toBeGreaterThanOrEqual(20);
-          expect(headingSize).toBeLessThanOrEqual(22);
+          await expect(heading).toHaveCSS("font-size", "14px");
         }
         const measurements = await rows.evaluateAll((elements) =>
           elements.map((row) => {

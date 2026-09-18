@@ -1,6 +1,6 @@
 "use client";
 
-import { Loader2 } from "lucide-react";
+import { Loader2 } from "@/components/icons";
 
 import { Button } from "@/lib/morphy-ux/button";
 import type { ColorVariant, ComponentEffect } from "@/lib/morphy-ux/types";

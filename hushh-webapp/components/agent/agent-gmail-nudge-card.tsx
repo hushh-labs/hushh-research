@@ -1,6 +1,6 @@
 "use client";
 
-import { ExternalLink } from "lucide-react";
+import { ExternalLink } from "@/components/icons";
 
 import { Button } from "@/components/ui/button";
 import type { GmailNudge } from "@/lib/services/gmail-receipts-service";

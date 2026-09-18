@@ -1,4 +1,4 @@
-import type { LucideIcon } from "lucide-react";
+import type { LucideIcon } from "@/components/icons";
 import {
   Database,
   MapPin,
@@ -7,7 +7,7 @@ import {
   TrendingUp,
   UserRound,
   Users,
-} from "lucide-react";
+} from "@/components/icons";
 
 import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
 import { formatLocationDurationLabel } from "@/lib/one-location/duration-copy";

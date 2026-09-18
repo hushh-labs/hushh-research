@@ -29,12 +29,11 @@ import {
   type FormEvent,
 } from "react";
 import { usePathname } from "next/navigation";
-import { AudioLines, Keyboard, MessageCircle, Send, X } from "lucide-react";
+import { AudioLines, Keyboard, Send, X } from "@/components/icons";
 
 import { useVoiceSession } from "@/components/one-voice/voice-session-provider";
 import { useAuth } from "@/hooks/use-auth";
 import { isNative } from "@/lib/capacitor/platform";
-import { navigateToAgentChat } from "@/lib/navigation/agent-navigation";
 import { getKaiChromeState } from "@/lib/navigation/kai-chrome-state";
 import { isFoundationPublicRoute } from "@/lib/navigation/routes";
 import {
@@ -43,7 +42,11 @@ import {
 } from "@/lib/one-voice/session-store";
 import { cn } from "@/lib/utils";
 
-import { OneVoicePanel, panelHasContent } from "./one-voice-panel";
+import {
+  OneVoicePanel,
+  isSosPublishStep,
+  panelHasContent,
+} from "./one-voice-panel";
 import { VoiceStatePill } from "./voice-state-pill";
 import { transcriptStatusLine } from "./voice-transcript";
 
@@ -102,14 +105,17 @@ export function OneVoiceControl({
   );
   const pickerOpen = state.candidatePicker !== null;
   const errorCode = state.error?.code ?? null;
+  // A Save My Soul position on its way is shown wherever the person is.
+  const sosPublishing = isSosPublishStep(state.clientStep);
 
   // Anything that needs an answer opens the panel; a fresh session starts open.
   useEffect(() => {
     if (!active) setCollapsed(false);
   }, [active]);
   useEffect(() => {
-    if (pendingOpen || pickerOpen || errorCode) setCollapsed(false);
-  }, [pendingId, pendingOpen, pickerOpen, errorCode]);
+    if (pendingOpen || pickerOpen || errorCode || sosPublishing)
+      setCollapsed(false);
+  }, [pendingId, pendingOpen, pickerOpen, errorCode, sosPublishing]);
   useEffect(() => {
     if (!active) {
       setTyping(false);
@@ -304,19 +310,6 @@ export function OneVoiceControl({
         >
           <Keyboard className="h-4 w-4" aria-hidden />
         </button>
-        {!active ? (
-          <button
-            type="button"
-            data-testid="one-agent-chat-open"
-            data-agent-action="chat"
-            onClick={() => navigateToAgentChat()}
-            aria-label="Chat with One"
-            className="flex h-11 min-w-[88px] shrink-0 items-center justify-center gap-1.5 rounded-r-full border-l border-current/15 px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--app-focus-ring)] sm:min-w-[96px]"
-          >
-            <MessageCircle className="h-4 w-4" aria-hidden />
-            <span data-testid="one-agent-chat-label">Chat</span>
-          </button>
-        ) : null}
       </div>
     </div>
   );

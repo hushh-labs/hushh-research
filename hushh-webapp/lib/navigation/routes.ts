@@ -89,6 +89,7 @@ export const ROUTES = {
   RESEARCH: "/research",
   RESEARCH_PROTOCOL: "/research/protocol",
   BLOG: "/blog",
+  MANISH_SAINANI: "/manishhussh",
   LOGIN: "/login",
   GETTING_STARTED: "/getting-started",
   LOGOUT: "/logout",
@@ -115,6 +116,8 @@ export const ROUTES = {
   PROFILE_ACCESS: "/one/profile/access",
   PROFILE_ACCESS_CONNECTION: "/one/profile/access/connection",
   PROFILE_CONNECTED_SYSTEMS: "/one/profile/connected-systems",
+  PROFILE_CONNECTORS: "/one/profile/connectors",
+  PROFILE_CONNECTOR_OAUTH_RETURN: "/one/profile/connectors/oauth/return",
   PROFILE_GMAIL: "/one/profile/gmail",
   PROFILE_GMAIL_CONNECTION: "/one/profile/gmail/connection",
   PROFILE_GMAIL_ACTIONS: "/one/profile/gmail/actions",
@@ -131,6 +134,10 @@ export const ROUTES = {
   PROFILE_GOOGLE_OAUTH_RETURN: "/one/profile/google/oauth/return",
   OAUTH_AUTHORIZE: "/oauth/authorize",
   ONE_SETUP: "/one/setup",
+  /** Opened from the dashboard's "Finish setting up One" tile -- the full
+   * capability list, distinct from ONE_SETUP itself, which stays the
+   * canonical pre-vault landing route for the one mandatory step. */
+  ONE_SETUP_CAPABILITIES: "/one/setup/capabilities",
   ONE_SETUP_FINANCE: "/one/setup/finance",
   ONE_SETUP_FINANCE_IMPORT: "/one/setup/finance/import",
   ONE_SETUP_KAI: "/one/setup/kai",
@@ -483,6 +490,7 @@ export function isOnboardingAdmissionExemptRoute(pathname: string): boolean {
     normalizedPathname.startsWith(`${ROUTES.RESEARCH}/`) ||
     normalizedPathname === ROUTES.BLOG ||
     normalizedPathname.startsWith(`${ROUTES.BLOG}/`) ||
+    normalizedPathname === ROUTES.MANISH_SAINANI ||
     normalizedPathname === ROUTES.LOGIN ||
     isFirebaseSessionOnlyRoute(normalizedPathname) ||
     normalizedPathname === ROUTES.GETTING_STARTED ||
@@ -742,6 +750,7 @@ export function isPublicRoute(pathname: string): boolean {
     normalizedPathname.startsWith(`${ROUTES.RESEARCH}/`) ||
     normalizedPathname === ROUTES.BLOG ||
     normalizedPathname.startsWith(`${ROUTES.BLOG}/`) ||
+    normalizedPathname === ROUTES.MANISH_SAINANI ||
     // Both prefixes. `/view/` is where public live-location links point now;
     // `/request/` is what every link minted before the rename carries, and it
     // has to stay public or those land on /login instead of on the forwarder
@@ -783,7 +792,8 @@ export function isFoundationPublicRoute(pathname: string): boolean {
     normalizedPathname === ROUTES.RESEARCH ||
     normalizedPathname.startsWith(`${ROUTES.RESEARCH}/`) ||
     normalizedPathname === ROUTES.BLOG ||
-    normalizedPathname.startsWith(`${ROUTES.BLOG}/`)
+    normalizedPathname.startsWith(`${ROUTES.BLOG}/`) ||
+    normalizedPathname === ROUTES.MANISH_SAINANI
   );
 }
 

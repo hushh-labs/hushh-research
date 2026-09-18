@@ -549,6 +549,38 @@ describe("web Google sync across auth gate remounts", () => {
   });
 });
 
+describe("Google account chooser", () => {
+  it("reuses the granted account silently unless the chooser is requested", async () => {
+    render(<App />);
+    await waitFor(() => expect(controller).toBeDefined());
+
+    await act(async () => {
+      await controller.run({
+        routeId: "connect",
+        resolveIdToken: async () => "id-token",
+        accountPhoneNumber: "+14155550199",
+      });
+    });
+    expect(mocks.token).toHaveBeenLastCalledWith(
+      expect.anything(),
+      undefined,
+    );
+
+    mocks.token.mockClear();
+    await act(async () => {
+      await controller.run({
+        routeId: "connect",
+        resolveIdToken: async () => "id-token",
+        accountPhoneNumber: "+14155550199",
+        promptAccountPicker: true,
+      });
+    });
+    expect(mocks.token).toHaveBeenLastCalledWith(expect.anything(), {
+      forceAccountPicker: true,
+    });
+  });
+});
+
 describe("Google result explanations", () => {
   it("distinguishes an empty saved address book from no matching accounts", () => {
     expect(googleContactSyncSummary(EMPTY_RESULT)?.title).toBe(

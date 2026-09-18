@@ -52,7 +52,7 @@ export function FilterChip({
       onClick={onClick}
       className={cn(
         "inline-flex min-w-0 shrink-0 items-center gap-1.5 rounded-full border px-3 py-1.5",
-        "type-footnote transition-[background-color,border-color,color] duration-200",
+        "type-footnote transition-[background-color,border-color,color] duration-150",
         "disabled:cursor-not-allowed disabled:opacity-60",
         active
           ? "border-[color:var(--app-accent-border)] bg-[color:var(--app-accent-surface)] text-[color:var(--app-accent-deep)] dark:text-[color:var(--app-accent-bright)]"

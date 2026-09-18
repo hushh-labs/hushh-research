@@ -1,6 +1,6 @@
 "use client";
 
-import { Shield, TrendingUp, LineChart, type LucideIcon } from "lucide-react";
+import { Shield, TrendingUp, LineChart, type LucideIcon } from "@/components/icons";
 
 import type { RiskProfile } from "@/lib/services/kai-profile-service";
 import { Button } from "@/lib/morphy-ux/button";

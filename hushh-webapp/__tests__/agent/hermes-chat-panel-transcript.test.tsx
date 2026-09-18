@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   fetchPuppyStatus: vi.fn(),
   link: { current: null as unknown },
   runAgent: vi.fn(),
+  abortRun: vi.fn(),
 }));
 
 vi.mock("@/lib/services/puppy-one-service", async (importOriginal) => {
@@ -31,6 +32,7 @@ vi.mock("@/components/agent/puppy-model-picker", () => ({
 
 vi.mock("@ag-ui/client", () => ({
   HttpAgent: class {
+    abortRun() { mocks.abortRun(); }
     runAgent(
       params: unknown,
       handlers: Record<string, (arg: { event: unknown }) => void>,
@@ -41,6 +43,11 @@ vi.mock("@ag-ui/client", () => ({
 }));
 
 import { HermesChatPanel } from "@/components/agent/hermes-chat-panel";
+import { PuppyOneSurface } from "@/components/agent/puppy-one-surface";
+import type { AgentChatConversation } from "@/lib/services/agent-chat-client";
+vi.mock("@/components/agent/puppy-resource-monitor", () => ({
+  PuppyMachineSheet: () => null,
+}));
 import type { PuppyStatus } from "@/lib/services/puppy-one-service";
 
 /**
@@ -141,6 +148,50 @@ describe("HermesChatPanel on-device pin", () => {
 });
 
 describe("HermesChatPanel transcript", () => {
+  it("restores each selected Puppy's transcript and server session independently", async () => {
+    mocks.fetchPuppyStatus.mockResolvedValue(CONNECTED);
+    const conversations: AgentChatConversation[] = ["a", "b"].map((id) => ({
+      id, title: id, status: "active", message_count: 0,
+      created_at: "2026-01-01T00:00:00Z", updated_at: "2026-01-01T00:00:00Z",
+    }));
+    let calls = 0;
+    mocks.runAgent.mockImplementation(async (_params, handlers) => {
+      calls++;
+      handlers.onRunStartedEvent({ event: { runId: `session-${calls}` } });
+      handlers.onTextMessageContentEvent({ event: { delta: `Answer ${calls}` } });
+    });
+    const view = render(<PuppyOneSurface conversations={conversations} activeConversationId="a" />);
+    const sendAt = async (index: number, text: string) => {
+      const textarea = view.container.querySelectorAll("textarea")[index];
+      await waitFor(() => expect(textarea).not.toBeDisabled());
+      fireEvent.change(textarea, { target: { value: text } });
+      fireEvent.click(view.container.querySelectorAll('button[aria-label="Send to Puppy One"]')[index]);
+      await waitFor(() => expect(textarea).not.toBeDisabled());
+    };
+    await sendAt(0, "First topic");
+    view.rerender(<PuppyOneSurface conversations={conversations} activeConversationId="b" />);
+    await sendAt(1, "Second topic");
+    expect(mocks.runAgent.mock.calls[1][0].forwardedProps.sessionId).toBe("");
+    view.rerender(<PuppyOneSurface conversations={conversations} activeConversationId="a" />);
+    await sendAt(0, "Continue first topic");
+    expect(mocks.runAgent.mock.calls[2][0].forwardedProps.sessionId).toBe("session-1");
+    const panels = view.container.querySelectorAll("textarea");
+    expect(panels[0].parentElement?.parentElement).toHaveTextContent("First topic");
+    expect(panels[0].parentElement?.parentElement).not.toHaveTextContent("Second topic");
+    expect(panels[1].parentElement?.parentElement).toHaveClass("hidden");
+    view.rerender(<PuppyOneSurface conversations={[conversations[1]]} activeConversationId="b" />);
+    expect(screen.queryByText("First topic")).not.toBeInTheDocument();
+  });
+
+  it("aborts an in-flight request on actual unmount, not when hidden", async () => {
+    mocks.runAgent.mockImplementation(() => new Promise(() => {}));
+    const view = await mount();
+    await ask("Example");
+    view.rerender(<HermesChatPanel active={false} className="hidden" />);
+    expect(mocks.abortRun).not.toHaveBeenCalled();
+    view.unmount();
+    expect(mocks.abortRun).toHaveBeenCalledOnce();
+  });
   it("keeps a polite status region mounted before any run begins", async () => {
     await mount();
     // Mounted with the panel, not inserted with its content: a live region

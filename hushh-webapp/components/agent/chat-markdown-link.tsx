@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Check, Copy } from "lucide-react";
+import { Check, Copy } from "@/components/icons";
 
 export async function copyTextToClipboard(text: string): Promise<void> {
   if (navigator.clipboard?.writeText) {

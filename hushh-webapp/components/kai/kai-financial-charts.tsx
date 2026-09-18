@@ -24,7 +24,7 @@ import {
   type ChartConfig,
 } from "@/components/ui/chart";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { TrendingUp, DollarSign } from "lucide-react";
+import { TrendingUp, DollarSign } from "@/components/icons";
 import { Icon } from "@/lib/morphy-ux/ui";
 
 interface TrendDataPoint {

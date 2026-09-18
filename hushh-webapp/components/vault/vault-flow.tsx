@@ -22,7 +22,7 @@ import {
   Eye,
   EyeOff,
   type LucideIcon,
-} from "lucide-react";
+} from "@/components/icons";
 import { cn } from "@/lib/utils";
 import {
   VaultAuthSessionNotReadyError,
@@ -531,7 +531,7 @@ export function VaultFlow({
   const isPasskeyQuickUnlock =
     createQuickUnlockMethod === "generated_default_web_prf" ||
     createQuickUnlockMethod === "generated_default_native_passkey_prf";
-  const createQuickUnlockLabel = isPasskeyQuickUnlock ? "passkey" : biometricLabel;
+  const createQuickUnlockLabel = isPasskeyQuickUnlock ? "Passkey" : biometricLabel;
 
   const recoveryKeyDisclosureActive =
     step === "recovery" && Boolean(recoveryKey);
@@ -1422,7 +1422,14 @@ export function VaultFlow({
         showRipple={false}
         className={VAULT_ESCAPE_LINK_CLASS}
         data-testid={onSignOut ? "vault-use-recovery-key-escape" : "vault-use-recovery-key"}
-        onClick={handleShowRecoveryKey}
+        onPointerUp={(event) => {
+          event.preventDefault();
+          handleShowRecoveryKey();
+        }}
+        onClick={(event) => {
+          event.preventDefault();
+          handleShowRecoveryKey();
+        }}
         disabled={isSigningOut}
       >
         Recovery key
@@ -1496,7 +1503,13 @@ export function VaultFlow({
                 showRipple={false}
                 className={VAULT_ESCAPE_LINK_CLASS}
                 data-testid="vault-use-passphrase-instead"
-                onClick={() => {
+                onPointerUp={(event) => {
+                  event.preventDefault();
+                  switchUnlockMethod();
+                  setUnlockWithPassphraseFallback(true);
+                }}
+                onClick={(event) => {
+                  event.preventDefault();
                   switchUnlockMethod();
                   setUnlockWithPassphraseFallback(true);
                 }}
@@ -1514,7 +1527,15 @@ export function VaultFlow({
                 size="sm"
                 showRipple={false}
                 className={VAULT_ESCAPE_LINK_CLASS}
-                onClick={() => {
+                data-testid="vault-use-passkey-escape"
+                onPointerUp={(event) => {
+                  event.preventDefault();
+                  switchUnlockMethod();
+                  setPassphrase("");
+                  if (availableGeneratedMethod) handleRetryGeneratedUnlock(availableGeneratedMethod);
+                }}
+                onClick={(event) => {
+                  event.preventDefault();
                   switchUnlockMethod();
                   setPassphrase("");
                   if (availableGeneratedMethod) handleRetryGeneratedUnlock(availableGeneratedMethod);
@@ -1557,7 +1578,15 @@ export function VaultFlow({
               size="sm"
               showRipple={false}
               className={VAULT_ESCAPE_LINK_CLASS}
-              onClick={() => {
+              data-testid="vault-recovery-use-passphrase"
+              onPointerUp={(event) => {
+                event.preventDefault();
+                switchUnlockMethod();
+                setUnlockWithPassphraseFallback(true);
+                setStep("unlock");
+              }}
+              onClick={(event) => {
+                event.preventDefault();
                 switchUnlockMethod();
                 setUnlockWithPassphraseFallback(true);
                 setStep("unlock");
@@ -1574,7 +1603,16 @@ export function VaultFlow({
                   size="sm"
                   showRipple={false}
                   className={VAULT_ESCAPE_LINK_CLASS}
-                  onClick={() => {
+                  data-testid="vault-recovery-use-passkey"
+                  onPointerUp={(event) => {
+                    event.preventDefault();
+                    switchUnlockMethod();
+                    setPassphrase("");
+                    setStep("unlock");
+                    if (availableGeneratedMethod) handleRetryGeneratedUnlock(availableGeneratedMethod);
+                  }}
+                  onClick={(event) => {
+                    event.preventDefault();
                     switchUnlockMethod();
                     setPassphrase("");
                     setStep("unlock");

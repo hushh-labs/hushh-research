@@ -45,7 +45,7 @@ import {
   UsersRound,
   ChevronRight,
   X,
-} from "lucide-react";
+} from "@/components/icons";
 
 import {
   requestRecipientStatus,
@@ -158,9 +158,8 @@ import {
 import {
   SHARE_CONFIRM_ACTIONS_CLASSNAME,
   SHARE_CONFIRM_PRIMARY_CTA_CLASSNAME,
+  PUBLIC_LINK_CONTROLS_CLASSNAME,
 } from "./location-cta-layout";
-import {
-} from "./location-header-layout";
 import {
   CHANGE_TIME_DURATION_LADDER,
   REQUEST_DURATION_LADDER,
@@ -734,6 +733,13 @@ export type LocationHubViewModel = {
   recipientLabel: (r: OneLocationRecipient) => string;
   recipientSubtitle: (r: OneLocationRecipient) => string;
   isRecipientShareReady: (r: OneLocationRecipient) => boolean;
+  /**
+   * Save My Soul readiness: ordinary sharing needs a location key; the SMS
+   * lane also needs a verified phone. The SOS panel counts and enables from
+   * this so what it offers is exactly what the trigger accepts. Falls back to
+   * `isRecipientShareReady` for callers that do not distinguish.
+   */
+  isSosRecipientShareReady?: (r: OneLocationRecipient) => boolean;
   requestOwnerLabel: (r: OneLocationAccessRequest) => string;
   requesterLabel: (r: OneLocationAccessRequest) => string;
   grantRecipientLabel: (g: OneLocationGrant) => string;
@@ -1643,7 +1649,11 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
             onRemove={vm.onRemoveSmsContact}
             recipientLabel={vm.recipientLabel}
             recipientSubtitle={vm.recipientSubtitle}
-            isRecipientShareReady={vm.isRecipientShareReady}
+            // The roster editor and the SOS panel must agree on who is ready:
+            // the SMS lane needs a verified phone as well as a key.
+            isRecipientShareReady={
+              vm.isSosRecipientShareReady ?? vm.isRecipientShareReady
+            }
           />
         ) : flow === "create-circle" ? (
           <CreateCircleFlow
@@ -1850,7 +1860,6 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
               onDismissFocusedInvite={dismissFocusedCircleMemberInvite}
               onStartShare={openShareFlow}
               onStartAsk={openAskFlowForPerson}
-              onOpenCheckIn={() => openFlow("check-in")}
               onOpenActiveShares={() => openFlow("active-shares")}
               onOpenSharedWithMe={() => openFlow("shared-with-me")}
             />
@@ -2135,8 +2144,8 @@ function NowHub({
             testId: "one-location-request-row",
           },
           {
-            title: "Arrival confirm",
-            ariaLabel: "Arrival confirm",
+            title: "Check In",
+            ariaLabel: "Check In",
             icon: <LocationMenuGlyph name="checkIn" size={21} />,
             tone: "blue",
             onClick: onCheckIn,
@@ -2272,15 +2281,23 @@ function LocationPrimaryShareCard({ onClick }: { onClick: () => void }) {
         data-testid="one-location-share-row"
         className={cn(
           LOCATION_INTERACTIVE_SURFACE,
-          "flex w-full flex-col gap-3 rounded-[18px] px-4 py-4 text-left",
+          "flex w-full flex-col gap-3 rounded-[18px] px-4 py-4 text-left min-[420px]:flex-row min-[420px]:items-center min-[420px]:gap-4",
         )}
       >
-        <CardTitle
-          as="span"
-          className="block !text-[17px] !font-semibold !leading-[22px]"
-        >
-          Not sharing with anyone
-        </CardTitle>
+        <div className="flex min-w-0 flex-1 items-center gap-4">
+          <LocationSharePulseIcon />
+          <span className="min-w-0">
+            <CardTitle
+              as="span"
+              className="block !text-[17px] !font-semibold !leading-[22px]"
+            >
+              You&apos;re not sharing
+            </CardTitle>
+            <span className="mt-0.5 block truncate text-[13px] font-normal leading-[18px] text-[color:var(--app-secondary-label)]">
+              Choose a Circle or contact.
+            </span>
+          </span>
+        </div>
         <button
           type="button"
           data-voice-control-id="one-location-action-share"
@@ -2288,7 +2305,7 @@ function LocationPrimaryShareCard({ onClick }: { onClick: () => void }) {
           data-voice-label="Share location"
           aria-label="Share location"
           onClick={onClick}
-           className="mx-auto inline-flex h-11 min-h-11 w-[76%] items-center justify-center rounded-[14px] bg-[color:var(--app-accent)] px-5 !text-[15px] !font-semibold !leading-5 text-[color:var(--app-accent-fg)] transition-[background-color,transform] [-webkit-tap-highlight-color:transparent] hover:bg-[color:var(--app-accent-hover)] active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]"
+          className="inline-flex h-11 min-h-11 w-full shrink-0 items-center justify-center rounded-[14px] bg-[color:var(--app-accent)] px-5 !text-[15px] !font-semibold !leading-5 text-[color:var(--app-accent-fg)] transition-[background-color,transform] [-webkit-tap-highlight-color:transparent] hover:bg-[color:var(--app-accent-hover)] active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)] min-[420px]:w-auto"
         >
           <ButtonLabel
             as="span"
@@ -2299,6 +2316,20 @@ function LocationPrimaryShareCard({ onClick }: { onClick: () => void }) {
         </button>
       </div>
     </section>
+  );
+}
+
+function LocationSharePulseIcon() {
+  return (
+    <span
+      aria-hidden="true"
+      data-location-share-pulse-icon=""
+      className="relative inline-flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-[color:var(--app-accent-tint)] shadow-[inset_0_0_0_1px_rgba(0,122,255,0.025)] dark:shadow-none sm:h-16 sm:w-16"
+    >
+      <span className="absolute inset-[13%] rounded-full bg-[color:var(--app-accent-surface)]" />
+      <span className="absolute inset-[28%] rounded-full bg-[color:var(--app-accent)]/20" />
+      <span className="relative h-[25%] w-[25%] rounded-full bg-[color:var(--app-accent)] shadow-[0_0_0_4px_var(--app-primary-surface),0_8px_16px_rgba(0,122,255,0.18)] dark:shadow-[0_0_0_4px_var(--app-primary-surface)]" />
+    </span>
   );
 }
 
@@ -2351,12 +2382,12 @@ function LocationActionGrid({ items }: { items: LocationActionGridItem[] }) {
             data-voice-label={item.ariaLabel}
             aria-label={item.ariaLabel}
             onClick={item.onClick}
-          className="group flex h-[62px] min-h-[62px] min-w-0 flex-col items-center justify-center gap-1 rounded-[14px] bg-[color:var(--app-primary-surface)] px-3 py-2 text-center shadow-none ring-1 ring-inset ring-[color:var(--app-separator)] transition-[background-color,transform] [-webkit-tap-highlight-color:transparent] hover:bg-[color:var(--app-secondary-surface)] active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]"
+          className="group flex h-[88px] min-h-[88px] min-w-0 flex-col items-center justify-center gap-1.5 rounded-[14px] bg-[color:var(--app-primary-surface)] px-3 py-3 text-center shadow-none ring-1 ring-inset ring-[color:var(--app-separator)] transition-[background-color,transform] [-webkit-tap-highlight-color:transparent] hover:bg-[color:var(--app-secondary-surface)] active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]"
           >
             <span
               aria-hidden
               data-one-location-action-icon=""
-              className="inline-flex h-6 w-6 shrink-0 items-center justify-center text-[color:var(--app-accent)] transition-colors"
+              className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[color:var(--app-accent-tint)] text-[color:var(--app-accent)] transition-colors"
             >
               {item.icon}
             </span>
@@ -3083,7 +3114,7 @@ function LocationToggle({
         onChange(!checked);
       }}
       className={cn(
-        "relative h-[31px] w-[51px] shrink-0 rounded-full transition-colors duration-200",
+        "relative h-[31px] w-[51px] shrink-0 rounded-full transition-colors duration-150",
         // Same tokens as the shared `Switch size="ios"`, not private literals.
         // This used to be `bg-[#34c759]` / `bg-black/15 dark:bg-white/20`, which
         // held the light-mode green in dark mode (where the system value is
@@ -3099,7 +3130,7 @@ function LocationToggle({
     >
       <span
         className={cn(
-          "absolute top-[2px] h-[27px] w-[27px] rounded-full bg-[color:var(--switch-thumb)] shadow-[0_1px_3px_rgba(0,0,0,0.15)] transition-[left] duration-200",
+          "absolute top-[2px] h-[27px] w-[27px] rounded-full bg-[color:var(--switch-thumb)] shadow-[0_1px_3px_rgba(0,0,0,0.15)] transition-[left] duration-150",
           checked ? "left-[22px]" : "left-[2px]",
         )}
       />
@@ -3568,7 +3599,6 @@ function PersonRow({
   onOpen,
   onAsk,
   onShare,
-  onCheckIn,
   shareReady = true,
 }: {
   name: string;
@@ -3581,10 +3611,9 @@ function PersonRow({
   onOpen: () => void;
   onAsk?: () => void;
   onShare?: () => void;
-  onCheckIn?: () => void;
   shareReady?: boolean;
 }) {
-  const hasQuickActions = Boolean(onAsk || onShare || onCheckIn);
+  const hasQuickActions = Boolean(onAsk || onShare);
   const ariaLabel = subtitle
     ? `Open Location actions for ${name}. ${subtitle}`
     : `Open Location actions for ${name}`;
@@ -3666,18 +3695,6 @@ function PersonRow({
             >
               <LocationMenuGlyph name="share" size={17} />
               Share
-            </button>
-          ) : null}
-          {onCheckIn ? (
-            <button
-              type="button"
-              onClick={onCheckIn}
-              disabled={!shareReady}
-              className="flex min-h-11 min-w-0 flex-1 items-center justify-center gap-1.5 rounded-full bg-[color:var(--app-neutral-fill)] px-3 text-[13px] font-semibold text-[color:var(--app-primary-label)] transition-colors hover:bg-[color:var(--app-neutral-fill)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)] focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-45"
-              aria-label={`Check in with ${name}`}
-            >
-              <LocationMenuGlyph name="checkIn" size={17} />
-              Check-In
             </button>
           ) : null}
         </div>
@@ -3806,7 +3823,16 @@ function CircleIdentityStack({
 }: {
   circles: readonly OneLocationCircleSummary[];
 }) {
-  const visible = circles.slice(0, 3);
+  // Never render more than two identity boxes: a third 40px tile overflows
+  // the summary row's fixed leading column and reads as collapsed clutter.
+  // The remainder folds into one "+N" badge so "2 created · 1 joined" (3
+  // circles) shows two boxes plus "+1", and so on for any larger count.
+  const MAX_VISIBLE_CIRCLE_IDENTITIES = 2;
+  const visible = circles.slice(0, MAX_VISIBLE_CIRCLE_IDENTITIES);
+  const overflowCount = Math.max(
+    0,
+    circles.length - MAX_VISIBLE_CIRCLE_IDENTITIES,
+  );
   const fallback = visible.length
     ? visible
     : [
@@ -3816,10 +3842,15 @@ function CircleIdentityStack({
           memberCount: 0,
         } as OneLocationCircleSummary,
       ];
+  // One 40px tile plus 16px per additional overlapped tile (40px minus the
+  // 24px overlap), so the column always hugs exactly what it draws.
+  const stackWidthPx =
+    40 + (fallback.length + (overflowCount > 0 ? 1 : 0) - 1) * 16;
   return (
     <span
       aria-hidden="true"
-      className="flex h-11 w-[54px] shrink-0 items-center"
+      className="flex h-11 shrink-0 items-center"
+      style={{ width: `${stackWidthPx}px` }}
     >
       {fallback.map((circle, index) => {
         const isSmsCircle = circle.systemKind === "sms";
@@ -3848,6 +3879,11 @@ function CircleIdentityStack({
           </span>
         );
       })}
+      {overflowCount > 0 ? (
+        <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-[12px] border-2 border-[color:var(--app-primary-surface)] bg-[color:var(--app-accent-tint)] text-[13px] font-semibold text-[color:var(--app-accent)] shadow-sm -ml-6">
+          +{overflowCount}
+        </span>
+      ) : null}
     </span>
   );
 }
@@ -4014,7 +4050,7 @@ function CircleInvitationsDialog({
                 onOpenChange(false);
                 onDismissFocusedInvite();
               }}
-              className="h-12 w-full rounded-2xl bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)]"
+              className="h-12 w-full rounded-full text-[color:var(--app-accent-fg)]"
             >
               Done
             </Button>
@@ -4228,7 +4264,6 @@ export function PeopleHub({
   onDismissFocusedInvite,
   onStartShare,
   onStartAsk,
-  onOpenCheckIn,
   onOpenActiveShares,
   onOpenSharedWithMe,
 }: {
@@ -4240,7 +4275,6 @@ export function PeopleHub({
   onDismissFocusedInvite: () => void;
   onStartShare: (initialRecipientId?: string) => void;
   onStartAsk: (initialRecipientId?: string) => void;
-  onOpenCheckIn: () => void;
   onOpenActiveShares: () => void;
   onOpenSharedWithMe: () => void;
 }) {
@@ -4275,13 +4309,18 @@ export function PeopleHub({
   const pendingRequestByOwnerId = useMemo(() => {
     const byUserId = new globalThis.Map<string, OneLocationAccessRequest>();
     for (const request of vm.requestedByMe) {
-      if (request.status !== "pending" || request.extendsGrantId) continue;
+      if (
+        !isLocationRequestPending(request, vm.nowMs) ||
+        request.extendsGrantId
+      ) {
+        continue;
+      }
       if (!byUserId.has(request.ownerUserId)) {
         byUserId.set(request.ownerUserId, request);
       }
     }
     return byUserId;
-  }, [vm.requestedByMe]);
+  }, [vm.nowMs, vm.requestedByMe]);
 
   const selectedPerson = useMemo(() => {
     if (!selectedPersonId) return null;
@@ -4420,7 +4459,9 @@ export function PeopleHub({
 
   return (
     <div className="pt-4 sm:pt-5" data-testid="one-location-people-hub">
-      <div className="mx-auto w-full max-w-[640px] space-y-4">
+      {/* Full-bleed body: same measure as the hub root (Now | People | Links
+          tabs), so it is never a narrower shrinked column on desktop. */}
+      <div className="w-full space-y-4 sm:space-y-5">
         {!hasSearch ? (
           <CircleSummaryGroup
             circles={vm.circles}
@@ -4435,9 +4476,14 @@ export function PeopleHub({
           className="space-y-2"
           data-testid="one-location-people-connections"
         >
-          <span id="one-location-people-heading" className="sr-only">
+          <SectionLabel
+            as="h2"
+            compact
+            id="one-location-people-heading"
+            className="sr-only"
+          >
             People
-          </span>
+          </SectionLabel>
 
           <div className="flex items-center gap-2">
             <div
@@ -4487,7 +4533,6 @@ export function PeopleHub({
                     onOpen={() => setSelectedPersonId(recipient.userId)}
                     onAsk={() => onStartAsk(recipient.userId)}
                     onShare={() => onStartShare(recipient.userId)}
-                    onCheckIn={onOpenCheckIn}
                     shareReady={vm.isRecipientShareReady(recipient)}
                   />
                 );
@@ -4571,7 +4616,7 @@ export function PeopleHub({
           }}
           onCancelRequest={() => {
             if (selectedPendingRequest) {
-              vm.onWithdrawRequest(selectedPendingRequest.id);
+              void vm.onWithdrawRequest(selectedPendingRequest.id);
             }
           }}
         />
@@ -4772,6 +4817,7 @@ function LinksHub({ vm }: { vm: LocationHubViewModel }) {
       <SettingsGroup
         title="Temporary link"
         separatorInset
+        density="compact"
         shellClassName={LOCATION_GROUP_SHELL_CLASSNAME}
         className="[&>div:first-child]:mt-0"
         testId="one-location-links-temporary-link"
@@ -4798,14 +4844,16 @@ function LinksHub({ vm }: { vm: LocationHubViewModel }) {
                   </span>
                 }
               />
-              <PublicLinkActionRows
-                onCopy={vm.onCopyPublicInvite}
-                onShare={vm.onSharePublicInvite}
-                onRevoke={() => {
-                  if (temp) vm.onRevokePublicInvite(temp);
-                }}
-                revokeBusy={vm.busy === "publicRevoke" || !temp}
-              />
+              <div className={PUBLIC_LINK_CONTROLS_CLASSNAME}>
+                <PublicLinkActionRows
+                  onCopy={vm.onCopyPublicInvite}
+                  onShare={vm.onSharePublicInvite}
+                  onRevoke={() => {
+                    if (temp) vm.onRevokePublicInvite(temp);
+                  }}
+                  revokeBusy={vm.busy === "publicRevoke" || !temp}
+                />
+              </div>
             </>
           ) : (
             <>
@@ -4846,13 +4894,15 @@ function LinksHub({ vm }: { vm: LocationHubViewModel }) {
                 options={PUBLIC_LINK_DURATION_OPTIONS.map((option) => option)}
                 label="Duration"
                 presentation="buttons"
+                equalWidthButtons
                 maxWidthClassName={null}
+                activeClassName="border-[color:var(--app-accent-tint)] bg-[color:var(--app-accent-tint)] text-[color:var(--app-accent)]"
               />
               <Button
                 onClick={vm.onCreatePublicInvite}
                 isLoading={vm.busy === "publicInvite"}
                 data-voice-control-id="one-location-action-temp-link"
-                 className="mx-auto block h-11 min-h-11 w-[76%] min-w-0 rounded-[14px] px-5 text-[15px] font-semibold leading-5 text-[color:var(--app-accent-fg)] bg-[color:var(--app-accent)] hover:bg-[color:var(--app-accent)]/90"
+                className="h-[52px] w-full min-w-0 rounded-full px-5 text-[17px] font-semibold leading-[22px]"
               >
                 {vm.busy === "publicInvite"
                   ? "Creating link…"
@@ -4935,7 +4985,9 @@ function SosFlow({
         onClose={onClose}
         onEditContacts={onEditContacts}
         recipientLabel={vm.recipientLabel}
-        isRecipientShareReady={vm.isRecipientShareReady}
+        isRecipientShareReady={
+          vm.isSosRecipientShareReady ?? vm.isRecipientShareReady
+        }
         emergency={lookupStartedForMount ? vm.sosEmergency : null}
         emergencyStatus={lookupStartedForMount ? vm.sosEmergencyStatus : "idle"}
         onResolveEmergencyNumber={onResolveSosLocation}
@@ -5418,7 +5470,7 @@ function ShareFlow({
           <Button
             variant="ghost"
             onClick={() => onClose()}
-            className="h-11 w-full rounded-2xl bg-transparent text-[17px] font-medium leading-[22px] text-[color:var(--app-accent)] hover:bg-transparent"
+            className="h-11 w-full rounded-full bg-transparent text-[17px] font-medium leading-[22px] text-[color:var(--app-accent)] hover:bg-transparent"
           >
             Cancel
           </Button>
@@ -5592,7 +5644,7 @@ function ShareFlow({
             Boolean(vm.pendingShareCircleIds.length) ||
             vm.shareDeliveryPending
           }
-          className="h-[52px] w-full rounded-2xl bg-[color:var(--app-accent)] text-[17px] font-semibold leading-[22px] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90 disabled:bg-black/10 disabled:text-black/35 disabled:opacity-100 dark:disabled:bg-white/10 dark:disabled:text-white/35"
+          className="h-[52px] w-full rounded-full text-[17px] font-semibold leading-[22px] text-[color:var(--app-accent-fg)] disabled:bg-black/10 disabled:text-black/35 disabled:opacity-100 dark:disabled:bg-white/10 dark:disabled:text-white/35"
         >
           {vm.shareDeliveryPending
             ? "Sharing…"
@@ -5890,7 +5942,7 @@ function RequestRecipientListRow({
               aria-pressed={selected}
               className={cn(
                 "inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full transition-colors touch-manipulation",
-                "hover:bg-[color:var(--app-secondary-system-fill)] focus:outline-none focus:ring-2 focus:ring-[color:var(--app-accent-ring)]",
+                "hover:bg-[color:var(--app-neutral-fill)] focus:outline-none focus:ring-2 focus:ring-[color:var(--app-accent-ring)]",
               )}
             >
               <SelectionDot selected={selected} />
@@ -6275,14 +6327,14 @@ function AskFlow({
             disabled={!isRequestFormValid || sendingRequest}
             aria-disabled={!isRequestFormValid || sendingRequest}
             isLoading={sendingRequest}
-            className="h-[52px] w-full rounded-2xl bg-[color:var(--app-accent)] text-[17px] font-semibold leading-[22px] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90 disabled:pointer-events-none disabled:bg-black/10 disabled:text-black/35 disabled:opacity-100 dark:disabled:bg-white/10 dark:disabled:text-white/35"
+            className="h-[52px] w-full rounded-full text-[17px] font-semibold leading-[22px] text-[color:var(--app-accent-fg)] disabled:pointer-events-none disabled:bg-black/10 disabled:text-black/35 disabled:opacity-100 dark:disabled:bg-white/10 dark:disabled:text-white/35"
           >
             Send request
           </Button>
           <Button
             variant="ghost"
             onClick={() => onClose()}
-            className="h-11 w-full rounded-2xl bg-transparent text-[17px] font-medium leading-[22px] text-[color:var(--app-accent)] hover:bg-transparent"
+            className="h-11 w-full rounded-full bg-transparent text-[17px] font-medium leading-[22px] text-[color:var(--app-accent)] hover:bg-transparent"
           >
             Cancel
           </Button>
@@ -6464,7 +6516,7 @@ function AskFlow({
         <Button
           onClick={() => setStep("details")}
           disabled={!selectedRequestRecipients.length}
-          className="h-[52px] w-full rounded-2xl bg-[color:var(--app-accent)] text-[17px] font-semibold leading-[22px] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90 disabled:bg-black/10 disabled:text-black/35 disabled:opacity-100 dark:disabled:bg-white/10 dark:disabled:text-white/35"
+          className="h-[52px] w-full rounded-full text-[17px] font-semibold leading-[22px] text-[color:var(--app-accent-fg)] disabled:bg-black/10 disabled:text-black/35 disabled:opacity-100 dark:disabled:bg-white/10 dark:disabled:text-white/35"
         >
           Continue
         </Button>
@@ -6689,7 +6741,7 @@ function InviteFlow({
       <Button
         onClick={vm.onCreateCircleInvite}
         isLoading={vm.busy === "circleInvite"}
-        className="h-12 w-full rounded-2xl bg-[color:var(--app-accent)] text-base font-semibold text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90"
+        className="h-12 w-full rounded-full text-base font-semibold text-[color:var(--app-accent-fg)]"
       >
         Create invite
       </Button>

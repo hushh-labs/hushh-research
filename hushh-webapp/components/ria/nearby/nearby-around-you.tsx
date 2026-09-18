@@ -16,7 +16,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import { MapPin, Star, Trash2, UserRound } from "lucide-react";
+import { MapPin, Star, Trash2, UserRound } from "@/components/icons";
 
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { NearbyFilterBar } from "@/components/ria/nearby/nearby-filters";
@@ -550,7 +550,7 @@ function ShortlistedProspects({
         </div>
       ) : entries.length === 0 ? (
         <div className="px-4 py-5">
-          <p className={MUTED_TEXT}>No shortlisted prospects yet.</p>
+          <p className="text-sm text-muted-foreground">No shortlisted prospects yet.</p>
         </div>
       ) : (
         entries.map((entry) => {

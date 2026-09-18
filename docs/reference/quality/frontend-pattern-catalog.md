@@ -321,10 +321,11 @@ Rules:
 
 ## Pattern: Icon Usage
 
-Use Lucide through the icon wrapper for consistent sizing behavior.
+Use the canonical Phosphor registry through the icon wrapper for consistent
+geometry, weight, and sizing behavior.
 
 ```tsx
-import { Shield } from "lucide-react";
+import { Shield } from "@/components/icons";
 import { Icon } from "@/lib/morphy-ux/ui";
 
 <Icon icon={Shield} size="sm" className="text-primary" />;

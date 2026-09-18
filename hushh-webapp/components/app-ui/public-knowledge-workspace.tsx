@@ -3,6 +3,7 @@
 import { useCallback } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
+import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
 import { SwipeViews } from "@/lib/morphy-ux/ui/swipe-views";
 import { DeveloperDocsHub } from "@/components/developers/developer-docs-hub";
 import { BlogIndex } from "@/components/research/blog-index";
@@ -13,6 +14,7 @@ import {
   TOP_SHELL_TAB_REGISTRY,
   type PublicKnowledgeTab,
 } from "@/lib/navigation/top-shell-tabs";
+import { ROUTES } from "@/lib/navigation/routes";
 import { beginRouteTransition } from "@/lib/morphy-ux/hooks/use-route-transition";
 
 /**
@@ -44,15 +46,23 @@ export function PublicKnowledgeWorkspace() {
   );
 
   return (
-    <SwipeViews
-      tabSetId={definition.id}
-      activeValue={activeTab}
-      options={definition.tabs}
-      onSelectionChange={(value) => setActiveTab(value as PublicKnowledgeTab)}
-    >
-      <ResearchLanding />
-      <BlogIndex />
-      <DeveloperDocsHub />
-    </SwipeViews>
+    <>
+      <NativeTestBeacon
+        routeId={ROUTES.WELCOME}
+        marker="native-route-welcome"
+        authState="public"
+        dataState="loaded"
+      />
+      <SwipeViews
+        tabSetId={definition.id}
+        activeValue={activeTab}
+        options={definition.tabs}
+        onSelectionChange={(value) => setActiveTab(value as PublicKnowledgeTab)}
+      >
+        <ResearchLanding />
+        <BlogIndex />
+        <DeveloperDocsHub />
+      </SwipeViews>
+    </>
   );
 }

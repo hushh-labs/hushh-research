@@ -3,9 +3,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
-import { ArrowLeft, Shield } from "lucide-react";
+import { ArrowLeft, Shield } from "@/components/icons";
 import lightStyles from "./AuthStepLight.module.css";
-import { OneArcIllustration } from "@/components/onboarding/OneArcIllustration";
 import { AuthService } from "@/lib/services/auth-service";
 import { ApiService } from "@/lib/services/api-service";
 import { useAuth } from "@/lib/firebase/auth-context";
@@ -338,7 +337,7 @@ export function AuthStep({
       const explicitTargetPath = normalizeInternalRouteHref(
         resumeTarget || redirectPath,
       );
-      const targetPath = explicitTargetPath ?? ROUTES.ONE_HOME;
+      const targetPath = explicitTargetPath ?? ROUTES.HOME;
       const navigationKey = `${userId}:${targetPath}`;
       if (lastNavigationKeyRef.current === navigationKey) {
         return lastResolvedNavigationPathRef.current || targetPath;
@@ -987,8 +986,7 @@ export function AuthStep({
         },
       ];
 
-  const showReviewer =
-    (nativeTestConfig.enabled && nativeReviewerVisible) || reviewModeConfig.enabled;
+  const showReviewer = nativeTestConfig.enabled && nativeReviewerVisible;
 
   return (
     <main
@@ -1046,24 +1044,12 @@ export function AuthStep({
         }}
         data-auth-content-block
       >
-        {/* Center the complete sign-in group as one visual block while the
-            fixed Back control remains independently anchored above it. Legal
-            copy is anchored separately at the bottom like a standard auth
-            footer, so it does not read as primary sign-in content. */}
         <div
           className={cn("flex w-full flex-none flex-col items-center gap-5 px-2 text-center", lightStyles.clusters)}
           data-auth-signin-clusters
         >
           <div className={cn("flex w-full flex-col items-center gap-3", lightStyles.hero)}>
-            <div className={lightStyles.existingIllustration}><OneArcIllustration /></div>
-            <div className={lightStyles.illustration} aria-hidden="true">
-              <div className={lightStyles.imageCrop}>
-                <Image src="/onboarding/figma/screen-7-art.png" alt="" width={1536} height={1024} priority unoptimized draggable={false} className={lightStyles.darkArtwork} />
-                <Image src="/onboarding/figma/screen-3-art.png" alt="" width={950} height={1698} priority unoptimized draggable={false} />
-              </div>
-              <span className={lightStyles.glow} />
-              <span className={lightStyles.emoji}>🤫</span>
-            </div>
+            <span className={lightStyles.brandMark} aria-hidden="true">🤫</span>
 
             <h1
               role="heading"
@@ -1118,22 +1104,26 @@ export function AuthStep({
                 />
               ) : null}
             </div>
-
           </div>
         </div>
       </div>
-      <div className="absolute inset-x-6 bottom-5 z-10 flex justify-center">
+
+      <div className={cn("absolute inset-x-4 bottom-5 z-10 flex justify-center", lightStyles.footer)}>
         <div
-          className="flex flex-col items-center gap-3"
+          className={cn("flex items-center gap-3.5 text-left max-w-[24rem]", lightStyles.legalRow)}
           data-auth-supporting-content
         >
-          <p className="type-footnote mx-auto max-w-[24rem] text-center leading-5 text-[#86868b] dark:text-white/45">
+          <span className={lightStyles.existingPrivacyIcon}><HandshakePrivacyIcon className="h-[26px] w-[32px] shrink-0" /></span>
+          <Image src="/onboarding/figma/privacy-light-auth.svg" alt="" width={32.245548} height={25.76586} unoptimized className={lightStyles.privacyIcon} />
+          <Image src="/onboarding/figma/privacy-dark.svg" alt="" width={32.245548} height={25.76586} unoptimized className={lightStyles.darkPrivacyIcon} />
+          <p className="text-xs sm:text-[13px] leading-[1.35] text-[#8E8E93] dark:text-white/90">
             By continuing you agree to our{" "}
+            <br />
             <button
               type="button"
               onClick={() => void openLegalDoc("terms")}
               data-voice-control-id="auth_terms"
-              className="font-semibold text-[color:var(--app-accent-deep)] transition-opacity hover:opacity-70 dark:text-[color:var(--app-accent-deep)]"
+              className="font-semibold text-[#387BF5] transition-opacity hover:opacity-75"
             >
               Terms
             </button>
@@ -1142,10 +1132,11 @@ export function AuthStep({
               type="button"
               onClick={() => void openLegalDoc("privacy")}
               data-voice-control-id="auth_privacy"
-              className="font-semibold text-[color:var(--app-accent-deep)] transition-opacity hover:opacity-70 dark:text-[color:var(--app-accent-deep)]"
+              className="font-semibold text-[#387BF5] transition-opacity hover:opacity-75"
             >
               Privacy Policy
             </button>
+            .
           </p>
         </div>
       </div>
@@ -1195,5 +1186,18 @@ function AppleIcon() {
       <title>Apple</title>
       <path d="M17.05 20.28c-.98.95-2.05.88-3.08.38-1.07-.52-2.07-.51-3.2 0-1.01.43-2.1.49-2.98-.38C5.22 17.63 2.7 12 5.45 8.04c1.47-2.09 3.8-2.31 5.33-1.18 1.1.75 3.3.73 4.45-.04 2.1-1.31 3.55-.95 4.5 1.14-.15.08.2.14 0 .2-2.63 1.34-3.35 6.03.95 7.84-.46 1.4-1.25 2.89-2.26 4.4l-.07.08-.05-.2zM12.03 7.25c-.15-2.23 1.66-4.07 3.74-4.25.17 2.22-1.8 4.19-3.74 4.25z" />
     </svg>
+  );
+}
+
+function HandshakePrivacyIcon({ className = "h-[26px] w-[32px] shrink-0" }: { className?: string }) {
+  return (
+    <Image
+      src="/privacy-handshake.png"
+      alt="Privacy Handshake"
+      width={65}
+      height={52}
+      className={cn("object-contain", className)}
+      unoptimized
+    />
   );
 }

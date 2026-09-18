@@ -46,7 +46,7 @@ import {
   PaginationNext,
   PaginationPrevious,
 } from "@/components/ui/pagination";
-import { Search } from "lucide-react";
+import { Search } from "@/components/icons";
 import { surfaceDataTableShellClassName } from "@/lib/morphy-ux/surfaces";
 import { cn } from "@/lib/utils";
 import { SearchClearButton } from "@/components/app-ui/search-clear-button";
@@ -456,8 +456,8 @@ export function DataTable<TData, TValue>({
                   }
                   className={cn(
                     onRowClick
-                      ? "cursor-pointer transition-[background-color] duration-200 ease-out hover:bg-foreground/[0.045] active:bg-foreground/[0.065]"
-                      : "transition-[background-color] duration-200 ease-out hover:bg-foreground/[0.032]",
+                      ? "cursor-pointer transition-[background-color] duration-150 ease-out hover:bg-foreground/[0.045] active:bg-foreground/[0.065]"
+                      : "transition-[background-color] duration-150 ease-out hover:bg-foreground/[0.032]",
                     rowClassName?.(row.original),
                   )}
                   onClick={

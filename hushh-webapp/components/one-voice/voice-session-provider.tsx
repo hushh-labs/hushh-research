@@ -182,6 +182,12 @@ export type VoiceSessionDeps = {
 export const ONE_VOICE_LEASE_OWNER = "one-voice-live" as const;
 export const BACKGROUND_GRACE_MS = 20_000;
 export const CLIENT_STEP_TIMEOUT_MS = 25_000;
+/**
+ * The most a server-advertised `timeout_s` may extend a client step. A device
+ * step that navigates, may show the OS permission prompt, and then waits for
+ * a fresh fix does not fit the 25 s default; the relay asks for 45 s.
+ */
+export const CLIENT_STEP_TIMEOUT_MAX_MS = 60_000;
 /** How long a screen that registered `onDirective` has to claim a generic kind. */
 export const DIRECTIVE_CLAIM_MS = 500;
 const LEVEL_DISPATCH_INTERVAL_MS = 80;
@@ -352,6 +358,14 @@ type LiveSession = {
   graceTimer: ReturnType<typeof setTimeout> | null;
   clientSteps: Map<string, ClientStepEntry>;
   directiveTimers: Set<ReturnType<typeof setTimeout>>;
+  /**
+   * The pending action whose tap confirm is in flight: sent (or being
+   * prepared) and not yet resolved by the relay. A second Confirm for the
+   * same card — a double tap, a re-render that fires twice, a spoken yes on
+   * top of a tap — is dropped instead of sending a second `confirm_action`.
+   * Cleared when the relay resolves that id, or when the session ends.
+   */
+  confirmingPendingId: string | null;
 };
 
 type DirectiveContext = {
@@ -455,6 +469,8 @@ export function VoiceSessionProvider({
   // read them only run after commit.
   const depsRef = useRef(deps);
   const latest = useRef({ user, isVaultUnlocked, vaultOwnerToken, enabled });
+  // The Firebase proof fetched for the current connect attempt (see ticket()).
+  const firebaseProofRef = useRef<string | null>(null);
   const runtimeRef = useRef(runtime);
   const pathnameRef = useRef(pathname);
   const osPermission: OsPermission =
@@ -653,13 +669,22 @@ export function VoiceSessionProvider({
   const requestClientStep = useCallback(
     (session: LiveSession, frame: ClientStepRequestFrame) => {
       const store = useVoiceSessionStore.getState();
-      const limit =
-        depsRef.current?.clientStepTimeoutMs ?? CLIENT_STEP_TIMEOUT_MS;
+      // A test override wins outright. Otherwise the server's own budget is
+      // honoured up to a hard ceiling, and the default applies when it sends
+      // none.
+      const override = depsRef.current?.clientStepTimeoutMs;
       const serverLimit =
         Number.isFinite(frame.timeout_s) && frame.timeout_s > 0
           ? frame.timeout_s * 1000
-          : limit;
-      const timeoutMs = Math.max(0, Math.min(limit, serverLimit));
+          : null;
+      const timeoutMs = Math.max(
+        0,
+        override !== undefined
+          ? Math.min(override, serverLimit ?? override)
+          : serverLimit === null
+            ? CLIENT_STEP_TIMEOUT_MS
+            : Math.min(serverLimit, CLIENT_STEP_TIMEOUT_MAX_MS),
+      );
       const entry: ClientStepEntry = { timer: null, done: false };
       pruneFinishedSteps(session.clientSteps);
       session.clientSteps.set(frame.step_id, entry);
@@ -720,6 +745,8 @@ export function VoiceSessionProvider({
           store.emitToolResult(frame.tool, frame.result_public);
           return;
         case "pending_action.resolved":
+          if (session.confirmingPendingId === frame.pending_action_id)
+            session.confirmingPendingId = null;
           store.emitPendingResolved(
             frame.pending_action_id,
             frame.status,
@@ -731,6 +758,12 @@ export function VoiceSessionProvider({
           return;
         case "client_step.request":
           requestClientStep(session, frame);
+          return;
+        case "error":
+          // The relay answered the confirm with a refusal (a missing or
+          // invalid sign-in proof keeps the card pending): the next tap is a
+          // legitimate retry, not a duplicate.
+          session.confirmingPendingId = null;
           return;
         default:
           return;
@@ -829,9 +862,17 @@ export function VoiceSessionProvider({
         graceTimer: null,
         clientSteps: new Map(),
         directiveTimers: new Set(),
+        confirmingPendingId: null,
       };
       const clientOptions: OneLiveClientOptions = {
         ticket: async () => {
+          // A fresh sign-in proof rides the auth frame so a spoken yes on a
+          // firebase-plane card can be verified without a tap. No proof is
+          // not an error: the relay then asks for a tap, which carries one.
+          firebaseProofRef.current =
+            (await (
+              depsRef.current?.getFirebaseIdToken ?? defaultGetFirebaseIdToken
+            )().catch(() => null)) || null;
           const token = latest.current.vaultOwnerToken;
           if (!token) throw new Error("Unlock to talk to One.");
           const ticket = await mint({
@@ -846,7 +887,7 @@ export function VoiceSessionProvider({
           if (!token) return null;
           return {
             vaultOwnerToken: token,
-            firebaseIdToken: null,
+            firebaseIdToken: firebaseProofRef.current,
             conversationId: input.conversationId,
             client: clientKind,
           };
@@ -1222,6 +1263,13 @@ export function VoiceSessionProvider({
         pending.resolvedStatus !== null
       )
         return;
+      const pendingId = pending.pending_action_id;
+      // One confirm per card while the relay has not answered: a second tap
+      // (or a spoken yes landing on top of it) must not send a second
+      // `confirm_action`, which the server would refuse as `not_pending` and
+      // which would race the receipt on the card.
+      if (session.confirmingPendingId === pendingId) return;
+      session.confirmingPendingId = pendingId;
       let firebaseIdToken: string | null = null;
       if (isFirebasePlaneTool(pending.tool)) {
         const token = await (
@@ -1230,11 +1278,27 @@ export function VoiceSessionProvider({
         firebaseIdToken = token || null;
       }
       if (sessionRef.current !== session || session.tornDown) return;
-      session.client.confirm(pending.pending_action_id, {
+      // The card may have resolved (or been replaced) while the proof was
+      // being fetched; the relay would only refuse the stale confirm.
+      const latest = readState().pendingAction;
+      if (
+        !latest ||
+        latest.pending_action_id !== pendingId ||
+        latest.resolvedStatus !== null
+      ) {
+        if (session.confirmingPendingId === pendingId)
+          session.confirmingPendingId = null;
+        return;
+      }
+      const sent = session.client.confirm(pendingId, {
         receiptToken: pending.receiptToken,
         firebaseIdToken,
         consentVersion: options?.consentVersion ?? null,
       });
+      if (sent === false && session.confirmingPendingId === pendingId) {
+        // Nothing left the device; the next tap may try again.
+        session.confirmingPendingId = null;
+      }
     },
     [readState],
   );

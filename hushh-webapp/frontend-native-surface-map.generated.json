@@ -52,6 +52,14 @@
       "file": "app/api/connected-systems/[...path]/route.ts"
     },
     {
+      "template": "/api/connectors",
+      "file": "app/api/connectors/route.ts"
+    },
+    {
+      "template": "/api/connectors/{path*}",
+      "file": "app/api/connectors/[...path]/route.ts"
+    },
+    {
       "template": "/api/consent/active",
       "file": "app/api/consent/active/route.ts"
     },
@@ -1898,6 +1906,59 @@
         "page_header": false,
         "settings_ui": false,
         "shared_loader": true,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
+      "route": "/manishhussh",
+      "page_file": "app/manishhussh/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "standard",
+        "exemption_reason": "Foundation public route intentionally uses the shared ambient public canvas outside the signed-in shell.",
+        "shell_verification_file": null,
+        "shell_verification_includes": [],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.manishhussh",
+          "purpose": "Help the person understand and use the manishhussh screen through its generated controls.",
+          "screen": "app",
+          "entry_cue": "",
+          "proactivity": "ambient",
+          "primary_action_id": null,
+          "happy_path_action_ids": [],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain the current guard and retain the goal.",
+            "cancelled": "Respect the cancellation and retain a safe next step.",
+            "failed": "Acknowledge the failure without claiming completion.",
+            "timeout": "Retain the goal and offer one safe retry.",
+            "callback_error": "Return to the verified callback recovery path without claiming success.",
+            "route_mismatch": "Use the verified current route and its generated actions only."
+          },
+          "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
+          "next_route": null,
+          "return_policy": "navigate",
+          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+        }
+      },
+      "native": {
+        "route": "/manishhussh",
+        "classification": "excluded-web-only",
+        "reason": "Public marketing and founder profile content. The native shell ships the signed-in product; the public site is web."
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
         "back_button_pattern": "shared-shell"
       },
       "voice_action_contract_file": null,
@@ -4154,6 +4215,7 @@
         "location.send_check_in",
         "location.send_request",
         "location.set_auto_share",
+        "location.set_circle_kind",
         "location.set_ghost_mode",
         "location.set_precision",
         "location.set_sharing_enabled",
@@ -4166,7 +4228,8 @@
         "location.sos_default",
         "location.stop_share",
         "location.stop_sos",
-        "location.trigger_sos"
+        "location.trigger_sos",
+        "location.verify_sos_delivery"
       ],
       "api_dependencies": [
         {
@@ -5209,6 +5272,118 @@
           "loaded"
         ]
       },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
+      "route": "/one/profile/connectors",
+      "page_file": "app/one/profile/connectors/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "redirect",
+        "exemption_reason": "Connectors moved into the chat sidebar's MCP connections panel; this route only forwards to / with ?panel=connectors.",
+        "shell_verification_file": null,
+        "shell_verification_includes": [],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.profile.connectors",
+          "purpose": "Help the person connect and manage external MCP connectors (Notion, HubSpot, ...) so Kai can use their own data from them.",
+          "screen": "profile_connectors",
+          "entry_cue": "",
+          "proactivity": "ambient",
+          "primary_action_id": null,
+          "happy_path_action_ids": [],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain the current guard and retain the goal.",
+            "cancelled": "Respect the cancellation and retain a safe next step.",
+            "failed": "Acknowledge the failure without claiming completion.",
+            "timeout": "Retain the goal and offer one safe retry.",
+            "callback_error": "Return to the verified callback recovery path without claiming success.",
+            "route_mismatch": "Use the verified current route and its generated actions only."
+          },
+          "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
+          "next_route": "/",
+          "return_policy": "navigate",
+          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+        }
+      },
+      "native": {
+        "route": "/one/profile/connectors",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fone%2Fprofile%2Fconnectors",
+        "expectedMarker": "native-route-profile-connectors",
+        "expectedRoute": "/one/profile/connectors",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loading",
+          "loaded",
+          "empty-valid",
+          "unavailable-valid"
+        ]
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": true,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
+      "route": "/one/profile/connectors/oauth/return",
+      "page_file": "app/one/profile/connectors/oauth/return/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "redirect",
+        "exemption_reason": "OAuth callback completes an external connector's authorization and returns to the chat sidebar's MCP connections panel.",
+        "shell_verification_file": null,
+        "shell_verification_includes": [],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.profile.connectors.oauth.return",
+          "purpose": "Finish the verified external connector authorization callback without exposing credentials.",
+          "screen": "profile_connectors",
+          "entry_cue": "",
+          "proactivity": "ambient",
+          "primary_action_id": null,
+          "happy_path_action_ids": [],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain the current guard and retain the goal.",
+            "cancelled": "Respect the cancellation and retain a safe next step.",
+            "failed": "Return to Connectors and explain that the connection was not completed.",
+            "timeout": "Retain the goal and offer one safe retry.",
+            "callback_error": "Return to the verified callback recovery path without claiming success.",
+            "route_mismatch": "Use the verified current route and its generated actions only."
+          },
+          "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
+          "next_route": "/",
+          "return_policy": "navigate",
+          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+        }
+      },
+      "native": null,
       "shell": {
         "app_page_shell": false,
         "page_header": false,
@@ -7202,6 +7377,60 @@
       }
     },
     {
+      "route": "/one/setup/capabilities",
+      "page_file": "app/one/setup/capabilities/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "standard",
+        "exemption_reason": null,
+        "shell_verification_file": "components/onboarding/setup/one-setup-capabilities-screen.tsx",
+        "shell_verification_includes": [
+          "AppPageShell",
+          "AppPageHeaderRegion",
+          "AppPageContentRegion",
+          "PageHeader"
+        ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.one.setup.capabilities",
+          "purpose": "Help the person connect or dismiss any of the optional One capabilities, opened from the dashboard's setup tile.",
+          "screen": "one_setup_capabilities",
+          "entry_cue": "",
+          "proactivity": "ambient",
+          "primary_action_id": null,
+          "happy_path_action_ids": [],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain the current guard and retain the goal.",
+            "cancelled": "Respect the cancellation and retain a safe next step.",
+            "failed": "Acknowledge the failure without claiming completion.",
+            "timeout": "Retain the goal and offer one safe retry.",
+            "callback_error": "Return to the verified callback recovery path without claiming success.",
+            "route_mismatch": "Use the verified current route and its generated actions only."
+          },
+          "completion_boundary": "This screen has no separate completion of its own -- each capability's own setup or dismiss is what changes state.",
+          "next_route": "/one",
+          "return_policy": "navigate",
+          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+        }
+      },
+      "native": null,
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
       "route": "/one/setup/connected-systems",
       "page_file": "app/one/setup/connected-systems/page.tsx",
       "physical_page_exists": true,
@@ -8570,28 +8799,21 @@
       "page_file": "app/ria/page.tsx",
       "physical_page_exists": true,
       "route_contract": {
-        "mode": "standard",
-        "exemption_reason": null,
-        "shell_verification_file": "components/ria/ria-page-shell.tsx",
-        "shell_verification_includes": [
-          "AppPageShell",
-          "AppPageHeaderRegion",
-          "AppPageContentRegion",
-          "SurfaceStack"
-        ],
+        "mode": "redirect",
+        "exemption_reason": "Compatibility redirect to the canonical RIA profile at /ria/profile.",
+        "shell_verification_file": null,
+        "shell_verification_includes": [],
         "interaction_layer_policy": {
           "allowed_families": []
         },
         "voice_playbook": {
           "playbook_id": "route.ria",
-          "purpose": "Help the person understand and use the ria screen through its generated controls.",
-          "screen": "ria_home",
-          "entry_cue": "You can say “Open RIA Home” to use the primary control on this screen.",
-          "proactivity": "on_entry",
-          "primary_action_id": "route.ria_home",
-          "happy_path_action_ids": [
-            "route.ria_home"
-          ],
+          "purpose": "Forward the compatibility route to the canonical RIA profile without rendering an interactive workspace.",
+          "screen": "compatibility_redirect",
+          "entry_cue": "",
+          "proactivity": "ambient",
+          "primary_action_id": null,
+          "happy_path_action_ids": [],
           "required_inputs": [],
           "recoveries": {
             "blocked": "Explain the current guard and retain the goal.",
@@ -8601,10 +8823,10 @@
             "callback_error": "Return to the verified callback recovery path without claiming success.",
             "route_mismatch": "Use the verified current route and its generated actions only."
           },
-          "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
-          "next_route": "/ria",
-          "return_policy": "stay",
-          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+          "completion_boundary": "The compatibility route completes only after navigation settles on the canonical RIA profile.",
+          "next_route": "/ria/profile",
+          "return_policy": "navigate",
+          "out_of_scope_behavior": "Do not render the retired RIA home surface or invent controls on this compatibility route."
         }
       },
       "native": {
@@ -9408,5 +9630,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "8a5522da8f4ddb49a360686d440aec55ac341b26006ee71b8ffdc779f1ccb957"
+  "content_sha256": "bce240dba458ac12e77b9c4108f930beb29827a2e92528c3246064c7441cdde2"
 }

@@ -347,6 +347,54 @@ class InformationRequestService:
             for row in rows
         ]
 
+    async def list_granted_shares(
+        self, *, requester_user_id: str, limit: int = 50
+    ) -> list[dict[str, Any]]:
+        """Active information shares granted to this user by connections."""
+        rows = await self._rows(
+            """SELECT bundle.bundle_id, bundle.purpose, bundle.created_at,
+                      bundle.subject_user_id,
+                      profile.public_person_ref, identity.display_name,
+                      item.request_id, item.scope_ref, item.scope, item.label, item.sensitivity
+               FROM one_information_request_bundles bundle
+               JOIN actor_profiles profile ON profile.user_id = bundle.subject_user_id
+               LEFT JOIN actor_identity_cache identity ON identity.user_id = bundle.subject_user_id
+               JOIN one_information_request_items item ON item.bundle_id = bundle.bundle_id
+               WHERE bundle.requester_user_id = :requester
+                 AND bundle.cancelled_at IS NULL
+               ORDER BY bundle.created_at DESC, item.created_at
+               LIMIT :limit""",
+            {"requester": requester_user_id, "limit": max(1, min(int(limit or 50), 100))},
+        )
+        now_ms = int(time.time() * 1000)
+        granted: list[dict[str, Any]] = []
+        for row in rows:
+            status = await self._consent.get_request_status(
+                str(row["subject_user_id"]), str(row["request_id"])
+            )
+            if not status or str(status.get("action") or "") != "CONSENT_GRANTED":
+                continue
+            expires_at = status.get("expires_at")
+            if expires_at and int(expires_at) <= now_ms:
+                continue
+            person_ref = str(row.get("public_person_ref") or "")
+            granted.append(
+                {
+                    "bundleId": str(row["bundle_id"]),
+                    "requestId": str(row["request_id"]),
+                    "person": str(row.get("display_name") or "Hussh member"),
+                    "personRef": person_ref,
+                    "profilePath": f"/people/{person_ref}?section=shared#shared-with-you"
+                    if person_ref
+                    else None,
+                    "label": row.get("label") or "Shared information",
+                    "scopeRef": row.get("scope_ref"),
+                    "purpose": row.get("purpose"),
+                    "expiresAt": expires_at,
+                }
+            )
+        return granted
+
     async def cancel(self, *, requester_user_id: str, bundle_id: str) -> dict[str, Any]:
         bundle, items = await self._bundle(requester_user_id, bundle_id)
         for item in items:

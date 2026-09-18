@@ -12,7 +12,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Loader2, Search, UserRoundPlus } from "lucide-react";
+import { Loader2, Search, UserRoundPlus } from "@/components/icons";
 
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -180,6 +180,9 @@ export function InviteToCircleFlow({
           primaryEntity: overview?.name ?? null,
           actions: VOICE_ACTIONS,
           availableActions: VOICE_ACTIONS.map((action) => action.label),
+          // The one id this surface publishes: lets One resolve "this circle"
+          // through the authorized service. Never in screenState.
+          activeCircleId: circleId,
         }
       : null,
   );

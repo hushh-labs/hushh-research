@@ -7,25 +7,25 @@ import React, { useEffect, useMemo, type CSSProperties } from "react";
 import { usePathname } from "next/navigation";
 import {
   Compass as PhosphorCompass,
-  MagnifyingGlass,
-  ChatCircle,
-  SquaresFour,
+  Search as MagnifyingGlass,
+  MessageCircle as ChatCircle,
+  Grid2x2 as SquaresFour,
   Briefcase,
-  ChartBar,
-  ChartLineUp,
+  BarChart3 as ChartBar,
+  ChartColumnIncreasing as ChartLineUp,
   Database,
-  EnvelopeSimple,
-  FolderSimple,
+  Mail as EnvelopeSimple,
+  FolderSearch as FolderSimple,
   MapPin,
   Newspaper,
   ShieldCheck,
-  Storefront,
+  Store as Storefront,
   Table,
-  UserCircle,
-  UsersThree,
+  UserRound as UserCircle,
+  UsersRound as UsersThree,
   Wallet,
-  type IconProps as PhosphorIconProps,
-} from "@phosphor-icons/react";
+  type CanonicalIconProps as PhosphorIconProps,
+} from "@/components/icons";
 
 import { useAuth } from "@/hooks/use-auth";
 import { requestInternalAppNavigation } from "@/lib/utils/browser-navigation";

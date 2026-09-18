@@ -15,7 +15,7 @@
 
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
-import { Plus, Pencil, Trash2, Save, Loader2, Undo2 } from "lucide-react";
+import { Plus, Pencil, Trash2, Save, Loader2, Undo2 } from "@/components/icons";
 import { Kbd } from "@/components/ui/kbd";
 
 import { toast } from "sonner";
@@ -652,7 +652,7 @@ export function ManagePortfolioView() {
                                     effect="glass"
                                     size="icon-sm"
                                     className={cn(
-                                      "h-10 w-10 text-muted-foreground hover:text-primary transition-all duration-300 rounded-xl",
+                                      "h-10 w-10 text-muted-foreground hover:text-primary transition-[background-color,color,transform] duration-150 rounded-xl",
                                       holding.pending_delete && "pointer-events-none opacity-50"
                                     )}
                                     onClick={() => handleEditHolding(actualIndex)}
@@ -667,7 +667,7 @@ export function ManagePortfolioView() {
                                     effect="glass"
                                     size="icon-sm"
                                     className={cn(
-                                      "h-10 w-10 transition-all duration-300 rounded-xl",
+                                      "h-10 w-10 transition-[background-color,color,transform] duration-150 rounded-xl",
                                       holding.pending_delete
                                         ? "text-emerald-500 hover:text-emerald-600 hover:bg-emerald-50"
                                         : "text-red-400 hover:text-red-500 hover:bg-red-50"

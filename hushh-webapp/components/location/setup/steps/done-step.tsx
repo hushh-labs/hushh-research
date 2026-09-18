@@ -1,6 +1,6 @@
 "use client";
 
-import { CircleCheck } from "lucide-react";
+import { CircleCheck } from "@/components/icons";
 
 import {
   HelperText,

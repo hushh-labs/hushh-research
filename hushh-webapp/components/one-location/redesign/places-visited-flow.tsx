@@ -22,7 +22,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Loader2, MapPin, Star, Trash2 } from "lucide-react";
+import { Loader2, MapPin, Star, Trash2 } from "@/components/icons";
 
 import { useAuth } from "@/lib/firebase/auth-context";
 import { useVault } from "@/lib/vault/vault-context";

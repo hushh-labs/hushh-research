@@ -26,7 +26,7 @@ import {
 import { createPortal } from "react-dom";
 import { useRouter, useSearchParams } from "next/navigation";
 
-import type { LucideIcon } from "lucide-react";
+import type { LucideIcon } from "@/components/icons";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -51,7 +51,7 @@ import {
   UserRoundCheck,
   UsersRound,
   X,
-} from "lucide-react";
+} from "@/components/icons";
 import { toast } from "sonner";
 
 import {
@@ -278,6 +278,7 @@ import {
   type LocationWorkspaceMemory,
 } from "@/lib/one-location/location-workspace-memory";
 import {
+  deriveLocationEnabled,
   readOneLocationControlState,
   updateOneLocationControlState,
   type AutoApproveScope,
@@ -318,6 +319,7 @@ import {
 import {
   clearSosIncident,
   loadSosIncident,
+  mergeSosGrantIds,
   reconcileSosIncident,
   saveSosIncident,
   type SosIncident,
@@ -1960,7 +1962,7 @@ function SegmentedModeControl({
           type="button"
           onClick={() => onChange(mode)}
           className={cn(
-            "h-full flex-1 rounded-[7px] text-[13px] capitalize transition-all",
+            "h-full flex-1 rounded-[7px] text-[13px] capitalize transition-[background-color,color,box-shadow] duration-150",
             value === mode
               ? "bg-white font-semibold text-[#1c1c1e] shadow-[0_1px_3px_rgba(0,0,0,0.12),0_1px_2px_rgba(0,0,0,0.04)] dark:bg-[#2c2c2e] dark:text-white"
               : "font-medium text-[#8e8e93] hover:text-[#1c1c1e] dark:text-white/50 dark:hover:text-white",
@@ -2667,10 +2669,13 @@ export function OneLocationAgentPageContent({
     promise: Promise<void>;
   } | null>(null);
 
-  // Hydrate the persisted SOS incident once on mount.
+  // Hydrate the persisted SOS incident for the signed-in owner. The record is
+  // owner-scoped, so this waits for the id and re-runs if it changes: another
+  // account's alert is never shown, and a voice-armed alert confirmed on Home
+  // (persisted by the publisher bridge) is picked up here on arrival.
   useEffect(() => {
-    setSosIncident(loadSosIncident());
-  }, [setSosIncident]);
+    setSosIncident(auth.userId ? loadSosIncident(auth.userId) : null);
+  }, [auth.userId, setSosIncident]);
 
   const [locationOnboardingGate, setLocationOnboardingGate] =
     useState<OneLocationOnboardingGate>("checking");
@@ -2847,6 +2852,14 @@ export function OneLocationAgentPageContent({
     useState<OneLocationContactSignalResult | null>(null);
   const [onboardingContactResult, setOnboardingContactResult] =
     useState<OnboardingContactSyncResult | null>(null);
+  /**
+   * Whether the last Google read on onboarding came back empty. Latched in
+   * page state (not derived from the Google session snapshot) because
+   * dismissing the results sheet clears that snapshot -- deriving from it
+   * would hide the account switcher at exactly the moment the person reaches
+   * the inline empty state it belongs to.
+   */
+  const [onboardingGoogleEmpty, setOnboardingGoogleEmpty] = useState(false);
   const googleContactSync = useGoogleContactSync(contactSyncUserId);
   const { run: runGoogleContactSync, clear: clearGoogleContactSync } = googleContactSync;
   const contactSyncResult = googleContactSync.result ?? deviceContactSyncResult;
@@ -2867,6 +2880,7 @@ export function OneLocationAgentPageContent({
     // in-place auth account replacement.
     setContactSyncResult(null);
     setOnboardingContactResult(null);
+    setOnboardingGoogleEmpty(false);
     setContactSyncResultsOpen(false);
     setContactSignal(INITIAL_CONTACT_SIGNAL_STATE);
   }, [contactSyncUserId, setContactSyncResultsOpen]);
@@ -3582,6 +3596,21 @@ export function OneLocationAgentPageContent({
     [state?.ownerGrants],
   );
   /**
+   * Live Save My Soul shares the server holds for this owner, whichever
+   * device or voice session armed them. The device incident record only knows
+   * what THIS device created; the banner and the stop must cover both.
+   */
+  const activeSosGrants = useMemo(
+    () => activeOwnerGrants.filter(isSmsTriggeredGrant),
+    [activeOwnerGrants],
+  );
+  const activeSosGrantsRef = useRef(activeSosGrants);
+  useEffect(() => {
+    activeSosGrantsRef.current = activeSosGrants;
+  }, [activeSosGrants]);
+  const sosActive =
+    Boolean(sosIncident?.grantIds.length) || activeSosGrants.length > 0;
+  /**
    * The one hands-free ask that has already been told it would cut a live
    * share short, as `recipientIds|duration`.
    *
@@ -3683,11 +3712,10 @@ export function OneLocationAgentPageContent({
     };
   }, [activeOwnerGrants, liveShareEntries]);
 
-  const locationEnabled =
-    !locationControl.paused &&
-    (locationControl.selfPreviewEnabled ||
-      locationControl.nearbyPresenceActive ||
-      activeOwnerGrants.length > 0);
+  const locationEnabled = deriveLocationEnabled(
+    locationControl,
+    activeOwnerGrants,
+  );
   // Reduced accuracy remains an internal signal-quality hint, not a separate
   // on/off state or admission gate. The visible switch status stays
   // "Location on" while this tracks the coarse threshold rather than the hard
@@ -3829,17 +3857,25 @@ export function OneLocationAgentPageContent({
   // active (revoked/expired). Clears the banner automatically when the incident ends.
   // Guard: skip until state has loaded so a reload doesn't wipe a just-hydrated
   // incident by reconciling against an empty activeOwnerGrants array.
+  // Freshness: `state` may be the memory-only presentation that outlived an
+  // `invalidate()` (peek() is then null), or a cache written before the alert
+  // was armed by voice from another route. Neither can list the new grants, so
+  // `reconcileSosIncident` is told when the snapshot was loaded and leaves the
+  // record alone until a load made after the incident arrives.
   useEffect(() => {
     if (!state) return;
     const activeIds = activeOwnerGrants.map((grant) => grant.id);
     const current = sosIncidentRef.current;
-    const reconciled = reconcileSosIncident(current, activeIds);
+    const stateLoadedAt = auth.userId
+      ? (OneLocationStateResource.peek(auth.userId)?.timestamp ?? null)
+      : null;
+    const reconciled = reconcileSosIncident(current, activeIds, stateLoadedAt);
     if (reconciled !== current) {
       if (reconciled) saveSosIncident(reconciled);
       else clearSosIncident();
       setSosIncident(reconciled);
     }
-  }, [state, activeOwnerGrants, setSosIncident]);
+  }, [auth.userId, state, activeOwnerGrants, setSosIncident]);
 
   // The focused shared-with-me view keeps every active share live-refreshing when a
   // legacy build previously persisted an "unwatched" id. In the redesigned
@@ -5545,7 +5581,10 @@ export function OneLocationAgentPageContent({
 
   const handleTriggerSos = useCallback(
     async (note?: string | null) => {
-      if (sosIncidentRef.current || !auth.userId) return; // Synchronous incident + operation guards survive React render delays.
+      // Synchronous incident + operation guards survive React render delays.
+      // A live SOS the server holds (armed by voice or another device) blocks
+      // a second batch just like this device's own record does.
+      if (sosIncidentRef.current || activeSosGrantsRef.current.length || !auth.userId) return;
       if (!vaultOwnerToken || locationPermissionBlocksSharing(permission))
         return;
       const readyRecipients = smsActionRecipients.filter(
@@ -5587,6 +5626,7 @@ export function OneLocationAgentPageContent({
         }
         const incident = await runSosPanic({
           vaultOwnerToken,
+          ownerUserId: owner,
           recipients: readyRecipients,
           point,
           note,
@@ -7053,24 +7093,39 @@ export function OneLocationAgentPageContent({
   ]);
 
   const handleStopSos = useCallback(async (signal?: AbortSignal, boundIncident?: SosIncident) => {
-    const incident = boundIncident || sosIncidentRef.current;
+    const recorded = boundIncident || sosIncidentRef.current;
     const owner = auth.userId;
-    if (!vaultOwnerToken || !incident?.grantIds.length) throw new Error("Unlock One and review the active SOS first.");
+    // Everything a stop must end: the ids this device recorded plus every SOS
+    // grant the server still holds (armed by voice on another route, or by
+    // another device). Mirrors the Save My Soul screen's own stop.
+    const grantIds = mergeSosGrantIds(recorded, activeSosGrantsRef.current.map((grant) => grant.id));
+    if (!vaultOwnerToken || !grantIds.length) throw new Error("Unlock One and review the active SOS first.");
     if (!owner) throw new Error("Sign in to review the active SOS.");
     const operation = sosOperations.current.begin(owner);
     if (!operation) throw new Error("An SOS operation is still finishing. Review its result first.");
     setBusy("sos");
     try {
-      const result = await stopSosShares({ grantIds: incident.grantIds, signal,
+      const result = await stopSosShares({ grantIds, signal,
         revoke: (grantId) => OneLocationService.revokeGrant({ vaultOwnerToken, grantId }),
       });
-      if (sosOwnerRef.current !== owner || !sosIncidentRef.current
-        || sosIncidentRef.current.startedAt !== incident.startedAt
-        || sosIncidentRef.current.grantIds.some((id) => !incident.grantIds.includes(id))) return result;
+      if (sosOwnerRef.current !== owner) return result;
+      // A record that changed underneath the stop (another tab, a re-arm) is
+      // left alone; only the record this stop covered is narrowed or cleared.
+      const current = sosIncidentRef.current;
+      if (recorded) {
+        if (!current || current.startedAt !== recorded.startedAt
+          || current.grantIds.some((id) => !grantIds.includes(id))) return result;
+      } else if (current && current.grantIds.some((id) => !grantIds.includes(id))) {
+        return result;
+      }
       // Keep every unresolved share available to the same stop/review control.
       // A failed refresh or notification cannot erase that pending work.
       if (result.unresolved.length) {
-        const remaining = { ...incident, grantIds: result.unresolved };
+        const remaining: SosIncident = {
+          startedAt: recorded?.startedAt ?? new Date().toISOString(),
+          ownerUserId: owner,
+          grantIds: result.unresolved,
+        };
         saveSosIncident(remaining);
         setSosIncident(remaining);
         toast.error(`${result.revoked.length} shares stopped; ${result.unresolved.length} still need review.`);
@@ -7263,8 +7318,10 @@ export function OneLocationAgentPageContent({
     }
   }, [googleContactSync.result, contactSyncUserId, reconcileSyncedConnections]);
 
-  const handleSyncOnboardingContacts =
-    useCallback(async (): Promise<OnboardingContactSyncResult> => {
+  const handleSyncOnboardingContacts = useCallback(
+    async (
+      options?: { chooseGoogleAccount?: boolean },
+    ): Promise<OnboardingContactSyncResult> => {
       if (contactSyncInFlightRef.current) return { status: "cancelled" };
       if (!auth.user?.getIdToken) {
         return {
@@ -7279,6 +7336,9 @@ export function OneLocationAgentPageContent({
         // contact pickers depend on after a preference is recorded.
         return { status: "cancelled" };
       }
+      // A new run hides the account switcher until it settles; the Google
+      // branch re-latches below when its read comes back empty.
+      setOnboardingGoogleEmpty(false);
       const initiatingUserId = contactSyncUserId;
       const publishResult = (result: OnboardingContactSyncResult) => {
         if (contactSyncIdentityRef.current.userId === initiatingUserId) {
@@ -7292,14 +7352,26 @@ export function OneLocationAgentPageContent({
           getCurrentIdentity: () => contactSyncIdentityRef.current,
           hydrateAccountPhoneNumber: auth.resolveVerifiedPhoneNumber,
         });
-      if (googleContactsFallback || googleContactSync.phase !== "idle") {
+      if (
+        options?.chooseGoogleAccount ||
+        googleContactsFallback ||
+        googleContactSync.phase !== "idle"
+      ) {
         const result = await runGoogleContactSync({
           routeId: "one_location", resolveIdToken: () => auth.user!.getIdToken(),
           accountEmail: auth.user.email, accountPhoneNumber,
           resolveAccountPhoneNumber: resolveLatestAccountPhoneNumber,
           beginInvites: beginContactInvites,
+          // A retry from an empty Google read re-opens the account chooser
+          // instead of silently re-reading the same (possibly empty) account.
+          ...(options?.chooseGoogleAccount
+            ? { promptAccountPicker: true as const }
+            : {}),
         });
         if (!result) return { status: "cancelled" };
+        // Latch empty Google reads for the inline account switcher. A new
+        // run re-latches below, so a later match clears the offer.
+        setOnboardingGoogleEmpty(result.matches.length === 0);
         return publishResult(googleOnboardingOutcome(result, initiatingUserId));
       }
       // The inline action, named sheet, Settings return, and hub share one
@@ -10582,7 +10654,7 @@ export function OneLocationAgentPageContent({
         active_share_count: activeOwnerGrants.length,
         live_share_active: Boolean(liveShareStatus),
         shared_with_me_count: visibleReceivedGrants.length,
-        sos_active: Boolean(sosIncident?.grantIds.length),
+        sos_active: sosActive,
         emergency_contact_count: smsContactUserIds.length,
       },
     };
@@ -10609,7 +10681,7 @@ export function OneLocationAgentPageContent({
     locationEnabled,
     liveShareStatus,
     visibleReceivedGrants.length,
-    sosIncident,
+    sosActive,
     smsContactUserIds.length,
   ]);
   usePublishVoiceSurfaceMetadata(locationVoiceSurfaceMetadata);
@@ -10689,6 +10761,7 @@ export function OneLocationAgentPageContent({
       const superseded: LocalOnboardingActionResult = {
         status: "blocked",
         summary: "A newer location change replaced this one.",
+        data: { reason: "superseded" },
       };
       setMyLocationError(null);
 
@@ -10744,7 +10817,16 @@ export function OneLocationAgentPageContent({
               ? LOCATION_COPY.noFix
               : LOCATION_COPY.denied;
           setMyLocationError(message);
-          return { status: "blocked", summary: message };
+          // A typed reason rides with the copy so a caller (voice) can report
+          // the outcome without comparing sentences.
+          return {
+            status: "blocked",
+            summary: message,
+            data: {
+              reason:
+                result.failure === "no-fix" ? "no_fix" : "permission_denied",
+            },
+          };
         }
         setMapViewportResetKey((current) => current + 1);
         toast.success("Your live location preview is ready.");
@@ -10757,12 +10839,15 @@ export function OneLocationAgentPageContent({
         rollbackOptimisticOn();
         // The gate already decided whether this was a refusal; asserting a
         // cause from the error text guessed wrong on every timeout.
-        const message = isLocationPermissionDeniedError(error)
-          ? LOCATION_COPY.denied
-          : LOCATION_COPY.noFix;
+        const denied = isLocationPermissionDeniedError(error);
+        const message = denied ? LOCATION_COPY.denied : LOCATION_COPY.noFix;
         setMyLocationError(message);
         toast.error(message);
-        return { status: "failed", summary: message };
+        return {
+          status: "failed",
+          summary: message,
+          data: { reason: denied ? "permission_denied" : "no_fix" },
+        };
       } finally {
         // A newer intent owns `busy` and will clear it itself; clearing it here
         // would wipe the pending state of work that is still running.
@@ -10795,6 +10880,7 @@ export function OneLocationAgentPageContent({
         return {
           status: "blocked",
           summary: "Sign in to pause your location.",
+          data: { reason: "signed_out" },
         };
       }
 
@@ -10825,7 +10911,11 @@ export function OneLocationAgentPageContent({
         const message =
           "Location updates are paused on this device, but I could not check you out of nearby presence -- unlock One and pause again to finish that.";
         toast.error(message);
-        return { status: "blocked", summary: message };
+        return {
+          status: "blocked",
+          summary: message,
+          data: { reason: "vault_locked" },
+        };
       }
 
       // Checkout is idempotent server-side: it clears an ACTIVE row and reports
@@ -10854,7 +10944,11 @@ export function OneLocationAgentPageContent({
           const message =
             "Location updates are paused on this device, but I could not check you out of nearby presence -- you may still be visible to people around you.";
           toast.error(message);
-          return { status: "blocked", summary: message };
+          return {
+            status: "blocked",
+            summary: message,
+            data: { reason: "nearby_checkout_failed" },
+          };
         }
       }
 
@@ -10865,6 +10959,7 @@ export function OneLocationAgentPageContent({
         return {
           status: "blocked",
           summary: "A newer location change replaced this one.",
+          data: { reason: "superseded" },
         };
       }
       toast.success("Location updates are paused on this device.");
@@ -12034,17 +12129,24 @@ export function OneLocationAgentPageContent({
     const binding = context?.preparedBinding;
     if (!binding || typeof binding.startedAt !== "string" || !Array.isArray(binding.grantIds))
       return { status: "blocked", summary: "Review this SOS before stopping its shares." };
-    const result = await handleStopSos(context?.signal, { startedAt: binding.startedAt, grantIds: binding.grantIds as string[] });
+    const result = await handleStopSos(
+      context?.signal,
+      // An empty startedAt means no device record: the stop covers the live SOS
+      // grants the server holds, so nothing is bound to a record that is not there.
+      binding.startedAt ? { startedAt: binding.startedAt, grantIds: binding.grantIds as string[] } : undefined,
+    );
     return { status: result.unresolved.length ? "blocked" : "succeeded",
       summary: result.unresolved.length
         ? `Stopped ${result.revoked.length} SOS shares. ${result.unresolved.length} remain unresolved; review the SOS screen.`
         : `SOS stopped. Verified ${result.revoked.length} shares ended.`,
     };
-  }, { prepare: () => !vaultOwnerToken || !sosIncident?.grantIds.length
-    ? { status: "blocked", gate: "input", summary: "There is no active SOS to stop, or One needs to be unlocked." }
-    : { status: "ready", binding: { owner: auth.userId, startedAt: sosIncident.startedAt, grantIds: [...sosIncident.grantIds].sort() },
-        summary: `Stop this SOS and revoke its ${sosIncident.grantIds.length} live location shares.` },
-  });
+  }, { prepare: () => {
+    const grantIds = mergeSosGrantIds(sosIncident, activeSosGrants.map((grant) => grant.id));
+    return !vaultOwnerToken || !grantIds.length
+      ? { status: "blocked", gate: "input", summary: "There is no active SOS to stop, or One needs to be unlocked." }
+      : { status: "ready", binding: { owner: auth.userId, startedAt: sosIncident?.startedAt ?? "", grantIds: [...grantIds].sort() },
+          summary: `Stop this SOS and revoke its ${grantIds.length} live location shares.` };
+  } });
 
   const resolveTriggerSos = useCallback(
     async (): Promise<LocalOnboardingActionResult> => {
@@ -13776,6 +13878,7 @@ export function OneLocationAgentPageContent({
           onAcceptCircleCode={handleAcceptCircleCode}
           onSyncOnboardingContacts={handleSyncOnboardingContacts}
           contactSyncResult={onboardingContactResult}
+          showGoogleAccountSwitcher={onboardingGoogleEmpty}
           onAddOnboardingContact={handleAddOnboardingContact}
           onOpenContactSettings={(resume) =>
             void openContactSettingsAndWatch(resume)
@@ -14057,6 +14160,9 @@ export function OneLocationAgentPageContent({
     recipientLabel,
     recipientSubtitle: recipientRecommendationLine,
     isRecipientShareReady: isShareReadyRecipient,
+    // Save My Soul is the one lane that also needs a verified phone; the
+    // panel's count and enabled state must match what handleTriggerSos accepts.
+    isSosRecipientShareReady: isSosShareReadyRecipient,
     requestOwnerLabel: (request) => requestOwnerLabel(request, recipients),
     requesterLabel: requestLabel,
     grantRecipientLabel: grantCounterpartyLabel,
@@ -14095,7 +14201,7 @@ export function OneLocationAgentPageContent({
     smsRecipients: smsActionRecipients,
     smsContactCandidates: sosActionRecipients,
     smsContactUserIds,
-    sosActive: Boolean(sosIncident?.grantIds.length),
+    sosActive,
     sosBusy: busy === "sos",
     sosStartedAtLabel: sosIncident
       ? formatDateTime(sosIncident.startedAt)

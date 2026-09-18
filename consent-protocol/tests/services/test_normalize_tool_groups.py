@@ -20,8 +20,7 @@ visible_tool_names_for_groups(tool_groups)
 
 Constants exercised
 -------------------
-KNOWN_TOOL_GROUPS = ("core_consent", "ria_read", "kai_voice", "hushh_tech_client",
-                      "location_voice", "gmail_calendar_read")
+KNOWN_TOOL_GROUPS = ("core_consent", "ria_read", "kai_voice", "hushh_tech_client")
 DEFAULT_PUBLIC_TOOL_GROUPS = ("core_consent",)
 """
 
@@ -34,11 +33,8 @@ from hushh_mcp.services.developer_registry_service import (
     KNOWN_TOOL_GROUPS,
     TOOL_CATALOG,
     TOOL_GROUP_CORE_CONSENT,
-    TOOL_GROUP_GMAIL_CALENDAR_READ,
     TOOL_GROUP_HUSHH_TECH_CLIENT,
     TOOL_GROUP_KAI_VOICE,
-    TOOL_GROUP_LOCATION_VOICE,
-    TOOL_GROUP_PKM_CONVENIENCE,
     TOOL_GROUP_RIA_READ,
     normalize_tool_groups,
     visible_tool_names_for_groups,
@@ -324,23 +320,6 @@ class TestVisibleToolNamesForGroups:
         assert "search_user_scopes" not in result
         assert "prepare_campaign_context" not in result
         assert "list_ria_profiles" not in result
-
-    def test_location_voice_group_returns_its_tools(self):
-        result = visible_tool_names_for_groups([TOOL_GROUP_LOCATION_VOICE])
-        assert "location_open_now" in result
-        assert "location_get_state" in result
-        assert "location_list_circles" in result
-        assert "request_consent" not in result
-
-    def test_gmail_calendar_read_group_returns_its_tools(self):
-        result = visible_tool_names_for_groups([TOOL_GROUP_GMAIL_CALENDAR_READ])
-        assert "list_gmail_receipts" in result
-        assert "list_upcoming_calendar_events" in result
-        assert "request_consent" not in result
-
-    def test_pkm_convenience_group_returns_its_tool(self):
-        result = visible_tool_names_for_groups([TOOL_GROUP_PKM_CONVENIENCE])
-        assert result == ("read_own_pkm_attribute",)
 
     def test_removed_internal_group_cannot_expose_delegate_tool(self):
         result = visible_tool_names_for_groups(["internal_only"])

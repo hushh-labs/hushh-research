@@ -9,7 +9,7 @@ import {
   type ReactNode,
 } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Loader2 } from "lucide-react";
+import { Loader2 } from "@/components/icons";
 
 import { FullscreenFlowShell } from "@/components/app-ui/fullscreen-flow-shell";
 import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";

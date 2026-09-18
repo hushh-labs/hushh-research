@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowLeft, Home, SearchX } from "lucide-react";
+import { ArrowLeft, Home, SearchX } from "@/components/icons";
 
 import { Button } from "@/lib/morphy-ux/button";
 import { Card } from "@/lib/morphy-ux/card";
