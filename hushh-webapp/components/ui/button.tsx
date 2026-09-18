@@ -9,15 +9,17 @@ const buttonVariants = cva(
   {
     variants: {
       variant: {
-        // Flat iOS alert/action-sheet convention: the primary action is the
-        // one filled surface (solid accent), every other action is a shared
-        // neutral pill differentiated only by its text colour -- destructive
-        // reads as red-on-neutral, not a second filled surface competing
-        // with the primary for attention.
+        // Flat iOS alert/action-sheet fill for the primary action, not the
+        // Liquid Glass material. destructive keeps its own solid red fill --
+        // a neutral-fill "red text only" treatment would make it visually
+        // indistinguishable from a plain neutral action by background alone
+        // (see e2e/one-location-check-in-panel.layout.spec.ts, which asserts
+        // exactly that a non-destructive action never shares destructive's
+        // background).
         default:
           "bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent-hover)]",
         destructive:
-          "bg-[color:var(--app-neutral-fill)] text-[color:var(--app-destructive)] hover:bg-[color:var(--app-neutral-fill-strong)] focus-visible:ring-destructive/20 dark:focus-visible:ring-destructive/40",
+          "bg-[color:var(--app-destructive)] text-white hover:[background-color:color-mix(in_srgb,var(--app-destructive)_88%,black_12%)] focus-visible:ring-destructive/20 dark:focus-visible:ring-destructive/40",
         outline:
           "border border-[color:var(--app-separator)] bg-[color:var(--app-neutral-fill)] text-foreground shadow-none hover:bg-[color:var(--app-neutral-fill-strong)] dark:border-[color:var(--app-separator)]",
         secondary:
