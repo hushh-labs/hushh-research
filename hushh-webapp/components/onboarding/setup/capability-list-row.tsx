@@ -13,6 +13,7 @@ import {
   isCapabilityOnboarded,
 } from "@/lib/onboarding/capability-status-display";
 import type { OneSetupCapability } from "@/lib/onboarding/one-capabilities";
+import { ROUTES } from "@/lib/navigation/routes";
 import type { CapabilityStatus } from "@/lib/services/capability-setup-state-service";
 import { requestInternalAppNavigation } from "@/lib/utils/browser-navigation";
 
@@ -45,21 +46,27 @@ export function CapabilityListRow({
     resumeActionLabel: copy.resumeActionLabel,
   });
   const isComplete = status.state === "completed";
+  // Setup workspaces retrace to the hub by default (top-shell-breadcrumbs.ts)
+  // -- correct for a direct/legacy entry, but this row is reached from the
+  // capabilities checklist, not the hub. Carrying the checklist as `?from=`
+  // returns the person there instead of a hub they never visited, without
+  // touching the shared `copy.href` other callers rely on staying bare.
+  const connectHref = `${copy.href}?from=${encodeURIComponent(ROUTES.ONE_SETUP_CAPABILITIES)}`;
   const didPrefetch = useRef(false);
   const prefetchRoute = useCallback(() => {
     if (didPrefetch.current) return;
     didPrefetch.current = true;
-    router.prefetch(copy.href);
-  }, [copy.href, router]);
+    router.prefetch(connectHref);
+  }, [connectHref, router]);
   const handleConnect = useCallback(() => {
     const requested = requestInternalAppNavigation({
-      href: copy.href,
+      href: connectHref,
       scroll: false,
       source: "tap",
       transitionMode: "full",
     });
-    if (!requested) router.push(copy.href, { scroll: false });
-  }, [copy.href, router]);
+    if (!requested) router.push(connectHref, { scroll: false });
+  }, [connectHref, router]);
 
   return (
     <SettingsRow
@@ -91,6 +98,12 @@ export function CapabilityListRow({
             <Button
               type="button"
               size="sm"
+              // Fixed instead of content-width: each row's label is a
+              // different length ("Verify RIA" vs. "Connect Calendar"), so a
+              // content-hugging button staggers the trailing edge down the
+              // list. 152px comfortably fits the longest current label
+              // ("Connect Calendar") without wrapping.
+              className="w-[152px] justify-center"
               onClick={handleConnect}
               onPointerEnter={prefetchRoute}
               onFocus={prefetchRoute}
