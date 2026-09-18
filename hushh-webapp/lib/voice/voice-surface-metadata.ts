@@ -94,6 +94,13 @@ export type VoiceSurfaceMetadata = {
    * and flags -- never names, addresses, tokens or identifiers.
    */
   screenState?: Record<string, string | number | boolean | null>;
+  /**
+   * The circle this screen is about, when it is about exactly one. The one
+   * identifier a Location surface may publish: it travels as its own typed
+   * `app_context` field (never inside `screenState`) and lets One read "this
+   * circle" through the authorized service. Null everywhere else.
+   */
+  activeCircleId?: string | null;
   activeControlId?: string | null;
   lastInteractedControlId?: string | null;
   /** Authored description of the currently mounted interaction layer. */
@@ -554,6 +561,10 @@ function normalizeSurfaceMetadata(
       !Array.isArray(metadata.screenState)
         ? metadata.screenState
         : {},
+    activeCircleId:
+      typeof metadata.activeCircleId === "string" && metadata.activeCircleId.trim()
+        ? metadata.activeCircleId.trim()
+        : null,
   };
 }
 
@@ -665,6 +676,7 @@ function mergeVoiceSurfaceMetadata(
       ...(base.screenState || {}),
       ...(effectiveOverlay.screenState || {}),
     },
+    activeCircleId: effectiveOverlay.activeCircleId ?? base.activeCircleId ?? null,
     interactionLayer: effectiveOverlay.interactionLayer || base.interactionLayer || null,
   });
 }
