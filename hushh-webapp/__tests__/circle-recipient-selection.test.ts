@@ -351,7 +351,8 @@ describe("Share uses the current Circle selection contract", () => {
     expect(start).toBeGreaterThanOrEqual(0);
     expect(end).toBeGreaterThan(start);
     const share = hub.slice(start, end);
-    expect(share).toContain('vm.circles.filter((circle) => circle.systemKind !== "trusted")');
+    expect(share).toContain('circle.systemKind !== "trusted"');
+    expect(share).toContain("!isForeignSmsSystemCircle(circle)");
     expect(share).toContain("vm.onSelectShareCircle(circle.id)");
     expect(share).not.toContain("shareCircleSections");
     expect(share).toContain("vm.selectedShareCircleSelections.some(");

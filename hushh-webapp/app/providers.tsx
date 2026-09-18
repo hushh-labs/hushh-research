@@ -29,6 +29,7 @@ import { CacheProvider } from "@/lib/cache/cache-context";
 import { useDeepLinkReturn } from "@/lib/navigation/use-deep-link-return";
 import { ConsentNotificationProvider } from "@/components/consent/notification-provider";
 import { GlobalVoiceActionHandlers } from "@/components/agent/global-voice-action-handlers";
+import { ProfileIdentityVoiceRefresh } from "@/components/profile/profile-identity-voice-refresh";
 import { GlobalConsentActionHandlers } from "@/components/agent/global-consent-action-handlers";
 import { ConsentSheetProvider } from "@/components/consent/consent-sheet-controller";
 import { resolveTopShellRouteProfile } from "@/components/app-ui/top-shell-metrics";
@@ -836,6 +837,10 @@ export function Providers({ children }: ProvidersProps) {
               so a page-scoped registration would make the action depend on
               which tab happened to be open. */}
           <GlobalVoiceActionHandlers />
+          {/* A spoken name change is server-owned and can happen from Home;
+              this refreshes the identity cache and Firebase user so the
+              header and Account agree without the name editor mounted. */}
+          <ProfileIdentityVoiceRefresh />
           {/* AppShellFrame resolves route-backed tab state through
               useSearchParams(). This boundary must be above that shared shell
               so static/native builds can pre-render every route, including

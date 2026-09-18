@@ -511,6 +511,13 @@ vi.mock("@/lib/services/account-identity-service", () => ({
   },
 }));
 
+// The self-map avatar is wired through this hook (photo or initials fallback,
+// never the stock pin). This suite covers sharing/settings behavior, not the
+// avatar, so it stays inert here -- same as profile-avatar-editor under test.
+vi.mock("@/hooks/use-effective-avatar-url", () => ({
+  useEffectiveAvatarUrl: () => null,
+}));
+
 vi.mock("@/lib/services/connections-service", () => ({
   ConnectionsService: {
     searchDirectory: mockSearchConnectionDirectory,
@@ -3053,6 +3060,14 @@ describe("OneLocationAgentPage", () => {
         },
         {
           id: "circle-joined",
+          name: "Road Trip",
+          kind: "other" as const,
+          role: "member" as const,
+          memberCount: 3,
+          memberLimit: 20,
+        },
+        {
+          id: "circle-foreign-sms",
           name: "Riya's SMS Circle",
           kind: "other" as const,
           role: "member" as const,
@@ -3086,7 +3101,11 @@ describe("OneLocationAgentPage", () => {
     expect(within(owned).getByText("Weekend crew")).toBeTruthy();
     expect(within(owned).queryByText("Riya's SMS Circle")).toBeNull();
     expect(within(joined).getByText("Joined circles")).toBeTruthy();
-    expect(within(joined).getByText("Riya's SMS Circle")).toBeTruthy();
+    expect(within(joined).getByText("Road Trip")).toBeTruthy();
+    // Someone else's SMS Circle cannot authorize recipients, so the share
+    // picker hides it instead of offering it and refusing.
+    expect(within(joined).queryByText("Riya's SMS Circle")).toBeNull();
+    expect(screen.queryByText("Riya's SMS Circle")).toBeNull();
     expect(within(joined).queryByText("Weekend crew")).toBeNull();
     expect(screen.queryByText("Trusted Circle")).toBeNull();
   });

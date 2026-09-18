@@ -1523,3 +1523,58 @@ def test_reset_account_maps_failure_to_500(monkeypatch):
 
     assert response.status_code == 500
     assert response.json()["detail"] == "Account reset failed"
+
+
+def test_update_display_name_route_reports_pending_shadow_without_stale_identity(monkeypatch):
+    """A shadow that has not caught up is not a failure (the provider committed)
+    and is not a fresh identity either: the client re-fetches on ``identity: null``."""
+    uid = "firebase_uid_123"
+    _configure_firebase_verifier(monkeypatch, uid=uid)
+    monkeypatch.setattr(AccountDeletionLifecycleService, "is_tombstoned", lambda _uid: False)
+
+    async def pending(self, user_id, display_name):
+        assert user_id == uid
+        return {"user_id": uid, "display_name": "Ayesha S", "shadow_sync": "pending"}
+
+    monkeypatch.setattr(ActorIdentityService, "update_display_name", pending)
+
+    response = TestClient(_build_app()).patch(
+        "/api/account/identity/display-name",
+        headers={"Authorization": "Bearer token"},
+        json={"display_name": "Ayesha S"},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["success"] is True
+    assert body["user_id"] == uid
+    assert body["shadow_sync"] == "pending"
+    assert body["identity"] is None
+    assert body["display_name"] == "Ayesha S"
+
+
+def test_update_display_name_route_returns_identity_when_synced(monkeypatch):
+    uid = "firebase_uid_123"
+    _configure_firebase_verifier(monkeypatch, uid=uid)
+    monkeypatch.setattr(AccountDeletionLifecycleService, "is_tombstoned", lambda _uid: False)
+
+    async def synced(self, user_id, display_name):
+        return {
+            "user_id": uid,
+            "display_name": "Ayesha S",
+            "email": "a@x.io",
+            "shadow_sync": "synced",
+        }
+
+    monkeypatch.setattr(ActorIdentityService, "update_display_name", synced)
+
+    response = TestClient(_build_app()).patch(
+        "/api/account/identity/display-name",
+        headers={"Authorization": "Bearer token"},
+        json={"display_name": "Ayesha S"},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["shadow_sync"] == "synced"
+    assert body["identity"]["display_name"] == "Ayesha S"
+    assert body["identity"]["email"] == "a@x.io"
+    assert "shadow_sync" not in body["identity"]

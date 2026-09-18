@@ -1033,8 +1033,13 @@ describe("LocationImmersiveMap demo experience", () => {
       );
     });
 
-    // Churn the marker set faster than addMarkers resolves.
+    // Churn the marker set after the first batch has landed, so the churn
+    // below supersedes a live map rather than racing its mount.
     fireEvent.click(screen.getByTestId("publish-nearby-place-focus"));
+    await waitFor(() => {
+      expect(added.length).toBeGreaterThanOrEqual(1);
+    });
+    await new Promise((resolve) => setTimeout(resolve, 100));
     fireEvent.click(screen.getByTestId("clear-nearby-place-focus"));
     fireEvent.click(screen.getByTestId("publish-nearby-place-focus"));
 
@@ -1049,10 +1054,11 @@ describe("LocationImmersiveMap demo experience", () => {
     expect(live.size).toBe(added.at(-1)?.length ?? 0);
   });
 
-  it("pins the check-in place alongside the owner and names both", async () => {
+  it("pins the check-in place while the owner stays an avatar", async () => {
     // The owner's position and the venue they check in to are routinely a
-    // street apart. Showing only one of them left the map unable to say where
-    // a check-in actually was.
+    // street apart. The venue keeps its renderer pin; the owner is drawn as
+    // their avatar in HTML and never as a second renderer pin -- two markers
+    // on one coordinate, one of them generic, was the bug being reported.
     experienceHarness.demoMode = false;
     experienceHarness.nearbyAvailable = true;
     // Check-in is its own destination now; the legacy `?action=check-in`
@@ -1078,8 +1084,7 @@ describe("LocationImmersiveMap demo experience", () => {
         title?: string;
         zIndex?: number;
       }>;
-      // The demo check-in starts before a camera report, so the renderer's
-      // fallback keeps both pins until the avatar layer can project a point.
+      // The place pin reaches the renderer...
       expect(
         drawn.some(
           (marker) =>
@@ -1087,13 +1092,14 @@ describe("LocationImmersiveMap demo experience", () => {
             marker.coordinate.lng === -122.4172,
         ),
       ).toBe(true);
+      // ...while the owner never does: their avatar is HTML above the map.
       expect(
         drawn.some(
           (marker) =>
             marker.coordinate.lat === 37.776 &&
             marker.coordinate.lng === -122.418,
         ),
-      ).toBe(true);
+      ).toBe(false);
       // On web the renderer paints `title` as the pin's glyph, so a title here
       // becomes a caption smeared across the map -- a place name plus its full
       // postal address in the worst case. Titles belong to native info windows.
@@ -2763,19 +2769,28 @@ describe("LocationImmersiveMap reported map defects", () => {
         .getByTestId("one-location-map-self-avatar-legend")
         .querySelector("img"),
     ).toHaveAttribute("src", "https://avatars.test/ankit.jpg");
-    await waitFor(() => {
-      expect(mapHarness.map.removeMarkers).toHaveBeenCalledWith([
-        expect.stringMatching(/^m-/),
-      ]);
-    });
+    // The renderer never draws the owner at all -- avatar from the first
+    // frame it can project, nothing before that -- so there is no pin to
+    // add and none to remove when the avatar takes over.
+    const drawnCoords = mapHarness.map.addMarkers.mock.calls.flatMap(
+      (call) =>
+        (call[0] as Array<{
+          coordinate: { lat: number; lng: number };
+        }>) ?? [],
+    );
+    expect(
+      drawnCoords.some(
+        (marker) => Math.abs(marker.coordinate.lat - 25.46) < 0.0001,
+      ),
+    ).toBe(false);
   });
 
-  it("keeps the renderer's own pin when the renderer never reports a camera", async () => {
+  it("draws no renderer pin while the camera has not reported", async () => {
     // A renderer too old to emit onBoundsChanged/onCameraIdle can project
-    // nothing, so the avatar layer has no coordinates to draw at. Losing the
-    // owner's marker entirely would be worse than a plain pin, so the pin
-    // stays. Both listeners are already wrapped in a try/catch at create; this
-    // is the state that leaves behind.
+    // nothing, so the avatar layer has no coordinates to draw at. The map
+    // briefly shows no self marker rather than the wrong one: a generic pin
+    // flashing on first paint was the reported bug, and the avatar (with its
+    // initials fallback) appears the moment a camera report arrives.
     stubPhoneGeometry();
     serviceHarness.captureCurrentPosition.mockResolvedValue({
       latitude: 25.46,
@@ -2786,22 +2801,23 @@ describe("LocationImmersiveMap reported map defects", () => {
     });
 
     await renderReadyMap();
-    await waitFor(() => {
-      expect(mapHarness.map.addMarkers).toHaveBeenCalled();
-    });
 
     // No reportCamera() in this case, on purpose.
     expect(
       screen.queryByTestId("one-location-map-self-avatar"),
     ).not.toBeInTheDocument();
-    const lastAddMarkers = mapHarness.map.addMarkers.mock.calls.at(-1)?.[0] as
-      | Array<{ coordinate: { lat: number; lng: number } }>
-      | undefined;
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    const drawnCoords = mapHarness.map.addMarkers.mock.calls.flatMap(
+      (call) =>
+        (call[0] as Array<{
+          coordinate: { lat: number; lng: number };
+        }>) ?? [],
+    );
     expect(
-      lastAddMarkers?.some(
+      drawnCoords.some(
         (marker) => Math.abs(marker.coordinate.lat - 25.46) < 0.0001,
       ),
-    ).toBe(true);
+    ).toBe(false);
   });
 
   it("answers a tap on your avatar the way the renderer answered a tap on your pin", async () => {

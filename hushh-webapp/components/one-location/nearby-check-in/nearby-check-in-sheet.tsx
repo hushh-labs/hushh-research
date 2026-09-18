@@ -275,6 +275,28 @@ function compactDistanceLabel(distanceMeters?: number | null): string {
   return distanceLabel(distanceMeters).replace(" away", "");
 }
 
+/**
+ * Short display name for the post-checkout rating heading.
+ *
+ * The server's `placeLabel` is a full "name + address" string (e.g.
+ * "Red Eagle Army Canteen, FVM7+4H7, Shivkuti Rd, ... 211004, India").
+ * Rendering that whole blob in a semibold heading turns the question into a
+ * 4-5 line bold paragraph that dominates the drawer on both mobile and the
+ * 26rem desktop rail (see the check-in-ended rating screenshot). The heading
+ * keeps only the venue segment before the first comma; the full label stays
+ * visible as a muted supporting line underneath.
+ */
+export function shortRatingPlaceName(
+  label: string | null | undefined,
+): string | null {
+  if (!label) return null;
+  const trimmed = label.trim();
+  if (!trimmed) return null;
+  const firstSegment = trimmed.split(",")[0]?.trim() || trimmed;
+  if (firstSegment.length <= 48) return firstSegment;
+  return `${firstSegment.slice(0, 47).trimEnd()}…`;
+}
+
 function normalizeAutomaticPlaces(
   suggestions: OneLocationNearbyPlaceSuggestion[],
 ): OneLocationNearbyPlaceSuggestion[] {
@@ -2316,14 +2338,40 @@ export function NearbyCheckInSheet({
                     className="space-y-3"
                     data-testid="nearby-visit-rating"
                   >
-                    <h2
-                      id={VISIT_RATING_HEADING_ID}
-                      className="text-[15px] font-semibold leading-5"
-                    >
-                      {completedCheckIn.placeLabel
-                        ? `How was ${completedCheckIn.placeLabel}?`
-                        : "How was it?"}
-                    </h2>
+                    <div className="min-w-0">
+                      <h2
+                        id={VISIT_RATING_HEADING_ID}
+                        className="line-clamp-2 break-words text-sm font-semibold leading-5 text-foreground text-pretty sm:text-[15px]"
+                      >
+                        {(() => {
+                          const shortName = shortRatingPlaceName(
+                            completedCheckIn.placeLabel ??
+                              completedCheckIn.rateable?.placeLabel ??
+                              null,
+                          );
+                          return shortName
+                            ? `How was ${shortName}?`
+                            : "How was it?";
+                        })()}
+                      </h2>
+                      {(() => {
+                        const fullLabel =
+                          completedCheckIn.placeLabel?.trim() || null;
+                        const shortName =
+                          shortRatingPlaceName(fullLabel);
+                        if (
+                          !fullLabel ||
+                          !shortName ||
+                          fullLabel === shortName
+                        )
+                          return null;
+                        return (
+                          <p className="mt-1 line-clamp-2 break-words text-xs leading-4 text-muted-foreground">
+                            {fullLabel}
+                          </p>
+                        );
+                      })()}
+                    </div>
 
                     <StarRatingInput
                       labelledBy={VISIT_RATING_HEADING_ID}

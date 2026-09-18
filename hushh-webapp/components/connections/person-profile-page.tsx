@@ -111,6 +111,7 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
   const [sharedActiveDomain, setSharedActiveDomain] = useState("all");
   const [sharedViewMode, setSharedViewMode] = useState<"cards" | "list">("cards");
   const [expandedRowId, setExpandedRowId] = useState<string | null>(null);
+  const [viewerProfileUnavailable, setViewerProfileUnavailable] = useState(false);
 
   useEffect(() => {
     if (profile) return;
@@ -134,6 +135,7 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
   useEffect(() => {
     if (authLoading || !user) return;
     let active = true;
+    setViewerProfileUnavailable(false);
     void user
       .getIdToken()
       .then((token) => PersonProfileService.getViewer(resolvedPersonRef, token))
@@ -145,7 +147,9 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
           });
         }
       })
-      .catch(() => undefined);
+      .catch(() => {
+        if (active) setViewerProfileUnavailable(true);
+      });
     return () => {
       active = false;
     };
@@ -178,6 +182,7 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
     setDurationHours(DEFAULT_REQUEST_DURATION_HOURS);
     setBundleDetails({});
     setDecryptedByRequest({});
+    setViewerProfileUnavailable(false);
   }, [resolvedPersonRef]);
 
   useEffect(() => {
@@ -1041,6 +1046,25 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
               )}
             </section>
           </>
+        ) : viewerProfileUnavailable && user ? (
+          <SectionCard className="py-8 text-center">
+            <div className="flex flex-col items-center justify-center space-y-2">
+              <p className="text-sm font-semibold text-foreground">
+                We couldn&rsquo;t load your connection with {profile.displayName} right now.
+              </p>
+              <p className="text-xs text-muted-foreground max-w-sm">
+                Your connection status, what you can request, and anything shared with you will appear here once this loads.
+              </p>
+              <Button
+                type="button"
+                variant="none"
+                effect="fade"
+                onClick={() => setViewerReloadToken((token) => token + 1)}
+              >
+                Try again
+              </Button>
+            </div>
+          </SectionCard>
         ) : null}
       </div>
       <Dialog open={reviewOpen} onOpenChange={setReviewOpen}>

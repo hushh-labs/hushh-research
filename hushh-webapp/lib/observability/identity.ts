@@ -40,6 +40,17 @@ import { resolveAnalyticsMeasurementId } from "@/lib/observability/env";
 const USER_ID_SALT = "hushh-observability-v1";
 
 let lastAppliedUserId: string | null | undefined;
+let lastAppliedUserInfo: AnalyticsUserInfo | null | undefined;
+
+export function getCurrentAnalyticsUserContext(): {
+  userId: string | null;
+  userInfo: AnalyticsUserInfo | null;
+} {
+  return {
+    userId: lastAppliedUserId || null,
+    userInfo: lastAppliedUserInfo || null,
+  };
+}
 
 function toHex(buffer: ArrayBuffer): string {
   return Array.from(new Uint8Array(buffer))
@@ -174,6 +185,7 @@ export async function setObservabilityUserId(
   // no-op on web for anyone already signed in at load.
   if (applied) {
     lastAppliedUserId = userId;
+    lastAppliedUserInfo = userInfo;
   } else if (!Capacitor.isNativePlatform() && userId) {
     // Retry on web if gtag script is still loading asynchronously after hydration
     let attempts = 0;
@@ -182,6 +194,7 @@ export async function setObservabilityUserId(
       const ok = applyWebUserId(userId, userInfo);
       if (ok) {
         lastAppliedUserId = userId;
+        lastAppliedUserInfo = userInfo;
         clearInterval(interval);
       } else if (attempts >= 10) {
         clearInterval(interval);
