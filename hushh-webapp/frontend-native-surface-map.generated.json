@@ -7377,6 +7377,60 @@
       }
     },
     {
+      "route": "/one/setup/capabilities",
+      "page_file": "app/one/setup/capabilities/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "standard",
+        "exemption_reason": null,
+        "shell_verification_file": "components/onboarding/setup/one-setup-capabilities-screen.tsx",
+        "shell_verification_includes": [
+          "AppPageShell",
+          "AppPageHeaderRegion",
+          "AppPageContentRegion",
+          "PageHeader"
+        ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.one.setup.capabilities",
+          "purpose": "Help the person connect or dismiss any of the optional One capabilities, opened from the dashboard's setup tile.",
+          "screen": "one_setup_capabilities",
+          "entry_cue": "",
+          "proactivity": "ambient",
+          "primary_action_id": null,
+          "happy_path_action_ids": [],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain the current guard and retain the goal.",
+            "cancelled": "Respect the cancellation and retain a safe next step.",
+            "failed": "Acknowledge the failure without claiming completion.",
+            "timeout": "Retain the goal and offer one safe retry.",
+            "callback_error": "Return to the verified callback recovery path without claiming success.",
+            "route_mismatch": "Use the verified current route and its generated actions only."
+          },
+          "completion_boundary": "This screen has no separate completion of its own -- each capability's own setup or dismiss is what changes state.",
+          "next_route": "/one",
+          "return_policy": "navigate",
+          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+        }
+      },
+      "native": null,
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
       "route": "/one/setup/connected-systems",
       "page_file": "app/one/setup/connected-systems/page.tsx",
       "physical_page_exists": true,
@@ -9576,5 +9630,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "5068c53ce744128f16260c63aa7f2fb259b2c05aa94aab79ef4929c4c9ba53ac"
+  "content_sha256": "bce240dba458ac12e77b9c4108f930beb29827a2e92528c3246064c7441cdde2"
 }
