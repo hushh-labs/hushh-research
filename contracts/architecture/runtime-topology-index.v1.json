@@ -3819,8 +3819,8 @@
       "alias": null,
       "api_dependencies": [],
       "cache": {
-        "policy": "memory-only",
-        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "policy": "none",
+        "refresh_trigger": "none",
         "resource_classes": [
           "unknown"
         ]
@@ -3830,7 +3830,7 @@
       "native_surface_id": null,
       "page_file": "app/one/profile/connectors/page.tsx",
       "pathname": "/one/profile/connectors",
-      "route_mode": "standard",
+      "route_mode": "redirect",
       "semantic_routes": [],
       "voice": {
         "action_ids": [],
@@ -5580,13 +5580,13 @@
     "a2a_scope_map": "7379039859448ff3db422aa5ee50124bbcadcecc8c9c49e3c1471791f54208c1",
     "action_gateway": "ecab0cb538dfc8dfcff911d801132d29065da4665bd4aee79e95df238c07cf7d",
     "agent_registry": "b865a980c4ff47ff91b316a238af7c70cfe01a3a79459199603791428b46a7d4",
-    "cache_manifest": "ae0cfb59a962c5df447e4d7fe6c912381648c45038f5dfa3f3763c5fbdf3e451",
+    "cache_manifest": "283ca954fee11aa9f32bd99272ef243e58b562447bd61e0f676c586fdcd62c31",
     "data_plane": "c9c094dd78bef3121d468eba93e0fbefb5275c5aab7a2bfd6be6e46cab4f9184",
     "in_process_dispatch": "022c40c305a11e06510f2688041a96c1523cae5b5c03d7876fd122ce027e98c3",
     "one_specialist_tools": "9401718600797bd146e47674aaa84e3f836ddaa59f5d9b2044660395fe5172df",
     "route_index": "79577a2c003586ec40863c096997dd329ea8ff25c324e3ad51598d98cb05917a",
-    "route_layout": "1fe10250dec26593fa6f395c7308d91aad9780375134cf144a6a0de5ffaeb912",
-    "surface_map": "dc08c44c56964a9d28ac2db12431975869b7747d3fbf3ac96ba1fa0fce0cf624",
+    "route_layout": "2afccae57541bf64e70c5d37b2393c4c74d004269b7e92edd12d1df4cba3c9e6",
+    "surface_map": "ec992499997351121aca7fcaf6dfddb4b03e8136d9ee0b64c760a6dfab2f3e31",
     "topology_contract": "604960e855be06af77bd75d21f3eace0e2ea5647b344d08f0acd2b8c35d4f4e9",
     "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"
   },

@@ -8,6 +8,7 @@ import {
   SidebarSimple as PanelLeftClose,
   SidebarSimple as PanelLeftOpen,
   PencilSimple as Pencil,
+  Plugs as PlugIcon,
   Plus,
   MagnifyingGlass as Search,
   Trash as Trash2,
@@ -61,6 +62,7 @@ type AgentHistorySidebarProps = {
   surface?: "one" | "puppy";
   onClose?: () => void;
   onToggleCollapsed?: () => void;
+  onOpenConnectors?: () => void;
   onCreateNew: () => void;
   onSelectConversation: (conversationId: string) => void;
   onRenameConversation: (conversationId: string, title: string) => Promise<void> | void;
@@ -140,6 +142,7 @@ export function AgentHistorySidebar({
   surface = "one",
   onClose,
   onToggleCollapsed,
+  onOpenConnectors,
   onCreateNew,
   onSelectConversation,
   onRenameConversation,
@@ -516,6 +519,23 @@ export function AgentHistorySidebar({
                 onClear={() => setSearchQuery("")}
               />
             </div>
+            {onOpenConnectors ? (
+              <Button
+                type="button"
+                variant="ghost"
+                className={cn(
+                  "mt-2 h-11 w-full justify-start gap-2 px-3 text-sm font-medium text-[#1d1d1f] transition-colors focus-visible:ring-2 focus-visible:ring-primary/60 dark:text-zinc-100",
+                  isMobileMode
+                    ? "rounded-full bg-black/[0.035] hover:bg-black/[0.055] dark:bg-white/[0.05] dark:hover:bg-white/[0.08]"
+                    : "rounded-[14px] hover:bg-foreground/[0.06] dark:hover:bg-white/[0.06]"
+                )}
+                onClick={onOpenConnectors}
+                aria-label="Open MCP connections"
+              >
+                <PlugIcon className="h-4 w-4" aria-hidden="true" />
+                <span className="truncate">MCP connections</span>
+              </Button>
+            ) : null}
           </div>
         ) : null}
 

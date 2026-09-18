@@ -40,6 +40,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { requestProfilePaneOpen } from "@/lib/navigation/profile-pane";
 import { Button } from "@/components/ui/button";
 import { AgentHistorySidebar } from "@/components/agent/agent-history-sidebar";
+import { ConnectorsPanel } from "@/components/agent/connectors-panel";
 import { SegmentedControl } from "@/lib/morphy-ux/ui/segmented-control";
 import {
   mergeScopeItems,
@@ -1679,6 +1680,21 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const [isHistoryDrawerOpen, setIsHistoryDrawerOpen] = useState(false);
   const [isHistoryCollapsed, setIsHistoryCollapsed] = useState(false);
+  const [connectorsPanelOpen, setConnectorsPanelOpen] = useState(false);
+  useEffect(() => {
+    // `?panel=connectors` is the connector OAuth-return flow's landing signal
+    // -- connectors live in this sidebar panel now, not a dedicated route, so
+    // completing a connect has to reopen it here instead of navigating to one.
+    if (searchParams?.get("panel") !== "connectors") return;
+    setConnectorsPanelOpen(true);
+    const next = new URLSearchParams(searchParams.toString());
+    next.delete("panel");
+    const query = next.toString();
+    router.replace(query ? `${pathname}?${query}` : pathname, {
+      scroll: false,
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
   const [historyActionPendingId, setHistoryActionPendingId] = useState<
     string | null
   >(null);
@@ -5256,6 +5272,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       surface={agentSurface}
       onClose={onClose}
       onToggleCollapsed={() => setIsHistoryCollapsed((current) => !current)}
+      onOpenConnectors={() => setConnectorsPanelOpen(true)}
       onCreateNew={handleSidebarCreateNewChat}
       onSelectConversation={handleSidebarSelectConversation}
       onRenameConversation={handleRenameConversation}
@@ -6870,6 +6887,10 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           onSuccess={() => setVaultDialogOpen(false)}
         />
       ) : null}
+      <ConnectorsPanel
+        open={connectorsPanelOpen}
+        onOpenChange={setConnectorsPanelOpen}
+      />
     </div>
   );
 }

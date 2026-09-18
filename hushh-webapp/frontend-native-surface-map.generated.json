@@ -52,6 +52,14 @@
       "file": "app/api/connected-systems/[...path]/route.ts"
     },
     {
+      "template": "/api/connectors",
+      "file": "app/api/connectors/route.ts"
+    },
+    {
+      "template": "/api/connectors/{path*}",
+      "file": "app/api/connectors/[...path]/route.ts"
+    },
+    {
       "template": "/api/consent/active",
       "file": "app/api/consent/active/route.ts"
     },
@@ -5277,13 +5285,10 @@
       "page_file": "app/one/profile/connectors/page.tsx",
       "physical_page_exists": true,
       "route_contract": {
-        "mode": "standard",
-        "exemption_reason": null,
-        "shell_verification_file": "app/one/profile/connectors/page.tsx",
-        "shell_verification_includes": [
-          "AppPageShell",
-          "AppPageContentRegion"
-        ],
+        "mode": "redirect",
+        "exemption_reason": "Connectors moved into the chat sidebar's MCP connections panel; this route only forwards to / with ?panel=connectors.",
+        "shell_verification_file": null,
+        "shell_verification_includes": [],
         "interaction_layer_policy": {
           "allowed_families": []
         },
@@ -5305,17 +5310,17 @@
             "route_mismatch": "Use the verified current route and its generated actions only."
           },
           "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
-          "next_route": null,
-          "return_policy": "stay",
+          "next_route": "/",
+          "return_policy": "navigate",
           "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
         }
       },
       "native": null,
       "shell": {
-        "app_page_shell": true,
+        "app_page_shell": false,
         "page_header": false,
         "settings_ui": false,
-        "shared_loader": false,
+        "shared_loader": true,
         "back_button_pattern": "shared-shell"
       },
       "voice_action_contract_file": null,
@@ -5330,7 +5335,7 @@
       "physical_page_exists": true,
       "route_contract": {
         "mode": "redirect",
-        "exemption_reason": "OAuth callback completes an external connector's authorization and returns to the connectors manage page.",
+        "exemption_reason": "OAuth callback completes an external connector's authorization and returns to the chat sidebar's MCP connections panel.",
         "shell_verification_file": null,
         "shell_verification_includes": [],
         "interaction_layer_policy": {
@@ -5354,7 +5359,7 @@
             "route_mismatch": "Use the verified current route and its generated actions only."
           },
           "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
-          "next_route": "/one/profile/connectors",
+          "next_route": "/",
           "return_policy": "navigate",
           "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
         }
@@ -9559,5 +9564,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "226d173a72b71167c389f78600a708d615eca13733fc949f2205c47ea5530e1a"
+  "content_sha256": "89fff3aaf91faf2e6b954e0034ad8a1daaa138adb40b820e979ba19acea2e01e"
 }
