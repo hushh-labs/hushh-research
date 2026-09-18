@@ -34,6 +34,12 @@ AGENT_MANIFEST_PATH = CONSENT_PROTOCOL_ROOT / "hushh_mcp" / "agents" / "one" / "
 
 LIVE_EVAL_ENV = "ONE_VOICE_LIVE_TOOL_EVAL"
 LIVE_EVAL_MODE_ENV = "ONE_VOICE_LIVE_TOOL_EVAL_MODE"
+# The Vertex project the evaluation bills to. ``tests/conftest.py`` scrubs
+# GENAI_GOOGLE_CLOUD_PROJECT for every test, so the override would otherwise
+# fall back to the .env project silently; this key survives the scrub and is
+# applied inside the test body. (hushh-pda-uat is billing-denied for Vertex;
+# the UAT lane's GenAI project is hushh-vertex-personal54.)
+LIVE_EVAL_PROJECT_ENV = "ONE_VOICE_LIVE_EVAL_PROJECT"
 LIVE_MODEL_ENV = "VERTEX_LIVE_MODEL_ID"
 LIVE_LOCATION_ENV = "VERTEX_LIVE_LOCATION"
 DEFAULT_LIVE_MODEL_ID = "gemini-live-2.5-flash-native-audio"
@@ -390,6 +396,9 @@ def resolve_mode() -> tuple[str, str, str, str]:
     """(mode, model_id, location, mode_label) from the environment."""
     import os
 
+    project = (os.environ.get(LIVE_EVAL_PROJECT_ENV) or "").strip()
+    if project:
+        os.environ["GENAI_GOOGLE_CLOUD_PROJECT"] = project
     mode = (os.environ.get(LIVE_EVAL_MODE_ENV) or "live").strip().lower()
     if mode == "text":
         from hushh_mcp.constants import fleet_text_model_from_env

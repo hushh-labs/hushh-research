@@ -62,9 +62,20 @@ describe("RequestReviewStepBridge", () => {
     expect(requestReviewHref(REQUEST)).toContain(`requestId=${REQUEST}`);
     expect(requestReviewHref(REQUEST)).toContain("tab=pending");
     expect(report).not.toHaveBeenCalled();
+    // A completion for a different request on the same screen is not ours.
     act(() => {
       window.dispatchEvent(
-        new CustomEvent(CONSENT_ACTION_COMPLETE_EVENT, { detail: { reconcile: true } }),
+        new CustomEvent(CONSENT_ACTION_COMPLETE_EVENT, {
+          detail: { reconcile: true, requestId: "99999999-9999-4999-8999-999999999999" },
+        }),
+      );
+    });
+    expect(report).not.toHaveBeenCalled();
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent(CONSENT_ACTION_COMPLETE_EVENT, {
+          detail: { reconcile: true, requestId: REQUEST },
+        }),
       );
     });
     expect(report).toHaveBeenCalledTimes(1);

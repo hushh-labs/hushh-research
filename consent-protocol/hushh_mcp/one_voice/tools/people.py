@@ -26,6 +26,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from hushh_mcp.one_voice.tools.base import (
     ConfirmedPerson,
     Needs,
+    OfferedRequest,
     PersonRef,
     Rejected,
     ToolContext,
@@ -457,10 +458,9 @@ async def _directory_candidates(ctx: ToolContext, target: str) -> tuple[list[dic
     service's; nothing here widens it."""
     connections = _connections(ctx)
     items: list[dict[str, Any]] = []
-    truncated = False
 
     async def _read(query: str) -> bool:
-        nonlocal truncated
+        """Fill ``items`` for ``query``; True when pages were left unread."""
         items.clear()
         for page_number in range(1, DIRECTORY_MAX_PAGES + 1):
             page = await asyncio.to_thread(
@@ -473,16 +473,19 @@ async def _directory_candidates(ctx: ToolContext, target: str) -> tuple[list[dic
             rows = list((page or {}).get("items") or [])
             items.extend(rows)
             if not (page or {}).get("hasMore"):
-                return bool(items)
-        truncated = True
-        return bool(items)
+                return False
+        return True
 
-    found = await _read(target)
+    # Only the name the person actually said can be "truncated": the short
+    # prefix below is a net for near-spellings, and a crowded prefix says
+    # nothing about how many people share the spoken name.
+    truncated = await _read(target)
     first = target.split(" ")[0]
-    if not found and len(first) >= 2:
+    if not items and len(first) >= 2:
         # The directory is prefix-only in SQL; a short prefix pulls in the
         # near-spellings so the phonetic ranking below can consider them.
         await _read(first[:2])
+        truncated = False
     records: list[dict[str, Any]] = []
     for row in items:
         uid = str(row.get("userId") or "")
@@ -771,6 +774,22 @@ async def list_people(ctx: ToolContext, args: ListPeopleInput) -> ToolResult:
             f"{join_names_for_speech([r['display_name'] for r in snapshot.pending_outgoing[:5]])} "
             f"is still pending."
         )
+    ctx.entities.offer_requests(
+        [
+            OfferedRequest(
+                request_id=str(r["request_id"]),
+                user_id=str(r["user_id"]),
+                display_name=str(r["display_name"]),
+                direction=direction,  # type: ignore[arg-type]
+            )
+            for direction, rows in (
+                ("incoming", snapshot.pending_incoming),
+                ("outgoing", snapshot.pending_outgoing),
+            )
+            for r in rows
+            if r.get("request_id")
+        ]
+    )
     no_connections = total == 0 and not args.query
     return ListPeopleResult(
         status="no_connections" if no_connections else "ok",
@@ -890,11 +909,6 @@ async def invite_person(ctx: ToolContext, args: InvitePersonInput) -> ToolResult
                 status="already_connected",
                 spoken_facts=[f"You're already connected with {name}."],
             )
-        known_outgoing = {
-            str(r.get("request_id") or "")
-            for r in snapshot.pending_outgoing
-            if r.get("user_id") == uid
-        }
         if record and record["relationship"] == "pending_outgoing":
             return _pending_result(
                 name, {"id": record["request_id"]}, direction="outgoing", fresh=False
@@ -941,14 +955,18 @@ async def invite_person(ctx: ToolContext, args: InvitePersonInput) -> ToolResult
     if requester != ctx.user_id:
         # The service returned the other person's pending request to us:
         # they asked first. Nothing was sent backwards.
-        if addressee != ctx.user_id:
+        if requester != uid or addressee != ctx.user_id:
             return Rejected(
                 reason_code="malformed_request_result",
                 spoken_facts=[f"I couldn't confirm the request to {name}; it names other people."],
             )
         return _pending_result(name, created, direction="incoming", fresh=True)
-    if request_id in known_outgoing:
-        return _pending_result(name, created, direction="outgoing", fresh=True)
+    if addressee != uid:
+        # A request from us to somebody else is not this request.
+        return Rejected(
+            reason_code="malformed_request_result",
+            spoken_facts=[f"I couldn't confirm the request to {name}; it names other people."],
+        )
     known = ctx.entities.person(uid)
     if known is not None:
         ctx.entities.remember_person(known.model_copy(update={"relationship": "pending_outgoing"}))
@@ -997,13 +1015,30 @@ class DeclineConnectionRequestResult(ToolResult):
     request_status: Literal["rejected"]
 
 
+def _request_counterpart(ctx: ToolContext, request_id: str, ref: PersonRef | None) -> str | None:
+    """The card names the request's real counterpart (from the server's own
+    listing), never a name the model supplied."""
+    offered = ctx.entities.offered_request(request_id)
+    if offered is not None:
+        return offered.display_name
+    return _name(ctx, ref)
+
+
+def _request_not_offered() -> Rejected:
+    return Rejected(
+        reason_code="request_not_offered",
+        needs="disambiguation",
+        spoken_facts=["I need to look up your requests first. One moment."],
+    )
+
+
 def summarize_accept(ctx: ToolContext, args: ConnectionRequestInput) -> str:
-    name = _name(ctx, args.person)
+    name = _request_counterpart(ctx, args.request_id, args.person)
     return f"accept the connection request from {name}" if name else "accept the connection request"
 
 
 def summarize_decline(ctx: ToolContext, args: ConnectionRequestInput) -> str:
-    name = _name(ctx, args.person)
+    name = _request_counterpart(ctx, args.request_id, args.person)
     return (
         f"decline the connection request from {name}" if name else "decline the connection request"
     )
@@ -1020,6 +1055,9 @@ async def _incoming_request(
     to this person, and -- when a person was named -- from that person."""
     if args.person is not None and ctx.entities.person(args.person.user_id) is None:
         return Rejected(reason_code="person_not_confirmed", needs="disambiguation")
+    offered = ctx.entities.offered_request(args.request_id)
+    if offered is None or offered.direction != "incoming":
+        return _request_not_offered()
     snapshot = await load_people_snapshot(ctx)
     request = _find_request(snapshot.pending_incoming, args.request_id)
     if request is None:
@@ -1143,7 +1181,10 @@ async def settle_request_review(
         "request_status": request_status,
         "connection": connected,
     }
-    if connected or request_status == "accepted":
+    # The request row decides. An active connection alone does not: two
+    # people who were already connected can review a scoped request, and
+    # declining it leaves them connected.
+    if request_status == "accepted" or (row is None and connected):
         if record is not None:
             ctx.entities.remember_person(_confirmed(record))
         return RequestReviewOutcome(
@@ -1232,7 +1273,7 @@ class CancelConnectionRequestResult(ToolResult):
 
 
 def summarize_cancel(ctx: ToolContext, args: CancelConnectionRequestInput) -> str:
-    name = _name(ctx, args.person)
+    name = _request_counterpart(ctx, args.request_id, args.person)
     return f"cancel your connection request to {name}" if name else "cancel your connection request"
 
 
@@ -1241,6 +1282,9 @@ async def cancel_connection_request(
 ) -> ToolResult:
     if args.person is not None and ctx.entities.person(args.person.user_id) is None:
         return Rejected(reason_code="person_not_confirmed", needs="disambiguation")
+    offered = ctx.entities.offered_request(args.request_id)
+    if offered is None or offered.direction != "outgoing":
+        return _request_not_offered()
     try:
         snapshot = await load_people_snapshot(ctx)
         request = _find_request(snapshot.pending_outgoing, args.request_id)
@@ -1323,27 +1367,41 @@ async def remove_connection(ctx: ToolContext, args: RemoveConnectionInput) -> To
         outcome = await asyncio.to_thread(
             _connections(ctx).remove_connection, ctx.user_id, connection_id
         )
-        if not int((outcome or {}).get("removed") or 0):
-            return RemoveConnectionResult(
-                status="not_connected",
-                user_id=uid,
-                display_name=name,
-                relationship_after="none",
-                spoken_facts=[f"You're not connected with {name}."],
-            )
-        # Verify the post-state rather than narrate the intent.
-        after_snapshot, after = await _fresh_record(ctx, uid)
     except ServiceError as err:
         return _rejected(err)
+    if not int((outcome or {}).get("removed") or 0):
+        return RemoveConnectionResult(
+            status="not_connected",
+            user_id=uid,
+            display_name=name,
+            relationship_after="none",
+            spoken_facts=[f"You're not connected with {name}."],
+        )
+    # Verify the post-state rather than narrate the intent. The removal is
+    # committed by now: a failed re-read is "unverified", never a refusal.
+    try:
+        _, after = await _fresh_record(ctx, uid)
+    except ServiceError:
+        return RemoveConnectionResult(
+            status="unverified",
+            user_id=uid,
+            display_name=name,
+            relationship_after=None,
+            spoken_facts=[
+                f"The disconnect from {name} went through, but I couldn't re-check it. "
+                "Check your connections."
+            ],
+        )
     relationship_after = str((after or {}).get("relationship") or "none")
-    if after is not None:
-        ctx.entities.remember_person(_confirmed(after))
-    else:
-        known = ctx.entities.person(uid)
-        if known is not None:
-            ctx.entities.remember_person(
-                known.model_copy(update={"relationship": "none", "has_location_key": False})
-            )
+    known = ctx.entities.person(uid)
+    if after is not None and relationship_after != "connected":
+        # Whatever the directory says about their key, they can no longer
+        # receive this person's location.
+        ctx.entities.remember_person(_confirmed(dict(after, has_location_key=False)))
+    elif after is None and known is not None:
+        ctx.entities.remember_person(
+            known.model_copy(update={"relationship": "none", "has_location_key": False})
+        )
     if relationship_after == "connected":
         return RemoveConnectionResult(
             status="unverified",

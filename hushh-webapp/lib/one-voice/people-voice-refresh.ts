@@ -34,14 +34,35 @@ export function isPeopleGraphChange(
   return CHANGED_STATUSES.has(result.status);
 }
 
-/** Skip the second frame the relay sends for one confirmed action. */
+/**
+ * Skip the second frame the relay sends for one confirmed action.
+ *
+ * `pending_action.resolved` and `tool.result` are two separately parsed
+ * frames, so identity is useless; the key is the outcome itself (status plus
+ * the ids it names), and a repeat inside a short window is the mirror frame.
+ */
+export const VOICE_REFRESH_DEDUPE_WINDOW_MS = 5_000;
+
+function refreshKey(result: ToolResultPublic): string {
+  const pick = (key: string) => {
+    const value = (result as Record<string, unknown>)[key];
+    return typeof value === "string" ? value : "";
+  };
+  return [result.status, pick("request_id"), pick("user_id"), pick("connection_id")].join("|");
+}
+
 export class VoiceRefreshDeduper {
-  private last: WeakSet<object> = new WeakSet();
+  private seen = new Map<string, number>();
+
+  constructor(private readonly now: () => number = () => Date.now()) {}
 
   shouldRefresh(result: ToolResultPublic | null | undefined): boolean {
-    if (!result || typeof result !== "object") return false;
-    if (this.last.has(result)) return false;
-    this.last.add(result);
-    return true;
+    if (!result || typeof result !== "object" || typeof result.status !== "string") return false;
+    const key = refreshKey(result);
+    const at = this.now();
+    const last = this.seen.get(key);
+    this.seen.set(key, at);
+    for (const [k, t] of this.seen) if (at - t > VOICE_REFRESH_DEDUPE_WINDOW_MS) this.seen.delete(k);
+    return last === undefined || at - last > VOICE_REFRESH_DEDUPE_WINDOW_MS;
   }
 }

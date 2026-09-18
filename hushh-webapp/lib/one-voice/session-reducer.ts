@@ -54,6 +54,7 @@ const NEUTRAL_STATUSES = new Set<string>([
   "multiple",
   "single_likely",
   "low_confidence",
+  "truncated",
   "unverified",
   "invalid",
   "unavailable",

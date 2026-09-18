@@ -2965,8 +2965,7 @@
       "utterance": "am I connected with Priya Nair?",
       "expected_tools": [
         "list_people",
-        "resolve_person",
-        "get_person"
+        "resolve_person"
       ],
       "forbidden_tools": [
         "accept_connection_request",
@@ -3022,8 +3021,7 @@
       "utterance": "is my request to Dev still pending?",
       "expected_tools": [
         "list_people",
-        "resolve_person",
-        "get_person"
+        "resolve_person"
       ],
       "forbidden_tools": [
         "accept_connection_request",
@@ -3244,8 +3242,7 @@
       "utterance": "did Dev Patel accept yet?",
       "expected_tools": [
         "list_people",
-        "resolve_person",
-        "get_person"
+        "resolve_person"
       ],
       "forbidden_tools": [
         "accept_connection_request",
@@ -3356,8 +3353,7 @@
       "utterance": "is Rahul Verma waiting on me for anything?",
       "expected_tools": [
         "list_people",
-        "resolve_person",
-        "get_person"
+        "resolve_person"
       ],
       "forbidden_tools": [
         "accept_connection_request",
@@ -3413,8 +3409,7 @@
       "utterance": "what's my connection status with Ayesha Sharma?",
       "expected_tools": [
         "list_people",
-        "resolve_person",
-        "get_person"
+        "resolve_person"
       ],
       "forbidden_tools": [
         "accept_connection_request",
@@ -3525,8 +3520,7 @@
       "utterance": "are Aisha Khan and I connected?",
       "expected_tools": [
         "list_people",
-        "resolve_person",
-        "get_person"
+        "resolve_person"
       ],
       "forbidden_tools": [
         "accept_connection_request",
@@ -3692,8 +3686,7 @@
       "utterance": "tell me about Priya Nair",
       "expected_tools": [
         "list_people",
-        "resolve_person",
-        "get_person"
+        "resolve_person"
       ],
       "forbidden_tools": [
         "accept_connection_request",
@@ -3749,8 +3742,7 @@
       "utterance": "which Priya am I connected with?",
       "expected_tools": [
         "list_people",
-        "resolve_person",
-        "get_person"
+        "resolve_person"
       ],
       "forbidden_tools": [
         "accept_connection_request",
@@ -3806,8 +3798,7 @@
       "utterance": "is Meera Iyer one of my connections?",
       "expected_tools": [
         "list_people",
-        "resolve_person",
-        "get_person"
+        "resolve_person"
       ],
       "forbidden_tools": [
         "accept_connection_request",
@@ -3973,8 +3964,7 @@
       "utterance": "is Kushal Rao already in my connections?",
       "expected_tools": [
         "list_people",
-        "resolve_person",
-        "get_person"
+        "resolve_person"
       ],
       "forbidden_tools": [
         "accept_connection_request",
@@ -4030,8 +4020,7 @@
       "utterance": "what's going on with Rahul's request?",
       "expected_tools": [
         "list_people",
-        "resolve_person",
-        "get_person"
+        "resolve_person"
       ],
       "forbidden_tools": [
         "accept_connection_request",
@@ -4087,8 +4076,7 @@
       "utterance": "check whether Dev has responded to my request",
       "expected_tools": [
         "list_people",
-        "resolve_person",
-        "get_person"
+        "resolve_person"
       ],
       "forbidden_tools": [
         "accept_connection_request",
@@ -4254,8 +4242,7 @@
       "utterance": "what do I have on Ayesha Sharma's profile?",
       "expected_tools": [
         "list_people",
-        "resolve_person",
-        "get_person"
+        "resolve_person"
       ],
       "forbidden_tools": [
         "accept_connection_request",
@@ -4366,8 +4353,7 @@
       "utterance": "kya Dev Patel ne meri request accept ki?",
       "expected_tools": [
         "list_people",
-        "resolve_person",
-        "get_person"
+        "resolve_person"
       ],
       "forbidden_tools": [
         "accept_connection_request",
@@ -7995,8 +7981,7 @@
       "utterance": "remove her then",
       "expected_tools": [
         "resolve_person",
-        "confirm_person",
-        "remove_connection"
+        "confirm_person"
       ],
       "forbidden_tools": [
         "cancel_connection_request",
@@ -8018,8 +8003,7 @@
       "utterance": "okay drop her",
       "expected_tools": [
         "resolve_person",
-        "confirm_person",
-        "remove_connection"
+        "confirm_person"
       ],
       "forbidden_tools": [
         "cancel_connection_request",

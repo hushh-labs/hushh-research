@@ -713,7 +713,9 @@ class VoiceSession:
         if isinstance(spec, ToolSpec) and result.status == "accepted":
             result.ui_refresh = sorted(set(result.ui_refresh) | set(spec.ui_refresh))
         outcome = ToolCallOutcome(result=result, spec=spec if isinstance(spec, ToolSpec) else None)
-        ok = result.status == "accepted"
+        # A review that reached a real decision is a settled result even when
+        # the decision was "no": only an open or unreadable request is not.
+        ok = result.status in {"accepted", "declined", "withdrawn"}
         await self._after_execution(
             outcome, source="review", ok=ok, call_id=str(step.get("call_id") or "") or None
         )
@@ -945,6 +947,7 @@ class VoiceSession:
             "multiple",
             "single_likely",
             "low_confidence",
+            "truncated",
         }:
             kind: Literal["person", "circle"] = (
                 "circle" if outcome.spec and "circle" in outcome.spec.name else "person"
@@ -953,7 +956,7 @@ class VoiceSession:
                 protocol.candidate_picker(
                     kind=kind,
                     question="Which one do you mean?"
-                    if public.get("status") == "multiple"
+                    if public.get("status") in {"multiple", "truncated"}
                     else "Is this who you mean?",
                     candidates=[c for c in candidates if isinstance(c, dict)][:5],
                 )

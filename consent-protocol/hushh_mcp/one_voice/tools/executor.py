@@ -38,10 +38,12 @@ from hushh_mcp.one_voice.tools.base import (
 logger = logging.getLogger(__name__)
 
 
-# Tools that start a new lookup. While one of these runs, an open card that
-# targets a person or circle is a proposal about the *previous* target: a
-# correction ("no, Priya Sharma") must not leave a card whose spoken yes would
-# still act on the old one.
+# Tools that start a new lookup. While one of these runs, any open card is a
+# proposal about the *previous* target: a correction ("no, Priya Sharma") must
+# not leave a card whose spoken yes would still act on the old one. Every
+# mutation card names a counterpart one way or another (a person, a circle, or
+# a request id), so all open cards are superseded, not only those with typed
+# person/circle arguments.
 LOOKUP_TOOLS = frozenset({"resolve_person", "resolve_circle"})
 
 
@@ -187,6 +189,7 @@ class ToolExecutor:
             result = await spec.handler(ctx, parsed)
         except Exception as exc:  # noqa: BLE001 - a broken tool must not end the session
             logger.warning("one_voice.tool.failed tool=%s error=%s", spec.name, type(exc).__name__)
+            # Cards superseded before the handler ran are still superseded.
             return ToolCallOutcome(
                 result=Rejected(
                     reason_code="execution_failed",
@@ -194,20 +197,18 @@ class ToolExecutor:
                 ),
                 spec=spec,
                 parsed=parsed,
+                superseded=superseded,
             )
         if spec.ui_refresh and result.status not in {"rejected", "unsupported"}:
             result.ui_refresh = sorted(set(result.ui_refresh) | set(spec.ui_refresh))
         return ToolCallOutcome(result=result, spec=spec, parsed=parsed, superseded=superseded)
 
     async def _supersede_targeted(self, ctx: ToolContext) -> list[PendingAction]:
-        """Cancel open pending actions whose args name a person or circle."""
+        """Cancel every open pending action: a new lookup makes its target stale."""
         cancelled: list[PendingAction] = []
         for row in await self.pending.list_open(
             user_id=ctx.user_id, conversation_id=ctx.conversation_id
         ):
-            spec = registry.get_tool(row.tool_name)
-            if spec is None or not (spec.person_args or spec.circle_args):
-                continue
             done = await self.pending.cancel(user_id=ctx.user_id, pending_action_id=row.id)
             if done is not None:
                 cancelled.append(done)
@@ -296,10 +297,13 @@ class ToolExecutor:
             )
         # confirm_pending_action (voice tier only)
         current = await self.pending.get(user_id=ctx.user_id, pending_action_id=pending_id)
-        if current is not None and current.status == "pending":
+        if current is not None and current.status == "pending" and current.tier != "tap":
+            # A tap-tier card gets the tap_required answer below; its proof is
+            # checked on the tap. A voice-tier card needs the session's proof
+            # now. The row stays pending either way, and the outcome carries no
+            # pending row: the client already holds the card and its receipt.
             proof = await self.prove_actor(ctx, registry.get_tool(current.tool_name))
             if proof != "ok":
-                # The row stays pending: a tap carries a fresh proof.
                 return ToolCallOutcome(
                     result=ToolResult(
                         status=FIREBASE_PROOF_REQUIRED,
@@ -308,8 +312,7 @@ class ToolExecutor:
                         spoken_facts=[
                             "I need you to tap Confirm on the card for this one, to prove it's you."
                         ],
-                    ),
-                    pending=current,
+                    )
                 )
         try:
             row = await self.pending.confirm(

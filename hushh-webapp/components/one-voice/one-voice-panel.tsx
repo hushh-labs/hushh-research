@@ -50,6 +50,7 @@ const HANDOFF_STATUSES = new Set<string>([
 ]);
 const DISAMBIGUATION_STATUSES = new Set<string>([
   "multiple",
+  "truncated",
   "single_likely",
   "low_confidence",
 ]);

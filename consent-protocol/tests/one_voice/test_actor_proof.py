@@ -242,3 +242,35 @@ def test_execution_failure_after_confirmation_does_not_claim_nothing_changed():
         }
     finally:
         mp.undo()
+
+
+def test_a_lookup_supersedes_every_open_card_even_when_the_lookup_itself_fails(monkeypatch):
+    """The store cancels the card before the handler runs; the outcome still
+    names it so the relay can tell the client, whatever the handler did."""
+    from hushh_mcp.one_voice.tools.base import ToolInput as _Input
+
+    class LookupInput(_Input):
+        spoken_name: str
+
+    async def explode(ctx, args):
+        raise RuntimeError("directory down")
+
+    lookup = ToolSpec(
+        name="resolve_person",
+        gateway_action_id="connect.search_people",
+        policy=ToolPolicy.read,
+        input_model=LookupInput,
+        output_model=ToolResult,
+        description="Lookup.",
+        handler=explode,
+    )
+    by_name = {SEND.name: SEND, PLAIN.name: PLAIN, lookup.name: lookup}
+    monkeypatch.setattr(registry, "get_tool", lambda name: by_name.get(str(name or "")))
+    store = MemoryPendingStore()
+    executor = ToolExecutor(pending_store=store, actor_proof=_proof({"good": "ok"}))
+    ctx = _ctx("good")
+    pending = _propose(executor, ctx, PLAIN.name)  # a card with no person_args at all
+    outcome = asyncio.run(executor.call(ctx, "resolve_person", {"spoken_name": "Priya"}))
+    assert outcome.result.status == "rejected" and outcome.result.reason_code == "execution_failed"
+    assert [row.id for row in outcome.superseded] == [pending.id]
+    assert asyncio.run(store.get(user_id=USER, pending_action_id=pending.id)).status == "cancelled"

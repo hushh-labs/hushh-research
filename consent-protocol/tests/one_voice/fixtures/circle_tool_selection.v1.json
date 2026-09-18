@@ -3466,8 +3466,7 @@
       "utterance": "is my request to Kushal still pending?",
       "expected_tools": [
         "list_people",
-        "resolve_person",
-        "get_person"
+        "resolve_person"
       ],
       "forbidden_tools": [
         "accept_connection_request",

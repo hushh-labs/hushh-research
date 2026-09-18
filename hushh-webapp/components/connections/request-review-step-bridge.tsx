@@ -109,7 +109,12 @@ export function RequestReviewStepBridge() {
         reported = true;
         report(status, payload);
       };
-      const onComplete = () => {
+      const onComplete = (event: Event) => {
+        const detail = (event as CustomEvent<{ requestId?: unknown }>).detail;
+        const named =
+          detail && typeof detail.requestId === "string" ? detail.requestId : null;
+        // A completion for another request on the same screen is not ours.
+        if (named && named !== requestId) return;
         entry.cleanup();
         inFlightRef.current.delete(step.stepId);
         once("ok", { outcome: "handled", request_id: requestId });

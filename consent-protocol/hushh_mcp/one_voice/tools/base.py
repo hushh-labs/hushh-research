@@ -160,6 +160,18 @@ class ConfirmedCircle(BaseModel):
     confirmed_at: str
 
 
+class OfferedRequest(BaseModel):
+    """A connection request the server listed in this conversation. Only these
+    ids may be accepted, declined or cancelled, and the card names the real
+    counterpart even when the model omits ``person``."""
+
+    model_config = ConfigDict(extra="forbid")
+    request_id: str
+    user_id: str
+    display_name: str
+    direction: Literal["incoming", "outgoing"]
+
+
 class EntityContext(BaseModel):
     """Per-conversation confirmed entities, keyed by canonical id.
 
@@ -188,6 +200,9 @@ class EntityContext(BaseModel):
     # person saw is not the list on record.
     offer_revision: int = 0
     offered_at: str | None = None
+    # Connection requests the server listed, by request id. Replaced on every
+    # list_people; a request id the model did not receive here is refused.
+    offered_requests: dict[str, OfferedRequest] = Field(default_factory=dict)
 
     @staticmethod
     def _now() -> datetime:
@@ -220,6 +235,12 @@ class EntityContext(BaseModel):
     def remember_person(self, person: ConfirmedPerson) -> None:
         self.people[person.user_id] = person
         self.last_person_user_id = person.user_id
+
+    def offer_requests(self, requests: list[OfferedRequest]) -> None:
+        self.offered_requests = {item.request_id: item for item in requests}
+
+    def offered_request(self, request_id: str) -> OfferedRequest | None:
+        return self.offered_requests.get(request_id)
 
     def offer_people(self, user_ids: list[str], *, circle_id: str | None = None) -> int:
         """Replace the offered person candidates and record where and when they
@@ -350,6 +371,7 @@ __all__ = [
     "OFFER_TTL_SECONDS",
     "EntityContext",
     "Needs",
+    "OfferedRequest",
     "PersonRef",
     "Rejected",
     "ScreenContext",

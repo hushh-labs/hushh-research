@@ -6,6 +6,7 @@ spoken fact asserted here is derived from what the double returned.
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 import pytest
@@ -272,6 +273,11 @@ def make_ctx(
         services={"connections": connections, "location": location},
     )
     return ctx, connections, location
+
+
+async def _offer_requests(ctx: ToolContext) -> None:
+    """Accept / decline / cancel act only on request ids the server listed."""
+    await people.list_people(ctx, people.ListPeopleInput())
 
 
 def confirm(ctx: ToolContext, user_id: str, name: str, relationship: str = "connected") -> None:
@@ -909,6 +915,7 @@ def test_accept_and_decline_summaries_with_and_without_a_confirmed_person():
 
 async def test_accept_remembers_the_new_connection():
     ctx, connections, _ = make_ctx()
+    await _offer_requests(ctx)
     result = await people.accept_connection_request(
         ctx, people.ConnectionRequestInput(request_id=REQ_IN)
     )
@@ -924,6 +931,7 @@ async def test_accept_remembers_the_new_connection():
 
 async def test_decline_is_a_success_outcome_over_a_rejected_row():
     ctx, connections, _ = make_ctx()
+    await _offer_requests(ctx)
     result = await people.decline_connection_request(
         ctx, people.ConnectionRequestInput(request_id=REQ_IN)
     )
@@ -939,12 +947,21 @@ async def test_decline_is_a_success_outcome_over_a_rejected_row():
 @pytest.mark.parametrize("tool", ["accept_connection_request", "decline_connection_request"])
 async def test_accept_decline_unknown_request_and_person_mismatch(tool):
     ctx, connections, _ = make_ctx()
+    await _offer_requests(ctx)
     handler = spec(tool).handler
     # An outgoing id is not an incoming request; a fabricated id never reaches the service.
     missing = await handler(ctx, people.ConnectionRequestInput(request_id=REQ_OUT))
-    assert missing.status == "rejected" and missing.reason_code == "request_not_found"
+    assert missing.status == "rejected" and missing.reason_code == "request_not_offered"
     made_up = await handler(ctx, people.ConnectionRequestInput(request_id="not-a-real-id"))
-    assert made_up.reason_code == "request_not_found"
+    assert made_up.reason_code == "request_not_offered"
+    # Listed, then gone before the write: refused as not found, never sent to the service.
+    connections.incoming = []
+    gone = await handler(ctx, people.ConnectionRequestInput(request_id=REQ_IN))
+    assert gone.reason_code == "request_not_found"
+    ctx2, connections2, _ = make_ctx()
+    await _offer_requests(ctx2)
+    connections = connections2
+    ctx = ctx2
     unconfirmed = await handler(
         ctx, people.ConnectionRequestInput(request_id=REQ_IN, person=PersonRef(user_id=AYESHA))
     )
@@ -968,6 +985,7 @@ async def test_accept_with_scopes_opens_the_review_and_accepts_nothing():
         status_code=409,
     )
     ctx, _, _ = make_ctx(connections=connections)
+    await _offer_requests(ctx)
     result = await people.accept_connection_request(
         ctx, people.ConnectionRequestInput(request_id=REQ_IN)
     )
@@ -1006,6 +1024,7 @@ def test_cancel_summary():
 async def test_cancel_connection_request_cancels_the_real_row():
     ctx, connections, _ = make_ctx()
     confirm(ctx, DEV, "Dev Patel", relationship="pending_outgoing")
+    await _offer_requests(ctx)
     result = await people.cancel_connection_request(
         ctx, people.CancelConnectionRequestInput(request_id=REQ_OUT, person=PersonRef(user_id=DEV))
     )
@@ -1018,10 +1037,18 @@ async def test_cancel_connection_request_cancels_the_real_row():
 
 async def test_cancel_connection_request_unknown_request():
     ctx, connections, _ = make_ctx()
+    await _offer_requests(ctx)
+    # An incoming id is not something the person can withdraw.
     result = await people.cancel_connection_request(
         ctx, people.CancelConnectionRequestInput(request_id=REQ_IN)
     )
     assert result.status == "rejected"
+    assert result.reason_code == "request_not_offered"
+    # Listed as outgoing, then withdrawn elsewhere before the write.
+    connections.outgoing = []
+    result = await people.cancel_connection_request(
+        ctx, people.CancelConnectionRequestInput(request_id=REQ_OUT)
+    )
     assert result.reason_code == "request_not_found"
     assert not [call for call in connections.calls if call[0] == "cancel_request"]
 
@@ -1237,3 +1264,53 @@ def test_stale_offers_are_dropped_on_prune():
     entities.offered_at = (datetime.now(UTC) - timedelta(seconds=OFFER_TTL_SECONDS + 1)).isoformat()
     entities.prune()
     assert entities.offered_person_ids == [] and entities.offered_person_circle_id is None
+
+
+@pytest.mark.parametrize(
+    ("tool", "request_id"),
+    [
+        ("accept_connection_request", REQ_IN),
+        ("decline_connection_request", REQ_IN),
+        ("cancel_connection_request", REQ_OUT),
+    ],
+)
+async def test_request_actions_refuse_ids_the_server_never_listed(tool, request_id):
+    ctx, connections, _ = make_ctx()
+    handler = spec(tool).handler
+    model = spec(tool).input_model
+    # Real id, but never listed in this conversation: refused before any read or write.
+    result = await handler(ctx, model(request_id=request_id))
+    assert result.status == "rejected" and result.reason_code == "request_not_offered"
+    assert result.needs == "disambiguation"
+    assert not [
+        c
+        for c in connections.calls
+        if c[0] in {"accept_request", "reject_request", "cancel_request"}
+    ]
+    # An outgoing id is not acceptable/declinable and an incoming id is not cancellable.
+    await _offer_requests(ctx)
+    wrong = REQ_OUT if tool != "cancel_connection_request" else REQ_IN
+    result = await handler(ctx, model(request_id=wrong))
+    assert result.reason_code == "request_not_offered"
+
+
+def test_request_cards_name_the_listed_counterpart_even_without_a_person():
+    ctx, _, _ = make_ctx()
+    asyncio.run(_offer_requests(ctx))
+    accept = people.ConnectionRequestInput(request_id=REQ_IN)
+    assert spec("accept_connection_request").summarize(ctx, accept) == (
+        "accept the connection request from Rahul Verma"
+    )
+    assert spec("decline_connection_request").summarize(ctx, accept) == (
+        "decline the connection request from Rahul Verma"
+    )
+    cancel = people.CancelConnectionRequestInput(request_id=REQ_OUT)
+    assert spec("cancel_connection_request").summarize(ctx, cancel) == (
+        "cancel your connection request to Dev Patel"
+    )
+    # A person the model names never overrides what the server listed.
+    confirm(ctx, AYESHA, "Ayesha Sharma")
+    named = people.ConnectionRequestInput(request_id=REQ_IN, person=PersonRef(user_id=AYESHA))
+    assert spec("accept_connection_request").summarize(ctx, named) == (
+        "accept the connection request from Rahul Verma"
+    )
