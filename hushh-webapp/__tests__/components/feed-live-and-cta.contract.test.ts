@@ -105,7 +105,10 @@ describe("the ask flow's primary action keeps the action colour", () => {
         /<Button\s+onClick=\{sendRequest\}[\s\S]*?>\s*Send request\s*<\/Button>/,
       )?.[0] ?? "";
     expect(sendButton.length).toBeGreaterThan(0);
-    expect(sendButton).toContain("bg-[color:var(--app-accent)]");
+    // No variant prop means it renders through Button's own default
+    // variant, which is accent-coloured — a hardcoded bg-accent override
+    // here would only fight that shared styling, not add a guarantee.
+    expect(sendButton).not.toMatch(/variant=/);
     // Green is a status, and the outcome is already said twice elsewhere —
     // the Sonner toast the send raises, and each person's row turning to
     // "Asked". A third telling on the button would be the one that cannot be

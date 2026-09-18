@@ -2290,7 +2290,7 @@ function LocationPrimaryShareCard({ onClick }: { onClick: () => void }) {
           data-voice-label="Share location"
           aria-label="Share location"
           onClick={onClick}
-           className="mx-auto inline-flex h-11 min-h-11 w-[76%] items-center justify-center rounded-[14px] bg-[color:var(--app-accent)] px-5 !text-[15px] !font-semibold !leading-5 text-[color:var(--app-accent-fg)] transition-[background-color,transform] [-webkit-tap-highlight-color:transparent] hover:bg-[color:var(--app-accent-hover)] active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]"
+          className="mx-auto inline-flex h-11 min-h-11 w-[76%] items-center justify-center rounded-[14px] bg-[color:var(--app-accent)] px-5 !text-[15px] !font-semibold !leading-5 text-[color:var(--app-accent-fg)] transition-[background-color,transform] [-webkit-tap-highlight-color:transparent] hover:bg-[color:var(--app-accent-hover)] active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]"
         >
           <ButtonLabel
             as="span"
@@ -4030,7 +4030,7 @@ function CircleInvitationsDialog({
                 onOpenChange(false);
                 onDismissFocusedInvite();
               }}
-              className="h-12 w-full rounded-2xl bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)]"
+              className="h-12 w-full rounded-full text-[color:var(--app-accent-fg)]"
             >
               Done
             </Button>
@@ -4882,7 +4882,7 @@ function LinksHub({ vm }: { vm: LocationHubViewModel }) {
                 onClick={vm.onCreatePublicInvite}
                 isLoading={vm.busy === "publicInvite"}
                 data-voice-control-id="one-location-action-temp-link"
-                 className="mx-auto block h-11 min-h-11 w-[76%] min-w-0 rounded-[14px] px-5 text-[15px] font-semibold leading-5 text-[color:var(--app-accent-fg)] bg-[color:var(--app-accent)] hover:bg-[color:var(--app-accent)]/90"
+                className="mx-auto block h-11 min-h-11 w-[76%] min-w-0 rounded-[14px] px-5 text-[15px] font-semibold leading-5"
               >
                 {vm.busy === "publicInvite"
                   ? "Creating link…"
@@ -5448,7 +5448,7 @@ function ShareFlow({
           <Button
             variant="ghost"
             onClick={() => onClose()}
-            className="h-11 w-full rounded-2xl bg-transparent text-[17px] font-medium leading-[22px] text-[color:var(--app-accent)] hover:bg-transparent"
+            className="h-11 w-full rounded-full bg-transparent text-[17px] font-medium leading-[22px] text-[color:var(--app-accent)] hover:bg-transparent"
           >
             Cancel
           </Button>
@@ -5622,7 +5622,7 @@ function ShareFlow({
             Boolean(vm.pendingShareCircleIds.length) ||
             vm.shareDeliveryPending
           }
-          className="h-[52px] w-full rounded-2xl bg-[color:var(--app-accent)] text-[17px] font-semibold leading-[22px] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90 disabled:bg-black/10 disabled:text-black/35 disabled:opacity-100 dark:disabled:bg-white/10 dark:disabled:text-white/35"
+          className="h-[52px] w-full rounded-full text-[17px] font-semibold leading-[22px] text-[color:var(--app-accent-fg)] disabled:bg-black/10 disabled:text-black/35 disabled:opacity-100 dark:disabled:bg-white/10 dark:disabled:text-white/35"
         >
           {vm.shareDeliveryPending
             ? "Sharing…"
@@ -6305,14 +6305,14 @@ function AskFlow({
             disabled={!isRequestFormValid || sendingRequest}
             aria-disabled={!isRequestFormValid || sendingRequest}
             isLoading={sendingRequest}
-            className="h-[52px] w-full rounded-2xl bg-[color:var(--app-accent)] text-[17px] font-semibold leading-[22px] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90 disabled:pointer-events-none disabled:bg-black/10 disabled:text-black/35 disabled:opacity-100 dark:disabled:bg-white/10 dark:disabled:text-white/35"
+            className="h-[52px] w-full rounded-full text-[17px] font-semibold leading-[22px] text-[color:var(--app-accent-fg)] disabled:pointer-events-none disabled:bg-black/10 disabled:text-black/35 disabled:opacity-100 dark:disabled:bg-white/10 dark:disabled:text-white/35"
           >
             Send request
           </Button>
           <Button
             variant="ghost"
             onClick={() => onClose()}
-            className="h-11 w-full rounded-2xl bg-transparent text-[17px] font-medium leading-[22px] text-[color:var(--app-accent)] hover:bg-transparent"
+            className="h-11 w-full rounded-full bg-transparent text-[17px] font-medium leading-[22px] text-[color:var(--app-accent)] hover:bg-transparent"
           >
             Cancel
           </Button>
@@ -6494,7 +6494,7 @@ function AskFlow({
         <Button
           onClick={() => setStep("details")}
           disabled={!selectedRequestRecipients.length}
-          className="h-[52px] w-full rounded-2xl bg-[color:var(--app-accent)] text-[17px] font-semibold leading-[22px] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90 disabled:bg-black/10 disabled:text-black/35 disabled:opacity-100 dark:disabled:bg-white/10 dark:disabled:text-white/35"
+          className="h-[52px] w-full rounded-full text-[17px] font-semibold leading-[22px] text-[color:var(--app-accent-fg)] disabled:bg-black/10 disabled:text-black/35 disabled:opacity-100 dark:disabled:bg-white/10 dark:disabled:text-white/35"
         >
           Continue
         </Button>
@@ -6719,7 +6719,7 @@ function InviteFlow({
       <Button
         onClick={vm.onCreateCircleInvite}
         isLoading={vm.busy === "circleInvite"}
-        className="h-12 w-full rounded-2xl bg-[color:var(--app-accent)] text-base font-semibold text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90"
+        className="h-12 w-full rounded-full text-base font-semibold text-[color:var(--app-accent-fg)]"
       >
         Create invite
       </Button>
