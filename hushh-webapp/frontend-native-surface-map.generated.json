@@ -8634,11 +8634,13 @@
         "voice_playbook": {
           "playbook_id": "route.ria",
           "purpose": "Help the person understand and use the ria screen through its generated controls.",
-          "screen": "ria_profile",
-          "entry_cue": "",
-          "proactivity": "ambient",
-          "primary_action_id": null,
-          "happy_path_action_ids": [],
+          "screen": "ria_home",
+          "entry_cue": "You can say “Open RIA Home” to use the primary control on this screen.",
+          "proactivity": "on_entry",
+          "primary_action_id": "route.ria_home",
+          "happy_path_action_ids": [
+            "route.ria_home"
+          ],
           "required_inputs": [],
           "recoveries": {
             "blocked": "Explain the current guard and retain the goal.",
@@ -9455,5 +9457,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "db04abbb1c7c6b91ba40455c5ccf84deb2e933a49306b3f8199a9808f8d68042"
+  "content_sha256": "d2049e7903a45f98d09051fef951a1e552654ef66a417102061753251e148cf3"
 }
