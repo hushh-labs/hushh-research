@@ -25,6 +25,7 @@ from starlette.concurrency import run_in_threadpool
 
 from db.db_client import DatabaseExecutionError, get_db
 from hushh_mcp.onboarding_contract import (
+    normalize_setup_capability_declined_ids,
     normalize_setup_capability_id,
     normalize_setup_capability_ids,
 )
@@ -232,6 +233,9 @@ class VaultKeysService:
             "navSetupCompletedAt": cls._normalize_int_ms_or_none(row.get("nav_setup_completed_at")),
             "navSetupSkippedAt": cls._normalize_int_ms_or_none(row.get("nav_setup_skipped_at")),
             "setupCapabilityIds": cls._normalize_explored_ids(row.get("setup_capability_ids")),
+            "setupCapabilityDeclinedIds": cls._normalize_declined_ids(
+                row.get("setup_capability_declined_ids")
+            ),
             "setupCapabilitiesUpdatedAt": cls._normalize_int_ms_or_none(
                 row.get("setup_capabilities_updated_at")
             ),
@@ -282,6 +286,33 @@ class VaultKeysService:
             return []
         return normalize_setup_capability_ids(decoded)
 
+    @staticmethod
+    def _normalize_declined_ids(raw: Any) -> list[str]:
+        """
+        Parse the JSON-encoded list of explicitly-declined capability ids.
+
+        Same tolerant shape as `_normalize_explored_ids`: a corrupt or absent
+        row never breaks bootstrap, and the result is a de-duped list in
+        canonical catalog order.
+        """
+        if raw is None:
+            return []
+        if isinstance(raw, list):
+            decoded: Any = raw
+        elif isinstance(raw, str):
+            trimmed = raw.strip()
+            if not trimmed:
+                return []
+            try:
+                decoded = json.loads(trimmed)
+            except (TypeError, ValueError):
+                return []
+        else:
+            return []
+        if not isinstance(decoded, list):
+            return []
+        return normalize_setup_capability_declined_ids(decoded)
+
     async def ensure_user_entry(self, user_id: str) -> Dict[str, Any]:
         return await run_in_threadpool(self._ensure_user_entry_sync, user_id)
 
@@ -304,7 +335,7 @@ class VaultKeysService:
                 "user_id,vault_status,first_login_at,last_login_at,login_count,"
                 "setup_completed,setup_skipped,setup_completed_at,"
                 "nav_setup_completed_at,nav_setup_skipped_at,"
-                "setup_capability_ids,setup_capabilities_updated_at,setup_state_updated_at,one_runtime_setup_choice,"
+                "setup_capability_ids,setup_capability_declined_ids,setup_capabilities_updated_at,setup_state_updated_at,one_runtime_setup_choice,"
                 "onboarding_journey_version,onboarding_phase,onboarding_active_capability,"
                 "onboarding_resume_route,onboarding_callback_state,onboarding_callback_attempt_id,onboarding_journey_updated_at,"
                 "created_at,updated_at"
@@ -353,7 +384,7 @@ class VaultKeysService:
                         "user_id,vault_status,first_login_at,last_login_at,login_count,"
                         "setup_completed,setup_skipped,setup_completed_at,"
                         "nav_setup_completed_at,nav_setup_skipped_at,"
-                        "setup_capability_ids,setup_capabilities_updated_at,setup_state_updated_at,one_runtime_setup_choice,"
+                        "setup_capability_ids,setup_capability_declined_ids,setup_capabilities_updated_at,setup_state_updated_at,one_runtime_setup_choice,"
                         "onboarding_journey_version,onboarding_phase,onboarding_active_capability,"
                         "onboarding_resume_route,onboarding_callback_state,onboarding_callback_attempt_id,onboarding_journey_updated_at,"
                         "created_at,updated_at"
@@ -392,7 +423,7 @@ class VaultKeysService:
                 "user_id,vault_status,first_login_at,last_login_at,login_count,"
                 "setup_completed,setup_skipped,setup_completed_at,"
                 "nav_setup_completed_at,nav_setup_skipped_at,"
-                "setup_capability_ids,setup_capabilities_updated_at,setup_state_updated_at,one_runtime_setup_choice,"
+                "setup_capability_ids,setup_capability_declined_ids,setup_capabilities_updated_at,setup_state_updated_at,one_runtime_setup_choice,"
                 "onboarding_journey_version,onboarding_phase,onboarding_active_capability,"
                 "onboarding_resume_route,onboarding_callback_state,onboarding_callback_attempt_id,onboarding_journey_updated_at,"
                 "created_at,updated_at"
@@ -426,6 +457,7 @@ class VaultKeysService:
             "navSetupCompletedAt": state["navSetupCompletedAt"],
             "navSetupSkippedAt": state["navSetupSkippedAt"],
             "setupCapabilityIds": state["setupCapabilityIds"],
+            "setupCapabilityDeclinedIds": state["setupCapabilityDeclinedIds"],
             "setupCapabilitiesUpdatedAt": state["setupCapabilitiesUpdatedAt"],
             "setupStateUpdatedAt": state["setupStateUpdatedAt"],
             "oneRuntimeSetupChoice": state["oneRuntimeSetupChoice"],
@@ -448,6 +480,7 @@ class VaultKeysService:
         nav_setup_completed_at: Optional[int] = None,
         nav_setup_skipped_at: Optional[int] = None,
         setup_capability_ids: Optional[list[str]] = None,
+        setup_capability_declined_ids: Optional[list[str]] = None,
         one_runtime_setup_choice: Optional[str] = None,
         onboarding_journey_version: Optional[int] = None,
         onboarding_phase: Optional[str] = None,
@@ -467,6 +500,7 @@ class VaultKeysService:
             nav_setup_completed_at,
             nav_setup_skipped_at,
             setup_capability_ids,
+            setup_capability_declined_ids,
             one_runtime_setup_choice,
             onboarding_journey_version,
             onboarding_phase,
@@ -487,6 +521,7 @@ class VaultKeysService:
         nav_setup_completed_at: Optional[int] = None,
         nav_setup_skipped_at: Optional[int] = None,
         setup_capability_ids: Optional[list[str]] = None,
+        setup_capability_declined_ids: Optional[list[str]] = None,
         one_runtime_setup_choice: Optional[str] = None,
         onboarding_journey_version: Optional[int] = None,
         onboarding_phase: Optional[str] = None,
@@ -550,6 +585,15 @@ class VaultKeysService:
         if setup_capability_ids is not None:
             update_payload["setup_capability_ids"] = json.dumps(
                 self._normalize_explored_ids(setup_capability_ids)
+            )
+            update_payload["setup_capabilities_updated_at"] = now_ms
+        # Same write-only-if-supplied shape as setup_capability_ids above, so a
+        # caller can update completions and declines independently. Shares the
+        # setup_capabilities_updated_at timestamp -- both are "setup capability
+        # state changed" facts, not two different things worth tracking apart.
+        if setup_capability_declined_ids is not None:
+            update_payload["setup_capability_declined_ids"] = json.dumps(
+                self._normalize_declined_ids(setup_capability_declined_ids)
             )
             update_payload["setup_capabilities_updated_at"] = now_ms
         if one_runtime_setup_choice is not None:
