@@ -4031,7 +4031,7 @@ function CircleInvitationsDialog({
                 onOpenChange(false);
                 onDismissFocusedInvite();
               }}
-              className="h-12 w-full rounded-2xl bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)]"
+              className="h-12 w-full rounded-full text-[color:var(--app-accent-fg)]"
             >
               Done
             </Button>
@@ -5436,7 +5436,7 @@ function ShareFlow({
           <Button
             variant="ghost"
             onClick={() => onClose()}
-            className="h-11 w-full rounded-2xl bg-transparent text-[17px] font-medium leading-[22px] text-[color:var(--app-accent)] hover:bg-transparent"
+            className="h-11 w-full rounded-full bg-transparent text-[17px] font-medium leading-[22px] text-[color:var(--app-accent)] hover:bg-transparent"
           >
             Cancel
           </Button>
@@ -5610,7 +5610,7 @@ function ShareFlow({
             Boolean(vm.pendingShareCircleIds.length) ||
             vm.shareDeliveryPending
           }
-          className="h-[52px] w-full rounded-2xl bg-[color:var(--app-accent)] text-[17px] font-semibold leading-[22px] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90 disabled:bg-black/10 disabled:text-black/35 disabled:opacity-100 dark:disabled:bg-white/10 dark:disabled:text-white/35"
+          className="h-[52px] w-full rounded-full text-[17px] font-semibold leading-[22px] text-[color:var(--app-accent-fg)] disabled:bg-black/10 disabled:text-black/35 disabled:opacity-100 dark:disabled:bg-white/10 dark:disabled:text-white/35"
         >
           {vm.shareDeliveryPending
             ? "Sharing…"
@@ -6293,14 +6293,14 @@ function AskFlow({
             disabled={!isRequestFormValid || sendingRequest}
             aria-disabled={!isRequestFormValid || sendingRequest}
             isLoading={sendingRequest}
-            className="h-[52px] w-full rounded-2xl bg-[color:var(--app-accent)] text-[17px] font-semibold leading-[22px] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90 disabled:pointer-events-none disabled:bg-black/10 disabled:text-black/35 disabled:opacity-100 dark:disabled:bg-white/10 dark:disabled:text-white/35"
+            className="h-[52px] w-full rounded-full text-[17px] font-semibold leading-[22px] text-[color:var(--app-accent-fg)] disabled:pointer-events-none disabled:bg-black/10 disabled:text-black/35 disabled:opacity-100 dark:disabled:bg-white/10 dark:disabled:text-white/35"
           >
             Send request
           </Button>
           <Button
             variant="ghost"
             onClick={() => onClose()}
-            className="h-11 w-full rounded-2xl bg-transparent text-[17px] font-medium leading-[22px] text-[color:var(--app-accent)] hover:bg-transparent"
+            className="h-11 w-full rounded-full bg-transparent text-[17px] font-medium leading-[22px] text-[color:var(--app-accent)] hover:bg-transparent"
           >
             Cancel
           </Button>
@@ -6482,7 +6482,7 @@ function AskFlow({
         <Button
           onClick={() => setStep("details")}
           disabled={!selectedRequestRecipients.length}
-          className="h-[52px] w-full rounded-2xl bg-[color:var(--app-accent)] text-[17px] font-semibold leading-[22px] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90 disabled:bg-black/10 disabled:text-black/35 disabled:opacity-100 dark:disabled:bg-white/10 dark:disabled:text-white/35"
+          className="h-[52px] w-full rounded-full text-[17px] font-semibold leading-[22px] text-[color:var(--app-accent-fg)] disabled:bg-black/10 disabled:text-black/35 disabled:opacity-100 dark:disabled:bg-white/10 dark:disabled:text-white/35"
         >
           Continue
         </Button>
@@ -6707,7 +6707,7 @@ function InviteFlow({
       <Button
         onClick={vm.onCreateCircleInvite}
         isLoading={vm.busy === "circleInvite"}
-        className="h-12 w-full rounded-2xl bg-[color:var(--app-accent)] text-base font-semibold text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90"
+        className="h-12 w-full rounded-full text-base font-semibold text-[color:var(--app-accent-fg)]"
       >
         Create invite
       </Button>
