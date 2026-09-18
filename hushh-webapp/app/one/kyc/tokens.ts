@@ -26,15 +26,18 @@ export const EYEBROW_ACCENT = "ui-text-section-label";
  * Primary pill CTA (compact). Solid accent pill, accent-foreground label. Meets
  * the 44px touch target and shows a visible accent focus ring.
  */
-export const BTN_PRIMARY =
-  "inline-flex min-h-[44px] items-center justify-center gap-2 rounded-full bg-[color:var(--app-accent)] px-5 py-2.5 text-sm font-semibold text-[color:var(--app-accent-fg)] transition-colors hover:bg-[color:var(--app-accent-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)] focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:opacity-40 disabled:pointer-events-none";
+// Flat iOS alert/action-sheet primary fill -- solid accent, matching
+// components/ui/button.tsx's default variant.
+const BTN_PRIMARY_FILL =
+  "bg-[color:var(--app-accent)] hover:bg-[color:var(--app-accent-hover)]";
+
+export const BTN_PRIMARY = `inline-flex min-h-[44px] items-center justify-center gap-2 rounded-full px-5 py-2.5 text-sm font-semibold text-[color:var(--app-accent-fg)] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)] focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:opacity-40 disabled:pointer-events-none ${BTN_PRIMARY_FILL}`;
 
 /**
  * Primary full-width prominent CTA — the single main action per screen
  * (e.g. Confirm, Send). Carries a soft accent elevation shadow.
  */
-export const BTN_PRIMARY_LG =
-  "flex w-full min-h-[44px] items-center justify-center gap-2 rounded-full bg-[color:var(--app-accent)] py-3.5 text-[17px] font-semibold text-[color:var(--app-accent-fg)] shadow-[0_4px_14px_var(--app-accent-border)] transition-colors hover:bg-[color:var(--app-accent-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)] focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:opacity-40 disabled:pointer-events-none disabled:shadow-none";
+export const BTN_PRIMARY_LG = `flex w-full min-h-[44px] items-center justify-center gap-2 rounded-full py-3.5 text-[17px] font-semibold text-[color:var(--app-accent-fg)] shadow-[0_4px_14px_var(--app-accent-border)] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)] focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:opacity-40 disabled:pointer-events-none disabled:shadow-none ${BTN_PRIMARY_FILL}`;
 
 /**
  * Neutral outline pill — secondary and destructive actions (Deny, Reject).

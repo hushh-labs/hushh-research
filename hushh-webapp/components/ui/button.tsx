@@ -9,6 +9,13 @@ const buttonVariants = cva(
   {
     variants: {
       variant: {
+        // Flat iOS alert/action-sheet fill for the primary action, not the
+        // Liquid Glass material. destructive keeps its own solid red fill --
+        // a neutral-fill "red text only" treatment would make it visually
+        // indistinguishable from a plain neutral action by background alone
+        // (see e2e/one-location-check-in-panel.layout.spec.ts, which asserts
+        // exactly that a non-destructive action never shares destructive's
+        // background).
         default:
           "bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent-hover)]",
         destructive:
