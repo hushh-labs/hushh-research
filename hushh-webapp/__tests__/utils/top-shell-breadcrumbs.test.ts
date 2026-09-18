@@ -373,6 +373,48 @@ describe("top shell breadcrumbs", () => {
     });
   });
 
+  it("retraces a capability setup step to the capabilities checklist it was opened from", () => {
+    const fromCapabilities = new URLSearchParams();
+    fromCapabilities.set("from", "/one/setup/capabilities");
+
+    expect(
+      resolveTopShellBreadcrumb("/one/setup/gmail", fromCapabilities),
+    ).toEqual({
+      backHref: "/one/setup/capabilities",
+      width: "content",
+      align: "center",
+      hideBack: false,
+      items: [
+        { label: "One", href: "/one" },
+        { label: "Setup", href: "/one/setup/capabilities" },
+        { label: "Email" },
+      ],
+    });
+  });
+
+  it("hides the back arrow on the mandatory AI-choice step, matching the hub it now bypasses", () => {
+    expect(resolveTopShellBreadcrumb("/one/setup/connections")).toEqual({
+      backHref: "/one/setup",
+      width: "content",
+      align: "center",
+      hideBack: true,
+      items: [
+        { label: "Set up", href: "/one/setup" },
+        { label: "Choose your AI" },
+      ],
+    });
+  });
+
+  it("returns the dashboard's optional-capabilities checklist to the dashboard, not the hub it wasn't opened from", () => {
+    expect(resolveTopShellBreadcrumb("/one/setup/capabilities")).toEqual({
+      backHref: "/one",
+      width: "content",
+      align: "center",
+      hideBack: false,
+      items: [{ label: "One", href: "/one" }, { label: "Setup" }],
+    });
+  });
+
   it("keeps bare RIA re-entry independent from the completed One setup hub", () => {
     expect(resolveTopShellBreadcrumb("/ria/onboarding")).toEqual({
       backHref: "/one",
