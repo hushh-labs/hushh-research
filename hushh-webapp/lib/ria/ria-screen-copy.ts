@@ -113,8 +113,7 @@ export const RIA_COPY = {
     },
     emptyMyList: {
       title: "Build your live package",
-      description:
-        "Shape the package your investors debate. Start from the suggested list, edit tiers, or upload a CSV.",
+      description: "Start from the suggested list, edit tiers, or upload a CSV.",
     },
     avoidEmpty: {
       title: "Avoid list is empty",

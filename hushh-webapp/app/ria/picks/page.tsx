@@ -2843,9 +2843,8 @@ export default function RiaPicksPage() {
                         Investor debate context
                       </h2>
                       <p className="text-sm leading-6 text-muted-foreground">
-                        This is shared only through an active Picks permission.
-                        Kai treats it as attributed advisor context when an
-                        investor starts a debate from this list.
+                        Shared only via active Picks permission — Kai cites it
+                        as advisor context when an investor debates this list.
                       </p>
                     </div>
                     {editing && draftPackage ? (
@@ -2874,7 +2873,7 @@ export default function RiaPicksPage() {
                       </p>
                     ) : (
                       <p className="text-sm leading-6 text-muted-foreground">
-                        No additional context is included with this package.
+                        No additional context added yet.
                       </p>
                     )}
                   </SurfaceCardContent>
