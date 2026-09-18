@@ -37,11 +37,14 @@ from __future__ import annotations
 import json
 import re
 from functools import lru_cache
-from pathlib import Path
 
-_CONTRACT_PATH = (
-    Path(__file__).resolve().parents[3] / "contracts" / "pkm" / "internal-path-keys.v1.json"
-)
+from hushh_mcp.services.generated_contracts import generated_contract_path
+
+# `Path(__file__).resolve().parents[3]` resolved to the repo root in a checkout
+# but to `/` inside the deployed image (build context is `consent-protocol/`,
+# so `/app` *is* that directory and nothing above it exists) -- see
+# `generated_contracts.py` for the identical bug this same fix already covers.
+_CONTRACT_PATH = generated_contract_path("pkm", "internal-path-keys.v1.json")
 
 # Mirrors SECRET_KEY_PATTERN in pkm-memory-cards.ts. Kept in code rather than the
 # contract because a regex in JSON is a regex nobody can read.
