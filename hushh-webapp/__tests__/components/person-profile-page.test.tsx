@@ -29,6 +29,7 @@ vi.mock("@capacitor/core", () => ({
     getPlatform: () => mocks.platform,
     isNativePlatform: () => mocks.native,
   },
+  registerPlugin: () => ({}),
 }));
 
 vi.mock("@/hooks/use-auth", () => ({
