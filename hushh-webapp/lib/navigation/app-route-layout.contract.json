@@ -3901,11 +3901,13 @@
     "voicePlaybook": {
       "playbookId": "route.ria",
       "purpose": "Help the person understand and use the ria screen through its generated controls.",
-      "screen": "ria_profile",
-      "entryCue": "",
-      "proactivity": "ambient",
-      "primaryActionId": null,
-      "happyPathActionIds": [],
+      "screen": "ria_home",
+      "entryCue": "You can say \u201cOpen RIA Home\u201d to use the primary control on this screen.",
+      "proactivity": "on_entry",
+      "primaryActionId": "route.ria_home",
+      "happyPathActionIds": [
+        "route.ria_home"
+      ],
       "requiredInputs": [],
       "recoveries": {
         "blocked": "Explain the current guard and retain the goal.",
