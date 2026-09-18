@@ -23,7 +23,7 @@ function createCanonicalIcon(
   defaultWeight: IconWeight = "duotone",
 ): LucideIcon {
   const CanonicalIcon = icon;
-  return forwardRef<SVGSVGElement, CanonicalIconProps>(
+  const ForwardedCanonicalIcon = forwardRef<SVGSVGElement, CanonicalIconProps>(
     ({ weight = defaultWeight, strokeWidth: _strokeWidth, absoluteStrokeWidth: _absoluteStrokeWidth, ...props }, ref) => (
       <CanonicalIcon
         ref={ref}
@@ -33,6 +33,8 @@ function createCanonicalIcon(
       />
     ),
   );
+  ForwardedCanonicalIcon.displayName = "CanonicalIcon";
+  return ForwardedCanonicalIcon;
 }
 
 export const Bold = createCanonicalIcon(Phosphor.TextB);

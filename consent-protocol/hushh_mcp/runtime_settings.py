@@ -288,6 +288,27 @@ def get_optional_plaid_access_token_key() -> str:
     return _clean_env(PLAID_ACCESS_TOKEN_KEY_ENV)
 
 
+def one_db_sessions_enabled() -> bool:
+    """Enable durable ADK sessions for One when explicitly configured.
+
+    The default remains the existing in-memory session service. If durable
+    storage is requested but cannot be constructed, the runner still fails
+    closed to its existing in-memory fallback rather than making startup
+    dependent on the database session path.
+    """
+    return _bool_from_value(_clean_env("ONE_DB_SESSIONS_ENABLED"), default=False)
+
+
+def pod_mode() -> bool:
+    """Return whether this process is running as an owner-scoped pod."""
+    return _bool_from_value(_clean_env("HUSSH_POD_MODE"), default=False)
+
+
+def pod_turn_enabled() -> bool:
+    """Return whether an owner-scoped pod may serve Agent One turns."""
+    return _bool_from_value(_clean_env("HUSSH_POD_TURN_ENABLED"), default=False)
+
+
 def get_connector_secrets_key() -> str:
     """Password for connector-credential PBKDF2-AES256-CBC encryption.
 

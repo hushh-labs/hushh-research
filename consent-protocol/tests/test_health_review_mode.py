@@ -29,10 +29,10 @@ def test_health_reports_one_led_agent_model(monkeypatch):
     assert response.status_code == 200
     assert response.json() == {
         "status": "healthy",
-        "agents": ["one", "kai", "nav", "kyc"],
+        "agents": ["one", "kai", "nav"],
         "agent_model": {
             "primary": "one",
-            "specialists": ["kai", "nav", "kyc"],
+            "specialists": ["kai", "nav"],
         },
         "one_runtime": {
             "google_adk_expected": "2.4.0",
@@ -222,6 +222,18 @@ def _clear_reviewer_env(monkeypatch) -> None:
     monkeypatch.delenv("APP_REVIEW_MODE", raising=False)
     for key in _REVIEWER_ENV_KEYS:
         monkeypatch.delenv(key, raising=False)
+
+    # Keep these unit tests independent of a developer's untracked .env.local
+    # reviewer overlay. Runtime still supports that overlay through _first_env;
+    # this helper models an intentionally empty review configuration.
+    def _process_env_only(*keys: str) -> str:
+        for key in keys:
+            value = str(health.os.getenv(key, "")).strip()
+            if value:
+                return value
+        return ""
+
+    monkeypatch.setattr(health, "_first_env", _process_env_only)
 
 
 def _install_fake_minter(monkeypatch) -> dict[str, object]:

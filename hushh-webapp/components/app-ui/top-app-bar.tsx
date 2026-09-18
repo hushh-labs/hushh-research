@@ -119,7 +119,6 @@ import {
   trackGrowthFunnelStepCompleted,
 } from "@/lib/observability/growth";
 import { requestInternalAppNavigation } from "@/lib/utils/browser-navigation";
-import { openKaiCommandBar } from "@/lib/navigation/kai-command-bar-events";
 import {
   resolveInitialTopChromeProgress,
   resolveTopChromeScrollProgress,
