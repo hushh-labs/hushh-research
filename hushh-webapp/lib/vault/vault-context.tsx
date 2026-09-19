@@ -28,6 +28,7 @@ import React, {
   useState,
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   ReactNode,
 } from "react";
@@ -741,19 +742,39 @@ export function VaultProvider({ children }: VaultProviderProps) {
       ? storedVaultOwnerTokenRef.current : null;
   }, []);
 
-  const value: VaultContextType = {
-    vaultKey,
-    vaultOwnerToken,
-    tokenExpiresAt,
-    isVaultUnlocked: !!vaultKey,
-    ownerTokenStatus: !vaultKey ? "locked" : vaultOwnerToken ? "valid" :
-      renewalState === "renewing" ? "renewing" : "unavailable",
-    retryOwnerTokenRenewal,
-    unlockVault,
-    lockVault,
-    getVaultKey,
-    getVaultOwnerToken,
-  };
+  // Memoised on purpose. useVault() has over a hundred consumers, and this
+  // provider sits inside the app shell frame, which re-renders on every
+  // search-param change (each `?tab=` tap). A fresh object here re-rendered
+  // every one of those consumers on every tab switch; the memo re-mints only
+  // when a vault fact actually changes. `vaultOwnerToken` is already derived
+  // against Date.now() above, so an expiry still flips it to null on the next
+  // render, and the memo follows.
+  const value = useMemo<VaultContextType>(
+    () => ({
+      vaultKey,
+      vaultOwnerToken,
+      tokenExpiresAt,
+      isVaultUnlocked: !!vaultKey,
+      ownerTokenStatus: !vaultKey ? "locked" : vaultOwnerToken ? "valid" :
+        renewalState === "renewing" ? "renewing" : "unavailable",
+      retryOwnerTokenRenewal,
+      unlockVault,
+      lockVault,
+      getVaultKey,
+      getVaultOwnerToken,
+    }),
+    [
+      vaultKey,
+      vaultOwnerToken,
+      tokenExpiresAt,
+      renewalState,
+      retryOwnerTokenRenewal,
+      unlockVault,
+      lockVault,
+      getVaultKey,
+      getVaultOwnerToken,
+    ],
+  );
 
   return (
     <VaultContext.Provider value={value}>{children}</VaultContext.Provider>
