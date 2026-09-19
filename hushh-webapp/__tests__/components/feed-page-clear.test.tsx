@@ -79,6 +79,7 @@ vi.mock("@/lib/cache/use-stale-resource", () => ({
 vi.mock("@/lib/cache/cache-sync-service", () => ({
   CacheSyncService: {
     onConnectionCapabilityMutated: mocks.connectionChanged,
+    onConnectionGraphMutated: mocks.connectionChanged,
     onFeedReadStarted: mocks.readStarted,
     onFeedReadSettled: mocks.readSettled,
     onFeedReadFailed: mocks.readFailed,
