@@ -48,7 +48,7 @@ export const LIVE_SHARE_PROGRESS_TRACK_CLASSNAME =
   "mt-3 h-1 w-full overflow-hidden rounded-full bg-black/[0.07] dark:bg-white/[0.12]";
 
 export const LIVE_SHARE_PROGRESS_FILL_CLASSNAME =
-  "h-full rounded-full bg-emerald-500 transition-[width] duration-500 ease-linear";
+  "h-full rounded-full bg-emerald-500 transition-transform duration-500 ease-linear";
 
 export const LIVE_SHARE_FOOTER_CLASSNAME = "min-w-0 [overflow-wrap:anywhere]";
 

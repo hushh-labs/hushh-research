@@ -251,7 +251,7 @@ export function ImportProgressView({
           {hasMeasuredProgress || stage === "complete" || stage === "error" ? (
             <Progress
               value={smoothProgress}
-              className={cn("h-2", isStreaming && "transition-[width]")}
+              className="h-2"
             />
           ) : (
             <div className="h-2 overflow-hidden rounded-full bg-secondary">

@@ -168,10 +168,13 @@ function CarouselDots({
               touchTargetClassName,
             )}
           >
+            {/* Fixed-width pill scaled on X: the active/inactive change rides
+                the compositor instead of relayouting the rail. 0.2917 = 7/24,
+                the inactive dot width over the active one. */}
             <span
               className={cn(
-                "block h-[5px] rounded-full transition-[width] duration-150",
-                active ? "w-[24px]" : "w-[7px]",
+                "block h-[5px] w-[24px] origin-center rounded-full transition-transform duration-150",
+                active ? "scale-x-100" : "scale-x-[0.2917]",
                 active || completed
                   ? STEP_DOT_REACHED_CLASSNAME
                   : STEP_DOT_UPCOMING_CLASSNAME,

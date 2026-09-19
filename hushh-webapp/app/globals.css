@@ -3246,32 +3246,6 @@ body:has([data-testid="one-location-onboarding"])
    springy assembled reveals, a magnetic CTA, and a gold foil brand word.
    ══════════════════════════════════════════════════════════════ */
 
-/* ── Google Stitch Gold-Mesh Pulsar ──
-   A slow, organic fluid sweep that morphs behind the glass panel.
-   Keeps the background alive with molten fluid aesthetics. */
-@keyframes gold-mesh-pulse {
-  0% {
-    transform: scale(1) translate(0px, 0px) rotate(0deg);
-    filter: blur(80px) opacity(0.5);
-  }
-  33% {
-    transform: scale(1.18) translate(25px, -35px) rotate(120deg);
-    filter: blur(95px) opacity(0.65);
-  }
-  66% {
-    transform: scale(0.85) translate(-35px, 25px) rotate(240deg);
-    filter: blur(75px) opacity(0.45);
-  }
-  100% {
-    transform: scale(1) translate(0px, 0px) rotate(360deg);
-    filter: blur(80px) opacity(0.5);
-  }
-}
-
-.glow-mesh-active {
-  animation: gold-mesh-pulse 20s cubic-bezier(0.4, 0, 0.2, 1) infinite alternate;
-}
-
 /* ── Interactive Web-Tap Ripple ──
    On-click ripple that fans outwards as an organic halo. */
 @keyframes canvas-ripple-burst {
