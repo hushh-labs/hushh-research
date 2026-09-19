@@ -1609,10 +1609,6 @@ function ProfilePageContent({
         setHasVault(nextHasVault);
       } catch (error) {
         console.warn("[ProfilePage] Failed to check vault existence:", error);
-        // Fail closed: an unavailable vault probe must take the existing
-        // unlock path, and the dialog is rendered only once this state is
-        // reflected in the component.
-        setHasVault(true);
         nextHasVault = true;
       }
     }
@@ -3510,7 +3506,6 @@ function ProfilePageContent({
         <SettingsRow
           icon={Trash2}
           className="profile-account-delete-row"
-          testId="profile-account-delete-row"
           title={deleteButtonLabel}
           description={deleteRowDescription}
           tone="destructive"
