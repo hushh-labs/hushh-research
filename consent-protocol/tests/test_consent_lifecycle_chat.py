@@ -63,6 +63,7 @@ STATE_CONSENT_TOKEN = action_tools._STATE_CONSENT_TOKEN
 PERSON_REF = "11111111-1111-4111-8111-111111111111"
 
 PROFILE = {
+    "personRef": PERSON_REF,
     "displayName": "Sarah Chen",
     "requestableScopes": [
         {
@@ -519,7 +520,125 @@ class TestPropose:
                 "Alex", "favorite cuisine", "Dinner planning", _ctx(_state())
             )
         assert result["status"] == "needs_clarification"
-        assert "Alex Kim" in result["message"] and "Alex Singh" in result["message"]
+        assert [item["displayName"] for item in result["candidates"]] == [
+            "Alex Kim",
+            "Alex Singh",
+        ]
+        assert len({item["selectionHandle"] for item in result["candidates"]}) == 2
+
+    @pytest.mark.asyncio
+    async def test_proposal_rejects_a_profile_for_another_person(self):
+        context = _ctx(_state())
+        with (
+            _auth(),
+            _connections({"displayName": "Sarah Chen", "publicPersonRef": PERSON_REF}),
+            _profile({**PROFILE, "personRef": "another-person"}),
+        ):
+            result = await propose_information_request(
+                "Sarah",
+                "favorite cuisine",
+                "Synthetic dinner planning",
+                context,
+            )
+        assert result["status"] == "failed"
+        assert action_tools._STATE_INFORMATION_REQUEST_PROPOSALS not in context.state
+
+    @pytest.mark.parametrize("invalid", ["owner", "session", "expired", "forged"])
+    def test_person_choice_cannot_cross_authority(self, invalid):
+        context = _ctx(_state())
+        result = action_tools._information_person_error(
+            action_tools.InformationPersonAmbiguous(
+                [
+                    {"displayName": "Alex", "publicPersonRef": PERSON_REF},
+                ]
+            ),
+            context,
+            "owner-a",
+        )
+        handle = result["candidates"][0]["selectionHandle"]
+        owner = "owner-a"
+        if invalid == "owner":
+            owner = "owner-b"
+        elif invalid == "session":
+            context.session.id = "other-thread"
+        elif invalid == "expired":
+            context.state[action_tools._STATE_INFORMATION_PERSON_CHOICES][handle]["expiresAt"] = 0
+        else:
+            handle = "forged"
+        with pytest.raises(action_tools.ConsentLifecycleError, match="choose the person again"):
+            action_tools._resolve_person_for_information(None, owner, "Alex", context, handle)
+
+    def test_valid_person_choice_never_resolves_a_different_name(self):
+        context = _ctx(_state())
+        result = action_tools._information_person_error(
+            action_tools.InformationPersonAmbiguous(
+                [
+                    {"displayName": "Alex", "publicPersonRef": PERSON_REF},
+                ]
+            ),
+            context,
+            "owner-a",
+        )
+        handle = result["candidates"][0]["selectionHandle"]
+        assert action_tools._resolve_person_for_information(
+            None,
+            "owner-a",
+            "Someone else",
+            context,
+            handle,
+        ) == (PERSON_REF, "Alex")
+
+    @pytest.mark.parametrize("spoken", ["Sarah", "sarah@example.test"])
+    def test_unique_lookup_is_retained_for_followups(self, spoken):
+        context = _ctx(_state())
+        with _connections(
+            {
+                "displayName": "Sarah Chen",
+                "publicPersonRef": PERSON_REF,
+                "email": "sarah@example.test",
+            }
+        ):
+            assert action_tools._resolve_person_for_information(
+                ConnectionsService(),
+                "owner-a",
+                spoken,
+                context,
+            ) == (PERSON_REF, "Sarah Chen")
+        # No service is available: a repeat must use the selected stable identity,
+        # not another name lookup that might now return someone else.
+        for followup in [spoken, "Sarah Chen", spoken, ""]:
+            assert action_tools._resolve_person_for_information(
+                None,
+                "owner-a",
+                followup,
+                context,
+            ) == (PERSON_REF, "Sarah Chen")
+        with pytest.raises(action_tools.ConsentLifecycleError):
+            action_tools._resolve_person_for_information(None, "owner-b", spoken, context)
+
+    def test_switching_from_a_unique_recipient_requires_a_new_choice(self):
+        context = _ctx(_state())
+        with _connections({"displayName": "Sarah Chen", "publicPersonRef": PERSON_REF}):
+            action_tools._resolve_person_for_information(
+                ConnectionsService(),
+                "owner-a",
+                "Sarah",
+                context,
+            )
+        with _connections({"displayName": "Alex Kim", "publicPersonRef": "different-person"}):
+            with pytest.raises(action_tools.InformationPersonAmbiguous):
+                action_tools._resolve_person_for_information(
+                    ConnectionsService(),
+                    "owner-a",
+                    "Alex",
+                    context,
+                )
+        assert action_tools._resolve_person_for_information(
+            None,
+            "owner-a",
+            "Sarah",
+            context,
+        ) == (PERSON_REF, "Sarah Chen")
 
     @pytest.mark.asyncio
     async def test_short_purpose_and_bad_duration_are_asked_back(self):

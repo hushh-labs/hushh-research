@@ -185,7 +185,7 @@ describe("AgentTurnStreamPanel", () => {
     expect(screen.queryByText("scope_ref_private_123")).not.toBeInTheDocument();
     expect(
       screen.queryByText("You can review these fields before asking for access."),
-    ).not.toBeInTheDocument();
+    ).toBeInTheDocument();
   });
 
   it("keeps supplementary notes alongside multiple distinct cards", () => {
@@ -228,6 +228,6 @@ describe("AgentTurnStreamPanel", () => {
     );
 
     expect(screen.getAllByRole("region", { name: "Information available from Alex Morgan" })).toHaveLength(2);
-    expect(screen.queryByText("A short clarification.")).not.toBeInTheDocument();
+    expect(screen.getByText("A short clarification.")).toBeInTheDocument();
   });
 });

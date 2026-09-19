@@ -37,6 +37,24 @@ from __future__ import annotations
 
 import re
 
+
+def normalize_directory_name(value: str) -> str:
+    """Fold the directory's supported separators and repeated whitespace."""
+    return " ".join(str(value or "").lower().translate(str.maketrans("-'._/,", "      ")).split())
+
+
+def directory_name_rank(name: str, query: str) -> int | None:
+    """All query tokens must prefix a name token; never match only the surname."""
+    name, query = normalize_directory_name(name), normalize_directory_name(query)
+    if not query or name == query:
+        return 0
+    if name.startswith(query):
+        return 1
+    if all(any(word.startswith(token) for word in name.split()) for token in query.split()):
+        return 2
+    return None
+
+
 __all__ = [
     "people_query_match_params",
     "PEOPLE_MATCH_RANK_SQL",

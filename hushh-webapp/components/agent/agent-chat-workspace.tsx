@@ -14,6 +14,7 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { AgentPersonSelectionContext } from "@/components/agent/agent-structured-experience";
 import {
   Check,
   ChevronRight,
@@ -328,6 +329,7 @@ type AgentWalletWidget =
 type AgentTurnSource = "typed";
 type AgentRunTurnOptions = {
   source: AgentTurnSource;
+  personSelectionHandle?: string;
   appendUserMessage?: boolean;
   replaceAssistantMessageId?: string | null;
 };
@@ -1539,7 +1541,11 @@ export function storedMessageToAgentMessage(
     descriptor && typeof descriptor.activityType === "string"
       ? parseAgentActivityExperience(descriptor.activityType, descriptor.content)
       : null;
-  const structuredExperiences = restoredExperience
+  const orderedExperiences = message.metadata?.structuredExperiences?.flatMap((entry) => {
+    const experience = parseAgentActivityExperience(entry.activityType, entry.content);
+    return experience ? [{ id: entry.id, experience }] : [];
+  });
+  const structuredExperiences = orderedExperiences?.length ? orderedExperiences : restoredExperience
     ? [
         {
           id:
@@ -4282,6 +4288,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         conversationId: conversationIdRef.current,
         vaultOwnerToken: token,
         pkmContext: agentPkmContext.text || undefined,
+        personSelectionHandle: options.personSelectionHandle,
         screenContext: buildOneVoiceStructuredScreenContext({
           appRuntimeState: appRuntimeStateRef.current,
           state: useAgentVoiceState.getState().oneVoiceState,
@@ -4886,7 +4893,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     void drainOperationQueue();
   };
 
-  const enqueuePrompt = (textInput: string) => {
+  const enqueuePrompt = (textInput: string, personSelectionHandle?: string) => {
     const text = textInput.trim();
     if (!text) return;
     const prompt: QueuedAgentPrompt = {
@@ -4899,7 +4906,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       prompt,
       run: async () => {
         if (hasChatAccess) {
-          await runAgentTurn(operation.prompt?.text ?? "", { source: "typed" });
+          await runAgentTurn(operation.prompt?.text ?? "", { source: "typed", personSelectionHandle });
           return;
         }
         await runIntroTurn(operation.prompt?.text ?? "");
@@ -5414,6 +5421,9 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       data-agent-chat-route={isCanonicalChatRoute ? "root" : "embedded"}
       data-agent-history-drawer-open={isHistoryDrawerOpen ? "true" : undefined}
     >
+      <AgentPersonSelectionContext.Provider value={hasChatAccess && !isStreaming
+        ? (handle, name) => enqueuePrompt(`Check what I can ask ${name} for.`, handle)
+        : null}>
       <div
         className={cn(
           "relative flex min-h-0 flex-1",
@@ -7005,6 +7015,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         open={connectorsPanelOpen}
         onOpenChange={setConnectorsPanelOpen}
       />
+      </AgentPersonSelectionContext.Provider>
     </div>
   );
 }

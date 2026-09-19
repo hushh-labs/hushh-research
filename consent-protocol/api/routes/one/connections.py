@@ -269,6 +269,7 @@ def connection_information_scope_catalog(
     domain: str = Query(default="", max_length=80),
     page: int = Query(default=1, ge=1),
     limit: int = Query(default=20, ge=1, le=100),
+    catalog_revision: str = Query(default="", max_length=64),
     firebase_uid: str = Depends(require_firebase_auth),
 ):
     try:
@@ -279,6 +280,7 @@ def connection_information_scope_catalog(
             domain=domain,
             page=page,
             limit=limit,
+            catalog_revision=catalog_revision,
         )
     except Exception as exc:  # noqa: BLE001
         raise _handle(exc) from exc

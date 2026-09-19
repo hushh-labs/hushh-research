@@ -317,6 +317,13 @@ export async function createReviewerSessionHarness({
           waitUntil: "domcontentloaded",
         });
         await waitForUnlock(page, readOnlyGuard, attemptTimeoutMs);
+        // Unlock can finish before the login component's pending redirect.
+        // Do not race that redirect with the first same-session navigation.
+        await page.waitForFunction(
+          (target) => `${window.location.pathname}${window.location.search}` === target,
+          redirect,
+          { timeout: attemptTimeoutMs },
+        );
         return { context, page, capture, readOnlyGuard };
       } catch (error) {
         lastError = error;
@@ -359,9 +366,11 @@ export async function createReviewerSessionHarness({
         bootstrapState: window.__HUSHH_NATIVE_TEST__?.bootstrapState || "unknown",
         bootstrapErrorClass:
           window.__HUSHH_NATIVE_TEST__?.bootstrapErrorClass || "none",
+        openingChat: document.body.textContent?.includes("Opening chat…") === true,
+        unlockHeading: document.body.textContent?.includes("Unlock One") === true,
       }));
       throw new Error(
-        `Visible vault challenge timed out (path=${diagnostics.path}, title=${diagnostics.title || "unknown"}, state=${diagnostics.bootstrapState}, error_class=${diagnostics.bootstrapErrorClass}).`
+        `Visible vault challenge timed out (path=${diagnostics.path}, title=${diagnostics.title || "unknown"}, state=${diagnostics.bootstrapState}, error_class=${diagnostics.bootstrapErrorClass}, opening_chat=${diagnostics.openingChat}, unlock_heading=${diagnostics.unlockHeading}).`
       );
     } finally {
       await context.close().catch(() => undefined);

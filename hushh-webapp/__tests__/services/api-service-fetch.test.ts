@@ -139,6 +139,21 @@ describe("ApiService.apiFetch", () => {
   });
 
   // 1 – Web platform: calls fetch with relative path (no base URL)
+  it("keeps simultaneous reviewer sessions bound to their requested identities", async () => {
+    const first = deferred<Response>();
+    const second = deferred<Response>();
+    mockFetch.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+    const a = ApiService.createAppReviewModeSession("reviewer", { reviewerUid: "synthetic-a" });
+    const b = ApiService.createAppReviewModeSession("reviewer", { reviewerUid: "synthetic-b" });
+    await vi.waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(2));
+    expect(mockFetch.mock.calls.map((call) => JSON.parse(call[1].body).reviewer_uid))
+      .toEqual(["synthetic-a", "synthetic-b"]);
+    second.resolve(jsonResponse({ token: "synthetic-token-b" }));
+    first.resolve(jsonResponse({ token: "synthetic-token-a" }));
+    expect(await a).toEqual({ token: "synthetic-token-a" });
+    expect(await b).toEqual({ token: "synthetic-token-b" });
+  });
+
   it("calls fetch with a relative path on web (no base URL prepended)", async () => {
     mockFetch.mockResolvedValueOnce(jsonResponse({ ok: true }));
 

@@ -3323,7 +3323,7 @@
         "voice": true,
         "web": true
       },
-      "system_instruction_sha256": "b51256b6b431ddb63d97d29e21e57f16c5bb1899ab91ad2b8a4615c7e8c459e5",
+      "system_instruction_sha256": "c73e21c066df237af53cacf68fe82fa1f9111cbe4e4080bcee974b1d68824cc9",
       "telemetry_namespace": "agent.one",
       "tools": [],
       "ui_type": "chat",

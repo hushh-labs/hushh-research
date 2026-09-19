@@ -365,6 +365,26 @@ describe("PersonProfilePage native profile route", () => {
 });
 
 describe("PersonProfilePage request catalog tools", () => {
+  it("distinguishes an unavailable catalog from an empty one and allows retry", async () => {
+    mocks.getViewer.mockRejectedValueOnce(new Error("temporary failure"));
+    render(<PersonProfilePage personRef="actual-public-ref" initialProfile={null} />);
+    expect(await screen.findByRole("alert")).toHaveTextContent("couldn’t check available information");
+    expect(screen.queryByRole("heading", { name: "Available to request" })).not.toBeInTheDocument();
+    mocks.getViewer.mockResolvedValue(viewerProfile());
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    await screen.findByRole("heading", { name: "Available to request" });
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("does not reuse the previous viewer's catalog while another account loads", async () => {
+    const { rerender } = render(<PersonProfilePage personRef="actual-public-ref" initialProfile={null} />);
+    await screen.findByRole("heading", { name: "Available to request" });
+    mocks.user = { uid: "different-viewer", getIdToken: async () => "different-token" };
+    mocks.getViewer.mockImplementation(() => new Promise(() => {}));
+    rerender(<PersonProfilePage personRef="actual-public-ref" initialProfile={null} />);
+    expect(screen.queryByRole("heading", { name: "Available to request" })).not.toBeInTheDocument();
+  });
+
   function manyScopes(count: number) {
     return Array.from({ length: count }, (_, index) => ({
       scopeRef: `scope-${index}`,

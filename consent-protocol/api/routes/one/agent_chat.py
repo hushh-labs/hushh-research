@@ -98,6 +98,9 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
         STATE_CONSENT_TOKEN: store_request_secret(str((token or {}).get("token") or "")),
         STATE_CONVERSATION_ID: input_data.thread_id,
         STATE_TIMEZONE: str(forwarded.get("timezone") or "")[:64],
+        # This is only an untrusted selection request. The resolver validates
+        # it against owner/thread-bound server-issued choices before any read.
+        "hussh:requested_person_selection": str(forwarded.get("personSelectionHandle") or "")[:64],
         STATE_SCREEN: str(screen_context.get("screen") or "")[:64],
         STATE_VOICE_CONTEXT: screen_context,
         STATE_PKM_CONTEXT: store_request_secret(str(forwarded.get("pkmContext") or "")[:20000]),
@@ -199,7 +202,11 @@ add_adk_fastapi_endpoint(
 
 def _event_text(event: Any) -> str:
     parts = getattr(getattr(event, "content", None), "parts", None) or []
-    return "".join(str(getattr(part, "text", "") or "") for part in parts).strip()
+    return "".join(
+        str(getattr(part, "text", "") or "")
+        for part in parts
+        if not getattr(part, "thought", False)
+    ).strip()
 
 
 _SAFE_PROFILE_PATH = re.compile(r"^/people/[A-Za-z0-9_-]{16,128}$")
@@ -224,7 +231,9 @@ def _bounded_text(value: Any, limit: int) -> str | None:
     return normalized[:limit] or None
 
 
-def _safe_discovery_descriptor(event: Any) -> dict[str, Any] | None:
+def _safe_discovery_descriptor(
+    event: Any, selected_parts: list[Any] | None = None
+) -> dict[str, Any] | None:
     """Project one display-safe discovery card out of an encrypted event.
 
     The session remains encrypted at rest. This projection is deliberately
@@ -232,7 +241,11 @@ def _safe_discovery_descriptor(event: Any) -> dict[str, Any] | None:
     addresses, credentials, or executable action payloads. It exists so a
     returning owner can see the same AG-UI card without replaying the action.
     """
-    parts = getattr(getattr(event, "content", None), "parts", None) or []
+    parts = (
+        selected_parts
+        if selected_parts is not None
+        else (getattr(getattr(event, "content", None), "parts", None) or [])
+    )
     for part in parts:
         function_response = getattr(part, "function_response", None)
         if (
@@ -273,6 +286,13 @@ def _safe_discovery_descriptor(event: Any) -> dict[str, Any] | None:
                         ),
                         "domain": domain,
                         "sensitivity": sensitivity or "standard",
+                        "pathSegments": [
+                            value
+                            for part in (scope.get("pathSegments") or [])[:32]
+                            if (value := _bounded_text(part, 120))
+                        ]
+                        if isinstance(scope.get("pathSegments"), list)
+                        else [],
                     }
                 )
         return {
@@ -292,12 +312,27 @@ def _safe_discovery_descriptor(event: Any) -> dict[str, Any] | None:
 
 
 def _safe_agent_history_metadata(event: Any) -> dict[str, Any] | None:
-    descriptor = _safe_discovery_descriptor(event)
-    if not descriptor:
+    descriptors = []
+    seen = set()
+    for index, part in enumerate(getattr(getattr(event, "content", None), "parts", None) or []):
+        descriptor = _safe_discovery_descriptor(event, [part])
+        if descriptor is None:
+            continue
+        card_id = str(
+            getattr(getattr(part, "function_response", None), "id", "") or f"{event.id}:{index}"
+        )
+        if card_id in seen:
+            continue
+        seen.add(card_id)
+        descriptors.append({"id": card_id, **descriptor})
+    if not descriptors:
         return None
     return {
         "kind": "structured_experience",
-        "structuredExperience": descriptor,
+        "structuredExperiences": descriptors,
+        "structuredExperience": {
+            key: value for key, value in descriptors[0].items() if key != "id"
+        },
         "structuredExperienceId": str(getattr(event, "id", "") or "").strip() or None,
     }
 
@@ -364,8 +399,10 @@ async def conversation_history(
     for event in session.events:
         text = _event_text(event)
         metadata = _safe_agent_history_metadata(event)
-        if event.author not in {"user", "one"} or (not text and not metadata):
+        if (event.author not in {"user", "one"} and not metadata) or (not text and not metadata):
             continue
+        if event.author not in {"user", "one"}:
+            text = ""  # Tool events restore only allowlisted safe descriptors.
         messages.append(
             {
                 "id": event.id or f"{event.invocation_id}:{len(messages)}",

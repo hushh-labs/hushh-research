@@ -494,6 +494,9 @@ export function AuthStep({
             const { token } = await ApiService.createAppReviewModeSession(
               "reviewer",
               {
+                reviewerUid: nativeTestConfig.autoReviewerLogin
+                  ? nativeTestConfig.expectedUserId
+                  : null,
                 smokePassphrase: nativeTestConfig.autoReviewerLogin
                   ? nativeTestConfig.vaultPassphrase
                   : null,

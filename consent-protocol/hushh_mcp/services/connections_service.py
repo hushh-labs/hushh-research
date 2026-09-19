@@ -12,7 +12,9 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import inspect
+import json
 import logging
+from collections import Counter
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from typing import Any, Callable
@@ -33,7 +35,11 @@ from hushh_mcp.services.contact_sync_contract import (
     CONTACT_SYNC_PREFERENCE_ENABLED,
     contact_sync_preference_state,
 )
-from hushh_mcp.services.people_search_sql import people_query_match_params
+from hushh_mcp.services.people_search_sql import (
+    directory_name_rank,
+    normalize_directory_name,
+    people_query_match_params,
+)
 from hushh_mcp.services.requester_identity import label_from_identity_row
 from hushh_mcp.services.ria_status import RIA_VERIFIED_STATUS_SQL
 
@@ -653,6 +659,7 @@ class ConnectionsService:
         domain: str = "",
         page: int = 1,
         limit: int = 20,
+        catalog_revision: str = "",
     ) -> dict[str, Any]:
         """Search a person's dynamically discoverable ``attr.*`` scopes.
 
@@ -678,6 +685,16 @@ class ConnectionsService:
             normalized_limit = max(1, min(int(limit or 20), 100))
         except (TypeError, ValueError):
             normalized_limit = 20
+        revision = hashlib.sha256(
+            json.dumps(
+                sorted(safe_entries, key=lambda entry: entry["scope"]),
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode()
+        ).hexdigest()
+        reset = bool(catalog_revision and catalog_revision != revision)
+        if reset:
+            normalized_page = 1
         offset = (normalized_page - 1) * normalized_limit
         ranked = rank_scope_matches(
             safe_entries,
@@ -686,9 +703,10 @@ class ConnectionsService:
             # Rank the bounded catalog before slicing it. Ranking only the
             # requested page makes `hasMore` false on page one and can move a
             # valid exact scope behind a different page boundary.
-            limit=500,
+            limit=None,
         )
         page_items = ranked[offset : offset + normalized_limit]
+        domain_counts = Counter(str(entry.get("domain") or "") for entry in ranked)
         return {
             "counterpartUserId": counterpart,
             "items": page_items,
@@ -696,7 +714,13 @@ class ConnectionsService:
             "limit": normalized_limit,
             "hasMore": offset + len(page_items) < len(ranked),
             "totalCount": len(ranked),
-            "catalogTruncated": len(safe_entries) > 500,
+            "catalogTruncated": False,
+            "catalogRevision": revision,
+            "paginationReset": reset,
+            "nextPage": normalized_page + 1 if offset + len(page_items) < len(ranked) else None,
+            "domains": [
+                {"domain": name, "count": count} for name, count in sorted(domain_counts.items())
+            ],
         }
 
     def _safe_information_scope_entries(self, counterpart_user_id: str) -> list[dict[str, Any]]:
@@ -2929,25 +2953,13 @@ class ConnectionsService:
                 # bare split() sees one word, the SQL sees two, and whether a
                 # person is findable comes down to which branch a deployment
                 # happened to take.
-                def _folded(value: str) -> str:
-                    folded = " ".join(value.strip().lower().split())
-                    for separator in "-'._/,":
-                        folded = folded.replace(separator, " ")
-                    return " ".join(folded.split())
-
-                query_tokens = needle.split()
+                needle = normalize_directory_name(needle)
                 compact_needle = "".join(char for char in needle if char.isalnum())
 
                 def _tier(person: dict[str, Any]) -> int | None:
-                    name = _folded(str(person.get("displayName") or ""))
-                    if name == needle:
-                        return 0
-                    if name.startswith(needle):
-                        return 1
-                    if query_tokens and any(
-                        word.startswith(query_tokens[-1]) for word in name.split()
-                    ):
-                        return 2
+                    rank = directory_name_rank(str(person.get("displayName") or ""), needle)
+                    if rank is not None:
+                        return rank
                     email = str(person.get("email") or "").strip().lower()
                     compact_email = "".join(char for char in email if char.isalnum())
                     if compact_needle and compact_email.startswith(compact_needle):

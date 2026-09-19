@@ -1318,9 +1318,7 @@ export interface AccountPhoneTestStartResponse {
  * API Service for platform-aware API calls
  */
 export class ApiService {
-  private static appReviewModeSessionInflight: Promise<{
-    token: string;
-  }> | null = null;
+  private static readonly appReviewModeSessions = new Map<string, Promise<{ token: string }>>();
 
   private static readonly dashboardProfilePicksInflight = new Map<
     string,
@@ -1610,13 +1608,13 @@ export class ApiService {
    */
   static async createAppReviewModeSession(
     subject: "reviewer" = "reviewer",
-    options?: { smokePassphrase?: string | null },
+    options?: { smokePassphrase?: string | null; reviewerUid?: string | null },
   ): Promise<{ token: string }> {
-    if (this.appReviewModeSessionInflight) {
-      return this.appReviewModeSessionInflight;
-    }
+    const identityKey = `${subject}:${options?.reviewerUid ?? "default"}`;
+    const existing = this.appReviewModeSessions.get(identityKey);
+    if (existing) return existing;
 
-    this.appReviewModeSessionInflight = (async () => {
+    const request = (async () => {
       const response = await apiFetch("/api/app-config/review-mode/session", {
         method: "POST",
         cache: "no-store",
@@ -1625,6 +1623,7 @@ export class ApiService {
         },
         body: JSON.stringify({
           subject,
+          reviewer_uid: options?.reviewerUid || undefined,
           smoke_passphrase:
             typeof options?.smokePassphrase === "string" &&
             options.smokePassphrase.trim().length > 0
@@ -1654,10 +1653,11 @@ export class ApiService {
       return { token };
     })();
 
+    this.appReviewModeSessions.set(identityKey, request);
     try {
-      return await this.appReviewModeSessionInflight;
+      return await request;
     } finally {
-      this.appReviewModeSessionInflight = null;
+      this.appReviewModeSessions.delete(identityKey);
     }
   }
 

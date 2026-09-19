@@ -34,7 +34,7 @@ def rank_scope_matches(
     *,
     query: str = "",
     domain: str = "",
-    limit: int = 20,
+    limit: int | None = 20,
 ) -> list[dict]:
     """
     Deterministically rank pre-computed scope entries against an intent query.
@@ -58,7 +58,7 @@ def rank_scope_matches(
         # also used by Profile and request validation. That made valid fields
         # disappear from a person's catalog and made an opaque reference fail
         # validation merely because it sorted after the first page.
-        capped_limit = max(1, min(int(limit), 500))
+        capped_limit = None if limit is None else max(1, min(int(limit), 500))
     except (TypeError, ValueError):
         capped_limit = 20
 

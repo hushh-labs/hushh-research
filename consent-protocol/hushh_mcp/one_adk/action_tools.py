@@ -22,10 +22,12 @@ loaded through ``hushh_mcp.services.action_gateway``) is the routing authority:
 
 from __future__ import annotations
 
+import asyncio
 import dataclasses
 import json
 import logging
 import re
+import time
 import uuid
 from datetime import datetime
 from typing import Any, Callable, Literal
@@ -384,6 +386,58 @@ BACKEND_DIRECT_VERBAL_CONFIRMATION_IDS: frozenset[str] = frozenset(
 # Proposals parked by propose_information_request, keyed by an opaque id the
 # model hands back to consent.request. The model never sees a scope ref.
 _STATE_INFORMATION_REQUEST_PROPOSALS = "hussh:information_request_proposals"
+_STATE_INFORMATION_PERSON_CHOICES = "hussh:information_person_choices"
+_STATE_SELECTED_INFORMATION_PERSON = "hussh:selected_information_person"
+
+
+class InformationPersonAmbiguous(ConsentLifecycleError):
+    def __init__(self, candidates: list[dict[str, Any]]) -> None:
+        super().__init__("PERSON_AMBIGUOUS", "Choose which person you mean before we continue.")
+        self.candidates = candidates
+
+
+def _information_person_error(
+    exc: ConsentLifecycleError, tool_context: ToolContext, user_id: str
+) -> dict[str, Any]:
+    status = {
+        "PERSON_AMBIGUOUS": "needs_clarification",
+        "PERSON_REQUIRED": "needs_clarification",
+        "PERSON_NOT_FOUND": "not_found",
+        "PERSON_PROFILE_NOT_READY": "unavailable",
+    }.get(exc.code, "failed")
+    result: dict[str, Any] = {"status": status, "message": exc.message}
+    if isinstance(exc, InformationPersonAmbiguous):
+        session_id = str(getattr(getattr(tool_context, "session", None), "id", "") or "")
+        if not session_id:
+            return result
+        choices, handles = [], {}
+        for candidate in exc.candidates[:20]:
+            person_ref = str(candidate.get("publicPersonRef") or "").strip()
+            if not person_ref:
+                continue
+            handle = uuid.uuid4().hex
+            display_name = _person_display_name(candidate) or "Hussh member"
+            handles[handle] = {
+                "owner": user_id,
+                "session": session_id,
+                "personRef": person_ref,
+                "displayName": display_name,
+                "expiresAt": time.time() + 900,
+            }
+            choices.append(
+                {
+                    "selectionHandle": handle,
+                    "personRef": person_ref,
+                    "displayName": display_name,
+                    "detail": candidate.get("maskedEmail") or candidate.get("maskedPhone"),
+                    "profilePath": f"/people/{person_ref}",
+                }
+            )
+        tool_context.state[_STATE_INFORMATION_PERSON_CHOICES] = handles
+        result["candidates"] = choices
+    return result
+
+
 _STATE_LAST_INFORMATION_REQUEST = "hussh:last_information_request"
 # Opaque handles for the other two ends of the lifecycle, parked by the read
 # tool that listed them and resolved in _resolved_directive_slots. Same shape
@@ -1840,13 +1894,14 @@ async def discover_person_information(
     person: str,
     tool_context: ToolContext,
     domain: str = "",
+    selection_handle: str = "",
 ) -> dict[str, Any]:
     """Resolve a connected person and list the exact information they expose for requests.
 
     This is discovery only. It returns opaque ``scopeRef`` values and a public
     profile route; it never creates consent, exposes raw ``attr.*`` scopes, or
-    reads a granted value. The profile review surface remains the sole place
-    where the requester selects fields and confirms a request.
+    reads a granted value. Requests use the existing proposal and explicit
+    browser confirmation, in Chat or Profile.
     """
     user_id, blocked = await _read_tool_user_id(tool_context)
     if blocked is not None:
@@ -1856,22 +1911,26 @@ async def discover_person_information(
 
     try:
         try:
-            person_ref, resolved_name = _resolve_person_for_information(
-                ConnectionsService(), user_id, person
+            person_ref, resolved_name = await asyncio.to_thread(
+                _resolve_person_for_information,
+                ConnectionsService(),
+                user_id,
+                person,
+                tool_context,
+                selection_handle,
             )
         except ConsentLifecycleError as exc:
-            status = {
-                "PERSON_AMBIGUOUS": "needs_clarification",
-                "PERSON_NOT_FOUND": "not_found",
-                "PERSON_PROFILE_NOT_READY": "unavailable",
-                "PERSON_REQUIRED": "needs_clarification",
-            }.get(exc.code, "failed")
-            return {"status": status, "message": exc.message}
+            return _information_person_error(exc, tool_context, user_id)
         connection = {"displayName": resolved_name}
         profile = await PersonProfileService().get_viewer_profile(
             viewer_user_id=user_id,
             public_person_ref=person_ref,
         )
+        if profile.get("personRef") != person_ref:
+            return {
+                "status": "failed",
+                "message": "The selected person could not be verified. Please choose them again.",
+            }
         requested_domain = normalize_spoken_name(domain)
         scopes = []
         for item in profile.get("requestableScopes") or []:
@@ -1885,6 +1944,7 @@ async def discover_person_information(
                     "description": item.get("description"),
                     "domain": item_domain or "Other",
                     "sensitivity": item.get("sensitivity") or "standard",
+                    "pathSegments": item.get("pathSegments") or [],
                 }
             )
         active_grants = profile.get("grants") or []
@@ -1916,7 +1976,8 @@ async def discover_person_information(
             "scopeCount": len(scopes),
             "nextStep": (
                 "If they have shared information with you (sharedWithYou), tell the user what has been granted. "
-                "For new requests, present requestable fields grouped by domain and link to profilePath."
+                "For new requests, let the card present the fields and ask for the purpose and duration. "
+                "Keep the selected person for the proposal; open their profile only if requested."
             ),
         }
     except (ConnectionsError, PersonProfileNotFoundError, ValueError) as exc:
@@ -1985,8 +2046,44 @@ def _person_display_name(person: dict[str, Any]) -> str:
     return str(person.get("displayName") or "")
 
 
+def _remember_information_person(
+    tool_context: ToolContext | None,
+    user_id: str,
+    person_ref: str,
+    display_name: str,
+    spoken: str,
+) -> tuple[str, str]:
+    """Retain an unambiguous lookup under the same boundary as a picker choice.
+
+    This is conversation context, not information-access authority. Profile and
+    mutation services must still revalidate current exposure and consent.
+    """
+    session_id = str(getattr(getattr(tool_context, "session", None), "id", "") or "")
+    if tool_context is not None and session_id:
+        handle = uuid.uuid4().hex
+        tool_context.state[_STATE_INFORMATION_PERSON_CHOICES] = {
+            handle: {
+                "owner": user_id,
+                "session": session_id,
+                "personRef": person_ref,
+                "displayName": display_name,
+                "expiresAt": time.time() + 900,
+            },
+        }
+        tool_context.state[_STATE_SELECTED_INFORMATION_PERSON] = {
+            "handle": handle,
+            "displayName": display_name,
+            "spoken": spoken,
+        }
+    return person_ref, display_name
+
+
 def _resolve_person_for_information(
-    connections_service: ConnectionsService, user_id: str, spoken: str
+    connections_service: ConnectionsService,
+    user_id: str,
+    spoken: str,
+    tool_context: ToolContext | None = None,
+    selection_handle: str = "",
 ) -> tuple[str, str]:
     """Resolve one named person to ``(public_person_ref, display_name)``.
 
@@ -1997,19 +2094,79 @@ def _resolve_person_for_information(
     service against the subject's own exposure choices.
     """
     spoken = str(spoken or "").strip()
+    confirm_changed_person = False
+    if tool_context:
+        requested = str(tool_context.state.get("hussh:requested_person_selection") or "")
+        # An explicit browser selection outranks any model-generated argument.
+        selection_handle = requested or selection_handle
+        if not selection_handle:
+            selected = tool_context.state.get(_STATE_SELECTED_INFORMATION_PERSON)
+            if isinstance(selected, dict):
+                retained_names = {
+                    normalize_spoken_name(str(selected.get(key) or ""))
+                    for key in ("displayName", "spoken")
+                }
+                if spoken and normalize_spoken_name(spoken) not in retained_names:
+                    confirm_changed_person = True
+                else:
+                    selection_handle = str(selected.get("handle") or "")
+    if selection_handle:
+        choices = (
+            tool_context.state.get(_STATE_INFORMATION_PERSON_CHOICES) if tool_context else None
+        )
+        choice = choices.get(selection_handle) if isinstance(choices, dict) else None
+        session_id = str(getattr(getattr(tool_context, "session", None), "id", "") or "")
+        if (
+            not isinstance(choice, dict)
+            or choice.get("owner") != user_id
+            or not session_id
+            or choice.get("session") != session_id
+            or float(choice.get("expiresAt") or 0) <= time.time()
+        ):
+            raise ConsentLifecycleError(
+                "PERSON_REQUIRED", "That choice expired. Please choose the person again."
+            )
+        # The handle fixes identity; the profile service rechecks current authority.
+        previous = tool_context.state.get(_STATE_SELECTED_INFORMATION_PERSON)
+        tool_context.state[_STATE_SELECTED_INFORMATION_PERSON] = {
+            "handle": selection_handle,
+            "displayName": choice["displayName"],
+            "spoken": (
+                previous.get("spoken", "")
+                if isinstance(previous, dict) and previous.get("handle") == selection_handle
+                else ""
+            ),
+        }
+        return str(choice["personRef"]), str(choice["displayName"])
     if not spoken:
         raise ConsentLifecycleError("PERSON_REQUIRED", "Say whose information you mean.")
     connections = connections_service.list_connections(user_id=user_id)
+    if "@" in spoken:
+        # Email is exact-only and limited to contacts already visible to this owner.
+        matches = [
+            p
+            for p in connections
+            if str(p.get("email") or "").strip().casefold() == spoken.casefold()
+        ]
+        if len(matches) != 1 or not matches[0].get("publicPersonRef"):
+            raise ConsentLifecycleError(
+                "PERSON_NOT_FOUND", "Choose a person from your connections to continue."
+            )
+        if confirm_changed_person:
+            raise InformationPersonAmbiguous(matches)
+        return _remember_information_person(
+            tool_context,
+            user_id,
+            str(matches[0]["publicPersonRef"]),
+            _person_display_name(matches[0]) or "Hussh member",
+            spoken,
+        )
     resolution = resolve_spoken_names(connections, spoken, _person_display_name)
     person: dict[str, Any] | None = None
     if resolution.unresolved:
         unresolved = resolution.unresolved[0]
         if unresolved.kind == "ambiguous":
-            raise ConsentLifecycleError(
-                "PERSON_AMBIGUOUS",
-                "More than one connection matched. Ask which person they mean: "
-                f"{ambiguous_match_names(unresolved.matches, _person_display_name)}.",
-            )
+            raise InformationPersonAmbiguous(list(unresolved.matches))
         try:
             candidates = _directory_candidates(connections_service, user_id, spoken)
         except Exception:  # noqa: BLE001 - the directory is a fallback, never a blocker
@@ -2022,11 +2179,7 @@ def _resolve_person_for_information(
                 f"{unresolved.spoken_text or spoken} is not in your connections or the directory.",
             )
         if len(matches) > 1:
-            names = ", ".join(_person_display_name(c) for c in matches[:4])
-            raise ConsentLifecycleError(
-                "PERSON_AMBIGUOUS",
-                f"More than one person matches that name: {names}. Say which one.",
-            )
+            raise InformationPersonAmbiguous(matches)
         person = matches[0]
     elif len(resolution.resolved) != 1:
         raise ConsentLifecycleError(
@@ -2039,7 +2192,15 @@ def _resolve_person_for_information(
         raise ConsentLifecycleError(
             "PERSON_PROFILE_NOT_READY", "That person's request profile is not ready yet."
         )
-    return person_ref, _person_display_name(person) or "Hussh member"
+    if confirm_changed_person:
+        raise InformationPersonAmbiguous([person])
+    return _remember_information_person(
+        tool_context,
+        user_id,
+        person_ref,
+        _person_display_name(person) or "Hussh member",
+        spoken,
+    )
 
 
 def _split_requested_fields(fields: str) -> list[str]:
@@ -2243,6 +2404,7 @@ async def propose_information_request(
     purpose: str,
     tool_context: ToolContext,
     duration_hours: int = _INFORMATION_REQUEST_DEFAULT_HOURS,
+    selection_handle: str = "",
 ) -> dict[str, Any]:
     """Prepare an information request to one named person for the fields they said, ready to confirm.
 
@@ -2263,12 +2425,22 @@ async def propose_information_request(
         raise AssertionError("_read_tool_user_id returned no user_id with blocked=None")
     try:
         connections_service = ConnectionsService()
-        person_ref, display_name = _resolve_person_for_information(
-            connections_service, user_id, person
+        person_ref, display_name = await asyncio.to_thread(
+            _resolve_person_for_information,
+            connections_service,
+            user_id,
+            person,
+            tool_context,
+            selection_handle,
         )
         profile = await PersonProfileService().get_viewer_profile(
             viewer_user_id=user_id, public_person_ref=person_ref
         )
+        if profile.get("personRef") != person_ref:
+            return {
+                "status": "failed",
+                "message": "The selected person could not be verified. Please choose them again.",
+            }
         requestable = [
             item for item in (profile.get("requestableScopes") or []) if item.get("scopeRef")
         ]
@@ -2352,12 +2524,7 @@ async def propose_information_request(
             ),
         }
     except ConsentLifecycleError as exc:
-        status = {
-            "PERSON_AMBIGUOUS": "needs_clarification",
-            "PERSON_NOT_FOUND": "not_found",
-            "PERSON_PROFILE_NOT_READY": "unavailable",
-        }.get(exc.code, "failed")
-        return {"status": status, "message": exc.message}
+        return _information_person_error(exc, tool_context, user_id)
     except (ConnectionsError, PersonProfileNotFoundError, ValueError) as exc:
         return {"status": "failed", "message": str(exc)}
     except Exception:  # noqa: BLE001 - consumer-safe boundary

@@ -80,12 +80,18 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
   const profile =
     profileState.personRef === resolvedPersonRef ? profileState.profile : null;
   const [publicProfileUnavailable, setPublicProfileUnavailable] = useState(false);
+  const [viewerLoadError, setViewerLoadError] = useState<{
+    personRef: string; viewerUid: string;
+  } | null>(null);
+  const viewerUnavailable = viewerLoadError?.personRef === resolvedPersonRef
+    && viewerLoadError.viewerUid === user?.uid;
   const [viewerProfileState, setViewerProfileState] = useState<{
     personRef: string;
+    viewerUid: string | null;
     profile: ViewerPersonProfile | null;
-  }>({ personRef: resolvedPersonRef, profile: null });
+  }>({ personRef: resolvedPersonRef, viewerUid: user?.uid ?? null, profile: null });
   const viewerProfile =
-    viewerProfileState.personRef === resolvedPersonRef
+    viewerProfileState.personRef === resolvedPersonRef && viewerProfileState.viewerUid === user?.uid
       ? viewerProfileState.profile
       : null;
   const [selectedScopeRefs, setSelectedScopeRefs] = useState<Set<string>>(new Set());
@@ -103,6 +109,20 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
   const sharedSectionRef = useRef<HTMLElement | null>(null);
   const [showUnlockDialog, setShowUnlockDialog] = useState(false);
   const [requesting, setRequesting] = useState(false);
+  const requestInFlight = useRef(false);
+  const requestDraft = useRef<{ fingerprint: string; key: string } | null>(null);
+  const requestGeneration = useRef(0);
+  const requestAbort = useRef<AbortController | null>(null);
+  useEffect(() => {
+    requestGeneration.current += 1;
+    requestDraft.current = null;
+    requestInFlight.current = false;
+    setRequesting(false);
+    return () => {
+      requestGeneration.current += 1;
+      requestAbort.current?.abort();
+    };
+  }, [resolvedPersonRef, user?.uid, isVaultUnlocked]);
   const [relationshipBusy, setRelationshipBusy] = useState(false);
   const [decryptedByRequest, setDecryptedByRequest] = useState<Record<string, Record<string, unknown>>>({});
   const [decryptingRequestId, setDecryptingRequestId] = useState<string | null>(null);
@@ -134,6 +154,7 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
   useEffect(() => {
     if (authLoading || !user) return;
     let active = true;
+    setViewerLoadError(null);
     void user
       .getIdToken()
       .then((token) => PersonProfileService.getViewer(resolvedPersonRef, token))
@@ -141,11 +162,19 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
         if (active) {
           setViewerProfileState({
             personRef: resolvedPersonRef,
+            viewerUid: user.uid,
             profile: value,
           });
         }
       })
-      .catch(() => undefined);
+      .catch(() => {
+        if (active) {
+          setViewerLoadError({ personRef: resolvedPersonRef, viewerUid: user.uid });
+          // Do not present an older eligibility catalog as current authority.
+          setViewerProfileState({ personRef: resolvedPersonRef, viewerUid: user.uid, profile: null });
+          setReviewOpen(false);
+        }
+      });
     return () => {
       active = false;
     };
@@ -178,11 +207,13 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
     setDurationHours(DEFAULT_REQUEST_DURATION_HOURS);
     setBundleDetails({});
     setDecryptedByRequest({});
-  }, [resolvedPersonRef]);
+    setDecryptingRequestId(null);
+  }, [resolvedPersonRef, user?.uid]);
 
   useEffect(() => {
     if (isVaultUnlocked) return;
     setDecryptedByRequest({});
+    setDecryptingRequestId(null);
   }, [isVaultUnlocked]);
 
   useEffect(() => {
@@ -238,40 +269,63 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
   );
 
   const submitRequest = async () => {
+    if (requestInFlight.current) return;
     if (!user || !vaultKey || !vaultOwnerToken || !isVaultUnlocked) {
       toast.error("Unlock your vault before requesting information.");
       return;
     }
     if (!selectedScopes.length || purpose.trim().length < 8) return;
+    const generation = requestGeneration.current;
+    const scopeRefs = selectedScopes.map((scope) => scope.scopeRef).sort();
+    const fingerprint = JSON.stringify([user.uid, resolvedPersonRef, scopeRefs, purpose.trim(), durationHours]);
+    if (requestDraft.current?.fingerprint !== fingerprint) {
+      requestDraft.current = { fingerprint, key: crypto.randomUUID() };
+    }
+    const idempotencyKey = requestDraft.current.key;
+    requestInFlight.current = true;
+    const controller = new AbortController();
+    requestAbort.current = controller;
+    const timeout = window.setTimeout(() => controller.abort(), 45_000);
     setRequesting(true);
     try {
-      const connector = await OneKycClientZkService.ensureConnector({
-        userId: user.uid,
-        vaultKey,
-        vaultOwnerToken,
+      const connector = await new Promise<Awaited<ReturnType<typeof OneKycClientZkService.ensureConnector>>>((resolve, reject) => {
+        const abort = () => reject(new Error("Preparing your request took too long. Please try again."));
+        controller.signal.addEventListener("abort", abort, { once: true });
+        OneKycClientZkService.ensureConnector({ userId: user.uid, vaultKey, vaultOwnerToken })
+          .then(resolve, reject)
+          .finally(() => controller.signal.removeEventListener("abort", abort));
       });
+      if (generation !== requestGeneration.current || controller.signal.aborted) return;
       await PersonProfileService.createInformationRequest({
         personRef: resolvedPersonRef,
-        scopeRefs: selectedScopes.map((scope) => scope.scopeRef),
+        scopeRefs,
         purpose: purpose.trim(),
         durationSeconds: durationHours * 3600,
         connectorKeyId: connector.connector_key_id,
-        idempotencyKey: crypto.randomUUID(),
+        idempotencyKey,
         vaultOwnerToken,
+        signal: controller.signal,
       });
+      if (generation !== requestGeneration.current) return;
       setReviewOpen(false);
       setSelectedScopeRefs(new Set());
       setPurpose("");
-      const idToken = await user.getIdToken();
-      setViewerProfileState({
-        personRef: resolvedPersonRef,
-        profile: await PersonProfileService.getViewer(resolvedPersonRef, idToken),
-      });
       toast.success("Request sent for review");
+      requestDraft.current = null;
+      // Refresh failure must not misreport a successful write or invite a duplicate.
+      setViewerReloadToken((value) => value + 1);
     } catch (reason) {
-      toast.error(oneLocationErrorMessage(reason, "Request could not be sent. Try again."));
+      if (generation === requestGeneration.current) {
+        toast.error(controller.signal.aborted
+          ? "We could not confirm the request yet. Retry to check the same request."
+          : oneLocationErrorMessage(reason, "Request could not be sent. Try again."));
+      }
     } finally {
-      setRequesting(false);
+      window.clearTimeout(timeout);
+      if (generation === requestGeneration.current) {
+        requestInFlight.current = false;
+        setRequesting(false);
+      }
     }
   };
 
@@ -306,9 +360,10 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
                 idToken,
               );
       setViewerProfileState((current) =>
-        current.personRef === resolvedPersonRef && current.profile
+        current.personRef === resolvedPersonRef && current.viewerUid === user.uid && current.profile
           ? {
               personRef: resolvedPersonRef,
+              viewerUid: user.uid,
               profile: { ...current.profile, relationship },
             }
           : current,
@@ -342,6 +397,7 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
         return;
       }
       setDecryptingRequestId(requestId);
+      const generation = requestGeneration.current;
       try {
         const connector = await OneKycClientZkService.ensureConnector({
           userId: user.uid,
@@ -358,11 +414,14 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
           exportPackage: exact.encryptedExport,
           connector,
         });
+        if (generation !== requestGeneration.current) return;
         setDecryptedByRequest((current) => ({ ...current, [requestId]: payload }));
       } catch (reason) {
-        toast.error(oneLocationErrorMessage(reason, "This shared information could not be opened."));
+        if (generation === requestGeneration.current) {
+          toast.error(oneLocationErrorMessage(reason, "This shared information could not be opened."));
+        }
       } finally {
-        setDecryptingRequestId(null);
+        if (generation === requestGeneration.current) setDecryptingRequestId(null);
       }
     },
     [
@@ -459,6 +518,7 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
       const idToken = await user.getIdToken();
       setViewerProfileState({
         personRef: resolvedPersonRef,
+        viewerUid: user.uid,
         profile: await PersonProfileService.getViewer(resolvedPersonRef, idToken),
       });
       toast.success("Information request cancelled");
@@ -709,6 +769,18 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
               </div>
               <Button asChild variant="blue-gradient" effect="fill">
                 <Link href="/login">Sign in</Link>
+              </Button>
+            </div>
+          </SectionCard>
+        ) : null}
+
+        {viewerUnavailable ? (
+          <SectionCard>
+            <div role="alert" className="space-y-3">
+              <p>We couldn’t check available information or shared access. Please try again.</p>
+              <Button type="button" variant="none" effect="fade"
+                onClick={() => setViewerReloadToken((value) => value + 1)}>
+                Try again
               </Button>
             </div>
           </SectionCard>
@@ -1094,7 +1166,7 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
               </span>
             </label>
           </div>
-          <DialogFooter className="relative z-20 shrink-0 flex-row items-center justify-end border-t border-border/60 pt-3 pointer-events-auto">
+          <DialogFooter className="shrink-0 flex-row items-center justify-end border-t border-border/60 pt-3">
             <Button type="button" variant="none" effect="fade" data-voice-control-id="person-profile-request-cancel" onClick={() => setReviewOpen(false)}>
               Cancel
             </Button>
@@ -1102,9 +1174,8 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
               type="button"
               variant="blue-gradient"
               effect="fill"
-              disabled={requesting || purpose.trim().length < 8}
+              disabled={requesting || purpose.trim().length < 8 || !selectedScopes.length || !user || !isVaultUnlocked || !vaultKey || !vaultOwnerToken}
               onClick={() => void submitRequest()}
-              className="relative z-30 pointer-events-auto"
               data-voice-control-id="person-profile-request-confirm"
             >
               {requesting ? "Sending…" : "Send request"}

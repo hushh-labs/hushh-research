@@ -22,6 +22,7 @@ export type RequestablePersonScope = {
   domain: string | null;
   sensitivity: string | null;
   wildcard: boolean;
+  pathSegments?: string[];
 };
 
 export type PersonGrant = {
@@ -163,10 +164,12 @@ export class PersonProfileService {
     connectorKeyId: string;
     idempotencyKey: string;
     vaultOwnerToken: string;
+    signal?: AbortSignal;
   }): Promise<InformationRequestBundle> {
     return jsonOrThrow<InformationRequestBundle>(
       await ApiService.apiFetch("/api/one/information-requests", {
         method: "POST",
+        signal: input.signal,
         headers: { Authorization: `Bearer ${input.vaultOwnerToken}` },
         body: JSON.stringify({
           person_ref: input.personRef,

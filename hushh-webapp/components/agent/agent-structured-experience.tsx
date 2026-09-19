@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { createContext, useContext, type ReactNode } from "react";
 import { ConsentScopeNestedList } from "@/components/consent/consent-scope-nested-list";
 import { ConsentScopeList } from "@/components/consent/consent-scope-list";
 import {
@@ -29,12 +29,31 @@ import type {
   ScopeDiscoveryExperience,
 } from "@/lib/agent/agui-structured-experiences";
 
+export const AgentPersonSelectionContext = createContext<((handle: string, name: string) => void) | null>(null);
+
 export function AgentStructuredExperienceView({
   experience,
 }: {
   experience: AgentStructuredExperience;
 }) {
+  const selectPerson = useContext(AgentPersonSelectionContext);
   switch (experience.type) {
+    case "one.person_selection.v1":
+      return <ExperienceShell label="Choose a person" title="Who do you mean?"
+        summary="Choose the right person before we check what you can ask for." icon={<UserRound className="size-5" />}>
+        <div className="flex flex-col gap-2">
+          {experience.candidates.map((candidate) => <div key={candidate.selectionHandle} className="flex items-center gap-2">
+            <button type="button" disabled={!selectPerson}
+            className="min-h-11 cursor-pointer rounded-xl px-3 py-2 text-left hover:bg-accent disabled:cursor-default disabled:opacity-50"
+            onClick={() => selectPerson?.(candidate.selectionHandle, candidate.displayName)}>
+            <span className="block font-medium">{candidate.displayName}</span>
+            {candidate.detail ? <span className="block text-sm text-muted-foreground">{candidate.detail}</span> : null}
+          </button>
+          <Link className="ml-auto inline-flex min-h-11 shrink-0 items-center text-sm text-primary underline-offset-4 hover:underline"
+            href={candidate.profilePath} aria-label={`View ${candidate.displayName}'s profile`}>View profile</Link>
+          </div>)}
+        </div>
+      </ExperienceShell>;
     case "one.scope_discovery.v1":
       return <ScopeDiscoveryView experience={experience} />;
     case "one.information_request_review.v1":
@@ -113,6 +132,7 @@ function ScopeDiscoveryView({
   const items = scopeItemsFromRequestable(
     experience.scopes.map((scope) => ({
       scopeRef: scope.scopeRef,
+      pathSegments: scope.pathSegments,
       label: scope.label,
       description: scope.description,
       domain: scope.domain,

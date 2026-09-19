@@ -25,6 +25,7 @@ export type AgentChatMessage = {
       content?: unknown;
     } | null;
     structuredExperienceId?: string | null;
+    structuredExperiences?: Array<{ id: string; activityType: string; content: unknown }>;
   } | null;
 };
 
@@ -243,6 +244,7 @@ export async function streamAgentChat(input: {
   conversationId?: string | null;
   vaultOwnerToken: string;
   pkmContext?: string;
+  personSelectionHandle?: string;
   screenContext?: Record<string, unknown> | null;
   signal?: AbortSignal;
   handlers?: AgentChatStreamHandlers;
@@ -343,6 +345,7 @@ export async function streamAgentChat(input: {
             forwardedProps: {
               timezone,
               pkmContext: input.pkmContext,
+              personSelectionHandle: input.personSelectionHandle,
               screenContext: input.screenContext,
             },
             resume: [{ interruptId, status, payload }],
@@ -516,6 +519,7 @@ export async function streamAgentChat(input: {
       forwardedProps: {
         timezone,
         pkmContext: input.pkmContext,
+        personSelectionHandle: input.personSelectionHandle,
         screenContext: input.screenContext,
       },
     }, subscriber);

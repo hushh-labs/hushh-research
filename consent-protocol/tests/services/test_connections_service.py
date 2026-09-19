@@ -321,7 +321,7 @@ def test_information_scope_catalog_is_connection_independent_and_filters_private
     assert [entry["scope"] for entry in without_connection["items"]] == ["attr.financial.holdings"]
 
 
-def test_information_scope_catalog_pages_the_full_safe_catalog_before_the_500_bound():
+def test_information_scope_catalog_pages_more_than_500_entries_and_resets_on_revision():
     entries = [
         {
             "scope": f"attr.professional.field_{index}",
@@ -334,21 +334,36 @@ def test_information_scope_catalog_pages_the_full_safe_catalog_before_the_500_bo
             "internal_only": False,
             "visibility_posture": "consent_required",
         }
-        for index in range(60)
+        for index in range(601)
     ]
     svc = ConnectionsService(scope_entries_lookup=lambda _owner: entries)
 
-    first_page = svc.get_information_scope_catalog("user-a", "user-b", page=1, limit=50)
-    second_page = svc.get_information_scope_catalog("user-a", "user-b", page=2, limit=50)
-
-    assert len(first_page["items"]) == 50
-    assert len(second_page["items"]) == 10
-    assert first_page["hasMore"] is True
-    assert second_page["hasMore"] is False
-    assert first_page["totalCount"] == 60
-    assert {item["scope"] for item in first_page["items"] + second_page["items"]} == {
+    pages = [
+        svc.get_information_scope_catalog("user-a", "user-b", page=page, limit=100)
+        for page in range(1, 8)
+    ]
+    assert [len(page["items"]) for page in pages] == [100] * 6 + [1]
+    assert all(page["hasMore"] for page in pages[:-1])
+    assert pages[-1]["hasMore"] is False
+    assert pages[-1]["nextPage"] is None
+    assert pages[0]["totalCount"] == 601
+    assert pages[0]["domains"] == [{"domain": "professional", "count": 601}]
+    assert len({page["catalogRevision"] for page in pages}) == 1
+    assert {item["scope"] for page in pages for item in page["items"]} == {
         entry["scope"] for entry in entries
     }
+    entries.pop()
+    refreshed = svc.get_information_scope_catalog(
+        "user-a",
+        "user-b",
+        page=7,
+        limit=100,
+        catalog_revision=pages[0]["catalogRevision"],
+    )
+    assert refreshed["page"] == 1
+    assert refreshed["paginationReset"] is True
+    assert refreshed["totalCount"] == 600
+    assert refreshed["catalogRevision"] != pages[0]["catalogRevision"]
 
 
 def test_exact_requestable_scope_entries_do_not_depend_on_ranked_page():

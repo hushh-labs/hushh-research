@@ -151,7 +151,7 @@ export function scopeItemsFromRequestable(
       // A non-attr reference is opaque. Never turn its characters into a
       // navigable hierarchy: hierarchy comes from the protocol's attr path,
       // not from an identifier that only the service is allowed to interpret.
-      pathSegments: parsedScope.domain ? scopePathSegments(scope.scopeRef) : [],
+      pathSegments: scope.pathSegments ?? (parsedScope.domain ? scopePathSegments(scope.scopeRef) : []),
       domainLabel: domainLabelFor(domainKey),
       badge: sensitivityBadge(scope.sensitivity),
       searchText: haystack([scope.label, scope.description, domainKey]),

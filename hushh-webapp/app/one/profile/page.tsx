@@ -1,22 +1,22 @@
-import ProfileWorkspacePage from "@/app/profile/profile-workspace-page";
-import { requireLocalCrmRoute } from "@/lib/connected-systems/local-crm-route-guard";
+import { redirect } from "next/navigation";
 
 type ProfilePageProps = {
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
 };
 
 export default async function ProfilePage({ searchParams }: ProfilePageProps) {
-  // Search parameters are request state on web but browser state in the
-  // serverless Capacitor bundle. Native availability is enforced again by the
-  // client workspace, so the exporter must not await a request-only value.
-  if (process.env.CAPACITOR_BUILD !== "true") {
-    const query = (await searchParams) ?? {};
-    const requestedPanel = String(query.panel ?? query.tab ?? "")
-      .trim()
-      .toLowerCase();
-    if (requestedPanel === "connected-systems" || requestedPanel === "systems") {
-      await requireLocalCrmRoute();
-    }
+  const query = (await searchParams) ?? {};
+  const params = new URLSearchParams();
+  params.set("profile_pane", "1");
+  const panel = String(
+    query.panel ?? query.tab ?? query.profile_panel ?? "",
+  ).trim();
+  if (panel) {
+    params.set("profile_panel", panel);
   }
-  return <ProfileWorkspacePage />;
+  const detail = String(query.detail ?? query.profile_detail ?? "").trim();
+  if (detail) {
+    params.set("profile_detail", detail);
+  }
+  redirect(`/one?${params.toString()}`);
 }

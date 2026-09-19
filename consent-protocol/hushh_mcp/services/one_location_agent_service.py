@@ -4639,6 +4639,14 @@ class OneLocationAgentService:
             compact_needle.replace("!", "!!").replace("%", "!%").replace("_", "!_")
         )
         email_prefix_pattern = f"{escaped_compact_needle}%"
+        token_prefix_patterns = [
+            f"% {token.replace('!', '!!').replace('%', '!%').replace('_', '!_')}%"
+            for token in needle.split()
+        ]
+        all_tokens_match_sql = f"""NOT EXISTS (
+            SELECT 1 FROM unnest(CAST(:token_prefixes AS TEXT[])) AS query_token(pattern)
+            WHERE (' ' || {_DIRECTORY_SEPARATOR_SQL}) NOT LIKE query_token.pattern ESCAPE '!'
+        )"""
         rows = self._execute_many(
             f"""
             SELECT
@@ -4702,6 +4710,7 @@ class OneLocationAgentService:
                 OR {_DIRECTORY_SEPARATOR_SQL} = :exact_name
                 OR {_DIRECTORY_SEPARATOR_SQL} LIKE :name_prefix ESCAPE '!'
                 OR {_DIRECTORY_SEPARATOR_SQL} LIKE :word_prefix ESCAPE '!'
+                OR (:query <> '' AND {all_tokens_match_sql})
                 OR (
                   :query <> '' AND :email_query <> ''
                   AND REGEXP_REPLACE(LOWER(BTRIM(COALESCE(a.email, ''))), '[^[:alnum:]]', '', 'g')
@@ -4726,6 +4735,7 @@ class OneLocationAgentService:
                 WHEN {_DIRECTORY_SEPARATOR_SQL} = :exact_name THEN 0
                 WHEN {_DIRECTORY_SEPARATOR_SQL} LIKE :name_prefix ESCAPE '!' THEN 1
                 WHEN {_DIRECTORY_SEPARATOR_SQL} LIKE :word_prefix ESCAPE '!' THEN 2
+                WHEN :query <> '' AND {all_tokens_match_sql} THEN 2
                 WHEN :query <> '' AND :email_query <> ''
                   AND REGEXP_REPLACE(LOWER(BTRIM(COALESCE(a.email, ''))), '[^[:alnum:]]', '', 'g')
                        LIKE :email_prefix ESCAPE '!' THEN 3
@@ -4742,6 +4752,7 @@ class OneLocationAgentService:
                 "exact_name": needle,
                 "name_prefix": name_prefix_pattern,
                 "word_prefix": word_prefix_pattern,
+                "token_prefixes": token_prefix_patterns,
                 "email_prefix": email_prefix_pattern,
                 "email_query": compact_needle,
                 "audience": requested_audience,

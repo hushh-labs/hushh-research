@@ -183,11 +183,6 @@ export function AgentTurnStreamPanel({
           : [],
     [structuredExperience, structuredExperiences],
   );
-  const hasPrimaryExperience = experienceItems.some(
-    ({ experience }) =>
-      !("presentation" in experience) ||
-      experience.presentation !== "supplementary_note",
-  );
   // Provider reasoning is rendered again (founder directive 2026-09-02): the
   // owner asked to see the agent think. It stays inside the activity panel,
   // below the sanitized tool/memory/specialist lifecycle facts, so it is
@@ -197,8 +192,8 @@ export function AgentTurnStreamPanel({
     <AppStreamPanel
       title="One activity"
       progressItems={[...progressItems, ...specialistItems]}
-      responseText={hasPrimaryExperience ? "" : responseText}
-      response={hasPrimaryExperience ? null : response}
+      responseText={responseText}
+      response={response}
       structuredContent={
         experienceItems.length > 0 ? (
           <div className="space-y-3">

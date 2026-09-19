@@ -26,6 +26,16 @@ const scopeResult = {
 };
 
 describe("AG-UI structured experience registry", () => {
+  it("parses server-issued person choices without accepting arbitrary profile links", () => {
+    const candidate = { selectionHandle: "a".repeat(32), displayName: "Alex Morgan",
+      profilePath: "/people/1234567890abcdef", detail: "a***@example.test" };
+    const result = parseAgentToolResultExperience("discover_person_information", {
+      status: "needs_clarification", candidates: [candidate,
+        { ...candidate, profilePath: "https://example.test" },
+        { ...candidate, selectionHandle: "forged" }],
+    });
+    expect(result).toEqual({ type: "one.person_selection.v1", candidates: [candidate] });
+  });
   it("accepts the versioned scope activity and normalizes its bounded fields", () => {
     expect(
       parseAgentActivityExperience("one.scope_discovery.v1", scopeResult),

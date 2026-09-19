@@ -183,6 +183,7 @@ export function NativeTestBootstrap() {
           : await (async () => {
               const { token } = await ApiService.createAppReviewModeSession("reviewer", {
                 smokePassphrase: config.vaultPassphrase,
+                reviewerUid: config.expectedUserId,
               });
               return AuthService.signInWithCustomToken(token);
             })();

@@ -164,6 +164,8 @@ const SETTINGS_ICON_TONE_CLASSNAME = {
   indigo:
     "bg-[color-mix(in_srgb,var(--app-indigo)_12%,transparent)] text-[color:var(--app-indigo)] dark:bg-[color-mix(in_srgb,var(--app-indigo)_20%,transparent)] dark:text-[color:var(--app-indigo)]",
   gray: "bg-[#E5E5EA] text-[#6E6E73] dark:bg-[rgba(142,142,147,0.28)] dark:text-[#D1D1D6]",
+  capability: "bg-transparent text-current shadow-none ring-0",
+  transparent: "bg-transparent text-current shadow-none ring-0",
 } as const;
 
 type SettingsIconTone = keyof typeof SETTINGS_ICON_TONE_CLASSNAME;
@@ -480,7 +482,11 @@ export function SettingsRow({
     className,
   );
   const resolvedIconTone: SettingsIconTone =
-    tone === "destructive" ? "red" : iconTone;
+    tone === "destructive" && iconTone !== "capability" && iconTone !== "transparent"
+      ? "red"
+      : iconTone;
+  const isCapabilityTone =
+    resolvedIconTone === "capability" || resolvedIconTone === "transparent";
   const mainContent = (
     <div
       className={cn(
@@ -503,19 +509,36 @@ export function SettingsRow({
           data-slot="settings-row-icon"
           data-icon-tone={resolvedIconTone}
           className={cn(
-            // Keep settings icons as iOS-style rounded-square utility wells.
-            // Agent artwork continues to use AgentSectionIcon, which owns the
-            // larger launcher/menu geometry separately.
+            // Keep settings icons as iOS-style rounded-square utility wells,
+            // or clean transparent canvas for capability duotone icons.
             "inline-flex shrink-0 items-center justify-center self-center",
             layout === "person"
               ? "size-10 rounded-full"
               : resolvedDensity === "compact"
-                ? "h-7 w-7 rounded-[7px]"
-                : "h-[34px] w-[34px] rounded-[10px] sm:h-[34px] sm:w-[34px] sm:rounded-[10px]",
-            SETTINGS_ICON_TONE_CLASSNAME[resolvedIconTone],
+                ? "h-7 w-7"
+                : "h-[34px] w-[34px]",
+            isCapabilityTone
+              ? "!bg-transparent !shadow-none !ring-0 text-current"
+              : cn(
+                  resolvedDensity === "compact"
+                    ? "rounded-[7px]"
+                    : "rounded-[10px] sm:rounded-[10px]",
+                  SETTINGS_ICON_TONE_CLASSNAME[resolvedIconTone],
+                ),
           )}
         >
-          <Icon icon={icon} size={resolvedDensity === "compact" ? 16 : 17} />
+          <Icon
+            icon={icon}
+            size={
+              isCapabilityTone
+                ? resolvedDensity === "compact"
+                  ? 22
+                  : 24
+                : resolvedDensity === "compact"
+                  ? 16
+                  : 17
+            }
+          />
         </span>
       ) : null}
       <div className="min-w-0 flex-1 space-y-0.5">

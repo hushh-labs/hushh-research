@@ -3844,6 +3844,7 @@ class TestBackendDirectConnectionReadTools:
     async def test_discovers_exact_opaque_scopes_for_one_connected_person(self):
         state = self._authorized_state()
         profile = {
+            "personRef": "11111111-1111-4111-8111-111111111111",
             "displayName": "Sarah Chen",
             "relationship": {"status": "connected"},
             "requestableScopes": [
@@ -3892,6 +3893,7 @@ class TestBackendDirectConnectionReadTools:
                 "description": "Current employment standing",
                 "domain": "professional",
                 "sensitivity": "confidential",
+                "pathSegments": [],
             }
         ]
         assert "attr." not in str(result)
@@ -3915,9 +3917,11 @@ class TestBackendDirectConnectionReadTools:
                 new=AsyncMock(),
             ) as profile_mock,
         ):
-            result = await discover_person_information("Alex", _tool_context(state))
+            context = _tool_context(state)
+            context.session = SimpleNamespace(id="selection-test-thread")
+            result = await discover_person_information("Alex", context)
         assert result["status"] == "needs_clarification"
-        assert "Alex Kim" in result["message"]
+        assert [item["displayName"] for item in result["candidates"]] == ["Alex Kim", "Alex Singh"]
         profile_mock.assert_not_awaited()
 
     @pytest.mark.asyncio

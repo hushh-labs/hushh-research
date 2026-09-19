@@ -226,6 +226,7 @@ class PersonProfileService:
                 "domain": item.get("domain"),
                 "sensitivity": item.get("sensitivity"),
                 "wildcard": bool(item.get("wildcard")),
+                "pathSegments": [part for part in scope.split(".")[2:] if part != "*"],
             }
             scopes.append(projection)
             scope_by_name[scope] = projection

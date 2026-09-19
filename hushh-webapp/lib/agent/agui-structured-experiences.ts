@@ -1,4 +1,9 @@
 export const SCOPE_DISCOVERY_EXPERIENCE_TYPE = "one.scope_discovery.v1" as const;
+export const PERSON_SELECTION_EXPERIENCE_TYPE = "one.person_selection.v1" as const;
+export type PersonSelectionExperience = {
+  type: typeof PERSON_SELECTION_EXPERIENCE_TYPE;
+  candidates: Array<{ selectionHandle: string; displayName: string; profilePath: string; detail: string | null }>;
+};
 export const INFORMATION_REQUEST_REVIEW_EXPERIENCE_TYPE = "one.information_request_review.v1" as const;
 export const KYC_READINESS_EXPERIENCE_TYPE = "one.kyc_readiness.v1" as const;
 export const MEMORY_IMPORT_REVIEW_EXPERIENCE_TYPE = "one.memory_import_review.v1" as const;
@@ -20,6 +25,7 @@ export type ScopeDiscoverySensitivity =
 
 export type ScopeDiscoveryItem = {
   scopeRef: string;
+  pathSegments?: string[];
   label: string;
   description: string | null;
   domain: string;
@@ -88,6 +94,7 @@ export type EvidenceBriefExperience = {
 };
 
 export type AgentStructuredExperience =
+  | PersonSelectionExperience
   | ScopeDiscoveryExperience
   | InformationRequestReviewExperience
   | KycReadinessExperience
@@ -285,6 +292,8 @@ function parseScopeDiscovery(
       {
         scopeRef,
         label,
+        ...(Array.isArray(scope.pathSegments) ? { pathSegments: scope.pathSegments
+          .slice(0, 32).flatMap((part) => { const value = boundedString(part, 120); return value ? [value] : []; }) } : {}),
         description: boundedString(scope.description, 280),
         domain,
         sensitivity: normalizeSensitivity(scope.sensitivity),
@@ -326,7 +335,20 @@ export function parseAgentToolResultExperience(
   toolName: string,
   content: unknown,
 ): AgentStructuredExperienceWithPresentation | null {
-  if (toolName !== "discover_person_information") return null;
+  if (toolName !== "discover_person_information" && toolName !== "propose_information_request") return null;
+  const result = unwrapToolResult(content);
+  if (result?.status === "needs_clarification" && Array.isArray(result.candidates)) {
+    const candidates = result.candidates.slice(0, 20).flatMap((value) => {
+      const candidate = asRecord(value);
+      const selectionHandle = boundedString(candidate?.selectionHandle, 64);
+      const displayName = boundedString(candidate?.displayName, 120);
+      const profilePath = boundedString(candidate?.profilePath, 180);
+      if (!selectionHandle || !/^[a-f0-9]{32}$/.test(selectionHandle) || !displayName ||
+          !profilePath || !PROFILE_PATH_PATTERN.test(profilePath)) return [];
+      return [{ selectionHandle, displayName, profilePath, detail: boundedString(candidate?.detail, 120) }];
+    });
+    return candidates.length ? { type: PERSON_SELECTION_EXPERIENCE_TYPE, candidates } : null;
+  }
   const experience = parseScopeDiscovery(content);
   const presentation = experience ? parsePresentation(content) : null;
   return experience && presentation ? { ...experience, presentation } : experience;
