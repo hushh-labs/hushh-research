@@ -37,18 +37,16 @@ Non-owned surfaces:
 1. Broad frontend intake where the correct spoke is unclear.
 2. Native plugin or mobile parity work.
 3. Route-contract and package-convention work without a design-system rule change.
-
 ## Read First
-
 1. `docs/reference/quality/design.md`
 2. `docs/reference/quality/design-system.md`
 3. `docs/reference/quality/frontend-ui-architecture-map.md`
 4. `docs/reference/quality/app-surface-design-system.md`
 5. `docs/reference/quality/frontend-pattern-catalog.md`
 6. `.codex/skills/frontend-design-system/references/design-review-kernel.md`
+7. `docs/reference/mobile/render-performance-charter.md`
 
 ## Workflow
-
 1. Read design-system and frontend architecture docs before touching shared UI.
 2. Decide the owning layer first: stock UI, Morphy UX, or app-ui.
 3. Keep route-container ownership with shared shells.
@@ -68,6 +66,7 @@ Non-owned surfaces:
 17. Give every modal floating surface the shared backdrop thump. Dialogs/sheets/drawers/command palette/vault dialog inherit it from `DialogOverlay`; modal popovers opt in with `PopoverContent withBackdrop` (renders `data-slot="popover-scrim"` animated by the shared `overlay-scrim-*` keyframes). Do not hand-roll per-surface scrim opacity, blur, or duration. Bottom navigation is the five-item signed-in sequence `Chat`, `One`, `Connect`, `Feed`, `Search`, with `Chat` rooted at `/`; Search remains a segment and Finance/RIA contextual tabs are route-driven inside the unified top shell, never route-local or bottom-navigation tabs. Profile is the rightmost signed-in top-bar control with the shared image/generic fallback. The voice control is a narrower slot in the same bottom surface, with no divider, nested material, or chat-overlay launcher. There is exactly ONE app-wide route transition (uniform exit->enter crossfade): `useRouteTransition` (mounted once in `app/providers.tsx`) intercepts `<a>` clicks AND patches the History API once, so every `router.push`/`router.replace` inherits the crossfade with zero per-site code — never add a parallel navigation animation (framer-motion `template.tsx`, View Transitions, per-route motion); a hard-cut screen bypassed `router`/`<a>`, so route it through `router`, and keep `EXIT_MS`/`ENTER_MS` in `lib/morphy-ux/hooks/use-route-transition.ts` synced with `--motion-route-exit/enter-duration`. See the Overlay Backdrop Contract and Bottom Navigation Contract in `app-surface-design-system.md` and the Route transitions section in `lib/morphy-ux/README.md`.
 18. Agent Chat and portfolio import streaming surfaces use `components/app-ui/stream-progress-panel.tsx` as the shared primitive. Active assistant stream panels must be full-width, progress/thinking/response sections must stay distinct, marketplace opportunity accordions must be preloaded by the workspace when possible, and mobile chat history drawers must use shared glass chrome rather than flat white desktop panes. See the Agent Chat Stream Surface Contract in `app-surface-design-system.md`.
 19. In-page step/tab enters use the shared `.motion-step-enter` utility (`app/globals.css`, motion tokens, reduced-motion safe) - never ad-hoc `animate-in fade-in slide-in-* duration-N`. Dark chrome tints (bar glass, chrome-glass-surface, morphy-app-bg, route palettes like `--one-bg`/`--one-card`) derive from `color-mix(in oklab, var(--background) N%, transparent)`, never hardcoded `rgb(28,28,30)`/`#1c1c1e` (lighter than true `--background` = milky band / "double card" partition). Visualizations are honest: sparklines only from real series scaled to their own min/max, degraded rows get a `Delayed` chip + flat dashed baseline, never invented always-green paths. Drawer flows (vault unlock) keep ONE surface: no opaque card inside `DrawerContent` (morphy `Card effect="fill"` needs `!bg-transparent`).
+20. Frame pacing is a contract, not an audit: follow `references/render-performance-kernel.md` (transform/opacity only, no per-frame `<html>` writes, no non-passive `window` touch listeners, no body-wide observers, no React state per frame, `CHART_ANIMATION_ACTIVE`, the `--z-*` ladder) and ship shell/sheet/streaming changes with probe numbers.
 20. Initial source/import decisions are short task selectors, not dashboards: use `PageHeader` plus one `SettingsGroup`/`SettingsRow` list at the reading measure. The first mobile viewport must contain the choices and deferral action; do not add badge clusters, drag-and-drop panels, duplicate CTA buttons, or a setup-terminal action until the user completes or defers a source choice.
 21. Ambient shell material has one owner: `AmbientChromeMask` and `lib/morphy-ux/ambient-chrome.ts`; both edges render on desktop/mobile with no route gradients or second engine. The top mask spans resolved shell height, stays solid through the `bar-with-tabs` underline, then uses a short tail that ends before the first bounded route surface. Use the route-layout body-offset contract for additional reading space; never add a second mask or route-local gradient.
 22. Finance is one query-tabbed One workspace: Profile's `AppPageShell width="reading"` owns the gutter and the top shell owns tabs; render one primary `PageHeader`, never route-local tabs, second fixed headers, or a wider dashboard canvas.
@@ -79,6 +78,7 @@ Non-owned surfaces:
 ## Required Checks
 ```bash
 cd hushh-webapp && npm run verify:design-system
+cd hushh-webapp && npm run verify:render-performance
 cd hushh-webapp && npm run verify:cache
 cd hushh-webapp && npm run verify:docs
 cd hushh-webapp && npm run typecheck
