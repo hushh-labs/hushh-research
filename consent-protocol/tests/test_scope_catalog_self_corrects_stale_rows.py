@@ -21,7 +21,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from hushh_mcp.consent.scope_generator import DynamicScopeGenerator
+from hushh_mcp.consent.scope_generator import DynamicScopeGenerator, ScopeCatalogUnavailableError
 
 USER = "user_1"
 
@@ -131,6 +131,29 @@ class _FakeDb:
 
     def table(self, name):
         return _Query(list(self.TABLES.get(name, [])))
+
+
+@pytest.mark.asyncio
+async def test_catalog_read_failure_is_not_reported_as_no_available_information():
+    class UnavailableDb:
+        def table(self, _name):
+            raise RuntimeError("database unavailable")
+
+    generator = DynamicScopeGenerator()
+    generator._db = UnavailableDb()
+    with pytest.raises(ScopeCatalogUnavailableError, match="could not be checked"):
+        await generator.get_available_scope_entries(USER)
+
+
+@pytest.mark.asyncio
+async def test_successful_empty_catalog_remains_empty():
+    class EmptyDb:
+        def table(self, _name):
+            return _Query([])
+
+    generator = DynamicScopeGenerator()
+    generator._db = EmptyDb()
+    assert await generator.get_available_scope_entries(USER) == []
 
 
 @pytest.mark.asyncio

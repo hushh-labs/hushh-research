@@ -245,9 +245,19 @@ def _default_resolution_notifier(
 
 def _default_scope_entries_lookup(owner_user_id: str) -> list[dict[str, Any]]:
     """Read discoverable scope metadata only; never materialized information."""
-    from hushh_mcp.consent.scope_generator import DynamicScopeGenerator
+    from hushh_mcp.consent.scope_generator import (
+        DynamicScopeGenerator,
+        ScopeCatalogUnavailableError,
+    )
 
-    return asyncio.run(DynamicScopeGenerator().get_available_scope_entries(owner_user_id))
+    try:
+        return asyncio.run(DynamicScopeGenerator().get_available_scope_entries(owner_user_id))
+    except ScopeCatalogUnavailableError as exc:
+        raise ConnectionsError(
+            "INFORMATION_CATALOG_UNAVAILABLE",
+            "Available information could not be checked. Please try again.",
+            status_code=503,
+        ) from exc
 
 
 class ConnectionsService:

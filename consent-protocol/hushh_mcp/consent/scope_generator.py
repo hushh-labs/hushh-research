@@ -21,6 +21,10 @@ from hushh_mcp.constants import ConsentScope
 logger = logging.getLogger(__name__)
 
 
+class ScopeCatalogUnavailableError(RuntimeError):
+    """Discovery authority could not be read; this is not an empty catalog."""
+
+
 def _scope_domain(scope: str) -> str:
     """Extract the domain slug from an attr.{domain}.* scope string."""
     parts = str(scope or "").split(".")
@@ -448,9 +452,11 @@ class DynamicScopeGenerator:
                 .eq("user_id", user_id)
                 .execute()
             )
-        except Exception:
+        except Exception as exc:
             logger.error("scope_generator.get_scope_entries_failed")
-            return []
+            raise ScopeCatalogUnavailableError(
+                "Available information could not be checked. Please try again."
+            ) from exc
 
         def _source_rank(kind: str) -> int:
             return {

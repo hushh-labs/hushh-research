@@ -18,6 +18,26 @@ def _svc():
     return ConnectionsService.__new__(ConnectionsService)
 
 
+def test_unavailable_scope_authority_returns_retryable_error_not_empty_catalog():
+    from unittest.mock import AsyncMock
+
+    from hushh_mcp.consent.scope_generator import (
+        DynamicScopeGenerator,
+        ScopeCatalogUnavailableError,
+    )
+    from hushh_mcp.services.connections_service import _default_scope_entries_lookup
+
+    with patch.object(
+        DynamicScopeGenerator,
+        "get_available_scope_entries",
+        new=AsyncMock(side_effect=ScopeCatalogUnavailableError("unavailable")),
+    ):
+        with pytest.raises(ConnectionsError) as caught:
+            _default_scope_entries_lookup("synthetic-owner")
+    assert caught.value.status_code == 503
+    assert "could not be checked" in str(caught.value)
+
+
 def _db_returning(rows):
     """Mock get_db() whose execute_raw returns the given rows for every call."""
     db = SimpleNamespace(execute_raw=lambda sql, params=None: SimpleNamespace(data=rows))

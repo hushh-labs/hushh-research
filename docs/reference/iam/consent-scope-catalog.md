@@ -88,6 +88,17 @@ scope string, token, grant, registry handle, and consent policy. Existing `attr.
 and handles are never renamed to insert the origin code. Retired and unknown values remain
 non-authorizing.
 
+### Unavailable versus empty discovery
+
+Manifest-backed discovery must not translate a failed authority read into an
+empty catalog. `DynamicScopeGenerator.get_available_scope_entries` raises
+`ScopeCatalogUnavailableError` when its metadata reads fail; the Connections
+adapter exposes a retryable `INFORMATION_CATALOG_UNAVAILABLE` error (HTTP 503).
+Profile and Chat must describe this as an unsuccessful check, not as the owner
+having no requestable information. A successful catalog read may legitimately
+return no entries after private, internal-only, and exposure rules are applied.
+Neither failure nor emptiness permits relaxing those rules or approving an export.
+
 ## Template Catalog (V1)
 
 | Template ID | Actor Direction | Scope Set | Default Duration |
