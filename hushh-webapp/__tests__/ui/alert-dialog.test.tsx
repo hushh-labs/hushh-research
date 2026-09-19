@@ -42,6 +42,7 @@ describe("AlertDialog", () => {
 
     expect(alertContent).toHaveClass("z-[801]");
     expect(alertOverlay).toHaveClass("z-[800]");
+    expect((alertContent as HTMLElement).style.zIndex).toBe("801");
     expect(screen.getByRole("button", { name: "Cancel" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Delete account" })).toBeTruthy();
   });
