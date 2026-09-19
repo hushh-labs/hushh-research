@@ -88,6 +88,8 @@ import {
   SpecialistFreeTextPromptCard,
   SpecialistPendingConsentRequestCard,
   SpecialistPromptCard,
+  normalizePendingConsentCardStatus,
+  type PendingConsentCardStatus,
   type SpecialistConsentActionItem,
   type SpecialistPendingConsentRequestItem,
 } from "@/components/agent/specialist-directive-card";
@@ -591,10 +593,7 @@ export function getPendingConsentRequestPayload(
   if (!rawItem) return null;
   const id = typeof rawItem.id === "string" ? rawItem.id.trim() : "";
   if (!id) return null;
-  const status =
-    rawItem.status === "approved" || rawItem.status === "denied"
-      ? rawItem.status
-      : "pending";
+  const status = normalizePendingConsentCardStatus(rawItem.status);
   return {
     kind: "pending_consent_request",
     item: {
@@ -754,8 +753,8 @@ export function pendingConsentCardRequestIds(
  * request's metadata only (the others were folded in by id and scope), and
  * Approve wraps the vault key to the key in each request's own metadata, so a
  * folded card looks every member up again and acts on whichever are still
- * pending. A single-request card needs no lookup: the card item already holds
- * everything the hook reads.
+ * pending. Single requests also revalidate current authority; retained card
+ * metadata is presentation, never a substitute for the live request.
  */
 export async function resolvePendingConsentCardTargets(input: {
   userId: string;
@@ -763,10 +762,7 @@ export async function resolvePendingConsentCardTargets(input: {
   item: SpecialistPendingConsentRequestItem;
 }): Promise<PendingConsent[]> {
   const requestIds = pendingConsentCardRequestIds(input.item);
-  if (requestIds.length < 2) {
-    return [pendingConsentCardItemToPendingConsent(input.item)];
-  }
-  if (!input.vaultOwnerToken) {
+  if (!input.userId.trim() || !input.vaultOwnerToken?.trim()) {
     throw new Error("Unlock your vault first.");
   }
   const result = await ConsentCenterService.lookupPendingRequests({
@@ -799,7 +795,7 @@ function agentMessagePendingConsentRequestId(
 function markPendingConsentRequestDirectiveStatus(
   event: SpecialistDirectiveEvent | null | undefined,
   itemId: string,
-  status: "approved" | "denied",
+  status: Exclude<PendingConsentCardStatus, "pending">,
 ): SpecialistDirectiveEvent | null | undefined {
   if (!event || event.directive.kind !== "prompt") return event;
   const payload = event.directive.payload as Record<string, unknown>;
@@ -1516,6 +1512,7 @@ const LEGACY_SELECTION_SEED = /^I selected:.*do not guess/s;
 
 export function storedMessageToAgentMessage(
   message: StoredAgentChatMessage,
+  seenExperienceIds: Set<string> = new Set(),
 ): AgentMessage | null {
   if (message.role !== "user" && message.role !== "assistant") return null;
   const createdAt = message.created_at ? new Date(message.created_at) : null;
@@ -1541,20 +1538,35 @@ export function storedMessageToAgentMessage(
     descriptor && typeof descriptor.activityType === "string"
       ? parseAgentActivityExperience(descriptor.activityType, descriptor.content)
       : null;
-  const orderedExperiences = message.metadata?.structuredExperiences?.flatMap((entry) => {
+  const orderedExperiences = message.metadata?.structuredExperiences?.flatMap((entry, index) => {
+    if (!entry || typeof entry.activityType !== "string") return [];
     const experience = parseAgentActivityExperience(entry.activityType, entry.content);
-    return experience ? [{ id: entry.id, experience }] : [];
+    return experience ? [{
+      id: (typeof entry.id === "string" ? entry.id.trim() : "") ||
+        `${message.id}:structured-experience:${index}`,
+      experience,
+    }] : [];
   });
-  const structuredExperiences = orderedExperiences?.length ? orderedExperiences : restoredExperience
+  const candidates = orderedExperiences?.length ? orderedExperiences : restoredExperience
     ? [
         {
           id:
-            message.metadata?.structuredExperienceId?.trim() ||
+            (typeof message.metadata?.structuredExperienceId === "string"
+              ? message.metadata.structuredExperienceId.trim()
+              : "") ||
             `${message.id}:structured-experience`,
           experience: restoredExperience,
         },
       ]
-    : undefined;
+    : [];
+  const structuredExperiences = candidates.filter(entry => {
+    if (seenExperienceIds.has(entry.id)) return false;
+    seenExperienceIds.add(entry.id);
+    return true;
+  });
+  // Do not resurrect a duplicate through the legacy descriptor, or leave an
+  // empty thinking bubble. Prose and all distinct cards retain source order.
+  if (candidates.length && !structuredExperiences.length && !displayText.trim()) return null;
   return {
     id: message.id,
     role: message.role,
@@ -1570,8 +1582,15 @@ export function storedMessageToAgentMessage(
     ...(isSelection || isLegacySelectionSeed
       ? { kind: "selection" as const }
       : {}),
-    ...(structuredExperiences ? { structuredExperiences } : {}),
+    ...(structuredExperiences.length ? { structuredExperiences } : {}),
   };
+}
+
+export function storedMessagesToAgentMessages(messages: StoredAgentChatMessage[]): AgentMessage[] {
+  const seenExperienceIds = new Set<string>();
+  return messages
+    .map(message => storedMessageToAgentMessage(message, seenExperienceIds))
+    .filter((message): message is AgentMessage => Boolean(message));
 }
 
 export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
@@ -3155,9 +3174,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         setMessages([createGreetingMessage()]);
         return;
       }
-      const restored = snapshot.latestMessages
-        .map(storedMessageToAgentMessage)
-        .filter((message): message is AgentMessage => Boolean(message));
+      const restored = storedMessagesToAgentMessages(snapshot.latestMessages);
       updateConversationId(snapshot.latestConversationId);
       setMessages(restored.length > 0 ? restored : [createGreetingMessage()]);
     };
@@ -3216,9 +3233,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         conversationId: nextConversationId,
         vaultOwnerToken: token,
       });
-      const restored = history
-        .map(storedMessageToAgentMessage)
-        .filter((message): message is AgentMessage => Boolean(message));
+      const restored = storedMessagesToAgentMessages(history);
       latestVisibleTurnIdRef.current = null;
       updateConversationId(nextConversationId);
       setMessages(restored.length > 0 ? restored : [createGreetingMessage()]);

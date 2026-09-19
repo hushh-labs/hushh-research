@@ -190,17 +190,44 @@ describe("pending consent card targets", () => {
     ).toEqual(["req_123", "req_456"]);
   });
 
-  it("needs no lookup for a single-request card and keeps its key", async () => {
+  it("revalidates a single-request card and uses fresh metadata", async () => {
+    lookupPendingRequests.mockResolvedValue({ items: [{ ...lookupItem,
+      metadata: { connector_public_key: "pk_fresh" } }], missing_request_ids: [] });
     const card = pendingConsentLookupItemToCardItem(lookupItem)!;
     const targets = await resolvePendingConsentCardTargets({
       userId: "user_1",
-      vaultOwnerToken: null,
+      vaultOwnerToken: "owner-token",
       item: card,
     });
-    expect(lookupPendingRequests).not.toHaveBeenCalled();
+    expect(lookupPendingRequests).toHaveBeenCalledWith({ userId: "user_1",
+      vaultOwnerToken: "owner-token", requestIds: ["req_123"] });
     expect(targets.map((target) => target.id)).toEqual(["req_123"]);
-    expect(targets[0]?.metadata?.connector_public_key).toBe("pk_test_base64");
+    expect(targets[0]?.metadata?.connector_public_key).toBe("pk_fresh");
   });
+
+  it("rejects a single-request lookup without owner authority", async () => {
+    await expect(resolvePendingConsentCardTargets({ userId: "user_1", vaultOwnerToken: null,
+      item: pendingConsentLookupItemToCardItem(lookupItem)! })).rejects.toThrow("Unlock");
+    expect(lookupPendingRequests).not.toHaveBeenCalled();
+  });
+
+  it("returns no targets for a missing single request", async () => {
+    lookupPendingRequests.mockResolvedValue({items: [], missing_request_ids: ["req_123"]});
+    await expect(resolvePendingConsentCardTargets({ userId: "user_1", vaultOwnerToken: "owner-token",
+      item: pendingConsentLookupItemToCardItem(lookupItem)! })).resolves.toEqual([]);
+  });
+
+  it("propagates lookup failure without stale fallback", async () => {
+    lookupPendingRequests.mockRejectedValue(new Error("Unavailable"));
+    await expect(resolvePendingConsentCardTargets({ userId: "user_1", vaultOwnerToken: "owner-token",
+      item: pendingConsentLookupItemToCardItem(lookupItem)! })).rejects.toThrow("Unavailable");
+  });
+
+  it.each(["approved", "denied", "cancelled", "expired", "revoked", "unavailable"] as const)(
+    "preserves %s status through payload parsing", status => {
+      const card = {...pendingConsentLookupItemToCardItem(lookupItem)!, status};
+      expect(getPendingConsentRequestPayload(embed(card))?.item.status).toBe(status);
+    });
 
   it("resolves every folded request with its own key, in card order", async () => {
     lookupPendingRequests.mockResolvedValue({

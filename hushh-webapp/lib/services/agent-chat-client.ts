@@ -430,9 +430,11 @@ export async function streamAgentChat(input: {
       }
       const experience = parseAgentToolResultExperience(toolName, event.content);
       if (experience) {
-        const eventId = String(
-          (event as { messageId?: unknown }).messageId || event.toolCallId || "",
-        ).trim() || undefined;
+        // Redelivery can assign a new transport message while retaining the
+        // same invocation. One invocation owns one evolving card.
+        const eventId = event.toolCallId.trim() ||
+          (typeof event.messageId === "string" ? event.messageId.trim() : "") ||
+          undefined;
         handlers.onStructuredExperience?.(experience, eventId);
       }
     },

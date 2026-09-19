@@ -1,7 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { SelectionChip } from "@/components/agent/selection-chip";
-import { storedMessageToAgentMessage } from "@/components/agent/agent-chat-workspace";
+import { storedMessageToAgentMessage, storedMessagesToAgentMessages } from "@/components/agent/agent-chat-workspace";
 import type { AgentChatMessage } from "@/lib/services/agent-chat-client";
 
 // History mapping is the load-bearing behavior: on reload a persisted selection
@@ -141,6 +141,39 @@ describe("storedMessageToAgentMessage — selection history mapping", () => {
     expect(mapped?.structuredExperiences?.[0]?.id).toBe("event-discovery-1");
     expect(mapped?.structuredExperiences?.[0]?.experience.type).toBe("one.scope_discovery.v1");
     expect(mapped?.text).toBe("I found several things you can request.");
+  });
+});
+
+describe("ordered retained cards", () => {
+  const descriptor = {activityType: "one.scope_discovery.v1", content: {
+    status: "ok", person: {displayName: "Alex", profilePath: "/people/1234567890abcdef", relationship: "connected"},
+    requestableScopes: [],
+  }};
+  const message = (id: string, ids: string[], content = ""): AgentChatMessage => ({
+    id, conversation_id: "c1", role: "assistant", status: "complete", created_at: null, completed_at: null,
+    content, metadata: {structuredExperiences: ids.map(id => ({id, ...descriptor}))},
+  });
+
+  it("deduplicates restored IDs within and across messages", () => {
+    const result = storedMessagesToAgentMessages([message("m1", [" card-1 ", "card-1"]), message("m2", ["card-1"])]);
+    expect(result).toHaveLength(1);
+    expect(result[0].structuredExperiences?.map(x => x.id)).toEqual(["card-1"]);
+  });
+  it("preserves distinct card order and assistant prose", () => {
+    const result = storedMessagesToAgentMessages([message("m1", ["c1", "c2"]), message("m2", ["c1", "c3"], "An important warning.")]);
+    expect(result.flatMap(x => x.structuredExperiences?.map(y => y.id) || [])).toEqual(["c1", "c2", "c3"]);
+    expect(result[1].text).toBe("An important warning.");
+  });
+  it("does not resurrect duplicates through legacy fallback", () => {
+    const duplicate = message("m2", ["c1"]);
+    duplicate.metadata = {...duplicate.metadata, structuredExperience: descriptor, structuredExperienceId: "legacy"};
+    expect(storedMessagesToAgentMessages([message("m1", ["c1"]), duplicate])).toHaveLength(1);
+  });
+  it("does not let malformed descriptors reserve an ID", () => {
+    const malformed = message("m1", ["c1"]);
+    malformed.metadata!.structuredExperiences![0].activityType = "unsupported";
+    const result = storedMessagesToAgentMessages([malformed, message("m2", ["c1"])]);
+    expect(result.at(-1)?.structuredExperiences?.[0].id).toBe("c1");
   });
 });
 

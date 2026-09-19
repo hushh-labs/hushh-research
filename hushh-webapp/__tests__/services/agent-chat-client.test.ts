@@ -104,6 +104,22 @@ describe("AG-UI Agent One client", () => {
     );
   });
 
+  it.each(["invocation-1", " "])("keeps tool invocation identity across redelivery (%s)", async toolCallId => {
+    mockTransport.emitEvents = subscriber => {
+      subscriber.onToolCallStartEvent?.({event: {toolCallId, toolCallName: "discover_person_information"}});
+      for (const messageId of ["transport-1", "transport-2"]) {
+        subscriber.onToolCallResultEvent?.({event: {toolCallId, messageId, content: JSON.stringify({
+          status: "ok", person: {displayName: "Alex", profilePath: "/people/1234567890abcdef", relationship: "connected"},
+          requestableScopes: [],
+        })}});
+      }
+    };
+    const ids: Array<string | undefined> = [];
+    await streamAgentChat({userId: "user-1", message: "Show available information", conversationId: "thread-1",
+      vaultOwnerToken: "owner-token", handlers: {onStructuredExperience: (_, id) => ids.push(id)}});
+    expect(ids.slice(0, 2)).toEqual(toolCallId.trim() ? ["invocation-1", "invocation-1"] : ["transport-1", "transport-2"]);
+  });
+
   it("uses the same AG-UI endpoint before vault unlock", async () => {
     await expect(streamAgentIntro({ message: "What is Hussh?" })).resolves.toMatchObject({
       text: "Hello",

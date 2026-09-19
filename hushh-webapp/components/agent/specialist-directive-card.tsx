@@ -393,6 +393,26 @@ import { ConsentScopeList } from "@/components/consent/consent-scope-list";
 import { requestDurationLabel } from "@/lib/agent/action-directive-summary";
 import { useArmedAction } from "@/lib/ui/use-armed-action";
 
+export type PendingConsentCardStatus =
+  | "pending" | "approved" | "denied" | "cancelled"
+  | "expired" | "revoked" | "unavailable";
+
+export function normalizePendingConsentCardStatus(value: unknown): PendingConsentCardStatus {
+  if (value == null) return "pending";
+  switch (value) {
+    case "pending": case "approved": case "denied": case "cancelled":
+    case "expired": case "revoked": case "unavailable":
+      return value as PendingConsentCardStatus;
+    default:
+      return "unavailable";
+  }
+}
+
+const resolvedConsentLabels: Record<Exclude<PendingConsentCardStatus, "pending">, string> = {
+  approved: "Approved", denied: "Denied", cancelled: "Withdrawn",
+  expired: "Expired", revoked: "Revoked", unavailable: "Status unavailable",
+};
+
 export type SpecialistPendingConsentRequestItem = {
   id: string;
   requesterLabel: string;
@@ -408,7 +428,7 @@ export type SpecialistPendingConsentRequestItem = {
   metadata?: Record<string, unknown> | null;
   reason?: string | null;
   additionalAccessSummary?: string | null;
-  status?: "pending" | "approved" | "denied";
+  status?: PendingConsentCardStatus;
   /**
    * The request this one arrived as part of.
    *
@@ -474,7 +494,8 @@ export function SpecialistPendingConsentRequestCard({
 }: SpecialistPendingConsentRequestCardProps) {
   const timeout = formatConsentTime(item.approvalTimeoutAt);
   const duration = pendingDurationLabel(item.expiryHours);
-  const resolved = item.status === "approved" || item.status === "denied";
+  const status = normalizePendingConsentCardStatus(item.status);
+  const resolved = status !== "pending";
 
   // Deny is irreversible, so it takes a confirming second tap: the first tap
   // arms the button ("Sure?") and it disarms on its own a few seconds later,
@@ -486,8 +507,8 @@ export function SpecialistPendingConsentRequestCard({
   // Approve locks the row; a Deny left armed underneath it must not fire once
   // the row unlocks.
   useEffect(() => {
-    if (busy) disarmDeny();
-  }, [busy, disarmDeny]);
+    if (busy || resolved) disarmDeny();
+  }, [busy, resolved, disarmDeny]);
   const access = item.scopeDescription || item.scope || "requested context";
   // How many things this one card now stands for. The bundle merge folds
   // same-bundle requests together, so this grows as they arrive.
@@ -512,13 +533,17 @@ export function SpecialistPendingConsentRequestCard({
                 ? `${requester} wants to see ${bundledCount} things`
                 : `${requester} wants to see something`}
             </p>
-            {item.status === "approved" ? (
+            {status === "approved" ? (
               <span className="rounded-full border border-[#6b8f71]/25 bg-[#6b8f71]/10 px-2 py-0.5 text-[11px] font-medium text-[#426548]">
                 Approved
               </span>
-            ) : item.status === "denied" ? (
+            ) : status === "denied" ? (
               <span className="rounded-full border border-destructive/20 bg-destructive/10 px-2 py-0.5 text-[11px] font-medium text-destructive">
                 Denied
+              </span>
+            ) : status !== "pending" ? (
+              <span className="text-xs font-medium text-muted-foreground">
+                {resolvedConsentLabels[status]}
               </span>
             ) : null}
           </div>
