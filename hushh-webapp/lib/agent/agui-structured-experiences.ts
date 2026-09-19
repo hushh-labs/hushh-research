@@ -1,3 +1,5 @@
+import type { PersonScopeCatalog } from "@/lib/services/person-profile-service";
+
 export const SCOPE_DISCOVERY_EXPERIENCE_TYPE = "one.scope_discovery.v1" as const;
 export const PERSON_SELECTION_EXPERIENCE_TYPE = "one.person_selection.v1" as const;
 export type PersonSelectionExperience = {
@@ -41,6 +43,8 @@ export type ScopeDiscoveryExperience = {
   };
   domainFilter: string | null;
   scopes: ScopeDiscoveryItem[];
+  scopeCatalog?: PersonScopeCatalog;
+  catalogIncomplete?: boolean;
 };
 
 type ReviewField = {
@@ -301,6 +305,17 @@ function parseScopeDiscovery(
     ];
   });
 
+  const catalog = asRecord(record.scopeCatalog);
+  const page = Number(catalog?.page);
+  const nextPage = catalog?.nextPage;
+  const totalCount = Number(catalog?.totalCount);
+  const revision = boundedString(catalog?.catalogRevision, 64);
+  const validCatalog = catalog && Number.isInteger(page) && page > 0
+    && Number.isInteger(totalCount) && totalCount >= scopes.length
+    && revision && /^[a-f0-9]{64}$/.test(revision)
+    && typeof catalog.hasMore === "boolean"
+    && (catalog.hasMore ? nextPage === page + 1 : nextPage === null);
+
   return {
     type: SCOPE_DISCOVERY_EXPERIENCE_TYPE,
     person: {
@@ -310,6 +325,20 @@ function parseScopeDiscovery(
     },
     domainFilter: boundedString(record.domainFilter, 80),
     scopes,
+    ...(validCatalog ? { scopeCatalog: {
+      page, nextPage: nextPage as number | null, totalCount,
+      limit: Math.max(1, Math.min(Number(catalog.limit) || 100, 100)),
+      hasMore: catalog.hasMore as boolean, catalogRevision: revision,
+      paginationReset: catalog.paginationReset === true,
+      domains: (Array.isArray(catalog.domains) ? catalog.domains : []).flatMap(value => {
+        const entry = asRecord(value);
+        const domain = boundedString(entry?.domain, 80);
+        const count = Number(entry?.count);
+        return domain && Number.isInteger(count) && count >= 0 ? [{ domain, count }] : [];
+      }),
+    } } : {}),
+    ...(record.catalogIncomplete === true || (Array.isArray(record.requestableScopes) && record.requestableScopes.length > MAX_SCOPES)
+      ? { catalogIncomplete: true } : {}),
   };
 }
 

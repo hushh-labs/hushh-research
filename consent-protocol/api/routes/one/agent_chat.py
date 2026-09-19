@@ -306,6 +306,7 @@ def _safe_discovery_descriptor(
                 },
                 "domainFilter": _bounded_text(result.get("domainFilter"), 80),
                 "requestableScopes": scopes,
+                "catalogIncomplete": isinstance(raw_scopes, list) and len(raw_scopes) > 250,
             },
         }
     return None

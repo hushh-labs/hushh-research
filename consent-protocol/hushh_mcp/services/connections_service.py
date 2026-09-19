@@ -678,8 +678,6 @@ class ConnectionsService:
         separate, consented request bound to a requester-owned connector key
         before an encrypted export can exist.
         """
-        from hushh_mcp.consent.scope_generator import rank_scope_matches
-
         viewer = (viewer_user_id or "").strip()
         counterpart = (counterpart_user_id or "").strip()
         if not viewer or not counterpart or viewer == counterpart:
@@ -687,6 +685,31 @@ class ConnectionsService:
                 "CONNECTION_SCOPE_TARGET_INVALID", "Invalid connection target.", status_code=422
             )
         safe_entries = self._safe_information_scope_entries(counterpart)
+        return {
+            "counterpartUserId": counterpart,
+            **self.page_information_scope_entries(
+                safe_entries,
+                query=query,
+                domain=domain,
+                page=page,
+                limit=limit,
+                catalog_revision=catalog_revision,
+            ),
+        }
+
+    @staticmethod
+    def page_information_scope_entries(
+        safe_entries: list[dict[str, Any]],
+        *,
+        query: str = "",
+        domain: str = "",
+        page: int = 1,
+        limit: int = 100,
+        catalog_revision: str = "",
+    ) -> dict[str, Any]:
+        """Page already-authorized metadata; this helper grants no read authority."""
+        from hushh_mcp.consent.scope_generator import rank_scope_matches
+
         try:
             normalized_page = max(1, int(page or 1))
         except (TypeError, ValueError):
@@ -718,7 +741,6 @@ class ConnectionsService:
         page_items = ranked[offset : offset + normalized_limit]
         domain_counts = Counter(str(entry.get("domain") or "") for entry in ranked)
         return {
-            "counterpartUserId": counterpart,
             "items": page_items,
             "page": normalized_page,
             "limit": normalized_limit,

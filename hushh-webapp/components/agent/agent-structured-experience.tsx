@@ -1,6 +1,12 @@
 "use client";
 
-import { createContext, useContext, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
+import { useAuth } from "@/hooks/use-auth";
+import { useVault } from "@/lib/vault/vault-context";
+import { usePersonInformationRequest } from "@/lib/consent/use-person-information-request";
+import { InformationRequestReviewFields } from "@/components/consent/information-request-review-fields";
+import { DEFAULT_REQUEST_DURATION_HOURS } from "@/lib/agent/action-directive-summary";
+import { PersonProfileService, mergePersonScopePage, type ViewerPersonProfile } from "@/lib/services/person-profile-service";
 import { ConsentScopeNestedList } from "@/components/consent/consent-scope-nested-list";
 import { ConsentScopeList } from "@/components/consent/consent-scope-list";
 import {
@@ -126,18 +132,92 @@ function ScopeDiscoveryView({
 }: {
   experience: ScopeDiscoveryExperience;
 }) {
+  const { user } = useAuth();
+  const { isVaultUnlocked } = useVault();
+  const personRef = experience.person.profilePath.split("/")[2] || "";
+  const request = usePersonInformationRequest(personRef);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [reviewing, setReviewing] = useState(false);
+  const [purpose, setPurpose] = useState("");
+  const [durationHours, setDurationHours] = useState(DEFAULT_REQUEST_DURATION_HOURS);
+  const [sent, setSent] = useState(false);
+  const generation = useRef(0);
+  const inFlight = useRef(false);
+  const [current, setCurrent] = useState<{ owner: string; profile: ViewerPersonProfile } | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [unavailable, setUnavailable] = useState(false);
+  const [retry, setRetry] = useState(0);
+  const profile = isVaultUnlocked && current && current.owner === user?.uid && current.profile.personRef === personRef
+    ? current.profile : null;
+
+  useEffect(() => {
+    const run = ++generation.current;
+    inFlight.current = false;
+    setCurrent(null);
+    setSelectedIds(new Set());
+    setReviewing(false);
+    setPurpose("");
+    setDurationHours(DEFAULT_REQUEST_DURATION_HOURS);
+    setSent(false);
+    setUnavailable(false);
+    setLoading(Boolean(user && isVaultUnlocked));
+    if (user && isVaultUnlocked) {
+      void user.getIdToken().then(token => PersonProfileService.getViewer(personRef, token, {
+        domain: experience.domainFilter || "",
+      })).then(value => {
+        if (run === generation.current) setCurrent({ owner: user.uid, profile: value });
+      }).catch(() => {
+        if (run === generation.current) setUnavailable(true);
+      }).finally(() => {
+        if (run === generation.current) setLoading(false);
+      });
+    }
+    return () => { generation.current += 1; };
+  }, [user, isVaultUnlocked, personRef, experience.domainFilter, retry]);
+
+  async function loadMore() {
+    if (!user || !profile?.scopeCatalog?.nextPage || inFlight.current) return;
+    const run = generation.current;
+    inFlight.current = true;
+    setLoading(true);
+    setUnavailable(false);
+    try {
+      const token = await user.getIdToken();
+      const next = await PersonProfileService.getViewer(personRef, token, {
+        page: profile.scopeCatalog.nextPage,
+        revision: profile.scopeCatalog.catalogRevision,
+        domain: experience.domainFilter || "",
+      });
+      if (run !== generation.current) return;
+      if (next.scopeCatalog?.paginationReset || next.scopeCatalog?.catalogRevision !== profile.scopeCatalog.catalogRevision) {
+        setSelectedIds(new Set());
+        setReviewing(false);
+      }
+      setCurrent({ owner: user.uid, profile: mergePersonScopePage(profile, next) });
+    } catch {
+      if (run === generation.current) setUnavailable(true);
+    } finally {
+      if (run === generation.current) { setLoading(false); inFlight.current = false; }
+    }
+  }
+  // Retained cards are descriptors, never current authority. Refresh them
+  // without replaying their original tool or any request/approval mutation.
+  const scopes = profile?.requestableScopes || [];
+  const grantedIds = new Set(profile?.grants.map(grant => grant.scopeRef) || []);
+  const selectedScopes = scopes.filter(scope => selectedIds.has(scope.scopeRef) && !grantedIds.has(scope.scopeRef));
+  const total = profile?.scopeCatalog?.totalCount ?? scopes.length;
   // Profile and Chat deliberately consume the same adapter and recursive
   // selector. Opaque refs stay leaves; only authored attr paths can create
   // hierarchy.
   const items = scopeItemsFromRequestable(
-    experience.scopes.map((scope) => ({
+    scopes.map((scope) => ({
       scopeRef: scope.scopeRef,
       pathSegments: scope.pathSegments,
       label: scope.label,
       description: scope.description,
       domain: scope.domain,
       sensitivity: scope.sensitivity,
-      wildcard: false,
+      wildcard: scope.wildcard,
     })),
   );
 
@@ -152,12 +232,13 @@ function ScopeDiscoveryView({
         </span>
         <div className="min-w-0 flex-1">
           <h3 className="text-sm font-semibold text-foreground">
-            What {personName(experience.person.displayName)} can share with you
+            What {personName(profile?.displayName || experience.person.displayName)} can share with you
           </h3>
           <p className="mt-0.5 text-xs leading-5 text-muted-foreground">
-            {experience.scopes.length === 0
-              ? `${personName(experience.person.displayName)} has not made anything available to ask for yet.`
-              : `${experience.scopes.length} ${experience.scopes.length === 1 ? "thing" : "things"} you can ask for. They decide what to share, and for how long.`}
+            {!profile ? !user ? "Sign in to check what is available." : !isVaultUnlocked ? "Unlock your vault to continue here." : "Checking what is currently available to request."
+              : total === 0
+              ? "Nothing is currently available to request."
+              : `${total} ${total === 1 ? "thing" : "things"} you can ask for. They decide what to share, and for how long.`}
           </p>
         </div>
       </header>
@@ -168,18 +249,47 @@ function ScopeDiscoveryView({
             items={items}
             rootLabel="All information"
             testIdPrefix="scope-discovery-scopes"
+            selection={!reviewing && !request.pending ? {
+              selectedIds,
+              onToggleMany: (ids, select) => {
+                setSent(false);
+                setSelectedIds(currentIds => {
+                  const next = new Set(currentIds);
+                  ids.forEach(id => { if (select && !grantedIds.has(id)) next.add(id); else next.delete(id); });
+                  return next;
+                });
+              },
+            } : undefined}
           />
         </div>
       ) : null}
 
-      <div className="flex justify-start px-1">
-        <MorphyButton asChild size="sm">
-          <Link href={experience.person.profilePath}>
-            Choose what to ask for
-            <ArrowUpRight className="h-3.5 w-3.5" aria-hidden="true" />
-          </Link>
+      {unavailable ? <p role="alert" className="text-sm text-muted-foreground">We couldn’t check available information. Please try again.</p> : null}
+      {profile?.scopeCatalog?.hasMore ? <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+        <p className="text-muted-foreground">{scopes.length} of {total} loaded. Search checks loaded fields.</p>
+        <MorphyButton type="button" size="sm" disabled={loading} onClick={() => void loadMore()}>
+          {loading ? "Loading more…" : unavailable ? "Try loading more again" : "Load more fields"}
         </MorphyButton>
-      </div>
+      </div> : unavailable ? <MorphyButton type="button" size="sm" onClick={() => setRetry(value => value + 1)}>Try again</MorphyButton> : null}
+
+      {reviewing && profile ? <section aria-label="Review information request" className="space-y-3 rounded-2xl border border-border p-4">
+        <h4 className="font-semibold">Request information from {profile.displayName}</h4>
+        <p className="text-sm text-muted-foreground">They will see exactly what you asked for, why, and for how long. Nothing is sent until you confirm.</p>
+        <InformationRequestReviewFields scopes={selectedScopes} purpose={purpose} durationHours={durationHours}
+          onPurposeChange={setPurpose} onDurationChange={setDurationHours} disabled={request.pending} testIdPrefix="chat-request" />
+        {request.error ? <p role="alert" className="text-sm text-destructive">{request.error}</p> : null}
+        <div className="flex flex-wrap justify-end gap-2">
+          <MorphyButton type="button" size="sm" disabled={request.pending} onClick={() => setReviewing(false)}>Edit fields</MorphyButton>
+          <MorphyButton type="button" size="sm" disabled={!request.available || request.pending || purpose.trim().length < 8 || !selectedScopes.length || selectedScopes.length > 50}
+            onClick={() => void request.submit({ scopeRefs: selectedScopes.map(scope => scope.scopeRef), purpose, durationHours }).then(success => {
+              if (!success) return;
+              setSent(true); setReviewing(false); setSelectedIds(new Set()); setPurpose("");
+            })}>{request.pending ? "Sending…" : "Send request"}</MorphyButton>
+        </div>
+      </section> : items.length ? <MorphyButton type="button" size="sm" disabled={!selectedScopes.length || loading}
+        onClick={() => setReviewing(true)}>Review request</MorphyButton> : null}
+      {sent ? <p role="status" className="text-sm">Request sent. They can now review your choices; access is not granted yet.</p> : null}
+      <Link href={experience.person.profilePath} className="inline-flex min-h-11 items-center text-sm text-primary underline-offset-4 hover:underline">View profile</Link>
     </section>
   );
 }

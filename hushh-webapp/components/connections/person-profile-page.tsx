@@ -30,7 +30,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Textarea } from "@/components/ui/textarea";
+import { InformationRequestReviewFields } from "@/components/consent/information-request-review-fields";
+import { usePersonInformationRequest } from "@/lib/consent/use-person-information-request";
 import {
   SectionCard,
   StatusPill,
@@ -42,6 +43,7 @@ import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
 import { scopeItemsFromRequestable } from "@/lib/consent/consent-scope-items";
 import {
   PersonProfileService,
+  mergePersonScopePage,
   type PublicPersonProfile,
   type ViewerPersonProfile,
   type InformationRequestBundle,
@@ -52,7 +54,6 @@ import {
 } from "@/lib/navigation/routes";
 import {
   DEFAULT_REQUEST_DURATION_HOURS,
-  REQUEST_DURATION_OPTIONS,
   requestDurationLabel,
 } from "@/lib/agent/action-directive-summary";
 import { useLocalOnboardingActionHandler } from "@/lib/agent/local-onboarding-actions";
@@ -108,19 +109,19 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
   const availableSectionRef = useRef<HTMLElement | null>(null);
   const sharedSectionRef = useRef<HTMLElement | null>(null);
   const [showUnlockDialog, setShowUnlockDialog] = useState(false);
-  const [requesting, setRequesting] = useState(false);
-  const requestInFlight = useRef(false);
-  const requestDraft = useRef<{ fingerprint: string; key: string } | null>(null);
+  const request = usePersonInformationRequest(resolvedPersonRef);
+  const requesting = request.pending;
   const requestGeneration = useRef(0);
-  const requestAbort = useRef<AbortController | null>(null);
+  const [catalogLoading, setCatalogLoading] = useState(false);
+  const [catalogError, setCatalogError] = useState(false);
+  const catalogInFlight = useRef(false);
   useEffect(() => {
     requestGeneration.current += 1;
-    requestDraft.current = null;
-    requestInFlight.current = false;
-    setRequesting(false);
+    catalogInFlight.current = false;
+    setCatalogLoading(false);
+    setCatalogError(false);
     return () => {
       requestGeneration.current += 1;
-      requestAbort.current?.abort();
     };
   }, [resolvedPersonRef, user?.uid, isVaultUnlocked]);
   const [relationshipBusy, setRelationshipBusy] = useState(false);
@@ -153,6 +154,12 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
   const [viewerReloadToken, setViewerReloadToken] = useState(0);
   useEffect(() => {
     if (authLoading || !user) return;
+    requestGeneration.current += 1;
+    catalogInFlight.current = false;
+    setCatalogLoading(false);
+    setCatalogError(false);
+    setSelectedScopeRefs(new Set());
+    setReviewOpen(false);
     let active = true;
     setViewerLoadError(null);
     void user
@@ -237,6 +244,36 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
 
   const allScopes = useMemo(() => viewerProfile?.requestableScopes || [], [viewerProfile]);
 
+  async function loadMoreScopes() {
+    const catalog = viewerProfile?.scopeCatalog;
+    if (!user || !viewerProfile || !catalog?.nextPage || catalogInFlight.current) return;
+    const generation = requestGeneration.current;
+    const current = viewerProfile;
+    catalogInFlight.current = true;
+    setCatalogLoading(true);
+    setCatalogError(false);
+    try {
+      const token = await user.getIdToken();
+      const next = await PersonProfileService.getViewer(resolvedPersonRef, token, {
+        page: catalog.nextPage, revision: catalog.catalogRevision,
+      });
+      if (generation !== requestGeneration.current) return;
+      const merged = mergePersonScopePage(current, next);
+      if (next.scopeCatalog?.paginationReset || next.scopeCatalog?.catalogRevision !== catalog.catalogRevision) {
+        setSelectedScopeRefs(new Set());
+        setReviewOpen(false);
+      }
+      setViewerProfileState({ personRef: resolvedPersonRef, viewerUid: user.uid, profile: merged });
+    } catch {
+      if (generation === requestGeneration.current) setCatalogError(true);
+    } finally {
+      if (generation === requestGeneration.current) {
+        catalogInFlight.current = false;
+        setCatalogLoading(false);
+      }
+    }
+  }
+
   const grantedScopeRefs = useMemo(
     () =>
       new Set(
@@ -269,63 +306,14 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
   );
 
   const submitRequest = async () => {
-    if (requestInFlight.current) return;
-    if (!user || !vaultKey || !vaultOwnerToken || !isVaultUnlocked) {
-      toast.error("Unlock your vault before requesting information.");
-      return;
-    }
-    if (!selectedScopes.length || purpose.trim().length < 8) return;
-    const generation = requestGeneration.current;
-    const scopeRefs = selectedScopes.map((scope) => scope.scopeRef).sort();
-    const fingerprint = JSON.stringify([user.uid, resolvedPersonRef, scopeRefs, purpose.trim(), durationHours]);
-    if (requestDraft.current?.fingerprint !== fingerprint) {
-      requestDraft.current = { fingerprint, key: crypto.randomUUID() };
-    }
-    const idempotencyKey = requestDraft.current.key;
-    requestInFlight.current = true;
-    const controller = new AbortController();
-    requestAbort.current = controller;
-    const timeout = window.setTimeout(() => controller.abort(), 45_000);
-    setRequesting(true);
-    try {
-      const connector = await new Promise<Awaited<ReturnType<typeof OneKycClientZkService.ensureConnector>>>((resolve, reject) => {
-        const abort = () => reject(new Error("Preparing your request took too long. Please try again."));
-        controller.signal.addEventListener("abort", abort, { once: true });
-        OneKycClientZkService.ensureConnector({ userId: user.uid, vaultKey, vaultOwnerToken })
-          .then(resolve, reject)
-          .finally(() => controller.signal.removeEventListener("abort", abort));
-      });
-      if (generation !== requestGeneration.current || controller.signal.aborted) return;
-      await PersonProfileService.createInformationRequest({
-        personRef: resolvedPersonRef,
-        scopeRefs,
-        purpose: purpose.trim(),
-        durationSeconds: durationHours * 3600,
-        connectorKeyId: connector.connector_key_id,
-        idempotencyKey,
-        vaultOwnerToken,
-        signal: controller.signal,
-      });
-      if (generation !== requestGeneration.current) return;
+    const sent = await request.submit({ scopeRefs: selectedScopes.map(scope => scope.scopeRef), purpose, durationHours });
+    if (sent) {
       setReviewOpen(false);
       setSelectedScopeRefs(new Set());
       setPurpose("");
       toast.success("Request sent for review");
-      requestDraft.current = null;
       // Refresh failure must not misreport a successful write or invite a duplicate.
       setViewerReloadToken((value) => value + 1);
-    } catch (reason) {
-      if (generation === requestGeneration.current) {
-        toast.error(controller.signal.aborted
-          ? "We could not confirm the request yet. Retry to check the same request."
-          : oneLocationErrorMessage(reason, "Request could not be sent. Try again."));
-      }
-    } finally {
-      window.clearTimeout(timeout);
-      if (generation === requestGeneration.current) {
-        requestInFlight.current = false;
-        setRequesting(false);
-      }
     }
   };
 
@@ -612,7 +600,7 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
           spokenSubject: null,
           sections: [
             { id: "shared", title: "Shared with you", summary: `${viewerProfile.grants.length} active grants` },
-            { id: "requestable", title: "Available to request", summary: `${viewerProfile.requestableScopes.length} things you can ask for` },
+            { id: "requestable", title: "Available to request", summary: `${viewerProfile.scopeCatalog?.totalCount ?? viewerProfile.requestableScopes.length} things you can ask for` },
             { id: "history", title: "Request history", summary: `${viewerProfile.requestHistory.length} request records` },
           ],
           actions: surfaceActions,
@@ -1028,6 +1016,15 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
                     }),
                 }}
               />
+              {viewerProfile.scopeCatalog?.hasMore ? (
+                <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+                  <p className="text-muted-foreground">{allScopes.length} of {viewerProfile.scopeCatalog.totalCount} loaded. Search checks loaded fields.</p>
+                  <Button type="button" variant="none" effect="fade" disabled={catalogLoading}
+                    onClick={() => void loadMoreScopes()}>
+                    {catalogLoading ? "Loading more…" : catalogError ? "Try loading more again" : "Load more fields"}
+                  </Button>
+                </div>
+              ) : null}
               {allScopes.length ? (
                 <div className="flex justify-end pt-1">
                   <Button
@@ -1126,45 +1123,9 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
             </DialogDescription>
           </DialogHeader>
           <div className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain pr-1">
-            <SectionCard title="What you are asking for">
-              <div className="space-y-2">
-                {selectedScopes.map((scope) => (
-                  <div key={scope.scopeRef} className="flex items-center justify-between gap-3 text-sm">
-                    <span>{scope.label || scope.scopeRef}</span>
-                    <StatusPill tone="neutral">{scope.sensitivity || "Standard"}</StatusPill>
-                  </div>
-                ))}
-              </div>
-            </SectionCard>
-            <label className="block space-y-2 text-sm font-medium">
-              Access duration
-              <select
-                className="block h-9 w-full rounded-md border border-input bg-background px-3 text-sm font-normal"
-                value={durationHours}
-                onChange={(event) => setDurationHours(Number(event.target.value))}
-                data-testid="person-profile-duration-select"
-              >
-                {REQUEST_DURATION_OPTIONS.map((option) => (
-                  <option key={option.hours} value={option.hours}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="block space-y-2 text-sm font-medium">
-              Purpose
-              <Textarea
-                value={purpose}
-                onChange={(event) => setPurpose(event.target.value)}
-                maxLength={500}
-                placeholder="Explain why you need these and how you will use them."
-                aria-describedby="person-profile-purpose-hint"
-                data-testid="person-profile-purpose"
-              />
-              <span id="person-profile-purpose-hint" className="text-xs font-normal text-muted-foreground">
-                Add at least 8 characters so the recipient can make an informed decision.
-              </span>
-            </label>
+            <InformationRequestReviewFields scopes={selectedScopes} purpose={purpose} durationHours={durationHours}
+              onPurposeChange={setPurpose} onDurationChange={setDurationHours} disabled={requesting} />
+            {request.error ? <p role="alert" className="text-sm text-destructive">{request.error}</p> : null}
           </div>
           <DialogFooter className="shrink-0 flex-row items-center justify-end border-t border-border/60 pt-3">
             <Button type="button" variant="none" effect="fade" data-voice-control-id="person-profile-request-cancel" onClick={() => setReviewOpen(false)}>
@@ -1174,7 +1135,7 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
               type="button"
               variant="blue-gradient"
               effect="fill"
-              disabled={requesting || purpose.trim().length < 8 || !selectedScopes.length || !user || !isVaultUnlocked || !vaultKey || !vaultOwnerToken}
+              disabled={requesting || purpose.trim().length < 8 || !selectedScopes.length || selectedScopes.length > 50 || !request.available}
               onClick={() => void submitRequest()}
               data-voice-control-id="person-profile-request-confirm"
             >

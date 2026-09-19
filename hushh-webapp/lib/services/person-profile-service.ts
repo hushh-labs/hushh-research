@@ -41,7 +41,35 @@ export type ViewerPersonProfile = PublicPersonProfile & {
   requestableScopes: RequestablePersonScope[];
   grants: PersonGrant[];
   requestHistory: PersonInformationRequestHistory[];
+  scopeCatalog?: PersonScopeCatalog;
 };
+
+export type PersonScopeCatalog = {
+  page: number;
+  limit: number;
+  totalCount: number;
+  hasMore: boolean;
+  nextPage: number | null;
+  catalogRevision: string;
+  paginationReset: boolean;
+  domains: Array<{ domain: string; count: number }>;
+};
+
+export function mergePersonScopePage(
+  current: ViewerPersonProfile,
+  next: ViewerPersonProfile,
+): ViewerPersonProfile {
+  if (current.personRef !== next.personRef) throw new Error("The selected person could not be verified.");
+  if (!current.scopeCatalog || !next.scopeCatalog || next.scopeCatalog.paginationReset
+    || current.scopeCatalog.catalogRevision !== next.scopeCatalog.catalogRevision
+    || next.scopeCatalog.page === 1) return next;
+  if (next.scopeCatalog.page !== current.scopeCatalog.nextPage) {
+    throw new Error("Available information changed. Please check again.");
+  }
+  const scopes = new Map(current.requestableScopes.map(item => [item.scopeRef, item]));
+  next.requestableScopes.forEach(item => scopes.set(item.scopeRef, item));
+  return { ...next, requestableScopes: [...scopes.values()] };
+}
 
 export type PersonInformationRequestHistory = {
   bundleId: string;
@@ -148,12 +176,20 @@ export class PersonProfileService {
   static async getViewer(
     personRef: string,
     idToken: string,
+    catalog?: { page?: number; revision?: string; query?: string; domain?: string },
   ): Promise<ViewerPersonProfile> {
-    return jsonOrThrow<ViewerPersonProfile>(
-      await ApiService.apiFetch(`/api/one/people/${encodeURIComponent(personRef)}`, {
+    const query = new URLSearchParams();
+    if (catalog?.page) query.set("catalog_page", String(catalog.page));
+    if (catalog?.revision) query.set("catalog_revision", catalog.revision);
+    if (catalog?.query) query.set("catalog_query", catalog.query);
+    if (catalog?.domain) query.set("catalog_domain", catalog.domain);
+    const result = await jsonOrThrow<ViewerPersonProfile>(
+      await ApiService.apiFetch(`/api/one/people/${encodeURIComponent(personRef)}${query.size ? `?${query}` : ""}`, {
         headers: { Authorization: `Bearer ${idToken}` },
       }),
     );
+    if (result.personRef !== personRef) throw new Error("The selected person could not be verified.");
+    return result;
   }
 
   static async createInformationRequest(input: {
@@ -166,7 +202,7 @@ export class PersonProfileService {
     vaultOwnerToken: string;
     signal?: AbortSignal;
   }): Promise<InformationRequestBundle> {
-    return jsonOrThrow<InformationRequestBundle>(
+    const result = await jsonOrThrow<InformationRequestBundle>(
       await ApiService.apiFetch("/api/one/information-requests", {
         method: "POST",
         signal: input.signal,
@@ -181,6 +217,8 @@ export class PersonProfileService {
         }),
       }),
     );
+    if (result.personRef !== input.personRef) throw new Error("The selected person could not be verified.");
+    return result;
   }
 
   static async connect(personRef: string, idToken: string): Promise<PersonRelationship> {

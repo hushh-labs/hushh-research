@@ -191,7 +191,14 @@ class PersonProfileService:
         return self._relationship(viewer_user_id, subject_user_id)
 
     async def get_viewer_profile(
-        self, *, viewer_user_id: str, public_person_ref: str
+        self,
+        *,
+        viewer_user_id: str,
+        public_person_ref: str,
+        catalog_page: int | None = None,
+        catalog_revision: str = "",
+        catalog_query: str = "",
+        catalog_domain: str = "",
     ) -> dict[str, Any]:
         row = await asyncio.to_thread(self._profile_row, public_person_ref)
         subject_user_id = str(row.get("user_id") or "")
@@ -230,6 +237,20 @@ class PersonProfileService:
             }
             scopes.append(projection)
             scope_by_name[scope] = projection
+
+        catalog = None
+        if catalog_page is not None:
+            # Keep the complete authority map for grant labels and exact
+            # mutation validation. Only the discovery projection is paged.
+            page = ConnectionsService.page_information_scope_entries(
+                scope_items,
+                page=catalog_page,
+                catalog_revision=catalog_revision,
+                query=catalog_query,
+                domain=catalog_domain,
+            )
+            scopes = [scope_by_name[item["scope"]] for item in page["items"]]
+            catalog = {key: value for key, value in page.items() if key != "items"}
 
         viewer_ref_row = await asyncio.to_thread(
             self._execute_one,
@@ -330,6 +351,7 @@ class PersonProfileService:
             **self._public_projection(row),
             "relationship": relationship,
             "requestableScopes": scopes,
+            **({"scopeCatalog": catalog} if catalog is not None else {}),
             "grants": grants,
             "requestHistory": request_history,
         }

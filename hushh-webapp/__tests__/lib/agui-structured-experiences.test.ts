@@ -26,6 +26,21 @@ const scopeResult = {
 };
 
 describe("AG-UI structured experience registry", () => {
+  it("keeps explicit catalog continuation and flags oversized legacy snapshots", () => {
+    const result = parseAgentToolResultExperience("discover_person_information", {
+      ...scopeResult,
+      scopeCatalog: { page: 1, limit: 100, totalCount: 601, nextPage: 2, hasMore: true,
+        catalogRevision: "a".repeat(64), paginationReset: false,
+        domains: [{ domain: "professional", count: 601 }] },
+    });
+    expect(result).toMatchObject({ scopeCatalog: { totalCount: 601, nextPage: 2 } });
+    const legacy = parseAgentToolResultExperience("discover_person_information", {
+      ...scopeResult, requestableScopes: Array.from({ length: 501 }, (_, index) => ({
+        ...scopeResult.requestableScopes[0], scopeRef: `synthetic-${index}`,
+      })),
+    });
+    expect(legacy).toMatchObject({ catalogIncomplete: true });
+  });
   it("parses server-issued person choices without accepting arbitrary profile links", () => {
     const candidate = { selectionHandle: "a".repeat(32), displayName: "Alex Morgan",
       profilePath: "/people/1234567890abcdef", detail: "a***@example.test" };

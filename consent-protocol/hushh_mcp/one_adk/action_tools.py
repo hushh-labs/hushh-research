@@ -1895,6 +1895,8 @@ async def discover_person_information(
     tool_context: ToolContext,
     domain: str = "",
     selection_handle: str = "",
+    page: int = 1,
+    catalog_revision: str = "",
 ) -> dict[str, Any]:
     """Resolve a connected person and list the exact information they expose for requests.
 
@@ -1925,6 +1927,9 @@ async def discover_person_information(
         profile = await PersonProfileService().get_viewer_profile(
             viewer_user_id=user_id,
             public_person_ref=person_ref,
+            catalog_page=page,
+            catalog_revision=catalog_revision,
+            catalog_domain=domain.strip(),
         )
         if profile.get("personRef") != person_ref:
             return {
@@ -1974,7 +1979,10 @@ async def discover_person_information(
             "sharedCount": len(shared_with_you),
             "requestableScopes": scopes,
             "scopeCount": len(scopes),
+            "scopeCatalog": profile.get("scopeCatalog"),
             "nextStep": (
+                "scopeCount is the current page; scopeCatalog.totalCount describes all matching fields. "
+                "Use scopeCatalog.nextPage and catalogRevision only when more fields are requested. "
                 "If they have shared information with you (sharedWithYou), tell the user what has been granted. "
                 "For new requests, let the card present the fields and ask for the purpose and duration. "
                 "Keep the selected person for the proposal; open their profile only if requested."
