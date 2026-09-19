@@ -65,6 +65,30 @@ _SCOPE_FIELDS = frozenset(
         "updated_at",
     }
 )
+_MANIFEST_FIELDS = frozenset(
+    {
+        "user_id",
+        "domain",
+        "manifest_version",
+        "structure_decision",
+        "summary_projection",
+        "top_level_scope_paths",
+        "externalizable_paths",
+        "segment_ids",
+        "path_count",
+        "externalizable_path_count",
+        "domain_contract_version",
+        "readable_summary_version",
+        "pkm_contract_version",
+        "readable_projection_version",
+        "latest_upgrade_commit_id",
+        "upgraded_at",
+        "last_structured_at",
+        "last_content_at",
+        "created_at",
+        "updated_at",
+    }
+)
 _MANIFEST_PATH_LIST_FIELDS = ("top_level_scope_paths", "externalizable_paths")
 
 
@@ -119,6 +143,7 @@ def build_entity_path_repair_plan(
         raise ManifestRepairError("manifest revision does not match the snapshot revision")
 
     manifest_copy = deepcopy(dict(manifest))
+    _validate_known_fields(manifest_copy, _MANIFEST_FIELDS, "manifest")
     _validate_owner_domain(manifest_copy, user_id, domain, "manifest")
 
     current_paths = [deepcopy(dict(row)) for row in path_rows]
@@ -137,6 +162,19 @@ def build_entity_path_repair_plan(
             current_paths
         ):
             raise ManifestRepairError("manifest path_count does not match path rows")
+    declared_externalizable_count = manifest_copy.get("externalizable_path_count")
+    if declared_externalizable_count is not None:
+        expected_externalizable_count = sum(
+            1 for row in current_paths if row.get("exposure_eligibility") is True
+        )
+        if (
+            _require_revision_value(
+                declared_externalizable_count,
+                "manifest.externalizable_path_count",
+            )
+            != expected_externalizable_count
+        ):
+            raise ManifestRepairError("manifest externalizable_path_count does not match path rows")
 
     current_paths_by_name = {row["json_path"]: row for row in current_paths}
     repaired_paths: list[dict[str, Any]] = []
@@ -237,9 +275,18 @@ def _validate_owner_domain(row: Mapping[str, Any], user_id: str, domain: str, la
 
 def _validate_path_rows(rows: Sequence[Mapping[str, Any]], *, user_id: str, domain: str) -> None:
     seen: set[str] = set()
+    seen_ids: set[int] = set()
+    present_ids = [row.get("id") for row in rows if row.get("id") is not None]
+    if present_ids and len(present_ids) != len(rows):
+        raise ManifestRepairError("path rows must either all have storage IDs or none")
     for index, row in enumerate(rows):
         _validate_known_fields(row, _PATH_FIELDS, f"path row {index}")
         _validate_owner_domain(row, user_id, domain, f"path row {index}")
+        if row.get("id") is not None:
+            row_id = _require_revision_value(row["id"], f"path row {index}.id")
+            if row_id in seen_ids:
+                raise ManifestRepairError("path rows must have unique storage IDs")
+            seen_ids.add(row_id)
         path = row.get("json_path")
         if not isinstance(path, str) or path in seen:
             raise ManifestRepairError("path rows must have unique exact json_path values")
@@ -265,9 +312,18 @@ def _validate_scope_rows(
     expected_manifest_revision: int,
 ) -> None:
     seen: set[str] = set()
+    seen_ids: set[int] = set()
+    present_ids = [row.get("id") for row in rows if row.get("id") is not None]
+    if present_ids and len(present_ids) != len(rows):
+        raise ManifestRepairError("scope rows must either all have storage IDs or none")
     for index, row in enumerate(rows):
         _validate_known_fields(row, _SCOPE_FIELDS, f"scope row {index}")
         _validate_owner_domain(row, user_id, domain, f"scope row {index}")
+        if row.get("id") is not None:
+            row_id = _require_revision_value(row["id"], f"scope row {index}.id")
+            if row_id in seen_ids:
+                raise ManifestRepairError("scope rows must have unique storage IDs")
+            seen_ids.add(row_id)
         handle = row.get("scope_handle")
         if not isinstance(handle, str) or not handle or handle in seen:
             raise ManifestRepairError("scope rows must have unique exact scope handles")

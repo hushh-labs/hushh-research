@@ -32,6 +32,10 @@ DECLARE
   v_min_manifest_revision INTEGER;
   v_max_manifest_revision INTEGER;
   v_current_manifest_revision INTEGER;
+  v_existing_path_count INTEGER;
+  v_existing_scope_count INTEGER;
+  v_updated_path_count INTEGER;
+  v_updated_scope_count INTEGER;
   v_now TIMESTAMPTZ := NOW();
   v_metadata JSONB;
 BEGIN
@@ -173,50 +177,79 @@ BEGIN
     last_content_at = EXCLUDED.last_content_at,
     updated_at = v_now;
 
-  DELETE FROM pkm_manifest_paths WHERE user_id = p_user_id AND domain = p_domain;
-  INSERT INTO pkm_manifest_paths (
-    user_id, domain, json_path, parent_path, path_type, segment_id, scope_handle,
-    exposure_eligibility, display_segment, consent_label, sensitivity_label, source_agent
-  )
-  SELECT p_user_id, p_domain, row_data.json_path, row_data.parent_path,
-    row_data.path_type, row_data.segment_id, row_data.scope_handle,
-    row_data.exposure_eligibility, row_data.display_segment, row_data.consent_label,
-    row_data.sensitivity_label, row_data.source_agent
-  FROM jsonb_to_recordset(COALESCE(p_path_rows, '[]'::JSONB)) AS row_data(
-    json_path TEXT, parent_path TEXT, path_type TEXT, segment_id TEXT,
+  SELECT COUNT(*) INTO v_existing_path_count
+  FROM pkm_manifest_paths
+  WHERE user_id = p_user_id AND domain = p_domain;
+  SELECT COUNT(*) INTO v_existing_scope_count
+  FROM pkm_scope_registry
+  WHERE user_id = p_user_id AND domain = p_domain;
+  IF v_existing_path_count <> jsonb_array_length(p_path_rows)
+     OR v_existing_scope_count <> jsonb_array_length(p_scope_rows) THEN
+    RAISE EXCEPTION 'incomplete_pkm_manifest_repair_snapshot';
+  END IF;
+
+  -- Update rows in place so primary keys, created_at values, and unrelated
+  -- metadata survive. The pure planner has already proven a complete bijection.
+  UPDATE pkm_manifest_paths AS target
+  SET json_path = incoming.json_path,
+      parent_path = incoming.parent_path,
+      path_type = incoming.path_type,
+      segment_id = incoming.segment_id,
+      scope_handle = incoming.scope_handle,
+      exposure_eligibility = incoming.exposure_eligibility,
+      display_segment = incoming.display_segment,
+      consent_label = incoming.consent_label,
+      sensitivity_label = incoming.sensitivity_label,
+      source_agent = incoming.source_agent,
+      updated_at = v_now
+  FROM jsonb_to_recordset(COALESCE(p_path_rows, '[]'::JSONB)) AS incoming(
+    id BIGINT, json_path TEXT, parent_path TEXT, path_type TEXT, segment_id TEXT,
     scope_handle TEXT, exposure_eligibility BOOLEAN, display_segment TEXT,
     consent_label TEXT, sensitivity_label TEXT, source_agent TEXT
-  );
-
-  DELETE FROM pkm_scope_registry WHERE user_id = p_user_id AND domain = p_domain;
-  INSERT INTO pkm_scope_registry (
-    user_id, domain, scope_handle, scope_label, segment_ids, sensitivity_tier,
-    scope_kind, exposure_enabled, manifest_version, summary_projection,
-    visibility_posture, default_projection_ready, default_projection_updated_at,
-    owner_consent_override, scope_origin, scope_origin_code, source_kind
   )
-  SELECT p_user_id, p_domain, row_data.scope_handle, row_data.scope_label,
-    row_data.segment_ids, row_data.sensitivity_tier, row_data.scope_kind,
-    row_data.exposure_enabled, p_next_manifest_revision,
-    COALESCE(row_data.summary_projection, '{}'::JSONB)
-      || jsonb_build_object('manifest_version', p_next_manifest_revision,
-                            'content_revision', v_current_content_revision,
-                            'data_version', v_current_content_revision),
-    row_data.visibility_posture,
-    COALESCE(row_data.default_projection_ready, FALSE),
-    row_data.default_projection_updated_at,
-    COALESCE(row_data.owner_consent_override, FALSE),
-    COALESCE(NULLIF(row_data.scope_origin, ''), 'dynamic'),
-    COALESCE(NULLIF(row_data.scope_origin_code, ''), 'd'),
-    COALESCE(NULLIF(row_data.source_kind, ''), 'manifest_branch')
-  FROM jsonb_to_recordset(COALESCE(p_scope_rows, '[]'::JSONB)) AS row_data(
-    scope_handle TEXT, scope_label TEXT, segment_ids TEXT[], sensitivity_tier TEXT,
-    scope_kind TEXT, exposure_enabled BOOLEAN, manifest_version INTEGER,
-    summary_projection JSONB, visibility_posture TEXT,
+  WHERE target.id = incoming.id
+    AND target.user_id = p_user_id
+    AND target.domain = p_domain;
+  GET DIAGNOSTICS v_updated_path_count = ROW_COUNT;
+  IF v_updated_path_count <> v_existing_path_count THEN
+    RAISE EXCEPTION 'pkm_manifest_path_identity_mismatch';
+  END IF;
+
+  UPDATE pkm_scope_registry AS target
+  SET scope_handle = incoming.scope_handle,
+      scope_label = incoming.scope_label,
+      segment_ids = incoming.segment_ids,
+      sensitivity_tier = incoming.sensitivity_tier,
+      scope_kind = incoming.scope_kind,
+      exposure_enabled = incoming.exposure_enabled,
+      manifest_version = p_next_manifest_revision,
+      summary_projection = COALESCE(incoming.summary_projection, '{}'::JSONB)
+        || jsonb_build_object('manifest_version', p_next_manifest_revision,
+                              'content_revision', v_current_content_revision,
+                              'data_version', v_current_content_revision),
+      visibility_posture = incoming.visibility_posture,
+      default_projection_ready = COALESCE(incoming.default_projection_ready, FALSE),
+      default_projection_updated_at = incoming.default_projection_updated_at,
+      owner_consent_override = COALESCE(incoming.owner_consent_override, FALSE),
+      scope_origin = COALESCE(NULLIF(incoming.scope_origin, ''), 'dynamic'),
+      scope_origin_code = COALESCE(NULLIF(incoming.scope_origin_code, ''), 'd'),
+      source_kind = COALESCE(NULLIF(incoming.source_kind, ''), 'manifest_branch'),
+      updated_at = v_now
+  FROM jsonb_to_recordset(COALESCE(p_scope_rows, '[]'::JSONB)) AS incoming(
+    id BIGINT, scope_handle TEXT, scope_label TEXT, segment_ids TEXT[],
+    sensitivity_tier TEXT, scope_kind TEXT, exposure_enabled BOOLEAN,
+    manifest_version INTEGER, summary_projection JSONB, visibility_posture TEXT,
     default_projection_ready BOOLEAN, default_projection_updated_at TIMESTAMPTZ,
     owner_consent_override BOOLEAN, scope_origin TEXT, scope_origin_code TEXT,
     source_kind TEXT
-  );
+  )
+  WHERE target.id = incoming.id
+    AND target.user_id = p_user_id
+    AND target.domain = p_domain;
+  GET DIAGNOSTICS v_updated_scope_count = ROW_COUNT;
+  IF v_updated_scope_count <> v_existing_scope_count THEN
+    RAISE EXCEPTION 'pkm_scope_identity_mismatch';
+  END IF;
 
   PERFORM merge_pkm_domain_summary(
     p_user_id, p_domain,

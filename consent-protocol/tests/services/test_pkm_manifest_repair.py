@@ -295,6 +295,10 @@ def test_scope_projection_only_repair_requires_one_revision():
 @pytest.mark.asyncio
 async def test_service_uses_raw_snapshot_and_revision_checked_repair_rpc():
     snapshot = _snapshot()
+    for index, row in enumerate(snapshot["paths"], start=1):
+        row["id"] = index
+    for index, row in enumerate(snapshot["scopes"], start=1):
+        row["id"] = index
     service = PersonalKnowledgeModelService()
     service._run_rpc = AsyncMock(
         side_effect=[
@@ -348,8 +352,12 @@ async def test_service_uses_raw_snapshot_and_revision_checked_repair_rpc():
 
 @pytest.mark.asyncio
 async def test_service_does_not_write_when_snapshot_is_already_canonical():
-    snapshot = _snapshot()
-    plan = _plan()
+    initial = _snapshot()
+    for index, row in enumerate(initial["paths"], start=1):
+        row["id"] = index
+    for index, row in enumerate(initial["scopes"], start=1):
+        row["id"] = index
+    plan = _plan(initial)
     snapshot = {
         "manifest": plan.manifest_row,
         "paths": list(plan.path_rows),

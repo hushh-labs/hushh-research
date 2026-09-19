@@ -4519,6 +4519,20 @@ class PersonalKnowledgeModelService:
                     "code": "snapshot_incomplete",
                     "message": "The PKM snapshot is incomplete and was not changed.",
                 }
+            if any(
+                isinstance(row, dict)
+                and (
+                    isinstance(row.get("id"), bool)
+                    or not isinstance(row.get("id"), int)
+                    or row.get("id", 0) <= 0
+                )
+                for row in [*paths, *scopes]
+            ):
+                return {
+                    "success": False,
+                    "code": "snapshot_identity_incomplete",
+                    "message": "The PKM metadata identity is incomplete and was not changed.",
+                }
             if (
                 expected_content_revision is not None
                 and expected_content_revision != content_revision
