@@ -146,7 +146,10 @@ export function AppProfileEdgeGesture({ enabled }: { enabled: boolean }) {
       if (gesture.axis !== "horizontal") return;
 
       consume(event);
-      event.preventDefault();
+      // No preventDefault: the window listeners are passive so scrolling
+      // never waits on this handler (see app-edge-back-gesture.tsx for the
+      // WebKit reasoning). `touch-pan-y` on the scroll root already refuses
+      // the horizontal pan this gesture owns.
       const progress = Math.min(
         1,
         Math.abs(deltaX) / INDICATOR_REVEAL_DISTANCE_PX,
@@ -272,11 +275,11 @@ export function AppProfileEdgeGesture({ enabled }: { enabled: boolean }) {
     });
     window.addEventListener("pointermove", pointerMove, {
       capture: true,
-      passive: false,
+      passive: true,
     });
     window.addEventListener("pointerup", pointerEnd, {
       capture: true,
-      passive: false,
+      passive: true,
     });
     window.addEventListener("pointercancel", reset, { capture: true });
     window.addEventListener("touchstart", touchStart, {
@@ -285,11 +288,11 @@ export function AppProfileEdgeGesture({ enabled }: { enabled: boolean }) {
     });
     window.addEventListener("touchmove", touchMove, {
       capture: true,
-      passive: false,
+      passive: true,
     });
     window.addEventListener("touchend", touchEnd, {
       capture: true,
-      passive: false,
+      passive: true,
     });
     window.addEventListener("touchcancel", reset, { capture: true });
 
