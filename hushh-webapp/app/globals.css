@@ -2849,11 +2849,39 @@ body:has([data-testid="one-location-onboarding"])
    around the perimeter. Each pool is a blurred radial blob hugging one edge;
    staggered slow drift/scale animations make the whole rim shimmer like Siri's
    glow. A mask keeps the light on the edges only, feathering into the center. */
+/* The live audio level arrives as one custom property on the glow container,
+   written from a requestAnimationFrame follower that runs only while the glow
+   is active or still settling. Layer opacity, mask depth and pool blur are all
+   derived here, so a level change costs one style recalculation on this
+   subtree and no React render. */
+.one-siri-edge-glow {
+  --one-siri-level: 0;
+  /* How far the rim reaches in from each edge, as a share of the screen. */
+  --one-siri-depth: calc(5% + var(--one-siri-level) * 3%);
+}
+
+/* Edge mask: reveal the pools only in a NARROW band at the perimeter and
+   feather quickly to transparent. Two linear masks (top/bottom + left/right)
+   unioned so all four edges show; anchored to the true edges (0%). */
+.one-siri-edge-pools {
+  opacity: calc(0.6 + var(--one-siri-level) * 0.3);
+  -webkit-mask-image:
+    linear-gradient(to bottom, #000 0%, transparent var(--one-siri-depth), transparent calc(100% - var(--one-siri-depth)), #000 100%),
+    linear-gradient(to right, #000 0%, transparent var(--one-siri-depth), transparent calc(100% - var(--one-siri-depth)), #000 100%);
+  mask-image:
+    linear-gradient(to bottom, #000 0%, transparent var(--one-siri-depth), transparent calc(100% - var(--one-siri-depth)), #000 100%),
+    linear-gradient(to right, #000 0%, transparent var(--one-siri-depth), transparent calc(100% - var(--one-siri-depth)), #000 100%);
+  -webkit-mask-composite: source-over;
+  mask-composite: add;
+}
+
 .one-siri-edge-pool {
   position: absolute;
   border-radius: 50%;
-  will-change: transform, opacity;
-  filter: blur(var(--one-siri-pool-blur, 44px));
+  /* Saturation keeps the colours vivid so even a thin rim reads as a
+     spectrum; the blur tightens slightly with energy. */
+  filter: blur(calc(30px - var(--one-siri-level) * 8px)) saturate(1.55)
+    brightness(1.15);
   mix-blend-mode: screen;
 }
 
