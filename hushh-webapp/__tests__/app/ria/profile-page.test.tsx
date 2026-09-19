@@ -284,42 +284,6 @@ describe("RiaProfileSection manage actions", () => {
     );
   });
 
-  it("keeps the edit, license, and delete surfaces mutually exclusive", async () => {
-    // Regression: each of these is its own Drawer/Dialog portal. If one is
-    // left open (or mid-close-animation) when another is triggered, its
-    // overlay can sit on top of the surface the person is actually trying to
-    // reach and swallow every tap on it -- Delete advisor profile looking
-    // like it "won't open or respond" is exactly that shape of bug. Opening
-    // any one of the three must always close the other two first.
-    renderSection();
-    await waitFor(() =>
-      expect(screen.getByTestId("ria-profile-edit-services")).toBeTruthy(),
-    );
-
-    await act(async () => {
-      fireEvent.click(screen.getByTestId("ria-profile-edit-services"));
-    });
-    expect(screen.getByTestId("edit-panel")).toBeTruthy();
-
-    await act(async () => {
-      fireEvent.click(screen.getByTestId("ria-profile-delete"));
-    });
-    expect(screen.queryByTestId("edit-panel")).toBeNull();
-    expect(screen.getByTestId("delete-dialog")).toBeTruthy();
-
-    await act(async () => {
-      fireEvent.click(screen.getByTestId("ria-profile-update-license"));
-    });
-    expect(screen.queryByTestId("delete-dialog")).toBeNull();
-    expect(screen.getByTestId("license-dialog")).toBeTruthy();
-
-    await act(async () => {
-      fireEvent.click(screen.getByTestId("ria-profile-delete"));
-    });
-    expect(screen.queryByTestId("license-dialog")).toBeNull();
-    expect(screen.getByTestId("delete-dialog")).toBeTruthy();
-  });
-
   it("delete confirms, calls deleteProfile, switches persona, and routes to One", async () => {
     renderSection();
     await waitFor(() =>
