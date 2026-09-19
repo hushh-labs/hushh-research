@@ -973,7 +973,240 @@ final class AppUITests: XCTestCase {
     }
 
     @discardableResult
-    private func launchApp(_ route: RouteCase) -> XCUIApplication {
+    // MARK: - Render performance card
+
+    /// Drives the fixed gesture card from docs/reference/mobile/render-performance-charter.md
+    /// with the in-app frame-pacing probe switched on, and prints one
+    /// `PERF_GESTURE name=<n> rep=<i> start_epoch_ms=<ms> end_epoch_ms=<ms>` line
+    /// per gesture so the probe's windows can be joined to what the finger did.
+    ///
+    /// Opt-in only: `HUSHH_ENABLE_PERF_BENCHMARK=true` in the test runner
+    /// environment (`TEST_RUNNER_` prefix through xcodebuild). It signs in as
+    /// the reviewer through the same `-UITestMode` bootstrap as the route
+    /// audits, which means the 350ms native status poll is running; that is a
+    /// recorded contaminant of the attribution lane, never of a sign-off run.
+    /// On a simulator the numbers attribute causes and certify nothing.
+    func testRenderPerformanceCard() throws {
+        let environment = ProcessInfo.processInfo.environment
+        guard environment["HUSHH_ENABLE_PERF_BENCHMARK"] == "true" else {
+            throw XCTSkip("Render performance card runs only with HUSHH_ENABLE_PERF_BENCHMARK=true.")
+        }
+        let repetitions = max(1, Int(environment["HUSHH_PERF_REPS"] ?? "") ?? 3)
+        let probeArguments = ["-CapacitorStorage.hushh_perf_probe", "1"]
+        #if targetEnvironment(simulator)
+        NSLog("PERF_LANE certifies=false simulator=true")
+        #else
+        NSLog("PERF_LANE certifies=true simulator=false")
+        #endif
+
+        // Launch 1: feed flicks, bottom-nav switches, profile pane, chat stream.
+        let feedRoute = RouteCase(
+            name: "perf-feed",
+            initialRoute: "/login?redirect=%2Fone%2Ffeed",
+            expectedMarker: "native-route-feed",
+            expectedRoute: "/one/feed",
+            expectedRoutePrefix: nil,
+            autoReviewerLogin: true,
+            expectedAuth: "authenticated",
+            allowedDataStates: ["loaded"]
+        )
+        var app = launchApp(feedRoute, extraArguments: probeArguments)
+        _ = try waitForSatisfiedStatus(app, route: feedRoute, timeout: 150)
+        var webView = app.webViews.firstMatch
+        XCTAssertTrue(webView.waitForExistence(timeout: 10), "WebView unavailable for the feed card")
+        NSLog("PERF_APP_READY route=/one/feed")
+        perfSettle(2.5)
+
+        for rep in 0..<repetitions {
+            perfGesture("feed-flick", rep: rep) {
+                for _ in 0..<5 {
+                    perfFlick(webView, fromY: 0.75, toY: 0.25)
+                    perfSettle(0.35)
+                }
+                perfSettle(1.5)
+                for _ in 0..<5 {
+                    perfFlick(webView, fromY: 0.25, toY: 0.75)
+                    perfSettle(0.35)
+                }
+                perfSettle(1.5)
+            }
+        }
+
+        for rep in 0..<repetitions {
+            perfGesture("bottom-nav-switch", rep: rep) {
+                for label in ["One", "Connect", "Feed"] {
+                    perfTapNav(app, label: label)
+                    perfSettle(1.5)
+                }
+            }
+        }
+
+        perfTapNav(app, label: "One")
+        perfSettle(1.5)
+        for rep in 0..<repetitions {
+            perfGesture("profile-pane-open-dismiss", rep: rep) {
+                // AppProfileEdgeGesture: a broad leftward body swipe on /one.
+                let start = webView.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5))
+                let end = webView.coordinate(withNormalizedOffset: CGVector(dx: 0.25, dy: 0.5))
+                start.press(forDuration: 0.05, thenDragTo: end)
+                perfSettle(1.5)
+                // The pane is a right-side sheet without content drag-dismiss;
+                // a tap on the scrim closes it.
+                webView.coordinate(withNormalizedOffset: CGVector(dx: 0.04, dy: 0.5)).tap()
+                perfSettle(1.2)
+            }
+        }
+
+        perfGesture("chat-stream-30s", rep: 0) {
+            if perfSendChatPrompt(app, webView: webView) {
+                perfSettle(30)
+            } else {
+                NSLog("PERF_SKIPPED name=chat-stream-30s reason=composer_not_found")
+            }
+        }
+
+        perfSettle(12) // let the probe write its idle export
+        NSLog("PERF_DONE route=/one/feed")
+        app.terminate()
+
+        // Launch 2: top-shell pager swipes on Finance.
+        let kaiRoute = RouteCase(
+            name: "perf-kai",
+            initialRoute: "/login?redirect=%2Fone%2Fkai",
+            expectedMarker: "native-route-kai-home",
+            expectedRoute: "/one/kai",
+            expectedRoutePrefix: nil,
+            autoReviewerLogin: true,
+            expectedAuth: "authenticated",
+            allowedDataStates: ["loaded"]
+        )
+        app = launchApp(kaiRoute, extraArguments: probeArguments)
+        _ = try waitForSatisfiedStatus(app, route: kaiRoute, timeout: 150)
+        webView = app.webViews.firstMatch
+        XCTAssertTrue(webView.waitForExistence(timeout: 10), "WebView unavailable for the Finance card")
+        NSLog("PERF_APP_READY route=/one/kai")
+        perfSettle(2.5)
+        for rep in 0..<repetitions {
+            perfGesture("top-shell-pager-swipe", rep: rep) {
+                let left = webView.coordinate(withNormalizedOffset: CGVector(dx: 0.82, dy: 0.48))
+                let right = webView.coordinate(withNormalizedOffset: CGVector(dx: 0.18, dy: 0.48))
+                left.press(forDuration: 0.08, thenDragTo: right)
+                perfSettle(1.2)
+                right.press(forDuration: 0.08, thenDragTo: left)
+                perfSettle(1.2)
+            }
+        }
+        for rep in 0..<repetitions {
+            perfGesture("kai-chart-flick", rep: rep) {
+                for _ in 0..<3 {
+                    perfFlick(webView, fromY: 0.7, toY: 0.3)
+                    perfSettle(0.4)
+                }
+                perfSettle(1.5)
+            }
+        }
+        perfSettle(12)
+        NSLog("PERF_DONE route=/one/kai")
+        app.terminate()
+
+        // Launch 3: Location map pan (native map: the hitches instrument scores it).
+        let locationRoute = RouteCase(
+            name: "perf-location",
+            initialRoute: "/login?redirect=%2Fone%2Flocation",
+            expectedMarker: "native-route-one-location",
+            expectedRoute: "/one/location",
+            expectedRoutePrefix: nil,
+            autoReviewerLogin: true,
+            expectedAuth: "authenticated",
+            allowedDataStates: ["loaded"]
+        )
+        app = launchApp(locationRoute, extraArguments: probeArguments)
+        _ = try waitForSatisfiedStatus(app, route: locationRoute, timeout: 150)
+        webView = app.webViews.firstMatch
+        XCTAssertTrue(webView.waitForExistence(timeout: 10), "WebView unavailable for the Location card")
+        NSLog("PERF_APP_READY route=/one/location")
+        perfSettle(2.5)
+        for rep in 0..<repetitions {
+            perfGesture("location-map-pan", rep: rep) {
+                for _ in 0..<3 {
+                    let start = webView.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.4))
+                    let end = webView.coordinate(withNormalizedOffset: CGVector(dx: 0.7, dy: 0.55))
+                    start.press(forDuration: 0.05, thenDragTo: end)
+                    perfSettle(0.6)
+                }
+                perfSettle(1.5)
+            }
+        }
+        perfSettle(12)
+        NSLog("PERF_DONE route=/one/location")
+        app.terminate()
+    }
+
+    private func perfEpochMs() -> Int64 {
+        Int64((Date().timeIntervalSince1970 * 1000).rounded())
+    }
+
+    private func perfSettle(_ seconds: TimeInterval) {
+        RunLoop.current.run(until: Date().addingTimeInterval(seconds))
+    }
+
+    private func perfGesture(_ name: String, rep: Int, _ body: () -> Void) {
+        let start = perfEpochMs()
+        body()
+        let end = perfEpochMs()
+        NSLog("PERF_GESTURE name=\(name) rep=\(rep) start_epoch_ms=\(start) end_epoch_ms=\(end)")
+    }
+
+    /// One thumb sweep at a fixed speed, in the WebView's normalised space.
+    private func perfFlick(_ webView: XCUIElement, fromY: CGFloat, toY: CGFloat) {
+        let start = webView.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: fromY))
+        let end = webView.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: toY))
+        start.press(forDuration: 0.04, thenDragTo: end, withVelocity: XCUIGestureVelocity(rawValue: 2000), thenHoldForDuration: 0)
+    }
+
+    private func perfTapNav(_ app: XCUIApplication, label: String) {
+        let candidates = app.webViews.descendants(matching: .any)
+            .matching(NSPredicate(format: "label == %@", label))
+        let count = candidates.count
+        guard count > 0 else {
+            NSLog("PERF_SKIPPED name=nav-tap reason=label_not_found label=\(label)")
+            return
+        }
+        // The bottom bar is the last match on screen.
+        let element = candidates.element(boundBy: count - 1)
+        if element.isHittable {
+            element.tap()
+        } else {
+            element.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        }
+    }
+
+    /// Types a fixed prompt into the chat composer and sends it. Best effort:
+    /// returns false when the composer cannot be found, so the card records a
+    /// skip instead of failing.
+    private func perfSendChatPrompt(_ app: XCUIApplication, webView: XCUIElement) -> Bool {
+        let queries: [XCUIElementQuery] = [app.webViews.textViews, app.webViews.textFields, app.textViews]
+        for query in queries {
+            let count = query.count
+            guard count > 0 else { continue }
+            let field = query.element(boundBy: count - 1)
+            guard field.exists, field.isHittable else { continue }
+            field.tap()
+            perfSettle(0.5)
+            field.typeText("Summarize my week in three short bullet points.")
+            perfSettle(0.5)
+            let send = app.webViews.buttons.matching(NSPredicate(format: "label CONTAINS[c] 'send'")).firstMatch
+            if send.exists, send.isHittable {
+                send.tap()
+            } else {
+                field.typeText("\n")
+            }
+            return true
+        }
+        return false
+    }
+
+    private func launchApp(_ route: RouteCase, extraArguments: [String] = []) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = [
             "-UITestMode",
@@ -981,7 +1214,7 @@ final class AppUITests: XCTestCase {
             "-UITestExpectedMarker", route.expectedMarker,
             "-UITestAutoReviewerLogin", route.autoReviewerLogin ? "true" : "false",
             "-UITestResetAppState", "false",
-        ]
+        ] + extraArguments
         if let expectedRoute = route.expectedRoute {
             app.launchArguments += ["-UITestExpectedRoute", expectedRoute]
         }
