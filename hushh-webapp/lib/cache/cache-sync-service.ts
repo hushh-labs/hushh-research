@@ -20,6 +20,7 @@ import {
 } from "@/lib/one-location/location-control-state";
 import type { PersonalKnowledgeModelMetadata } from "@/lib/services/personal-knowledge-model-service";
 import type { FeedListResponse } from "@/lib/services/feed-service";
+import { dispatchConnectionGraphChanged } from "@/lib/connections/connection-graph-events";
 
 type DomainSummaryPatch = Record<string, unknown>;
 
@@ -706,6 +707,7 @@ export class CacheSyncService {
     this.onConnectionCapabilityMutated(userId);
     OneLocationStateResource.invalidate(userId);
     clearLocationWorkspaceMemory(userId);
+    dispatchConnectionGraphChanged(userId);
   }
 
   /**

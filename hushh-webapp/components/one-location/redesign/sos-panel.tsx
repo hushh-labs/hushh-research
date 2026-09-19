@@ -9,8 +9,7 @@ import {
   type KeyboardEvent,
   type PointerEvent,
 } from "react";
-import { Check, ChevronRight, Loader2, Phone } from "@/components/icons";
-import { toast } from "sonner";
+import { Check, ChevronRight, Loader2 } from "@/components/icons";
 import { trackEvent } from "@/lib/observability/client";
 
 import {
@@ -58,26 +57,10 @@ const QUICK_MESSAGES: readonly SmsQuickMessage[] = [
  */
 const RING_CIRCUMFERENCE = 1055.6;
 
-type WindowsFallbackCopyStatus = "idle" | "copied" | "error";
-
-export function isWindowsDesktopEmCallUnsupported(options?: {
-  userAgent?: string;
-  platform?: string;
-}) {
-  const userAgent = (options?.userAgent ?? navigator.userAgent).toLowerCase();
-  const platform = (options?.platform ?? navigator.platform).toLowerCase();
-  const isWindows =
-    /windows|win32|win64|wow64|win16/.test(platform) ||
-    /windows nt|win64|wow64|win32/.test(userAgent);
-  const isMobileOrTablet =
-    /mobile|mobi|iphone|ipad|ipod|android/.test(userAgent) ||
-    /phone|tablet|touch/.test(userAgent);
-
-  return isWindows && !isMobileOrTablet;
-}
-
 export type SosPanelProps = {
   recipients: OneLocationRecipient[];
+  /** The authoritative SMS Circle roster is still being reconciled. */
+  recipientsLoading?: boolean;
   active: boolean;
   busy: boolean;
   /**
@@ -108,6 +91,7 @@ export type SosPanelProps = {
 
 export function SosPanel({
   recipients,
+  recipientsLoading = false,
   active,
   busy,
   onTrigger,
@@ -115,9 +99,6 @@ export function SosPanel({
   stopBusy,
   onEditContacts,
   isRecipientShareReady,
-  emergency,
-  emergencyStatus,
-  onResolveEmergencyNumber,
 }: SosPanelProps) {
   const [customMessage, setCustomMessage] = useState("");
   const [messageFocused, setMessageFocused] = useState(false);
@@ -134,8 +115,6 @@ export function SosPanel({
   const [sentMessage, setSentMessage] = useState<string | null>(null);
 
   const [progress, setProgress] = useState(0);
-  const [, setWindowsCopyStatus] =
-    useState<WindowsFallbackCopyStatus>("idle");
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const frameRef = useRef<number | null>(null);
   const holdStartedAtRef = useRef(0);
@@ -154,11 +133,9 @@ export function SosPanel({
   // stay reachable in the state someone is actually in when they need it.
   const selectedMessage = customMessage.trim() || null;
   const customMessageInvalid = customMessageLimitExceeded;
-  const noReadyRecipients = readyRecipients.length === 0;
+  const noReadyRecipients = !recipientsLoading && readyRecipients.length === 0;
   const hardDisabled = busy || active || customMessageInvalid;
-  const disabled = hardDisabled || noReadyRecipients;
-  const shouldFallbackWindowsEmergencyCall =
-    isWindowsDesktopEmCallUnsupported();
+  const disabled = hardDisabled || recipientsLoading || noReadyRecipients;
   const recipientCount = readyRecipients.length;
   const recipientCountLabel =
     recipientCount === 1 ? "1 contact" : `${recipientCount} contacts`;
@@ -316,33 +293,6 @@ export function SosPanel({
     }
   };
 
-  // The "your browser cannot dial" explanation is a toast, not body copy.
-  //
-  // As a permanent paragraph under the button it wrapped to four lines on the
-  // narrow half-width grid cell, pushing Cancel around and burying the number
-  // it was trying to give you. It is only true at the moment you tap, so it is
-  // said at that moment — and the toast carries the number, which is the part
-  // that is actually actionable.
-  const handleWindowsEmergencyCopy = useCallback(async () => {
-    if (!emergency) return;
-    try {
-      await navigator.clipboard.writeText(emergency.number);
-      setWindowsCopyStatus("copied");
-      toast.success(`${emergency.number} copied. Call from your phone.`, {
-        duration: 10_000,
-      });
-    } catch {
-      setWindowsCopyStatus("error");
-      toast.error(`Call ${emergency.number} from your phone.`, {
-        duration: 10_000,
-      });
-    }
-  }, [emergency]);
-
-  useEffect(() => {
-    setWindowsCopyStatus("idle");
-  }, [emergency?.number]);
-
   const isHolding = progress > 0 && progress < 1 && !busy && !active;
   const progressDashOffset = RING_CIRCUMFERENCE * (1 - progress);
   const remainingSeconds = Math.max(
@@ -362,78 +312,6 @@ export function SosPanel({
   const quickPill =
     "ui-text-button-label press-scale flex h-11 flex-1 items-center justify-center rounded-xl border transition-colors";
 
-  const callControl =
-    emergencyStatus === "resolved" && emergency ? (
-      shouldFallbackWindowsEmergencyCall ? (
-        <button
-          type="button"
-          onClick={handleWindowsEmergencyCopy}
-          data-testid="sos-emergency-actions"
-          aria-label={`Copy ${emergency.number} emergency services (${emergency.countryName})`}
-          className="ui-text-button-label press-scale flex min-h-[50px] w-full items-center gap-3 rounded-[14px] bg-[color:var(--app-card-surface-default-solid)] px-4 text-left text-[color:var(--app-destructive)] transition-colors hover:bg-[color:var(--app-destructive)]/5"
-        >
-          <Phone className="h-4 w-4" aria-hidden />
-          <span className="min-w-0 flex-1 truncate">
-            Call {emergency.number} · {emergency.countryName}
-          </span>
-          <ChevronRight
-            className="h-4 w-4 shrink-0 text-[color:var(--app-tertiary-label)]"
-            aria-hidden
-          />
-        </button>
-      ) : (
-        <a
-          href={`tel:${emergency.number}`}
-          data-testid="sos-emergency-actions"
-          aria-label={`Call ${emergency.number} emergency services (${emergency.countryName})`}
-          className="ui-text-button-label press-scale flex min-h-[50px] w-full items-center gap-3 rounded-[14px] bg-[color:var(--app-card-surface-default-solid)] px-4 text-left text-[color:var(--app-destructive)] transition-colors hover:bg-[color:var(--app-destructive)]/5"
-        >
-          <Phone className="h-4 w-4" aria-hidden />
-          <span className="min-w-0 flex-1 truncate">
-            Call {emergency.number} · {emergency.countryName}
-          </span>
-          <ChevronRight
-            className="h-4 w-4 shrink-0 text-[color:var(--app-tertiary-label)]"
-            aria-hidden
-          />
-        </a>
-      )
-    ) : (
-      <button
-        type="button"
-        onClick={onResolveEmergencyNumber}
-        disabled={emergencyStatus === "resolving"}
-        data-testid="sos-emergency-actions"
-        aria-label={
-          emergencyStatus === "unavailable"
-            ? "Retry local emergency number"
-            : emergencyStatus === "resolving"
-              ? "Finding local emergency number"
-              : "Find local emergency number"
-        }
-        className="ui-text-button-label press-scale flex min-h-[50px] w-full items-center gap-3 rounded-[14px] bg-[color:var(--app-card-surface-default-solid)] px-4 text-left text-[color:var(--app-destructive)] transition-colors hover:bg-[color:var(--app-destructive)]/5 disabled:cursor-wait disabled:opacity-70"
-      >
-        <Phone className="h-4 w-4" aria-hidden />
-        <span className="min-w-0 flex-1 truncate">
-        {emergencyStatus === "resolving" ? (
-          "Finding local number"
-        ) : emergencyStatus === "unavailable" ? (
-          "Retry local number"
-        ) : (
-          "Find local number"
-        )}
-        </span>
-        {emergencyStatus === "resolving" ? (
-          <Loader2 className="h-4 w-4 shrink-0 animate-spin" aria-hidden />
-        ) : (
-          <ChevronRight
-            className="h-4 w-4 shrink-0 text-[color:var(--app-tertiary-label)]"
-            aria-hidden
-          />
-        )}
-      </button>
-    );
-
   return (
     <section
       data-testid="sms-safety-screen"
@@ -447,6 +325,8 @@ export function SosPanel({
           <PageSubtitle>
             {alertedSummary}
           </PageSubtitle>
+        ) : recipientsLoading && !readyRecipients.length ? (
+          <PageSubtitle>Checking emergency contacts…</PageSubtitle>
         ) : noReadyRecipients ? (
           <PageSubtitle>
             No emergency contacts
@@ -468,8 +348,16 @@ export function SosPanel({
         )}
       </header>
 
-      {noReadyRecipients ? (
-        <div className="mt-6 space-y-6">
+      {recipientsLoading && !readyRecipients.length ? (
+        <div
+          role="status"
+          className="mt-6 flex min-h-24 items-center justify-center gap-2 rounded-[16px] bg-[color:var(--app-card-surface-default-solid)] text-[14px] text-[color:var(--app-secondary-label)]"
+        >
+          <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+          Updating your SMS Circle…
+        </div>
+      ) : noReadyRecipients ? (
+        <div className="mt-6">
           <button
             type="button"
             onClick={onEditContacts}
@@ -477,7 +365,6 @@ export function SosPanel({
           >
             Add emergency contacts
           </button>
-          {callControl}
         </div>
       ) : active ? (
         <div className="mt-6 space-y-6">
@@ -507,8 +394,6 @@ export function SosPanel({
               SENT
             </span>
           </div>
-
-          {callControl}
 
           <button
             type="button"
@@ -677,8 +562,6 @@ export function SosPanel({
               {statusLabel}
             </StatusText>
           </div>
-
-          <div className="mt-6">{callControl}</div>
         </>
       )}
 

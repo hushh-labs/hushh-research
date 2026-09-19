@@ -1322,6 +1322,7 @@ export function CircleDetailFlow({
   onCancelMemberInvite,
   onLeave,
   onDelete,
+  onProceedToSms,
 }: {
   circleId: string;
   currentUserId: string | null;
@@ -1390,6 +1391,8 @@ export function CircleDetailFlow({
   onCancelMemberInvite: (inviteId: string) => Promise<void>;
   onLeave: (circleId: string) => Promise<void>;
   onDelete: (circleId: string) => Promise<void>;
+  /** SMS Circle only: continue once at least one member besides the owner exists. */
+  onProceedToSms?: () => void;
 }) {
   const [loadedCircle, setCircle] = useState<
     OneLocationCircleDetail | OneLocationCircleOverview | null
@@ -1520,6 +1523,7 @@ export function CircleDetailFlow({
   // A re-read the caller asked for. Unlike the effect above it resets nothing:
   // the sheet stays open, the search keeps its text, the selection survives.
   const lastReloadSignalRef = useRef(reloadSignal);
+  const lastEligibleReloadSignalRef = useRef(reloadSignal);
   useEffect(() => {
     if (reloadSignal === lastReloadSignalRef.current) return;
     lastReloadSignalRef.current = reloadSignal;
@@ -1558,6 +1562,9 @@ export function CircleDetailFlow({
     circle?.inviteCodeNeedsOwnerRotation,
   );
   const members = memberRows;
+  const hasOtherMember = members.some(
+    (member) => member.userId !== currentUserId,
+  );
   // One request in flight at a time: the roster re-renders from the reloaded
   // Circle, and two overlapping sends would leave the wrong row spinning.
   const [connectingUserId, setConnectingUserId] = useState<string | null>(null);
@@ -1726,14 +1733,19 @@ export function CircleDetailFlow({
       setPeopleTotalCount(
         pagedResult?.totalCount ?? result.eligibleConnections.length,
       );
-      setSelectedConnections(
-        (current) =>
-          new Map(
-            [...current].slice(
-              0,
-              circleInviteSelectionLimit(result.remainingCapacity),
-            ),
-          ),
+      const eligibleByUserId = new Map(
+        result.eligibleConnections.map((connection) => [
+          connection.userId,
+          connection,
+        ]),
+      );
+      setSelectedConnections((current) =>
+        new Map(
+          [...current]
+            .filter(([userId]) => eligibleByUserId.has(userId))
+            .map(([userId]) => [userId, eligibleByUserId.get(userId)!] as const)
+            .slice(0, circleInviteSelectionLimit(result.remainingCapacity)),
+        ),
       );
     } catch (error) {
       if (requestId !== peopleRequestRef.current) return;
@@ -1755,6 +1767,20 @@ export function CircleDetailFlow({
     setSelectedConnections(new Map());
     void loadEligibleConnections();
   };
+
+  useEffect(() => {
+    if (reloadSignal === lastEligibleReloadSignalRef.current) return;
+    lastEligibleReloadSignalRef.current = reloadSignal;
+    if (!peopleSheetOpen || !circle) return;
+    // A relationship removed in Connect must disappear from an already-open
+    // picker too. Reload in place so search text and the sheet stay put; the
+    // response also trims selections that no longer fit the authoritative
+    // eligible set.
+    void loadEligibleConnections({ page: 1, query: peopleSearch });
+    // This effect is signal-driven. Capturing the current loader is intended;
+    // depending on its render-local identity would refetch on every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [circle?.id, peopleSearch, peopleSheetOpen, reloadSignal]);
 
   useEffect(() => {
     if (!peopleSheetOpen || !onLoadEligibleConnectionsPage || !circle) return;
@@ -1985,6 +2011,17 @@ export function CircleDetailFlow({
               </Button>
             ) : null}
           </div>
+
+          {onProceedToSms && hasOtherMember ? (
+            <Button
+              type="button"
+              onClick={onProceedToSms}
+              className="mx-auto h-12 w-full max-w-[320px] rounded-[14px] text-[15px] font-semibold"
+              data-testid="one-location-proceed-to-sms"
+            >
+              Proceed to SMS
+            </Button>
+          ) : null}
 
           {isOwner && circle.systemKind !== "trusted" ? (
             <Sheet

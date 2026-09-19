@@ -42,11 +42,10 @@ const LOCATION_PAGE_SOURCE = fs.readFileSync(
 );
 
 describe("One Location SMS emergency actions", () => {
-  it("renders a dialer only after the local emergency number resolves", () => {
-    expect(SMS_PANEL_SOURCE).toContain(
-      'emergencyStatus === "resolved" && emergency',
-    );
-    expect(SMS_PANEL_SOURCE).toContain("href={`tel:${emergency.number}`}");
+  it("does not render an emergency call action on Save My Soul", () => {
+    expect(SMS_PANEL_SOURCE).not.toContain("sos-emergency-actions");
+    expect(SMS_PANEL_SOURCE).not.toContain("href={`tel:${emergency.number}`}");
+    expect(SMS_PANEL_SOURCE).not.toContain("<Phone");
     expect(SMS_PANEL_SOURCE).not.toContain("emergencyInfoForPoint");
     expect(SMS_PANEL_SOURCE).not.toContain('href="tel:911"');
   });

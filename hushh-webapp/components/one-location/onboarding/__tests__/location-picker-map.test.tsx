@@ -118,7 +118,7 @@ describe("LocationPickerMap", () => {
     expect(mapsHookMock).toHaveBeenLastCalledWith({ enabled: true });
   });
 
-  it("keeps the pin action footer on an opaque safe-area surface", () => {
+  it("centres the pin actions without a separate footer band or decorative tick", () => {
     render(
       <LocationPickerMap
         initialLatitude={28.6139}
@@ -129,12 +129,15 @@ describe("LocationPickerMap", () => {
       />,
     );
 
-    const footer = screen.getByRole("button", { name: "Confirm location" })
-      .parentElement!;
-    expect(footer.className).toContain("bg-background");
-    expect(footer.className).toContain(
+    const confirm = screen.getByRole("button", { name: "Confirm location" });
+    const actions = screen.getByTestId("location-picker-actions");
+    expect(actions).toHaveClass("mx-auto", "w-full", "max-w-[320px]");
+    expect(actions.className).not.toContain("bg-background");
+    expect(actions.className).toContain(
       "pb-[max(1.5rem,env(safe-area-inset-bottom))]",
     );
+    expect(confirm.querySelector("svg")).toBeNull();
+    expect(screen.getByRole("button", { name: "Cancel" })).toBeTruthy();
   });
 
 

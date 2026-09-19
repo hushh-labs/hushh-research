@@ -9,6 +9,7 @@ import {
   type CSSProperties,
 } from "react";
 import {
+  CaretDownIcon,
   Check,
   Compass,
   Loader2,
@@ -22,13 +23,6 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 
 import { StarRatingInput } from "@/components/one-location/nearby-check-in/star-rating-input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -2668,7 +2662,9 @@ export function NearbyCheckInSheet({
                     to say what the list is. */}
                   <div className="flex items-center justify-between gap-3">
                     <div>
-                      <h2 className="font-semibold">Nearby places</h2>
+                      <h2 className="text-[15px] font-semibold leading-5">
+                        Nearby places
+                      </h2>
                     </div>
                     {capturing ? (
                       <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
@@ -2975,46 +2971,50 @@ export function NearbyCheckInSheet({
                     pair, no leading glyph. One of the two section headings
                     carrying an icon and the other not was the only reason
                     they did not read as a pair. */}
-                  <h2 className="font-semibold" id="nearby-check-in-duration-label">
+                  <h2
+                    className="text-[15px] font-semibold leading-5"
+                    id="nearby-check-in-duration-label"
+                  >
                     Visible for
                   </h2>
-                  {/* One dropdown instead of three cells: the same three stay
-                    lengths, the same `durationMinutes` state, just no row that
-                    can wrap or crowd the sheet on a narrow phone. */}
-                  <Select
-                    value={String(durationMinutes)}
-                    onValueChange={(next) => {
-                      const parsed = Number(next);
-                      if (isCheckInDuration(parsed)) {
-                        setDurationMinutes(parsed);
-                      }
-                    }}
-                  >
-                    <SelectTrigger
+                  {/* Keep the duration menu inside the sheet's own interaction
+                    tree. The portaled menu was treated as an outside
+                    interaction by this intentionally non-dismissible sheet on
+                    UAT, so it closed before it could paint. A native select is
+                    reliable on web and in the mobile WebView, keeps the same
+                    three values, and gives each platform its familiar picker. */}
+                  <div className="relative mt-3">
+                    <select
                       aria-labelledby="nearby-check-in-duration-label"
-                      className="mt-3 h-11 w-full rounded-[14px] border-[color:var(--app-separator)] bg-[color:var(--app-primary-surface)] shadow-none"
-                    >
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent
-                      align="start"
-                      position="popper"
-                      className="rounded-[14px]"
+                      value={durationMinutes}
+                      onChange={(event) => {
+                        const parsed = Number(event.target.value);
+                        if (isCheckInDuration(parsed)) {
+                          setDurationMinutes(parsed);
+                        }
+                      }}
+                      className="h-11 w-full appearance-none rounded-[var(--app-input-radius)] border border-[color:var(--app-separator)] bg-[color:var(--app-primary-surface)] px-3 pr-10 text-sm text-foreground shadow-none outline-none transition-[border-color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
                     >
                       {DURATIONS.map((duration) => (
-                        <SelectItem
+                        <option
                           key={duration.value}
                           value={String(duration.value)}
                         >
                           {duration.label}
-                        </SelectItem>
+                        </option>
                       ))}
-                    </SelectContent>
-                  </Select>
+                    </select>
+                    <CaretDownIcon
+                      aria-hidden="true"
+                      className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
+                    />
+                  </div>
                 </section>
 
                 <section>
-                  <h2 className="font-semibold">Visibility</h2>
+                  <h2 className="text-[15px] font-semibold leading-5">
+                    Visibility
+                  </h2>
                   <div className="mt-3 rounded-2xl border border-border/60">
                     <label className="flex cursor-pointer items-start gap-3 p-4">
                       <Checkbox

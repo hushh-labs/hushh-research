@@ -407,16 +407,21 @@ describe("NearbyCheckInSheet", () => {
       name: "Visible for",
     });
     // Default stay is an hour, shown on the closed trigger.
-    expect(trigger).toHaveTextContent("1 hour");
+    expect(trigger).toHaveValue("60");
 
-    // Still a working control, not just a tidier one.
-    fireEvent.click(trigger);
-    fireEvent.click(await screen.findByRole("option", { name: "2 hours" }));
-    await waitFor(() => {
-      expect(
-        within(panel).getByRole("combobox", { name: "Visible for" }),
-      ).toHaveTextContent("2 hours");
-    });
+    // A native select stays in the sheet's interaction tree, so the mobile
+    // picker cannot be dismissed as an outside portal before it opens.
+    expect(within(trigger).getAllByRole("option")).toHaveLength(3);
+    fireEvent.change(trigger, { target: { value: "120" } });
+    expect(trigger).toHaveValue("120");
+
+    // Section headings are compact body hierarchy, not page-scale h2s.
+    for (const name of ["Nearby places", "Visible for", "Visibility"]) {
+      expect(within(panel).getByRole("heading", { name })).toHaveClass(
+        "text-[15px]",
+        "leading-5",
+      );
+    }
   });
 
   it("keeps the required consent and connection preference visible", async () => {

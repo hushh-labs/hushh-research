@@ -8,6 +8,9 @@ import { awaitProductFont, productFontStyle } from "./fixtures/product-font";
 // Relative, not "@/": the e2e tsconfig deliberately carries no path aliases.
 import {
   PICKER_MAP_HEIGHT_CLASSNAME,
+  PICKER_ACTIONS_CLASSNAME,
+  PICKER_PRIMARY_ACTION_CLASSNAME,
+  PICKER_SECONDARY_ACTION_CLASSNAME,
   SHEET_BODY_CLASSNAME,
   SHEET_DETAILS_SHELL_CLASSNAME,
   SHEET_FOOTER_CLASSNAME,
@@ -101,6 +104,9 @@ async function buildFixture({
   const classes = [
     shell,
     PICKER_MAP_HEIGHT_CLASSNAME,
+    PICKER_ACTIONS_CLASSNAME,
+    PICKER_PRIMARY_ACTION_CLASSNAME,
+    PICKER_SECONDARY_ACTION_CLASSNAME,
     SHEET_DETAILS_SHELL_CLASSNAME,
     SHEET_HEADER_CLASSNAME,
     SHEET_BODY_CLASSNAME,
@@ -133,6 +139,12 @@ async function buildFixture({
 <link rel="stylesheet" href="fixture.css">
 <style>:root{--app-separator:#e5e5ea;--app-card-surface-default-solid:#fff}</style>
 </head><body style="margin:0;background:#111">
+<section data-testid="picker-surface" style="box-sizing:border-box;width:100%;padding:20px;background:white">
+  <div class="${PICKER_ACTIONS_CLASSNAME}" data-testid="picker-actions">
+    <button class="${PICKER_PRIMARY_ACTION_CLASSNAME}" data-testid="picker-confirm">Confirm pin</button>
+    <button class="${PICKER_SECONDARY_ACTION_CLASSNAME}" data-testid="picker-skip">Skip for now</button>
+  </div>
+</section>
 <div class="${shell} ${SHEET_DETAILS_SHELL_CLASSNAME}" data-testid="save-location-modal">
   <header class="${SHEET_HEADER_CLASSNAME}" data-testid="sheet-header">
     <div class="${row} mt-1">
@@ -166,6 +178,36 @@ async function boxOf(
 }
 
 test.describe("Save-location address sheet layout", () => {
+  for (const width of SHEET_LAYOUT_WIDTHS) {
+    test(`centres compact pin actions at ${width}px`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 844 });
+      await page.goto(await buildFixture());
+      await awaitProductFont(page);
+
+      const surface = await boxOf(page, "picker-surface");
+      const actions = await boxOf(page, "picker-actions");
+      const confirm = await boxOf(page, "picker-confirm");
+      const skip = await boxOf(page, "picker-skip");
+
+      expect(actions.width).toBeLessThanOrEqual(320.5);
+      expect(actions.width).toBeCloseTo(Math.min(320, surface.width - 40), 0);
+      expect(
+        Math.abs(
+          actions.x + actions.width / 2 - (surface.x + surface.width / 2),
+        ),
+      ).toBeLessThanOrEqual(1);
+      expect(confirm.width).toBeCloseTo(actions.width, 0);
+      expect(skip.width).toBeCloseTo(actions.width, 0);
+      expect(confirm.height).toBeGreaterThanOrEqual(44);
+      expect(skip.height).toBeGreaterThanOrEqual(44);
+      expect(
+        await page.getByTestId("picker-actions").evaluate(
+          (node) => getComputedStyle(node).backgroundColor,
+        ),
+      ).toBe("rgba(0, 0, 0, 0)");
+    });
+  }
+
   for (const width of SHEET_LAYOUT_WIDTHS) {
     test(`keeps header, body and footer apart at ${width}px`, async ({
       page,

@@ -59,6 +59,7 @@ import { useLocalOnboardingActionHandler } from "@/lib/agent/local-onboarding-ac
 import { oneLocationErrorMessage } from "@/lib/one-location/error-message";
 import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 import { VOICE_CONFIRM_DATA_KEY } from "@/lib/voice/voice-action-card";
+import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 
 type Props = { personRef: string; initialProfile: PublicPersonProfile | null };
 
@@ -310,6 +311,11 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
                 resolvedPersonRef,
                 idToken,
               );
+      if (action === "remove") {
+        CacheSyncService.onConnectionGraphMutated(user.uid);
+      } else {
+        CacheSyncService.onConnectionCapabilityMutated(user.uid);
+      }
       setViewerProfileState((current) =>
         current.personRef === resolvedPersonRef && current.profile
           ? {

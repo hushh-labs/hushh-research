@@ -30,6 +30,7 @@ import {
   readLocationWorkspaceMemory,
   writeLocationWorkspaceMemory,
 } from "@/lib/one-location/location-workspace-memory";
+import { CONNECTION_GRAPH_CHANGED_EVENT } from "@/lib/connections/connection-graph-events";
 
 describe("CacheSyncService mutation cascades", () => {
   const userId = "test-user-123";
@@ -122,6 +123,20 @@ describe("CacheSyncService mutation cascades", () => {
     const invalidatedKeys = spyInvalidate.mock.calls.map((call) => call[0]);
     expect(invalidatedKeys).toContain(CACHE_KEYS.CONNECTIONS_INCOMING(userId));
     expect(readLocationWorkspaceMemory(userId).myLocationPoint).toBeNull();
+  });
+
+  it("onConnectionGraphMutated announces the owner whose live consumers are stale", () => {
+    const details: unknown[] = [];
+    const listener = (event: Event) =>
+      details.push((event as CustomEvent).detail);
+    window.addEventListener(CONNECTION_GRAPH_CHANGED_EVENT, listener);
+
+    CacheSyncService.onConnectionGraphMutated(userId);
+
+    expect(details).toEqual([
+      expect.objectContaining({ userId, changedAt: expect.any(Number) }),
+    ]);
+    window.removeEventListener(CONNECTION_GRAPH_CHANGED_EVENT, listener);
   });
 
   it("owns optimistic Feed read state and preserves rows above the watermark", () => {

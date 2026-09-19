@@ -19,6 +19,7 @@ import {
   ExternalLink,
   Loader2,
   Link2,
+  LocateFixed,
   MapPin,
   Pencil,
   RefreshCw,
@@ -561,20 +562,20 @@ export function SharedWithMeCard({
         "min-w-0 overflow-hidden rounded-[22px] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] p-0 shadow-[var(--app-card-shadow-feature)]",
       )}
     >
-      <div className="space-y-3.5 p-4 pb-3 sm:p-5 sm:pb-4">
+      <div className="space-y-2.5 p-3.5 pb-2.5 sm:p-4 sm:pb-3">
         <div className="flex items-start gap-3">
           <span className="relative shrink-0" aria-hidden="true">
             <Avatar
               initials={initialsFrom(name)}
               imageUrl={photoUrl}
-              size={46}
+              size={40}
             />
             <span className="absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-[color:var(--app-card-surface-default-solid)] bg-[color:var(--app-success)]" />
           </span>
           <div className="min-w-0 flex-1 pt-0.5">
             <RowLabel
               as="p"
-              className="truncate text-[18px] font-semibold leading-6 text-[color:var(--app-label)]"
+              className="truncate text-[16px] font-semibold leading-5 text-[color:var(--app-label)]"
             >
               {name}
             </RowLabel>
@@ -677,7 +678,7 @@ export function SharedWithMeCard({
       </div>
 
       {canTogglePreview ? (
-        <div className="px-4 pb-3 sm:px-5 sm:pb-4">
+        <div className="px-3.5 pb-2.5 sm:px-4 sm:pb-3">
           <button
             type="button"
             className={cn(
@@ -714,18 +715,21 @@ export function SharedWithMeCard({
       ) : null}
 
       <div id={previewRegionId} hidden={!isPreviewExpanded}>
-        <div className="relative mx-3.5 overflow-hidden rounded-[18px] border border-[color:var(--app-card-border-strong)] bg-[color:var(--app-secondary-fill)] sm:mx-5">
+        <div
+          data-testid="shared-location-map-frame"
+          className="relative mx-3.5 overflow-hidden rounded-[16px] border border-[color:var(--app-separator)] bg-[color:var(--app-secondary-fill)] sm:mx-4"
+        >
           {children}
           {isPreviewExpanded && onRecenter ? (
             <ShellActionSurface
               variant="icon"
-              className="absolute right-3 top-3 z-10 h-11 w-11 bg-[color:var(--app-card-surface-default-solid)]/90 shadow-[var(--app-card-shadow-standard)] backdrop-blur"
+              className="absolute right-2.5 top-2.5 z-10 h-11 w-11 border border-[color:var(--app-separator)] bg-[color:var(--app-card-surface-default-solid)]/92 text-[color:var(--app-accent)] shadow-[var(--app-card-shadow-standard)] backdrop-blur"
               aria-label={`Recenter map on ${name}'s location`}
               aria-controls={previewRegionId}
-              title="Recenter map"
+              title="Reset map view"
               onClick={onRecenter}
             >
-              <RefreshCw className="h-4 w-4" aria-hidden="true" />
+              <LocateFixed className="h-[18px] w-[18px]" aria-hidden="true" />
             </ShellActionSurface>
           ) : null}
         </div>
@@ -746,13 +750,16 @@ export function SharedWithMeCard({
       ) : null}
 
       {canOpenMap || onRemove ? (
-        <div className="mt-4 flex min-w-0 flex-col gap-1 border-t border-[color:var(--app-separator)] px-3 py-2.5 min-[390px]:flex-row min-[390px]:items-center sm:px-4">
+        <div
+          data-testid="shared-location-card-actions"
+          className="mt-2 flex min-w-0 flex-row flex-wrap items-center gap-1 border-t border-[color:var(--app-separator)] px-3 py-1.5 sm:px-3.5"
+        >
           {canOpenMap ? (
             <Button
               asChild
               variant="ghost"
               size="sm"
-              className="ui-text-button-label h-11 min-w-0 justify-start rounded-[12px] px-3 text-[color:var(--app-accent)] hover:bg-[color:var(--app-accent-tint)] hover:text-[color:var(--app-accent-deep)] min-[390px]:justify-center"
+              className="h-11 min-w-0 justify-center rounded-[11px] px-2.5 text-[13px] font-medium text-[color:var(--app-accent)] hover:bg-[color:var(--app-accent-tint)] hover:text-[color:var(--app-accent-deep)]"
             >
               <a
                 href={mapHref}
@@ -761,7 +768,7 @@ export function SharedWithMeCard({
                 aria-label="Open shared location in Google Maps"
               >
                 Open in Google Maps
-                <ExternalLink className="ml-1.5 h-3.5 w-3.5" />
+                <ExternalLink className="ml-1.5 h-3.5 w-3.5" aria-hidden="true" />
               </a>
             </Button>
           ) : null}
@@ -771,7 +778,7 @@ export function SharedWithMeCard({
               onClick={onRemove}
               disabled={removeBusy}
               aria-label={`Remove ${name} from Shared with me`}
-              className="ui-text-button-label inline-flex min-h-11 items-center justify-center rounded-[12px] px-3 text-[color:var(--app-destructive)] transition-colors hover:bg-[color:var(--app-destructive-tint)] hover:text-[color:var(--app-destructive)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)] focus-visible:ring-offset-2 disabled:cursor-wait disabled:opacity-60"
+              className="inline-flex min-h-11 items-center justify-center rounded-[11px] px-2.5 text-[13px] font-medium text-[color:var(--app-destructive)] transition-colors hover:bg-[color:var(--app-destructive-tint)] hover:text-[color:var(--app-destructive)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)] focus-visible:ring-offset-2 disabled:cursor-wait disabled:opacity-60"
             >
               <X className="mr-1.5 h-4 w-4" aria-hidden="true" />
               {removeBusy ? "Stopping…" : "Stop viewing"}
