@@ -1083,6 +1083,23 @@ class ScopeExposureResponse(BaseModel):
     manifest: dict = Field(default_factory=dict)
 
 
+class ManifestPathRepairRequest(BaseModel):
+    user_id: str = Field(..., min_length=1, max_length=256, description="User's ID")
+    expected_content_revision: Optional[int] = Field(default=None, ge=0, le=1000000)
+    expected_manifest_revision: Optional[int] = Field(default=None, ge=0, le=1000000)
+
+
+class ManifestPathRepairResponse(BaseModel):
+    success: bool
+    conflict: bool = False
+    idempotent_replay: bool = False
+    changed: bool = False
+    code: Optional[str] = Field(default=None, max_length=128)
+    message: Optional[str] = Field(default=None, max_length=512)
+    data_version: Optional[int] = Field(default=None, ge=0, le=1000000)
+    manifest_revision: Optional[int] = Field(default=None, ge=0, le=1000000)
+
+
 class PublicProfileProjectionRequest(BaseModel):
     user_id: str = Field(..., min_length=1, max_length=256, description="User's ID")
     scope_handle: Optional[str] = Field(default=None, max_length=256)
@@ -1180,6 +1197,46 @@ async def update_scope_exposure(
         revoked_grant_ids=list(result.get("revoked_grant_ids") or []),
         manifest=dict(result.get("manifest") or {}),
     )
+
+
+@router.post(
+    "/domains/{domain}/repair-manifest-paths",
+    response_model=ManifestPathRepairResponse,
+)
+async def repair_manifest_paths(
+    domain: _Domain,
+    request: ManifestPathRepairRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    """Repair only the owner-scoped historical `_entities` path shape."""
+    if token_data.get("user_id") != request.user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Token user_id does not match request user_id",
+        )
+
+    result = await get_pkm_service().repair_historical_manifest_paths(
+        user_id=request.user_id,
+        domain=canonical_top_level_domain(domain),
+        expected_content_revision=request.expected_content_revision,
+        expected_manifest_revision=request.expected_manifest_revision,
+    )
+    if result.get("code") == "repair_unavailable":
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=result.get("message") or "The PKM manifest repair is temporarily unavailable.",
+        )
+    if result.get("conflict"):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "PKM_MANIFEST_REPAIR_CONFLICT",
+                "message": result.get("message") or "PKM state changed. Refresh and retry.",
+                "data_version": result.get("data_version"),
+                "manifest_revision": result.get("manifest_revision"),
+            },
+        )
+    return ManifestPathRepairResponse(**result)
 
 
 @router.post(

@@ -40,6 +40,10 @@ from hushh_mcp.services.domain_contracts import (
     is_owner_managed_reserved_domain,
     validate_dynamic_top_level_domain,
 )
+from hushh_mcp.services.pkm_manifest_repair import (
+    ManifestRepairError,
+    build_entity_path_repair_plan,
+)
 from hushh_mcp.services.pkm_mutation_contracts import (
     PKM_MAX_AFFECTED_SHARING_IDS,
     LocationPkmFinalizeAuthorizationV1,
@@ -4455,6 +4459,194 @@ class PersonalKnowledgeModelService:
             "paths": paths,
             "scopes": scopes,
         }
+
+    async def repair_historical_manifest_paths(
+        self,
+        *,
+        user_id: str,
+        domain: str,
+        expected_content_revision: int | None = None,
+        expected_manifest_revision: int | None = None,
+    ) -> dict[str, Any]:
+        """Repair only the proven historical ``entities.entities`` shape.
+
+        This intentionally reads the raw snapshot instead of the compatibility
+        manifest reader, because that reader normalizes scope rows for display.
+        The metadata-only RPC rechecks both revisions while holding the same
+        owner/domain advisory lock, so a concurrent encrypted content write
+        cannot be overwritten by a stale repair plan.
+        """
+
+        canonical_domain = self._canonicalize_domain_key(domain)
+        if not canonical_domain or not user_id:
+            return {
+                "success": False,
+                "code": "invalid_repair_target",
+                "message": "A valid owner and domain are required.",
+            }
+
+        try:
+            rpc_result = await self._run_rpc(
+                "get_pkm_domain_snapshot_v1",
+                {
+                    "p_user_id": user_id,
+                    "p_domain": canonical_domain,
+                    "p_segment_ids": [],
+                },
+            )
+            snapshot = self._unwrap_rpc_payload(rpc_result, "get_pkm_domain_snapshot_v1")
+            if not isinstance(snapshot, dict):
+                return {
+                    "success": False,
+                    "code": "snapshot_unavailable",
+                    "message": "The PKM snapshot is temporarily unavailable.",
+                }
+
+            content_revision = self._to_non_negative_int(snapshot.get("content_revision"))
+            manifest_revision = self._to_non_negative_int(snapshot.get("manifest_revision"))
+            manifest = snapshot.get("manifest")
+            paths = snapshot.get("paths")
+            scopes = snapshot.get("scopes")
+            if (
+                content_revision is None
+                or manifest_revision is None
+                or not isinstance(manifest, dict)
+                or not isinstance(paths, list)
+                or not isinstance(scopes, list)
+            ):
+                return {
+                    "success": False,
+                    "code": "snapshot_incomplete",
+                    "message": "The PKM snapshot is incomplete and was not changed.",
+                }
+            if (
+                expected_content_revision is not None
+                and expected_content_revision != content_revision
+            ):
+                return {
+                    "success": False,
+                    "conflict": True,
+                    "code": "content_revision_conflict",
+                    "message": "The PKM content changed. Refresh and retry.",
+                    "data_version": content_revision,
+                    "manifest_revision": manifest_revision,
+                }
+            if (
+                expected_manifest_revision is not None
+                and expected_manifest_revision != manifest_revision
+            ):
+                return {
+                    "success": False,
+                    "conflict": True,
+                    "code": "manifest_revision_conflict",
+                    "message": "The PKM manifest changed. Refresh and retry.",
+                    "data_version": content_revision,
+                    "manifest_revision": manifest_revision,
+                }
+
+            plan = build_entity_path_repair_plan(
+                user_id=user_id,
+                domain=canonical_domain,
+                expected_content_revision=content_revision,
+                expected_manifest_revision=manifest_revision,
+                manifest=manifest,
+                path_rows=paths,
+                scope_rows=scopes,
+            )
+            if not plan.requires_commit:
+                return {
+                    "success": True,
+                    "conflict": False,
+                    "idempotent_replay": True,
+                    "changed": False,
+                    "data_version": content_revision,
+                    "manifest_revision": manifest_revision,
+                }
+
+            receipt_payload = json.dumps(
+                {
+                    "version": 1,
+                    "user_id": user_id,
+                    "domain": canonical_domain,
+                    "content_revision": content_revision,
+                    "manifest_revision": manifest_revision,
+                    "changed_paths": list(plan.changed_paths),
+                },
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+            repair_receipt_id = hashlib.sha256(receipt_payload.encode("utf-8")).hexdigest()
+            summary_patch = (
+                dict(plan.manifest_row.get("summary_projection"))
+                if isinstance(plan.manifest_row.get("summary_projection"), dict)
+                else {}
+            )
+            summary_patch.update(
+                {
+                    "path_count": len(plan.path_rows),
+                    "externalizable_path_count": sum(
+                        1 for row in plan.path_rows if row.get("exposure_eligibility") is True
+                    ),
+                }
+            )
+            repaired_result = await self._run_rpc(
+                "repair_pkm_manifest_paths_v1",
+                {
+                    "p_user_id": user_id,
+                    "p_domain": canonical_domain,
+                    "p_expected_content_revision": content_revision,
+                    "p_expected_manifest_revision": manifest_revision,
+                    "p_next_manifest_revision": plan.next_manifest_revision,
+                    "p_repair_receipt_id": repair_receipt_id,
+                    "p_manifest_row": JsonParam(plan.manifest_row),
+                    "p_path_rows": JsonParam(list(plan.path_rows)),
+                    "p_scope_rows": JsonParam(list(plan.scope_rows)),
+                    "p_summary_patch": JsonParam(summary_patch),
+                    "p_changed_paths": JsonParam(list(plan.changed_paths)),
+                    "p_event_metadata": JsonParam({"source": "owner_manifest_reconciliation"}),
+                },
+            )
+            result = self._unwrap_rpc_payload(
+                repaired_result,
+                "repair_pkm_manifest_paths_v1",
+            )
+            if not isinstance(result, dict):
+                return {
+                    "success": False,
+                    "code": "repair_failed",
+                    "message": "The PKM manifest repair did not return a result.",
+                }
+            if result.get("conflict"):
+                result.setdefault("code", "revision_conflict")
+                result.setdefault("message", "The PKM changed. Refresh and retry.")
+            result["changed"] = bool(result.get("success")) and not bool(
+                result.get("idempotent_replay")
+            )
+            return result
+        except ManifestRepairError as exc:
+            logger.warning(
+                "pkm.manifest_repair.rejected user=%s domain=%s reason=%s",
+                user_id,
+                canonical_domain,
+                exc,
+            )
+            return {
+                "success": False,
+                "code": "unsafe_repair_snapshot",
+                "message": "The stored PKM metadata was not changed because it needs review.",
+            }
+        except Exception as exc:
+            logger.error(
+                "pkm.manifest_repair.error user=%s domain=%s: %s",
+                user_id,
+                canonical_domain,
+                exc,
+            )
+            return {
+                "success": False,
+                "code": "repair_unavailable",
+                "message": "The PKM manifest repair is temporarily unavailable.",
+            }
 
     async def delete_user_data(self, user_id: str) -> bool:
         """
