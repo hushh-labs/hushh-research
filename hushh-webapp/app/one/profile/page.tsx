@@ -1,22 +1,26 @@
+import { Suspense } from "react";
 import { redirect } from "next/navigation";
+
+import { legacyProfileRouteRedirectHref } from "@/lib/navigation/profile-pane";
+
+import { ProfileRouteClientRedirect } from "./profile-route-client-redirect";
 
 type ProfilePageProps = {
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
 };
 
 export default async function ProfilePage({ searchParams }: ProfilePageProps) {
+  // Search parameters are request state on the web but browser state in the
+  // serverless Capacitor bundle: awaiting them during the static export fails
+  // the build, and there is no server to redirect from. Inside the bundle the
+  // client reads the query and performs the same redirect.
+  if (process.env.CAPACITOR_BUILD === "true") {
+    return (
+      <Suspense fallback={null}>
+        <ProfileRouteClientRedirect />
+      </Suspense>
+    );
+  }
   const query = (await searchParams) ?? {};
-  const params = new URLSearchParams();
-  params.set("profile_pane", "1");
-  const panel = String(
-    query.panel ?? query.tab ?? query.profile_panel ?? "",
-  ).trim();
-  if (panel) {
-    params.set("profile_panel", panel);
-  }
-  const detail = String(query.detail ?? query.profile_detail ?? "").trim();
-  if (detail) {
-    params.set("profile_detail", detail);
-  }
-  redirect(`/one?${params.toString()}`);
+  redirect(legacyProfileRouteRedirectHref(query));
 }
