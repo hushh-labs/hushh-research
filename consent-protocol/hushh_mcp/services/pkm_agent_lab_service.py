@@ -509,8 +509,9 @@ _SEGMENTATION_SCHEMA = {
         },
         "source_agent": {"type": "STRING"},
         "contract_version": {"type": "INTEGER"},
+        "has_more_candidates": {"type": "BOOLEAN"},
     },
-    "required": ["segments", "source_agent", "contract_version"],
+    "required": ["segments", "source_agent", "contract_version", "has_more_candidates"],
 }
 
 _KYC_IDENTITY_FACT_SCHEMA = {
@@ -989,27 +990,24 @@ class PKMAgentLabService:
         if not isinstance(items, list):
             return []
 
-        normalized_message = cls._safe_excerpt(message, limit=50000).casefold()
         sanitized: list[dict[str, Any]] = []
         seen: set[str] = set()
         for item in items:
             if not isinstance(item, dict):
                 continue
-            source_text = cls._safe_excerpt(
-                str(item.get("source_text") or ""),
-                limit=_MAX_SEGMENT_SOURCE_CHARS,
-            )
-            if not source_text:
+            source_text = item.get("source_text")
+            if not isinstance(source_text, str) or not source_text.strip():
                 continue
-            normalized = source_text.casefold()
+            if len(source_text) > _MAX_SEGMENT_SOURCE_CHARS:
+                continue
             # Segmentation may select only a direct part of the owner's text.
             # Never let a rewritten or invented clause become a persistence
             # candidate, even if a provider returned valid JSON.
-            if normalized not in normalized_message:
+            if source_text not in message:
                 continue
-            if normalized in seen:
+            if source_text in seen:
                 continue
-            seen.add(normalized)
+            seen.add(source_text)
             sanitized.append(
                 {
                     "source_text": source_text,
@@ -1651,6 +1649,7 @@ class PKMAgentLabService:
             genai_types,
             active_model,
             temperature=0.0,
+            system_instruction=getattr(manifest, "system_instruction", None),
             # These calls are deterministic schema workers inside a bounded,
             # sequential PKM graph. Gemini's default thinking can consume the
             # shared preview deadline before the final structure contract runs,
@@ -1854,39 +1853,12 @@ class PKMAgentLabService:
         message: str,
         strict_small_model: bool,
     ) -> str:
-        header = (
-            "You are the Memory Segmentation Agent for Hussh Kai.\n"
-            "Return JSON only with segments, source_agent, contract_version.\n"
-            "Select zero to eight direct quotes that could be durable PKM memory candidates.\n"
-        )
-        if strict_small_model:
-            return (
-                f"{header}"
-                f"Message: {message}\n"
-                "Rules:\n"
-                "- Return an empty segments array when there is no explicit durable fact, preference, routine, goal, relationship, or health constraint.\n"
-                "- Keep only direct owner-stated claims that remain useful after this conversation.\n"
-                "- Exclude greetings, introductions, filler, generic self-description, one-off plans, current moods, requests, and form/chat boilerplate.\n"
-                "- Keep each segment self-contained and short.\n"
-                "- source_text must be an exact contiguous quote from the message.\n"
-                "- Split only when the prompt clearly contains multiple independent durable ideas.\n"
-                "- Numbered or Markdown headings are boundaries: never merge across two headings, and never include the heading line in source_text.\n"
-                "- contract_version must be 1.\n"
-                'Examples: {"message":"I like to swim and prefer early breakfasts.","segments":[{"source_text":"I like to swim.","confidence":0.91,"reason":"Exercise preference."},{"source_text":"I prefer early breakfasts.","confidence":0.84,"reason":"Separate food habit."}]} '
-                '{"message":"I usually book aisle seats.","segments":[{"source_text":"I usually book aisle seats.","confidence":0.97,"reason":"Single travel preference."}]}'
-            )
-        return (
-            f"{header}"
-            f"Natural language message: {message}\n"
-            "Rules:\n"
-            "- Return an empty segments array when there is no explicit durable fact, preference, routine, goal, relationship, or health constraint.\n"
-            "- Exclude greetings, introductions, filler, generic self-description, one-off plans, current moods, requests, and form/chat boilerplate.\n"
-            "- Return one segment for one eligible claim; return multiple segments only for independent eligible claims.\n"
-            "- Do not split stylistic repetition, explanations, or connective narrative.\n"
-            "- source_text must be an exact contiguous quote from the user's message.\n"
-            "- Numbered or Markdown section headings are boundaries: never merge candidates across two headings, and never include the heading line in source_text.\n"
-            "- Never emit more than 8 segments.\n"
-            "- contract_version must be 1.\n"
+        # The manifest owns semantic instructions in both managed ADK and
+        # direct-client paths. Keep user material serialized as input, without
+        # a second (previously contradictory) instruction/example set here.
+        return json.dumps(
+            {"message": message, "strict_small_model": strict_small_model},
+            ensure_ascii=False,
         )
 
     def _build_financial_guard_prompt(
@@ -2645,6 +2617,17 @@ class PKMAgentLabService:
             fallback.get("save_class") == "durable"
             and fallback.get("mutation_intent") in {"correct", "delete"}
             and frame.get("mutation_intent") != fallback.get("mutation_intent")
+            and (
+                not model_answered
+                or (
+                    "\n" not in message.strip()
+                    and message.strip()
+                    .lower()
+                    .startswith(
+                        ("actually i ", "actually, i ", "update my ", "delete my ", "forget my ")
+                    )
+                )
+            )
         ):
             # DELIBERATELY NOT gated on model_answered, unlike the three rules
             # above it. This is the one place the fallback is catching an
@@ -2667,8 +2650,14 @@ class PKMAgentLabService:
             frame["save_class"] = "durable"
             frame["intent_class"] = fallback["intent_class"]
             frame["mutation_intent"] = fallback["mutation_intent"]
-            frame["requires_confirmation"] = False
-            frame["confirmation_reason"] = ""
+            frame["requires_confirmation"] = True
+            frame["confirmation_reason"] = (
+                frame.get("confirmation_reason")
+                or "Confirm the requested change to your saved information."
+            )
+            logger.info(
+                "pkm_intent_integrity_guard_applied operation=%s", fallback["mutation_intent"]
+            )
             frame["confidence"] = max(
                 float(frame.get("confidence") or 0.0),
                 float(fallback.get("confidence") or 0.0),
@@ -2749,6 +2738,7 @@ class PKMAgentLabService:
         if (
             frame["intent_class"] in {"correction", "deletion", "financial_event"}
             and frame["confidence"] >= 0.8
+            and not model_answered
         ):
             frame["requires_confirmation"] = False
             frame["confirmation_reason"] = ""
@@ -2758,6 +2748,7 @@ class PKMAgentLabService:
             and frame.get("save_class") == "durable"
             and frame.get("requires_confirmation")
             and cls._clamp_confidence(fallback.get("confidence"), default=0.0) >= 0.7
+            and not model_answered
         ):
             frame["requires_confirmation"] = False
             frame["confirmation_reason"] = ""
@@ -4939,10 +4930,8 @@ class PKMAgentLabService:
                 "- Home base, residence, and where the user lives are profile_fact, not preference.\n"
                 "- Financial goals like saving for a home or paying off loans are usually plan_or_goal, not financial_event, unless the message is explicitly about portfolio construction, investing behavior, or risk preference.\n"
                 "- If state_summary already shows an active memory in the same broad domain and the new message says still, also, again, continue, or otherwise refines the same theme, prefer mutation_intent extend instead of create.\n"
-                "- Explicit update / actually / now / changed-my-mind phrasing should prefer intent_class correction with mutation_intent correct.\n"
                 "- Delete / remove / forget phrasing about existing PKM should prefer intent_class deletion with mutation_intent delete, not ephemeral.\n"
                 "- Repeating a durable policy like reminders staying out of PKM should not become a new durable preference unless the user clearly states a lasting meta-preference.\n"
-                "- correction phrases like actually / instead / changed my mind -> correct.\n"
                 "- deletion phrases like forget that / remove that -> delete.\n"
                 "- If multiple broad domains are plausible, set requires_confirmation=true and return 2-4 broad candidate domains.\n"
                 "- If Financial Guard says sanctioned_financial_memory, use intent_class financial_event with financial recommended first.\n"
@@ -5496,15 +5485,44 @@ class PKMAgentLabService:
             segmentation_latency_ms = round(
                 (time.perf_counter() - segmentation_started_at) * 1000, 2
             )
-            segmentation_used_fallback = segmentation_raw is None
+            segmentation_used_fallback = not (
+                isinstance(segmentation_raw, dict)
+                and type(segmentation_raw.get("has_more_candidates")) is bool
+            )
+            if isinstance(segmentation_raw, dict):
+                raw_segments = segmentation_raw.get("segments")
+                if not isinstance(raw_segments, list) or any(
+                    not isinstance(item, dict)
+                    or not isinstance(item.get("source_text"), str)
+                    or not item["source_text"].strip()
+                    or item["source_text"] not in message
+                    for item in (raw_segments if isinstance(raw_segments, list) else [])
+                ):
+                    segmentation_used_fallback = True
             if segmentation_used_fallback:
                 errors.append("memory_segmentation_agent_fallback")
+                # Invalid coverage is a schema failure, not a successful
+                # semantic selection. Never auto-save a partially certified batch.
+                segmentation_raw = None
 
             segmented_messages = self._sanitize_segmented_messages(
                 segmentation_raw, message=message
             )
             total_segments_detected = len(segmented_messages)
-            split_recommended = total_segments_detected > _MAX_PREVIEW_CARDS
+            split_recommended = total_segments_detected > _MAX_PREVIEW_CARDS or (
+                isinstance(segmentation_raw, dict)
+                and segmentation_raw.get("has_more_candidates") is True
+            )
+            # A selected source span must not lose a trailing qualifier just
+            # to fit a limit. Ask the existing client splitter for a smaller
+            # passage; no truncated prefix becomes a memory candidate.
+            oversized_source = isinstance(segmentation_raw, dict) and any(
+                isinstance(item, dict)
+                and isinstance(item.get("source_text"), str)
+                and len(item["source_text"]) > _MAX_SEGMENT_SOURCE_CHARS
+                for item in (segmentation_raw.get("segments") or [])
+            )
+            split_recommended = split_recommended or oversized_source
             preview_results: list[dict[str, Any]] = []
             preview_cards: list[dict[str, Any]] = []
             preview_latencies_ms: list[float] = []
@@ -5512,10 +5530,7 @@ class PKMAgentLabService:
             async def _build_preview_entry(
                 index: int, segment: dict[str, Any]
             ) -> dict[str, Any] | None:
-                source_text = self._safe_excerpt(
-                    str(segment.get("source_text") or ""),
-                    limit=_MAX_SEGMENT_SOURCE_CHARS,
-                )
+                source_text = segment["source_text"]
                 if not source_text:
                     return None
                 preview_started_at = time.perf_counter()
@@ -5606,12 +5621,15 @@ class PKMAgentLabService:
                 empty_selection = (
                     isinstance(segmentation_raw, dict)
                     and segmentation_raw.get("segments") == []
+                    and segmentation_raw.get("has_more_candidates") is False
                     and type(segmentation_raw.get("contract_version")) is int
                     and segmentation_raw["contract_version"] == 1
                     and isinstance(segmentation_raw.get("source_agent"), str)
                     and bool(segmentation_raw["source_agent"].strip())
                 )
-                empty_hints = [] if empty_selection else ["preview_generation_failed"]
+                retryable_split = split_recommended and not segmentation_used_fallback
+                preparation_valid = empty_selection or retryable_split
+                empty_hints = [] if preparation_valid else ["preview_generation_failed"]
                 if split_recommended:
                     empty_hints.append("split_recommended")
                 empty_manifest = self._build_manifest_from_payload(
@@ -5637,16 +5655,16 @@ class PKMAgentLabService:
                     "model": model_override
                     or _manifest_model_name(self.memory_segmentation_manifest)
                     or GEMINI_MODEL,
-                    "used_fallback": not empty_selection,
+                    "used_fallback": not preparation_valid,
                     "intent_used_fallback": False,
                     "merge_used_fallback": False,
                     "structure_used_fallback": False,
                     "drift_flags": self._drift_flags_from_preview(
                         validation_hints=empty_hints,
-                        fallback_used=not empty_selection,
+                        fallback_used=not preparation_valid,
                     ),
                     "error": None
-                    if empty_selection
+                    if preparation_valid
                     else "; ".join(self._unique_list(errors or ["memory_segmentation_no_output"])),
                     "routing_decision": "non_financial_or_ephemeral",
                     "intent_frame": {},
