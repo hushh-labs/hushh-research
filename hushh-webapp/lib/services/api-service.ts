@@ -531,10 +531,23 @@ export async function fetchWithWebTimeout(
   }
 }
 
+export type ApiFetchOptions = RequestInit & {
+  /** Revalidate effect authority after async transport setup, including retries. */
+  beforeDispatch?: () => Promise<void>;
+  /** Synchronous final check: no await may separate authority from dispatch. */
+  isEffectCurrent?: () => boolean;
+};
+
 async function apiFetch(
   path: string,
-  options: RequestInit = {},
+  options: ApiFetchOptions = {},
 ): Promise<Response> {
+  const { beforeDispatch, isEffectCurrent, ...fetchOptions } = options;
+  const assertEffectCurrent = () => {
+    if (isEffectCurrent && isEffectCurrent() !== true) {
+      throw new DOMException("The effect session changed.", "AbortError");
+    }
+  };
   const initiatingAuthUser = AuthService.getCurrentUser();
   // Native auth may intentionally live only in the Capacitor SDK. Bind its
   // refresh to the central validated owner generation, not an absent JS user.
@@ -872,8 +885,10 @@ async function apiFetch(
       ) {
         if (options.body instanceof FormData) {
           // Multipart uploads route through native plugins; keep fetch fallback for safety.
+          await beforeDispatch?.();
+          assertEffectCurrent();
           const formResponse = await fetchWithWebTimeout(url, {
-            ...options,
+            ...fetchOptions,
             credentials: "include",
             headers: mergedHeaders,
           });
@@ -926,7 +941,10 @@ async function apiFetch(
       // CapacitorHttp can't cancel, so the in-flight native request is abandoned.
       // The abort listener is removed on completion (finally) so a request that
       // wins the race doesn't leak a listener + closure on the signal.
+      await beforeDispatch?.();
+      assertEffectCurrent();
       const signal = options.signal;
+      if (signal?.aborted) throw new DOMException("The operation was aborted.", "AbortError");
       let nativeResponse: Awaited<ReturnType<typeof CapacitorHttp.request>>;
       if (signal) {
         let onAbort: (() => void) | undefined;
@@ -958,8 +976,10 @@ async function apiFetch(
       return await settleAuthenticatedResponse(response);
     }
 
+    await beforeDispatch?.();
+    assertEffectCurrent();
     const response = await fetchWithWebTimeout(url, {
-      ...options,
+      ...fetchOptions,
       credentials: "include",
       headers: mergedHeaders,
     });
@@ -1387,7 +1407,7 @@ export class ApiService {
    */
   static async apiFetch(
     path: string,
-    options: RequestInit = {},
+    options: ApiFetchOptions = {},
   ): Promise<Response> {
     return apiFetch(path, options);
   }

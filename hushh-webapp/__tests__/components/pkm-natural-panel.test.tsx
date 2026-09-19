@@ -7,6 +7,7 @@ import { ConsentCenterService } from "@/lib/services/consent-center-service";
 import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge-model-service";
 import { PkmWriteCoordinator } from "@/lib/services/pkm-write-coordinator";
 import { PkmDomainResourceService } from "@/lib/pkm/pkm-domain-resource";
+import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 
 const { addToPKM, clearAgentPkmContext, previewAgentPkmMemory } = vi.hoisted(() => ({
   addToPKM: vi.fn(),
@@ -141,6 +142,7 @@ const FULL_BLOB = {
 describe("PkmNaturalPanel — Memory redesign", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    publishValidatedAuthSessionOwner("reviewer");
     vi.spyOn(PersonalKnowledgeModelService, "getMetadata").mockResolvedValue(
       baseMetadata() as never,
     );
@@ -507,6 +509,25 @@ describe("PkmNaturalPanel — Memory redesign", () => {
     expect(addToPKM).not.toHaveBeenCalled();
   });
 
+  it("retains unresolved source even after every prepared card saves successfully", async () => {
+    await openMainScreen();
+    fireEvent.click(screen.getByRole("tab", { name: "Add" }));
+    const note = await screen.findByRole("textbox", { name: "Memory note" });
+    const source = "# Historical project\n" + "A qualified synthetic detail. ".repeat(240) +
+      "\n# Separate preference\nI prefer morning flights.";
+    fireEvent.change(note, { target: { value: source } });
+    fireEvent.click(screen.getByRole("button", { name: "Review memory" }));
+    expect(await screen.findByText(/Some sections need another review/)).toBeTruthy();
+    addToPKM.mockImplementationOnce(async ({ cards }) => ({
+      attempted: cards.length, saved: cards.length, failed: 0, domains: ["preferences"],
+      results: cards.map((card: { card_id: string }) => ({ cardId: card.card_id, success: true })),
+    }));
+    fireEvent.click(await screen.findByRole("button", { name: "Save to Memory" }));
+    expect(await screen.findByText(/Some details still need attention; your note is kept below/)).toBeTruthy();
+    expect(note).toHaveValue(source);
+    expect(screen.queryByRole("button", { name: "Save to Memory" })).toBeNull();
+  });
+
   it("shows the proposed source detail and invalidates it when the note changes", async () => {
     previewAgentPkmMemory.mockResolvedValueOnce({ cards: [{
       card_id: "synthetic-review", source_text: "My test role is Synthetic Reviewer.",
@@ -531,6 +552,7 @@ describe("PkmNaturalPanel — Memory redesign", () => {
     const note = await screen.findByRole("textbox", { name: "Memory note" });
     fireEvent.change(note, { target: { value: "First synthetic note" } });
     fireEvent.click(screen.getByRole("button", { name: "Review memory" }));
+    await waitFor(() => expect(finish).toBeTypeOf("function"));
     fireEvent.change(note, { target: { value: "Second synthetic note" } });
     await act(async () => finish({ cards: [{ card_id: "stale", source_text: "Stale preview" }] }));
     expect(note).toHaveValue("Second synthetic note");

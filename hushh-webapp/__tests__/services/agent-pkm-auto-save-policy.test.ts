@@ -15,6 +15,7 @@ import {
   DEFAULT_AGENT_PKM_AUTO_SAVE_POLICY,
   loadAgentPkmAutoSavePolicy,
   saveAgentPkmAutoSavePolicy,
+  subscribeAgentPkmAutoSavePolicyInvalidation,
 } from "@/lib/agent/agent-pkm-auto-save-policy";
 
 const vault = {
@@ -24,6 +25,20 @@ const vault = {
 };
 
 describe("agent PKM automatic-save policy", () => {
+  it("invalidates synchronously only for the current owner's policy domain", () => {
+    const invalidate = vi.fn();
+    const unsubscribe = subscribeAgentPkmAutoSavePolicyInvalidation("owner_1", invalidate);
+    const changed = (userId: string, domain: string) =>
+      window.dispatchEvent(new CustomEvent("pkm-domain-changed", { detail: { userId, domain } }));
+    changed("owner_2", "runtime_secrets");
+    changed("owner_1", "professional");
+    expect(invalidate).not.toHaveBeenCalled();
+    changed("owner_1", "runtime_secrets");
+    expect(invalidate).toHaveBeenCalledOnce();
+    unsubscribe();
+    changed("owner_1", "runtime_secrets");
+    expect(invalidate).toHaveBeenCalledOnce();
+  });
   beforeEach(() => {
     vi.clearAllMocks();
   });
@@ -53,6 +68,11 @@ describe("agent PKM automatic-save policy", () => {
       enabledAt: null,
       source: "owner_choice",
     });
+  });
+
+  it("does not enable the product default for a corrupt stored owner choice", async () => {
+    loadRuntimeSecretMock.mockResolvedValue("{invalid");
+    await expect(loadAgentPkmAutoSavePolicy(vault)).resolves.toMatchObject({ enabled: false, source: "owner_choice" });
   });
 
   it("records an owner setting separately from the product default", async () => {

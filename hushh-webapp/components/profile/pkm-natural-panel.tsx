@@ -36,9 +36,10 @@ import {
   addToPKM,
   clearAgentPkmContext,
   getIgnoredPkmCards,
-  previewAgentPkmMemory,
   type AgentPkmPreviewCard,
 } from "@/lib/agent/agent-pkm-memory";
+import { prepareNaturalLanguagePkm } from "@/lib/pkm/pkm-natural-language-ingestion";
+import { createAgentPkmCaptureGuard } from "@/lib/agent/agent-pkm-capture-runtime";
 import { AgentPkmContextStore } from "@/lib/agent/agent-pkm-context-store";
 import {
   DEFAULT_AGENT_PKM_AUTO_SAVE_POLICY,
@@ -186,6 +187,7 @@ export function PkmNaturalPanel({
   const [workspaceTab, setWorkspaceTab] = useState<MemoryWorkspaceTab>("browse");
   const [captureText, setCaptureText] = useState("");
   const [captureCards, setCaptureCards] = useState<AgentPkmPreviewCard[]>([]);
+  const [captureHasUnresolvedSource, setCaptureHasUnresolvedSource] = useState(false);
   const captureRevision = useRef(0);
   const captureSaveInFlight = useRef(false);
   const [captureLoading, setCaptureLoading] = useState(false);
@@ -196,6 +198,7 @@ export function PkmNaturalPanel({
     captureSaveInFlight.current = false;
     setCaptureText("");
     setCaptureCards([]);
+    setCaptureHasUnresolvedSource(false);
     setCaptureMessage(null);
     setCaptureLoading(false);
     setCaptureSaving(false);
@@ -788,8 +791,13 @@ export function PkmNaturalPanel({
   async function previewMemoryCapture() {
     if (!user || !isVaultUnlocked || !vaultOwnerToken || !captureText.trim() || captureSaving) return;
     const revision = ++captureRevision.current;
+    const guard = createAgentPkmCaptureGuard({
+      userId: user.uid, signal: new AbortController().signal,
+      isEnabled: () => revision === captureRevision.current,
+    });
     setCaptureCards([]);
     setCaptureLoading(true);
+    setCaptureHasUnresolvedSource(false);
     setCaptureMessage(null);
     try {
       const localDuplicate = AgentPkmContextStore.findLocalDuplicate({
@@ -801,19 +809,36 @@ export function PkmNaturalPanel({
         setCaptureMessage("That exact detail is already saved. Open Browse to correct it instead of creating a duplicate.");
         return;
       }
-      const preview = await previewAgentPkmMemory({
+      const prepared = await prepareNaturalLanguagePkm({
         userId: user.uid,
         message: captureText.trim(),
         currentDomains: visibleMetadataDomains.map((domain) => domain.key),
         vaultOwnerToken,
+        source: "memory_workspace",
+        allowEmpty: true,
+        isEffectCurrent: guard.isCurrent,
+        findDuplicate: (candidate) => AgentPkmContextStore.findLocalDuplicate({ userId: user.uid, candidate }),
+        beforeEffect: guard.assertCurrent,
+        onProgress: (progress) => {
+          if (guard.isCurrent() && progress.phase !== "prepared") {
+            setCaptureMessage(`Preparing section ${Math.min(progress.chunkIndex + 1, progress.chunkCount)} of ${progress.chunkCount}… Nothing has been saved yet.`);
+          }
+        },
       });
-      if (revision !== captureRevision.current) return;
-      setCaptureCards(preview.cards);
+      if (!guard.isCurrent()) return;
+      setCaptureCards(prepared.cards);
+      const needsAttention = prepared.sourceCoverage.some((block) =>
+        block.disposition === "review_required" || block.disposition === "failed");
+      setCaptureHasUnresolvedSource(prepared.sourceCoverage.some((block) =>
+        Boolean(block.preparationIssue) || block.disposition === "failed" ||
+        block.detectedFactCount !== block.accountedFactCount));
       setCaptureMessage(
-        localDuplicate?.kind === "possible"
+        needsAttention
+          ? "Some sections need another review. Only the proposed details shown below can be saved."
+          : localDuplicate?.kind === "possible"
           ? "A related saved detail may already exist. Review this suggestion before saving."
-          : preview.cards.length
-          ? "Review the proposed saved detail before adding it."
+          : prepared.cards.length
+          ? "Review the proposed details before adding them."
           : "Nothing new needs to be saved from that note."
       );
     } catch {
@@ -828,6 +853,10 @@ export function PkmNaturalPanel({
     if (!user || !isVaultUnlocked || !vaultKey || !vaultOwnerToken || captureCards.length === 0 || captureSaveInFlight.current) return;
     captureSaveInFlight.current = true;
     const revision = ++captureRevision.current;
+    const guard = createAgentPkmCaptureGuard({
+      userId: user.uid, signal: new AbortController().signal,
+      isEnabled: () => revision === captureRevision.current,
+    });
     setCaptureSaving(true);
     try {
       const operation = addToPKM({
@@ -837,6 +866,8 @@ export function PkmNaturalPanel({
           vaultKey,
           vaultOwnerToken,
           source: "memory_workspace",
+          beforeEffect: guard.assertCurrent,
+          mayPublish: guard.isCurrent,
           confirmation: {
             confirmedByUser: true,
             surface: "web",
@@ -845,20 +876,27 @@ export function PkmNaturalPanel({
         });
       void morphyToast.promise(operation, {
         loading: "Saving reviewed memory…",
-        success: "Reviewed memory saved.",
+        success: (result) => result.failed > 0
+          ? "Some details still need attention. Your note is kept for review."
+          : result.saved > 0 ? "Reviewed memory saved." : "No details were saved. Your note is kept for review.",
         error: "Memory couldn’t be saved. Your note is still here; please try again.",
       });
       const result = await operation;
+      if (!guard.isCurrent()) return;
       clearAgentPkmContext(user.uid);
-      if (revision !== captureRevision.current) return;
       setCaptureMessage(
         result.saved > 0
-          ? `${result.saved} reviewed detail${result.saved === 1 ? "" : "s"} saved.`
+          ? `${result.saved} reviewed detail${result.saved === 1 ? "" : "s"} saved.${result.failed > 0 || captureHasUnresolvedSource ? " Some details still need attention; your note is kept below." : ""}`
           : "Nothing was saved; the proposed detail needs a correction first."
       );
       if (result.saved > 0) {
-        setCaptureText("");
-        setCaptureCards([]);
+        if (result.failed > 0 || captureHasUnresolvedSource) {
+          const savedIds = new Set(result.results.filter((item) => item.success).map((item) => item.cardId));
+          setCaptureCards((current) => current.filter((card) => !savedIds.has(card.card_id)));
+        } else {
+          setCaptureText("");
+          setCaptureCards([]);
+        }
         setRefreshNonce((value) => value + 1);
       }
     } catch {
@@ -1298,17 +1336,26 @@ export function PkmNaturalPanel({
               <p className="text-sm font-semibold text-foreground">Teach One something</p>
               <p className="text-sm text-muted-foreground">Tell One something you’d like it to remember.</p>
             </div>
-            <Textarea value={captureText} disabled={captureSaving} onChange={(event) => {
+            <Textarea value={captureText} disabled={captureSaving} onPaste={(event) => {
+              const input = event.currentTarget;
+              const length = captureText.length - (input.selectionEnd - input.selectionStart) +
+                event.clipboardData.getData("text/plain").length;
+              if (length > 50000) {
+                event.preventDefault();
+                setCaptureMessage("That paste is too long. Add smaller sections; your existing note is unchanged.");
+              }
+            }} onChange={(event) => {
               captureRevision.current += 1;
               setCaptureText(event.target.value);
               setCaptureCards([]);
+              setCaptureHasUnresolvedSource(false);
               setCaptureMessage(null);
               setCaptureLoading(false);
-            }} placeholder="I prefer morning flights whenever possible." aria-label="Memory note" maxLength={4000} />
+            }} placeholder="I prefer morning flights whenever possible." aria-label="Memory note" maxLength={50000} />
             <Button className="w-full justify-center" type="button" variant="muted" effect="fade" disabled={captureLoading || captureSaving || !captureText.trim()} onClick={() => void previewMemoryCapture()}>
               {captureLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden /> : null}Review memory
             </Button>
-            {captureMessage ? <p className="text-sm text-muted-foreground">{captureMessage}</p> : null}
+            {captureMessage ? <p role="status" data-testid="memory-preparation-status" className="text-sm text-muted-foreground">{captureMessage}</p> : null}
             {captureCards.length > 0 ? (
               <SettingsGroup separatorInset>
                 {captureCards.map((card) => (

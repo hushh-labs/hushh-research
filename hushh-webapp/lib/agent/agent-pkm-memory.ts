@@ -213,6 +213,8 @@ export function getPkmAutoSaveCards(
     (card) =>
       !isReservedPkmCard(card) &&
       card.write_mode === "can_save" &&
+      card.requires_confirmation !== true &&
+      card.intent_frame?.requires_confirmation !== true &&
       (card.sharing_impact?.active_recipient_count || 0) === 0
   );
 }
@@ -262,9 +264,11 @@ export async function previewAgentPkmMemory(params: {
   ingestionId?: string;
   chunkIndex?: number;
   memoryProfile?: "general" | "kyc_identity_v1";
+  isEffectCurrent?: () => boolean;
 }): Promise<AgentPkmPreviewResponse & { cards: AgentPkmPreviewCard[] }> {
   const response = await ApiService.apiFetch("/api/pkm/memory/proposals", {
     method: "POST",
+    isEffectCurrent: params.isEffectCurrent,
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${params.vaultOwnerToken}`,
@@ -360,6 +364,8 @@ export async function addToPKM(params: {
   vaultOwnerToken: string;
   source?: string;
   confirmation: PkmWriteAuthorization;
+  beforeEffect?: () => Promise<void>;
+  mayPublish?: () => boolean;
   /**
    * Opt-in for constrained imports whose cards are simple, independent field
    * extensions. A single encrypted write per domain avoids serially loading
@@ -417,7 +423,9 @@ export async function addToPKM(params: {
     }
     if (
       automatic &&
-      (card.write_mode !== "can_save" || (card.sharing_impact?.active_recipient_count || 0) > 0)
+      (card.write_mode !== "can_save" || card.requires_confirmation === true ||
+        card.intent_frame?.requires_confirmation === true ||
+        (card.sharing_impact?.active_recipient_count || 0) > 0)
     ) {
       results[index] = {
         cardId: card.card_id || "agent_pkm_card",
@@ -497,6 +505,8 @@ export async function addToPKM(params: {
         domain: targetDomain,
         vaultKey: params.vaultKey,
         vaultOwnerToken: params.vaultOwnerToken,
+        beforeEffect: params.beforeEffect,
+        mayPublish: params.mayPublish,
         confirmation: automatic
           ? params.confirmation
           : {
@@ -618,6 +628,7 @@ export async function addToPKM(params: {
       domain,
       vaultKey: params.vaultKey,
       vaultOwnerToken: params.vaultOwnerToken,
+      beforeEffect: params.beforeEffect,
       // Batching is restricted below to an explicit owner confirmation. The
       // merged-domain coordinator intentionally does not accept auto-save
       // authority because one commit can contain multiple reviewed facts.
@@ -705,7 +716,7 @@ export async function addToPKM(params: {
   );
 
   const savedResults = completedResults.filter((result) => result.success);
-  if (savedResults.length > 0) {
+  if (savedResults.length > 0 && (params.mayPublish?.() ?? true)) {
     AgentPkmContextStore.invalidateUser(
       params.userId,
       savedResults.map((result) => result.domain),

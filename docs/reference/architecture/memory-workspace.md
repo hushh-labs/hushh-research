@@ -51,6 +51,21 @@ propagates that flag so the client can retry smaller passages. This is model-rep
 coverage, not proof that every eligible fact was found. Source and mocked contract
 tests do not establish live extraction quality for a large context transfer.
 
+The shared client preparation path packs exact source spans rather than one
+request per labeled field. Headings stay with their body through retries; an
+oversized or unsplittable contextual section remains explicitly unresolved.
+Saving the successfully reviewed cards does not discard unresolved source text.
+Review is separate from Save, including when the preparation-only reviewer
+harness is enabled.
+
+Chat capture uses one session-only, counts-only status per answer. Jobs recheck
+the validated owner, vault generation, and automatic-saving policy before
+processing and encrypted writes. Policy-domain invalidation disables capture
+until the encrypted setting is read again. A confirmed write receipt stays
+successful after a session change, but cannot republish information into the new
+session; cancellation is not a rollback of a request already accepted upstream.
+Rendered continuity, extraction completeness and latency still need live proof.
+
 UX reference: [Muse's published design](https://introducing.muse.ai/) describes quiet
 background status, inspectable memory, and explicit approval for consequential
 actions. These are design references, not evidence of Hussh implementation or

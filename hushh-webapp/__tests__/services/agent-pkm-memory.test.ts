@@ -47,6 +47,38 @@ import {
   type AgentPkmPreviewCard,
 } from "@/lib/agent/agent-pkm-memory";
 import { AgentPkmContextStore } from "@/lib/agent/agent-pkm-context-store";
+import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
+import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
+import { createAgentPkmCaptureGuard } from "@/lib/agent/agent-pkm-capture-runtime";
+
+it("keeps a confirmed old-generation receipt without invalidating the replacement owner context", async () => {
+  publishValidatedAuthSessionOwner("owner-a");
+  const guard = createAgentPkmCaptureGuard({
+    userId: "owner-a", signal: new AbortController().signal, isEnabled: () => true,
+  });
+  const invalidate = vi.spyOn(AgentPkmContextStore, "invalidateUser");
+  pkmSavePreparedDomainMock.mockImplementationOnce(async () => {
+    publishValidatedAuthSessionOwner("owner-b");
+    publishValidatedAuthSessionOwner("owner-a");
+    advanceVaultSessionEpoch();
+    return { success: true, saveState: "saved", fullBlob: {} };
+  });
+  try {
+    const result = await addToPKM({
+      userId: "owner-a", sourceMessage: "Synthetic preference", vaultKey: "test-key",
+      vaultOwnerToken: "test-token", beforeEffect: guard.assertCurrent, mayPublish: guard.isCurrent,
+      confirmation: { confirmedByUser: true, surface: "chat", source: "test" },
+      cards: [{ card_id: "test", write_mode: "can_save", target_domain: "preferences",
+        candidate_payload: { format: "brief" }, structure_decision: { target_domain: "preferences" } }],
+    });
+    expect(result.saved).toBe(1);
+    expect(guard.isCurrent()).toBe(false);
+    expect(invalidate).not.toHaveBeenCalled();
+  } finally {
+    invalidate.mockRestore();
+    publishValidatedAuthSessionOwner(null);
+  }
+});
 
 const METADATA = {
   userId: "user_1",
