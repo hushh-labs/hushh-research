@@ -439,6 +439,35 @@ describe("P0 connection reconciliation", () => {
       visibility.mockRestore();
     }
   });
+
+  it("queues an authoritative pass when connectivity returns mid-refresh", async () => {
+    const visibility = vi
+      .spyOn(document, "visibilityState", "get")
+      .mockReturnValue("visible");
+    const firstPage = deferred<TestConnectionPage>();
+    const page = { items: [], hasMore: false, page: 1, totalCount: 0 };
+    try {
+      render(<ConnectPageClient />);
+      await waitFor(() => expect(mocks.listConnectionsPage).toHaveBeenCalled());
+      mocks.listConnectionsPage.mockClear();
+      mocks.listConnectionsPage
+        .mockImplementationOnce(() => firstPage.promise)
+        .mockResolvedValue(page);
+
+      act(() => window.dispatchEvent(new Event("focus")));
+      await waitFor(() =>
+        expect(mocks.listConnectionsPage).toHaveBeenCalledTimes(1),
+      );
+      act(() => window.dispatchEvent(new Event("online")));
+      firstPage.resolve(page);
+
+      await waitFor(() =>
+        expect(mocks.listConnectionsPage).toHaveBeenCalledTimes(2),
+      );
+    } finally {
+      visibility.mockRestore();
+    }
+  });
 });
 
 describe("Connect — People", () => {

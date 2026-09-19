@@ -88,8 +88,19 @@ def _payload_string(value: object | None) -> str:
     return str(value)
 
 
+def _sse_event_id(payload: dict[str, object]) -> str:
+    return (
+        _payload_string(payload.get("message_id")).strip()
+        or _payload_string(payload.get("request_id")).strip()
+        or _payload_string(payload.get("token_id")).strip()
+    )
+
+
 def _sse_payload_from_event_payload(payload: dict[str, object]) -> dict[str, object]:
-    if str(payload.get("type") or "").strip() == "connection_request":
+    if str(payload.get("type") or "").strip() in {
+        "connection_request",
+        "connection_removed",
+    }:
         return payload
     metadata = _payload_map(payload.get("metadata"))
     request_id = _payload_string(payload.get("request_id"))
@@ -185,8 +196,7 @@ async def consent_event_generator(user_id: str, request: Request) -> AsyncGenera
             limit=10,
         )
         for event in recent_events:
-            event_id = event.get("request_id") or event.get("token_id")
-            request_id = event.get("request_id")
+            event_id = _sse_event_id(event)
             if not event_id or event_id in notified_event_ids:
                 continue
 
@@ -213,8 +223,7 @@ async def consent_event_generator(user_id: str, request: Request) -> AsyncGenera
                 }
                 continue
 
-            request_id = data.get("request_id") or ""
-            event_id = request_id
+            event_id = _sse_event_id(data)
             if not event_id or event_id in notified_event_ids:
                 continue
 

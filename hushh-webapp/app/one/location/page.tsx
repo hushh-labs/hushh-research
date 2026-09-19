@@ -3210,6 +3210,7 @@ export function OneLocationAgentPageContent({
   const connectionGraphRefreshRevisionRef = useRef(0);
   const oneLocationStateRefreshRevisionRef = useRef(0);
   const foregroundReconcileInFlightRef = useRef<Promise<void> | null>(null);
+  const foregroundReconcileQueuedRef = useRef(false);
   const lastForegroundReconcileAtRef = useRef(0);
   const [connectionGraphRevision, setConnectionGraphRevision] = useState(0);
   const workspaceBootstrapUserRef = useRef<string | null>(null);
@@ -4384,12 +4385,13 @@ export function OneLocationAgentPageContent({
       OneLocationStateResource.invalidate(owner);
       clearLocationWorkspaceMemory(owner);
       setConnectionGraphRevision((current) => current + 1);
-      void refreshSmsRoster();
 
       void (async () => {
         if (priorRefresh) await priorRefresh.catch(() => undefined);
         if (connectionGraphRefreshRevisionRef.current !== revision) return;
         await refresh({ background: true });
+        if (connectionGraphRefreshRevisionRef.current !== revision) return;
+        await refreshSmsRoster();
       })().catch(() => undefined);
     });
   }, [auth.userId, refresh, refreshSmsRoster]);
@@ -4407,14 +4409,14 @@ export function OneLocationAgentPageContent({
       // fence this tab before it reads. Keep the last presentation visible
       // while the authoritative replacement is in flight.
       OneLocationStateResource.invalidate(owner);
-      if (detail.domains.includes("sms_roster")) {
-        void refreshSmsRoster();
-      }
+      const shouldRefreshSmsRoster = detail.domains.includes("sms_roster");
 
       void (async () => {
         if (priorRefresh) await priorRefresh.catch(() => undefined);
         if (oneLocationStateRefreshRevisionRef.current !== revision) return;
         await refresh({ background: true });
+        if (oneLocationStateRefreshRevisionRef.current !== revision) return;
+        if (shouldRefreshSmsRoster) await refreshSmsRoster();
       })().catch(() => undefined);
     });
   }, [auth.userId, refresh, refreshSmsRoster]);
@@ -13928,33 +13930,46 @@ export function OneLocationAgentPageContent({
         }
       });
     };
-    const refreshWhenVisible = () => {
+    const refreshWhenVisible = (ensureAfterCurrent = false) => {
       if (document.visibilityState === "hidden") return;
+      if (foregroundReconcileInFlightRef.current) {
+        if (ensureAfterCurrent) foregroundReconcileQueuedRef.current = true;
+        return;
+      }
       const now = Date.now();
-      if (now - lastForegroundReconcileAtRef.current < 750) return;
+      if (
+        !ensureAfterCurrent &&
+        now - lastForegroundReconcileAtRef.current < 750
+      ) {
+        return;
+      }
       lastForegroundReconcileAtRef.current = now;
       refreshIfPending();
-      if (foregroundReconcileInFlightRef.current) return;
 
-      const owner = auth.userId;
-      const priorStateRefresh = refreshInFlightRef.current;
-      if (owner) OneLocationStateResource.invalidate(owner);
-      const refreshAuthoritativeState = async () => {
-        if (priorStateRefresh) {
-          await priorStateRefresh.catch(() => undefined);
-          // The preceding request started before this foreground boundary.
-          // Fence it again before the post-resume read so it cannot become
-          // this generation's authoritative snapshot.
+      const run = async () => {
+        do {
+          foregroundReconcileQueuedRef.current = false;
+          const owner = auth.userId;
+          const priorStateRefresh = refreshInFlightRef.current;
           if (owner) OneLocationStateResource.invalidate(owner);
-        }
-        await refresh({ background: true });
+          const refreshStateThenRoster = async () => {
+            if (priorStateRefresh) {
+              await priorStateRefresh.catch(() => undefined);
+              // The preceding request started before this foreground boundary.
+              // Fence it again before the post-resume read so it cannot become
+              // this generation's authoritative snapshot.
+              if (owner) OneLocationStateResource.invalidate(owner);
+            }
+            await refresh({ background: true });
+            await refreshSmsRoster();
+          };
+          await Promise.allSettled([
+            refreshPermissionOnReturn(),
+            refreshStateThenRoster(),
+          ]);
+        } while (foregroundReconcileQueuedRef.current);
       };
-      const task = Promise.allSettled([
-        refreshPermissionOnReturn(),
-        refreshSmsRoster(),
-        refreshAuthoritativeState(),
-      ])
-        .then(() => undefined)
+      const task = run()
         .finally(() => {
           if (foregroundReconcileInFlightRef.current === task) {
             foregroundReconcileInFlightRef.current = null;
@@ -13962,23 +13977,25 @@ export function OneLocationAgentPageContent({
         });
       foregroundReconcileInFlightRef.current = task;
     };
+    const refreshOnFocus = () => refreshWhenVisible();
+    const refreshOnOnline = () => refreshWhenVisible(true);
 
-    window.addEventListener("focus", refreshWhenVisible);
-    window.addEventListener("online", refreshWhenVisible);
-    document.addEventListener("visibilitychange", refreshWhenVisible);
+    window.addEventListener("focus", refreshOnFocus);
+    window.addEventListener("online", refreshOnOnline);
+    document.addEventListener("visibilitychange", refreshOnFocus);
     const removeLifecycleListener =
       appInteractionCoordinator.subscribeLifecycle(() => {
         if (
           appInteractionCoordinator.getLifecycleSnapshot().state === "active"
         ) {
-          refreshWhenVisible();
+          refreshWhenVisible(true);
         }
       });
 
     return () => {
-      window.removeEventListener("focus", refreshWhenVisible);
-      window.removeEventListener("online", refreshWhenVisible);
-      document.removeEventListener("visibilitychange", refreshWhenVisible);
+      window.removeEventListener("focus", refreshOnFocus);
+      window.removeEventListener("online", refreshOnOnline);
+      document.removeEventListener("visibilitychange", refreshOnFocus);
       removeLifecycleListener();
     };
   }, [auth.userId, refresh, refreshLocationPermission, refreshSmsRoster]);

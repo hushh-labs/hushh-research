@@ -1609,9 +1609,6 @@ describe("OneLocationAgentPage", () => {
       await act(async () => {
         window.dispatchEvent(new Event("focus"));
         window.dispatchEvent(new Event("focus"));
-        window.dispatchEvent(new Event("online"));
-        appInteractionCoordinator.handleLifecycle("background");
-        appInteractionCoordinator.handleLifecycle("active");
         await Promise.resolve();
       });
 
@@ -1621,6 +1618,40 @@ describe("OneLocationAgentPage", () => {
       // dedicated Settings-return permission repair. Repeated focus/online
       // events must not add a third call.
       expect(mockGetPermissionState).toHaveBeenCalledTimes(2);
+    } finally {
+      visibility.mockRestore();
+    }
+  });
+
+  it("queues online reconciliation and patches SMS only after workspace state", async () => {
+    const visibility = vi
+      .spyOn(document, "visibilityState", "get")
+      .mockReturnValue("visible");
+    let resolveFirstState!: (value: ReturnType<typeof locationState>) => void;
+    const firstState = new Promise<ReturnType<typeof locationState>>(
+      (resolve) => {
+        resolveFirstState = resolve;
+      },
+    );
+    try {
+      render(<OneLocationAgentPage />);
+      await skipLocationEntryFlow();
+      await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+      mockGetState.mockClear();
+      mockGetSmsContacts.mockClear();
+      mockGetState
+        .mockImplementationOnce(() => firstState)
+        .mockResolvedValue(locationState());
+
+      act(() => window.dispatchEvent(new Event("focus")));
+      await waitFor(() => expect(mockGetState).toHaveBeenCalledOnce());
+      expect(mockGetSmsContacts).not.toHaveBeenCalled();
+
+      act(() => window.dispatchEvent(new Event("online")));
+      resolveFirstState(locationState());
+
+      await waitFor(() => expect(mockGetState).toHaveBeenCalledTimes(2));
+      await waitFor(() => expect(mockGetSmsContacts).toHaveBeenCalledTimes(2));
     } finally {
       visibility.mockRestore();
     }

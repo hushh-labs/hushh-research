@@ -1164,14 +1164,18 @@ export function ConsentNotificationProvider({
               const normalizedAction = String(payload.action || "")
                 .trim()
                 .toUpperCase();
-              const type =
-                payload.type === "connection_request"
-                  ? "connection_request"
-                  : normalizedAction === "REQUESTED"
-                    ? "consent_request"
-                    : normalizedAction === "NOTIFICATION_OPENED"
-                      ? "consent_opened"
-                      : "consent_resolved";
+              const preservesConnectionType =
+                payload.type === "connection_request" ||
+                payload.type === "connection_request_cancelled" ||
+                payload.type === "connection_request_resolved" ||
+                payload.type === "connection_removed";
+              const type = preservesConnectionType
+                ? payload.type
+                : normalizedAction === "REQUESTED"
+                  ? "consent_request"
+                  : normalizedAction === "NOTIFICATION_OPENED"
+                    ? "consent_opened"
+                    : "consent_resolved";
               window.dispatchEvent(
                 new CustomEvent(FCM_MESSAGE_EVENT, {
                   detail: {

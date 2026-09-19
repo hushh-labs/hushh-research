@@ -1609,12 +1609,14 @@ def test_remove_connection_feed_projection_uses_connection_id() -> None:
             "counterpart_user_id": "user-b",
             "actor_user_id": "user-a",
             "connection_id": "conn-1",
+            "revocation_id": "2026-08-26T12:00:00+00:00",
         },
         {
             "recipient_user_id": "user-b",
             "counterpart_user_id": "user-a",
             "actor_user_id": "user-a",
             "connection_id": "conn-1",
+            "revocation_id": "2026-08-26T12:00:00+00:00",
         },
     ]
 

@@ -935,31 +935,44 @@ export default function ConnectPageClient() {
       }
       void reconcileConnectionSurfaces({ ensureAfterCurrent: true });
     });
-    const refreshWhenActive = () => {
+    const refreshWhenActive = (ensureAfterCurrent = false) => {
       if (document.visibilityState === "hidden") return;
+      if (connectionReconcileInFlightRef.current) {
+        if (ensureAfterCurrent) {
+          void reconcileConnectionSurfaces({ ensureAfterCurrent: true });
+        }
+        return;
+      }
       const now = Date.now();
-      if (now - lastForegroundReconcileAtRef.current < 750) return;
+      if (
+        !ensureAfterCurrent &&
+        now - lastForegroundReconcileAtRef.current < 750
+      ) {
+        return;
+      }
       lastForegroundReconcileAtRef.current = now;
-      void reconcileConnectionSurfaces();
+      void reconcileConnectionSurfaces({ ensureAfterCurrent });
     };
+    const refreshOnFocus = () => refreshWhenActive();
+    const refreshOnOnline = () => refreshWhenActive(true);
 
-    window.addEventListener("focus", refreshWhenActive);
-    window.addEventListener("online", refreshWhenActive);
-    document.addEventListener("visibilitychange", refreshWhenActive);
+    window.addEventListener("focus", refreshOnFocus);
+    window.addEventListener("online", refreshOnOnline);
+    document.addEventListener("visibilitychange", refreshOnFocus);
     const removeLifecycleListener =
       appInteractionCoordinator.subscribeLifecycle(() => {
         if (
           appInteractionCoordinator.getLifecycleSnapshot().state === "active"
         ) {
-          refreshWhenActive();
+          refreshWhenActive(true);
         }
       });
 
     return () => {
       unsubscribeGraph();
-      window.removeEventListener("focus", refreshWhenActive);
-      window.removeEventListener("online", refreshWhenActive);
-      document.removeEventListener("visibilitychange", refreshWhenActive);
+      window.removeEventListener("focus", refreshOnFocus);
+      window.removeEventListener("online", refreshOnOnline);
+      document.removeEventListener("visibilitychange", refreshOnFocus);
       removeLifecycleListener();
     };
   }, [reconcileConnectionSurfaces, user?.uid]);

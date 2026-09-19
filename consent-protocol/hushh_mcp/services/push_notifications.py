@@ -435,6 +435,7 @@ def send_connection_removed_push(
     *,
     actor_user_id: str,
     connection_id: str,
+    revocation_id: str,
 ) -> int:
     """Silently tell one side that a committed connection was removed.
 
@@ -448,16 +449,18 @@ def send_connection_removed_push(
     counterpart_user_id = str(counterpart_user_id or "").strip()
     actor_user_id = str(actor_user_id or "").strip()
     connection_id = str(connection_id or "").strip()
-    if not recipient_user_id or not counterpart_user_id or not connection_id:
+    revocation_id = str(revocation_id or "").strip()
+    if not recipient_user_id or not counterpart_user_id or not connection_id or not revocation_id:
         return 0
 
     deep_link = CONNECTION_REQUEST_LIST_LINK
-    message_id = f"connection-removed:{connection_id}:{recipient_user_id}"
+    message_id = f"connection-removed:{connection_id}:{revocation_id}:{recipient_user_id}"
     client_data = {
         "message_id": message_id,
         "connection_id": connection_id,
         "counterpart_user_id": counterpart_user_id,
         "actor_user_id": actor_user_id,
+        "revocation_id": revocation_id,
     }
 
     try:
@@ -473,6 +476,7 @@ def send_connection_removed_push(
             "user_id": recipient_user_id,
             "counterpart_user_id": counterpart_user_id,
             "actor_user_id": actor_user_id,
+            "revocation_id": revocation_id,
             "title": "Connection updated",
             "body": "Your connections changed.",
             "deep_link": deep_link,

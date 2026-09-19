@@ -243,6 +243,7 @@ def _default_disconnect_notifier(
     counterpart_user_id: str,
     actor_user_id: str,
     connection_id: str,
+    revocation_id: str,
 ) -> None:
     from hushh_mcp.services.push_notifications import send_connection_removed_push
 
@@ -251,6 +252,7 @@ def _default_disconnect_notifier(
         counterpart_user_id,
         actor_user_id=actor_user_id,
         connection_id=connection_id,
+        revocation_id=revocation_id,
     )
 
 
@@ -1648,6 +1650,7 @@ class ConnectionsService:
         *,
         actor_user_id: str,
         connection_id: str,
+        revocation_id: str,
     ) -> None:
         """Wake one side after disconnect commits; notifier failures are inert."""
         notifier = getattr(self, "_disconnect_notifier", None)
@@ -1659,6 +1662,7 @@ class ConnectionsService:
                 counterpart_user_id=counterpart_user_id,
                 actor_user_id=actor_user_id,
                 connection_id=connection_id,
+                revocation_id=revocation_id,
             )
         except Exception as exc:  # noqa: BLE001
             logger.warning("connections.notify_removed_failed error=%s", exc)
@@ -3835,7 +3839,7 @@ class ConnectionsService:
 
     def remove_connection(self, user_id: str, connection_id: str) -> dict[str, Any]:
         user_id = (user_id or "").strip()
-        removed_pair: tuple[str, str, str] | None = None
+        removed_pair: tuple[str, str, str, str] | None = None
         with self._transaction():
             # Resolve the immutable pair without taking a row lock, then share
             # the same deterministic per-user graph gate as contact sync,
@@ -3977,9 +3981,14 @@ class ConnectionsService:
                         event_type="connection_revoked",
                         source_row_id=connection_source_id,
                     )
-                removed_pair = (user_a_id, user_b_id, str(conn.get("id") or connection_id))
+                removed_pair = (
+                    user_a_id,
+                    user_b_id,
+                    str(conn.get("id") or connection_id),
+                    str(conn.get("revoked_at") or ""),
+                )
         if removed_pair:
-            user_a_id, user_b_id, removed_connection_id = removed_pair
+            user_a_id, user_b_id, removed_connection_id, revocation_id = removed_pair
             for recipient, counterpart in (
                 (user_a_id, user_b_id),
                 (user_b_id, user_a_id),
@@ -3989,5 +3998,6 @@ class ConnectionsService:
                     counterpart,
                     actor_user_id=user_id,
                     connection_id=removed_connection_id,
+                    revocation_id=revocation_id,
                 )
         return {"removed": 1 if conn else 0}
